@@ -35,7 +35,7 @@ from osprey_connectors.control_system._epics_connector import (
     EPICSConnector,
     _ChannelSubscription,
 )
-from osprey_connectors.errors import ChannelUnreachableError
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors_tests._epics_fakes import (
     DBR_CHAR,
     DBR_DOUBLE,
@@ -399,13 +399,14 @@ class TestReadChannel:
         assert formats.count(aioca.FORMAT_CTRL) == 2  # not cached while it fails
 
     @pytest.mark.asyncio
-    async def test_read_multiple_drops_failures(self, monkeypatch):
-        """read_multiple_channels returns only the channels that read successfully."""
+    async def test_read_multiple_reports_each_failure_with_its_own_error(self, monkeypatch):
+        """A channel whose read raised is a failure in the batch, with that error."""
         good = ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata())
+        unreachable = ChannelUnreachableError("BAD", "nope")
 
         async def fake_read(addr, *, timeout_s=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
             if addr == "BAD":
-                raise ConnectionError("nope")
+                raise unreachable
             return good
 
         connector = _connector()
@@ -413,8 +414,24 @@ class TestReadChannel:
 
         result = await connector.read_multiple_channels(["GOOD", "BAD"])
 
-        assert set(result) == {"GOOD"}
-        assert result["GOOD"] is good
+        assert dict(result.values) == {"GOOD": good}
+        assert dict(result.failures) == {"BAD": unreachable}
+
+    @pytest.mark.asyncio
+    async def test_read_multiple_raises_an_error_that_is_no_channel_s(self, monkeypatch):
+        """A lost transport fails the batch, so recovery replaces the connector."""
+        good = ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata())
+
+        async def fake_read(addr, *, timeout_s=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
+            if addr == "BAD":
+                raise ConnectorUnavailableError("the PVA client context is gone")
+            return good
+
+        connector = _connector()
+        monkeypatch.setattr(connector, "read_channel", fake_read)
+
+        with pytest.raises(ConnectorUnavailableError):
+            await connector.read_multiple_channels(["GOOD", "BAD"])
 
 
 # ---------------------------------------------------------------------------

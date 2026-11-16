@@ -216,11 +216,15 @@ from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Final, Literal, Protocol, TypeVar
+from typing import Final, Literal, TypeVar
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
-from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
+from osprey_connectors.control_system._base import (
+    ChannelReadBatch,
+    ChannelValue,
+    ChannelWriteResult,
+)
 from osprey_connectors.errors import (
     ConnectorsError,
     ConnectorUnavailableError,
@@ -238,7 +242,6 @@ from osprey_connectors.ipc._launch import (
 from osprey_connectors.ipc._proxy import (
     ChildUnresponsiveError,
     ConnectorHostProxy,
-    _expect,
     raised_by_child,
 )
 from osprey_connectors.ipc._verification import (
@@ -278,12 +281,6 @@ logger = logging.getLogger("osprey_connectors.ipc.pool")
 _T = TypeVar("_T")
 
 
-class _ProxyMethod(Protocol):
-    """A :class:`ConnectorHostProxy` method as :meth:`ConnectorHostPool._invoke` calls it."""
-
-    def __call__(self, *args: object, **kwargs: object) -> Awaitable[object]: ...
-
-
 #: The one execution mode a key may carry besides ``None``.
 READONLY = "readonly"
 
@@ -317,7 +314,7 @@ CAUSE_UNAVAILABLE: Final = "unavailable"
 _StartMark = tuple[StartPhase, float]
 
 #: The calls that can move the machine, as :class:`PooledConnector` names them
-#: to :meth:`ConnectorHostPool._invoke`. ``write_channel_checked`` is composed
+#: to :meth:`ConnectorHostPool._call`. ``write_channel_checked`` is composed
 #: in the proxy from ``write_channel``, so its deadline is that write's.
 _WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_channel_checked"})
 
@@ -804,15 +801,6 @@ class ConnectorHostPool:
         await self.close()
 
     # -- calls -------------------------------------------------------------
-
-    async def _invoke(self, key: _Key, method: str, *args: object, **kwargs: object) -> object:
-        """Run the proxy method named *method* on *key*'s child. Never retried."""
-
-        async def call(proxy: ConnectorHostProxy) -> object:
-            bound: _ProxyMethod = getattr(proxy, method)
-            return await bound(*args, **kwargs)
-
-        return await self._call(key, method, call)
 
     async def _call(
         self, key: _Key, method: str, call: Callable[[ConnectorHostProxy], Awaitable[_T]]
@@ -1417,10 +1405,17 @@ class PooledConnector:
     """A target's connector, as the pool serves it.
 
     Bound to a pool key, not to a process: every call goes to the key's current
-    child, starting a fresh one if the last one was lost. The call surface
-    mirrors :class:`~osprey_connectors.control_system.ControlSystemConnector`
-    for the methods it offers; writes are guarded and limit-checked in the child,
+    child, starting a fresh one if the last one was lost. It is a
+    :class:`~osprey_connectors.control_system.ControlSystem`, with the
+    signatures of
+    :class:`~osprey_connectors.control_system.ControlSystemConnector` for the
+    methods it offers; writes are guarded and limit-checked in the child,
     exactly as they would be in-process.
+
+    Because the handle names a key and the pool is lazy, a handle is never
+    used up: after :meth:`disconnect`, or after its child was lost, the next
+    call on it starts a fresh child for the key. That is the pool's property,
+    not a second meaning of ``disconnect``.
     """
 
     def __init__(self, pool: ConnectorHostPool, key: _Key) -> None:
@@ -1465,8 +1460,8 @@ class PooledConnector:
         )
 
     async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
+        self, addresses: Sequence[str], /, *, timeout_s: float | None = None
+    ) -> ChannelReadBatch:
         return await self._pool._call(
             self._key,
             "read_multiple_channels",
@@ -1517,17 +1512,15 @@ class PooledConnector:
         that was sent but not confirmed. ``timeout_s`` and ``confirm`` pass
         through to :meth:`write_channel`.
         """
-        # The proxy's own write_channel_checked is the base class's function,
-        # bound by name: it is typed for a ControlSystemConnector, not the proxy.
-        result = await self._pool._invoke(
+        return await self._pool._call(
             self._key,
             "write_channel_checked",
-            address,
-            value,
-            timeout_s=timeout_s,
-            confirm=confirm,
+            # The proxy borrows the base class's function, typed for a
+            # ControlSystemConnector; the ignore goes when the proxy has its own.
+            lambda proxy: proxy.write_channel_checked(  # type: ignore[misc]
+                address, value, timeout_s=timeout_s, confirm=confirm
+            ),
         )
-        return _expect(result, ChannelWriteResult, "write_channel_checked")
 
     async def validate_channel(self, address: str) -> bool:
         return await self._pool._call(
@@ -1535,9 +1528,12 @@ class PooledConnector:
         )
 
     async def disconnect(self) -> None:
-        """Stop this key's child. A later call on this handle starts a fresh one.
+        """Finish with this handle: stop this key's child.
 
         A child still starting is waited for and then stopped, so no child for
-        this key is running when this returns.
+        this key is running when this returns. The handle stays bound to its
+        key, and the pool starts a fresh child on the next call (see the class
+        docstring), which is how a caller asks for a child that selects its
+        gateway afresh.
         """
         await self._pool._retire_key(self._key)

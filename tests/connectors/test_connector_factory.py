@@ -116,9 +116,6 @@ class TestConnectorFactory:
             ):
                 pass
 
-            async def read_multiple_channels(self, addresses, *, timeout_s=None):
-                pass
-
             async def subscribe(self, address, callback):
                 pass
 

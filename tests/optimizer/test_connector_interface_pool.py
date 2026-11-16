@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey_connectors.control_system import ChannelReadBatch
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_optimizer.environments import interface as iface_module
 from osprey_optimizer.environments.connector_env import ConnectorEnvironment
@@ -308,7 +309,7 @@ class _KeyedBridge:
 
         class _Connector:
             async def read_multiple_channels(self, _names, **_kwargs):
-                return {}
+                return ChannelReadBatch()
 
             async def write_multiple_channels(self, operations, **_kwargs):
                 bridge.calls.append(list(operations))

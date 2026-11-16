@@ -81,7 +81,8 @@ async def test_a_texture_only_in_process_simulator_holds_every_sr_magnet_at_its_
 
     assert defaults
     assert connector._composite is not None and connector._composite.models == []
-    assert {address: value.value for address, value in read.items()} == defaults
+    assert read.failures == {}
+    assert {address: value.value for address, value in read.values.items()} == defaults
     await connector.disconnect()
 
 

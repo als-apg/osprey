@@ -68,10 +68,13 @@ import threading
 import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.runtime import _run_state
 from osprey.runtime._run_state import ActionContext
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ControlSystemConnector, WriteOutcome
 
 __all__ = [
     "ENV_CONTROL_IDENTITY",
@@ -798,7 +801,12 @@ def _facility_commands() -> frozenset[str]:
     return frozenset(commands)
 
 
-def _admit(connector: Any, batch: list[str], value: Any, context: ActionContext | None) -> None:
+def _admit(
+    connector: ControlSystemConnector,
+    batch: list[str],
+    value: Any,
+    context: ActionContext | None,
+) -> None:
     """Refuse the batch unless every condition :func:`command_write` names holds.
 
     Raises:
@@ -909,7 +917,9 @@ def _audit(
         logging.getLogger(__name__).warning("Could not record a command write", exc_info=True)
 
 
-async def command_write(connector: Any, addresses: Sequence[str], value: Any) -> list[str]:
+async def command_write(
+    connector: ControlSystemConnector, addresses: Sequence[str], value: Any
+) -> list[str]:
     """Fire *value* at every command in *addresses* on *connector*, in one batch.
 
     A command is a setpoint whose write acts and holds no setting (arming a
@@ -1024,7 +1034,7 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
         _notify_outcome(result.address, result.outcome)
     # The results come back in batch order, one per command; a command with no
     # result has an unknown outcome and may have gone out.
-    outcomes = [result.outcome for result in results]
+    outcomes: list[WriteOutcome | None] = [result.outcome for result in results]
     outcomes += [None] * (len(batch) - len(outcomes))
     fired = [
         address

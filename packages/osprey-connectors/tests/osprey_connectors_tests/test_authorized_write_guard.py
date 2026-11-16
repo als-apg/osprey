@@ -62,9 +62,6 @@ class BaseBatchConnector(ControlSystemConnector):
     async def read_channel(self, address: str, *, timeout_s: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):
-        raise NotImplementedError
-
     async def write_channel(
         self,
         address: str,

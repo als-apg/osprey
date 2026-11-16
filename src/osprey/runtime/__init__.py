@@ -91,7 +91,7 @@ if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
     from osprey_connectors.control_system import (
         ChannelLimitsConfig,
-        ControlSystemConnector,
+        ControlSystem,
         LimitsValidator,
     )
     from osprey_connectors.settle import Landing
@@ -344,7 +344,7 @@ def _stop_pool_loop() -> None:
     loop.close()
 
 
-async def _pooled_connector_locked(target: str | None) -> Any:
+async def _pooled_connector_locked(target: str | None) -> "ControlSystem":
     """The pool's connector for *target*, building the pool on first need.
 
     An unstamped cell is served the deployment's baseline target, the machine
@@ -892,8 +892,6 @@ async def _read_channel_async(channel_address: str, **kwargs) -> Any:
 
 async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None) -> list[Any]:
     """Internal async implementation for reading several channels in one call."""
-    from osprey_connectors.errors import ChannelReadFailedError
-
     # Each distinct address is asked for once; a repeated one is answered from
     # the same reading.
     distinct = list(dict.fromkeys(addresses))
@@ -901,40 +899,10 @@ async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None
         return []
 
     connector = await _get_connector()
-    result = await connector.read_multiple_channels(distinct, timeout_s=timeout)
-
-    # A connector drops a channel whose read raised, and the EPICS family
-    # reports a read timeout as a present ``None`` — both are a failed read.
-    failed = [
-        address for address in distinct if address not in result or result[address].value is None
-    ]
-    if failed:
-        causes = await _read_failure_causes(connector, failed, timeout)
-        first_cause = next((causes[address] for address in failed if address in causes), None)
-        raise ChannelReadFailedError(failed, causes=causes) from first_cause
-    return [result[address].value for address in addresses]
-
-
-async def _read_failure_causes(
-    connector: "ControlSystemConnector", failed: list[str], timeout: float | None
-) -> dict[str, BaseException]:
-    """Re-read each failed channel on its own and collect the exception it raises.
-
-    A batch read keeps only which channels failed, not why. The single read
-    raises the connector's own exception, which is what a caller branches on.
-    The re-read only explains the failure: a channel that answers this time is
-    still reported as failed, since the batch it belongs to did not read it.
-    """
-    kwargs = {} if timeout is None else {"timeout_s": timeout}
-    results = await asyncio.gather(
-        *(connector.read_channel(address, **kwargs) for address in failed),
-        return_exceptions=True,
-    )
-    return {
-        address: outcome
-        for address, outcome in zip(failed, results, strict=True)
-        if isinstance(outcome, BaseException)
-    }
+    batch = await connector.read_multiple_channels(distinct, timeout_s=timeout)
+    # Each failed channel carries the error its own read raised.
+    values = batch.raise_for_failures().values
+    return [values[address].value for address in addresses]
 
 
 async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> None:
@@ -1114,7 +1082,7 @@ def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) ->
         SettleTimeoutError: A readback was not within its bound in time
             (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
         SettleReadError: A readback that cannot be reached, is not a channel,
-            or times out, or one that answered no value
+            or times out
             (:class:`osprey_connectors.settle.SettleReadError`, a
             ``ChannelReadFailedError``); names the readback. A lost connector
             raises its own error.
@@ -1232,12 +1200,6 @@ def read_channel(channel_address: str, **kwargs) -> Any:
         metadata as ``enum_label`` / ``enum_labels``, which the channel_read
         tool reports and which this value-only helper does not return.
 
-        ``None`` when the connector reports the reading without a value. The
-        EPICS-family connectors answer a read timeout that way instead of
-        raising, so on those connectors ``None`` here means the channel did
-        not answer. :func:`read_channels` treats the same ``None`` as a failed
-        read and raises ``ChannelReadFailedError``.
-
     Raises:
         RuntimeError: If read operation fails
         TimeoutError: If operation times out on a connector that raises for
@@ -1270,10 +1232,13 @@ def read_channels(addresses: "Sequence[str]", *, timeout: float | None = None) -
     Raises:
         TypeError: If ``addresses`` is a single string rather than a sequence
             of addresses
-        ChannelReadFailedError: If any channel could not be read — the
-            connector left it out of its result, or reported its value as
-            ``None``. ``addresses`` on the error names every failed channel;
-            no values are returned for the rest.
+        ChannelReadFailedError: If any channel's own read failed (it cannot
+            be reached, is not a channel, or did not answer in time).
+            ``addresses`` on the error names every failed channel and
+            ``causes`` the error each one's read raised; no values are
+            returned for the rest.
+        ConnectorUnavailableError: The connector's own transport is gone; no
+            channel is reported read or failed.
 
     Examples:
         >>> from osprey.runtime import read_channels

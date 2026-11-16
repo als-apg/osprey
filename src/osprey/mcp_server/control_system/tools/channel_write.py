@@ -125,7 +125,6 @@ import hashlib
 import json
 import logging
 import os
-from datetime import datetime
 from typing import Any
 
 from osprey.audit.call import note, write_stamps
@@ -139,6 +138,7 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import control_context
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.control_system import ControlSystem
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
     ChannelLimitsViolationError,
@@ -308,7 +308,7 @@ def _note_attribution() -> None:
     note(**stamps)
 
 
-async def _note_old_values(connector: Any, channels: list[str]) -> None:
+async def _note_old_values(connector: ControlSystem, channels: list[str]) -> None:
     """Note each channel's value before the write, for the ``tool_call`` record. Never raises.
 
     Bounded by :data:`OLD_VALUE_READ_TIMEOUT_S`; a channel that could not be
@@ -321,19 +321,17 @@ async def _note_old_values(connector: Any, channels: list[str]) -> None:
             OLD_VALUE_READ_TIMEOUT_S,
         )
         for channel in channels:
-            value = read.get(channel) if isinstance(read, dict) else None
+            value = read.values.get(channel)
             if value is None:
-                old_values[channel] = {"error": "unread"}
+                failure = read.failures.get(channel)
+                old_values[channel] = {
+                    "error": type(failure).__name__ if failure is not None else "unread"
+                }
                 continue
             # Connectors stamp readings in UTC; the noted stamp stays facility-local.
-            stamp = getattr(value, "sampled_at", None)
             old_values[channel] = {
-                "value": _project_observed_value(getattr(value, "value", None)),
-                "timestamp": (
-                    stamp.astimezone(get_facility_timezone()).isoformat()
-                    if isinstance(stamp, datetime)
-                    else stamp
-                ),
+                "value": _project_observed_value(value.value),
+                "timestamp": value.sampled_at.astimezone(get_facility_timezone()).isoformat(),
             }
     except Exception as exc:
         old_values = {channel: {"error": type(exc).__name__} for channel in channels}

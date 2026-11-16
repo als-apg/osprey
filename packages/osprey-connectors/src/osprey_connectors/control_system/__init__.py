@@ -1,8 +1,9 @@
 """The control-system connector contract.
 
-``ControlSystemConnector`` and the value, metadata and write-result models it
-returns, the write-outcome vocabulary, and the limits validator every connector
-checks a write against. A new control system subclasses the connector here; a
+``ControlSystemConnector`` and the value, metadata, batch-read and write-result
+models it returns, the write-outcome vocabulary, the :class:`ControlSystem`
+protocol a consumer types any connector handle as, and the limits validator
+every connector checks a write against. A new control system subclasses the connector here; a
 configured one is built through :class:`osprey_connectors.factory.ConnectorFactory`
 from its type name. The concrete connectors are the ``_*_connector`` modules
 beside this one.
@@ -19,8 +20,10 @@ from typing import TYPE_CHECKING
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
+    ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
+    ControlSystem,
     ControlSystemConnector,
     WriteOutcome,
     mark_long_lived_session,
@@ -48,8 +51,10 @@ __all__ = [
     "STEP_READ_TIMEOUT_KEY",
     "ChannelLimitsConfig",
     "ChannelMetadata",
+    "ChannelReadBatch",
     "ChannelValue",
     "ChannelWriteResult",
+    "ControlSystem",
     "ControlSystemConnector",
     "LimitsValidator",
     "WriteOutcome",

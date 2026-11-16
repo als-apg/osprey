@@ -581,13 +581,6 @@ class TangoConnector(ControlSystemConnector):
         )
 
     @override
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        """Read multiple channels concurrently."""
-        return await self._read_concurrently(addresses, timeout_s)
-
-    @override
     async def subscribe(
         self,
         address: str,

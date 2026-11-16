@@ -448,7 +448,7 @@ def _bounded_config(
     return config, call_bound_s, write_bound_s
 
 
-async def _warm(connector: Any) -> None:
+async def _warm(connector: ControlSystemConnector) -> None:
     """Start the connector's client context, bounded and never fatal.
 
     The first Channel Access call a process makes loads libca and creates its

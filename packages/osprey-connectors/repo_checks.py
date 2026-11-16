@@ -43,6 +43,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
     "osprey_connectors.control_context.OwnerKind": "the record's owner names its kind in this type",
+    "osprey_connectors.control_system.ChannelReadBatch": (
+        "every connector's batch read answers in this type"
+    ),
     "osprey_connectors.control_system.raise_for_write_result": (
         "a caller holding one write result raises for a write that did not go through"
     ),
@@ -87,6 +90,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
     "osprey_connectors.service_answers.SourceKind": (
         "an answer names the kind of service it came from in this type"
+    ),
+    "osprey_connectors.settle.ChannelReading": (
+        "a ChannelReader's read_channel answers in this type"
     ),
     "osprey_connectors.simulation.archive.FingerprintComparison": (
         "a fingerprint comparison answers in this type"

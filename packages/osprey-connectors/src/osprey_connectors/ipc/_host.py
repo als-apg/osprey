@@ -138,8 +138,9 @@ Served methods
 --------------
 ``read_channel``, ``read_multiple_channels``, ``write_channel``,
 ``write_multiple_channels``, ``validate_channel``, ``disconnect`` — forwarded
-to the connector with the kwargs the frame carried — plus ``spawn_probe`` and
-``ping``.
+to the connector with the kwargs the frame carried, the batch read's
+``addresses`` positionally as the connector takes them — plus ``spawn_probe``
+and ``ping``.
 
 ``ping {}`` answers with this child's pid and touches nothing else. It is how a
 supervisor tells a child that is merely slow — a batched or confirmed write can
@@ -200,6 +201,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 import os
 import stat
@@ -933,6 +935,14 @@ async def _invoke(connector: ControlSystemConnector, method: object, kwargs: obj
         )
     if method == "spawn_probe":
         return await _spawn_probe(connector, **kwargs)
+    if method == "read_multiple_channels":
+        # The frame names the batch's addresses; the connector takes them positionally.
+        rest = dict(kwargs)
+        addresses = rest.pop("addresses", None)
+        if not isinstance(addresses, list) or not all(isinstance(a, str) for a in addresses):
+            raise TypeError("connector host read_multiple_channels needs a list of addresses")
+        served_batch: _ServedMethod = functools.partial(connector.read_multiple_channels, addresses)
+        return await served_batch(**rest)
     if isinstance(method, str) and method in PROXY_METHODS:
         served: _ServedMethod = getattr(connector, method)
         return await served(**kwargs)

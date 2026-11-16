@@ -561,10 +561,11 @@ class TestVAInProcessConnector:
             channels = ["PV:1", "PV:2", "PV:3", "PV:4"]
             results = await connector.read_multiple_channels(channels)
 
-            assert len(results) == len(channels)
+            assert len(results.values) == len(channels)
+            assert results.failures == {}
             for channel in channels:
-                assert channel in results
-                assert results[channel].value is not None
+                assert channel in results.values
+                assert results.values[channel].value is not None
 
             await connector.disconnect()
 
@@ -580,17 +581,31 @@ class TestVAInProcessConnector:
         connector.read_channel = read_channel
 
     @pytest.mark.asyncio
-    async def test_read_multiple_channels_omits_a_failed_read(self, tmp_path):
-        """A read that fails with an ordinary error is left out of the result."""
+    async def test_read_multiple_channels_reports_a_channel_failure(self, tmp_path):
+        """A read that fails for its channel is a failure in the batch, with its error."""
+        view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
+        with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
+            connector = VAInProcessConnector()
+            await connector.connect(in_process_config(view, response_delay_ms=0))
+
+            results = await connector.read_multiple_channels(["PV:1", "NOT:A:PV", "PV:3"])
+
+            assert set(results.values) == {"PV:1", "PV:3"}
+            assert list(results.failures) == ["NOT:A:PV"]
+            assert isinstance(results.failures["NOT:A:PV"], ChannelNotFoundError)
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_read_multiple_channels_raises_an_error_that_is_no_channel_s(self, tmp_path):
+        """A read that fails with an ordinary error fails the whole batch."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
             await connector.connect(in_process_config(view, response_delay_ms=0))
             self._fail_read_of(connector, "PV:2", RuntimeError("read failed"))
 
-            results = await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
-
-            assert set(results) == {"PV:1", "PV:3"}
+            with pytest.raises(RuntimeError, match="read failed"):
+                await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
             await connector.disconnect()
 
     @pytest.mark.asyncio

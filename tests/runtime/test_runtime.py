@@ -23,6 +23,7 @@ from osprey.runtime import (
 )
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
+    ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
@@ -33,10 +34,14 @@ from osprey_connectors.control_system._limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.errors import (
+    ChannelError,
     ChannelLimitsViolationError,
+    ChannelNotFoundError,
     ChannelReadFailedError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    ConnectorUnavailableError,
 )
 
 
@@ -91,11 +96,6 @@ class RecordingConnector(ControlSystemConnector):
 
     # --- Unused abstract-method stubs -------------------------------------
     async def connect(self, config: dict[str, Any]) -> None: ...
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        raise NotImplementedError
-
     async def subscribe(self, address, callback) -> str:
         raise NotImplementedError
 
@@ -662,10 +662,9 @@ def _record_observer():
 class BatchReadConnector(RecordingConnector):
     """RecordingConnector whose batch read serves a canned per-address table.
 
-    An address absent from ``table`` is omitted from the result, the way every
-    connector drops a channel whose read raised; an address mapped to ``None``
-    comes back present with ``value=None``, the way the EPICS-family connectors
-    report a read timeout.
+    An address absent from ``table`` fails ``ChannelUnreachableError``; an
+    address mapped to a ``ChannelError`` fails with that error. Either way the
+    failure is the channel's own, in the batch, as every connector reports it.
     """
 
     def __init__(self, table: dict[str, Any]):
@@ -673,40 +672,20 @@ class BatchReadConnector(RecordingConnector):
         self.table = table
         self.batch_calls: list[tuple[list[str], float | None]] = []
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
+    async def _read_many(self, addresses, *, timeout_s):
         self.batch_calls.append((list(addresses), timeout_s))
-        return {
-            address: ChannelValue(value=self.table[address], sampled_at=datetime.now(UTC))
-            for address in addresses
-            if address in self.table
-        }
-
-
-class CausedReadConnector(BatchReadConnector):
-    """BatchReadConnector whose single read raises per address.
-
-    ``raises`` maps an address to the exception its ``read_channel`` raises;
-    ``reread`` maps an address to the value its ``read_channel`` returns. The
-    batch read omits every address in ``raises``, as real connectors do.
-    """
-
-    def __init__(
-        self,
-        table: dict[str, Any],
-        raises: dict[str, BaseException],
-        reread: dict[str, Any] | None = None,
-    ):
-        super().__init__(table)
-        self.raises = raises
-        self.reread = reread or {}
-
-    async def read_channel(self, address: str, **kwargs):
-        self.read_calls.append((address, kwargs))
-        if address in self.raises:
-            raise self.raises[address]
-        return ChannelValue(value=self.reread.get(address), sampled_at=datetime.now(UTC))
+        values: dict[str, ChannelValue] = {}
+        failures: dict[str, ChannelError] = {}
+        for address in addresses:
+            if address not in self.table:
+                failures[address] = ChannelUnreachableError(address, f"{address} did not answer")
+            elif isinstance(self.table[address], ChannelError):
+                failures[address] = self.table[address]
+            else:
+                values[address] = ChannelValue(
+                    value=self.table[address], sampled_at=datetime.now(UTC)
+                )
+        return ChannelReadBatch(values=values, failures=failures)
 
 
 def _patched_factory(connector: ControlSystemConnector):
@@ -1153,15 +1132,16 @@ class TestReadChannels:
         assert exc_info.value.addresses == ["B"]
         assert "B" in str(exc_info.value)
 
-    def test_read_channels_none_value_counts_as_failed(self):
-        connector = BatchReadConnector({"A": 1.0, "B": None, "C": 3.0})
-        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
-            read_channels(["A", "B", "C"])
-        assert exc_info.value.addresses == ["B"]
+    def test_read_channels_a_none_value_is_a_value(self):
+        # No connector reports a failed read as ``value=None`` any more: a
+        # failure is the channel's own error, so ``None`` is returned as read.
+        connector = BatchReadConnector({"A": 1.0, "B": None})
+        with _patched_factory(connector):
+            assert read_channels(["A", "B"]) == [1.0, None]
 
     def test_read_channels_names_every_failed_address_in_request_order(self):
-        # "D" is missing, "B" timed out (None); both are named, in request order.
-        connector = BatchReadConnector({"A": 1.0, "B": None, "C": 3.0})
+        # "D" is missing, "B" is not a channel; both are named, in request order.
+        connector = BatchReadConnector({"A": 1.0, "B": ChannelNotFoundError("B"), "C": 3.0})
         with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
             read_channels(["D", "A", "B", "C"])
         assert exc_info.value.addresses == ["D", "B"]
@@ -1190,48 +1170,49 @@ class TestReadChannels:
 
     def test_read_channels_connector_exception_propagates(self):
         class Exploding(BatchReadConnector):
-            async def read_multiple_channels(self, addresses, *, timeout_s=None):
+            async def _read_many(self, addresses, *, timeout_s):
                 raise ConnectionError(f"link down reading {addresses} ({timeout_s=})")
 
         with _patched_factory(Exploding({})), pytest.raises(ConnectionError):
             read_channels(["A"])
 
-    def test_read_channels_failure_carries_the_single_read_cause(self):
-        timeout = TimeoutError("B did not answer")
-        connector = CausedReadConnector({"A": 1.0, "C": 3.0}, raises={"B": timeout})
+    def test_read_channels_a_lost_transport_raises_itself_not_a_read_failure(self):
+        # One channel's read finding the connector's transport gone fails the
+        # call as that error, so recovery replaces the connector; it is not
+        # reported as a failed channel.
+        class Lost(RecordingConnector):
+            async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - the connector interface fixes this signature
+                if address == "B":
+                    raise ConnectorUnavailableError("the gateway is gone")
+                return ChannelValue(value=1.0, sampled_at=datetime.now(UTC))
+
+        with _patched_factory(Lost()), pytest.raises(ConnectorUnavailableError):
+            read_channels(["A", "B"])
+
+    def test_read_channels_failure_carries_the_channel_s_own_error(self):
+        unreachable = ChannelUnreachableError("B", "B did not answer")
+        connector = BatchReadConnector({"A": 1.0, "B": unreachable, "C": 3.0})
         with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
             read_channels(["A", "B", "C"])
         assert exc_info.value.addresses == ["B"]
-        assert exc_info.value.causes == {"B": timeout}
-        assert exc_info.value.__cause__ is timeout
+        assert exc_info.value.causes == {"B": unreachable}
+        assert exc_info.value.__cause__ is unreachable
 
-    def test_read_channels_rereads_only_the_failed_channels_with_the_timeout(self):
-        connector = CausedReadConnector(
-            {"A": 1.0}, raises={"B": TimeoutError("B"), "C": PermissionError("C")}
-        )
+    def test_read_channels_reads_no_channel_again_to_explain_a_failure(self):
+        connector = BatchReadConnector({"A": 1.0, "B": ChannelUnreachableError("B")})
         with _patched_factory(connector), pytest.raises(ChannelReadFailedError):
-            read_channels(["A", "B", "C"], timeout=2.5)
-        assert sorted(address for address, _ in connector.read_calls) == ["B", "C"]
-        assert all(kwargs == {"timeout_s": 2.5} for _, kwargs in connector.read_calls)
+            read_channels(["A", "B"], timeout=2.5)
+        assert connector.read_calls == []
+        assert connector.batch_calls == [(["A", "B"], 2.5)]
 
     def test_read_channels_chains_the_first_failed_channel_in_request_order(self):
-        denied = PermissionError("D denied")
-        connector = CausedReadConnector({"A": 1.0}, raises={"B": TimeoutError("B"), "D": denied})
+        missing = ChannelNotFoundError("D")
+        connector = BatchReadConnector({"A": 1.0, "B": ChannelUnreachableError("B"), "D": missing})
         with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
             read_channels(["D", "A", "B"])
         assert exc_info.value.addresses == ["D", "B"]
         assert set(exc_info.value.causes) == {"D", "B"}
-        assert exc_info.value.__cause__ is denied
-
-    def test_read_channels_reread_without_a_raise_records_no_cause(self):
-        # "B" comes back present with None from both reads: a failure with no
-        # exception to report.
-        connector = CausedReadConnector({"A": 1.0, "B": None}, raises={}, reread={"B": None})
-        with _patched_factory(connector), pytest.raises(ChannelReadFailedError) as exc_info:
-            read_channels(["A", "B"])
-        assert exc_info.value.addresses == ["B"]
-        assert exc_info.value.causes == {}
-        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__cause__ is missing
 
     def test_read_channels_is_not_target_pinned(self):
         """Reads are not pinned: a moved target does not refuse a read."""

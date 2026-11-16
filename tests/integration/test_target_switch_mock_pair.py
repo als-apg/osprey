@@ -470,9 +470,8 @@ class TestBatchedReadsCrossOnce:
     have broken. The ``channel_read`` *tool* deliberately does something else:
     it issues N ``read_channel`` frames concurrently — one burst pipelined over
     the single pipe, matched back by request id, not N sequential round trips —
-    because it needs each address's exception first-hand to report per-channel
-    failures, and ``read_multiple_channels`` drops failures silently by
-    contract. Both shapes are correct; only the batched one is asserted here.
+    because it reports each address's own outcome as it arrives. Both shapes
+    are correct; only the batched one is asserted here.
     """
 
     async def test_a_batched_read_is_a_single_request_frame(self, pair):
@@ -493,8 +492,9 @@ class TestBatchedReadsCrossOnce:
 
         assert log.requests == ["read_multiple_channels"]
         assert len(log.replies) == 1
-        assert sorted(readings) == sorted(BATCH_CHANNELS)
-        assert [readings[address].value for address in BATCH_CHANNELS] == [
+        assert sorted(readings.values) == sorted(BATCH_CHANNELS)
+        assert readings.failures == {}
+        assert [readings.values[address].value for address in BATCH_CHANNELS] == [
             LIVE_SEED + index + 1 for index in range(len(BATCH_CHANNELS))
         ]
 

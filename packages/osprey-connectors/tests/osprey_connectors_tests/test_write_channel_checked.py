@@ -73,11 +73,6 @@ class _FakeConnector(ControlSystemConnector):
     async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         raise NotImplementedError
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        raise NotImplementedError
-
     async def subscribe(self, address, callback) -> str:
         raise NotImplementedError
 

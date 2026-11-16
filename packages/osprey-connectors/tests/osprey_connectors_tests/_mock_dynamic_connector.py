@@ -31,9 +31,6 @@ class MockDynamicConnector(ControlSystemConnector):
             observed_value=value if confirm else None,
         )
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return {}
-
     async def subscribe(self, address, callback):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return "sub-1"
 

@@ -696,16 +696,6 @@ class VAInProcessConnector(ControlSystemConnector):
         return self._held_value
 
     @override
-    async def read_multiple_channels(
-        self,
-        addresses: list[str],
-        *,
-        timeout_s: float | None = None,
-    ) -> dict[str, ChannelValue]:
-        """Read multiple channels concurrently."""
-        return await self._read_concurrently(addresses, timeout_s)
-
-    @override
     async def get_metadata(self, address: str) -> ChannelMetadata:
         """The channel record's description and its variable's unit.
 

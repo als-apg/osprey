@@ -51,7 +51,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -72,6 +72,9 @@ from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.types import ControlTarget
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ControlSystem
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +140,7 @@ async def read_current_values(
         return dict.fromkeys(addresses)
     values: dict[str, Any] = dict.fromkeys(addresses)
 
-    async def read_one(connector: Any, address: str) -> None:
+    async def read_one(connector: ControlSystem, address: str) -> None:
         try:
             reading = await connector.read_channel(address, timeout_s=VALUE_READ_TIMEOUT_S)
             values[address] = reading.value

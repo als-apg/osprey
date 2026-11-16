@@ -40,9 +40,6 @@ class _Stub(ControlSystemConnector):
     async def write_channel(self, address, value, *, timeout_s=None, confirm=None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - interface signature
-        return {}
-
     async def unsubscribe(self, subscription_id):
         pass
 

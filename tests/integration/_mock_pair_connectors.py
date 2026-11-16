@@ -152,19 +152,6 @@ class _PairConnector(ControlSystemConnector):
             metadata=ChannelMetadata(units="mA"),
         )
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        readings = await asyncio.gather(
-            *(self.read_channel(address, timeout_s=timeout_s) for address in addresses),
-            return_exceptions=True,
-        )
-        return {
-            address: reading
-            for address, reading in zip(addresses, readings, strict=True)
-            if isinstance(reading, ChannelValue)
-        }
-
     async def write_channel(
         self,
         address: str,

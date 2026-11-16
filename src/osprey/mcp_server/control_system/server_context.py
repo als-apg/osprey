@@ -91,7 +91,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
-from osprey_connectors.control_system import ControlSystemConnector
+from osprey_connectors.control_system import ControlSystem, ControlSystemConnector
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
 from osprey_connectors.model import evolve
@@ -100,7 +100,6 @@ from osprey_connectors.types import ControlTarget, configured_targets, tier_allo
 __all__ = [
     "ConnectorEntry",
     "ConnectorHostManager",
-    "ConnectorHostProxy",
     "ControlSystemContext",
     "MCPServerConfig",
     "NoConnectorHostError",
@@ -635,21 +634,15 @@ class ControlSystemContext:
         )
 
     @overload
-    async def _get_connector(
-        self, name: Literal["control_system"]
-    ) -> ControlSystemConnector | ConnectorHostProxy: ...
+    async def _get_connector(self, name: Literal["control_system"]) -> ControlSystem: ...
 
     @overload
     async def _get_connector(self, name: Literal["archiver"]) -> ArchiverConnector: ...
 
     @overload
-    async def _get_connector(
-        self, name: str
-    ) -> ControlSystemConnector | ArchiverConnector | ConnectorHostProxy: ...
+    async def _get_connector(self, name: str) -> ControlSystem | ArchiverConnector: ...
 
-    async def _get_connector(
-        self, name: str
-    ) -> ControlSystemConnector | ArchiverConnector | ConnectorHostProxy:
+    async def _get_connector(self, name: str) -> ControlSystem | ArchiverConnector:
         """Resolve the connector serving *name* now: lazily built, or the live child's proxy."""
         entry = self._connectors.get(name)
         if entry is None:

@@ -63,6 +63,7 @@ from osprey_optimizer.models.protocols import PVReading
 from osprey_optimizer.models.types import PVValues, VariableInputs
 
 if TYPE_CHECKING:
+    from osprey_connectors.control_system import ControlSystem
     from osprey_connectors.types import ControlTarget
 
 logger = logging.getLogger(__name__)
@@ -153,7 +154,7 @@ class _PoolBridge:
         self._pool = ConnectorHostPool(
             pool_section(section), config_file=default_config_path(), kill_on_write_timeout=True
         )
-        self._connectors: dict[_ConnectorKey, Any] = {}
+        self._connectors: dict[_ConnectorKey, ControlSystem] = {}
 
     def run(self, coro: Coroutine[Any, Any, Any], timeout: float = OP_TIMEOUT) -> Any:
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
@@ -175,7 +176,7 @@ class _PoolBridge:
         *,
         owner: str | None = None,
         authorization: str | None = None,
-    ) -> Any:
+    ) -> ControlSystem:
         """The pool's connector for this key, its child brought up on first use."""
         key = (target, execution_mode, owner, authorization)
         if key not in self._connectors:
@@ -262,13 +263,13 @@ class ConnectorInterface:
         # Brought up now, so a target the pool cannot serve fails at construction.
         self._reader()
 
-    def _reader(self) -> Any:
+    def _reader(self) -> ControlSystem:
         """The connector reads go to: the current owner's, naming no authorization."""
         authority = current_write_authority()
         owner = authority.owner if authority is not None else None
         return self._bridge.connector(self.target, self.execution_mode, owner=owner)
 
-    def _writer(self) -> tuple[Any, WriteAuthority | None]:
+    def _writer(self) -> tuple[ControlSystem, WriteAuthority | None]:
         """The connector this write goes to, and the authority it goes out under.
 
         Raises:
@@ -311,8 +312,6 @@ class ConnectorInterface:
             # ChannelError: this one channel is unreachable or not a channel; it
             # has no builtin base, so the ConnectionError arm alone misses it.
             raise OptimizerConnectionError(f"Read failed for {channel}: {exc}") from exc
-        if cv.value is None:
-            raise OptimizerTimeoutError(f"Read returned no value for {channel}")
         return _reading(cv)
 
     def read_many(self, channel_names: list[str]) -> dict[str, PVReading]:
@@ -320,18 +319,23 @@ class ConnectorInterface:
         if not channel_names:
             return {}
         try:
-            results = self._bridge.run(self._reader().read_multiple_channels(channel_names))
+            batch = self._bridge.run(self._reader().read_multiple_channels(channel_names))
         except TimeoutError as exc:
             raise OptimizerTimeoutError(
                 f"Batch read timed out for {len(channel_names)} channels"
             ) from exc
         except (ConnectionError, ValueError) as exc:
+            # The connector itself failed (its transport is gone), not one channel.
             raise OptimizerConnectionError(f"Batch read failed: {exc}") from exc
         readings: dict[str, PVReading] = {}
         for name in channel_names:
-            cv = results.get(name)
-            if cv is None or cv.value is None:
-                logger.warning("%s missing from batch read; marking disconnected", name)
+            cv = batch.values.get(name)
+            if cv is None:
+                logger.warning(
+                    "%s failed in batch read (%s); marking disconnected",
+                    name,
+                    batch.failures.get(name),
+                )
                 readings[name] = PVReading(value=None, connected=False)
             else:
                 readings[name] = _reading(cv)

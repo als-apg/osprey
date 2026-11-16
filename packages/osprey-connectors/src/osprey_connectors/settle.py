@@ -9,12 +9,13 @@ band; a caller's floor raises the bound and never lowers it. :func:`settle`
 polls each readback through the connector until it is within its bound, and
 fails closed with :class:`SettleTimeoutError` when the time runs out. A
 readback that cannot be reached, is not a channel, or times out raises
-:class:`SettleReadError`, which names it, as does one that answers no value; a
-lost connector raises its own error.
+:class:`SettleReadError`, which names it; a lost connector raises its own error.
 
-This module imports only the std-lib, ``osprey_connectors.errors``, the
-package's contract alias and its model base, and takes any connector with an awaitable
-``read_channel(address)`` whose result carries ``.value``.
+This module imports only the std-lib, ``osprey_connectors.errors`` and the
+package's model base, and takes any :class:`ChannelReader`: an object with an
+awaitable ``read_channel(address)`` whose result carries ``.value``. It sits
+below ``control_system`` in the package's layers, so it names that shape as
+its own protocol, which every connector handle satisfies.
 """
 
 from __future__ import annotations
@@ -24,13 +25,14 @@ import math
 import numbers
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import SupportsFloat, SupportsIndex
+from typing import Protocol, SupportsFloat, SupportsIndex
 
-from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError, ConnectorsError
 from osprey_connectors.model import FrozenModel
 
 __all__ = [
+    "ChannelReader",
+    "ChannelReading",
     "Landing",
     "SettleReadError",
     "SettleTimeoutError",
@@ -103,6 +105,26 @@ def settle_bound(
     return max(floor or 0.0, declared or 0.0)
 
 
+class ChannelReading(Protocol):
+    """A channel reading, as :func:`settle` uses it: only its value."""
+
+    @property
+    def value(self) -> object: ...
+
+
+class ChannelReader(Protocol):
+    """What :func:`settle` reads a readback through: any connector handle.
+
+    A :class:`~osprey_connectors.control_system.ControlSystem` is one; this
+    module names the one method it calls because it sits below
+    ``control_system`` and cannot import that protocol.
+    """
+
+    async def read_channel(self, address: str) -> ChannelReading:
+        """Read one channel."""
+        ...
+
+
 class Landing(FrozenModel):
     """One written setpoint, the readback that reports it, its demand and its bound."""
 
@@ -130,29 +152,26 @@ class SettleTimeoutError(ConnectorsError, TimeoutError):
 
 
 class SettleReadError(ChannelReadFailedError):
-    """A readback could not be read while settling, or answered no value.
+    """A readback could not be read while settling.
 
     Attributes:
         landing: The landing whose readback could not be read.
         addresses: The readback, the one failed channel.
-        causes: The readback to the exception its read raised; empty when the
-            read answered no value.
+        causes: The readback to the exception its read raised.
     """
 
-    def __init__(self, landing: Landing, cause: BaseException | None) -> None:
+    def __init__(self, landing: Landing, cause: ChannelError) -> None:
         self.landing = landing
-        reason = f"{type(cause).__name__}: {cause}" if cause is not None else "no value"
         super().__init__(
             [landing.readback],
-            f"readback {landing.readback} of {landing.setpoint} could not be read: {reason}",
-            causes={landing.readback: cause} if cause is not None else None,
+            f"readback {landing.readback} of {landing.setpoint} could not be read: "
+            f"{type(cause).__name__}: {cause}",
+            causes={landing.readback: cause},
         )
 
 
 async def settle(
-    # Duck-typed by the module's contract: any object with an awaitable
-    # ``read_channel(address)``, which the package has no public type to name.
-    connector: ContractAny,
+    connector: ChannelReader,
     landings: Sequence[Landing],
     *,
     timeout_s: float,
@@ -162,8 +181,7 @@ async def settle(
     """Poll each landing's readback until it is within its bound of its demand.
 
     Every landing is read once per poll until it is inside; a settled landing
-    is not read again. A reading with no value is a failed read; any other
-    reading that is not a finite number is never inside.
+    is not read again. A reading that is not a finite number is never inside.
 
     Args:
         connector: Reads each readback with ``await connector.read_channel(address)``.
@@ -177,9 +195,9 @@ async def settle(
             had passed, naming the first such landing in ``landings`` order.
         SettleReadError: A readback read failed with a
             :class:`~osprey_connectors.errors.ChannelError` (it cannot be
-            reached, is not a channel, or timed out) or answered no value,
-            naming that readback. Any other failure, a lost connector among
-            them, propagates as itself.
+            reached, is not a channel, or timed out), naming that readback.
+            Any other failure, a lost connector among them, propagates as
+            itself.
     """
     deadline = clock() + timeout_s
     pending = list(landings)
@@ -187,12 +205,10 @@ async def settle(
         unsettled: list[tuple[Landing, object]] = []
         for landing in pending:
             try:
-                reading: object = await connector.read_channel(landing.readback)
+                reading = await connector.read_channel(landing.readback)
             except ChannelError as exc:
                 raise SettleReadError(landing, exc) from exc
-            value: object = getattr(reading, "value", None)
-            if value is None:
-                raise SettleReadError(landing, None)
+            value = reading.value
             if not _within(value, landing):
                 unsettled.append((landing, value))
         if not unsettled:

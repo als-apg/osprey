@@ -101,13 +101,6 @@ class RaisingConnector(ControlSystemConnector):
             metadata=ChannelMetadata(units="A"),
         )
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        return {
-            address: await self.read_channel(address, timeout_s=timeout_s) for address in addresses
-        }
-
     async def write_channel(
         self,
         address: str,

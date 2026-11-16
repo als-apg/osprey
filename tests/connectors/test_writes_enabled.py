@@ -70,11 +70,6 @@ class _StubConnector(ControlSystemConnector):
     async def write_multiple_channels(self, operations, **kwargs):
         raise NotImplementedError
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        raise NotImplementedError
-
     async def subscribe(self, address: str, callback: Callable[[ChannelValue], None]) -> str:
         raise NotImplementedError
 
