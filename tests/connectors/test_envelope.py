@@ -30,7 +30,7 @@ from osprey_connectors.simulation.view import SCHEMAS, SEEDS_FILE, SimulatorView
 from tests._simulator_view import write_scenarios_view
 
 _DRIFT = {"amplitude": 0.005, "period_s": 600.0}
-_DRIVE = {"kind": "sine", "amplitude": 2.0, "period_s": 300.0}
+_DRIVE = {"kind": "wander", "amplitude": 2.0, "period_s": 300.0}
 
 
 def _seed(record: dict | None) -> SeedRecord | None:
