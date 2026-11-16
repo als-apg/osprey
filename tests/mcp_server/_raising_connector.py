@@ -97,7 +97,7 @@ class RaisingConnector(ControlSystemConnector):
     ) -> ChannelValue:
         return ChannelValue(
             value=READ_VALUE,
-            timestamp=datetime.now(UTC),
+            sampled_at=datetime.now(UTC),
             metadata=ChannelMetadata(units="A"),
         )
 

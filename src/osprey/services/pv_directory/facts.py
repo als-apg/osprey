@@ -231,8 +231,8 @@ class Facts:
             return {**served, "outcome": "unavailable", "record": None, "reason": answer.reason}
         record = {
             "archived": answer.is_archived,
-            "first_sample": _iso(answer.archival_start),
-            "last_sample": _iso(answer.archival_end),
+            "first_sample": _iso(answer.first_sample_at),
+            "last_sample": _iso(answer.last_sample_at),
             "sampling_period_s": answer.sampling_period,
             "description": answer.description,
         }
@@ -736,10 +736,8 @@ def _archive_counts(whole: Mapping[str, Any], stored: Any, unknown: str) -> dict
 
 
 def _iso(moment: datetime | None) -> str | None:
-    """*moment* as ISO 8601 in UTC; a naive time is UTC, as the archive store keeps it."""
-    if moment is None:
-        return None
-    return (moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment).isoformat()
+    """*moment*, an aware archiver instant, as ISO 8601 in UTC."""
+    return None if moment is None else moment.astimezone(UTC).isoformat()
 
 
 def _unavailable(reason: str) -> dict[str, Any]:

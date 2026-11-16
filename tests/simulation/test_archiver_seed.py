@@ -240,7 +240,7 @@ def read_back(mongo_store, monkeypatch):
         )
         try:
             return await connector.get_data(
-                addresses=list(channels), start_date=start, end_date=end, precision_ms=0
+                list(channels), start_at=start, end_at=end, precision_ms=0
             )
         finally:
             await connector.disconnect()

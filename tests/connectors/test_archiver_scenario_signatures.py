@@ -93,7 +93,7 @@ def _reader(view: Path) -> Reader:
         await connector.connect(in_process_config(view, sample_rate_hz=1.0))
         try:
             frame = await connector.get_data(
-                channels, start, end, precision_ms=int(step.total_seconds() * 1000)
+                channels, start_at=start, end_at=end, precision_ms=int(step.total_seconds() * 1000)
             )
         finally:
             await connector.disconnect()

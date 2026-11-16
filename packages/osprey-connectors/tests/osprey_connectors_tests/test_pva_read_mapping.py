@@ -104,8 +104,8 @@ class TestNtScalarMapping:
         assert result.metadata.raw_metadata["nt_id"] == "epics:nt/NTScalar:1.0"
         assert result.metadata.raw_metadata["severity"] == 1
         assert result.metadata.raw_metadata["status"] == 3
-        assert result.timestamp.timestamp() == pytest.approx(1_700_000_000.25)
-        assert result.metadata.timestamp == result.timestamp
+        assert result.sampled_at.timestamp() == pytest.approx(1_700_000_000.25)
+        assert result.sampled_at.utcoffset().total_seconds() == 0
 
     def test_integer_scalar_stays_an_int(self):
         nt = _nt()
@@ -144,7 +144,7 @@ class TestNtScalarMapping:
         before = datetime.now().timestamp()
         result = _pva_connector()._pva_channel_value(CA_ADDRESS, value)
 
-        assert result.timestamp.timestamp() >= before
+        assert result.sampled_at.timestamp() >= before
 
     def test_precision_is_read_when_the_server_publishes_it(self):
         """QSRV2 adds display.precision; p4p's own NTScalar type does not carry it."""

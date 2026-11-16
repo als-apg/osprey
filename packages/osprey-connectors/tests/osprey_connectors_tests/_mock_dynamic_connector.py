@@ -14,11 +14,11 @@ class MockDynamicConnector(ControlSystemConnector):
         pass
 
     async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         from osprey_connectors.control_system._base import ChannelValue
 
-        return ChannelValue(value=42, timestamp=datetime.now())
+        return ChannelValue(value=42, sampled_at=datetime.now(UTC))
 
     async def write_channel(self, address, value, *, timeout_s=None, confirm=False):  # noqa: ARG002 - the control-system connector interface fixes this signature
         """Declares its own ``confirm`` default, so a forwarded ``None`` would show."""
@@ -63,10 +63,10 @@ class RecordingArchiver(ArchiverConnector):
     async def get_data(
         self,
         channels,
-        start_date,
-        end_date,
-        precision_ms=1000,
         *,
+        start_at,
+        end_at,
+        precision_ms=1000,
         timeout_s=None,
         processing="raw",
     ):

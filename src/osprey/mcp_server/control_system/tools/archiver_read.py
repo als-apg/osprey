@@ -139,11 +139,9 @@ class _CoverageProbe(NamedTuple):
     note: str | None
 
 
-def _pin_utc(dt: datetime | None) -> datetime | None:
-    """pymongo reads naive datetimes as UTC; make that explicit before comparing."""
-    if dt is None:
-        return None
-    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+def _utc(moment: datetime | None) -> datetime | None:
+    """An aware instant in UTC, ``None`` kept."""
+    return None if moment is None else moment.astimezone(UTC)
 
 
 def _classify_coverage(
@@ -154,8 +152,9 @@ def _classify_coverage(
     # ``None`` from either probe is "this archiver cannot say", never "not archived".
     if probe.available is False or (md is not None and md.is_archived is False):
         return {"verdict": "never_recorded"}
-    a_start = _pin_utc(md.archival_start) if md is not None else None
-    a_end = _pin_utc(md.archival_end) if md is not None else None
+    # Aware by the connector contract; served in UTC whatever zone they carry.
+    a_start = _utc(md.first_sample_at) if md is not None else None
+    a_end = _utc(md.last_sample_at) if md is not None else None
     if a_start is None or a_end is None:
         entry: dict[str, Any] = {"verdict": "coverage_unknown"}
         if probe.note:
@@ -586,8 +585,8 @@ async def archiver_read(
         frames = [
             await connector.get_data(
                 chans,
-                start_dt,
-                end_dt,
+                start_at=start_dt,
+                end_at=end_dt,
                 precision_ms=resolved_bin * 1000,
                 processing=mode,
             )

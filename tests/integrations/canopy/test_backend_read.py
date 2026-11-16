@@ -117,13 +117,12 @@ class _Machine(FakeConnector):
         now = datetime.now(UTC)
         return ChannelValue(
             value=type(self).store[address],
-            timestamp=now,
+            sampled_at=now,
             metadata=ChannelMetadata(
                 units="mA" if address == SCALAR else "",
                 precision=3 if address == SCALAR else None,
                 description=f"Machine channel {address}",
                 enum_labels=list(ENUM_LABELS) if address == ENUM else None,
-                timestamp=now,
                 **(dict(LIMITS, writable=True) if address == LIMITED else {}),
             ),
         )

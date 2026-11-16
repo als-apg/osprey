@@ -1,6 +1,6 @@
 """Tests for the shared archiver time-range and processing helpers."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -15,10 +15,10 @@ from osprey_connectors.archiver._timerange import (
     aggregate_series,
     decimate_raw,
     long_frame,
-    require_datetime,
     resolve_processing,
-    to_utc,
+    utc_window,
 )
+from osprey_connectors.errors import NaiveDatetimeError
 
 #: The bin origin these fixtures resolve against. Their samples start at the
 #: epoch, which is exactly where the lattice used to be anchored implicitly,
@@ -26,64 +26,78 @@ from osprey_connectors.archiver._timerange import (
 EPOCH = pd.Timestamp(0, unit="s", tz="UTC")
 
 
-class TestRequireDatetime:
-    """The shared query-bound guard every connector calls before ``to_utc``."""
+class TestUtcWindow:
+    """The shared query-bound guard every connector calls before touching the wire."""
 
-    def test_two_datetimes_pass(self):
-        require_datetime(datetime(2026, 7, 30), datetime(2026, 7, 31, tzinfo=UTC))
+    def test_two_aware_datetimes_pass_as_utc(self):
+        la = ZoneInfo("America/Los_Angeles")
+        assert utc_window(
+            datetime(2026, 7, 30, 11, 0, 0, tzinfo=la), datetime(2026, 7, 31, tzinfo=UTC)
+        ) == (datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC), datetime(2026, 7, 31, tzinfo=UTC))
+
+    def test_aware_utc_is_unchanged(self):
+        dt = datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC)
+        assert utc_window(dt, dt) == (dt, dt)
 
     @pytest.mark.parametrize(
         ("start", "end", "expected"),
         [
-            ("2026-07-30", datetime(2026, 7, 31), "start_date"),
-            (datetime(2026, 7, 30), "2026-07-31", "end_date"),
-            (None, datetime(2026, 7, 31), "start_date"),
-            (datetime(2026, 7, 30), 1234567890, "end_date"),
+            ("2026-07-30", datetime(2026, 7, 31, tzinfo=UTC), "start_at"),
+            (datetime(2026, 7, 30, tzinfo=UTC), "2026-07-31", "end_at"),
+            (None, datetime(2026, 7, 31, tzinfo=UTC), "start_at"),
+            (datetime(2026, 7, 30, tzinfo=UTC), 1234567890, "end_at"),
         ],
     )
     def test_non_datetime_raises_naming_the_argument(self, start, end, expected):
         """The message must name which bound was wrong, not just that one was."""
         with pytest.raises(TypeError, match=f"{expected} must be a datetime object"):
-            require_datetime(start, end)
+            utc_window(start, end)
 
     def test_start_is_reported_first_when_both_are_wrong(self):
-        with pytest.raises(TypeError, match="start_date must be a datetime object"):
-            require_datetime("a", "b")
+        with pytest.raises(TypeError, match="start_at must be a datetime object"):
+            utc_window("a", "b")
 
     def test_date_is_not_accepted_as_datetime(self):
-        """``datetime.date`` has no ``tzinfo``, so ``to_utc`` would fail on it."""
+        """``datetime.date`` names a day, not an instant."""
         from datetime import date
 
-        with pytest.raises(TypeError, match="start_date must be a datetime object"):
-            require_datetime(date(2026, 7, 30), datetime(2026, 7, 31))
+        with pytest.raises(TypeError, match="start_at must be a datetime object"):
+            utc_window(date(2026, 7, 30), datetime(2026, 7, 31, tzinfo=UTC))
 
-
-class TestToUtc:
-    def test_aware_non_utc_converts(self):
-        dt = datetime(2026, 7, 30, 11, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
-        assert to_utc(dt) == datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC)
-
-    def test_aware_utc_is_unchanged(self):
-        dt = datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC)
-        assert to_utc(dt) == dt
-
-    def test_naive_reads_as_facility_zone(self, monkeypatch):
+    @pytest.mark.parametrize("bound", ["start_at", "end_at"])
+    def test_naive_is_refused_whatever_the_facility_zone(self, monkeypatch, bound):
+        """A bare wall clock is no longer read in the facility zone: it is refused."""
         monkeypatch.setattr(
             "osprey_connectors.config.get_facility_timezone",
             lambda: ZoneInfo("America/Los_Angeles"),
         )
-        assert to_utc(datetime(2026, 7, 30, 11, 0, 0)) == datetime(
-            2026, 7, 30, 18, 0, 0, tzinfo=UTC
-        )
+        window = {
+            "start_at": datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            "end_at": datetime(2026, 7, 30, 12, 0, 0, tzinfo=UTC),
+        }
+        window[bound] = window[bound].replace(tzinfo=None)
+        with pytest.raises(NaiveDatetimeError, match=bound) as refused:
+            utc_window(window["start_at"], window["end_at"])
+        assert refused.value.parameter == bound
+        assert isinstance(refused.value, ValueError)
 
-    def test_naive_with_no_configured_zone_is_utc(self):
-        # tests/conftest.py clears CONFIG_FILE, so get_facility_timezone() -> UTC
-        assert to_utc(datetime(2026, 7, 30, 18, 0, 0)) == datetime(
-            2026, 7, 30, 18, 0, 0, tzinfo=UTC
-        )
+    def test_a_zone_with_no_offset_is_naive(self):
+        """``tzinfo`` set but answering no offset is still no instant."""
+
+        class _NoOffset(tzinfo):
+            def utcoffset(self, dt):  # noqa: ARG002 - the tzinfo protocol fixes this signature
+                return None
+
+        with pytest.raises(NaiveDatetimeError):
+            utc_window(datetime(2026, 7, 30, tzinfo=_NoOffset()), datetime(2026, 7, 31, tzinfo=UTC))
 
 
 class TestResolveProcessing:
+    def test_a_naive_window_start_is_refused(self):
+        """The lattice origin is an instant; a bare wall clock is not read as UTC."""
+        with pytest.raises(NaiveDatetimeError, match="window_start"):
+            resolve_processing("raw", 0, datetime(2026, 7, 30))
+
     @pytest.mark.parametrize(
         "mode,operator",
         [

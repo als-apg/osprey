@@ -45,8 +45,8 @@ Example:
     >>> await connector.connect({'deployment': 'ops'})
     >>> df = await connector.get_data(
     ...     ['IGLK100HVPSkVolts'],
-    ...     datetime(2026, 9, 9, tzinfo=timezone.utc),
-    ...     datetime(2026, 9, 11, tzinfo=timezone.utc),
+    ...     start_at=datetime(2026, 9, 9, tzinfo=timezone.utc),
+    ...     end_at=datetime(2026, 9, 11, tzinfo=timezone.utc),
     ...     precision_ms=600_000,
     ...     processing='mean',
     ... )
@@ -340,10 +340,10 @@ class MYAArchiverConnector(ArchiverConnector):
     async def get_data(
         self,
         addresses: list[str],
-        start_date: datetime,
-        end_date: datetime,
-        precision_ms: int = 1000,
         *,
+        start_at: datetime,
+        end_at: datetime,
+        precision_ms: int = 1000,
         timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
@@ -351,8 +351,8 @@ class MYAArchiverConnector(ArchiverConnector):
 
         Args:
             addresses: Channel addresses (MYA channel names).
-            start_date: Start of the time range.
-            end_date: End of the time range.
+            start_at: Start of the time range, timezone-aware.
+            end_at: End of the time range, timezone-aware.
             precision_ms: Bin width in milliseconds; ``<= 0`` means full
                 resolution.
             timeout_s: Optional timeout in seconds.
@@ -378,11 +378,11 @@ class MYAArchiverConnector(ArchiverConnector):
 
         if timeout_s is None:
             timeout_s = self._timeout
-        start_utc, end_utc = utc_window(start_date, end_date)
+        start_utc, end_utc = utc_window(start_at, end_at)
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
         if end_utc <= start_utc:
-            raise ValueError(f"end_date must be after start_date (got {start_date} to {end_date})")
+            raise ValueError(f"end_at must be after start_at (got {start_at} to {end_at})")
 
         server_side = resolved.mode in _MYSTATS_STAT
 

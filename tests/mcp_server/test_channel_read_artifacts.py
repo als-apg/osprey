@@ -9,7 +9,7 @@ loads back.
 """
 
 import struct
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -33,7 +33,7 @@ def _channel_value(value, color_mode=None):
     raw = {"color_mode": color_mode} if color_mode is not None else {}
     return ChannelValue(
         value=value,
-        timestamp=datetime(2024, 1, 15, 10, 30, 0),
+        sampled_at=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
         metadata=ChannelMetadata(
             units="counts",
             precision=0,
@@ -118,7 +118,7 @@ async def test_frame_response_carries_summary_and_handle(tmp_path, monkeypatch):
     assert entry["shape"] == [48, 64]
     assert entry["dtype"] == "uint16"
     assert entry["element_count"] == 48 * 64
-    assert entry["timestamp"] == "2024-01-15 10:30:00"
+    assert entry["timestamp"] == "2024-01-15 10:30:00+00:00"
     assert entry["min"] == float(frame.min())
     assert entry["max"] == float(frame.max())
     assert entry["mean"] == pytest.approx(float(frame.mean()))

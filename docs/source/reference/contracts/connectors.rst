@@ -686,8 +686,12 @@ Subclass :class:`~osprey_connectors.archiver.ArchiverConnector` and implement
 ``get_metadata``'s ``is_archived`` and the values ``check_availability`` answers
 are ``None`` when the archiver cannot say; ``check_availability`` raises
 ``RuntimeError`` while the archiver is not connected. ``store_extent()`` is optional: it
-answers an ``ArchiveExtent`` (the channels the store records now, its oldest and
-newest sample); the default answers every part unknown, with a reason.
+answers an ``ArchiveExtent`` (the channels the store records now, and the
+instants of its oldest and newest sample, ``oldest_at`` and ``newest_at``); the
+default answers every part unknown, with a reason. ``ArchiverMetadata``'s
+``first_sample_at`` and ``last_sample_at`` are the instants of one channel's
+oldest and newest sample. Every one of these instants is a timezone-aware
+``datetime`` in UTC.
 
 ``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
 with exactly three columns, sorted by ``address`` then ``timestamp``:
@@ -738,7 +742,7 @@ independently to each channel's own samples:
 - A bin width your backend cannot express must raise ``ValueError``, never
   round to one it can (the Archiver Appliance connector rejects a positive
   ``precision_ms`` that is not a multiple of 1000).
-- Bins are anchored on ``start_date``: one request cuts one lattice, the same
+- Bins are anchored on ``start_at``: one request cuts one lattice, the same
   for every channel in it and every processing mode. A backend that bins on a
   grid of its own is the documented exception -- the Archiver Appliance's
   operators are epoch-anchored, and the window merely clips them.
@@ -752,6 +756,9 @@ contract, where an enum reads as its index with the label in ``enum_label`` --
 an archiver reports what its backend recorded, and these backends recorded the
 string.)
 
-Query windows must be normalized to UTC before touching the wire: a naive
-``start_date``/``end_date`` is facility-local and must be converted -- not
-relabeled -- to your backend's UTC wire format.
+``get_data(addresses, *, start_at, end_at, ...)`` takes the window's ends by
+keyword, each a timezone-aware ``datetime``. A naive bound names no instant and
+is refused with ``osprey_connectors.errors.NaiveDatetimeError`` (a
+``ValueError``) before anything is asked of the backend; an aware one is
+converted -- not relabeled -- to your backend's UTC wire format.
+``osprey_connectors.errors.require_aware`` is the check.

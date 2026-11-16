@@ -750,7 +750,9 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     seen: list[float] = []
     while True:
         frame = asyncio.run(
-            connector.get_data([setpoint], written_at - timedelta(seconds=5), datetime.now(UTC))
+            connector.get_data(
+                [setpoint], start_at=written_at - timedelta(seconds=5), end_at=datetime.now(UTC)
+            )
         )
         seen = [float(v) for v in frame["value"]] if len(frame) else []
         if any(abs(value - target) < 1e-6 for value in seen):
@@ -797,25 +799,25 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
 
     oldest_before = oldest_held()
     metadata = asyncio.run(connector.get_metadata(channel))
-    assert metadata.archival_start is not None, "get_metadata reported no archival_start"
+    assert metadata.first_sample_at is not None, "get_metadata reported no first_sample_at"
     oldest_after = oldest_held()
 
-    archival_start = metadata.archival_start
-    if archival_start.tzinfo is None:
-        archival_start = archival_start.replace(tzinfo=UTC)
+    first_sample_at = metadata.first_sample_at
 
     # Reported coverage is the oldest sample really held, not a declared window.
-    assert (oldest_before - archival_start).total_seconds() < 1.0, (
-        f"archival_start {archival_start} precedes every sample the store held "
+    assert (oldest_before - first_sample_at).total_seconds() < 1.0, (
+        f"first_sample_at {first_sample_at} precedes every sample the store held "
         f"(oldest was {oldest_before}); the bound must be real history, not a declared window"
     )
-    assert (archival_start - oldest_after).total_seconds() < 1.0, (
-        f"archival_start {archival_start} postdates the oldest sample the store held "
+    assert (first_sample_at - oldest_after).total_seconds() < 1.0, (
+        f"first_sample_at {first_sample_at} postdates the oldest sample the store held "
         f"({oldest_after}); the bound must be real history, not a declared window"
     )
 
-    before = archival_start - timedelta(days=2)
-    frame = asyncio.run(connector.get_data([channel], before, archival_start - timedelta(hours=1)))
+    before = first_sample_at - timedelta(days=2)
+    frame = asyncio.run(
+        connector.get_data([channel], start_at=before, end_at=first_sample_at - timedelta(hours=1))
+    )
     assert len(frame) == 0, (
         f"a window entirely before coverage began returned {len(frame)} points for "
         f"{channel}; the archive must report what it does not have, not fill it in"
@@ -839,7 +841,7 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
         tool(
             channels=[channel],
             start_time=before.isoformat(),
-            end_time=(archival_start - timedelta(hours=1)).isoformat(),
+            end_time=(first_sample_at - timedelta(hours=1)).isoformat(),
         )
     )
     oldest_after_tool = oldest_held()

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -92,8 +92,8 @@ class FakeStore:
     async def store_extent(self) -> Any:
         return SimpleNamespace(
             addresses=frozenset({"SR:BPM1", "BR:BPM1"}),
-            oldest=datetime(2026, 10, 13, 8),
-            newest=datetime(2026, 11, 12, 8, 0, 4),
+            oldest_at=datetime(2026, 10, 13, 8, tzinfo=UTC),
+            newest_at=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
             reason=None,
         )
 

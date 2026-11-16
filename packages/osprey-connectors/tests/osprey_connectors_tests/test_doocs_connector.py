@@ -34,7 +34,7 @@ _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
 _LIMITS_PATCH = "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
-_TZ_PATCH = "osprey_connectors.control_system._doocs_connector.get_facility_timezone"
+_TZ_PATCH = "osprey_connectors.config.get_facility_timezone"
 
 # How long an offload test waits on a threading.Event before giving up. It only
 # elapses when the code under test is broken; a passing run never waits on it.
@@ -253,13 +253,13 @@ class TestReadChannel:
         assert isinstance(result, ChannelValue)
         assert result.value == 42.0
 
-    async def test_read_timestamp_is_datetime(self, connector):
+    async def test_read_sampled_at_is_the_readings_own_in_utc(self, connector):
         conn, _ = connector
         result = await conn.read_channel("FAC/DEV/LOC/PROP")
 
-        assert isinstance(result.timestamp, datetime)
         expected_ts = _EPOCH_S + _EPOCH_US / 1e6
-        assert result.timestamp == datetime.fromtimestamp(expected_ts, UTC)
+        assert result.sampled_at == datetime.fromtimestamp(expected_ts, UTC)
+        assert result.sampled_at.utcoffset().total_seconds() == 0
 
     async def test_read_metadata_contains_macropulse(self, connector):
         conn, _ = connector

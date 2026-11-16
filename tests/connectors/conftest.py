@@ -13,7 +13,7 @@ with, is the harness's (``osprey_connectors_tests._harness._guards``), shared wi
 connectors suite.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -41,8 +41,8 @@ def mongodb_test_data(mongodb_container):
     collection = client[mongodb_container["db_name"]][mongodb_container["collection_name"]]
     collection.delete_many({})
 
-    start_date = datetime(2024, 1, 1, 0, 0, 0)
-    end_date = datetime(2024, 1, 4, 0, 0, 0)
+    start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+    end_date = datetime(2024, 1, 4, 0, 0, 0, tzinfo=UTC)
     channels = ["BEAM:CURRENT", "BEAM:LIFETIME", "BEAM:ENERGY"]
 
     documents = []

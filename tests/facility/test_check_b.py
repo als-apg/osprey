@@ -173,7 +173,7 @@ class ReplicaRuntime:
     def _reading(self, value: Any) -> Any:
         from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 
-        return ChannelValue(value=value, timestamp=datetime.now(UTC), metadata=ChannelMetadata())
+        return ChannelValue(value=value, sampled_at=datetime.now(UTC), metadata=ChannelMetadata())
 
     def _write(self, address: str, value: Any) -> Any:
         from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome

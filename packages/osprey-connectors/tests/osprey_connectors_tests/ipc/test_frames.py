@@ -116,12 +116,11 @@ def test_new_request_id_is_unique():
 def test_channel_value_result_round_trips_as_a_real_dataclass():
     value = ChannelValue(
         value=1.234,
-        timestamp=TS,
+        sampled_at=TS,
         metadata=ChannelMetadata(
             units="mA",
             precision=3,
             alarm_status="NO_ALARM",
-            timestamp=TS,
             description="beam current",
             display_low=0.0,
             display_high=500.0,
@@ -132,7 +131,7 @@ def test_channel_value_result_round_trips_as_a_real_dataclass():
 
     assert isinstance(frame.value, ChannelValue)
     assert frame.value.value == 1.234
-    assert frame.value.timestamp == TS
+    assert frame.value.sampled_at == TS
     assert isinstance(frame.value.metadata, ChannelMetadata)
     assert frame.value.metadata.units == "mA"
     assert frame.value.metadata.precision == 3
@@ -154,10 +153,9 @@ def test_enum_metadata_crosses_the_seam_as_the_tuple_of_labels_sent():
     """
     value = ChannelValue(
         value=2,
-        timestamp=TS,
+        sampled_at=TS,
         metadata=ChannelMetadata(
             alarm_status="NO_ALARM",
-            timestamp=TS,
             enum_labels=["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"],
             enum_label="ACQUIRING",
         ),
@@ -172,9 +170,9 @@ def test_enum_metadata_crosses_the_seam_as_the_tuple_of_labels_sent():
 
 def test_batched_read_result_dict_round_trips():
     reading = {
-        "SR:A": ChannelValue(value=1.0, timestamp=TS, metadata=ChannelMetadata(units="mA")),
-        "SR:B": ChannelValue(value="Off", timestamp=TS),
-        "SR:C": ChannelValue(value=None, timestamp=TS),
+        "SR:A": ChannelValue(value=1.0, sampled_at=TS, metadata=ChannelMetadata(units="mA")),
+        "SR:B": ChannelValue(value="Off", sampled_at=TS),
+        "SR:C": ChannelValue(value=None, sampled_at=TS),
     }
     frame = _round_trip(frames.encode_result("req-batch", reading))
 
@@ -379,7 +377,7 @@ def test_int_array_round_trips_with_dtype_preserved():
 
 def test_array_inside_a_channel_value_round_trips():
     waveform = np.arange(6, dtype=np.float64) * 0.5
-    frame = _round_trip(frames.encode_result("req-wf", ChannelValue(value=waveform, timestamp=TS)))
+    frame = _round_trip(frames.encode_result("req-wf", ChannelValue(value=waveform, sampled_at=TS)))
 
     assert isinstance(frame.value, ChannelValue)
     assert np.array_equal(frame.value.value, waveform)
@@ -485,6 +483,22 @@ def test_a_model_reply_its_class_refuses_fails_only_that_call():
     assert frame.class_tag == "ChannelMetadata"
     assert type(frame.exception) is ConnectorInternalError
     assert next_frame == frames.ResultFrame(request_id="req-next", value=2)
+
+
+def test_a_reading_stamped_with_no_zone_fails_only_that_call():
+    """A naive ``sampled_at`` names no instant; the parent refuses it as a connector bug."""
+    reader = frames.FrameReader()
+    naive = {_TAG: "datetime", "iso": TS.replace(tzinfo=None).isoformat()}
+    refused = _doctored(
+        _result(),
+        _set("value", {_TAG: "ChannelValue", "fields": {"value": 1.0, "sampled_at": naive}}),
+    )
+
+    (frame,) = reader.feed(refused)
+
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.class_tag == "ChannelValue"
+    assert type(frame.exception) is ConnectorInternalError
 
 
 def test_the_request_an_undecodable_frame_names_is_read_back():

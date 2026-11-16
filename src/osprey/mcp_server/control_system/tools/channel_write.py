@@ -125,6 +125,7 @@ import hashlib
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Any
 
 from osprey.audit.call import note, write_stamps
@@ -137,6 +138,7 @@ from osprey.mcp_server.errors import NothingAnsweredError, make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import control_context
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
     ChannelLimitsViolationError,
@@ -323,11 +325,15 @@ async def _note_old_values(connector: Any, channels: list[str]) -> None:
             if value is None:
                 old_values[channel] = {"error": "unread"}
                 continue
-            stamp = getattr(value, "timestamp", None)
-            isoformat = getattr(stamp, "isoformat", None)
+            # Connectors stamp readings in UTC; the noted stamp stays facility-local.
+            stamp = getattr(value, "sampled_at", None)
             old_values[channel] = {
                 "value": _project_observed_value(getattr(value, "value", None)),
-                "timestamp": isoformat() if callable(isoformat) else stamp,
+                "timestamp": (
+                    stamp.astimezone(get_facility_timezone()).isoformat()
+                    if isinstance(stamp, datetime)
+                    else stamp
+                ),
             }
     except Exception as exc:
         old_values = {channel: {"error": type(exc).__name__} for channel in channels}

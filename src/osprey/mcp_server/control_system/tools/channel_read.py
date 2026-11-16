@@ -10,6 +10,7 @@ from osprey.mcp_server.control_system.error_handling import (
 )
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import MISSING_KEY, NothingAnsweredError, make_error
+from osprey_connectors.config import get_facility_timezone
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
@@ -696,8 +697,10 @@ async def channel_read(
 
         readings_summary: dict = {}
         withheld: list[str] = []
+        # Connectors stamp readings in UTC; the served stamp stays facility-local.
+        facility_tz = get_facility_timezone()
         for addr, cv in readings.items():
-            entry: dict = {"timestamp": str(cv.timestamp)}
+            entry: dict = {"timestamp": str(cv.sampled_at.astimezone(facility_tz))}
             value = cv.value
             count = _element_count(value, np)
             artifact_reason: str | None = None

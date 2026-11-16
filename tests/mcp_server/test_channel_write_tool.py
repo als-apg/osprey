@@ -1442,7 +1442,7 @@ async def test_old_values_are_read_before_the_window_check(tmp_path, monkeypatch
 
     async def read(channels, **_kwargs):
         order.append("read")
-        return {channel: ChannelValue(value=3.5, timestamp=stamp) for channel in channels}
+        return {channel: ChannelValue(value=3.5, sampled_at=stamp) for channel in channels}
 
     connector.read_multiple_channels.side_effect = read
     connector.write_channel.return_value = _make_write_result(channel="TEST:PV", value=4.0)

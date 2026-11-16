@@ -12,6 +12,7 @@ per-channel series to the ArtifactStore.
 import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -816,7 +817,7 @@ async def test_archiver_read_echoes_facility_local_time_range(archiver_read_tool
     assert "-08:00" in data["summary"]["time_range"]["start"]
 
     # The connector receives the facility-local instant; converting is its job.
-    start_arg = connector.get_data.call_args.args[1]
+    start_arg = connector.get_data.call_args.kwargs["start_at"]
     assert start_arg.utcoffset().total_seconds() == -8 * 3600
 
 
@@ -1092,7 +1093,7 @@ def _probe(available=True, start=None, end=None, is_archived=True, note=None):
     from osprey_connectors.archiver._base import ArchiverMetadata
 
     md = ArchiverMetadata(
-        address="X", is_archived=is_archived, archival_start=start, archival_end=end
+        address="X", is_archived=is_archived, first_sample_at=start, last_sample_at=end
     )
     return _CoverageProbe(available=available, metadata=md, note=note)
 
@@ -1150,7 +1151,7 @@ class TestComposeCoverage:
         assert "not data awaiting synthesis" in block["message"]
 
     def test_window_touching_the_archive_start_counts_as_overlap(self):
-        # end == archival_start is NOT "precedes": the boundary sample's
+        # end == first_sample_at is NOT "precedes": the boundary sample's
         # instant is inside coverage, so an empty result there is a gap.
         block = self._compose(
             {"CH": _probe(start=_ARC_START, end=_ARC_END)},
@@ -1187,14 +1188,21 @@ class TestComposeCoverage:
         assert block["verdict"] == "coverage_unknown"
         assert block["channels"]["CH"]["note"] == "metadata probe failed: boom"
 
-    def test_naive_metadata_bounds_are_pinned_utc(self):
-        # pymongo hands back naive datetimes read as UTC; comparison must not
-        # depend on which layer attached the zone.
+    def test_metadata_bounds_in_another_zone_are_served_in_utc(self):
+        # The contract makes the bounds aware, not UTC; the served text is UTC
+        # whichever zone the connector stamped them in.
+        pacific = ZoneInfo("America/Los_Angeles")
         block = self._compose(
-            {"CH": _probe(start=_ARC_START.replace(tzinfo=None), end=_ARC_END.replace(tzinfo=None))}
+            {"CH": _probe(start=_ARC_START.astimezone(pacific), end=_ARC_END.astimezone(pacific))}
         )
         assert block["verdict"] == "window_precedes_archive"
         assert block["channels"]["CH"]["archive_start"] == _ARC_START.isoformat()
+
+    def test_naive_metadata_bounds_are_refused_by_the_record(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="timezone"):
+            _probe(start=_ARC_START.replace(tzinfo=None), end=_ARC_END)
 
     def test_differing_verdicts_report_mixed_with_per_channel_detail(self):
         block = self._compose(
@@ -1225,8 +1233,8 @@ class TestCoverageInToolResponse:
         connector.get_metadata.return_value = ArchiverMetadata(
             address="SR:OLD:RB",
             is_archived=True,
-            archival_start=_ARC_START,
-            archival_end=_ARC_END,
+            first_sample_at=_ARC_START,
+            last_sample_at=_ARC_END,
         )
 
         result = await fn(

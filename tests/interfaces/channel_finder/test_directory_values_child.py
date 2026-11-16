@@ -254,12 +254,12 @@ class _ScriptedFake(FakeConnector):
             # A PVA read's shape: a worker thread for the whole read.
             await asyncio.to_thread(type(self).rendezvous.wait)
         if address == "HUGE":
-            return ChannelValue(value=[0.0] * 100_000, timestamp=datetime.now(UTC))
+            return ChannelValue(value=[0.0] * 100_000, sampled_at=datetime.now(UTC))
         if address == "NO_TIMESTAMP":
             reading = await super().read_channel(address, timeout_s=timeout_s)
             # A reading no connector can build: skips the record's validation.
             return ChannelValue.model_construct(
-                value=reading.value, timestamp=None, metadata=reading.metadata
+                value=reading.value, sampled_at=None, metadata=reading.metadata
             )
         return await super().read_channel(address, timeout_s=timeout_s)
 

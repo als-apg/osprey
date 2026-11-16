@@ -92,7 +92,6 @@ def _reading(cv: Any) -> PVReading:
     """Map an OSPREY ``ChannelValue`` onto a ``PVReading`` (metadata best-effort)."""
     md = cv.metadata
     raw = getattr(md, "raw_metadata", None) or {}
-    ts = getattr(md, "timestamp", None) or cv.timestamp
     value = _to_native(cv.value)
     return PVReading(
         value=value,
@@ -101,7 +100,7 @@ def _reading(cv: Any) -> PVReading:
         precision=getattr(md, "precision", None),
         severity=raw.get("severity"),
         status=raw.get("status"),
-        timestamp=ts.timestamp() if ts is not None else None,
+        timestamp=cv.sampled_at.timestamp(),
         enum_strings=getattr(md, "enum_labels", None),
         count=_element_count(value),
     )
