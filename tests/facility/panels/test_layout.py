@@ -918,3 +918,12 @@ def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(
     ]
     placed = strip_labels(wide)
     assert {level for *_x, level in placed} == {0, 1}  # neighbours stagger
+
+
+def test_the_devices_off_the_beamline_are_one_line_that_opens_the_place_card(panel_graph):
+    view = place_view(panel_graph, "XR/XR02", symbols=SYMBOLS, above=ABOVE)
+    doc, screens = draw(view, panel_graph)
+    assert "2 other things in this place" in _texts(doc)
+    files = [a["file"] for n in _links_drawn(doc) for a in n["props"]["actions"]]
+    assert screens(Target("card", "place", "XR/XR02")) in files
+    assert "XR02:BLOCK1" not in _texts(doc)  # listed on the place card, not in the tray

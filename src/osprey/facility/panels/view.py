@@ -259,13 +259,17 @@ class Strip:
 
     Attributes:
         elements: The devices with a true ring position, by ``s_m`` then id.
-        tray: The devices with none, in the place's order.
+        tray: The devices with none whose class has a symbol (they belong on
+            the beamline), in the place's order.
         extent_m: The least and greatest ``s_m``; ``None`` with no element.
+        others: The place's card, labelled with how many other devices the
+            place holds, or ``None`` when there are none.
     """
 
     elements: tuple[StripElement, ...]
     tray: tuple[TrayEntry, ...]
     extent_m: tuple[float, float] | None
+    others: Link | None = None
 
 
 @dataclass(frozen=True)

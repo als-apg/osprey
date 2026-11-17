@@ -1145,6 +1145,9 @@ class _Page:
                 self.strip_row(row, widths, item.extent_m)
         if item.tray:
             self.tray(item)
+        if item.others is not None:
+            self.button(MARGIN, self.y, item.others)
+            self.next_row()
 
     def strip_row(
         self,

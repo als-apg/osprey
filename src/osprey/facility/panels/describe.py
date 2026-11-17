@@ -129,6 +129,7 @@ def _system(thing: Thing) -> str:
 _NO_POSITION = "no position"
 _NOT_IN = "not placed"
 _NO_THING = "on no device"
+_OTHERS = "{} other things in this place"
 _DRAWN_RANK = {drawn: rank for rank, drawn in enumerate(DRAWN_AS)}
 _EMPTY: Mapping[str, str] = MappingProxyType({})
 
@@ -755,12 +756,15 @@ def place_view(
     symbols: Mapping[str, str] = _EMPTY,
     above: frozenset[str] = frozenset(),
 ) -> View:
-    """The devices within a place (any depth) in beam order, with the rest in a tray.
+    """The devices of a place's contents in beam order, the rest in a tray or counted.
 
     A device with a true ring position (:attr:`Pose.is_ring_position`) is a
-    strip element; any other is in the tray with ``no position`` or what its
-    position assumes. Sections: ``strip``, then ``places within`` (links to
-    the direct child places); the crumbs lead out to the parent.
+    strip element. A device with none whose class has a symbol (it belongs
+    on the beamline) is in the tray with ``no position`` or what its position
+    assumes. Every other device is counted on one line, ``<n> other things in
+    this place``, that opens the place's card (which lists them). Sections:
+    ``strip``, then ``places within`` (links to the direct child places); the
+    crumbs lead out to the parent.
 
     Args:
         graph: The panel graph.
@@ -775,6 +779,7 @@ def place_view(
     index = _index(graph)
     elements: list[StripElement] = []
     tray: list[TrayEntry] = []
+    others = 0
     for thing in graph.contents(place_id):
         if thing.kind != "device":
             continue
@@ -788,12 +793,15 @@ def place_view(
             elements.append(
                 StripElement(thing.id, thing.cls, pose.s_m, symbol, lane, link, channels)  # type: ignore[arg-type]
             )
-        else:
+        elif thing.cls is not None and thing.cls in symbols:
             reason = pose.derived_assumes if pose is not None and pose.derived_assumes else None
             tray.append(TrayEntry(thing.id, thing.cls, reason or _NO_POSITION, link))
+        else:
+            others += 1
     elements.sort(key=lambda element: (element.s_m, element.thing))
     extent = (elements[0].s_m, max(e.s_m for e in elements)) if elements else None
-    strip = Strip(tuple(elements), tuple(tray), extent)
+    rest = Link(_OTHERS.format(others), Target("card", "place", place_id)) if others else None
+    strip = Strip(tuple(elements), tuple(tray), extent, rest)
     children: list[Item] = [
         _place_link(graph, index, child.id, Target("place", "place", child.id))
         for child in graph.within(place_id)

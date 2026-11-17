@@ -520,8 +520,11 @@ def test_a_set_member_with_no_place_is_in_a_last_row(tmp_path):
 # -- place view -----------------------------------------------------------------
 
 
+BEAMLINE = {"Quadrupole": "quadrupole", "Dipole": "bend", "Pump": "ion_pump"}
+
+
 def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
-    view = place_view(panel_graph, "XR/XR02")
+    view = place_view(panel_graph, "XR/XR02", symbols=BEAMLINE)
     (strip,) = _section(view, "strip").items
     assert isinstance(strip, Strip)
     assert [(element.thing, element.s_m) for element in strip.elements] == [
@@ -529,15 +532,16 @@ def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
         ("XR02:SHIELD1", 12.5),
     ]
     assert strip.extent_m == (11.0, 12.5)
+    # only classes with a symbol belong on the beamline: the tray, with each reason
     tray = {entry.thing: entry.reason for entry in strip.tray}
     assert tray == {
         "XR02:QD1": "no position",
         "XR02:BEND1": "no position",
         "XR02:IP1": "no position",  # a ring-frame row with no s
         "XR02:IP2": "no position",
-        "XR02:BLOCK1": "no position",
-        "XR02:CH5": "no position",  # no built place: its claim into XR/XR02/RK2 puts it here
     }
+    # the rest is one line to the place's card: XR02:BLOCK1 and XR02:CH5 (by its claim)
+    assert strip.others == Link("2 other things in this place", Target("card", "place", "XR/XR02"))
     assert not _ids(view) & set(EXCLUDED)
 
 
@@ -550,10 +554,12 @@ def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
         ("XR01:QD1", "Quadrupole", 2.0, "generic", "beam"),
     ]
     assert strip.elements[1].link == Link("XR01:QF1", card("XR01:QF1"))
+    assert strip.extent_m == (1.25, 2.0)
+    view = place_view(panel_graph, "XR/XR01", symbols={**BEAMLINE, "ElectronicsChassis": "generic"})
+    (strip,) = _section(view, "strip").items
     tray = {entry.thing: entry.reason for entry in strip.tray}
     assert tray["XR01:BEND1"] == "fixture: frame treated as the ring frame"
     assert tray["XR01:CH1"] == "no position"  # within the rack, any depth
-    assert strip.extent_m == (1.25, 2.0)
 
 
 def test_place_view_links_child_places_and_the_parent(panel_graph):
@@ -567,8 +573,9 @@ def test_place_view_links_child_places_and_the_parent(panel_graph):
 def test_a_place_with_no_ring_position_has_no_extent(panel_graph):
     (strip,) = _section(place_view(panel_graph, "XR/XR01/RK1"), "strip").items
     assert strip.elements == () and strip.extent_m is None
+    assert strip.tray == ()  # chassis have no symbol: they are not beamline devices
     # XR02:CH5 by its claims into the rack
-    assert [entry.thing for entry in strip.tray] == ["XR01:CH1", "XR01:CH2", "XR01:CH3", "XR02:CH5"]
+    assert strip.others.label == "4 other things in this place"
 
 
 # -- rack elevation ---------------------------------------------------------------
