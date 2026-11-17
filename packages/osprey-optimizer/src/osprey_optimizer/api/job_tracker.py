@@ -66,9 +66,10 @@ return 0
 # the active slot. KEYS[1]=ACTIVE_JOB_KEY, KEYS[2]=meta_key. ARGV[1]=job_id,
 # ARGV[2]=running-meta JSON, ARGV[3]=ttl seconds. Never writes the slot itself:
 # a job that lost it (its claim was released or expired, and another job may now
-# hold it) must not take it back.
+# hold it) must not take it back. Never re-creates a record that lapsed: a job
+# whose meta is gone is left to its worker's refusal, the record's only writer.
 _REGISTER_IF_ACTIVE_LUA = """
-if redis.call('GET', KEYS[1]) == ARGV[1] then
+if redis.call('GET', KEYS[1]) == ARGV[1] and redis.call('EXISTS', KEYS[2]) == 1 then
     redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
     return 1
 end
@@ -234,7 +235,7 @@ class JobTracker:
 
         Returns:
             True if the job still holds the slot and was updated; False if it
-            does not, in which case nothing was written.
+            does not, or its record is gone; nothing was written.
         """
         # The meta carries a heartbeat TTL so a crashed process's slot
         # self-heals once it stops refreshing (see refresh_heartbeat).
