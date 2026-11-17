@@ -214,4 +214,4 @@ async def test_the_in_process_simulator_serves_measured_tune_as_the_deck_s_tunes
     assert served.shape == (3,)
     assert np.all(np.isfinite(served))
     assert served == pytest.approx(expected, abs=1e-12)
-    assert reading.alarm.severity is None
+    assert reading.alarm is None
