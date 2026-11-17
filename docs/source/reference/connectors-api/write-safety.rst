@@ -14,10 +14,6 @@ machine a write lands on, and waiting for a readback to settle. :doc:`/architect
 
 .. automodule:: osprey_connectors.limits_posture
 
-.. automodule:: osprey_connectors.write_tier
-
-.. automodule:: osprey_connectors.limits_posture
-
 .. automodule:: osprey_connectors.posture_store
 
 .. automodule:: osprey_connectors.write_authorization
