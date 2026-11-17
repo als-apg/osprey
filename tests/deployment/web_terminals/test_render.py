@@ -1673,6 +1673,81 @@ def test_landing_render_fails_loudly_on_a_renamed_token() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The terminal-starting page: one nginx string in nginx.conf
+# ---------------------------------------------------------------------------
+
+
+def _starting_page(config: dict) -> str:
+    """The page nginx answers with while a terminal's app is not listening."""
+    conf = render_web_terminals(config)["nginx/nginx.conf"]
+    (line,) = [ln for ln in conf.splitlines() if ln.startswith("        return 503 '")]
+    assert line.endswith("';")
+    return line.removeprefix("        return 503 '").removesuffix("';")
+
+
+def test_the_starting_page_reads_as_a_waiting_state() -> None:
+    """A heading, one plain line, the mark and a progress bar that holds still
+    for a viewer who asked for reduced motion."""
+    # Act
+    page = _starting_page(_themed_config(None))
+
+    # Assert
+    assert "<title>Starting your terminal</title>" in page
+    assert "<h1>Starting your terminal</h1>" in page
+    assert "This takes up to a minute after a deploy or restart." in page
+    assert "not answering" not in page
+    assert '<svg viewBox="0 0 16 8"' in page and "</svg>OSPREY</p>" in page
+    assert '<div class="bar"></div>' in page
+    assert "@media (prefers-reduced-motion:reduce){.bar::before{animation:none" in page
+
+
+def test_the_starting_page_polls_with_head_and_reloads_without_script_too() -> None:
+    """The script asks for the page's own URL with HEAD and reloads on any
+    answer but this 503; the meta refresh is the no-script path ONLY, since at
+    the top level it would blank the page every 5 seconds."""
+    # Act
+    page = _starting_page(_themed_config(None))
+
+    # Assert
+    assert 'fetch(location.href, {method: "HEAD", cache: "no-store"' in page
+    assert 'credentials: "same-origin", redirect: "manual"}' in page
+    assert 'answer.type === "opaqueredirect" || answer.status !== 503' in page
+    assert "location.reload();" in page
+    assert "setTimeout(poll, 2000);" in page
+    assert "This is taking longer than usual." in page
+    assert page.count("http-equiv") == 1
+    assert '<noscript><meta http-equiv="refresh" content="5"></noscript>' in page
+
+
+def test_the_starting_page_wears_the_deployments_palette() -> None:
+    """Both modes of a family-valued web.theme, as the landing page bakes them."""
+    # Act
+    page = _starting_page(_themed_config("desy"))
+
+    # Assert
+    assert ":root{color-scheme:dark;--bg-primary:#091720;" in page
+    assert "@media (prefers-color-scheme: light){ :root{color-scheme:light;" in page
+    assert "--bg-primary:#f3f8fc;" in page
+    assert "Canvas" not in page
+
+
+@pytest.mark.parametrize(
+    "theme",
+    [None, "desy", "desy-light", "high-contrast", "high-contrast-dark", "retro", "retro-light"],
+)
+def test_the_starting_page_is_a_string_nginx_reads_whole(theme: str | None) -> None:
+    """One single-quoted nginx parameter: nothing in it ends the string or
+    starts a variable, and it fits the 4096-byte buffer nginx reads a
+    parameter through (a longer one is refused at startup)."""
+    # Act
+    page = _starting_page(_themed_config(theme))
+
+    # Assert
+    assert not set(page) & set("'$\\\n")
+    assert len(page.encode()) < 4000
+
+
+# ---------------------------------------------------------------------------
 # theme -> OSPREY_WEB_THEME (per-user default theme seam)
 # ---------------------------------------------------------------------------
 

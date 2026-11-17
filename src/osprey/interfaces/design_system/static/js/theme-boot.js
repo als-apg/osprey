@@ -157,6 +157,14 @@
     }
   }
 
+  function readServerMode() {
+    try {
+      return document.documentElement.getAttribute("data-theme-mode");
+    } catch {
+      return null;
+    }
+  }
+
   const queryTheme = readQueryTheme();
   const storedTheme = readStoredTheme();
   const serverTheme = readServerTheme();
@@ -182,7 +190,11 @@
   } else if (isKnownId(storedTheme)) {
     candidate = storedTheme;
   } else if (isValidId(serverTheme)) {
-    candidate = serverTheme;
+    // A page that states `data-theme-mode="auto"` beside its theme chose a
+    // family and left light or dark to the OS: the stamped id only names the
+    // family. Resolving it here is what theme-manager's hub start-up does a
+    // moment later, so the first paint is already the theme the page keeps.
+    candidate = readServerMode() === "auto" ? "auto" : serverTheme;
   }
 
   let resolved = candidate === "auto" ? resolveAuto(familyForAuto) : candidate;

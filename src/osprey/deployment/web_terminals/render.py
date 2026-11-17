@@ -1747,6 +1747,7 @@ def render_web_terminals(
 
     from osprey.interfaces.common_middleware import URL_MOUNT_ROOT
 
+    theme_blocks = _landing_theme_blocks(root)
     nginx_ctx = {
         "nginx_port": nginx_port,
         "services": services,
@@ -1760,6 +1761,9 @@ def render_web_terminals(
         # the root inside a PCRE; the locations take it literally.
         "url_mount_root": URL_MOUNT_ROOT,
         "url_mount_root_pattern": re.escape(URL_MOUNT_ROOT),
+        # The terminal-starting page nginx answers with wears the landing
+        # page's palette.
+        "theme_blocks": theme_blocks,
         **auth_tls_ctx,
         **_history_origin_context(root),
         **_history_location_context(root, external_origin),
@@ -1788,7 +1792,7 @@ def render_web_terminals(
         "groups": _build_groups(
             landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
         ),
-        "theme_blocks": _landing_theme_blocks(root),
+        "theme_blocks": theme_blocks,
         "favicon": favicon_data_uri(),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),

@@ -93,6 +93,13 @@ matching.
 embedded in the system prompt. The model returns the most relevant channels in
 one shot, with no query-splitting or iterative-correction stage.
 
+That call is OSPREY's own request to the provider, not the agent's, so it needs
+the provider's API key: a personal Claude login does not cover it
+(:ref:`personal-login`). ``osprey build``, ``osprey validate`` and ``osprey web``
+warn when the key is missing. The hierarchical, middle layer and graph
+pipelines make no model request of their own. The agent drives their tools, so
+they need no key beyond what the agent uses.
+
 ``osprey build`` writes the database from the facility description as
 ``data/channel_finder/in_context.json``. It holds one row per channel, or per
 channel of the subset the facility tags ``in_context``, with its name, address

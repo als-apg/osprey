@@ -78,6 +78,7 @@ from .build_environment import (
     _create_project_venv,
     _plan_project_venv,
     _resolve_osprey_spec,
+    report_inner_call_keys,
     report_provider_credentials,
 )
 from .build_injectors import (
@@ -2924,6 +2925,7 @@ def _render_project(
 
     if deployment:
         report_provider_credentials(render_dir, build_profile.provider, profile_dir=repo_root)
+        report_inner_call_keys(_rendered_config(render_dir), render_dir, profile_dir=repo_root)
 
     manifest_context: dict[str, Any] = {
         "default_provider": build_profile.provider,
@@ -4975,6 +4977,40 @@ def _ariel_server_enabled(build_profile: Any) -> bool:
     if stated:
         return stated[0][1]
     return FRAMEWORK_SERVERS["ariel"].default_enabled
+
+
+def profile_model_call_view(build_profile: Any, repo_root: Path) -> dict[str, Any]:
+    """The config a build of *build_profile* renders, as far as a profile says it.
+
+    ``osprey validate`` judges a profile without rendering it, and the keys
+    :func:`osprey.models.inner_calls.inner_model_calls` reads are written by the
+    framework template from profile fields. This is
+    :func:`~osprey.cli.build_profile_deploy.build_lint_view`, the one mirror of
+    the build's derived keys, handed those fields and nested.
+
+    The channel-finder block is read off the profile's own ``agents:``. A
+    profile that takes the agent from its preset's selection instead shows no
+    paradigm here, so ``osprey validate`` stays silent on it and ``osprey
+    build``, which reads the render, reports it.
+    """
+    from osprey.deployment.web_terminals.lint import _nest_dotted
+
+    from .build_profile_deploy import build_lint_view, profile_dispatch_tier
+
+    selects_finder = "channel-finder" in (build_profile.agents or [])
+    return _nest_dotted(
+        build_lint_view(
+            build_profile.deploy,
+            build_profile.config or {},
+            build_profile.project_name,
+            profile_root=repo_root,
+            dispatch_tier=profile_dispatch_tier(build_profile),
+            provider=build_profile.provider,
+            pipeline=build_profile.channel_finder_mode if selects_finder else None,
+            ariel_server_on=_ariel_server_enabled(build_profile),
+            provider_catalog=load_provider_catalog(repo_root).entries,
+        )
+    )
 
 
 def _repo_render_context(
