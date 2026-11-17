@@ -422,16 +422,22 @@ class TestSandboxedOpen:
         test_file = workspace_root / "data" / "test.csv"
         test_file.write_text("a,b\n1,2\n")
 
-        code = f"""\
-data_path = r"{test_file}"
+        code = """\
+data_path = Path.cwd() / "_agent_data" / "data" / "test.csv"
 with open(data_path) as f:
     content = f.read()
 print(content)
 """
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
+        with (
+            patch(
+                "osprey_connectors.workspace.resolve_agent_data_root",
+                return_value=workspace_root,
+            ),
+            patch(
+                "osprey_connectors.workspace.resolve_project_root",
+                return_value=workspace_root.parent,
+            ),
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
 
@@ -466,13 +472,13 @@ except PermissionError:
         project.mkdir()
         (project / ".env").write_text("API_KEY=never-leaked\n")
 
-        code = f"""\
+        code = """\
 for label, read in (
     ("BUILTINS", lambda p: open(p).read()),
     ("PATHLIB", lambda p: Path(p).read_text()),
 ):
     try:
-        print(label, "LEAKED", read(r"{project / ".env"}"))
+        print(label, "LEAKED", read(Path.cwd() / ".env"))
     except PermissionError as exc:
         print(label, "DENIED", exc)
 """
