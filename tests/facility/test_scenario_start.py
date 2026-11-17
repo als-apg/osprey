@@ -157,3 +157,15 @@ def test_scenarios_json_carries_no_start_key() -> None:
     assert all("start" not in entry for entry in scenarios)
     warm = next(entry for entry in scenarios if entry["name"] == "warm")
     assert warm["description"] == "Warm."
+
+
+def test_scenarios_json_writes_an_hh_mm_calendar_time_with_seconds() -> None:
+    """The one ruled byte change: the build writes ``scenarios.json`` through its document."""
+    entry = {"entry_id": "E-1", "when": {"days_ago": 1, "time": "08:00"}, "author": "a"}
+    document = _document({"name": "warm", "logbook": [{**entry, "title": "t", "text": "x"}]})
+    inputs = SimpleNamespace(records=FacilityRecords(document), served=[])
+
+    written = json.loads(document_bytes(_scenarios_document(inputs)))  # type: ignore[arg-type]
+
+    warm = next(scenario for scenario in written["scenarios"] if scenario["name"] == "warm")
+    assert warm["logbook"][0]["when"] == {"days_ago": 1, "time": "08:00:00"}
