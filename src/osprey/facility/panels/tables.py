@@ -49,6 +49,9 @@ __all__ = [
     "OPTIONAL_FILES",
     "TOLERANCE_TERMS",
     "PICTURE_VIEWS",
+    "PROBE_NEEDS",
+    "PROBE_SHAPES",
+    "ProbeElement",
     "TABLE_FILES",
     "Exclusion",
     "HealthRule",
@@ -80,6 +83,7 @@ METRICS = "metrics.csv"
 CALIBRATION_KINDS = "calibration_kinds.csv"
 CALIBRATIONS = "calibrations.csv"
 CALIBRATION_CURVES = "calibration_curves.csv"
+PROBE_PICTURES = "probe_pictures.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -93,6 +97,7 @@ TABLE_FILES: tuple[str, ...] = (
     CALIBRATION_KINDS,
     CALIBRATIONS,
     CALIBRATION_CURVES,
+    PROBE_PICTURES,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -195,17 +200,46 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "standing",
         ],
         CALIBRATION_CURVES: ["id", "x", "y"],
+        PROBE_PICTURES: [
+            "class",
+            "element",
+            "shape",
+            "label",
+            "angle_deg",
+            "radius_mm",
+            "size_mm",
+            "signal",
+            "signal_y",
+            "min",
+            "max",
+            "range_mm",
+            "count",
+            "document",
+            "version",
+            "state",
+            "locator",
+            "under",
+        ],
     }
 )
 
 #: The columns a file's header may leave out; an absent one reads as empty.
 OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
-    {CALIBRATION_KINDS: frozenset({"under"})}
+    {CALIBRATION_KINDS: frozenset({"under"}), PROBE_PICTURES: frozenset({"under"})}
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
 OPTIONAL_FILES = frozenset(
-    {PICTURES, EXCLUDED, NAMES, METRICS, CALIBRATION_KINDS, CALIBRATIONS, CALIBRATION_CURVES}
+    {
+        PICTURES,
+        EXCLUDED,
+        NAMES,
+        METRICS,
+        CALIBRATION_KINDS,
+        CALIBRATIONS,
+        CALIBRATION_CURVES,
+        PROBE_PICTURES,
+    }
 )
 
 Basis = Literal["stated", "inferred"]
@@ -235,6 +269,19 @@ MEASURES: tuple[str, ...] = (
 CALIBRATION_BASES: tuple[str, ...] = ("design", "bench", "survey", "beam")
 #: What a calibration value is: a number, numbers separated by ``;``, or a curve.
 CALIBRATION_SHAPES: tuple[str, ...] = ("scalar", "tuple", "curve")
+#: What a row of ``probe_pictures.csv`` draws: the bore, a button, the beam dot,
+#: a curve of a plot, or a value in the line of readouts.
+PROBE_SHAPES: tuple[str, ...] = ("bore", "anchor", "marker", "plot", "readout")
+#: Per probe shape, the columns its rows must fill.
+PROBE_NEEDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "bore": ("radius_mm",),
+        "anchor": ("angle_deg", "radius_mm", "size_mm"),
+        "marker": ("signal", "signal_y", "range_mm"),
+        "plot": ("signal",),
+        "readout": ("label", "signal"),
+    }
+)
 #: A claim's standing, as relation claims have it.
 STANDINGS: tuple[str, ...] = ("accepted", "contested", "superseded")
 
@@ -253,6 +300,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CALIBRATION_KINDS: ("kind", "title", "class", "shape", "wanted_basis"),
         CALIBRATIONS: ("id", "kind", "subject", "value", "basis", "standing"),
         CALIBRATION_CURVES: ("id", "x", "y"),
+        PROBE_PICTURES: ("class", "element", "shape"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -269,6 +317,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CALIBRATION_KINDS: {"shape": CALIBRATION_SHAPES, "wanted_basis": CALIBRATION_BASES},
         CALIBRATIONS: {"basis": CALIBRATION_BASES, "standing": STANDINGS},
         CALIBRATION_CURVES: {},
+        PROBE_PICTURES: {"shape": PROBE_SHAPES},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -288,6 +337,7 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         METRICS: ("order",),
         CALIBRATION_KINDS: ("order",),
         CALIBRATION_CURVES: ("x", "y"),
+        PROBE_PICTURES: ("angle_deg", "radius_mm", "size_mm", "min", "max", "range_mm", "count"),
     }
 )
 _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -533,6 +583,46 @@ class CurvePoint:
 
 
 @dataclass(frozen=True)
+class ProbeElement:
+    """One row of ``probe_pictures.csv``: an element of a pickup's cross-section,
+    looking downstream, shared by the devices of ``cls`` (under ``under``, as in
+    :class:`CalibrationKind`).
+
+    By ``shape``: ``bore``, a circle of ``radius_mm`` (an ellipse of full height
+    ``size_mm`` when given); ``anchor``, a button of diameter ``size_mm`` at
+    ``angle_deg`` (0 is +x, counter-clockwise) on ``radius_mm``, lettered by
+    ``label``, its ``signal`` a bar from ``min`` to ``max``; ``marker``, the beam
+    at ``signal`` (x) and ``signal_y`` (y) in a box of ``range_mm`` about the
+    centre; ``plot``, a curve named ``label`` of the plot named ``element``, of
+    ``count`` points; ``readout``, ``signal``'s value named ``label``. The last
+    four columns before ``under`` cite the geometry.
+    """
+
+    cls: str
+    element: str
+    shape: str
+    label: str | None
+    angle_deg: float | None
+    radius_mm: float | None
+    size_mm: float | None
+    signal: str | None
+    signal_y: str | None
+    min: float | None
+    max: float | None
+    range_mm: float | None
+    count: float | None
+    document: str | None
+    version: str | None
+    state: str | None
+    locator: str | None
+    under: str | None = None
+
+
+def _probe_element(**columns: Any) -> ProbeElement:
+    return ProbeElement(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
 class PanelTables:
     """The rule tables, each in file order."""
 
@@ -547,6 +637,7 @@ class PanelTables:
     calibration_kinds: tuple[CalibrationKind, ...] = ()
     calibrations: tuple[Calibration, ...] = ()
     calibration_curves: tuple[CurvePoint, ...] = ()
+    probe_pictures: tuple[ProbeElement, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -562,6 +653,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CALIBRATION_KINDS: _calibration_kind,
         CALIBRATIONS: Calibration,
         CALIBRATION_CURVES: CurvePoint,
+        PROBE_PICTURES: _probe_element,
     }
 )
 
@@ -655,6 +747,7 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
     make = _ROWS[name]
     unique = _UNIQUE.get(name)
     seen: dict[tuple[str, ...], int] = {}
+    seen_probe: dict[tuple[str | None, ...], int] = {}
     rows = []
     for line, record in records:
         if not record:
@@ -678,6 +771,8 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
         )
         if name == CALIBRATION_KINDS:
             _check_kind_unit(rows[-1], line)
+        if name == PROBE_PICTURES:
+            _check_probe_row(rows[-1], line, seen_probe)
         if lines is not None:
             lines.append(line)
     return tuple(rows)
@@ -696,6 +791,29 @@ def _check_kind_unit(kind: CalibrationKind, line: int) -> None:
         raise PanelTableError(
             CALIBRATION_KINDS, line, f"unit is {kind.unit!r}; only a curve's unit has a ';'"
         )
+
+
+def _check_probe_row(row: ProbeElement, line: int, seen: dict[tuple[str | None, ...], int]) -> None:
+    """A probe row fills the columns its shape needs; one row per element of a class
+    under one ``under`` (per curve, for a plot); one bore and one marker each."""
+    for column in PROBE_NEEDS[row.shape]:
+        if getattr(row, column) is None:
+            raise PanelTableError(PROBE_PICTURES, line, f"a {row.shape} needs {column}")
+    keys = [
+        (row.cls, row.under, "element", row.element, row.label if row.shape == "plot" else None)
+    ]
+    if row.shape in ("bore", "marker"):
+        keys.append((row.cls, row.under, "shape", row.shape, None))
+    for key in keys:
+        if key in seen:
+            what = f"one {row.shape}" if key[2] == "shape" else f"element {row.element!r}"
+            under = f" under {row.under}" if row.under else ""
+            raise PanelTableError(
+                PROBE_PICTURES,
+                line,
+                f"class {row.cls}{under} already has {what} at line {seen[key]}",
+            )
+        seen[key] = line
 
 
 def _check_calibrations(
@@ -752,6 +870,7 @@ def read_tables(panels_dir: Path) -> PanelTables:
         names=_read(directory, NAMES),
         metrics=_read(directory, METRICS),
         **_read_calibrations(directory),
+        probe_pictures=_read(directory, PROBE_PICTURES),
     )
 
 

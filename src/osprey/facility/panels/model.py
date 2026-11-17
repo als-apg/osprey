@@ -72,6 +72,7 @@ from osprey.facility.panels.tables import (
     PanelTables,
     PicturePart,
     Pose,
+    ProbeElement,
     RecordType,
     read_tables,
 )
@@ -98,6 +99,8 @@ PLACE_RELATION = "located_in"
 #: The relation kind, from the facility vocabulary, that makes a device a component of
 #: another device; a part with no place of its own is in the place of its whole.
 PART_RELATION = "part_of"
+#: The relation from a device to the device that reads it out.
+READ_OUT_RELATION = "read_out_by"
 
 #: The prefix of a channel only the simulation serves; no screen shows one.
 SIMULATION_PREFIX = "VA:"
@@ -917,11 +920,17 @@ class PanelGraph:
             KeyError: No such device.
         """
         device = self.thing(device_id, "device")
-        if device.cls != kind.cls:
-            return False
-        if kind.under is None or device.model == kind.under:
-            return True
-        return device_id in self._lying_under(kind.under)
+        return device.cls == kind.cls and self._under_rank(device, kind.under) is not None
+
+    def _under_rank(self, device: Thing, under: str | None) -> int | None:
+        """How specific *under* is for the device: 0 for everywhere, 1 for its model,
+        2 and up for a place it lies in, deeper places higher; ``None`` when *under*
+        names neither its model nor a place it lies in."""
+        if under is None:
+            return 0
+        if device.id in self._lying_under(under):
+            return 2 + under.count("/")
+        return 1 if device.model == under else None
 
     def _lying_under(self, place_id: str) -> frozenset[str]:
         if place_id not in self._under:
@@ -997,6 +1006,50 @@ class PanelGraph:
             rivals=rivals,
             points=points,
         )
+
+    def probe(self, device_id: str) -> tuple[ProbeElement, ...]:
+        """The probe picture of a device: the ``probe_pictures.csv`` rows of its class,
+        per element (per curve of a plot) the one whose ``under`` is the most
+        specific for the device (:meth:`applies` says which apply), in the file
+        order of the rows with no ``under``, then of the others. Rows citing an
+        excluded document are left out.
+
+        Raises:
+            KeyError: No such device.
+        """
+        device = self.thing(device_id, "device")
+        chosen: dict[tuple[str, str | None], tuple[int, int, ProbeElement]] = {}
+        for n, row in enumerate(self._tables.probe_pictures):
+            if row.cls != device.cls or row.document in self._excluded_documents:
+                continue
+            rank = self._under_rank(device, row.under)
+            if rank is None:
+                continue
+            key = (row.element, row.label if row.shape == "plot" else None)
+            first = chosen[key][1] if key in chosen else n
+            if key not in chosen or rank > chosen[key][0]:
+                chosen[key] = (rank, first, row)
+        return tuple(row for _rank, _n, row in sorted(chosen.values(), key=lambda c: c[1]))
+
+    def probe_channel(self, device_id: str, signal: str) -> str | None:
+        """The channel stating *signal* on the device, else on a device it is
+        ``read_out_by`` (in edge order); ``None`` when none states it.
+
+        Raises:
+            KeyError: No such device.
+        """
+        found = next(
+            (c.name for c in self.channels(device_id, "device") if c.signal == signal), None
+        )
+        if found is not None:
+            return found
+        for edge in self.neighbours(device_id, "device").get(READ_OUT_RELATION, ()):
+            if edge.outgoing and edge.other_kind == "device":
+                channels = self.channels(edge.other, "device")
+                found = next((c.name for c in channels if c.signal == signal), None)
+                if found is not None:
+                    return found
+        return None
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""

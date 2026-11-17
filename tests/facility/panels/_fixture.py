@@ -142,3 +142,62 @@ def graph_with_wide(tmp_path: Path, channels: int):
                 )
             rows.write(f"{name},0,normal,screen,stated,xr-screens,4d5e6f7,w.screen:{i}\n")
     return load_graph(write_fixture_facility(tmp_path / "facility.json", wide), tables)
+
+
+#: The signals :func:`add_bpm` gives a pickup, each on a channel ``<id>:<signal>``.
+BPM_SIGNALS = (
+    "position_x_readback",
+    "position_y_readback",
+    "amplitude_a",
+    "amplitude_b",
+    "amplitude_c",
+    "amplitude_d",
+    "tbt_x",
+    "tbt_y",
+)
+
+
+def add_bpm(document: dict[str, Any], device: str, place: str) -> None:
+    """Add the pickup *device* (class ``BPM``) in *place*, with a channel per
+    :data:`BPM_SIGNALS`, ``read_out_by`` the chassis ``<device>-E``, whose channel
+    ``<device>-E:sum_readback`` states the signal ``sum_readback``."""
+    electronics = f"{device}-E"
+    document["devices"] += [
+        {"id": device, "class": "BPM", "place": place},
+        {"id": electronics, "class": "BPMElectronics", "place": place},
+    ]
+    for signal in BPM_SIGNALS:
+        record: dict[str, Any] = {"id": f"{device}:{signal}", "signal": signal}
+        record["on"] = {"device": device}
+        if signal.startswith("position"):
+            record["unit"] = "mm"
+        document["channels"].append(record)
+    document["channels"].append(
+        {
+            "id": f"{electronics}:sum_readback",
+            "signal": "sum_readback",
+            "on": {"device": electronics},
+        }
+    )
+    document["relations"].append(
+        {
+            "id": f"{device.lower()}-read-out-by",
+            "type": "read_out_by",
+            "subject": {"device": device},
+            "object": {"device": electronics},
+            "standing": "accepted",
+        }
+    )
+
+
+def graph_with_bpms(tmp_path: Path, tables: Path | None = None):
+    """The fixture graph with the pickups ``XR01:BPM1`` in ``XR/XR01`` and ``XR02:BPM1``
+    in ``XR/XR02`` (:func:`add_bpm`), read with *tables* (the fixture's by default)."""
+    from osprey.facility.panels import load_graph
+
+    def change(document: dict[str, Any]) -> None:
+        add_bpm(document, "XR01:BPM1", "XR/XR01")
+        add_bpm(document, "XR02:BPM1", "XR/XR02")
+
+    facility = write_fixture_facility(tmp_path / "bpm.json", change)
+    return load_graph(facility, tables or PANELS_DIR)

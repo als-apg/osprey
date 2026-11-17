@@ -67,6 +67,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
             "calibration_kinds.csv",
             "calibrations.csv",
             "calibration_curves.csv",
+            "probe_pictures.csv",
         }
     )
 
