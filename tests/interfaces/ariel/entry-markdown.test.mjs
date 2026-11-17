@@ -381,6 +381,33 @@ describe('facility references', () => {
     });
     expect(body.querySelector('.entry-facility-link')?.textContent).toBe('BL[1].X+Y(2)');
   });
+
+  test.each(['SR01-BPM1', 'SR01C/BPM-1:X^2', 'A$B|C{1}?*\\D'])(
+    'the id %j builds a valid pattern and is matched as written',
+    (target) => {
+      const html = renderEntryMarkdown(`before\n\n\`\`\`\n${target}\n\`\`\`\n`, {
+        references: [{ target, records: [RECORD] }],
+      });
+      expect(html).not.toBeNull();
+      const body = document.createElement('div');
+      body.innerHTML = /** @type {string} */ (html);
+      expect(body.querySelector('.entry-facility-link')?.textContent).toBe(target);
+    }
+  );
+
+  test('an entry that quotes a hyphenated id is rendered, not shown as plain text', () => {
+    const rawText = 'Orbit\n\n| Monitor |\n| --- |\n| SR01-BPM1 |';
+    const start = rawText.indexOf('SR01-BPM1');
+    const { bodyHtml, rendered } = renderEntryTextHtml({
+      raw_text: rawText,
+      facility_references: [{ start, end: start + 9, target: 'SR01-BPM1', records: [RECORD] }],
+      metadata: { body_format: 'markdown' },
+    });
+    expect(rendered).toBe(true);
+    const body = document.createElement('div');
+    body.innerHTML = bodyHtml;
+    expect(body.querySelector('td .entry-facility-link')?.textContent).toBe('SR01-BPM1');
+  });
 });
 
 describe('the format switch (renderEntryTextHtml)', () => {

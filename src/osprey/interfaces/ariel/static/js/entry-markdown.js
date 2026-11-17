@@ -208,7 +208,7 @@ function inlinePictures(root, attachments) {
  */
 function quotePattern(targets) {
   const longestFirst = [...targets].sort((a, b) => Array.from(b).length - Array.from(a).length);
-  const alternatives = longestFirst.map((t) => t.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&'));
+  const alternatives = longestFirst.map((t) => t.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&'));
   return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alternatives.join('|')})(?![\\p{L}\\p{N}_])`, 'gu');
 }
 
