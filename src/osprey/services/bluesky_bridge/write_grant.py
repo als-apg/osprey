@@ -6,11 +6,15 @@ authorization (:mod:`osprey_connectors.write_authorization`) whenever the
 process names one (``OSPREY_WRITE_AUTHORIZATION``, read on every write). This
 module gives each plan run its own, the way an optimizer run holds one:
 
-1. **Survey.** The plan is built a second time and stepped without a
-   RunEngine (:func:`survey_writes`): every ``set`` message it yields is one
-   write call, so the survey counts the steps and the range of values per
-   channel. A plan that needs an answer to go on (a read it branches on) stops
-   the survey early; what was seen up to there is still the first request.
+1. **Survey.** The plan is built a second time and stepped beside the real
+   one (:func:`survey_writes`): every ``set`` message it yields is one write
+   call, so the survey counts the steps and the range of values per channel.
+   Its ``read`` and ``locate`` messages go to the RunEngine and get the real
+   answer, which moves nothing, so a plan that writes relative to where a
+   device sits (an ORM sweep about each working point) is surveyed at the
+   values it will write. Every other message is answered ``None`` and never
+   carried out. A plan that reads may still branch on readings that change
+   once it moves, so its survey carries headroom.
 2. **Acquire.** At ``allowed`` the worker issues the grant itself
    (``self_issue``). At ``asked`` it files a request — the web terminal's chip
    and ``osprey write-authorization approve`` list it — and waits, yielding
@@ -141,13 +145,17 @@ def _number(address: str, value: Any) -> float:
     return float(value)
 
 
-def survey_writes(build: Callable[[], Iterable[Any]]) -> WriteSurvey:
-    """Step a freshly built plan without a RunEngine and count what it writes.
+def survey_writes(build: Callable[[], Iterable[Any]]) -> Generator[Any, Any, WriteSurvey]:
+    """Step a freshly built plan and count what it writes; ``yield from`` it in a plan.
 
-    Every message is answered ``None``. The survey is marked incomplete when
-    the plan asks for a value it could compute with (a ``read`` or a
-    ``locate``: it may branch on the real answer), when it raises or ends
-    early on a ``None`` it could not use, and past
+    Only the plan's ``read`` and ``locate`` messages are yielded on, to the
+    RunEngine running the caller, and their real answers sent back: neither
+    moves anything, and a write computed from where a device sits is then the
+    write the run will make. Every other message is answered ``None`` and
+    never carried out — no ``set``, ``trigger`` or ``sleep`` of the surveyed
+    copy reaches the RunEngine. The survey is marked incomplete when the plan
+    reads (it may branch on readings that change once it moves), when it
+    raises or ends early on a ``None`` it could not use, and past
     :data:`SURVEY_MESSAGE_CAP` messages. What it saw up to there is kept.
     """
     survey = WriteSurvey()
@@ -157,13 +165,26 @@ def survey_writes(build: Callable[[], Iterable[Any]]) -> WriteSurvey:
         logger.debug("write survey: the plan could not be built again", exc_info=True)
         survey.complete = False
         return survey
+    reply = None
     try:
-        reply = None
         for _ in range(SURVEY_MESSAGE_CAP):
-            msg = plan.send(reply) if hasattr(plan, "send") else next(plan)
+            try:
+                msg = plan.send(reply) if hasattr(plan, "send") else next(plan)
+            except StopIteration:
+                return survey
+            except WriteAuthorizationError:
+                raise
+            except Exception:  # the plan needed an answer the survey cannot give
+                logger.debug("write survey stopped early", exc_info=True)
+                survey.complete = False
+                return survey
             reply = None
             if getattr(msg, "command", None) in _ANSWERED:
                 survey.complete = False
+                # The RunEngine's answer. What it throws in here instead (an
+                # abort, a read that failed) is the run's, and goes on up.
+                reply = yield msg
+                continue
             write = _write_of(msg)
             if write is None:
                 continue
@@ -171,20 +192,12 @@ def survey_writes(build: Callable[[], Iterable[Any]]) -> WriteSurvey:
             survey.add(address, _number(address, value))
             survey.steps += 1
             survey.target = survey.target or target
-        else:
-            survey.complete = False
-    except StopIteration:
-        pass
-    except WriteAuthorizationError:
-        raise
-    except Exception:  # the plan needed an answer the survey cannot give
-        logger.debug("write survey stopped early", exc_info=True)
         survey.complete = False
+        return survey
     finally:
         close = getattr(plan, "close", None)
         if close is not None:
             close()
-    return survey
 
 
 def _wait_s() -> float:
@@ -512,7 +525,7 @@ def run_under_grant(
     owner = current_owner()
     if not enabled() or owner is NO_OWNER or not isinstance(owner, str):
         return (yield from plan)
-    survey = survey_writes(build)
+    survey = yield from survey_writes(build)
     if survey.complete and survey.steps == 0:
         return (yield from plan)
     authorization = PlanAuthorization(plan_name, owner)

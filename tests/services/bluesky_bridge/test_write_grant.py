@@ -110,6 +110,15 @@ def _adaptive(devices: Any, params: Any) -> Iterator[Any]:
             yield from bps.mv(quad, extra)
 
 
+def _about_the_working_point(devices: Any, params: Any) -> Iterator[Any]:
+    """Kick the quad either side of where it sits, then put it back: an ORM sweep's shape."""
+    quad = devices[params.quad]
+    working_point = float((yield from bps.loc(quad))["setpoint"])
+    for kick in (-1.0, 1.0):
+        yield from bps.mv(quad, working_point + kick)
+    yield from bps.mv(quad, working_point)
+
+
 def _read_only(devices: Any, params: Any) -> Iterator[Any]:
     yield Msg("read", devices[params.quad])
 
@@ -202,11 +211,12 @@ def test_a_write_the_survey_could_not_see_asks_for_a_replacement_grant(person: _
 
     assert connector.writes == [1.0, 2.0, 3.0, 4.0, 5.0]
     first, second, third = person.seen
-    # The plan reads, so the survey cannot vouch for what follows: three writes
-    # seen, and headroom for the rest.
+    # The survey's read is answered for real, before anything moved: 0.0, so it
+    # sees the extra writes at 1.0 and 2.0. The run reads 3.0 and goes to 4.0
+    # and 5.0, which is why a plan that reads is given headroom.
     assert first.channels == {CHANNEL: wa.ChannelRange(1.0, 3.0)}
-    assert first.steps == 3 + write_grant.EXTRA_STEPS_FLOOR
-    assert "3 write(s) seen + 10 headroom" in first.label
+    assert first.steps == 5 + write_grant.EXTRA_STEPS_FLOOR
+    assert "5 write(s) seen + 10 headroom" in first.label
     # 4.0 is outside the first grant's range: the replacement widens it to 4.0
     # and carries the unspent steps plus headroom again.
     assert second.channels == {CHANNEL: wa.ChannelRange(1.0, 4.0)}
@@ -217,6 +227,22 @@ def test_a_write_the_survey_could_not_see_asks_for_a_replacement_grant(person: _
     # so each new value past it is one more question to the person.
     assert third.channels == {CHANNEL: wa.ChannelRange(1.0, 5.0)}
     assert len(_grants()) == 3
+
+
+def test_a_sweep_about_the_working_point_is_surveyed_at_the_values_it_writes(
+    person: _Person,
+) -> None:
+    connector = _Connector()
+    connector.value = 10.0
+
+    _run(_about_the_working_point, connector)
+
+    assert connector.writes == [9.0, 11.0, 10.0]
+    # The survey's locate got the real working point, so one request covers
+    # the whole sweep and nobody is asked again.
+    [request] = person.seen
+    assert request.channels == {CHANNEL: wa.ChannelRange(9.0, 11.0)}
+    assert request.steps == 3 + write_grant.EXTRA_STEPS_FLOOR
 
 
 def test_nobody_answering_ends_the_run_before_any_write(
