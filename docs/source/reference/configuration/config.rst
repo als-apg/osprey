@@ -1228,8 +1228,8 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
        ``settings.topic``.
    * - ``pv_directory.alarm_state.settings.auth``
      - The login a broker asks for: ``username`` with ``password_env``, sent
-       as SASL. ``mechanism`` is ``PLAIN`` (the default), ``SCRAM-SHA-256`` or
-       ``SCRAM-SHA-512``. A login is sent over TLS, verified against
+       as SASL. ``mechanism`` names how: ``PLAIN`` unless it says
+       ``SCRAM-SHA-256`` or ``SCRAM-SHA-512``. A login is sent over TLS, verified against
        ``settings.tls.ca_bundle`` or, without one, the system trust store.
        ``cleartext: true`` sends it unencrypted, for a listener that offers
        no TLS: anyone on the network path can then read the password.
