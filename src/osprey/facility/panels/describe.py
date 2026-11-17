@@ -69,6 +69,7 @@ __all__ = [
     "describe",
     "device_card",
     "health_rollup",
+    "light",
     "place_view",
     "rack_elevation",
     "set_overview",
@@ -319,7 +320,7 @@ def _value_row(graph: PanelGraph, thing_id: str, channel: Channel) -> ValueRow:
     )
 
 
-def _light(graph: PanelGraph, channel: str) -> Light:
+def light(graph: PanelGraph, channel: str) -> Light:
     """The light of a rule-bearing channel, with what its rows say about it."""
     rows = graph.rule(channel)
     by_value: dict[str, dict[str | None, set[str]]] = {}
@@ -567,7 +568,7 @@ def device_card(
     elif thing.kind == "group":
         members = [_ref(graph, index, member) for member in graph.members(thing.id)]
     health: list[Item] = [
-        _light(graph, channel.name) for channel in channels if graph.rule(channel.name)
+        light(graph, channel.name) for channel in channels if graph.rule(channel.name)
     ]
     sources: list[Item] = [
         Fact(citation.document, _citation_text(citation), citation=citation)
@@ -605,7 +606,7 @@ def _by_suffix(member: Thing, channels: list[Channel]) -> dict[str, Channel]:
 
 def _cell(graph: PanelGraph, thing_id: str, channel: Channel) -> ValueRow | Light:
     if not channel.writable and graph.rule(channel.name):
-        return _light(graph, channel.name)
+        return light(graph, channel.name)
     return _value_row(graph, thing_id, channel)
 
 
@@ -754,7 +755,7 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     index = _index(graph)
 
     def lights(thing: Thing) -> tuple[Light, ...]:
-        return tuple(_light(graph, name) for name in rule_channels(graph, thing.id, "device"))
+        return tuple(light(graph, name) for name in rule_channels(graph, thing.id, "device"))
 
     # (device, unit) -> its claims into this rack, in graph order
     slots: dict[tuple[str, int], list[Edge]] = {}

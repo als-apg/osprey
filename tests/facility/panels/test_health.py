@@ -333,3 +333,30 @@ def test_supported_says_whether_the_engine_can_evaluate_a_row(row_value, expecte
     from osprey.facility.panels.health import supported
 
     assert supported(row_value) is expected
+
+
+@pytest.mark.parametrize(
+    ("row_value", "expected"),
+    [
+        ("0", ("literal", None, 0, None, None)),
+        (" ON ", ("literal", None, None, None, None)),
+        ("2.5", ("literal", None, 2.5, None, None)),
+        (">=5", ("compare", ">=", 5, None, None)),
+        ("!= 0", ("compare", "!=", 0, None, None)),
+        ("bit=1", ("bit", None, None, 0, 1)),
+        ("bit3=0", ("bit", None, None, 3, 0)),
+        ("bit1=2", None),
+        ("expr:a>3", None),
+        ("<inf", None),
+    ],
+)
+def test_form_names_the_grammar_the_engine_evaluates(row_value, expected):
+    from osprey.facility.panels.health import form, supported
+
+    found = form(row_value)
+    assert (found is not None) is supported(row_value)
+    if expected is None:
+        assert found is None
+    else:
+        assert (found.kind, found.op, found.number, found.bit, found.wanted) == expected
+        assert found.text == row_value.strip()

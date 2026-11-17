@@ -20,6 +20,7 @@ import math
 import operator
 import re
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from osprey.facility.panels.model import PanelGraph, ThingKind
@@ -123,6 +124,48 @@ def _bit(index: int, wanted: int) -> Callable[[Any], bool]:
     return match
 
 
+@dataclass(frozen=True)
+class Form:
+    """The parsed form of a health row's value.
+
+    Attributes:
+        kind: ``literal``, ``compare`` or ``bit``.
+        text: The value, stripped; a literal's text.
+        op: A comparison's operator (``!=``, ``<``, ``<=``, ``>``, ``>=``).
+        number: A literal's number when it parses as one, or a comparison's limit.
+        bit: A bit test's bit index.
+        wanted: A bit test's wanted value, 0 or 1.
+    """
+
+    kind: Literal["literal", "compare", "bit"]
+    text: str
+    op: str | None = None
+    number: Number | None = None
+    bit: int | None = None
+    wanted: int | None = None
+
+
+@functools.cache
+def form(row_value: str) -> Form | None:
+    """The form of a health row's value, or ``None`` for one the engine cannot evaluate.
+
+    The grammar is :func:`row_matches`'s; whoever writes the rule in another
+    language (a screen format's rule expressions) reads it from here.
+    """
+    text = row_value.strip()
+    if found := _COMPARE.match(text):
+        limit = _parse_number(found.group(2))
+        return None if limit is None else Form("compare", text, op=found.group(1), number=limit)
+    if found := _BIT.match(text):
+        wanted = int(found.group(2))
+        if wanted not in (0, 1):
+            return None
+        return Form("bit", text, bit=int(found.group(1) or 0), wanted=wanted)
+    if _LOOKS_LIKE_FORM.match(text):
+        return None
+    return Form("literal", text, number=_parse_number(text))
+
+
 @functools.cache
 def _parse(row_value: str) -> Callable[[Any], bool] | None:
     """The test a health row's value stands for, built once per distinct text.
@@ -130,16 +173,16 @@ def _parse(row_value: str) -> Callable[[Any], bool] | None:
     Returns:
         ``None`` for a form the engine cannot evaluate.
     """
-    text = row_value.strip()
-    if found := _COMPARE.match(text):
-        limit = _parse_number(found.group(2))
-        return None if limit is None else _compare(found.group(1), limit)
-    if found := _BIT.match(text):
-        wanted = int(found.group(2))
-        return _bit(int(found.group(1) or 0), wanted) if wanted in (0, 1) else None
-    if _LOOKS_LIKE_FORM.match(text):
+    found = form(row_value)
+    if found is None:
         return None
-    return _literal(text)
+    if found.kind == "compare":
+        assert found.op is not None and found.number is not None
+        return _compare(found.op, found.number)
+    if found.kind == "bit":
+        assert found.bit is not None and found.wanted is not None
+        return _bit(found.bit, found.wanted)
+    return _literal(found.text)
 
 
 def row_matches(row_value: str, value: Any) -> bool:

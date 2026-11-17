@@ -5,7 +5,10 @@
 the :class:`PanelGraph` every later step reads through;
 :mod:`~osprey.facility.panels.health` turns values into states;
 :mod:`~osprey.facility.panels.view` and :mod:`~osprey.facility.panels.describe`
-say what each screen contains, without layout.
+say what each screen contains, without layout;
+:mod:`~osprey.facility.panels.strip` arranges a place's devices in beam order;
+:mod:`~osprey.facility.panels.layout` draws a view as a Screen-IR document with
+the symbols and theme roles of :mod:`~osprey.facility.panels.symbols`.
 """
 
 from osprey.facility.panels.describe import (
