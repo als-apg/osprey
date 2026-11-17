@@ -71,7 +71,7 @@ from typing_extensions import override
 
 from osprey_connectors.simulation import TEXTURE, pulse, series, topoff, values
 from osprey_connectors.simulation.envelope import declares_motion
-from osprey_connectors.simulation.records import LinearTerm
+from osprey_connectors.simulation.records import AbsoluteNoise, RelativeNoise
 from osprey_connectors.simulation.view import SETPOINT
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -79,7 +79,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         ChannelRecord,
         GateRecord,
         ModelEntry,
-        NoiseRecord,
+        Noise,
         PulseRecord,
         ResolvedCoupling,
         SeedRecord,
@@ -148,32 +148,6 @@ def _float_range(channel: ChannelRecord) -> tuple[float, float] | None:
     )
 
 
-def _linear_terms(linear: Mapping[str, float | LinearTerm]) -> list[tuple[str, float]]:
-    """``(input address, coefficient)`` pairs of a seed's ``linear`` map, sorted."""
-    terms: list[tuple[str, float]] = []
-    for address in sorted(linear):
-        term = linear[address]
-        coefficient = term.coefficient if isinstance(term, LinearTerm) else term
-        terms.append((address, float(coefficient)))
-    return terms
-
-
-def _gate_inputs(inputs: Mapping[str, object] | None) -> list[tuple[str, object]]:
-    """``(input address, blocking label)`` pairs of a seed's ``gate.inputs``, sorted.
-
-    ``inputs`` is ``{<address>: <blocking_label>}``; a value may also be the
-    record ``{blocking_label: <label>}``.
-    """
-    pairs: list[tuple[str, object]] = []
-    stated = inputs or {}
-    for address in sorted(stated, key=str):
-        label = stated[address]
-        if isinstance(label, Mapping):
-            label = label["blocking_label"]
-        pairs.append((str(address), label))
-    return pairs
-
-
 def channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Variable:
     """The LUME variable of one channel of the view's ``variables.json``.
 
@@ -237,11 +211,15 @@ def channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Var
     )
 
 
-def _noise_term(record: NoiseRecord | None) -> tuple[Literal["absolute", "relative"], float]:
+def _noise_term(record: Noise | None) -> tuple[Literal["absolute", "relative"], float]:
     """The term a noise record states and its value; no record is an absolute 0.0."""
-    if record is not None and _RELATIVE in record.model_fields_set:
-        return _RELATIVE, float(record.relative or 0.0)
-    return _ABSOLUTE, float(0.0 if record is None else record.absolute or 0.0)
+    match record:
+        case RelativeNoise(relative=relative):
+            return _RELATIVE, float(relative)
+        case AbsoluteNoise(absolute=absolute):
+            return _ABSOLUTE, float(absolute)
+        case None:
+            return _ABSOLUTE, 0.0
 
 
 class TextureModel(LUMEModel):
@@ -294,7 +272,7 @@ class TextureModel(LUMEModel):
         }
         self._held: dict[str, values.StoredValue] = {}
         self._couple: dict[str, list[ResolvedCoupling]] = {}
-        self._noise: dict[str, NoiseRecord] = {}
+        self._noise: dict[str, Noise] = {}
         self._still: frozenset[str] = frozenset()
         self._active: dict[str, object] = {}
         self.reset()
@@ -384,10 +362,11 @@ class TextureModel(LUMEModel):
         downstream: dict[str, set[str]] = {}
         for address in self._variables:
             seed = self._seeds.get(address)
-            linear = None if seed is None else seed.linear
-            sources = [source for source, _ in _linear_terms(linear or {})]
+            linear = () if seed is None else seed.linear_terms()
+            sources = [source for source, _ in linear]
             gate = None if seed is None else seed.gate
-            sources += [source for source, _ in _gate_inputs(None if gate is None else gate.inputs)]
+            if gate is not None:
+                sources += [source for source, _ in gate.blocking_labels()]
             record = self._pulse(address)
             if record is not None:
                 sources += [record.driver, record.enable]
@@ -419,12 +398,12 @@ class TextureModel(LUMEModel):
     ) -> values.StoredValue:
         """``held[address]``, or for a ``linear`` channel the weighted sum of its inputs."""
         seed = self._seeds.get(address)
-        linear = None if seed is None else seed.linear
+        linear = () if seed is None else seed.linear_terms()
         if not linear:
             return held[address]
         return sum(
             coefficient * values._real(self._derived(source, held)) if source in held else 0.0
-            for source, coefficient in _linear_terms(linear)
+            for source, coefficient in linear
         )
 
     def _gated(
@@ -451,13 +430,13 @@ class TextureModel(LUMEModel):
             source in held
             and source in self._channels
             and self._derived(source, held) == self._coerce(source, label)
-            for source, label in _gate_inputs(gate.inputs)
+            for source, label in gate.blocking_labels()
         )
 
     def set_motion(
         self,
         couple: Mapping[str, Sequence[ResolvedCoupling]],
-        noise: Mapping[str, NoiseRecord],
+        noise: Mapping[str, Noise],
         *,
         still: frozenset[str] = frozenset(),
     ) -> None:

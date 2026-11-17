@@ -16,25 +16,56 @@ other.
 
 from datetime import datetime, timedelta
 from datetime import time as dtime
+from typing import Annotated, TypeAlias
+
+from pydantic import BeforeValidator, Field
+from pydantic_core import PydanticCustomError
 
 from osprey_connectors.model import FrozenModel
 
 __all__ = [
     "RelativeTimestamp",
+    "TimeOfDay",
     "resolve_relative_timestamp",
 ]
+
+
+def _local_time(value: object) -> object:
+    """An ``HH:MM[:SS]`` text as the time of day it states; a time with an offset is refused."""
+    if isinstance(value, str):
+        try:
+            value = dtime.fromisoformat(value)
+        except ValueError:
+            raise PydanticCustomError(
+                "time_of_day", "Input should be an HH:MM[:SS] time of day"
+            ) from None
+    if isinstance(value, dtime) and value.tzinfo is not None:
+        raise PydanticCustomError(
+            "time_offset", "Input is local time and must not carry a timezone offset"
+        )
+    return value
+
+
+#: A wall-clock time of day without a timezone offset. A string is read as
+#: ``HH:MM[:SS]`` (``08:00`` is ``08:00:00``); a time that states an offset is
+#: refused, because the facility timezone places it. JSON mode writes it as
+#: :meth:`datetime.time.isoformat` does, ``HH:MM:SS``.
+TimeOfDay: TypeAlias = Annotated[dtime, BeforeValidator(_local_time)]
 
 
 class RelativeTimestamp(FrozenModel):
     """A timestamp expressed relative to an apply-/ingest-time anchor.
 
-    ``days_ago`` is a whole-day shift back from the anchor date; ``time`` pins
-    the resolved time-of-day (tz-naive local), so hardcoded prose clock times in
-    an entry body stay consistent with the resolved timestamp.
+    ``days_ago`` is a whole-day shift back from the anchor date, 0 or more and
+    never a ``bool``; ``time`` pins the resolved time-of-day (local, without an
+    offset), so hardcoded prose clock times in an entry body stay consistent
+    with the resolved timestamp. Read from a file it is ``{days_ago, time}``
+    with ``time`` an ``HH:MM[:SS]`` text, and it writes ``time`` back as
+    ``HH:MM:SS``.
     """
 
-    days_ago: int
-    time: dtime
+    days_ago: int = Field(ge=0)
+    time: TimeOfDay
 
 
 def resolve_relative_timestamp(spec: RelativeTimestamp, now: datetime) -> datetime:

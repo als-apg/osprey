@@ -44,7 +44,7 @@ from osprey_connectors.simulation.records import (
     ChannelFaultKind,
     CouplingTerm,
     DriveRecord,
-    NoiseRecord,
+    Noise,
     ResolvedCoupling,
     ScenarioRecord,
 )
@@ -376,7 +376,7 @@ class ComposedSet(FrozenModel):
     overrides: ReadOnlyMapping[str, object]
     faults: ReadOnlyMapping[str, ReadOnlyMapping[str, object]]
     couplings: ReadOnlyMapping[str, FrozenTuple[ResolvedCoupling]]
-    noise: ReadOnlyMapping[str, NoiseRecord]
+    noise: ReadOnlyMapping[str, Noise]
     still: frozenset[str] = frozenset()
     channel_faults: ReadOnlyMapping[str, ChannelFaultKind]
     archiver_events: ReadOnlyMapping[str, FrozenTuple[ArchiverEvent]]
@@ -419,7 +419,7 @@ def compose(scenarios: Mapping[str, ScenarioRecord], active: ActiveState) -> Com
     faults: dict[str, dict[str, object]] = {}
     drivers: dict[str, DriveRecord] = {}
     couple: dict[str, list[CouplingTerm]] = {}
-    noise: dict[str, NoiseRecord] = {}
+    noise: dict[str, Noise] = {}
     still: set[str] = set()
     channel_faults: dict[str, ChannelFaultKind] = {}
     archiver_events: dict[str, list[ArchiverEvent]] = {}

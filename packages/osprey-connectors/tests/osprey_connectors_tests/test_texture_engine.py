@@ -16,10 +16,11 @@ from lume.variables import (
     ScalarVariable,
     StrVariable,
 )
+from pydantic import TypeAdapter
 
 from osprey_connectors.simulation import pulse, series
 from osprey_connectors.simulation.records import (
-    NoiseRecord,
+    Noise,
     ResolvedCoupling,
     SeedsDocument,
     VariablesDocument,
@@ -50,7 +51,7 @@ def _set_motion(
             address: [ResolvedCoupling.model_validate(term) for term in terms]
             for address, terms in couple.items()
         },
-        {address: NoiseRecord.model_validate(record) for address, record in noise.items()},
+        {address: TypeAdapter(Noise).validate_python(record) for address, record in noise.items()},
         **kwargs,
     )
 

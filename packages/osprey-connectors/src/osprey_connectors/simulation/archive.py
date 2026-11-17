@@ -71,6 +71,7 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
+from osprey_connectors.simulation.records import StepEvent
 from osprey_connectors.simulation.series import (
     apply_events,
     epoch_seconds_array,
@@ -298,8 +299,6 @@ class SeedReport(FrozenModel):
 
 #: The serving instance the archive composite's log lines name.
 _ARCHIVE_INSTANCE: ServingInstance = "virtual_accelerator"
-
-_STEP = "step"
 
 
 class ArchiveComposite:
@@ -554,7 +553,7 @@ class ArchiveComposite:
         stored = [held] * len(times)
         fractions = np.linspace(0.0, 1.0, len(times))
         for event in events:
-            if event.shape != _STEP:
+            if not isinstance(event, StepEvent):
                 continue
             target = channel_values.coerce(
                 event.to, channel.value_type, channel.options, channel.shape

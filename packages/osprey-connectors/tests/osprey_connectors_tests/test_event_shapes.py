@@ -14,9 +14,12 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
+from pydantic import TypeAdapter
 
 from osprey_connectors.simulation import series
-from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
+from osprey_connectors.simulation.records import ArchiverEvent, LossEvent, TopoffRecord
+
+EVENT: TypeAdapter[ArchiverEvent] = TypeAdapter(ArchiverEvent)
 
 ANCHOR = 1_762_300_000.0
 #: The zone the events are placed in; every event here is anchored by offset.
@@ -41,7 +44,7 @@ def apply_events(values, events, n, times_s, anchor_s, topoff=None):
     """:func:`series.apply_events` of events and a top-off record stated as mappings."""
     return series.apply_events(
         values,
-        [ArchiverEvent.model_validate(event) for event in events],
+        [EVENT.validate_python(event) for event in events],
         n,
         times_s,
         anchor_s=anchor_s,
@@ -51,9 +54,9 @@ def apply_events(values, events, n, times_s, anchor_s, topoff=None):
 
 
 def loss_refill_bound(event: dict, topoff: dict | None) -> float | None:
-    """:func:`series.loss_refill_bound` of an event and a top-off record stated as mappings."""
-    return series.loss_refill_bound(
-        ArchiverEvent.model_validate(event),
+    """:func:`series._loss_refill_bound` of an event and a top-off record stated as mappings."""
+    return series._loss_refill_bound(
+        LossEvent.model_validate(event),
         None if topoff is None else TopoffRecord.model_validate(topoff),
     )
 

@@ -142,11 +142,11 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "a caller reads which channel a refused write names"
     ),
     "osprey_connectors.simulation.logbook.PlotSeries": "a plot spec lists its series in this type",
-    "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
-        "the framework's archive rewrite reads the burst window"
+    "osprey_connectors.simulation.records.LinearTerm": (
+        "a seed's linear map holds an input stated as a record in this type"
     ),
-    "osprey_connectors.simulation.series.loss_refill_bound": (
-        "the framework's archive rewrite reads the loss refill bound"
+    "osprey_connectors.simulation.records.PlotRef": (
+        "a logbook entry's attachments hold a plot spec in this type"
     ),
     "osprey_connectors.simulation.state.Overlap": "a composition check answers in this type",
     "osprey_connectors.simulation.view.Binding": "a view lists its wiring records in this type",

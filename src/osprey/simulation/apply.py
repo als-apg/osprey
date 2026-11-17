@@ -289,12 +289,6 @@ DENSIFIED_FIELD = "osprey_densified"
 #: cross the server's 16 MB command limit long before it became merely slow.
 _WRITE_CHUNK = 1000
 
-#: How many sigmas either side of a spike count as "inside" its window. A
-#: Gaussian is never exactly zero, so the window has to be cut somewhere; four
-#: sigmas leaves under 0.01% of the bump outside it, which is far below the
-#: channel's own noise and therefore invisible in the restored history.
-_SPIKE_WINDOW_SIGMAS = 4.0
-
 
 def view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord] | None:
     """The scenarios the simulator view lists, by name; ``None`` without a view.
@@ -691,7 +685,7 @@ def _view_logbook(
         entry
         for name in names
         if name in scenarios
-        for entry in scenario_logbook(_stated(scenarios[name]), files / name)
+        for entry in scenario_logbook(scenarios[name], files / name)
     ]
 
 
@@ -1062,7 +1056,7 @@ def event_window(
             happens to ask for, which is not a place in stored history at all —
             there is no honest timestamp to write it at.
     """
-    from osprey_connectors.simulation.series import anchored_instant
+    from osprey_connectors.simulation.series import occurrence_span, occurrences
 
     _require_events(events)
     start = anchor_s
@@ -1073,8 +1067,8 @@ def event_window(
             # A daily time-of-day recurs on every date the archive covers, so
             # the span its values reach over is the archive.
             return horizon_start, anchor_s
-        at = anchored_instant(event, anchor_s=anchor_s, tz=tz)
-        low, high = _occurrence_span(event, at, anchor_s, tz, topoff)
+        (at,) = occurrences(event, start_s=horizon_start, end_s=anchor_s, anchor_s=anchor_s, tz=tz)
+        low, high = occurrence_span(event, at, anchor_s=anchor_s, tz=tz, topoff=topoff)
         start, end = min(start, low), max(end, high)
     return max(start, horizon_start), min(end, anchor_s)
 
@@ -1119,13 +1113,17 @@ def event_subwindows(
     Raises:
         ValueError: As :func:`event_window`.
     """
+    from osprey_connectors.simulation.series import occurrence_span, occurrences
+
     _require_events(events)
     windows: list[tuple[float, float]] = []
     for event in events:
         _refuse_window_fraction(event)
         windows.extend(
-            _occurrence_span(event, at, anchor_s, tz, topoff)
-            for at in _event_instants(event, anchor_s, horizon_start, tz)
+            occurrence_span(event, at, anchor_s=anchor_s, tz=tz, topoff=topoff)
+            for at in occurrences(
+                event, start_s=horizon_start, end_s=anchor_s, anchor_s=anchor_s, tz=tz
+            )
         )
     clamped = [
         (max(start, horizon_start), min(end, anchor_s))
@@ -1133,64 +1131,6 @@ def event_subwindows(
         if end >= horizon_start and start <= anchor_s
     ]
     return _merge_intervals(clamped)
-
-
-def _occurrence_span(
-    event: ArchiverEvent,
-    at: float,
-    anchor_s: float,
-    tz: ZoneInfo,
-    topoff: TopoffRecord | None,
-) -> tuple[float, float]:
-    """The stretch one occurrence of an event at ``at`` changes, in epoch seconds.
-
-    A spike reaches four sigmas either side of its instant. A burst starts at its
-    instant and reaches :data:`BURST_WINDOW_TAUS` of its slowest decay after it. A
-    loss starts at its instant and lasts until top-off has surely refilled it, or
-    to the anchor on a channel no top-off refills. A step or a ramp runs from its
-    instant to its end, or to the anchor.
-    """
-    from osprey_connectors.simulation.series import BURST_WINDOW_TAUS, loss_refill_bound, step_end
-
-    shape = event.shape
-    if shape == "spike":
-        half = _event_number(event.width) * _SPIKE_WINDOW_SIGMAS
-        return at - half, at + half
-    if shape == "burst":
-        tail = event.tail_decay_s
-        slowest = max(_event_number(event.decay_s), 0.0 if tail is None else float(tail))
-        return at, at + BURST_WINDOW_TAUS * slowest
-    if shape == "loss":
-        bound = loss_refill_bound(event, topoff)
-        return at, anchor_s if bound is None else at + bound
-    # Only a ``step`` states an end; any other event persists to the anchor.
-    until = step_end(event, anchor_s=anchor_s, tz=tz) if shape == "step" else None
-    return at, anchor_s if until is None else until
-
-
-def _event_number(value: float | None) -> float:
-    """An archiver event's number, which its shape states.
-
-    ``osprey build`` checks that every number an event's shape needs is stated
-    (:func:`osprey.facility.scenarios.check_scenario_events`).
-
-    Raises:
-        TypeError: the event does not state it.
-    """
-    if value is None:
-        raise TypeError("float() argument must be a string or a real number, not 'NoneType'")
-    return float(value)
-
-
-def _event_instants(
-    event: ArchiverEvent, anchor_s: float, horizon_start: float, tz: ZoneInfo
-) -> list[float]:
-    """Every instant one event fires at, inside ``[horizon_start, anchor_s]``."""
-    from osprey_connectors.simulation.series import anchored_instant, daily_occurrences
-
-    if event.at_time is not None:
-        return daily_occurrences(event.at_time, _np_array([horizon_start, anchor_s]), tz=tz)
-    return [anchored_instant(event, anchor_s=anchor_s, tz=tz)]
 
 
 def _merge_intervals(windows: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:

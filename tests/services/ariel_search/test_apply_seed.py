@@ -217,10 +217,14 @@ def _drawn(entry_id: str) -> bytes:
     from osprey.simulation.plots import render_plot_spec
     from osprey_connectors.relative_time import resolve_relative_timestamp
     from osprey_connectors.simulation.logbook import PlotSpec
+    from osprey_connectors.simulation.records import ScenarioRecord
 
     scenarios = TEMPLATE_FACILITY / "scenarios"
     for name, scenario in facility_scenarios(scenarios).items():
-        for entry in scenario_logbook({"name": name, **scenario}, scenarios / name):
+        record = ScenarioRecord.model_validate(
+            {"name": name, "logbook": scenario.get("logbook", [])}
+        )
+        for entry in scenario_logbook(record, scenarios / name):
             if entry.entry_id == entry_id:
                 (spec,) = [item for item in entry.attachments if isinstance(item, PlotSpec)]
                 return render_plot_spec(spec, resolve_relative_timestamp(entry.when, T0))

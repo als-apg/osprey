@@ -9,6 +9,7 @@ import hashlib
 import math
 import time
 from datetime import datetime
+from datetime import time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -17,14 +18,17 @@ import pytest
 
 from osprey_connectors.simulation import series as series_module
 from osprey_connectors.simulation.series import (
+    _daily_occurrences,
     channel_key_bytes,
     clamp,
-    daily_occurrences,
     epoch_seconds_array,
     keyed_normals,
     wander,
 )
 from tests._archiver_events import event, events
+
+#: The daily time of day the occurrence cases place.
+NOON = dtime(12, 0, 0)
 
 #: The zone the helpers place events in; no event these cases place reads a calendar day.
 UTC_ZONE = ZoneInfo("UTC")
@@ -151,12 +155,25 @@ class TestEventPositions:
 
     def test_offset_anchored_needs_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
-        assert event_positions({"shape": "spike", "at_offset": 10.0}, t_frac, None, 100.0) == []
+        assert (
+            event_positions(
+                {"shape": "spike", "at_offset": 10.0, "amplitude": 1.0, "width": 1.0},
+                t_frac,
+                None,
+                100.0,
+            )
+            == []
+        )
 
     def test_offset_anchored_with_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
         t_abs = np.array([0.0, 10.0, 20.0, 30.0, 40.0])
-        positions = event_positions({"shape": "spike", "at_offset": 10.0}, t_frac, t_abs, 100.0)
+        positions = event_positions(
+            {"shape": "spike", "at_offset": 10.0, "amplitude": 1.0, "width": 1.0},
+            t_frac,
+            t_abs,
+            100.0,
+        )
         assert len(positions) == 1
         axis, at = positions[0]
         assert at == 110.0
@@ -164,7 +181,10 @@ class TestEventPositions:
 
     def test_time_of_day_needs_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
-        assert event_positions({"shape": "step", "at_time": "12:00:00"}, t_frac, None, 0.0) == []
+        assert (
+            event_positions({"shape": "step", "at_time": "12:00:00", "to": 1.0}, t_frac, None, 0.0)
+            == []
+        )
 
 
 class TestDailyOccurrences:
@@ -177,7 +197,7 @@ class TestDailyOccurrences:
         start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=tz)
         end = datetime(2026, 1, 2, 23, 0, 0, tzinfo=tz)
         t_abs = np.array([start.timestamp(), end.timestamp()])
-        occ = daily_occurrences("12:00:00", t_abs, tz=tz)
+        occ = _daily_occurrences(NOON, t_abs, tz=tz)
         assert len(occ) == 2
         assert occ[0] == datetime(2026, 1, 1, 12, 0, 0, tzinfo=tz).timestamp()
         assert occ[1] == datetime(2026, 1, 2, 12, 0, 0, tzinfo=tz).timestamp()
@@ -188,7 +208,7 @@ class TestDailyOccurrences:
         start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=tz)
         end = datetime(2026, 1, 1, 6, 0, 0, tzinfo=tz)
         t_abs = np.array([start.timestamp(), end.timestamp()])
-        assert daily_occurrences("12:00:00", t_abs, tz=tz) == []
+        assert _daily_occurrences(NOON, t_abs, tz=tz) == []
 
     def test_positions_are_box_tz_independent(self):
         """A UTC ``tz`` yields UTC-noon epochs even when the host ``$TZ`` is a
@@ -204,7 +224,7 @@ class TestDailyOccurrences:
             mp.setenv("TZ", "Pacific/Kiritimati")  # UTC+14, maximally far from UTC
             time.tzset()
             try:
-                occ = daily_occurrences("12:00:00", t_abs, tz=tz)
+                occ = _daily_occurrences(NOON, t_abs, tz=tz)
             finally:
                 mp.undo()
                 time.tzset()
@@ -223,7 +243,7 @@ class TestDailyOccurrences:
         end = datetime(2026, 3, 10, 23, 0, tzinfo=ny)
         t_abs = np.array([start.timestamp(), end.timestamp()])
 
-        occ = daily_occurrences("12:00:00", t_abs, tz=ny)
+        occ = _daily_occurrences(NOON, t_abs, tz=ny)
 
         assert len(occ) == 4  # Mar 7, 8, 9, 10
         dates = {datetime.fromtimestamp(e, ny).date() for e in occ}

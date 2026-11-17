@@ -253,8 +253,24 @@ def test_an_archiver_entry_writes_no_target() -> None:
 
 def test_archiver_events_on_one_channel_compose() -> None:
     view = _scenarios(
-        burst={"archiver": [{"channel": "SR:VAC:PRESSURE", "events": [{"shape": "spike"}]}]},
-        leak={"archiver": [{"channel": "SR:VAC:PRESSURE", "events": [{"shape": "step"}]}]},
+        burst={
+            "archiver": [
+                {
+                    "channel": "SR:VAC:PRESSURE",
+                    "events": [
+                        {"shape": "spike", "at_offset": -60, "amplitude": 1.0, "width": 5.0}
+                    ],
+                }
+            ]
+        },
+        leak={
+            "archiver": [
+                {
+                    "channel": "SR:VAC:PRESSURE",
+                    "events": [{"shape": "step", "at_offset": -60, "to": 1.0}],
+                }
+            ]
+        },
     )
 
     assert validate_composition(view, ["nominal", "burst", "leak"]) == []
@@ -282,7 +298,16 @@ def test_demo_history_composes_with_a_scenario_scripting_its_channels(other: str
 
 def test_an_override_on_a_channel_another_scenario_archives_composes() -> None:
     view = _scenarios(
-        logged={"archiver": [{"channel": "SR:RF:TEMP", "events": [{"shape": "spike"}]}]},
+        logged={
+            "archiver": [
+                {
+                    "channel": "SR:RF:TEMP",
+                    "events": [
+                        {"shape": "spike", "at_offset": -60, "amplitude": 1.0, "width": 5.0}
+                    ],
+                }
+            ]
+        },
         pinned={"overrides": {"SR:RF:TEMP": 26.5}},
         repinned={"overrides": {"SR:RF:TEMP": 30.0}},
     )

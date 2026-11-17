@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 
 from osprey.facility.views import view_bytes
 from osprey_connectors.simulation.envelope import (
@@ -21,7 +22,7 @@ from osprey_connectors.simulation.envelope import (
     motion_envelope,
 )
 from osprey_connectors.simulation.records import (
-    NoiseRecord,
+    Noise,
     ResolvedCoupling,
     ScenarioRecord,
     SeedRecord,
@@ -38,8 +39,8 @@ def _seed(record: dict | None) -> SeedRecord | None:
     return None if record is None else SeedRecord.model_validate(record)
 
 
-def _noise(record: dict) -> NoiseRecord:
-    return NoiseRecord.model_validate(record)
+def _noise(record: dict) -> Noise:
+    return TypeAdapter(Noise).validate_python(record)
 
 
 def _seeds(records: dict) -> dict[str, SeedRecord]:
