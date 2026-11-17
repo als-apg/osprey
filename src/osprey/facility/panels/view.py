@@ -44,10 +44,18 @@ __all__ = [
     "ViewKind",
 ]
 
-ViewKind = Literal["card", "set", "place", "rack", "rollup", "checkout"]
+ViewKind = Literal["card", "set", "calibration", "place", "rack", "rollup", "checkout"]
 
 #: Every view kind, in the order screens of one thing are listed.
-VIEW_KINDS: tuple[ViewKind, ...] = ("card", "set", "place", "rack", "rollup", "checkout")
+VIEW_KINDS: tuple[ViewKind, ...] = (
+    "card",
+    "set",
+    "calibration",
+    "place",
+    "rack",
+    "rollup",
+    "checkout",
+)
 
 
 @dataclass(frozen=True)
@@ -61,7 +69,8 @@ class Target:
         by: A roll-up's grouping, ``place`` or ``system``; ``None`` for every
             other view kind.
         system: For a roll-up by ``system``, the one system it shows within
-            the place; ``None`` for the roll-up of every system.
+            the place; ``None`` for the roll-up of every system. For a
+            ``calibration`` view, the calibration kind it shows over the set.
     """
 
     view: ViewKind
@@ -184,11 +193,32 @@ class GridCell:
             their worst state, as a roll-up node of the member would.
         pair: The member's setpoint of the set's primary pair, with its
             readback and tolerance; ``None`` when the member has none.
+        calibration: In a calibration view, what the member's records say of
+            the view's kind; ``None`` in a set overview.
     """
 
     member: Link | Fact
     channels: tuple[str, ...]
     pair: ValueRow | None = None
+    calibration: CalibrationCell | None = None
+
+
+@dataclass(frozen=True)
+class CalibrationCell:
+    """One member in a calibration view: what its records say of the view's kind.
+
+    Attributes:
+        text: The deviation from the design value (``+0.21 %``; ``a / b`` when
+            two claims disagree), the value when there is no design value,
+            ``design`` when the design value is in force, or ``no value``.
+        state: ``contested``, a basis, or ``none``.
+        channel: The channel that holds the value live, for a kind held in the
+            control system; ``None`` otherwise.
+    """
+
+    text: str
+    state: str
+    channel: str | None = None
 
 
 @dataclass(frozen=True)
@@ -213,10 +243,12 @@ class Grid:
             primary pair (the pair most members have), or ``None``.
         rows: One per place, in the graph's place order; the members with
             no place last.
+        kind: In a calibration view, the kind's title; ``None`` in a set overview.
     """
 
     signal: str | None
     rows: tuple[GridRow, ...]
+    kind: str | None = None
 
 
 @dataclass(frozen=True)

@@ -33,6 +33,7 @@ def _cells(doc: dict) -> dict[str, dict]:
         if n["type"] == "rectangle"
         and n["props"].get("actions")
         and n["geometry"]["width"] >= layout.SET_CELL_WIDTH
+        and not str(n["props"]["tooltip"]).startswith("calibration: ")  # a chip
     }
 
 

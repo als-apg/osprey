@@ -53,6 +53,7 @@ from osprey.facility.panels.tables import (
 )
 from osprey.facility.panels.view import (
     Band,
+    CalibrationCell,
     CalibrationRow,
     Calibrations,
     CheckRow,
@@ -173,6 +174,8 @@ class _Index:
     unplaced_ruled: bool  # a device in no place has a rule-bearing channel
     unplaced_channels: bool  # a device in no place has a channel
     systems: Mapping[str, frozenset[str]]  # place -> systems with a rule channel in it
+    set_class: Mapping[str, str] = MappingProxyType({})  # set -> its members' one class
+    sets_of: Mapping[str, tuple[str, ...]] = MappingProxyType({})  # device -> its sets
 
 
 _INDEXES: weakref.WeakKeyDictionary[PanelGraph, _Index] = weakref.WeakKeyDictionary()
@@ -215,12 +218,17 @@ def _build_index(graph: PanelGraph) -> _Index:
     readbacks: set[str] = set()
     racked: set[str] = set()
     systems: dict[str, set[str]] = {}
+    set_class: dict[str, str] = {}
+    sets_of: dict[str, list[str]] = {}
     for thing in graph.things():
         if thing.kind == "group":
             members = graph.members(thing.id)
             classes = {member.cls if member.kind == "device" else None for member in members}
             if len(classes) == 1 and None not in classes:
                 sets.add(thing.id)
+                set_class[thing.id] = next(iter(classes))  # type: ignore[assignment]
+                for member in members:
+                    sets_of.setdefault(member.id, []).append(thing.id)
             continue
         channels = graph.channels(thing.id, thing.kind)
         for channel in channels:
@@ -267,6 +275,8 @@ def _build_index(graph: PanelGraph) -> _Index:
         bool(unplaced_channels(graph)),
         any(graph.channels(thing.id, "device") for thing in unplaced),
         MappingProxyType({place: frozenset(found) for place, found in systems.items()}),
+        MappingProxyType(set_class),
+        MappingProxyType({device: tuple(found) for device, found in sets_of.items()}),
     )
 
 
@@ -283,6 +293,11 @@ def _has(
         return thing_id in index.carded if kind == "device" else _holds(graph, thing_id, kind)
     if view == "set":
         return kind == "group" and thing_id in index.sets
+    if view == "calibration":
+        cls = index.set_class.get(thing_id) if kind == "group" else None
+        return cls is not None and any(
+            found.kind == target.system for found in graph.calibration_kinds(cls)
+        )
     if kind != "place":
         return False
     if view == "place":
@@ -324,6 +339,12 @@ def targets(graph: PanelGraph, *, rack_classes: frozenset[str] = frozenset()) ->
         candidates = [Target("card", thing.kind, thing.id)]
         if thing.kind == "group":
             candidates.append(Target("set", "group", thing.id))
+            cls = index.set_class.get(thing.id)
+            if cls is not None:
+                candidates += [
+                    Target("calibration", "group", thing.id, system=found.kind)
+                    for found in graph.calibration_kinds(cls)
+                ]
         elif thing.kind == "place":
             candidates += [
                 Target("place", "place", thing.id),
@@ -680,7 +701,7 @@ def device_card(
             ("settings", settings),
             ("health", health),
             *_neighbours(graph, index, thing),
-            ("calibration", _calibration(graph, thing)),
+            ("calibration", _calibration(graph, index, thing)),
             ("picture", _pictures(graph, thing)),
             ("where", _where(graph, index, thing, rack_classes)),
             ("sources", sources),
@@ -777,14 +798,84 @@ def calibration_row(
     )
 
 
-def _calibration(graph: PanelGraph, thing: Thing) -> list[Item]:
-    """A device's calibration block: a row per kind of its class, or nothing."""
+def _calibration(graph: PanelGraph, index: _Index, thing: Thing) -> list[Item]:
+    """A device's calibration block: a row per kind of its class, each linking to the
+    kind's view over the first set of the device's class it is in; or nothing."""
     if thing.kind != "device" or thing.cls is None:
         return []
     kinds = graph.calibration_kinds(thing.cls)
     if not kinds:
         return []
-    return [Calibrations(tuple(calibration_row(graph, thing.id, kind) for kind in kinds))]
+    group = next(
+        (g for g in index.sets_of.get(thing.id, ()) if index.set_class[g] == thing.cls), None
+    )
+
+    def link(kind: CalibrationKind) -> Link | None:
+        if group is None:
+            return None
+        return Link(
+            f"{group} {kind.title}", Target("calibration", "group", group, system=kind.kind)
+        )
+
+    return [
+        Calibrations(tuple(calibration_row(graph, thing.id, kind, link(kind)) for kind in kinds))
+    ]
+
+
+_DESIGN_TEXT = "design"
+_NO_VALUE_SHORT = "no value"
+_DEVIATION = "{:+.2f} %"
+_VIEW_TITLE = "{} {}"
+
+
+def calibration_cell(graph: PanelGraph, device_id: str, kind: CalibrationKind) -> CalibrationCell:
+    """What a member's records say of *kind*, as a calibration view's cell shows it."""
+    found = graph.calibration(device_id, kind.kind)
+    channel = None
+    if kind.held_in is not None:
+        channel = next(
+            (c.name for c in graph.channels(device_id, "device") if c.signal == kind.held_in),
+            None,
+        )
+    claim = found.in_force
+    if claim is None:
+        return CalibrationCell(_NO_VALUE_SHORT, "none", channel)
+    if claim is found.design:
+        return CalibrationCell(_DESIGN_TEXT, found.state, channel)
+    design = calibration_numbers(found.design.value) if found.design is not None else None
+
+    def shown(c: Calibration) -> str:
+        mine = calibration_numbers(c.value)
+        if mine and design and len(mine) == len(design) == 1 and design[0]:
+            return _DEVIATION.format((mine[0] / design[0] - 1) * 100)
+        return _claim_text(c, kind, len(found.points))
+
+    text = " / ".join(shown(c) for c in (claim, *found.rivals))
+    return CalibrationCell(text, found.state, channel)
+
+
+def calibration_overview(graph: PanelGraph, group_id: str, kind_id: str) -> View:
+    """A calibration kind over a set: the set overview's grid of its members of the
+    kind's class (:func:`set_overview`), each cell what the member's records say
+    (:func:`calibration_cell`). Static: it binds no channel but a ``held_in`` kind's.
+
+    Raises:
+        KeyError: No such group or kind.
+    """
+    graph.thing(group_id, "group")
+    kind = graph.calibration_kind(kind_id)
+    index = _index(graph)
+    members = [m for m in graph.members(group_id) if m.kind == "device" and m.cls == kind.cls]
+
+    def cell(member: Thing) -> GridCell:
+        found = calibration_cell(graph, member.id, kind)
+        return GridCell(_ref(graph, index, member), (), None, found)
+
+    grid = Grid(None, _member_rows(graph, members, cell), kind.title)
+    group_link = Link(group_id, Target("set", "group", group_id))
+    sections = (Section("group", (group_link,)), Section("members", (grid,)))
+    target = Target("calibration", "group", group_id, system=kind_id)
+    return View(target, _VIEW_TITLE.format(group_id, kind.title), (), sections)
 
 
 # -- set overview ----------------------------------------------------------------
@@ -858,12 +949,6 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
     index = _index(graph)
     members = [member for member in graph.members(group_id) if member.kind == "device"]
     signal = _primary_signal(graph, members)
-    rows_of = _row_places(graph, members)
-
-    def beam(member: Thing) -> tuple[float, str]:
-        pose = graph.pose(member.id)
-        ring = pose is not None and pose.is_ring_position
-        return (pose.s_m if ring else math.inf, member.id)  # type: ignore[union-attr]
 
     def cell(member: Thing) -> GridCell:
         pair = None
@@ -874,6 +959,37 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
                     break
         channels = tuple(rule_channels(graph, member.id, "device"))
         return GridCell(_ref(graph, index, member), channels, pair)
+
+    grid = Grid(signal, _member_rows(graph, members, cell))
+    group_link = Link(group_id, Target("card", "group", group_id))
+    sections: tuple[Section, ...] = (Section("group", (group_link,)),)
+    cls = index.set_class.get(group_id)
+    views = [
+        Link(
+            _CALIBRATION_CHIP.format(kind.title),
+            Target("calibration", "group", group_id, system=kind.kind),
+        )
+        for kind in (graph.calibration_kinds(cls) if cls is not None else ())
+    ]
+    if views:
+        sections += (Section("calibration", tuple(views)),)
+    sections += (Section("members", (grid,)),)
+    return View(Target("set", "group", group_id), group_id, (), sections)
+
+
+_CALIBRATION_CHIP = "calibration: {}"
+
+
+def _member_rows(
+    graph: PanelGraph, members: list[Thing], cell: Callable[[Thing], GridCell]
+) -> tuple[GridRow, ...]:
+    """A set's members as grid rows (see :func:`set_overview`), each cell from *cell*."""
+    rows_of = _row_places(graph, members)
+
+    def beam(member: Thing) -> tuple[float, str]:
+        pose = graph.pose(member.id)
+        ring = pose is not None and pose.is_ring_position
+        return (pose.s_m if ring else math.inf, member.id)  # type: ignore[union-attr]
 
     order = {thing.id: n for n, thing in enumerate(graph.things()) if thing.kind == "place"}
     grouped: dict[str | None, list[Thing]] = {}
@@ -886,10 +1002,7 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
             Link(key, Target("card", "place", key)) if key is not None else Fact("row", _NOT_IN)
         )
         rows.append(GridRow(label, tuple(cell(m) for m in sorted(grouped[key], key=beam))))
-    grid = Grid(signal, tuple(rows))
-    group_link = Link(group_id, Target("card", "group", group_id))
-    sections = (Section("group", (group_link,)), Section("members", (grid,)))
-    return View(Target("set", "group", group_id), group_id, (), sections)
+    return tuple(rows)
 
 
 # -- place view ------------------------------------------------------------------
@@ -1497,6 +1610,8 @@ def describe(
         return device_card(graph, target.id, target.kind, rack_classes=rack_classes)
     if target.view == "set":
         return set_overview(graph, target.id)
+    if target.view == "calibration":
+        return calibration_overview(graph, target.id, target.system or "")
     if target.view == "place":
         return place_view(graph, target.id, symbols=symbols, above=above, annotate=annotate)
     if target.view == "rack":

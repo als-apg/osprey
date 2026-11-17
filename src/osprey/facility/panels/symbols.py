@@ -92,6 +92,11 @@ BASIS_DESIGN = role("Basis_Design", "#6e6e77", "#9aa3ad")
 BASIS_BENCH = role("Basis_Bench", "#1f6fb8", "#5aa5e6")
 BASIS_SURVEY = role("Basis_Survey", "#0f766e", "#3cc0b8")
 BASIS_BEAM = role("Basis_Beam", "#1e7a46", "#46bd80")
+# the ground of a calibration view's cell, a tint of its basis
+BENCH_TINT = role("Basis_Bench_Tint", "#e3eefa", "#1f3347")
+SURVEY_TINT = role("Basis_Survey_Tint", "#dff3f1", "#173a38")
+BEAM_TINT = role("Basis_Beam_Tint", "#e1f2e8", "#1a3627")
+DISAGREE_TINT = role("Disagree_Tint", "#efe3f5", "#33263d")
 # --- end theme roles -----------------------------------------------------------
 
 #: The colour of each calibration basis, and of a contested value (the disagree role).
@@ -102,6 +107,16 @@ BASIS_ROLES: Mapping[str, dict[str, str]] = MappingProxyType(
         "survey": BASIS_SURVEY,
         "beam": BASIS_BEAM,
         "contested": DISAGREE,
+    }
+)
+#: The ground of a calibration view's cell by state; a design value stands on the field.
+BASIS_TINTS: Mapping[str, dict[str, str]] = MappingProxyType(
+    {
+        "design": FIELD_BACKGROUND,
+        "bench": BENCH_TINT,
+        "survey": SURVEY_TINT,
+        "beam": BEAM_TINT,
+        "contested": DISAGREE_TINT,
     }
 )
 

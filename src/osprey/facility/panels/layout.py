@@ -357,6 +357,26 @@ _UNITS_FROM = "{} · {} devices"
 _SET_READBACK = "each cell: readback of {}"
 _CAL_HEADS = ("parameter", "value in force", "basis", "date", "source", "history")
 _NO_VALUE_YET = "no value yet"
+_CALIBRATION_SECTION = "calibration"
+_CAL_WHAT = "each cell: {}, deviation from design (the value when no design value)"
+#: The states of a calibration view, in the order its legend and counts give them.
+_CAL_STATES = ("design", "bench", "survey", "beam", "contested", "none")
+_STATE_WORDS = {
+    "design": "design",
+    "bench": "bench",
+    "survey": "survey",
+    "beam": "beam",
+    "contested": "disagree",
+    "none": "no value",
+}
+_LEGEND = {
+    "design": "design only",
+    "bench": "measured on the bench",
+    "survey": "surveyed",
+    "beam": "fitted with the beam",
+    "contested": "two sources disagree",
+    "none": "no value yet",
+}
 _SET_MORE = "{} more members: open by place"
 _SET_NAMES = "each cell: the member's short name and its light"
 _NO_CLASS = "no class stated"
@@ -1937,6 +1957,11 @@ class _Page:
         self.y += PANEL_GAP
 
     def items(self, section: Section) -> None:
+        if self.view.id.view == "set" and all(isinstance(i, Link) for i in section.items):
+            links = [i for i in section.items if isinstance(i, Link)]
+            if section.title == _CALIBRATION_SECTION:  # the set's calibration views: chips
+                self.chips(self.x0, [(link.label, link, None) for link in links])
+                return
         previous: object = None
         rows = left_out = 0
         for item in section.items:
@@ -2047,7 +2072,19 @@ class _Page:
         under them."""
         tags = (_need("table"),)
         count = sum(len(row.cells) for row in grid.rows)
-        line = " · ".join((f"{count} members", f"{len(grid.rows)} rows"))
+        words = [f"{count} members", f"{len(grid.rows)} rows"]
+        if grid.kind is not None:  # how many members are in each state
+            states = Counter(
+                cell.calibration.state
+                for row in grid.rows
+                for cell in row.cells
+                if cell.calibration is not None
+            )
+            words += [
+                f"{n} {_STATE_WORDS[state]}"
+                for state, n in sorted(states.items(), key=lambda kv: _CAL_STATES.index(kv[0]))
+            ]
+        line = " · ".join(words)
         self.text(MARGIN, self.y, line.upper(), size=SMALL_SIZE, fg=MUTED_TEXT, tags=tags)
         self.next_row()
         room = STRIP_WIDTH - SET_ROW_HEAD
@@ -2102,6 +2139,35 @@ class _Page:
             self.y += ROW_GAP
             self.text(MARGIN, self.y, _SET_MORE.format(left_out), size=SMALL_SIZE, fg=MUTED_TEXT)
             self.next_row()
+        if grid.kind is not None:
+            self.calibration_legend()
+
+    def calibration_legend(self) -> None:
+        """What a calibration view's cell looks like in each state: a sample cell each."""
+        self.y += ROW_GAP
+        x = MARGIN
+        for state in _CAL_STATES:
+            word = _LEGEND[state]
+            w = text_width(word, SMALL_SIZE) + GAP
+            self.calibration_box(x, self.y, w, state)
+            self.text(x + GAP / 2, self.y, word, size=SMALL_SIZE, w=w - GAP)
+            x += w + CHIP_GAP
+        self.next_row()
+
+    def calibration_box(self, x: float, y: float, w: float, state: str) -> None:
+        """A calibration cell's box: tinted by its basis, outlined in the basis role;
+        dashed and bare with no value."""
+        props: dict[str, Any] = {"lineWidth": LINE_WIDTH}
+        if state in symbols.BASIS_TINTS:
+            props |= {
+                "lineColor": symbols.BASIS_ROLES[state],
+                "fill": True,
+                "fillColor": symbols.BASIS_TINTS[state],
+                "lineStyle": "solid",
+            }
+        else:
+            props |= {"lineColor": MUTED_TEXT, "fill": False, "lineStyle": "dashed"}
+        self.s.widget("rectangle", x, y, w, ROW, props)
 
     def set_flow(self, title: str, row: GridRow) -> int:
         """A group whose members all sit in one row too long for a block: its heading,
@@ -2127,7 +2193,10 @@ class _Page:
 
     def grid_what(self, grid: Grid) -> str:
         """What a set overview's cells show: the readback of the primary pair's signal
-        with the readback's unit, or the members' short names."""
+        with the readback's unit, or the members' short names; in a calibration view,
+        the kind."""
+        if grid.kind is not None:
+            return _CAL_WHAT.format(grid.kind.lower())
         pairs = [
             cell.pair for row in grid.rows for cell in row.cells
             if cell.pair is not None and cell.pair.readback is not None
@@ -2162,6 +2231,17 @@ class _Page:
         light at the right end: the deviation light when the pair has one, else the
         member's; the whole cell opens its card."""
         w = self.cell_w
+        if cell.calibration is not None:  # a calibration view: no light, static text
+            found = cell.calibration
+            self.calibration_box(x0, y, w, found.state)
+            if found.channel is not None:
+                self.field(x0 + GAP / 2, y, found.channel, w=w - GAP)
+            else:
+                text = _cut(found.text, w - GAP, TEXT_SIZE)
+                self.text(x0 + GAP / 2, y, text, w=min(text_width(text, TEXT_SIZE), w - GAP))
+            if isinstance(cell.member, Link):
+                self.nav(x0, y, w, ROW, cell.member)
+            return
         right = x0 + w - CHIP_LIGHT
         pair = cell.pair
         deviation = _tolerance_ladder(pair) if pair is not None else None

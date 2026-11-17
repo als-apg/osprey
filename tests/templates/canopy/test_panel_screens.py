@@ -78,7 +78,8 @@ def test_an_aggregate_roll_up_validates(panel_graph, spec_dir: Path, monkeypatch
 
 def test_every_view_of_every_kind_validates(panel_graph, spec_dir: Path) -> None:
     views = [*fixture_views(panel_graph), *invented_views(), rollup_view()]
-    assert {v.id.view for v in views} == {"card", "set", "place", "rack", "rollup", "checkout"}
+    kinds = {"card", "set", "calibration", "place", "rack", "rollup", "checkout"}
+    assert {v.id.view for v in views} == kinds
     for view in views:
         _check(stub_render(view, panel_graph), spec_dir, view)
 

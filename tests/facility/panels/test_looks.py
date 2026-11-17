@@ -32,7 +32,11 @@ ALLOWED = {
     ("line", "lineColor"): {"Page_Text", "Text_Muted", "MINOR", "MAJOR", "DISCONNECTED"},
     # Page_Text: a drawn outline, as the strip's symbols (the rack's frame)
     ("rectangle", "lineColor"): {"Box_Border", "Transparent", "Page_Text", "Text_Muted", *_BASIS},
-    ("rectangle", "fillColor"): {"Field_Background", "Tile_Background"},
+    ("rectangle", "fillColor"): {
+        "Field_Background",
+        "Tile_Background",
+        *(t["$role"] for t in symbols.BASIS_TINTS.values()),
+    },  # fmt: skip
 }
 
 
