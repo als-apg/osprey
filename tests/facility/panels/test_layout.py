@@ -37,6 +37,7 @@ from osprey.facility.panels.layout import (
 from osprey.facility.panels.model import load_graph
 from osprey.facility.panels.view import (
     Light,
+    Link,
     Node,
     Section,
     StripElement,
@@ -212,7 +213,12 @@ def test_a_roll_up_over_the_limit_is_an_aggregate_over_a_mosaic(panel_graph, mon
     # root row, three-child row, and the three-child's tile in the mosaic
     assert len(aggregate) == 3
     tiles = [n for n in shapes if n["geometry"]["width"] == layout.MOSAIC_LIGHT]
-    assert len(tiles) == len(RULED) + 1  # one per ruled child; none for the child with no rule
+    parts = [n for n in tiles if n["props"]["tooltip"].startswith("part ")]
+    # one per ruled child, none for the child with no rule, and the parts of the
+    # three-channel child, which has no children to show: each part a live rule
+    assert len(tiles) == len(RULED) + 1 + len(parts)
+    assert len(parts) > 1 and all(n.get("rules") for n in parts)
+    assert parts[0]["props"]["tooltip"] == f"part 1 of {len(parts)}"
     assert symbols.AGGREGATE_MARK in texts
 
 
@@ -639,8 +645,9 @@ def test_a_one_channel_roll_up_node_over_the_limit_is_an_aggregate(panel_graph, 
     node = Node("one", None, ("XR02-IP1:Pressure-RB",), False)
     doc, _ = draw(card("one", node), panel_graph)
     assert aggregates(doc) == 1
-    assert unexpressed(doc) == 0
     assert "1 channels, open for detail" in _texts(doc)
+    # its one part is the channel alone, too long for any rule: unknown, and counted
+    assert unexpressed(doc) == 1 and "long rule" in needs(doc)
 
 
 def test_an_unwritable_channel_leaves_its_siblings_arms_and_never_normal(tmp_path) -> None:
@@ -812,3 +819,20 @@ def test_a_ladder_is_written_once_per_light_not_once_per_prop(panel_graph) -> No
         for rule in node["rules"]:
             assert rule["pvs"] == [{"name": f"formula://{formula['name']}", "trigger": True}]
             assert all(len(c["expression"]) <= len("{0} == 4") for c in rule["conditions"])
+
+
+def test_an_aggregate_tile_opens_its_childs_screen(panel_graph, monkeypatch) -> None:
+    monkeypatch.setattr(
+        layout, "RULE_EXPRESSION_LIMIT", _limit_between_one_channel_and_three(panel_graph)
+    )
+    down = Target("rollup", "place", "XR/XR02", by="place")
+    child = Node("XR/XR02", Link("XR/XR02", down), RULED[1:4], False)
+    root = Node("XR", None, RULED, False, (child,))
+    view = View(Target("rollup", "place", "XR", by="place"), "x", (), (Section("r", (root,)),))
+    doc, screens = draw(view, panel_graph)
+    opens = [
+        n
+        for n in _by_type(doc, "rectangle")
+        if n["props"].get("actions") and n["geometry"]["width"] == layout.MOSAIC_LIGHT
+    ]
+    assert [n["props"]["actions"][0]["file"] for n in opens] == [screens(down)]

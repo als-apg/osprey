@@ -249,7 +249,10 @@ def test_a_second_write_deletes_exactly_the_files_that_are_no_longer_targets(
     write(smaller, out)
     after = set(_files(out))
     gone = before - after
-    assert gone and all(name.startswith("card/") for name in gone)
+    # its card, and the roll-ups of the one system only it had (PowerSupply)
+    assert "card/card-xr01-ps1.screen.json" in gone
+    assert all(name.startswith(("card/", "rollup/rollup-system-")) for name in gone)
+    assert all("powersupply" in name for name in gone if name.startswith("rollup/"))
     assert after == {"index.json"} | {
         f"{t.view}/{i}{SCREEN_SUFFIX}" for t, i in screen_ids(targets(smaller)).items()
     }
@@ -556,3 +559,40 @@ def test_a_rule_channel_no_roll_up_reads_is_unrolled(
     unrolled = [p for p in emit.check(blind, tmp_path / "blind") if p.kind == "unrolled"]
     assert [p.detail.split()[0] for p in unrolled] == ["XR09-LOOSE1:Fault-Sts"]
     assert all(p.failing for p in unrolled)
+
+
+def test_a_roll_up_with_rule_channels_and_no_live_light_is_static(panel_graph, tmp_path):
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    victim = next(out.glob("rollup/rollup-place-xr.screen.json"))
+    doc = json.loads(victim.read_text())
+    for node in _walk(doc):
+        node.pop("rules", None)
+    victim.write_text(json.dumps(doc))
+    kinds = {
+        p.kind for p in check(panel_graph, out) if p.file == "rollup/rollup-place-xr.screen.json"
+    }
+    assert "static_rollup" in kinds
+
+
+def test_no_fixture_roll_up_is_static_even_over_the_rule_limit(panel_graph, tmp_path, monkeypatch):
+    from osprey.facility.panels import layout
+    from osprey.facility.panels.describe import light
+
+    # every channel's rule fits alone, so a long node is drawn in parts
+    singles = [
+        layout.ladder(panel_graph, [light(panel_graph, r.channel)]) for r in panel_graph.rules()
+    ]
+    limit = max(layout.rule_length(rule) for rule in singles if not isinstance(rule, str))
+    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", limit)
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    found = check(panel_graph, out)
+    assert not [p for p in found if p.kind in ("static_rollup", "unrolled")]
+    parts = [
+        n
+        for path in out.glob("rollup/*.json")
+        for n in _walk(json.loads(path.read_text()))
+        if str(n.get("props", {}).get("tooltip", "")).startswith("part ")
+    ]
+    assert parts and any(n.get("rules") for n in parts)  # a part of only skipped rows has none

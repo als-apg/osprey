@@ -120,6 +120,12 @@ GENERIC_SYMBOL = "generic"
 #: The node of a by-system roll-up that holds devices with no system key.
 NO_SYSTEM = "no system"
 
+
+def _system(thing: Thing) -> str:
+    """The system a device's roll-up by system puts it in: its class, else :data:`NO_SYSTEM`."""
+    return thing.cls if thing.cls is not None else NO_SYSTEM
+
+
 _NO_POSITION = "no position"
 _NOT_IN = "not placed"
 _NO_THING = "on no device"
@@ -142,6 +148,7 @@ class _Index:
     racked: frozenset[str]  # places some located_in claim names a unit in
     unplaced_ruled: bool  # a device in no place has a rule-bearing channel
     unplaced_channels: bool  # a device in no place has a channel
+    systems: Mapping[str, frozenset[str]]  # place -> systems with a rule channel in it
 
 
 _INDEXES: weakref.WeakKeyDictionary[PanelGraph, _Index] = weakref.WeakKeyDictionary()
@@ -183,6 +190,7 @@ def _build_index(graph: PanelGraph) -> _Index:
     ruled: set[str] = set()
     readbacks: set[str] = set()
     racked: set[str] = set()
+    systems: dict[str, set[str]] = {}
     for thing in graph.things():
         if thing.kind == "group":
             members = graph.members(thing.id)
@@ -212,9 +220,14 @@ def _build_index(graph: PanelGraph) -> _Index:
                 for edge in graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ())
                 if edge.outgoing and edge.other_kind == "place"
             ]
+            system = _system(thing) if thing.kind == "device" else None
             for place in starts:
-                while place is not None and place not in ruled:
+                while place is not None and (place not in ruled or system is not None):
+                    if system is not None and system in systems.setdefault(place, set()):
+                        break
                     ruled.add(place)
+                    if system is not None:
+                        systems[place].add(system)
                     place = graph.thing(place, "place").place
     unplaced = graph.unplaced()
     return _Index(
@@ -226,6 +239,7 @@ def _build_index(graph: PanelGraph) -> _Index:
         frozenset(racked),
         bool(unplaced_channels(graph)),
         any(graph.channels(thing.id, "device") for thing in unplaced),
+        MappingProxyType({place: frozenset(found) for place, found in systems.items()}),
     )
 
 
@@ -253,6 +267,8 @@ def _has(
             rack_classes
         )
     if view == "rollup":
+        if target.system is not None:
+            return target.by == "system" and target.system in index.systems.get(thing_id, ())
         return target.by in ("place", "system") and thing_id in index.ruled
     return view == "checkout" and thing_id in index.ruled
 
@@ -287,6 +303,10 @@ def targets(graph: PanelGraph, *, rack_classes: frozenset[str] = frozenset()) ->
                 Target("rack", "place", thing.id),
                 Target("rollup", "place", thing.id, by="place"),
                 Target("rollup", "place", thing.id, by="system"),
+                *(
+                    Target("rollup", "place", thing.id, by="system", system=system)
+                    for system in sorted(index.systems.get(thing.id, ()))
+                ),
                 Target("checkout", "place", thing.id),
             ]
         found += [target for target in candidates if _has(graph, index, target, rack_classes)]
@@ -930,12 +950,33 @@ def _unplaced_rollup(graph: PanelGraph, index: _Index) -> View:
     return View(_UNPLACED_ROLLUP, f"{NOT_PLACED} health", (), (Section("roll-up", (root,)),))
 
 
+def _system_rollup(
+    graph: PanelGraph,
+    index: _Index,
+    place: Thing,
+    system: str,
+    systems: Mapping[str | None, list[Node]],
+) -> View:
+    """One system within a place: a node per device of the system."""
+    key = None if system == NO_SYSTEM and None in systems else system
+    children = list(systems.get(key, ()))
+    root = _node(system, None, (c for node in children for c in node.channels), tuple(children))
+    crumbs = (
+        *_crumbs(graph, index, place.place, "rollup", "system"),
+        _place_link(graph, index, place.id, Target("rollup", "place", place.id, by="system")),
+    )
+    target = Target("rollup", "place", place.id, by="system", system=system)
+    title = f"{place.id} {system} health"
+    return View(target, title, crumbs, (Section("roll-up", (root,)),))
+
+
 def health_rollup(
     graph: PanelGraph,
     root_id: str,
     by: str = "place",
     *,
     system_of: Callable[[Thing], str | None] | None = None,
+    system: str | None = None,
 ) -> View:
     """The channels each node of a place's roll-up reads: the root and one level below it.
 
@@ -945,8 +986,10 @@ def health_rollup(
     when it has none), a device to its card. By ``system``, the devices of
     the place's contents are grouped by ``system_of`` (default: the device's
     class), the groups in name order and :data:`NO_SYSTEM` last; a group node
-    carries the union of its devices' channels and no children, and has no
-    screen of its own. A node that reads no rule-bearing channel is present
+    carries the union of its devices' channels and no children, and links to
+    the roll-up of that system within the place (with the default grouping).
+    With *system*, the roll-up is that one system within the place: a node
+    per device of it. A node that reads no rule-bearing channel is present
     and marked ``no_rule``. No node below the root has children: one screen
     shows one level.
 
@@ -975,10 +1018,15 @@ def health_rollup(
         for thing in graph.contents(root_id):
             if thing.kind == "device":
                 systems.setdefault(key(thing), []).append(_device_node(graph, index, thing))
+        if system is not None:
+            return _system_rollup(graph, index, place, system, systems)
         names = sorted(name for name in systems if name is not None)
         for name in [*names, None] if None in systems else names:
             read = (channel for node in systems[name] for channel in node.channels)
-            children.append(_node(name if name is not None else NO_SYSTEM, None, read))
+            label = name if name is not None else NO_SYSTEM
+            down = Target("rollup", "place", root_id, by="system", system=label)
+            link = Link(label, down) if system_of is None and _has(graph, index, down) else None
+            children.append(_node(label, link, read))
     channels = rule_channels(graph, root_id, "place")
     unplaced = _unplaced_node(graph, index) if place.place is None else None
     if unplaced is not None:
@@ -1102,7 +1150,13 @@ def describe(
     if target.view == "rack":
         return rack_elevation(graph, target.id)
     if target.view == "rollup":
-        return health_rollup(graph, target.id, target.by, system_of=system_of)  # type: ignore[arg-type]
+        return health_rollup(
+            graph,
+            target.id,
+            target.by,  # type: ignore[arg-type]
+            system_of=system_of,
+            system=target.system,
+        )
     if target.view == "checkout":
         return checkout(graph, target.id)
     raise ValueError(f"no view kind {target.view!r}")

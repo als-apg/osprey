@@ -1344,7 +1344,8 @@ def panels_check(
     """Compare the screens under OUT with what the model generates now; writes nothing.
 
     Exits 1 on any failing problem: stale, missing, orphan, dangling_link,
-    unknown_channel, stamp, invalid, incomplete or oversize. A link to a screen outside the
+    unknown_channel, stamp, invalid, incomplete, oversize, unrolled (a rule
+    channel no roll-up reads) or static_rollup (a roll-up with no live light). A link to a screen outside the
     written set (``outside_set``) is a note and fails only under --strict.
     Prints the count per kind and the first --limit of each.
     """

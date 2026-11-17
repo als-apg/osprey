@@ -688,9 +688,13 @@ def test_rollup_by_system_groups_devices_by_class_by_default(panel_graph):
     assert systems["Pump"].channels == ("XR01-IP1:State-Sts", "XR02-IP1:Pressure-RB")
     assert systems["PowerSupply"].channels == ("XR01-PS1:On-Sts",)
     assert systems["ElectronicsChassis"].no_rule is True
-    # one level: a system carries its devices' channels, not the devices
+    # one level: a system carries its devices' channels, not the devices, and
+    # links to that system's roll-up within the place when it has a rule channel
     assert all(node.children == () for node in root.children)
-    assert all(node.link is None for node in root.children if node.label != NOT_PLACED)
+    assert systems["Pump"].link.target == Target(
+        "rollup", "place", "XR", by="system", system="Pump"
+    )
+    assert systems["ElectronicsChassis"].link is None
 
 
 def test_a_rollup_shows_one_level_below_its_root(panel_graph):
@@ -936,3 +940,17 @@ def test_a_unit_that_is_no_integer_lists_the_device_unpositioned_with_its_text(t
     (elevation,) = _section(rack_elevation(graph, "XR/XR02/RK2"), "units").items
     assert elevation.units == ()
     assert [(u.link.target.id, u.unit_text) for u in elevation.unpositioned] == [("XR02:CH5", "A5")]
+
+
+def test_a_system_within_a_place_has_its_own_roll_up_of_its_devices(panel_graph):
+    found = targets(panel_graph)
+    pumps = Target("rollup", "place", "XR/XR02", by="system", system="Pump")
+    assert pumps in found
+    assert Target("rollup", "place", "XR", by="system", system="ElectronicsChassis") not in found
+    view = describe(panel_graph, pumps)
+    assert view.id == pumps and view.crumbs[-1].target == Target(
+        "rollup", "place", "XR/XR02", by="system"
+    )
+    (root,) = _section(view, "roll-up").items
+    assert root.label == "Pump" and root.channels == ("XR02-IP1:Pressure-RB",)
+    assert {node.label for node in root.children} == {"XR02:IP1", "XR02:IP2"}

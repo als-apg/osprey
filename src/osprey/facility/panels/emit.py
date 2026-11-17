@@ -61,9 +61,10 @@ from typing import Any
 
 from osprey.facility.panels import layout
 from osprey.facility.panels.describe import describe, targets
+from osprey.facility.panels.health import supported
 from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
 from osprey.facility.panels.symbols import WIDTH_UNITS
-from osprey.facility.panels.view import VIEW_KINDS, Target
+from osprey.facility.panels.view import VIEW_KINDS, Node, Target, View
 
 __all__ = [
     "FORMAT_VERSION",
@@ -100,7 +101,9 @@ _STAMP = re.compile(r" Facility ([0-9a-f]{64}), panels format (\d+), draw ([0-9a
 _STAMP_IN_TEXT = re.compile(r" Facility [0-9a-f]{64}, panels format \d+, draw [0-9a-f]{16}\.\"")
 #: The longest screen id :func:`screen_ids` can make: ``kind-by-slug-digest``,
 #: the digest lengthened to its longest (a SHA-256 in hex).
-ID_MAX = max(map(len, VIEW_KINDS)) + 1 + max(map(len, ("place", "system"))) + 1 + SLUG_MAX + 1 + 64
+ID_MAX = (
+    max(map(len, VIEW_KINDS)) + 1 + max(map(len, ("place", "system"))) + 2 * (1 + SLUG_MAX) + 1 + 64
+)
 #: The only paths ``write`` creates or deletes below ``out``.
 _FILE_SHAPE = re.compile(
     rf"(?:{'|'.join(VIEW_KINDS)})/[a-z0-9-]{{1,{ID_MAX}}}{re.escape(SCREEN_SUFFIX)}"
@@ -124,8 +127,10 @@ class Problem:
         kind: ``stale``, ``missing``, ``orphan``, ``dangling_link``,
             ``unknown_channel``, ``stamp``, ``invalid``, ``oversize``,
             ``incomplete`` (an earlier write did not finish), ``unrolled``
-            (a rule-bearing channel no roll-up screen reads) or
-            ``outside_set``.
+            (a channel with a rule the engine can evaluate that no roll-up
+            screen reads),
+            ``static_rollup`` (a roll-up that reads a rule the engine can
+            evaluate and draws no live light) or ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
     """
@@ -220,22 +225,22 @@ def _digest(*parts: str, length: int = DIGEST_LEN) -> str:
     return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()[:length]
 
 
-def _stem(kind: str, thing_id: str, by: str | None) -> tuple[str, bool]:
-    """The readable id, and whether the slug had to be cut."""
-    slug = _slug(thing_id)
-    cut = len(slug) > SLUG_MAX
-    if cut:
-        slug = slug[:SLUG_MAX].rstrip("-")
-    return "-".join(part for part in (kind, by, slug) if part), cut
+def _stem(kind: str, thing_id: str, by: str | None, system: str | None = None) -> tuple[str, bool]:
+    """The readable id, and whether a slug had to be cut."""
+    slugs = [_slug(text) for text in (thing_id, system) if text is not None]
+    cut = any(len(slug) > SLUG_MAX for slug in slugs)
+    slugs = [slug[:SLUG_MAX].rstrip("-") for slug in slugs]
+    return "-".join(part for part in (kind, by, *slugs) if part), cut
 
 
-def screen_id(kind: str, thing_id: str, by: str | None = None) -> str:
+def screen_id(kind: str, thing_id: str, by: str | None = None, system: str | None = None) -> str:
     """The readable screen id of one address.
 
     Args:
         kind: The view kind.
         thing_id: The thing's id.
         by: A roll-up's grouping.
+        system: A roll-up's one system.
 
     Returns:
         ``kind[-by]-slug`` in lowercase ``[a-z0-9-]``; a slug over
@@ -243,12 +248,16 @@ def screen_id(kind: str, thing_id: str, by: str | None = None) -> str:
         follows. Different ids can still give one result; use
         :func:`screen_ids` for a set.
     """
-    stem, cut = _stem(kind, thing_id, by)
-    return f"{stem}-{_digest(kind, thing_id, by or '')}" if cut else stem
+    stem, cut = _stem(kind, thing_id, by, system)
+    if not cut:
+        return stem
+    parts = (kind, thing_id, by or "") if system is None else (kind, thing_id, by or "", system)
+    return f"{stem}-{_digest(*parts)}"
 
 
 def _identity(target: Target) -> tuple[str, ...]:
-    return (target.view, target.kind, target.id, target.by or "")
+    identity = (target.view, target.kind, target.id, target.by or "")
+    return identity if target.system is None else (*identity, target.system)
 
 
 def screen_ids(found: list[Target] | tuple[Target, ...]) -> dict[Target, str]:
@@ -260,8 +269,7 @@ def screen_ids(found: list[Target] | tuple[Target, ...]) -> dict[Target, str]:
     """
     stems = {}
     for target in found:
-        stem, cut = _stem(target.view, target.id, target.by)
-        stems[target] = (stem, cut)
+        stems[target] = _stem(target.view, target.id, target.by, target.system)
     groups: dict[str, list[Target]] = {}
     for target, (stem, _) in stems.items():
         groups.setdefault(stem, []).append(target)
@@ -291,7 +299,7 @@ def _path(target: Target, ids: Mapping[Target, str]) -> str:
     """The file of a target, relative to the output directory, always with ``/``."""
     id_ = ids.get(target)
     if id_ is None:
-        id_ = screen_id(target.view, target.id, target.by)
+        id_ = screen_id(target.view, target.id, target.by, target.system)
     return f"{target.view}/{id_}{SCREEN_SUFFIX}"
 
 
@@ -323,8 +331,8 @@ def _stamp(graph: PanelGraph, draw: Draw) -> str:
 
 def _generate(
     graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw: Draw
-) -> tuple[bytes, str]:
-    """The bytes of a target's file and its title."""
+) -> tuple[bytes, str, View]:
+    """The bytes of a target's file, its title and its view."""
     own = _path(target, ids)
 
     def screens(other: Target) -> str:
@@ -343,7 +351,7 @@ def _generate(
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
     )
-    return (text + "\n").encode("utf-8"), view.title
+    return (text + "\n").encode("utf-8"), view.title, view
 
 
 def _atomic(path: Path, data: bytes) -> None:
@@ -440,6 +448,7 @@ def _entry(target: Target, ids: Mapping[Target, str], title: str, size: int) -> 
         "thing_kind": target.kind,
         "thing": target.id,
         "by": target.by,
+        "system": target.system,
         "title": title,
         "file": _path(target, ids),
         "bytes": size,
@@ -545,7 +554,7 @@ def write(
     for target in found:
         relative = _path(target, ids)
         if only is None or only(target):
-            data, title = _generate(graph, target, ids, draw)
+            data, title, _view = _generate(graph, target, ids, draw)
             written.append(_put(out, relative, data, seen))
             entries[relative] = _entry(target, ids, title, len(data))
         elif relative in owned and _guard(out, relative, seen).is_file():
@@ -588,6 +597,34 @@ def _bound_channels(document: Any) -> Iterator[str]:
             stack.extend(node.values())
         elif isinstance(node, list):
             stack.extend(node)
+
+
+def _reads(graph: PanelGraph, view: View) -> bool:
+    """Whether a roll-up view's root reads a channel with a row the engine can evaluate.
+
+    A channel whose every row has a form the engine cannot evaluate has no
+    rule a light could carry; a roll-up of only such channels is not static.
+    """
+    return any(
+        supported(row.value)
+        for section in view.sections
+        for item in section.items
+        if isinstance(item, Node)
+        for channel in item.channels
+        for row in graph.rule(channel)
+    )
+
+
+def _live(document: Any) -> bool:
+    """Whether any widget of a document carries a rule."""
+    stack = [document.get("root", {})] if isinstance(document, dict) else []
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if node.get("rules"):
+                return True
+            stack.extend(node.get("children") or ())
+    return False
 
 
 def _links(document: Any) -> Iterator[str]:
@@ -693,7 +730,8 @@ def check(
         if rolled is not None and wanted[relative].view == "rollup":
             rolled.update(_bound_channels(json.loads((out / relative).read_bytes())))
     if rolled is not None:
-        ruled = dict.fromkeys(row.channel for row in graph.rules())
+        # a channel whose every row the engine cannot evaluate has no rule to read
+        ruled = dict.fromkeys(row.channel for row in graph.rules() if supported(row.value))
         problems.extend(
             Problem("unrolled", INDEX, f"{name} has a health rule and no roll-up screen reads it")
             for name in ruled
@@ -740,7 +778,11 @@ def _check_file(
         problems.append(
             Problem("stamp", relative, f"written from other {' and '.join(changed)} than now")
         )
-    fresh = _generate(graph, target, ids, draw)[0]
+    fresh, _title, view = _generate(graph, target, ids, draw)
+    if target.view == "rollup" and _reads(graph, view) and not _live(document):
+        problems.append(
+            Problem("static_rollup", relative, "reads rule channels and draws no live light")
+        )
     if fresh != data:
         # The stamp is reported on its own; stale is what differs besides it.
         bare = _STAMP_IN_TEXT.sub('"', data.decode("utf-8", "replace"))

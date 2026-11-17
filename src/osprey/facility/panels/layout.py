@@ -209,6 +209,7 @@ _AGGREGATE_ROW = "aggregate: row"
 _AGGREGATE_TILE = "aggregate: tile"
 _AGGREGATE_SYMBOL = "aggregate: symbol"
 _AGGREGATE_TEXT = "{} channels, open for detail"
+_PART = "part {} of {}"
 _FORMULA_PREFIX = "formula://"
 _TOKEN = re.compile(r"\{(\d+)\}")
 _NAVIGATION_TARGET = "tab"
@@ -405,6 +406,37 @@ def state_formula(rule: Ladder) -> str:
 def rule_length(rule: Ladder) -> int:
     """The length of a light's screen formula, the expression the format's limit bounds."""
     return len(state_formula(rule))
+
+
+def chunks(graph: PanelGraph, lights: Sequence[Light]) -> list[list[Light]]:
+    """*lights* in consecutive parts, each a rule within :data:`RULE_EXPRESSION_LIMIT`.
+
+    The bound is the one :func:`ladder` applies, never a channel count: a part
+    grows while the lengths of its channels' own rules fit the limit, and a
+    part whose joint rule is still too long is halved. A channel too long on
+    its own is a part alone (its light is then ``long rule``).
+    """
+    found: list[list[Light]] = []
+    part: list[Light] = []
+    cost = 0
+    for item in lights:
+        one = ladder(graph, [item])
+        length = rule_length(one) if isinstance(one, Ladder) else 0
+        if part and cost + length > RULE_EXPRESSION_LIMIT:
+            found.append(part)
+            part, cost = [], 0
+        part.append(item)
+        cost += length
+    if part:
+        found.append(part)
+
+    def fit(part: list[Light]) -> list[list[Light]]:
+        if len(part) == 1 or ladder(graph, part, node=True) != "aggregate state":
+            return [part]
+        half = len(part) // 2
+        return fit(part[:half]) + fit(part[half:])
+
+    return [piece for part in found for piece in fit(part)]
 
 
 def _tolerance_ladder(row: ValueRow) -> Ladder | None:
@@ -681,6 +713,7 @@ class _Page:
         rule: Ladder | str | None = None,
         size: float = LIGHT_SIZE,
         tile: bool = False,
+        tooltip: str | None = None,
     ) -> float:
         """One light over *lights*; returns its right edge (after an inferred mark).
 
@@ -695,7 +728,7 @@ class _Page:
         names = ", ".join(item.channel for item in lights[:TOOLTIP_CHANNELS])
         if len(lights) > TOOLTIP_CHANNELS:
             names = f"{len(lights)} channels"
-        shape["props"][_TOOLTIP] = names
+        shape["props"][_TOOLTIP] = names if tooltip is None else tooltip
         tags = [_need("state light")]
         shape_rules: list[dict] = []
         mark_rules: list[dict] = []
@@ -973,11 +1006,15 @@ class _Page:
         """A roll-up node's row; the root's direct children follow it, one level only.
 
         A node whose rule is too long for the format is drawn as an aggregate:
-        its mark and channel count, and on the root a mosaic of its children's
-        lights (each child that is itself too long is an aggregate tile).
+        its mark and channel count. On the root that has children, a mosaic of
+        its children's lights follows (a child that is itself too long is an
+        aggregate tile that opens the child's screen). A node with no
+        children to show is split into parts each within the limit, drawn as
+        a row of small lights after its label, each a rule of its own.
         """
         x = MARGIN + depth * INDENT
         rule: Ladder | str | None = None
+        lights: list[Light] = []
         if node.no_rule:
             x = self.no_rule(x, self.y)
         else:
@@ -989,17 +1026,39 @@ class _Page:
         else:
             x = self.text(x + GAP, self.y, node.label)
         if rule == "aggregate state":
-            self.text(x + GAP, self.y, _AGGREGATE_TEXT.format(len(node.channels)), size=SMALL_SIZE)
+            x = self.text(
+                x + GAP, self.y, _AGGREGATE_TEXT.format(len(node.channels)), size=SMALL_SIZE
+            )
+        shown = depth == 0 and bool(node.children)
+        if rule == "aggregate state" and not shown:
+            self.parts(chunks(self.graph, lights), x + GAP)
         self.next_row()
         if depth:
             return
-        if rule == "aggregate state":
+        if rule == "aggregate state" and shown:
             self.mosaic(node.children, MARGIN + INDENT)
         for child in node.children:
             self.node(child, 1)
 
+    def parts(self, parts: Sequence[Sequence[Light]], x0: float) -> None:
+        """The parts of a node too long for one rule: a small light each, part i of n."""
+        x = x0
+        for number, part in enumerate(parts, 1):
+            if x + MOSAIC_LIGHT > MARGIN + STRIP_WIDTH:
+                self.y += MOSAIC_LIGHT + MOSAIC_GAP
+                x = MARGIN + INDENT
+            rule = ladder(self.graph, part, node=len(part) > 1)
+            top = self.y - (ROW - MOSAIC_LIGHT) / 2
+            tooltip = _PART.format(number, len(parts))
+            self.light(x, top, part, rule=rule, size=MOSAIC_LIGHT, tile=True, tooltip=tooltip)
+            x += MOSAIC_LIGHT + MOSAIC_GAP
+
     def mosaic(self, children: Sequence[Node], x0: float) -> None:
-        """One small light per child that reads a rule, in rows across the page."""
+        """One small light per child that reads a rule, in rows across the page.
+
+        A child too long for one rule is an aggregate tile; it opens the
+        child's screen, where its parts are drawn.
+        """
         x = x0
         for child in children:
             if child.no_rule:
@@ -1011,8 +1070,27 @@ class _Page:
             rule = ladder(self.graph, lights, node=True)
             top = self.y - (ROW - MOSAIC_LIGHT) / 2
             self.light(x, top, lights, rule=rule, size=MOSAIC_LIGHT, tile=True)
+            if rule == "aggregate state" and child.link is not None:
+                self.nav(x, top + (ROW - MOSAIC_LIGHT) / 2, MOSAIC_LIGHT, MOSAIC_LIGHT, child.link)
             x += MOSAIC_LIGHT + MOSAIC_GAP
         self.y += MOSAIC_LIGHT + ROW_GAP
+
+    def nav(self, x, y, w, h, link: Link) -> None:
+        """A transparent box over what is drawn there that opens *link*'s screen."""
+        props = {
+            "lineColor": TRANSPARENT,
+            "lineWidth": 0,
+            "fill": False,
+            _HOVER_LABEL: link.label,
+            "actions": [
+                {
+                    "type": "open_display",
+                    "file": self.screens(link.target),
+                    "target": _NAVIGATION_TARGET,
+                }
+            ],
+        }
+        self.s.widget("rectangle", x, y, w, h, props)
 
     # -- the strip ------------------------------------------------------------
 
@@ -1047,20 +1125,7 @@ class _Page:
             if p.link is not None:
                 half = p.width / 2
                 reach = STRIP_LEVEL if p.lane == "above" else STRIP_BELOW
-                props = {
-                    "lineColor": TRANSPARENT,
-                    "lineWidth": 0,
-                    "fill": False,
-                    _HOVER_LABEL: p.thing,
-                    "actions": [
-                        {
-                            "type": "open_display",
-                            "file": self.screens(p.link.target),
-                            "target": _NAVIGATION_TARGET,
-                        }
-                    ],
-                }
-                self.s.widget("rectangle", x - half, y - reach, p.width, 2 * reach, props)
+                self.nav(x - half, y - reach, p.width, 2 * reach, replace(p.link, label=p.thing))
         self.y = axis + STRIP_BELOW + LOCATOR_GAP
         if extent is not None:
             self.locator(row, extent)

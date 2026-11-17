@@ -57,12 +57,15 @@ class Target:
         id: The thing's id.
         by: A roll-up's grouping, ``place`` or ``system``; ``None`` for every
             other view kind.
+        system: For a roll-up by ``system``, the one system it shows within
+            the place; ``None`` for the roll-up of every system.
     """
 
     view: ViewKind
     kind: ThingKind
     id: str
     by: str | None = None
+    system: str | None = None
 
 
 @dataclass(frozen=True)
