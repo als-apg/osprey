@@ -182,6 +182,7 @@ src/osprey/interfaces/web_terminal/static/vendor/*
 # The dock engine is tracked: vendored from CANOPY's screen runtime at a pinned commit.
 !src/osprey/interfaces/web_terminal/static/vendor/dock-engine.mjs
 !src/osprey/interfaces/web_terminal/static/vendor/dock-engine.d.mts
+src/osprey/interfaces/ariel/static/vendor/
 src/osprey/interfaces/bluesky_web/panels/bluesky/vendor/
 src/osprey/interfaces/optimizer_web/panels/optimizer/vendor/
 # The okf panel's own vendored marked.min.js is tracked; only DOMPurify is fetched.
