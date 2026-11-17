@@ -141,6 +141,7 @@ CAL_COLUMNS = (0, 320, 560, 740, 830, 970)
 CAL_CHIP_WIDTH = 170
 CAL_CONDITION_LINES = 2  # the most lines a calibration's conditions take
 TITLE_LINE = 18  # each further line of a wrapped title at text size
+SIGNAL_NAME_LINES = 2  # a signal row's name wraps to this many lines before it is cut
 CHIP_INSET = 2  # a basis chip stands this far inside its row, above and below
 SET_CELL_WIDTH = 112  # one member of a set overview at the least: its value or name, a light
 SET_CELL_MAX = 220  # the widest a cell grows to when the columns are few
@@ -1876,7 +1877,8 @@ class _Page:
         return name, setpoint, setpoint + self.value_w + GAP
 
     def signal_row(self, row: ValueRow) -> None:
-        """A row of the signals table: the name with its unit, the setpoint under its
+        """A row of the signals table: the name with its unit (wrapped to at most
+        :data:`SIGNAL_NAME_LINES` lines, cut only past them), the setpoint under its
         head, the readback (or the readable channel) under its, then the light of the
         deviation or of the readback's rule."""
         name, setpoint, readback = self.signal_columns()
@@ -1884,11 +1886,14 @@ class _Page:
         raw = row.label in (row.channel, row.readback)  # no signal name: the channel's own
         word = _short(row.label) if raw else row.label
         label = f"{word} ({units})" if units else word
-        label = _cut(label, self.label_w, TEXT_SIZE)
-        self.text(name, self.y, label, w=min(text_width(label, TEXT_SIZE), self.label_w))
+        lines = _wrap(label, self.label_w, TEXT_SIZE, lines=SIGNAL_NAME_LINES)
+        for n, line in enumerate(lines):
+            w = min(text_width(line, TEXT_SIZE), self.label_w)
+            self.text(name, self.y + n * TITLE_LINE, line, w=w)
+        extra = (len(lines) - 1) * TITLE_LINE
         if raw:  # the full name, muted, under the short one
             full = _cut(row.label, self.label_w, SMALL_SIZE)
-            self.small(name, self.y + ROW, full, fg=MUTED_TEXT)
+            self.small(name, self.y + ROW + extra, full, fg=MUTED_TEXT)
         shown = row.readback
         if row.readback is not None:
             self.field(
@@ -1911,7 +1916,7 @@ class _Page:
             self.lit.add(shown)
         if row.inferred:
             self.mark(x + GAP, self.y, symbols.INFERRED_MARK)
-        self.next_row(ROW + SMALL_LINE if raw else ROW)
+        self.next_row((ROW + SMALL_LINE if raw else ROW) + extra)
 
     def chain(self, section: Section) -> None:
         """The fed-by chain: the device's box, and each feeder's box right of it with an

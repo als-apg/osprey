@@ -236,3 +236,44 @@ def test_with_every_left_group_in_columns_the_right_column_moves_over(tmp_path) 
         n for n in nodes(doc) if n["type"] == "text-label" and n["props"]["text"] == "WHERE"
     ]
     assert where["geometry"]["x"] == layout.MARGIN
+
+
+def _long_signals(document) -> None:
+    from tests.facility.panels._fixture import add_bpm
+
+    add_bpm(document, "XR01:BPM1", "XR/XR01")
+    for n in range(14):
+        document["channels"].append(
+            {
+                "id": f"XR01:BPM1:long{n}",
+                "signal": f"button_{n}_amplitude_reference_average",
+                "on": {"device": "XR01:BPM1"},
+            }
+        )
+
+
+def test_a_long_signal_name_in_a_column_wraps_to_a_second_line_and_is_never_cut(
+    tmp_path,
+) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _long_signals), PANELS_DIR)
+    doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
+    labels = [n for n in nodes(doc) if n["type"] == "text-label"]
+    named = [n for n in labels if n["props"]["text"].startswith("button")]
+    assert named and not any("…" in n["props"]["text"] for n in named)
+    for first in named:
+        x, y = first["geometry"]["x"], first["geometry"]["y"]
+        (second,) = [
+            n for n in labels
+            if n["geometry"]["x"] == x and n["geometry"]["y"] == y + layout.TITLE_LINE
+        ]  # fmt: skip
+        whole = f"{first['props']['text']} {second['props']['text']}"
+        assert whole.startswith("button") and "average" in whole
+    rows = sorted(
+        (n for n in labels if n["geometry"]["x"] == named[0]["geometry"]["x"]),
+        key=lambda n: n["geometry"]["y"],
+    )
+    tops = [n["geometry"]["y"] for n in rows]
+    assert len(tops) == len(set(tops))  # nothing drawn over the second line
