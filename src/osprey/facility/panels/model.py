@@ -527,6 +527,7 @@ class PanelGraph:
         """
         self._whole_of: dict[_Key, tuple[str, tuple[str, ...]]] = {}
         self._derived: dict[str, list[Thing]] = {}
+        self._through: dict[str, list[Thing]] = {}
         for key, thing in self._things.items():
             if thing.kind != "device" or self._own_places(key):
                 continue
@@ -552,6 +553,7 @@ class PanelGraph:
             if found is None:
                 continue
             self._whole_of[key] = (found[0][1], found[1])
+            self._through.setdefault(found[0][1], []).append(thing)
             for place in found[1]:
                 self._derived.setdefault(place, []).append(thing)
 
@@ -719,6 +721,11 @@ class PanelGraph:
     def derived(self, place_id: str) -> list[Thing]:
         """The parts :meth:`whole_of` puts directly in the place, in graph order."""
         return list(self._derived.get(place_id, ()))
+
+    def parts_through(self, device_id: str) -> list[Thing]:
+        """The parts :meth:`whole_of` places through the device (it is their nearest
+        placed whole), in graph order."""
+        return list(self._through.get(device_id, ()))
 
     def whole_of(self, thing_id: str) -> tuple[str, tuple[str, ...]] | None:
         """``(whole, places)`` for a device placed only as part of a whole, else ``None``.

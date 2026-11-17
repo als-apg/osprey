@@ -217,12 +217,15 @@ def _build_index(graph: PanelGraph) -> _Index:
         elif thing.place is not None:
             place_views.add(thing.place)
         if any(graph.rule(channel.name) for channel in channels):
-            starts = [thing.place if thing.kind == "device" else thing.id]
-            starts += [
+            # the places graph.contents puts it in: built, claimed, or through its whole
+            claims = [
                 edge.other
                 for edge in graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ())
                 if edge.outgoing and edge.other_kind == "place"
             ]
+            whole = graph.whole_of(thing.id) if thing.kind == "device" else None
+            starts = [thing.place if thing.kind == "device" else thing.id, *claims]
+            starts += list(whole[1]) if whole is not None else []
             system = _system(thing) if thing.kind == "device" else None
             for place in starts:
                 while place is not None and (place not in ruled or system is not None):
@@ -871,8 +874,9 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     id, each with the claims' standing and the first ``size_u`` that parses
     as a number. The devices whose built place is the rack and that no unit claim
     positions are ``unpositioned``, by id, and so are those a claim puts in the
-    rack at a unit that is no integer, with the unit's text. Each entry links to the device's
-    card and carries a :class:`Light` per channel the device's roll-up reads.
+    rack at a unit that is no integer (with the unit's text).
+    Each entry links to the device's card and carries a :class:`Light` per
+    rule channel of the device and of the parts placed through it, each once.
 
     Raises:
         KeyError: No such place, or it is excluded.
@@ -881,7 +885,11 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     index = _index(graph)
 
     def lights(thing: Thing) -> tuple[Light, ...]:
-        return tuple(light(graph, name) for name in rule_channels(graph, thing.id, "device"))
+        """The device's rule channels and those of the parts placed through it, each once."""
+        names = dict.fromkeys(rule_channels(graph, thing.id, "device"))
+        for part in graph.parts_through(thing.id):
+            names.update(dict.fromkeys(rule_channels(graph, part.id, "device")))
+        return tuple(light(graph, name) for name in names)
 
     # (device, unit) -> its claims into this rack, in graph order
     slots: dict[tuple[str, int], list[Edge]] = {}
@@ -912,9 +920,9 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     }
     texts: dict[str, list[str]] = {}
     for claim in graph.neighbours(rack_id, "place").get(PLACE_RELATION, ()):
-        text = claim.unit_text
         if claim.outgoing or claim.other_kind != "device" or claim.other in units_of:
             continue
+        text = claim.unit_text
         if text is not None:
             texts.setdefault(claim.other, []).append(text)
     for device, stated in texts.items():

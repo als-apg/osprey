@@ -1014,3 +1014,26 @@ def test_a_place_card_lists_a_part_placed_by_its_whole_as_inferred(tmp_path) -> 
     graph = graph_with_part(tmp_path)
     within = _section(describe(graph, Target("card", "place", "XR/XR01/RK1")), "within").items
     assert within[-1] == Link("XR01:CARD1", card("XR01:CARD1"), basis="inferred")
+
+
+# -- parts in the index and the rack ----------------------------------------------------
+
+
+def test_a_rack_whose_rules_sit_on_parts_has_its_roll_ups_and_system_rows(tmp_path) -> None:
+    graph = graph_with_part(tmp_path)
+    found = targets(graph)
+    system = Target("rollup", "place", "XR/XR01/RK1", by="system", system="ElectronicsModule")
+    assert system in found
+    assert Target("rollup", "place", "XR", by="system", system="ElectronicsModule") in found
+    (root,) = _section(health_rollup(graph, "XR/XR01/RK1", "system"), "roll-up").items
+    row = next(node for node in root.children if node.label == "ElectronicsModule")
+    assert row.link is not None and row.link.target == system
+
+
+def test_a_rack_unit_light_reads_the_parts_placed_through_its_device(tmp_path) -> None:
+    graph = graph_with_part(tmp_path)
+    (elevation,) = _section(rack_elevation(graph, "XR/XR01/RK1"), "units").items
+    unit = next(u for u in elevation.units if u.link.label == "XR01:CH1")
+    assert "XR01-CARD1:Fault-Sts" in [item.channel for item in unit.lights]
+    assert unit.link.target == card("XR01:CH1")
+    assert "XR01:CARD1" not in [u.link.label for u in (*elevation.units, *elevation.unpositioned)]
