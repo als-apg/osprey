@@ -202,5 +202,6 @@ class ScenarioRecord(TypedDict, total=False):
     couple: Mapping[str, Sequence[CouplingTerm]]
     noise: Mapping[str, NoiseRecord]
     channel_faults: Mapping[str, str]
+    stopped_iocs: Sequence[str]
     still: Sequence[str]
     faults: Mapping[str, FaultRecord]
