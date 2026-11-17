@@ -603,11 +603,10 @@ def test_a_rule_the_engine_would_refuse_as_too_long_is_a_long_formula(tmp_path, 
     out = tmp_path / "screens"
     emit.write(panel_graph, out)
     assert not [p for p in emit.check(panel_graph, out) if p.kind == "long_formula"]
-    victim = next(
-        f for f in sorted(out.rglob("*.screen.json")) if json.loads(f.read_text()).get("formulas")
-    )
+    victim = next(f for f in sorted(out.rglob("*.screen.json")) if '"conditions"' in f.read_text())
     doc = json.loads(victim.read_text())
-    doc["formulas"][0]["expression"] = " + ".join(["v0"] * 1100)
+    ruled = next(n for n in _walk(doc) if n.get("rules"))
+    ruled["rules"][0]["conditions"][0]["expression"] = " or ".join(["{0} == 1"] * 300)
     victim.write_text(json.dumps(doc))
     found = [p for p in emit.check(panel_graph, out) if p.kind == "long_formula"]
     assert found and all(p.file.endswith(victim.name) for p in found)

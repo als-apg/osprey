@@ -271,29 +271,13 @@ def test_a_lights_rules_carry_the_looks_of_their_states(panel_graph) -> None:
     (shape,) = _by_type(doc, "polygon")
     rule = ladder(panel_graph, [item])
     assert [r["targetProperty"] for r in shape["rules"]] == list(symbols.LIGHT_PROPS)
-    # one formula per arm, written once for every prop
-    assert [(f["expression"], f["bindings"]) for f in doc["formulas"]] == [
-        (expression, bindings) for expression, bindings in layout.arm_formulas(rule)
-    ]
-    assert all(f["bindings"] == {"v0": "XR02-IP1:Pressure-RB"} for f in doc["formulas"])
-    names = [f"formula://{f['name']}" for f in doc["formulas"]]
+    assert "formulas" not in doc  # the arms are written into each rule
     for r in shape["rules"]:
-        assert {pv["name"] for pv in r["pvs"]} <= set(names)
+        assert r["pvs"] == [{"name": "XR02-IP1:Pressure-RB", "trigger": True}]
         assert r["default"] == symbols.look("unknown")[r["targetProperty"]]
-        # the state of the first arm that holds reads its look; none holding, unknown's
-        for first in [*range(len(rule.arms)), None]:
-            held = {name: first is not None and i >= first for i, name in enumerate(names)}
-            state = rule.arms[first][1] if first is not None else "unknown"
-            truth = [held[pv["name"]] for pv in r["pvs"]]
-            chosen = next(
-                (
-                    c["value"]
-                    for c in r["conditions"]
-                    if eval(TOKEN.sub(r"v[\1]", c["expression"]), {}, {"v": truth})
-                ),
-                r["default"],
-            )
-            assert chosen == symbols.look(state)[r["targetProperty"]], (r["targetProperty"], state)
+        assert len(r["conditions"]) <= len(rule.arms)
+    for value in VALUES:
+        assert drawn(doc, shape, {item.channel: value}) == shown(evaluate(rule, [value])), value
     (mark,) = [n for n in _by_type(doc, "text-label") if n.get("rules")]
     assert mark["rules"][0]["targetProperty"] == "text"
 
@@ -842,30 +826,30 @@ def test_a_lights_screen_formula_gives_the_ladders_state_for_every_value(panel_g
     item = light(panel_graph, channel)
     rule = ladder(panel_graph, [item])
     doc, _ = draw(card("one", item), panel_graph)
-    if not rule.arms:  # rows the engine skips write no arm: no rule, no formula
-        assert doc["formulas"] == []
+    if not rule.arms:  # rows the engine skips write no arm: no rule
+        assert not [n for n in nodes(doc) if n.get("rules")]
         return
     (shape,) = _by_type(doc, "polygon")
     for value in VALUES:
         assert drawn(doc, shape, {channel: value}) == shown(evaluate(rule, [value])), value
 
 
-def test_a_ladder_is_written_once_per_light_not_once_per_prop(panel_graph) -> None:
+def test_each_prop_of_a_light_reads_its_channels_and_writes_only_its_arms(panel_graph):
     items = [light(panel_graph, c) for c in RULED]
     doc, _ = draw(card("node", Node("n", None, RULED, False)), panel_graph)
     rule = ladder(panel_graph, items, node=True)
-    # the shape's props and the mark read one formula per arm, each declared once
-    assert [f["expression"] for f in doc["formulas"]] == [e for e, _ in layout.arm_formulas(rule)]
-    names = {f"formula://{f['name']}" for f in doc["formulas"]}
+    arms = [condition for condition, _ in rule.arms]
     ruled = [n for n in nodes(doc) if n.get("rules")]
     assert len(ruled) == 2  # the shape and its mark
     for node in ruled:
         for found in node["rules"]:
-            assert {pv["name"] for pv in found["pvs"]} <= names
-            # a condition names its formulas only: {0}, or {0} or {1} for arms of one look
-            assert all(
-                TOKEN.sub("", c["expression"]).strip(" or") == "" for c in found["conditions"]
-            )
+            assert [pv["name"] for pv in found["pvs"]] == list(RULED)
+            for condition in found["conditions"]:  # one arm, or arms of one look joined
+                assert condition["expression"] in arms or all(
+                    f"({arm})" in condition["expression"] or arm not in condition["expression"]
+                    for arm in arms
+                )
+    assert max(_engine_lengths(doc)) == layout.engine_length(rule)
 
 
 def test_an_aggregate_tile_opens_its_childs_screen(panel_graph, monkeypatch) -> None:

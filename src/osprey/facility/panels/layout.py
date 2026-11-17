@@ -6,10 +6,10 @@ another, and draws every item with the pinned viewer's widgets. Colours are
 the theme roles of :mod:`~osprey.facility.panels.symbols`.
 
 States are the viewer's to compute. A light's rule over its channels, written from
-their health rows (see :func:`ladder`), is a list of arms, each a screen formula
-(:func:`arm_formulas`) that holds when the light is in that arm's state; each
-prop of the light has a rule (:func:`light_rule`) whose conditions read those
-formulas, first that holds wins, and set the prop to the state's look. The viewer
+their health rows (see :func:`ladder`), is a list of arms, each a condition that
+holds when the light is in that arm's state; each prop of the light has a rule
+(:func:`light_rule`) over the light's channels whose conditions are those arms,
+first that holds wins, and set the prop to the state's look. The viewer
 shows the state the rows give the live value, and ``unknown`` before a value
 arrives. Nothing here reads a value.
 
@@ -69,7 +69,7 @@ __all__ = [
     "FORMAT_REQUESTS",
     "MIN_STRIP_SCALE",
     "OUTLINE_KIND",
-    "arm_formulas",
+    "compiled_rules",
     "light_rule",
     "WIDGETS",
     "Ladder",
@@ -685,46 +685,32 @@ def ladder(graph: PanelGraph, lights: Sequence[Light], *, node: bool = False) ->
     return too_long if engine_length(rule) > RULE_EXPRESSION_LIMIT else rule
 
 
-def arm_formulas(rule: Ladder) -> list[tuple[str, dict[str, str]]]:
-    """The screen formula of each arm of *rule*: its condition and its bindings.
-
-    ``{i}`` of an arm is the variable ``v<i>``, bound to ``rule.channels[i]``;
-    a formula binds the channels its arm reads, nothing else.
-    """
-    out = []
-    for condition, _state in rule.arms:
-        used = sorted({int(i) for i in _TOKEN.findall(condition)})
-        out.append((_TOKEN.sub(r"v\1", condition), {f"v{i}": rule.channels[i] for i in used}))
-    return out
-
-
-def light_rule(rule: Ladder, values: Mapping[str, Any], names: Sequence[str]) -> dict[str, Any]:
-    """One prop's rule over the arm formulas *names* (one per arm of *rule*).
+def light_rule(rule: Ladder, values: Mapping[str, Any]) -> dict[str, Any]:
+    """One prop's rule of a light: its channels, and its arms as the conditions.
 
     The first arm that holds gives its state's value, none holding gives
-    ``unknown``'s, the default. The viewer inlines a formula once for each
-    ``{N}`` that names it, so each arm is named once: successive arms of one
-    value share a condition (``{0} or {1}``), and the arms after the last one
-    whose value is not the default's are left out.
+    ``unknown``'s, the default. Successive arms of one value share a
+    condition, and the arms after the last one whose value is not the
+    default's are left out. The arms are written into the rule itself, not
+    into a screen formula: the viewer inlines a formula with longer tokens
+    (``{<formula>.<name>}``) for each ``{N}`` that names it, so the
+    compiled rule is shorter this way (see :func:`compiled_rules`).
     """
     default = values["unknown"]
-    groups: list[tuple[Any, list[int]]] = []
-    for index, (_condition, state) in enumerate(rule.arms):
+    groups: list[tuple[Any, list[str]]] = []
+    for condition, state in rule.arms:
         value = values[state]
         if groups and groups[-1][0] == value:
-            groups[-1][1].append(index)
+            groups[-1][1].append(condition)
         else:
-            groups.append((value, [index]))
+            groups.append((value, [condition]))
     while groups and groups[-1][0] == default:
         groups.pop()
-    pvs: list[dict[str, Any]] = []
-    conditions: list[dict[str, Any]] = []
-    for value, arms in groups:
-        tokens = []
-        for arm in arms:
-            tokens.append(f"{{{len(pvs)}}}")
-            pvs.append({"name": _FORMULA_PREFIX + names[arm], "trigger": True})
-        conditions.append({"expression": " or ".join(tokens), "value": value})
+    conditions = [
+        {"expression": " or ".join(f"({c})" if len(arms) > 1 else c for c in arms), "value": value}
+        for value, arms in groups
+    ]
+    pvs = [{"name": channel, "trigger": True} for channel in rule.channels]
     return {"default": default, "pvs": pvs, "conditions": conditions}
 
 
@@ -778,30 +764,19 @@ def engine_expression(rule: Mapping[str, Any], formulas: Mapping[str, Mapping[st
     return out
 
 
-#: The width of a screen formula's name; every name has it, so a ladder's
-#: expression has one length wherever it is drawn.
-_FORMULA_NAME = "s{:05d}"
+def compiled_rules(rule: Ladder) -> list[str]:
+    """Every rule a light drawn with *rule* writes (one per prop of any look), as the
+    viewer compiles it for the formula engine (:func:`engine_expression`)."""
+    looks = {state: symbols.look(state) for state in symbols.STATES}
+    return [
+        engine_expression(light_rule(rule, {s: looks[s][prop] for s in symbols.STATES}), {})
+        for prop in (*symbols.LIGHT_PROPS, symbols.MARK_PROP)
+    ]
 
 
 def engine_length(rule: Ladder) -> int:
-    """The longest expression the engine receives for a light drawn with *rule*.
-
-    The rules a light writes (one per prop, for every prop any look sets) are
-    built by the writer's own functions and compiled by
-    :func:`engine_expression`; the bound is their longest.
-    """
-    names = [_FORMULA_NAME.format(i + 1) for i in range(len(rule.arms))]
-    formulas = {
-        name: {"name": name, "expression": expression, "bindings": bindings}
-        for name, (expression, bindings) in zip(names, arm_formulas(rule), strict=True)
-    }
-    looks = {state: symbols.look(state) for state in symbols.STATES}
-    longest = 0
-    for prop in (*symbols.LIGHT_PROPS, symbols.MARK_PROP):
-        values = {state: looks[state][prop] for state in symbols.STATES}
-        written = light_rule(rule, values, names)
-        longest = max(longest, len(engine_expression(written, formulas)))
-    return longest
+    """The longest expression the engine receives for a light drawn with *rule*."""
+    return max(len(text) for text in compiled_rules(rule))
 
 
 def chunks(graph: PanelGraph, lights: Sequence[Light]) -> list[list[Light]]:
@@ -868,8 +843,6 @@ class _Screen:
     title: str
     nodes: list[dict[str, Any]] = field(default_factory=list)
     unknown: int = 0
-    formulas: list[dict[str, Any]] = field(default_factory=list)
-    _formula_names: dict[tuple, str] = field(default_factory=dict)
     _widgets: int = 1
     _rules: int = 0
 
@@ -902,23 +875,6 @@ class _Screen:
     def widget(self, kind: str, x, y, w, h, props: dict[str, Any], **kw: Any) -> dict[str, Any]:
         return self.add({"type": kind, "props": props, "geometry": _geometry(x, y, w, h)}, **kw)
 
-    def formulas_of(self, ladder: Ladder) -> list[str]:
-        """The names of *ladder*'s arm formulas, each distinct formula declared once."""
-        names = []
-        for expression, bindings in arm_formulas(ladder):
-            key = (expression, tuple(bindings.items()))
-            name = self._formula_names.get(key)
-            if name is None:
-                name = _FORMULA_NAME.format(len(self._formula_names) + 1)
-                if len(name) != len(_FORMULA_NAME.format(1)):
-                    raise ValueError("a screen holds more formulas than their names can number")
-                self._formula_names[key] = name
-                self.formulas.append(
-                    {"name": name, "kind": "scalar", "expression": expression, "bindings": bindings}
-                )
-            names.append(name)
-        return names
-
     def rule(self, name: str, target: str, ladder: Ladder, values: Mapping[str, Any]) -> dict:
         """One prop's rule: the value of the first arm that holds, else unknown's."""
         self._rules += 1
@@ -926,7 +882,7 @@ class _Screen:
             "id": f"r-{self._rules:04d}",
             "name": name,
             "targetProperty": target,
-            **light_rule(ladder, values, self.formulas_of(ladder)),
+            **light_rule(ladder, values),
         }
 
     def document(self, height: float) -> dict[str, Any]:
@@ -954,7 +910,6 @@ class _Screen:
                 "description": description,
             },
             "macros": [],
-            "formulas": self.formulas,
             "root": root,
         }
 
