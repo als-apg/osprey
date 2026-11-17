@@ -620,17 +620,14 @@ _REWORDED_NGINX_LINES = frozenset(
 #: may be replaced in the `token` render.
 _REPLACED_NGINX_LINES = frozenset({"    server_name _;"})
 
-#: The terminal-starting page's one response line, as the template spells it.
-_STARTING_PAGE_RETURN = (
-    '        return 503 \'<!doctype html><html lang="en"><head><meta charset="utf-8">'
-    '<meta name="viewport" content="width=device-width, initial-scale=1">'
-    '<meta http-equiv="refresh" content="5"><title>Terminal starting</title>'
-    "<style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;"
-    "place-items:center;font:16px/1.5 system-ui,sans-serif;background:Canvas;"
-    "color:CanvasText}main{max-width:32rem;padding:1rem 1.5rem}p{opacity:.75}</style>"
-    "</head><body><main><h1>This terminal is not answering yet</h1><p>It is most likely "
-    "still starting, which takes up to a minute after a deploy or restart. This page "
-    "reloads itself every 5 seconds.</p></main></body></html>';"
+#: The terminal-starting page's one response line. Read out of the tracked
+#: golden rather than spelled here: the page carries the deployment's palette
+#: and a script, `test_golden_render.py` already holds those bytes to the
+#: renderer's, and what this module pins is that the page is ONE added line.
+_STARTING_PAGE_RETURN = next(
+    line
+    for line in (Path(__file__).parent / "golden" / "nginx.conf").read_text().splitlines()
+    if line.startswith("        return 503 '<!doctype html>")
 )
 
 #: Task 4.7 (nginx-identity-headers), ungated arm. Four clears per `/u/<user>/`
@@ -659,7 +656,7 @@ _ALLOWED_NGINX_LINES = Counter(
         "}": 1,
         # The terminal-starting page — the TENTH exception to SC6. Each of
         # the two proxying locations sends nginx's own 502 to one named
-        # location, which answers with a self-reloading 503. difflib pairs the
+        # location, which answers with a 503 waiting page. difflib pairs the
         # named location's closing brace with the baseline's, so it counts as
         # an indented `}` here.
         "        error_page 502 = @osprey_terminal_starting;": 2,
