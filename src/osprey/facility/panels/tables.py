@@ -45,7 +45,9 @@ __all__ = [
     "DRAWN_AS",
     "EXCLUDED_KINDS",
     "HEALTH_STATES",
+    "OPTIONAL_COLUMNS",
     "OPTIONAL_FILES",
+    "TOLERANCE_TERMS",
     "PICTURE_VIEWS",
     "TABLE_FILES",
     "Exclusion",
@@ -174,6 +176,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "tolerance_source",
             "held_in",
             "order",
+            "under",
         ],
         CALIBRATIONS: [
             "id",
@@ -193,6 +196,11 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
         ],
         CALIBRATION_CURVES: ["id", "x", "y"],
     }
+)
+
+#: The columns a file's header may leave out; an absent one reads as empty.
+OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {CALIBRATION_KINDS: frozenset({"under"})}
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
@@ -278,7 +286,7 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         ),
         PICTURES: ("x_mm", "y_mm", "z_mm"),
         METRICS: ("order",),
-        CALIBRATION_KINDS: ("tolerance", "order"),
+        CALIBRATION_KINDS: ("order",),
         CALIBRATION_CURVES: ("x", "y"),
     }
 )
@@ -289,7 +297,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         PAIRS: ("setpoint",),
         NAMES: ("thing",),
         METRICS: ("view", "level", "order"),
-        CALIBRATION_KINDS: ("kind",),
+        CALIBRATION_KINDS: ("kind", "class"),
         CALIBRATIONS: ("id",),
     }
 )
@@ -462,11 +470,16 @@ def _metric(**columns: Any) -> Metric:
 
 @dataclass(frozen=True)
 class CalibrationKind:
-    """One row of ``calibration_kinds.csv``: a quantity every device of ``cls`` has.
+    """One row of ``calibration_kinds.csv``: a quantity the devices of ``cls`` have.
 
-    ``tolerance`` is in ``unit``: two claims further apart disagree.
-    ``held_in`` names the signal of the subject's channel that holds the value
-    in force in the control system, or is ``None`` when the records hold it.
+    The key is ``kind`` and ``cls``: one kind id may name a kind of several
+    classes. ``under`` limits the row to the devices of ``cls`` that belong to
+    that model or lie under that place; ``None``: every device of ``cls``.
+    ``tolerance`` is ``("rel", fraction)`` or ``("abs", amount in unit)``: two
+    claims further apart disagree; ``None``: claims are never compared.
+    A curve's ``unit`` is ``x;y``. ``held_in`` names the signal of the subject's
+    channels that hold the value in force in the control system, or is ``None``
+    when the records hold it.
     """
 
     kind: str
@@ -475,10 +488,11 @@ class CalibrationKind:
     shape: str
     unit: str | None
     wanted_basis: str
-    tolerance: float | None
+    tolerance: tuple[str, float] | None
     tolerance_source: str | None
     held_in: str | None
     order: float | None
+    under: str | None = None
 
 
 def _calibration_kind(**columns: Any) -> CalibrationKind:
@@ -564,7 +578,8 @@ def _records(path: Path) -> Iterator[tuple[int, list[str]]]:
 
 def _header(name: str, record: list[str]) -> list[str]:
     expected = COLUMNS[name]
-    missing = [column for column in expected if column not in record]
+    optional = OPTIONAL_COLUMNS.get(name, frozenset())
+    missing = [column for column in expected if column not in record and column not in optional]
     extra = [column for column in record if column not in expected]
     if missing or extra or len(set(record)) != len(record):
         parts = []
@@ -578,11 +593,41 @@ def _header(name: str, record: list[str]) -> list[str]:
     return record
 
 
+#: The terms a calibration kind's ``tolerance`` is stated in.
+TOLERANCE_TERMS: tuple[str, ...] = ("rel", "abs")
+
+
+def _tolerance_term(text: str) -> tuple[str, float] | None:
+    """``rel:<fraction>`` or ``abs:<number>`` as ``(term, amount)``; ``None`` when it is neither."""
+    term, _, amount = text.partition(":")
+    try:
+        number = float(amount)
+    except ValueError:
+        return None
+    if term not in TOLERANCE_TERMS or not number >= 0 or number == float("inf"):
+        return None
+    return term, number
+
+
+#: Per file, the columns read by a parser of their own: it gives ``None`` for text
+#: that does not hold, and the message says what does.
+_PARSED: Mapping[str, Mapping[str, tuple[Callable[[str], Any], str]]] = MappingProxyType(
+    {CALIBRATION_KINDS: {"tolerance": (_tolerance_term, "rel:<fraction> or abs:<number>")}}
+)
+
+
 def _field(name: str, line: int, column: str, text: str) -> Any:
     if not text:
         if column in _REQUIRED[name]:
             raise PanelTableError(name, line, f"{column} is empty")
         return None
+    parser = _PARSED.get(name, {}).get(column)
+    if parser is not None:
+        parse, form = parser
+        found = parse(text)
+        if found is None:
+            raise PanelTableError(name, line, f"{column} is {text!r}, not {form}")
+        return found
     words = _VOCABULARY[name].get(column)
     if words is not None and text not in words:
         raise PanelTableError(name, line, f"{column} is {text!r}, not one of {', '.join(words)}")
@@ -631,9 +676,26 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
         rows.append(
             make(**{column: _field(name, line, column, texts[column]) for column in header})
         )
+        if name == CALIBRATION_KINDS:
+            _check_kind_unit(rows[-1], line)
         if lines is not None:
             lines.append(line)
     return tuple(rows)
+
+
+def _check_kind_unit(kind: CalibrationKind, line: int) -> None:
+    """A curve's unit is ``x;y``; only a curve's unit has a ``;``."""
+    if kind.unit is None:
+        return
+    parts = kind.unit.split(";")
+    if kind.shape == "curve" and (len(parts) != 2 or not all(p.strip() for p in parts)):
+        raise PanelTableError(
+            CALIBRATION_KINDS, line, f"unit is {kind.unit!r}; a curve's unit is x;y, as A;T"
+        )
+    if kind.shape != "curve" and len(parts) > 1:
+        raise PanelTableError(
+            CALIBRATION_KINDS, line, f"unit is {kind.unit!r}; only a curve's unit has a ';'"
+        )
 
 
 def _check_calibrations(

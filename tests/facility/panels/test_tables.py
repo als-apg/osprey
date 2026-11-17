@@ -51,7 +51,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
         "view,level,order,title,measure,signal,class,unit,caption,source"
     )
     assert ",".join(COLUMNS["calibration_kinds.csv"]) == (
-        "kind,title,class,shape,unit,wanted_basis,tolerance,tolerance_source,held_in,order"
+        "kind,title,class,shape,unit,wanted_basis,tolerance,tolerance_source,held_in,order,under"
     )
     assert ",".join(COLUMNS["calibrations.csv"]) == (
         "id,kind,subject,value,unit,conditions,basis,method,date,document,version,state,"
@@ -230,10 +230,13 @@ def test_a_short_name_must_be_stated(tmp_path: Path) -> None:
 
 def test_the_calibration_tables_read(panel_tables: Path) -> None:
     tables = read_tables(panel_tables)
-    kinds = {kind.kind: kind for kind in tables.calibration_kinds}
-    assert kinds["integrated_gradient"].tolerance == pytest.approx(0.01)
-    assert kinds["integrated_gradient"].cls == "Quadrupole"
-    assert kinds["current_offset"].held_in == "current_setpoint"
+    kinds = {(kind.kind, kind.cls): kind for kind in tables.calibration_kinds}
+    assert kinds["integrated_gradient", "Quadrupole"].tolerance == ("rel", pytest.approx(0.002))
+    assert kinds["centre", "Quadrupole"].tolerance == ("abs", pytest.approx(5.0))
+    assert kinds["strength_scale", "Quadrupole"].tolerance is None
+    assert kinds["current_offset", "Quadrupole"].held_in == "current_setpoint"
+    assert kinds["centre", "Dipole"].under == "XR/XR02"
+    assert kinds["centre", "Quadrupole"].under is None
     bench = next(c for c in tables.calibrations if c.id == "ig/QF1/bench")
     assert bench.supersedes == "ig/QF/design" and bench.basis == "bench"
     assert [(p.x, p.y) for p in tables.calibration_curves] == [(0.0, -0.02376), (73.33, -4.9198)]
@@ -250,7 +253,15 @@ _CLAIM = "x,integrated_gradient,XR01:QF1,1.0,T,,bench,,2024-01-01,D,A,Released,,
         ("calibrations.csv", _CLAIM.replace("bench", "guess"), "basis is 'guess'"),
         ("calibrations.csv", _CLAIM.replace("accepted", "maybe"), "standing is 'maybe'"),
         ("calibration_curves.csv", "x,1,2", "no claim whose value is a curve"),
-        ("calibration_kinds.csv", "k,K,Quadrupole,blob,,bench,,,,1", "shape is 'blob'"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,blob,,bench,,,,1,", "shape is 'blob'"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,scalar,,bench,0.01,,,1,", "rel:<fraction>"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,scalar,,bench,rel:,,,1,", "rel:<fraction>"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,scalar,,bench,abs:x,,,1,", "rel:<fraction>"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,scalar,,bench,abs:-1,,,1,", "rel:<fraction>"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,curve,A,bench,,,,1,", "x;y"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,curve,A;T;s,bench,,,,1,", "x;y"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,scalar,A;T,bench,,,,1,", "only a curve"),
+        ("calibration_kinds.csv", "centre,C,Quadrupole,tuple,um,survey,,,,9,", "already has"),
     ],
 )
 def test_a_calibration_row_that_does_not_hold_is_refused(tmp_path, name, row, says) -> None:
@@ -271,3 +282,16 @@ def test_a_calibration_id_must_be_unique(tmp_path) -> None:
     _edit(directory, "calibrations.csv", [*lines, lines[1]])
     with pytest.raises(PanelTableError, match="already has a row"):
         read_tables(directory)
+
+
+def test_a_kind_id_may_name_kinds_of_several_classes(panel_tables: Path) -> None:
+    kinds = read_tables(panel_tables).calibration_kinds
+    assert [k.cls for k in kinds if k.kind == "centre"] == ["Quadrupole", "Dipole"]
+
+
+def test_the_under_column_may_be_left_out_of_the_header(tmp_path: Path) -> None:
+    directory = copy_tables(tmp_path / "panels")
+    lines = (directory / "calibration_kinds.csv").read_text().splitlines()
+    _edit(directory, "calibration_kinds.csv", [line.rsplit(",", 1)[0] for line in lines])
+    kinds = read_tables(directory).calibration_kinds
+    assert len(kinds) == len(lines) - 1 and all(k.under is None for k in kinds)

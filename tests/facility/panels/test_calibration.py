@@ -8,7 +8,7 @@ from osprey.facility.panels.describe import (
     device_card,
     set_overview,
 )
-from osprey.facility.panels.view import Grid, Link, Target
+from osprey.facility.panels.view import Calibrations, Fact, Grid, Link, Target
 from tests.facility.panels._views import nodes, stub_render
 from tests.facility.panels.test_symbols import _resolved, contrast
 
@@ -36,7 +36,7 @@ def test_a_cell_says_the_deviation_from_design_or_the_state(panel_graph) -> None
     centre = _cells(calibration_overview(panel_graph, "XR-QUAD", "centre"))
     assert centre["XR01:QF1"].text == "-2.5 · -14.5 um"  # no design value: the value
     live = _cells(calibration_overview(panel_graph, "XR-QUAD", "current_offset"))
-    assert live["XR01:QF1"].channel == "XR01-QF1:Current-SP"
+    assert live["XR01:QF1"].channels == ("XR01-QF1:Current-SP",)
 
 
 def test_the_set_overview_and_the_card_link_to_the_calibration_views(panel_graph) -> None:
@@ -113,3 +113,65 @@ def test_a_place_says_per_kind_how_many_are_at_their_wanted_basis(panel_graph) -
     chips = [n for n in nodes(doc) if "at wanted basis" in str(n["props"].get("tooltip"))]
     assert len(chips) == len(section.items)
     assert len(section.items) == len(panel_graph.calibration_kinds("Quadrupole"))  # pumps: none
+
+
+_TRIM = "XR01-QF1:Trim-SP"
+
+
+def _second_holder(document) -> None:
+    """A second channel on XR01:QF1 that states the signal ``current_offset`` is held in."""
+    document["channels"].append(
+        {"id": _TRIM, "signal": "current_setpoint", "on": {"device": "XR01:QF1"}}
+    )
+
+
+def test_a_value_held_in_several_channels_shows_them_all_in_channel_order(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _second_holder), PANELS_DIR)
+    names = tuple(
+        c.name for c in graph.channels("XR01:QF1", "device") if c.signal == "current_setpoint"
+    )
+    assert names == ("XR01-QF1:Current-SP", _TRIM)
+    (block,) = [s for s in device_card(graph, "XR01:QF1").sections if s.title == "calibration"]
+    (row,) = [r for r in block.items[0].rows if r.title == "Current offset"]
+    assert row.channels == names and row.chip == "EPICS"
+    doc = stub_render(device_card(graph, "XR01:QF1"), graph)
+    fields = [n for n in nodes(doc) if n["type"].startswith("pv-") and n["props"]["pv"] in names]
+    side_by_side = [
+        (a, b) for a in fields for b in fields
+        if (a["props"]["pv"], b["props"]["pv"]) == names
+        and a["geometry"]["y"] == b["geometry"]["y"]
+        and a["geometry"]["x"] + a["geometry"]["width"] <= b["geometry"]["x"]
+    ]  # fmt: skip
+    assert len(side_by_side) == 1  # the calibration row; the card's own rows stack
+    cells = _cells(calibration_overview(graph, "XR-QUAD", "current_offset"))
+    assert cells["XR01:QF1"].channels == names
+    bound = stub_render(calibration_overview(graph, "XR-QUAD", "current_offset"), graph)
+    assert _TRIM in {n["props"]["pv"] for n in nodes(bound) if n["type"].startswith("pv-")}
+
+
+def test_a_kind_shows_only_on_the_devices_under_its_place(panel_graph) -> None:
+    def block(device):
+        return [s for s in device_card(panel_graph, device).sections if s.title == "calibration"]
+
+    (here,) = block("XR02:BEND1")
+    (calibrations,) = here.items
+    assert isinstance(calibrations, Calibrations)
+    assert [r.title for r in calibrations.rows] == ["Field centre"]
+    assert calibrations.rows[0].link is None  # no set of dipoles
+    assert block("XR01:BEND1") == []
+    from osprey.facility.panels.describe import place_view
+
+    def summary(place):
+        sections = [s for s in place_view(panel_graph, place).sections if s.title == "calibration"]
+        return [i.label if isinstance(i, Link) else i.text for s in sections for i in s.items]
+
+    assert "Field centre: 0 of 1 at wanted basis" in summary("XR/XR02")
+    assert not [t for t in summary("XR/XR01") if t.startswith("Field centre")]
+    facts = [
+        i for s in place_view(panel_graph, "XR/XR02").sections
+        if s.title == "calibration" for i in s.items if isinstance(i, Fact)
+    ]  # fmt: skip
+    assert len(facts) == 1

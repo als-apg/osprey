@@ -588,3 +588,69 @@ def test_a_claim_from_an_excluded_document_is_dropped(tmp_path) -> None:
     found = graph.calibration("XR01:QF1", "integrated_gradient")
     assert found.in_force is not None and found.in_force.id == "ig/QF/design"
     assert found.state == "design"
+
+
+def _graph_with(tmp_path: Path, kinds: list[str] = (), claims: list[str] = (), change=None):
+    """The fixture graph with *kinds* and *claims* rows added to the calibration tables."""
+    tables = copy_tables(tmp_path / "panels")
+    for name, rows in (("calibration_kinds.csv", kinds), ("calibrations.csv", claims)):
+        with (tables / name).open("a") as handle:
+            handle.writelines(f"{row}\n" for row in rows)
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def test_a_kind_applies_by_class_and_under_a_place(panel_graph) -> None:
+    assert [k.kind for k in panel_graph.calibration_kinds_of("XR02:BEND1")] == ["centre"]
+    assert panel_graph.calibration_kinds_of("XR01:BEND1") == []
+    assert panel_graph.calibration_kind("centre", "Dipole").title == "Field centre"
+    assert panel_graph.calibration_kind("centre", "Quadrupole").title == "Magnetic centre"
+    assert panel_graph.calibration("XR02:BEND1", "centre").kind.cls == "Dipole"
+    with pytest.raises(KeyError):
+        panel_graph.calibration("XR01:BEND1", "centre")
+    with pytest.raises(KeyError):
+        panel_graph.calibration_kind("centre", "Pump")
+
+
+def test_a_kind_applies_under_a_model(tmp_path) -> None:
+    def models(document: dict[str, Any]) -> None:
+        for device in document["devices"]:
+            if device["id"].startswith("XR0"):
+                device["model"] = "XA" if device["id"].startswith("XR01") else "XB"
+
+    graph = _graph_with(tmp_path, ["roll,Roll,Pump,scalar,urad,survey,,,,1,XB"], change=models)
+    assert [k.kind for k in graph.calibration_kinds_of("XR02:IP1")] == ["roll"]
+    assert graph.calibration_kinds_of("XR01:IP1") == []
+    assert graph.thing("XR02:IP1", "device").model == "XB"
+
+
+def test_an_absolute_tolerance_holds_for_each_number_of_a_tuple(tmp_path) -> None:
+    near = "centre/QF1/near,centre,XR01:QF1,-2.5;-10.0,um,,bench,,2023-02-24,D,A,Released,,accepted"
+    graph = _graph_with(tmp_path, claims=[near])
+    assert graph.calibration("XR01:QF1", "centre").state == "bench"  # 4.5 um apart, 5 allowed
+    far = near.replace("-10.0", "-20.0").replace("near", "far")
+    graph = _graph_with(tmp_path / "far", claims=[far])
+    found = graph.calibration("XR01:QF1", "centre")
+    assert found.state == "contested" and [c.id for c in found.rivals] == ["centre/QF1/bench"]
+
+
+def test_a_relative_tolerance_is_a_fraction_of_the_value_in_force(tmp_path) -> None:
+    near = "ig/QF1/near,integrated_gradient,XR01:QF1,-4.9100,T,,bench,,2023-03-01,D,A,Released,,accepted"
+    graph = _graph_with(tmp_path, claims=[near])
+    assert graph.calibration("XR01:QF1", "integrated_gradient").state == "bench"  # 0.2 % of 4.91
+    far = near.replace("-4.9100", "-4.9000").replace("near", "far")
+    graph = _graph_with(tmp_path / "far", claims=[far])
+    assert graph.calibration("XR01:QF1", "integrated_gradient").state == "contested"
+
+
+def test_a_kind_with_no_tolerance_is_contested_only_by_standing(tmp_path) -> None:
+    rows = [
+        "ss/QF1/a,strength_scale,XR01:QF1,1.0,,,beam,,2024-01-01,D,A,Released,,accepted",
+        "ss/QF1/b,strength_scale,XR01:QF1,1.5,,,beam,,2024-02-01,D,A,Released,,accepted",
+    ]
+    graph = _graph_with(tmp_path, claims=rows)
+    assert graph.calibration("XR01:QF1", "strength_scale").state == "beam"
+    graph = _graph_with(
+        tmp_path / "c",
+        claims=[*rows, rows[0].replace("/a,", "/c,").replace("accepted", "contested")],
+    )
+    assert graph.calibration("XR01:QF1", "strength_scale").state == "contested"

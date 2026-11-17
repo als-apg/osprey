@@ -2239,8 +2239,8 @@ class _Page:
         if cell.calibration is not None:  # a calibration view: no light, static text
             found = cell.calibration
             self.calibration_box(x0, y, w, found.state)
-            if found.channel is not None:
-                self.field(x0 + GAP / 2, y, found.channel, w=w - GAP)
+            if found.channels:
+                self.held(x0 + GAP / 2, y, found.channels, w - GAP)
             else:
                 text = _cut(found.text, w - GAP, TEXT_SIZE)
                 self.text(x0 + GAP / 2, y, text, w=min(text_width(text, TEXT_SIZE), w - GAP))
@@ -2294,8 +2294,8 @@ class _Page:
         if row.conditions:
             self.small(x[0], top + ROW, _cut(row.conditions, widths[0], SMALL_SIZE), fg=MUTED_TEXT)
             second = True
-        if row.channel is not None:
-            self.field(x[1], top, row.channel)
+        if row.channels:
+            self.held(x[1], top, row.channels, min(VALUE_WIDTH, widths[1]))
         elif row.shown is None:
             self.small(x[1], top + (ROW - SMALL_LINE) / 2, _NO_VALUE_YET, fg=MUTED_TEXT)
         else:
@@ -2314,11 +2314,18 @@ class _Page:
                 self.small(left, top + (ROW - SMALL_LINE) / 2, _cut(text, width, SMALL_SIZE))
         self.y = top + ROW + (SMALL_LINE if second else 0) + ROW_GAP
 
+    def held(self, x: float, y: float, channels: tuple[str, ...], w: float) -> None:
+        """The channels holding a calibration value live, side by side in *w*, a gap
+        between each two: one field for a scalar, one per number of a tuple."""
+        each = (w - GAP * (len(channels) - 1)) / len(channels)
+        for n, channel in enumerate(channels):
+            self.field(x + n * (each + GAP), y, channel, w=each)
+
     def basis_chip(self, x: float, y: float, row: CalibrationRow) -> None:
         """The basis chip: an outline in the basis role (the disagree role when
         contested), dashed and muted for a value still wanted, page text for a
         value held live."""
-        if row.channel is not None:
+        if row.channels:
             colour, dashed = PAGE_TEXT, False
         elif row.shown is None:
             colour, dashed = MUTED_TEXT, True

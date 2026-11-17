@@ -134,6 +134,7 @@ class Thing:
             with none.
         short_name: The short name ``names.csv`` states for it (a strip's
             label), or ``None``.
+        model: The model a device belongs to, or ``None``.
     """
 
     id: str
@@ -143,6 +144,7 @@ class Thing:
     citations: tuple[Citation, ...] = ()
     level: str | None = None
     short_name: str | None = None
+    model: str | None = None
 
 
 @dataclass(frozen=True)
@@ -322,13 +324,19 @@ def calibration_numbers(value: str) -> tuple[float, ...] | None:
         return None
 
 
-def _disagree(a: Calibration, b: Calibration, tolerance: float | None) -> bool:
-    """Whether two claims differ by more than *tolerance* in any number; claims with
-    no tolerance, or values that are no numbers, are not compared."""
+def _disagree(a: Calibration, b: Calibration, tolerance: tuple[str, float] | None) -> bool:
+    """Whether claim *a* differs from claim *b* (the one in force) by more than
+    *tolerance* in any number: ``abs`` in the kind's unit, ``rel`` a fraction of
+    *b*'s number. Claims with no tolerance, or values that are no numbers, are
+    not compared."""
     x, y = calibration_numbers(a.value), calibration_numbers(b.value)
     if tolerance is None or x is None or y is None or len(x) != len(y):
         return False
-    return any(abs(p - q) > tolerance for p, q in zip(x, y, strict=True))
+    term, amount = tolerance
+    return any(
+        abs(p - q) > (amount * abs(q) if term == "rel" else amount)
+        for p, q in zip(x, y, strict=True)
+    )
 
 
 class PanelGraph:
@@ -393,8 +401,11 @@ class PanelGraph:
         self._read_calibrations(tables)
 
     def _read_calibrations(self, tables: PanelTables) -> None:
-        self._kinds = {kind.kind: kind for kind in tables.calibration_kinds}
+        self._kinds = {(kind.kind, kind.cls): kind for kind in tables.calibration_kinds}
+        self._under: dict[str, frozenset[str]] = {}
         self._kinds_of: dict[str, list[CalibrationKind]] = {}
+        for kind in tables.calibration_kinds:  # classes in file order
+            self._kinds_of.setdefault(kind.cls, [])
         for kind in sorted(
             tables.calibration_kinds, key=lambda k: (k.order is None, k.order or 0.0, k.kind)
         ):
@@ -465,6 +476,7 @@ class PanelGraph:
                     place=place if place in places else None,
                     citations=self._citations(record),
                     level=_text(record.get("level")) if kind == "place" else None,
+                    model=_text(record.get("model")) if kind == "device" else None,
                 )
         return things
 
@@ -882,27 +894,62 @@ class PanelGraph:
         return sorted(rows, key=lambda row: row.order)
 
     def calibration_kinds(self, cls: str | None = None) -> list[CalibrationKind]:
-        """The calibration kinds of a device class, by ``order``; every kind with ``None``."""
+        """The calibration kinds of a device class, by ``order``, wherever they apply
+        (:meth:`calibration_kinds_of` asks for one device); every kind with ``None``."""
         if cls is None:
             return [kind for kinds in self._kinds_of.values() for kind in kinds]
         return list(self._kinds_of.get(cls, ()))
 
-    def calibration_kind(self, kind: str) -> CalibrationKind:
-        """The calibration kind *kind*.
+    def calibration_kind(self, kind: str, cls: str) -> CalibrationKind:
+        """The calibration kind *kind* of the device class *cls*.
 
         Raises:
-            KeyError: No such kind.
+            KeyError: No such kind of that class.
         """
-        return self._kinds[kind]
+        return self._kinds[kind, cls]
+
+    def applies(self, kind: CalibrationKind, device_id: str) -> bool:
+        """Whether *kind* is a calibration kind of the device: the device is of the
+        kind's class, and belongs to the model or lies in the place (its
+        :meth:`contents`) the kind's ``under`` names, when it names one.
+
+        Raises:
+            KeyError: No such device.
+        """
+        device = self.thing(device_id, "device")
+        if device.cls != kind.cls:
+            return False
+        if kind.under is None or device.model == kind.under:
+            return True
+        return device_id in self._lying_under(kind.under)
+
+    def _lying_under(self, place_id: str) -> frozenset[str]:
+        if place_id not in self._under:
+            held = ("place", place_id) in self._things
+            found = self.contents(place_id) if held else []
+            self._under[place_id] = frozenset(t.id for t in found if t.kind == "device")
+        return self._under[place_id]
+
+    def calibration_kinds_of(self, device_id: str) -> list[CalibrationKind]:
+        """The calibration kinds of a device (:meth:`applies`), by ``order``.
+
+        Raises:
+            KeyError: No such device.
+        """
+        cls = self.thing(device_id, "device").cls
+        return [kind for kind in self._kinds_of.get(cls or "", ()) if self.applies(kind, device_id)]
 
     def calibration(self, device_id: str, kind: str) -> CalibrationState:
         """What the records say of *kind* for a device: the claims whose subject is the
         device, one of its channels, or a part placed through it (:meth:`parts_through`).
 
         Raises:
-            KeyError: No such device or kind.
+            KeyError: No such device, or *kind* is no kind of it (:meth:`applies`).
         """
-        found = self._kinds[kind]
+        cls = self.thing(device_id, "device").cls
+        found = self._kinds[kind, cls or ""]
+        if not self.applies(found, device_id):
+            raise KeyError(f"{kind!r} is no calibration kind of {device_id!r}")
         subjects = [
             device_id,
             *(channel.name for channel in self.channels(device_id, "device")),

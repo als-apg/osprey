@@ -1183,7 +1183,7 @@ def test_a_card_has_a_calibration_row_per_kind_of_its_class(panel_graph):
     scale = rows["Strength scale from the beam"]
     assert (scale.shown, scale.chip, scale.below_wanted) == (None, "beam wanted", True)
     live = rows["Current offset"]
-    assert (live.channel, live.chip) == ("XR01-QF1:Current-SP", "EPICS")
+    assert (live.channels, live.chip) == (("XR01-QF1:Current-SP",), "EPICS")
     assert "calibration" not in _titles(device_card(panel_graph, "XR01:IP1"))
 
 

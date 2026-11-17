@@ -212,13 +212,13 @@ class CalibrationCell:
             two claims disagree), the value when there is no design value,
             ``design`` when the design value is in force, or ``no value``.
         state: ``contested``, a basis, or ``none``.
-        channel: The channel that holds the value live, for a kind held in the
-            control system; ``None`` otherwise.
+        channels: The channels that hold the value live, in channel order, for a
+            kind held in the control system; empty otherwise.
     """
 
     text: str
     state: str
-    channel: str | None = None
+    channels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -502,8 +502,9 @@ class CalibrationRow:
         date: The claim's date, or ``None``.
         source: The claim's document and version, or ``None``.
         history: What the claim replaced, or that it is the first value.
-        channel: The channel that holds the value in force live (the kind's
-            ``held_in``), or ``None``.
+        channels: The channels that hold the value in force live (those of the
+            device stating the kind's ``held_in``), in channel order; empty when
+            the records hold it.
         link: The calibration view of the kind over a set the device is in, or ``None``.
     """
 
@@ -517,7 +518,7 @@ class CalibrationRow:
     date: str | None
     source: str | None
     history: str | None
-    channel: str | None = None
+    channels: tuple[str, ...] = ()
     link: Link | None = None
 
 

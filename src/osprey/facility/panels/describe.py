@@ -280,6 +280,11 @@ def _build_index(graph: PanelGraph) -> _Index:
     )
 
 
+def _applies_in(graph: PanelGraph, kind: CalibrationKind, group_id: str) -> bool:
+    """Whether *kind* is a calibration kind of a device member of the set."""
+    return any(m.kind == "device" and graph.applies(kind, m.id) for m in graph.members(group_id))
+
+
 def _has(
     graph: PanelGraph, index: _Index, target: Target, rack_classes: frozenset[str] = frozenset()
 ) -> bool:
@@ -296,7 +301,8 @@ def _has(
     if view == "calibration":
         cls = index.set_class.get(thing_id) if kind == "group" else None
         return cls is not None and any(
-            found.kind == target.system for found in graph.calibration_kinds(cls)
+            found.kind == target.system and _applies_in(graph, found, thing_id)
+            for found in graph.calibration_kinds(cls)
         )
     if kind != "place":
         return False
@@ -344,6 +350,7 @@ def targets(graph: PanelGraph, *, rack_classes: frozenset[str] = frozenset()) ->
                 candidates += [
                     Target("calibration", "group", thing.id, system=found.kind)
                     for found in graph.calibration_kinds(cls)
+                    if _applies_in(graph, found, thing.id)
                 ]
         elif thing.kind == "place":
             candidates += [
@@ -745,16 +752,11 @@ def calibration_row(
     source and history, or that there is none yet and which basis is wanted."""
     found = graph.calibration(device_id, kind.kind)
     claim = found.in_force
-    channel = None
-    if kind.held_in is not None:
-        channel = next(
-            (c.name for c in graph.channels(device_id, "device") if c.signal == kind.held_in),
-            None,
-        )
+    channels = _held_in(graph, device_id, kind)
     if claim is None:
-        chip = _LIVE if channel is not None else _WANTED.format(kind.wanted_basis)
+        chip = _LIVE if channels else _WANTED.format(kind.wanted_basis)
         return CalibrationRow(
-            kind.title, None, None, None, "none", chip, True, None, None, None, channel, link
+            kind.title, None, None, None, "none", chip, True, None, None, None, channels, link
         )
     value = _claim_text(claim, kind, len(found.points))
     note = None
@@ -765,7 +767,7 @@ def calibration_row(
         if mine and design and len(mine) == len(design) == 1 and design[0]:
             note = _FROM_DESIGN.format((mine[0] / design[0] - 1) * 100)  # of its size
     if found.points:
-        unit = (kind.unit or "").split(";")[0]
+        unit = (kind.unit or "").split(";")[0]  # a curve's unit is x;y
         ends = ", ".join(f"{p.x:g} {unit}".strip() for p in (found.points[0], found.points[-1]))
         value = f"{value} ({ends})"
     if found.state == "contested":
@@ -788,22 +790,30 @@ def calibration_row(
         value,
         note,
         found.state,
-        _LIVE if channel is not None else chip,
+        _LIVE if channels else chip,
         found.below_wanted,
         claim.date,
         source,
         history,
-        channel,
+        channels,
         link,
     )
 
 
+def _held_in(graph: PanelGraph, device_id: str, kind: CalibrationKind) -> tuple[str, ...]:
+    """The device's channels that state the kind's ``held_in`` signal, in channel order."""
+    if kind.held_in is None:
+        return ()
+    return tuple(c.name for c in graph.channels(device_id, "device") if c.signal == kind.held_in)
+
+
 def _calibration(graph: PanelGraph, index: _Index, thing: Thing) -> list[Item]:
-    """A device's calibration block: a row per kind of its class, each linking to the
-    kind's view over the first set of the device's class it is in; or nothing."""
+    """A device's calibration block: a row per kind of it (:meth:`PanelGraph.applies`),
+    each linking to the kind's view over the first set of the device's class it is
+    in; or nothing."""
     if thing.kind != "device" or thing.cls is None:
         return []
-    kinds = graph.calibration_kinds(thing.cls)
+    kinds = graph.calibration_kinds_of(thing.id)
     if not kinds:
         return []
     group = next(
@@ -833,7 +843,7 @@ def _calibration_summary(graph: PanelGraph, index: _Index, place_id: str) -> lis
     devices = [t for t in graph.contents(place_id) if t.kind == "device" and t.cls is not None]
     found: list[Item] = []
     for kind in graph.calibration_kinds():
-        mine = [d for d in devices if d.cls == kind.cls]
+        mine = [d for d in devices if graph.applies(kind, d.id)]
         if not mine:
             continue
         states = [graph.calibration(d.id, kind.kind) for d in mine]
@@ -860,17 +870,12 @@ _VIEW_TITLE = "{} {}"
 def calibration_cell(graph: PanelGraph, device_id: str, kind: CalibrationKind) -> CalibrationCell:
     """What a member's records say of *kind*, as a calibration view's cell shows it."""
     found = graph.calibration(device_id, kind.kind)
-    channel = None
-    if kind.held_in is not None:
-        channel = next(
-            (c.name for c in graph.channels(device_id, "device") if c.signal == kind.held_in),
-            None,
-        )
+    channels = _held_in(graph, device_id, kind)
     claim = found.in_force
     if claim is None:
-        return CalibrationCell(_NO_VALUE_SHORT, "none", channel)
+        return CalibrationCell(_NO_VALUE_SHORT, "none", channels)
     if claim is found.design:
-        return CalibrationCell(_DESIGN_TEXT, found.state, channel)
+        return CalibrationCell(_DESIGN_TEXT, found.state, channels)
     design = calibration_numbers(found.design.value) if found.design is not None else None
 
     def shown(c: Calibration) -> str:
@@ -880,7 +885,7 @@ def calibration_cell(graph: PanelGraph, device_id: str, kind: CalibrationKind) -
         return _claim_text(c, kind, len(found.points))
 
     text = " / ".join(shown(c) for c in (claim, *found.rivals))
-    return CalibrationCell(text, found.state, channel)
+    return CalibrationCell(text, found.state, channels)
 
 
 def calibration_overview(graph: PanelGraph, group_id: str, kind_id: str) -> View:
@@ -892,9 +897,11 @@ def calibration_overview(graph: PanelGraph, group_id: str, kind_id: str) -> View
         KeyError: No such group or kind.
     """
     graph.thing(group_id, "group")
-    kind = graph.calibration_kind(kind_id)
     index = _index(graph)
-    members = [m for m in graph.members(group_id) if m.kind == "device" and m.cls == kind.cls]
+    kind = graph.calibration_kind(kind_id, index.set_class.get(group_id) or "")
+    members = [
+        m for m in graph.members(group_id) if m.kind == "device" and graph.applies(kind, m.id)
+    ]
 
     def cell(member: Thing) -> GridCell:
         found = calibration_cell(graph, member.id, kind)
@@ -999,6 +1006,7 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
             Target("calibration", "group", group_id, system=kind.kind),
         )
         for kind in (graph.calibration_kinds(cls) if cls is not None else ())
+        if _applies_in(graph, kind, group_id)
     ]
     if views:
         sections += (Section("calibration", tuple(views)),)
