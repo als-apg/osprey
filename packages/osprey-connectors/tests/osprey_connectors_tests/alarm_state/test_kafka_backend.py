@@ -558,25 +558,40 @@ async def test_an_open_broker_gets_no_login_options(monkeypatch):
         assert option not in built
 
 
-async def test_a_login_is_sent_as_sasl_plain_with_the_password_from_the_environment(monkeypatch):
+async def test_a_login_is_sent_over_tls_with_the_password_from_the_environment(monkeypatch):
     monkeypatch.setenv("ALARM_FEED_PASSWORD", "s3cret")
+    context = object()
+    monkeypatch.setattr(_phoebus_kafka.ConnectionSettings, "ssl_context", lambda self: context)
     built = _built_options(monkeypatch)
     await _run_once(
         PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=LOGIN))
     )
 
-    assert built["security_protocol"] == "SASL_PLAINTEXT"
+    assert built["security_protocol"] == "SASL_SSL"
+    assert built["ssl_context"] is context
     assert built["sasl_mechanism"] == "PLAIN"
     assert built["sasl_plain_username"] == "reader"
     assert built["sasl_plain_password"] == "s3cret"
-    assert "ssl_context" not in built
     assert built["group_id"] is None
+
+
+async def test_only_an_explicit_cleartext_sends_a_login_unencrypted(monkeypatch):
+    monkeypatch.setenv("ALARM_FEED_PASSWORD", "s3cret")
+    built = _built_options(monkeypatch)
+    auth = {**LOGIN, "cleartext": True}
+    await _run_once(
+        PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=auth))
+    )
+
+    assert built["security_protocol"] == "SASL_PLAINTEXT"
+    assert built["sasl_plain_password"] == "s3cret"
+    assert "ssl_context" not in built
 
 
 async def test_a_named_mechanism_is_the_one_sent(monkeypatch):
     monkeypatch.setenv("ALARM_FEED_PASSWORD", "s3cret")
     built = _built_options(monkeypatch)
-    auth = {**LOGIN, "mechanism": "SCRAM-SHA-512"}
+    auth = {**LOGIN, "mechanism": "SCRAM-SHA-512", "cleartext": True}
     await _run_once(
         PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=auth))
     )
@@ -613,6 +628,7 @@ async def test_a_ca_turns_tls_on_with_and_without_a_login(monkeypatch):
         ({"username": "reader"}, "auth.password_env"),
         ({**LOGIN, "mechanism": "GSSAPI"}, "auth.mechanism"),
         ({**LOGIN, "password": "s3cret"}, "auth.password"),
+        ({**LOGIN, "cleartext": "yes"}, "auth.cleartext"),
     ],
 )
 async def test_a_login_the_broker_cannot_take_answers_why_and_starts_nothing(
@@ -629,10 +645,29 @@ async def test_a_login_the_broker_cannot_take_answers_why_and_starts_nothing(
     assert backend._task is None
 
 
+async def test_a_cleartext_login_beside_a_ca_is_refused(monkeypatch):
+    monkeypatch.setitem(sys.modules, "aiokafka", types.ModuleType("aiokafka"))
+    backend = PhoebusAlarmState(
+        _spec(
+            bootstrap_servers="broker:9093",
+            topic="Demo",
+            auth={**LOGIN, "cleartext": True},
+            tls={"ca_bundle": "/etc/ssl/site-ca.pem"},
+        )
+    )
+    await backend.start()
+
+    answer = await _answer(backend)
+    assert isinstance(answer, Unavailable)
+    assert "auth.cleartext" in answer.reason
+    assert backend._task is None
+
+
 async def test_an_unset_password_variable_answers_naming_it(monkeypatch):
     monkeypatch.delenv("ALARM_FEED_PASSWORD", raising=False)
     _built_options(monkeypatch)
-    backend = PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=LOGIN))
+    auth = {**LOGIN, "cleartext": True}
+    backend = PhoebusAlarmState(_spec(bootstrap_servers="broker:9093", topic="Demo", auth=auth))
     await backend.start()
 
     answer = await backend.state_for(PV, deadline=5.0)

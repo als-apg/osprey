@@ -3172,7 +3172,7 @@ _PV_DIRECTORY = {
         "settings": {
             "bootstrap_servers": "kafka.example:9093",
             "topic": "Accelerator",
-            "auth": {"username": "reader", "password_env": "ALARM_FEED_PW", "mechanism": "PLAIN"},
+            "auth": {"username": "reader", "password_env": "ALARM_FEED_PW", "cleartext": True},
         },
     },
     "put_log": {"type": "caputlog", "settings": {"url": "https://put.example"}},

@@ -6,9 +6,11 @@ an optional extra, imported only when a consumer is about to be built.
 
 A broker that asks for a login is named one under ``settings.auth``: ``username``
 with ``password_env``, sent as SASL (``auth.mechanism``, ``PLAIN`` unless set).
-``settings.tls.ca_bundle`` turns TLS on and trusts that CA. Reading needs one
-right on the broker, ``Read`` on the topic: with no consumer group there is no
-group to authorize.
+A login is sent over TLS, verified against ``settings.tls.ca_bundle`` or, without
+one, the process trust store. Only ``auth.cleartext: true`` sends it unencrypted,
+for a listener that offers no TLS. Without a login, ``tls.ca_bundle`` alone turns
+TLS on. Reading needs one right on the broker, ``Read`` on the topic: with no
+consumer group there is no group to authorize.
 """
 
 from __future__ import annotations
@@ -296,43 +298,51 @@ async def _reached(consumer: _Consumer, targets: Mapping[object, int]) -> bool:
     return True
 
 
-def _read_login(settings: Mapping[str, object]) -> tuple[ConnectionSettings, str]:
-    """The block's login and CA, and the SASL mechanism a login is sent with.
+def _read_login(settings: Mapping[str, object]) -> tuple[ConnectionSettings, str, bool]:
+    """The block's login and CA, the SASL mechanism, and whether the login goes unencrypted.
 
     Raises:
         ValueError: ``auth`` or ``tls`` breaks the connection shape, names a
-            bearer token, or names a mechanism this backend does not send.
+            bearer token or a mechanism this backend does not send, or asks for
+            a cleartext login beside a CA.
     """
     connection = read_connection_settings(
         settings,
         where=_WHERE,
         logins=frozenset({"password"}),
         unsupported_because=_BEARER_REFUSED,
-        extra_auth_keys=frozenset({"mechanism"}),
+        extra_auth_keys=frozenset({"mechanism", "cleartext"}),
     )
     auth = settings.get("auth")
-    mechanism = auth.get("mechanism") if isinstance(auth, Mapping) else None
-    if mechanism is None:
-        return connection, SASL_MECHANISMS[0]
+    auth = auth if isinstance(auth, Mapping) else {}
+    mechanism = auth.get("mechanism", SASL_MECHANISMS[0])
     if mechanism not in SASL_MECHANISMS:
         raise ValueError(f"`{_WHERE}.auth.mechanism` must be one of {', '.join(SASL_MECHANISMS)}")
-    if connection.login is None:
-        raise ValueError(f"`{_WHERE}.auth.mechanism` needs `username` and `password_env`")
-    return connection, str(mechanism)
+    cleartext = auth.get("cleartext", False)
+    if not isinstance(cleartext, bool):
+        raise ValueError(f"`{_WHERE}.auth.cleartext` must be true or false")
+    if cleartext and connection.ca_bundle is not None:
+        raise ValueError(
+            f"`{_WHERE}.auth.cleartext` sends the login unencrypted, and `{_WHERE}.tls.ca_bundle` "
+            "names a CA for TLS: set one"
+        )
+    return connection, str(mechanism), cleartext
 
 
 def _login_options(settings: Mapping[str, object]) -> dict[str, object]:
     """The consumer options a login and a CA add; none for an open plaintext broker.
 
     The password is read from the environment here, when the consumer is built.
+    A login is encrypted unless ``auth.cleartext`` says otherwise; with no login,
+    only a named CA turns TLS on.
 
     Raises:
         ValueError: As :func:`_read_login`, or the CA file cannot be used.
         ConnectionError: The variable ``auth.password_env`` names is unset.
     """
-    connection, mechanism = _read_login(settings)
+    connection, mechanism, cleartext = _read_login(settings)
     credential = connection.resolve_credential()
-    encrypted = connection.ca_bundle is not None
+    encrypted = connection.ca_bundle is not None or (credential is not None and not cleartext)
     options: dict[str, object] = {}
     if encrypted:
         options["ssl_context"] = connection.ssl_context()
