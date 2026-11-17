@@ -168,9 +168,6 @@ class _DoorProbe(ControlSystemConnector):
     async def _confirming_read(self, address, sent, *, timeout_s):  # noqa: ARG002 - the read-back hook fixes this signature
         return ChannelValue(value=self._sent[address], sampled_at=datetime.now(UTC))
 
-    async def read_multiple_channels(self, addrs, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return {}
-
     async def subscribe(self, addr, cb, *, on_connection=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return "sub"
 

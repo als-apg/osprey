@@ -19,16 +19,19 @@ from pydantic import BaseModel
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
+    ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelNotFoundError,
     ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorInternalError,
     LimitsViolation,
+    ConnectorUnavailableError,
     RefusalReason,
 )
 from osprey_connectors.ipc import Endpoint
@@ -183,6 +186,45 @@ def test_batched_read_result_dict_round_trips():
     assert frame.value["SR:B"].value == "Off"
     assert frame.value["SR:C"].value is None
     assert all(isinstance(v, ChannelValue) for v in frame.value.values())
+
+
+def test_batch_read_round_trips_its_values_and_each_channel_s_own_error():
+    batch = ChannelReadBatch(
+        values={"SR:A": ChannelValue(value=1.0, sampled_at=TS)},
+        failures={
+            "SR:B": ChannelUnreachableError("SR:B", "SR:B did not answer within 2s"),
+            "SR:C": ChannelNotFoundError("SR:C"),
+        },
+    )
+
+    frame = _round_trip(frames.encode_result("req-batch", batch))
+
+    assert type(frame.value) is ChannelReadBatch
+    assert frame.value.values == batch.values
+    assert list(frame.value.failures) == ["SR:B", "SR:C"]
+    for address, sent in batch.failures.items():
+        got = frame.value.failures[address]
+        assert type(got) is type(sent)
+        assert got.address == address
+        assert str(got) == str(sent)
+
+
+def test_a_batch_failure_crosses_as_an_error_node_with_its_class_and_fields():
+    batch = ChannelReadBatch(failures={"SR:B": ChannelUnreachableError("SR:B", "no answer")})
+
+    failures = _header_of(frames.encode_result("req-batch", batch))["value"]["fields"]["failures"]
+
+    [[address, node]] = failures["items"]
+    assert address == "SR:B"
+    assert node[_TAG] == "error"
+    assert node["class_tag"] == "ChannelUnreachableError"
+    assert node["message"] == "no answer"
+    assert node["fields"] == {_TAG: "dict", "items": [["address", "SR:B"]]}
+
+
+def test_an_exception_that_is_no_channel_s_cannot_cross_as_a_value():
+    with pytest.raises(frames.FrameEncodeError):
+        frames.encode_result("req-x", ConnectorUnavailableError("the gateway is gone"))
 
 
 def test_write_result_round_trips_the_verdict_reason():
@@ -860,7 +902,30 @@ MALFORMED_FRAMES = [
         "unknown frame kind 'gossip'",
         id="unknown-frame-kind",
     ),
+    pytest.param(
+        lambda: _doctored(_result(), _set("value", {_TAG: "error", "class_tag": 7})),
+        "error node does not name its class and message as strings",
+        id="error-node-without-a-class",
+    ),
 ]
+
+
+def _batch_failing_with(**node: object) -> dict:
+    """A ``ChannelReadBatch`` node whose one failure's error node is edited by *node*."""
+    error = {
+        _TAG: "error",
+        "class_tag": "ChannelUnreachableError",
+        "message": "no answer",
+        "fields": {_TAG: "dict", "items": [["address", "SR:Q"]]},
+        **node,
+    }
+    return {
+        _TAG: "ChannelReadBatch",
+        "fields": {
+            "values": {_TAG: "dict", "items": []},
+            "failures": {_TAG: "dict", "items": [["SR:Q", error]]},
+        },
+    }
 
 
 UNREBUILDABLE_REPLIES = [
@@ -876,6 +941,21 @@ UNREBUILDABLE_REPLIES = [
         {_TAG: "dict", "items": [["SR:Q", {_TAG: "ChannelValue", "fields": {"bogus": 1}}]]},
         "ChannelValue",
         id="nested-value-with-a-field-the-class-lacks",
+    ),
+    pytest.param(
+        _batch_failing_with(class_tag="SomeChildOnlyError"),
+        "ChannelReadBatch",
+        id="batch-failure-of-a-class-the-parent-does-not-know",
+    ),
+    pytest.param(
+        _batch_failing_with(fields={_TAG: "dict", "items": [["no_such_field", 1]]}),
+        "ChannelReadBatch",
+        id="batch-failure-whose-fields-its-class-refuses",
+    ),
+    pytest.param(
+        _batch_failing_with(class_tag="ConnectorUnavailableError"),
+        "ChannelReadBatch",
+        id="batch-failure-that-is-no-channel-error",
     ),
 ]
 

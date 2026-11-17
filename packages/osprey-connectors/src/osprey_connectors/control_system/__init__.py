@@ -1,12 +1,13 @@
 """The control-system connector contract.
 
 ``ControlSystemConnector``, the context it is connected with, the value,
-metadata and write-result models it returns, the send report a connector's
-``_send`` answers with, the write-outcome vocabulary, and the limits validator
-every connector checks a write against. A new control system subclasses the
-connector here; a configured one is built through
-:class:`osprey_connectors.factory.ConnectorFactory` from its type name. The concrete connectors are the ``_*_connector`` modules
-beside this one.
+metadata, batch-read and write-result models it returns, the send report a
+connector's ``_send`` answers with, the write-outcome vocabulary, the
+:class:`ControlSystem` protocol a consumer types any connector handle as, and
+the limits validator every connector checks a write against. A new control
+system subclasses the connector here; a configured one is built through
+:class:`osprey_connectors.factory.ConnectorFactory` from its type name. The
+concrete connectors are the ``_*_connector`` modules beside this one.
 
 The limits validator's names are resolved on access (PEP 562). Every
 import of :mod:`osprey_connectors.control_system.write_door` runs this file
@@ -20,9 +21,11 @@ from typing import TYPE_CHECKING
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
+    ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
     ConnectorContext,
+    ControlSystem,
     ControlSystemConnector,
     SendReport,
     WriteOutcome,
@@ -45,9 +48,11 @@ __all__ = [
     "STALE_HOLD_DOWN_S",
     "ChannelLimitsConfig",
     "ChannelMetadata",
+    "ChannelReadBatch",
     "ChannelValue",
     "ChannelWriteResult",
     "ConnectorContext",
+    "ControlSystem",
     "ControlSystemConnector",
     "LimitsValidator",
     "SendReport",

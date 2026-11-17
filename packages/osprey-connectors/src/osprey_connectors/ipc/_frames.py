@@ -31,8 +31,8 @@ several requests outstanding and match replies arriving in any order:
     the child and proxy can grow their call surface without a codec change.
 ``result``
     ``{request_id, value}``, where the value is any supported Python value
-    (see below), including the ``dict[str, ChannelValue]`` a batched
-    multi-channel read returns. A well-framed reply whose value its own class
+    (see below), including the ``ChannelReadBatch`` a batched multi-channel
+    read returns. A well-framed reply whose value its own class
     refuses to construct decodes as an ``error`` for that request alone, with
     a :class:`~osprey_connectors.errors.ConnectorInternalError`; the stream
     goes on.
@@ -64,11 +64,17 @@ strings; tuples decode as lists), numpy arrays and numpy scalars (dtype and
 shape preserved), and the package's records:
 
 * the connector records a connector's calls return, ``ChannelValue``,
-  ``ChannelMetadata`` and ``ChannelWriteResult``, and the ``LimitsViolation`` a
-  limits refusal carries, named by class name and
+  ``ChannelMetadata``, ``ChannelReadBatch`` and ``ChannelWriteResult``, and the
+  ``LimitsViolation`` a limits refusal carries, named by class name and
   carried as their fields in declaration order. Each decodes as a real
   instance of its class, validated by the class itself. A subclass is
   refused: only the class the far side rebuilds crosses.
+* a :class:`~osprey_connectors.errors.ChannelError`, the one exception a value
+  may hold (a batch read's failure for one channel), as an ``error`` node
+  carrying the same ``class_tag``, ``message`` and ``fields`` an error frame
+  does. It decodes through the same registry, so an unknown tag or a refused
+  field set fails closed to a ``ConnectorInternalError``, which no record
+  field typed for a ``ChannelError`` accepts.
 
 Anything else is refused at encode time rather than silently degraded.
 
@@ -100,10 +106,16 @@ from pydantic import BaseModel, ConfigDict
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
+    ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
 )
-from osprey_connectors.errors import ConnectorInternalError, ConnectorsError, LimitsViolation
+from osprey_connectors.errors import (
+    ChannelError,
+    ConnectorInternalError,
+    ConnectorsError,
+    LimitsViolation,
+)
 from osprey_connectors.ipc._exceptions import (
     _registered_tag,
     exception_fields,
@@ -137,8 +149,9 @@ MAGIC = b"OSPF"
 #: frame its typed reason, which a version-1 peer would drop.
 #: 3: a limits refusal crosses as a write result carrying its
 #: ``LimitsViolation`` (a version-2 peer raised it as an error frame), a blocked
-#: write's error frame carries that violation, and a failed write's error frame
-#: carries its outcome alone, without the reason word.
+#: write's error frame carries that violation, a failed write's error frame
+#: carries its outcome alone, without the reason word, and a batch read answers
+#: a ``ChannelReadBatch`` whose failures cross as error nodes.
 PROTOCOL_VERSION = 3
 
 #: Refuse absurd lengths rather than trying to allocate them. Generous enough
@@ -219,7 +232,13 @@ class ErrorFrame(FrozenModel):
 #: load.
 _RECORDS: dict[str, type[BaseModel]] = {
     cls.__name__: cls
-    for cls in (ChannelValue, ChannelMetadata, ChannelWriteResult, LimitsViolation)
+    for cls in (
+        ChannelValue,
+        ChannelMetadata,
+        ChannelReadBatch,
+        ChannelWriteResult,
+        LimitsViolation,
+    )
 }
 
 
@@ -289,6 +308,13 @@ def _encode_value(value: object, blobs: list[bytes]) -> _Json:
             _TAG: "dict",
             "items": [[str(key), _encode_value(item, blobs)] for key, item in value.items()],
         }
+    if isinstance(value, ChannelError):
+        return {
+            _TAG: "error",
+            "class_tag": _registered_tag(value) or type(value).__name__,
+            "message": str(value),
+            "fields": _encode_value(exception_fields(value), blobs),
+        }
     tag = type(value).__name__
     record = _RECORDS.get(tag)
     if record is None or type(value) is not record:
@@ -324,6 +350,8 @@ def _decode_value(node: object, blobs: list[bytes]) -> object:
         return datetime.fromisoformat(iso)
     if tag == "dict":
         return _decode_items(node["items"], blobs)
+    if tag == "error":
+        return _decode_error(node, blobs)
     record = _RECORDS.get(tag) if isinstance(tag, str) else None
     if record is None:
         raise FrameDecodeError(f"unknown value tag {tag!r} in frame payload")
@@ -337,6 +365,17 @@ def _decode_value(node: object, blobs: list[bytes]) -> object:
         return record.model_validate(kwargs, strict=False)
     except (TypeError, ValueError) as exc:
         raise _UnrebuildableValueError(str(tag), exc) from exc
+
+
+def _decode_error(node: dict[str, object], blobs: list[bytes]) -> BaseException:
+    """The exception an ``error`` node describes, rebuilt as an error frame's is."""
+    class_tag, message = node.get("class_tag"), node.get("message")
+    if not isinstance(class_tag, str) or not isinstance(message, str):
+        raise FrameDecodeError("error node does not name its class and message as strings")
+    fields = _decode_value(node.get("fields", {_TAG: "dict", "items": []}), blobs)
+    if not isinstance(fields, dict):
+        raise FrameDecodeError("error node fields are not a mapping")
+    return reconstruct_exception(class_tag, message, fields)
 
 
 def _decode_items(items: object, blobs: list[bytes]) -> dict[object, object]:

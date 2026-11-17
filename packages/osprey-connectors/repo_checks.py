@@ -49,6 +49,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.control_system.ConnectorContext": (
         "a connector built without the factory is connected with this type"
     ),
+    "osprey_connectors.control_system.ChannelReadBatch": (
+        "every connector's batch read answers in this type"
+    ),
     "osprey_connectors.control_system.raise_for_write_result": (
         "a caller holding one write result raises for a write that did not go through"
     ),
@@ -93,6 +96,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
     "osprey_connectors.service_answers.SourceKind": (
         "an answer names the kind of service it came from in this type"
+    ),
+    "osprey_connectors.settle.ChannelReading": (
+        "a ChannelReader's read_channel answers in this type"
     ),
     "osprey_connectors.simulation.archive.FingerprintComparison": (
         "a fingerprint comparison answers in this type"

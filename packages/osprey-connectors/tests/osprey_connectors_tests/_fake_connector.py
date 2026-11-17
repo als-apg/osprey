@@ -190,11 +190,6 @@ class FakeConnector(ControlSystemConnector):
         self._require_up(address)
         return self._read_value(address)
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        return await self._read_concurrently(addresses, timeout_s)
-
     async def get_metadata(self, address: str) -> ChannelMetadata:
         self._require_up(address)
         return self._read_value(address).metadata

@@ -68,7 +68,10 @@ import logging
 import os
 from collections.abc import Callable, Generator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ControlSystem
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.qserver_startup")
 
@@ -267,7 +270,7 @@ async def create_connector() -> Any:
 
 
 async def build_devices(
-    env: Mapping[str, str] | None = None, *, connector: Any = None
+    env: Mapping[str, str] | None = None, *, connector: ControlSystem | None = None
 ) -> dict[str, Any]:
     """Build the worker's connector-mediated device set from the device file.
 

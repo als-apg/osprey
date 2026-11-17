@@ -19,14 +19,26 @@ from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, Self, TypeAlias, TypeGuard, final
 
-from pydantic import AwareDatetime, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from typing_extensions import override
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.control_system.write_door import open_door
-from osprey_connectors.errors import LimitsViolation, RefusalReason
+from osprey_connectors.errors import (
+    ChannelError,
+    ChannelReadFailedError,
+    LimitsViolation,
+    RefusalReason,
+)
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
@@ -1545,44 +1557,68 @@ class ControlSystemConnector(ABC):
             await self.write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
         )
 
-    async def _read_concurrently(
-        self, addresses: list[str], timeout_s: float | None
-    ) -> dict[str, ChannelValue]:
-        """Read channels concurrently, omitting failed reads and re-raising cancellations."""
+    async def read_multiple_channels(
+        self, addresses: Sequence[str], /, *, timeout_s: float | None = None
+    ) -> "ChannelReadBatch":
+        """
+        Read several channels at once, each answering for itself.
+
+        Every address asked for is in the batch: in ``values`` when it was read,
+        in ``failures`` with the :class:`~osprey_connectors.errors.ChannelError`
+        its own read raised when it was not (unreachable, not a channel, no
+        answer in time). :meth:`ChannelReadBatch.raise_for_failures` turns any
+        failure into one :class:`~osprey_connectors.errors.ChannelReadFailedError`.
+
+        An error that is not about one channel is raised, not reported: a
+        connector whose transport is gone (``ConnectorUnavailableError``) or
+        that failed itself fails the whole call, so the caller replaces it
+        rather than reading an empty batch. A repeated address is read once.
+
+        This method is the batch read on every connector. A connector that can
+        read many channels in one request implements :meth:`_read_many`; the
+        default reads each channel with :meth:`read_channel`, concurrently.
+
+        Args:
+            addresses: The channels to read
+            timeout_s: Optional timeout in seconds, given to each read
+
+        Returns:
+            The batch: each channel's value or its failure
+        """
+        return await self._read_many(list(dict.fromkeys(addresses)), timeout_s=timeout_s)
+
+    async def _read_many(
+        self, addresses: Sequence[str], *, timeout_s: float | None
+    ) -> "ChannelReadBatch":
+        """Read every one of *addresses*, distinct, for :meth:`read_multiple_channels`.
+
+        An optional hook. Each address goes into exactly one of the batch's
+        ``values`` and ``failures``, and only a
+        :class:`~osprey_connectors.errors.ChannelError` is a failure: any
+        other exception is raised. This default gathers :meth:`read_channel`
+        over every address and raises the first non-channel error in address
+        order once every read has finished; a cancellation is re-raised as it is.
+        """
         results = await asyncio.gather(
             *(self.read_channel(address, timeout_s=timeout_s) for address in addresses),
             return_exceptions=True,
         )
         values: dict[str, ChannelValue] = {}
+        failures: dict[str, ChannelError] = {}
         for address, result in zip(addresses, results, strict=True):
-            if isinstance(result, Exception):
-                continue
-            if isinstance(result, BaseException):
+            if isinstance(result, ChannelError):
+                failures[address] = result
+            elif isinstance(result, BaseException):
                 raise result
-            values[address] = result
-        return values
-
-    @abstractmethod
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        """
-        Read multiple channels efficiently (can be optimized per control system).
-
-        Args:
-            addresses: List of channel addresses to read
-            timeout_s: Optional timeout in seconds
-
-        Returns:
-            Dictionary mapping channel address to ChannelValue
-            (May exclude channels that failed to read)
-        """
+            else:
+                values[address] = result
+        return ChannelReadBatch(values=values, failures=failures)
 
     @final
     async def write_multiple_channels(
         self,
         # Each value as write_channel takes it: the extension contract leaves it open.
-        operations: list[tuple[str, ContractAny]],
+        operations: Sequence[tuple[str, ContractAny]],
         *,
         timeout_s: float | None = None,
         confirm: bool | None = None,
@@ -2127,3 +2163,110 @@ def _confirm_policy(validator: "LimitsValidator | None", address: str) -> bool:
     if validator is None:
         return True
     return bool(validator.resolve_confirm(address))
+
+
+class ChannelReadBatch(FrozenModel):
+    """What a batch read found: each channel's value, or the error its own read raised.
+
+    Every address the batch was asked for is in exactly one of the two
+    mappings. ``failures`` holds each failed channel's own
+    :class:`~osprey_connectors.errors.ChannelError`, so a timeout, a refused
+    connection and a missing channel stay distinguishable without reading
+    any channel again.
+    """
+
+    # The failures are live exceptions, which pydantic can only check by class.
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    values: ReadOnlyMapping[str, ChannelValue] = Field(default_factory=empty_mapping)
+    failures: ReadOnlyMapping[str, ChannelError] = Field(default_factory=empty_mapping)
+
+    @model_validator(mode="after")
+    def _one_answer_per_channel(self) -> Self:
+        both = sorted(set(self.values) & set(self.failures))
+        if both:
+            raise ValueError(f"a batch read answers each channel once; read and failed: {both}")
+        return self
+
+    def raise_for_failures(self) -> Self:
+        """Return the batch unchanged when every channel was read.
+
+        Raises:
+            ChannelReadFailedError: Naming every failed channel, in the order the
+                batch holds them, with each one's own error as its cause; the
+                first failure is also the raised error's ``__cause__``.
+        """
+        if not self.failures:
+            return self
+        first = next(iter(self.failures.values()))
+        raise ChannelReadFailedError(list(self.failures), causes=self.failures) from first
+
+
+class ControlSystem(Protocol):
+    """A control system as a consumer holds it: read, write, and let go.
+
+    The surface every connector handle offers, whether it is a
+    :class:`ControlSystemConnector` in this process, a
+    :class:`~osprey_connectors.ipc.ConnectorHostProxy` on a connector-host
+    child, or a :class:`~osprey_connectors.ipc.PooledConnector` a pool serves.
+    A caller that only reads, writes and disconnects types its connector as
+    this, so it takes any of the three.
+
+    ``subscribe``, ``get_metadata``, ``channel_key``, ``wait_stale`` and
+    ``transport`` are not part of it: the proxy has no wire method for them,
+    so a caller that needs one holds a :class:`ControlSystemConnector`.
+
+    :meth:`disconnect` means "this handle is finished". What a later call on a
+    finished handle does is the handle's own: a connector or a proxy refuses
+    it, while a pooled handle starts a fresh child for its key.
+    """
+
+    async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
+        """Read one channel."""
+        ...
+
+    async def read_multiple_channels(
+        self, addresses: Sequence[str], /, *, timeout_s: float | None = None
+    ) -> ChannelReadBatch:
+        """Read several channels, each answering for itself."""
+        ...
+
+    async def write_channel(
+        self,
+        address: str,
+        value: ContractAny,
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
+    ) -> ChannelWriteResult:
+        """Write one channel through the reference monitor."""
+        ...
+
+    async def write_multiple_channels(
+        self,
+        operations: Sequence[tuple[str, ContractAny]],
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
+    ) -> list[ChannelWriteResult]:
+        """Write several channels as one batch."""
+        ...
+
+    async def write_channel_checked(
+        self,
+        address: str,
+        value: ContractAny,
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
+    ) -> ChannelWriteResult:
+        """Write one channel, raising unless it may be proceeded on."""
+        ...
+
+    async def validate_channel(self, address: str) -> bool:
+        """Whether the channel exists and is reachable."""
+        ...
+
+    async def disconnect(self) -> None:
+        """Finish with this handle."""
+        ...

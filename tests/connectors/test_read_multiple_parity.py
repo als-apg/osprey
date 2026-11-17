@@ -2,24 +2,23 @@
 
 ``read_multiple_channels`` is how a caller reads several channels in one call,
 and its failure contract is the thing a caller builds on: a channel whose read
-*raised* is left out of the result, and every other channel comes back with its
-value. ``osprey.runtime.read_channels`` turns that shape into one error naming
-exactly the channels that are missing — so the shape has to be the same on
-every connector, or the runtime would name the wrong channels on some of them.
+raised a ``ChannelError`` is a failure in the batch, carrying that error, and
+every other channel comes back with its value. ``osprey.runtime.read_channels``
+turns that shape into one error naming exactly the failed channels, each with
+its own cause — so the shape has to be the same on every connector, or the
+runtime would name the wrong channels on some of them.
 
 Three addresses are requested and the middle one fails. Each connector reaches
 that failure through its own seam, keyed by address so the other two reads go
 through untouched:
 
-- **Mock** — ``_reading``, the store lookup behind ``read_channel``.
+- **Mock** — ``_reading``, the store lookup behind ``read_channel``, which
+  raises ``ChannelNotFoundError`` for the failing address as it does for an
+  address outside the facility.
 - **EPICS** — an injected fake ``aioca`` whose channel read fails for one name.
 - **DOOCS** — a fake ``doocs4py`` module whose ``get`` raises for one address.
 - **TANGO** — a fake ``tango`` module whose ``DeviceProxy.read_attribute``
   raises for one address.
-
-A connector may also answer a channel *present* with no value; ``read_channels``
-treats a ``None`` value as a failed read too, which the runtime tests below pin
-on a stub connector.
 
 The write-confirmation parity lives in ``test_cross_connector_parity.py``; its
 fakes answer every address with one object, which cannot express a batch where
@@ -36,10 +35,15 @@ import pytest
 
 from osprey.runtime import read_channels
 from osprey_connectors.control_system import ConnectorContext
-from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.control_system._base import ChannelReadBatch, ChannelValue
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.errors import ChannelReadFailedError
+from osprey_connectors.errors import (
+    ChannelError,
+    ChannelNotFoundError,
+    ChannelReadFailedError,
+    ChannelUnreachableError,
+)
 from osprey_connectors_tests._epics_fakes import ECA_TIMEOUT, FakeChannel, ca_connector, ca_reading
 from tests.connectors._driver_fakes import device_attribute, driven_through, eq_data
 from tests.facility.served_tree import in_process_config, served_tree
@@ -61,9 +65,9 @@ READ_ERROR = "read exploded"
 class ReadScenario:
     """One way the middle read of a three-channel batch can fail.
 
-    ``absent`` are the positions the connector leaves out of its result, the
-    ones ``read_channels`` names. Every other position comes back with the
-    value its channel holds.
+    ``absent`` are the positions the connector reports as failed, the ones
+    ``read_channels`` names. Every other position comes back with the value
+    its channel holds.
     """
 
     name: str
@@ -97,14 +101,19 @@ async def _in_process_connector(
     await connector.connect(ConnectorContext(settings=in_process_config(view, response_delay_ms=0)))
 
     def reading(address, *, held):  # noqa: ARG001 - VAInProcessConnector._reading signature
-        value = _raise_or_value(MOCK_ADDRESSES, scenario, address)
+        try:
+            value = _raise_or_value(MOCK_ADDRESSES, scenario, address)
+        except RuntimeError:
+            raise ChannelNotFoundError(address) from None
         return ChannelValue(value=value, sampled_at=datetime.now(UTC))
 
     monkeypatch.setattr(connector, "_reading", reading)
     return connector
 
 
-async def _read_mock(scenario: ReadScenario, monkeypatch, tmp_path) -> tuple[list[str], dict]:
+async def _read_mock(
+    scenario: ReadScenario, monkeypatch, tmp_path
+) -> tuple[list[str], ChannelReadBatch]:
     connector = await _in_process_connector(scenario, monkeypatch, tmp_path)
     result = await connector.read_multiple_channels(MOCK_ADDRESSES)
     await connector.disconnect()
@@ -135,7 +144,9 @@ def _epics_connector(scenario: ReadScenario) -> EPICSConnector:
     return ca_connector(channels=channels)
 
 
-async def _read_epics(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
+async def _read_epics(
+    scenario: ReadScenario, _monkeypatch, _tmp_path
+) -> tuple[list[str], ChannelReadBatch]:
     connector = _epics_connector(scenario)
     return EPICS_ADDRESSES, await connector.read_multiple_channels(EPICS_ADDRESSES)
 
@@ -147,7 +158,9 @@ async def _read_epics(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 DOOCS_ADDRESSES = ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B", "FAC/DEV/LOC/C"]
 
 
-async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
+async def _read_doocs(
+    scenario: ReadScenario, _monkeypatch, _tmp_path
+) -> tuple[list[str], ChannelReadBatch]:
     d = MagicMock()
     d.__version__ = "2.0.0"
     d.names.return_value = [("FACILITY", "XFEL")]
@@ -171,7 +184,9 @@ async def _read_doocs(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[
 TANGO_ADDRESSES = ["sr/ps/01/Current", "sr/ps/02/Current", "sr/ps/03/Current"]
 
 
-async def _read_tango(scenario: ReadScenario, _monkeypatch, _tmp_path) -> tuple[list[str], dict]:
+async def _read_tango(
+    scenario: ReadScenario, _monkeypatch, _tmp_path
+) -> tuple[list[str], ChannelReadBatch]:
     def proxy_for(device_name, *_args, **_kwargs):
         proxy = MagicMock()
         proxy.read_attribute.side_effect = lambda attribute: device_attribute(
@@ -220,18 +235,21 @@ _ROWS = [(name, MIDDLE_READ_RAISES) for name in _DRIVERS]
 class TestReadMultipleParity:
     """The same partial failure gets the same result shape from every connector."""
 
-    async def test_the_failed_channel_is_absent_and_the_others_carry_their_values(
+    async def test_the_failed_channel_carries_its_error_and_the_others_their_values(
         self, connector_name, scenario, monkeypatch, tmp_path
     ):
         addresses, result = await _DRIVERS[connector_name](scenario, monkeypatch, tmp_path)
 
         for position, address in enumerate(addresses):
             if position in scenario.absent:
-                assert address not in result
+                assert address not in result.values
+                assert isinstance(result.failures[address], ChannelError)
+                assert result.failures[address].address == address
             else:
-                assert result[address].value == VALUES[position]
+                assert result.values[address].value == VALUES[position]
 
-        assert set(result) == {
+        assert list(result.failures) == [addresses[position] for position in scenario.absent]
+        assert set(result.values) == {
             address for position, address in enumerate(addresses) if position not in scenario.absent
         }
 
@@ -244,24 +262,26 @@ class TestReadMultipleParity:
 class _StubConnector:
     """A connector stub whose batch read serves a canned per-address table.
 
-    An address absent from ``table`` is left out of the result, exactly the
-    shape every connector gives a channel whose read raised.
+    An address absent from ``table`` fails with ``ChannelUnreachableError``,
+    exactly the shape every connector gives a channel whose read raised.
     """
 
     def __init__(self, table):
         self.table = table
 
-    async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - ControlSystemConnector.read_channel signature; the stub never blocks
-        if address not in self.table:
-            raise RuntimeError(READ_ERROR)
-        return ChannelValue(value=self.table[address], sampled_at=datetime.now(UTC))
-
     async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; the stub never blocks
-        return {
-            address: ChannelValue(value=self.table[address], sampled_at=datetime.now(UTC))
-            for address in addresses
-            if address in self.table
-        }
+        return ChannelReadBatch(
+            values={
+                address: ChannelValue(value=self.table[address], sampled_at=datetime.now(UTC))
+                for address in addresses
+                if address in self.table
+            },
+            failures={
+                address: ChannelUnreachableError(address, READ_ERROR)
+                for address in addresses
+                if address not in self.table
+            },
+        )
 
 
 def _runtime_over(connector):
@@ -287,7 +307,7 @@ class TestRuntimeReadChannels:
 
         assert exc.value.addresses == [STUB_ADDRESSES[FAILING]]
         cause = exc.value.causes[STUB_ADDRESSES[FAILING]]
-        assert isinstance(cause, RuntimeError) and str(cause) == READ_ERROR
+        assert isinstance(cause, ChannelUnreachableError) and str(cause) == READ_ERROR
         assert exc.value.__cause__ is cause
 
     def test_a_full_result_comes_back_in_request_order(self):
@@ -298,16 +318,6 @@ class TestRuntimeReadChannels:
             values = read_channels(requested)
 
         assert values == [table[address] for address in requested]
-
-    def test_a_present_none_valued_channel_is_named_as_failed(self):
-        """A channel that comes back present with no value is a failed read, not a value."""
-        table = dict(zip(STUB_ADDRESSES, VALUES, strict=True))
-        table[STUB_ADDRESSES[FAILING]] = None
-
-        with _runtime_over(_StubConnector(table)), pytest.raises(ChannelReadFailedError) as exc:
-            read_channels(STUB_ADDRESSES)
-
-        assert exc.value.addresses == [STUB_ADDRESSES[FAILING]]
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +341,7 @@ def _connector_classes():
 async def test_a_cancelled_channel_read_is_raised_from_the_batch(connector_name):
     """A cancelled read never comes back as a reading.
 
-    A channel whose read raised an ordinary exception is left out of the
+    A channel whose read raised a ``ChannelError`` is a failure in the
     batch; a read that was cancelled cancels the batch, so the cancellation
     reaches the caller instead of a result.
     """

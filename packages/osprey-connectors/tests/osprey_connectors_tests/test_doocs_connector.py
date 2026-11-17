@@ -836,11 +836,12 @@ class TestReadMultipleChannels:
 
         results = await conn.read_multiple_channels(addresses)
 
-        assert set(results.keys()) == set(addresses)
-        for v in results.values():
+        assert set(results.values) == set(addresses)
+        assert results.failures == {}
+        for v in results.values.values():
             assert isinstance(v, ChannelValue)
 
-    async def test_failed_channels_excluded(self, connector):
+    async def test_a_failed_channel_is_reported_with_its_own_error(self, connector):
         conn, mock_d4py = connector
 
         def _side_effect(address):
@@ -852,8 +853,11 @@ class TestReadMultipleChannels:
 
         results = await conn.read_multiple_channels(["FAC/DEV/LOC/OK", "FAC/DEV/LOC/BAD"])
 
-        assert "FAC/DEV/LOC/OK" in results
-        assert "FAC/DEV/LOC/BAD" not in results
+        assert list(results.values) == ["FAC/DEV/LOC/OK"]
+        assert list(results.failures) == ["FAC/DEV/LOC/BAD"]
+        failure = results.failures["FAC/DEV/LOC/BAD"]
+        assert isinstance(failure, ChannelUnreachableError)
+        assert failure.address == "FAC/DEV/LOC/BAD"
 
 
 # --------------------------------------------------------------------------------------

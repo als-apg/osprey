@@ -35,9 +35,6 @@ class MockDynamicConnector(ControlSystemConnector):
         self._held[address] = value
         return SendReport()
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return {}
-
     async def subscribe(self, address, callback, *, on_connection=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return "sub-1"
 

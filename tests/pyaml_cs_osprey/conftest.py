@@ -246,9 +246,6 @@ class DictConnector(ControlSystemConnector):
             metadata=ChannelMetadata(),
         )
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):
-        return await self._read_concurrently(list(addresses), timeout_s)
-
     def _put(self, address: str, value: Any) -> None:
         self._state[address] = value
 

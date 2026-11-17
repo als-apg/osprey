@@ -478,9 +478,9 @@ _FAILED_OUTCOMES = frozenset({"failed", "mismatch", "unconfirmed"})
 class ChannelReadFailedError(ConnectorsError):
     """Raised when a batch read or a settle's readback read could not produce a value.
 
-    A channel counts as failed when the connector's result leaves it out (a
-    connector drops a channel whose read raised) or reports it with the value
-    ``None`` (the EPICS-family connectors' answer to a read timeout).
+    A channel counts as failed when its own read raised a :class:`ChannelError`
+    (:meth:`ChannelReadBatch.raise_for_failures
+    <osprey_connectors.control_system.ChannelReadBatch.raise_for_failures>`).
 
     ``addresses`` names every failed channel, each once, in the order the
     caller asked for them, so a caller can report or retry all of them rather
@@ -488,8 +488,6 @@ class ChannelReadFailedError(ConnectorsError):
 
     ``causes`` maps a failed channel to the exception its own read raised, so a
     timeout, a refused connection and a missing channel stay distinguishable.
-    A failed channel whose read reported no value without raising has no
-    entry.
     """
 
     def __init__(

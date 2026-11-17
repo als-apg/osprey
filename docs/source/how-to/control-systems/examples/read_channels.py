@@ -21,8 +21,8 @@ async def main() -> None:
         reading = await connector.read_channel("DEMO:READBACK")
         print(reading.value, reading.metadata.units)
 
-        values = await connector.read_multiple_channels(["DEMO:SETPOINT", "DEMO:MODE"])
-        for address, channel in values.items():
+        batch = await connector.read_multiple_channels(["DEMO:SETPOINT", "DEMO:MODE"])
+        for address, channel in batch.raise_for_failures().values.items():
             print(address, channel.value, channel.metadata.enum_label)
     finally:
         await connector.disconnect()

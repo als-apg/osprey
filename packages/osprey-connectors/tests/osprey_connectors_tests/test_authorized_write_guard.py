@@ -102,9 +102,6 @@ class BaseBatchConnector(ControlSystemConnector):
     async def read_channel(self, address: str, *, timeout_s: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):
-        raise NotImplementedError
-
     async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool) -> SendReport:  # noqa: ARG002 - the send hook fixes this signature
         self.writes.append((address, value))
         return SendReport()

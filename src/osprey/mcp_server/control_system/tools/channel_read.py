@@ -594,10 +594,11 @@ async def _gather_readings(connector, channels: list[str]) -> tuple[dict, dict]:
     """Read every address individually, keeping successes and failures apart.
 
     The tool issues the individual ``read_channel`` calls itself - functionally
-    what the EPICS batch method does internally - so that it holds every
-    exception first-hand and can report its text. ``read_multiple_channels``
-    drops failures silently by contract, which would let a bad address vanish
-    from the response without a trace.
+    what the base batch read does internally - so that it holds every
+    exception first-hand and can report its text, whatever it is.
+    ``read_multiple_channels`` reports only a ``ChannelError`` per channel and
+    raises any other error for the whole batch, which would lose the readings
+    of every address that did answer.
 
     Returns:
         ``(readings, failures)`` - address to ``ChannelValue`` for the reads that

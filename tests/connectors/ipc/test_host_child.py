@@ -425,8 +425,9 @@ def test_a_batched_read_of_n_channels_is_one_round_trip(ready_child):
     frame = ready_child.next_frame()
 
     assert frame.request_id == request_id
-    assert sorted(frame.value) == sorted(channels)
-    assert all(isinstance(value, ChannelValue) for value in frame.value.values())
+    assert sorted(frame.value.values) == sorted(channels)
+    assert frame.value.failures == {}
+    assert all(isinstance(value, ChannelValue) for value in frame.value.values.values())
     # One request in, one result out: the fan-out happened inside the child.
     ready_child.quiet()
 

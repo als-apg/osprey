@@ -798,7 +798,7 @@ async def test_the_pool_and_the_policy_table_agree(
     )
 
     with pytest.raises(BaseException) as caught:
-        await pool._invoke(("live", None), method, "SR:A")
+        await _call_by_name(pool, method, "SR:A")
 
     raised = caught.value
     if step is recovery_module._Step.NONE:
@@ -817,6 +817,11 @@ async def test_the_pool_and_the_policy_table_agree(
     else:
         assert isinstance(raised, ConnectorHostLostError)
         assert child.retired == raised.cause
+
+
+async def _call_by_name(pool, method, *args):
+    """Run the proxy method named *method* on the ``live`` key's child, as the pool does."""
+    return await pool._call(("live", None), method, lambda proxy: getattr(proxy, method)(*args))
 
 
 def _parity_child(pool, monkeypatch, proxy):
@@ -856,10 +861,10 @@ async def test_a_call_whose_deadline_passes_after_its_child_was_replaced_carries
     child = _parity_child(pool, monkeypatch, proxy)
 
     with pytest.raises(ConnectorHostLostError) as replaced:
-        await pool._invoke(("live", None), "read_channel", "SR:A")
+        await _call_by_name(pool, "read_channel", "SR:A")
     proxy.exc = ChildUnresponsiveError("deadline")
     with pytest.raises(ConnectorHostLostError) as bystander:
-        await pool._invoke(("live", None), "read_channel", "SR:B")
+        await _call_by_name(pool, "read_channel", "SR:B")
 
     assert bystander.value.cause == child.retired == replaced.value.cause
     assert "was retired" in str(bystander.value)
@@ -877,7 +882,7 @@ async def test_a_call_whose_deadline_passes_after_the_pool_stopped_its_child_car
     child.retired = pool_module.CAUSE_STOPPED
 
     with pytest.raises(ConnectorHostLostError) as caught:
-        await pool._invoke(("live", None), "read_channel", "SR:A")
+        await _call_by_name(pool, "read_channel", "SR:A")
 
     assert caught.value.cause == "stopped"
     assert caught.value.recovery == ()
@@ -1249,6 +1254,31 @@ def test_a_handle_names_the_key_it_is_bound_to():
     assert (live_ro.target, live_ro.execution_mode) == ("live", "readonly")
 
 
+async def test_a_checked_write_is_one_call_the_pool_names_and_supervises(monkeypatch):
+    """The handle's checked write is the proxy's, run through the pool's one call path."""
+    pool = ConnectorHostPool(_section(SLOW))
+    seen = []
+
+    class _Proxy:
+        async def write_channel_checked(self, address, value, *, timeout_s=None, confirm=None):
+            seen.append((address, value, timeout_s, confirm))
+            return "checked"
+
+    async def call(key, method, run):
+        seen.append((key, method))
+        return await run(_Proxy())
+
+    monkeypatch.setattr(pool, "_call", call)
+
+    got = await PooledConnector(pool, ("live", None)).write_channel_checked(
+        "SR:SP", 1.0, timeout_s=2.0, confirm=False
+    )
+
+    assert got == "checked"
+    assert seen == [(("live", None), "write_channel_checked"), ("SR:SP", 1.0, 2.0, False)]
+    assert "write_channel_checked" in pool_module._WRITE_METHODS
+
+
 async def test_batched_reads_and_writes_reach_the_child_and_come_back_in_order(pools, writable):
     section, config_file, log = writable
     pool = pools(section, config_file=config_file)
@@ -1257,8 +1287,9 @@ async def test_batched_reads_and_writes_reach_the_child_and_come_back_in_order(p
     values = await live.read_multiple_channels(["SR:A", "SR:B"], timeout_s=OK_TIMEOUT_S)
     results = await live.write_multiple_channels([("SR:SP1", 1.0), ("SR:SP2", 2.0)])
 
-    assert sorted(values) == ["SR:A", "SR:B"]
-    assert all(value.value is not None for value in values.values())
+    assert sorted(values.values) == ["SR:A", "SR:B"]
+    assert values.failures == {}
+    assert all(value.value is not None for value in values.values.values())
     assert [(r.address, r.value_written) for r in results] == [
         ("SR:SP1", 1.0),
         ("SR:SP2", 2.0),

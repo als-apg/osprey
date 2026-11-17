@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import math
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -30,6 +31,7 @@ from osprey.apps.manifest import launch_token_env
 from osprey.apps.sdk import OWNER_STATE_KEY, ResponseMatrix, WriteVerdictView
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from osprey.interfaces.common_middleware import WebAuthMiddleware
+from osprey_connectors.control_system import ChannelReadBatch, ChannelValue
 from tests._simulator_view import view_channel
 
 #: The two periodic rings of the synthetic facility, in facility order.
@@ -227,7 +229,10 @@ class _Machine:
         self.values: dict[str, float] = {}
 
     async def read_multiple_channels(self, addrs, *, timeout_s=None):  # noqa: ARG002
-        return {a: SimpleNamespace(value=self.values.get(a, 0.0)) for a in addrs}
+        now = datetime.now(UTC)
+        return ChannelReadBatch(
+            values={a: ChannelValue(value=self.values.get(a, 0.0), sampled_at=now) for a in addrs}
+        )
 
     async def disconnect(self) -> None:
         return None

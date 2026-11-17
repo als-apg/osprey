@@ -26,19 +26,24 @@ import pytest
 
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
+    ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
+    ControlSystem,
     ControlSystemConnector,
     WriteOutcome,
 )
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelNotFoundError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
     ConnectorInternalError,
     LimitsViolation,
 )
 from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc._pool import PooledConnector
 from osprey_connectors.ipc._proxy import (
     CHILD,
     ChildUnresponsiveError,
@@ -187,7 +192,9 @@ async def test_ndarray_payload_decodes_to_numpy_with_dtype_and_shape(teardown):
 
 async def test_read_multiple_channels_issues_exactly_one_request(teardown):
     addresses = ["SR:A", "SR:B", "SR:C", "SR:D"]
-    batch = {address: _channel_value(index) for index, address in enumerate(addresses)}
+    batch = ChannelReadBatch(
+        values={address: _channel_value(index) for index, address in enumerate(addresses)}
+    )
     proxy, child = await _proxy_with_child(_echo_handler([batch]))
     teardown.append((proxy, child))
 
@@ -196,8 +203,38 @@ async def test_read_multiple_channels_issues_exactly_one_request(teardown):
     assert len(child.requests) == 1, "a batched read must not fan out into per-channel frames"
     assert child.requests[0].method == "read_multiple_channels"
     assert child.requests[0].kwargs == {"addresses": addresses, "timeout_s": 2.0}
-    assert sorted(result) == addresses
-    assert [result[address].value for address in addresses] == [0, 1, 2, 3]
+    assert sorted(result.values) == addresses
+    assert [result.values[address].value for address in addresses] == [0, 1, 2, 3]
+
+
+async def test_read_multiple_channels_brings_each_failure_back_as_its_own_error(teardown):
+    batch = ChannelReadBatch(
+        values={"SR:A": _channel_value(1.0)},
+        failures={
+            "SR:B": ChannelUnreachableError("SR:B", "SR:B did not answer"),
+            "SR:C": ChannelNotFoundError("SR:C"),
+        },
+    )
+    proxy, child = await _proxy_with_child(_echo_handler([batch]))
+    teardown.append((proxy, child))
+
+    result = await proxy.read_multiple_channels(["SR:A", "SR:B", "SR:C"])
+
+    assert list(result.values) == ["SR:A"]
+    assert {address: type(error) for address, error in result.failures.items()} == {
+        "SR:B": ChannelUnreachableError,
+        "SR:C": ChannelNotFoundError,
+    }
+    assert result.failures["SR:B"].address == "SR:B"
+    assert str(result.failures["SR:B"]) == "SR:B did not answer"
+
+
+async def test_read_multiple_channels_answered_with_a_mapping_is_a_decode_error(teardown):
+    proxy, child = await _proxy_with_child(_echo_handler([{"SR:A": _channel_value(1.0)}]))
+    teardown.append((proxy, child))
+
+    with pytest.raises(frames.FrameDecodeError):
+        await proxy.read_multiple_channels(["SR:A"])
 
 
 async def test_write_channel_round_trips_a_write_result(teardown):
@@ -823,32 +860,50 @@ async def test_disconnect_fails_outstanding_requests(teardown):
 # ---------------------------------------------------------------- contract
 
 
-def test_the_proxy_mirrors_the_connector_call_surface():
-    """A tool must be able to hold a proxy where it held a connector."""
-    for name in (
-        "read_channel",
-        "write_channel",
-        "read_multiple_channels",
-        "write_multiple_channels",
-        "write_channel_checked",
-        "validate_channel",
-    ):
-        proxy_params = inspect.signature(getattr(ConnectorHostProxy, name)).parameters
-        base_params = inspect.signature(getattr(ControlSystemConnector, name)).parameters
-        assert list(proxy_params) == list(base_params), name
-        assert [param.default for param in proxy_params.values()] == [
-            param.default for param in base_params.values()
-        ], name
+#: The consumer surface: every coroutine method the ControlSystem protocol names.
+_SURFACE = sorted(
+    name for name, member in vars(ControlSystem).items() if inspect.iscoroutinefunction(member)
+)
 
-    # disconnect takes an extra keyword-only knob, so it is checked by call shape.
-    disconnect = inspect.signature(ConnectorHostProxy.disconnect).parameters
-    assert list(disconnect)[:1] == ["self"]
+
+def test_the_surface_is_what_a_consumer_reads_writes_and_lets_go_of():
+    assert _SURFACE == [
+        "disconnect",
+        "read_channel",
+        "read_multiple_channels",
+        "validate_channel",
+        "write_channel",
+        "write_channel_checked",
+        "write_multiple_channels",
+    ]
+
+
+@pytest.mark.parametrize(
+    "handle",
+    [ControlSystemConnector, ConnectorHostProxy, PooledConnector],
+    ids=lambda handle: handle.__name__,
+)
+@pytest.mark.parametrize("name", _SURFACE)
+def test_every_connector_handle_offers_the_control_system_surface(handle, name):
+    """A caller holding a ``ControlSystem`` can be handed any of the three.
+
+    Each handle's method takes the protocol's parameters, in order, with the
+    same kinds and defaults. A handle may add a keyword-only knob with a
+    default (the proxy's ``disconnect(ack_timeout_s=...)``), which a caller of
+    the protocol never passes.
+    """
+    method = getattr(handle, name)
+    assert inspect.iscoroutinefunction(method), f"{handle.__name__}.{name}"
+    wanted = inspect.signature(getattr(ControlSystem, name)).parameters
+    offered = inspect.signature(method).parameters
+    assert [(p.name, p.kind, p.default) for p in offered.values() if p.name in wanted] == [
+        (p.name, p.kind, p.default) for p in wanted.values()
+    ], f"{handle.__name__}.{name}"
+    extra = [p for p in offered.values() if p.name not in wanted]
     assert all(
-        param.kind is inspect.Parameter.KEYWORD_ONLY
-        and param.default is not inspect.Parameter.empty
-        for name, param in disconnect.items()
-        if name != "self"
-    )
+        p.kind is inspect.Parameter.KEYWORD_ONLY and p.default is not inspect.Parameter.empty
+        for p in extra
+    ), f"{handle.__name__}.{name}"
 
 
 def test_the_proxy_does_not_subscribe():

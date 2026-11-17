@@ -896,10 +896,10 @@ class TestReadMultipleChannels:
         conn, _ = connector
         addresses = [_ADDRESS, "sr/power_supply/ps01/Voltage"]
         results = await conn.read_multiple_channels(addresses)
-        assert set(results) == set(addresses)
-        assert all(isinstance(v, ChannelValue) for v in results.values())
+        assert set(results.values) == set(addresses)
+        assert all(isinstance(v, ChannelValue) for v in results.values.values())
 
-    async def test_a_failing_channel_is_dropped_not_fatal(self, connector):
+    async def test_a_failing_channel_is_reported_not_fatal(self, connector):
         conn, proxy = connector
 
         def fail_voltage(attribute):
@@ -909,7 +909,9 @@ class TestReadMultipleChannels:
 
         proxy.read_attribute.side_effect = fail_voltage
         results = await conn.read_multiple_channels([_ADDRESS, "sr/power_supply/ps01/Voltage"])
-        assert list(results) == [_ADDRESS]
+        assert list(results.values) == [_ADDRESS]
+        assert list(results.failures) == ["sr/power_supply/ps01/Voltage"]
+        assert isinstance(results.failures["sr/power_supply/ps01/Voltage"], ChannelUnreachableError)
 
 
 # --------------------------------------------------------------------------------------

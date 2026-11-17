@@ -61,11 +61,6 @@ class _StubConnector(ControlSystemConnector):
     async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool):
         raise NotImplementedError
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        raise NotImplementedError
-
     async def subscribe(
         self,
         address: str,

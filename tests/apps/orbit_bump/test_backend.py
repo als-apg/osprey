@@ -16,6 +16,7 @@ import math
 import os
 import re
 import threading
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -62,8 +63,13 @@ from osprey.apps.sdk import (
     WriteVerdictView,
 )
 from osprey.interfaces.common_middleware import WebAuthMiddleware
-from osprey_connectors.control_system._base import WriteOutcome
-from osprey_connectors.errors import LimitsViolation
+from osprey_connectors.control_system._base import ChannelReadBatch, ChannelValue, WriteOutcome
+from osprey_connectors.errors import (
+    ChannelError,
+    ChannelNotFoundError,
+    ChannelUnreachableError,
+    LimitsViolation,
+)
 from osprey_connectors.refusals import REASONS, refusal_phrase
 from tests.hooks.conftest import import_hook
 
@@ -182,21 +188,25 @@ class StandInConnector:
         if self.hang:
             await asyncio.sleep(3600)
 
-        async def one(addr: str) -> Any:
+        async def one(addr: str) -> ChannelValue:
             if addr in self.silent:
                 await asyncio.sleep(3600)
-            return SimpleNamespace(value=self.values[addr])
+            return ChannelValue(value=self.values[addr], sampled_at=datetime.now(UTC))
 
-        async def bounded(addr: str) -> Any:
-            # The base class bounds each channel on its own and leaves out what times out.
+        async def bounded(addr: str) -> ChannelValue | ChannelError:
+            # The base class bounds each channel on its own and reports what times out.
+            if addr not in self.values:
+                return ChannelNotFoundError(addr)
             try:
                 return await asyncio.wait_for(one(addr), timeout_s)
             except TimeoutError:
-                return None
+                return ChannelUnreachableError(addr, f"{addr} did not answer")
 
-        got = await asyncio.gather(*(bounded(a) for a in addrs if a in self.values))
-        present = [a for a in addrs if a in self.values]
-        return {a: v for a, v in zip(present, got, strict=True) if v is not None}
+        got = dict(zip(addrs, await asyncio.gather(*(bounded(a) for a in addrs)), strict=True))
+        return ChannelReadBatch(
+            values={a: v for a, v in got.items() if isinstance(v, ChannelValue)},
+            failures={a: v for a, v in got.items() if isinstance(v, ChannelError)},
+        )
 
     async def write_channel(self, addr, value, *, timeout_s=None, confirm=None):  # noqa: ARG002
         self.writes.append((addr, value, confirm))

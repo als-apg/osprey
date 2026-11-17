@@ -188,11 +188,15 @@ class ReplicaRuntime:
         return self._reading(self.composite.get([address])[address])
 
     async def read_multiple_channels(
-        self, addresses: Sequence[str], *, timeout_s: float | None = None
-    ) -> dict[str, Any]:
+        self, addresses: Sequence[str], /, *, timeout_s: float | None = None
+    ) -> Any:
+        from osprey_connectors.control_system import ChannelReadBatch
+
         del timeout_s
         values = self.composite.get(list(addresses))
-        return {address: self._reading(values[address]) for address in addresses}
+        return ChannelReadBatch(
+            values={address: self._reading(values[address]) for address in addresses}
+        )
 
     async def write_channel_checked(self, address: str, value: Any, **_kwargs: Any) -> Any:
         return self._write(address, value)
