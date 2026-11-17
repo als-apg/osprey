@@ -1042,3 +1042,12 @@ def test_encoding_a_frame_over_the_size_limit_is_refused(monkeypatch):
 
     with pytest.raises(frames.FrameEncodeError, match=r"frame of \d+ bytes exceeds the 64 limit"):
         frames.encode_result("req-big", "x" * 100)
+
+
+def test_an_error_body_whose_fields_are_not_keyed_by_names_is_a_malformed_frame():
+    """A body's fields are attribute values by attribute name; no sender writes another key."""
+    error = _error("req-k", ChannelNotFoundError("SR:Q"))
+    keyed_by_number = _doctored(error, _set("fields", {_TAG: "dict", "items": [[7, "SR:Q"]]}))
+
+    with pytest.raises(frames.FrameDecodeError, match="error frame fields are not a mapping"):
+        frames.decode_frame(keyed_by_number)
