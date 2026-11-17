@@ -357,18 +357,19 @@ async def capabilities() -> str:
     with _tool_error_envelope("capabilities"):
         bundle = _get_bundle()
         entries = bundle.list_concepts()
-        # ConceptEntry.type is populated only when the index parser emits it;
-        # fall back to reading each document's frontmatter to collect types.
+        # An entry read from an index carries no type; a concept no index
+        # lists carries its own. Read the frontmatter of each one without.
         raw_types: set[str] = {e.type for e in entries if e.type}
-        if not raw_types:
-            for entry in entries:
-                try:
-                    doc = bundle.read_concept(entry.concept_id)
-                    t = doc.frontmatter.get("type", "")
-                    if t:
-                        raw_types.add(str(t))
-                except Exception:
-                    pass
+        for entry in entries:
+            if entry.type:
+                continue
+            try:
+                doc = bundle.read_concept(entry.concept_id)
+                t = doc.frontmatter.get("type", "")
+                if t:
+                    raw_types.add(str(t))
+            except Exception:
+                pass
         return json.dumps(
             {
                 "bundle_path": str(bundle.root),
