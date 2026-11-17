@@ -762,6 +762,28 @@ def test_stop_names_a_started_process_that_outlives_the_server(monkeypatch, runn
     assert not (deployment / PID_FILE).exists()
 
 
+def test_a_survivor_is_named_only_by_the_members_still_running():
+    from osprey.cli.web_cmd import _running_members
+    from osprey.deployment.process_table import ProcessRow
+    from osprey.interfaces.web_terminal.process_tree import ProcessGroup
+
+    group = ProcessGroup(
+        pgid=500, members=((500, 1.0), (501, 2.0), (502, 3.0)), label="sidecar", command="sidecar"
+    )
+    gone = ProcessGroup(pgid=600, members=((600, 4.0),), label="other", command="other")
+    rows = {
+        500: ProcessRow(
+            pid=500, ppid=1, pgid=500, started=1.0, command="sidecar", state="sleeping"
+        ),
+        501: ProcessRow(pid=501, ppid=500, pgid=500, started=2.0, command="x", state="zombie"),
+        502: ProcessRow(pid=502, ppid=1, pgid=777, started=9.0, command="reused", state="running"),
+    }
+
+    survivors = _running_members([group, gone], rows)
+
+    assert [(g.pgid, g.members) for g in survivors] == [(500, ((500, 1.0),))]
+
+
 def test_stop_no_pid_file(monkeypatch, runner, deployment):
     monkeypatch.chdir(deployment)
     result = runner.invoke(web, ["stop"])
