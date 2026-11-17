@@ -78,6 +78,8 @@ __all__ = [
     "Problem",
     "check",
     "load_draw",
+    "named_classes",
+    "picture_classes",
     "screen_id",
     "screen_ids",
     "under",
@@ -136,7 +138,9 @@ class Problem:
             with no screen of the set to open), ``long_formula`` (an expression the formula engine
             would refuse as too long), ``over_budget`` (more rules or bound
             channels than one screen may have), ``unbound_probe`` (a note: a probe
-            row of a device card names a signal no channel states) or ``outside_set``.
+            row of a device card names a signal no channel states), ``unbound_picture`` (a note: a
+            pictures row's signal resolves to no channel on a device) or
+            ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
     """
@@ -929,6 +933,7 @@ def check(
             )
         )
         problems.extend(_unbound_probe(graph, relative, wanted[relative]))
+        problems.extend(_unbound_picture(graph, relative, wanted[relative]))
         if rolled is not None and wanted[relative].view == "rollup":
             document = json.loads((out / relative).read_bytes())
             rolled.update(_bound_channels(document))
@@ -954,6 +959,57 @@ def check(
             if name not in rolled and _carried(graph, name)
         )
     return problems
+
+
+#: How many class names a ``pictures`` note names; the rest are counted.
+NAMED_CLASSES = 12
+
+
+def picture_classes(graph: PanelGraph) -> dict[str, list[str]]:
+    """The device classes with devices, by how ``pictures.csv`` states their drawing:
+    ``drawing`` (a body: a shape row or an outline), ``parts only`` (parts at
+    their positions, no body) and ``none`` (no row); each list sorted."""
+    classes = sorted({t.cls for t in graph.things() if t.kind == "device" and t.cls})
+    out: dict[str, list[str]] = {"drawing": [], "parts only": [], "none": []}
+    for cls in classes:
+        rows = graph.pictures(cls)
+        if any(row.shape or row.kind == layout.OUTLINE_KIND for row in rows):
+            out["drawing"].append(cls)
+        elif rows:
+            out["parts only"].append(cls)
+        else:
+            out["none"].append(cls)
+    return out
+
+
+def named_classes(classes: list[str]) -> str:
+    """A count of *classes* and the first :data:`NAMED_CLASSES` of them."""
+    if not classes:
+        return "0 classes"
+    shown = ", ".join(classes[:NAMED_CLASSES])
+    more = f" and {len(classes) - NAMED_CLASSES} more" if len(classes) > NAMED_CLASSES else ""
+    return f"{len(classes)} {'class' if len(classes) == 1 else 'classes'} ({shown}{more})"
+
+
+def _unbound_picture(graph: PanelGraph, relative: str, target: Target) -> list[Problem]:
+    """A note per pictures row of a device card's class whose ``signal`` resolves to
+    no channel on the device (:meth:`PanelGraph.picture_channel`): drawn plain."""
+    if (target.view, target.kind) != ("card", "device"):
+        return []
+    cls = graph.thing(target.id, "device").cls
+    if cls is None:
+        return []
+    return [
+        Problem(
+            "unbound_picture",
+            relative,
+            f"{target.id}: {row.view} view {row.kind} {row.part!r} names {row.signal}, "
+            "which resolves to no channel; it is drawn plain",
+            note=True,
+        )
+        for row in graph.pictures(cls)
+        if row.signal is not None and graph.picture_channel(target.id, row.signal) is None
+    ]
 
 
 def _unbound_probe(graph: PanelGraph, relative: str, target: Target) -> list[Problem]:

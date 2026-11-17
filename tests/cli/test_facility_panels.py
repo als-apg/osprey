@@ -51,6 +51,10 @@ def test_check_after_write_exits_0(facility_file, tmp_path):
     result = _run(facility_file, "check", "--out", out)
     assert result.exit_code == 0, result.output
     assert "match the model" in result.output
+    # the classes by how their pictures are stated, before the problems
+    assert "pictures, drawing: 0 classes" in result.output
+    assert "pictures, parts only: 1 class (Quadrupole)" in result.output
+    assert "pictures, none: " in result.output
 
 
 def test_check_exits_1_and_counts_each_kind(facility_file, tmp_path):

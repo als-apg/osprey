@@ -271,3 +271,28 @@ def test_the_legend_lists_each_part_once_by_kind_with_its_source(tmp_path) -> No
 def test_a_class_with_no_rows_has_no_picture(tmp_path) -> None:
     doc = _card(_graph(tmp_path, [_row("yoke", "yoke", 0, 0, w=10, cls="Dipole")]))
     assert "END VIEW" not in _texts(doc)
+
+
+# -- check -------------------------------------------------------------------------
+
+
+def test_check_notes_a_signal_that_resolves_to_no_channel_and_sorts_the_classes(
+    tmp_path,
+) -> None:
+    from osprey.facility.panels.emit import check, picture_classes, write
+
+    rows = [
+        *_six_poles(),
+        _row("switch 1", "thermal_switch", 90, 90, signal="ghost_status"),
+        _row("switch 1", "thermal_switch", 9, 9, cls="Dipole"),
+    ]
+    graph = _graph(tmp_path, rows)
+    out = tmp_path / "out"
+    write(graph, out, only=lambda t: t.view == "card" and t.id == "XR01:QF1")
+    found = [p for p in check(graph, out) if p.kind == "unbound_picture"]
+    assert len(found) == 1 and not found[0].failing
+    assert "ghost_status" in found[0].detail and "XR01:QF1" in found[0].detail
+    classes = picture_classes(graph)
+    assert classes["drawing"] == ["Quadrupole"]
+    assert classes["parts only"] == ["Dipole"]
+    assert "Pump" in classes["none"]

@@ -1359,8 +1359,11 @@ def panels_check(
     would refuse as too long) or over_budget (more rules or channels than one
     screen may bind).
     A link to a screen outside the written set (``outside_set``), a card or
-    checkout over its budget, and a probe row whose signal no channel states
-    (``unbound_probe``) are notes and fail only under --strict.
+    checkout over its budget, a probe row whose signal no channel states
+    (``unbound_probe``) and a pictures row whose signal resolves to no channel
+    (``unbound_picture``) are notes and fail only under --strict.
+    First it prints the device classes by how ``pictures.csv`` draws them:
+    with a drawing, with parts only, with none.
     Prints the count per kind and the first --limit of each.
     """
     from collections import Counter
@@ -1370,6 +1373,8 @@ def panels_check(
     graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
     draw = _panel_draw(ctx, tables_dir, draw_file)
     problems = emit.check(graph, out, max_bytes=max_bytes, draw=draw)
+    for standing, classes in emit.picture_classes(graph).items():
+        report(f"pictures, {standing}: {emit.named_classes(classes)}")
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")
