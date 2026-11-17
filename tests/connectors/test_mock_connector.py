@@ -638,7 +638,9 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             results = await connector.read_multiple_channels(["PV:1", "NOT:A:PV", "PV:3"])
 
