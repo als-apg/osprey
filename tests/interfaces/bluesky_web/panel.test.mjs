@@ -43,6 +43,8 @@ import {
   abortOutcomeTone,
   abortRefusalTone,
   abortSuccessMessage,
+  awaitingApproval,
+  awaitingApprovalLine,
   classifyQueueRefusal,
   clearControl,
   clearMenuEntries,
@@ -223,6 +225,51 @@ describe('historyChanged', () => {
 // ---------------------------------------------------------------------------
 
 describe('describeQueueStatus', () => {
+  const AWAITING = {
+    id: '8ea3ac4bc0ba4583a1aaf0f08c50df77',
+    owner: 'alice',
+    target: 'va',
+    steps: 13,
+    channels: ['SR:MAG:HCM:01:CURRENT:SP'],
+    label: 'bluesky grid_scan: 3 write(s) seen + 10 headroom',
+  };
+
+  test('a running plan waiting on a write request reads as awaiting approval, not running', () => {
+    // The manager calls it executing; the plan has moved nothing and waits for
+    // a person, and the chip and note say who and where.
+    const described = describeQueueStatus(
+      summary({ manager_state: 'executing_queue', awaiting_approval: AWAITING })
+    );
+    expect(described).toMatchObject({ label: 'awaiting approval', tone: 'warn' });
+    expect(described.note).toContain('alice to approve 13 writes on va');
+    expect(described.note).toContain('Nothing has moved yet');
+    expect(described.hint).toContain('Programs → Review');
+  });
+
+  test('a request beside an idle manager is not a waiting plan', () => {
+    const described = describeQueueStatus(
+      summary({ queue_autostart_enabled: true, awaiting_approval: AWAITING })
+    );
+    expect(described.label).toBe('ready');
+  });
+
+  test('a malformed awaiting_approval is ignored, never shown half-read', () => {
+    for (const awaiting of [null, 'yes', { owner: 'alice' }, { ...AWAITING, steps: '13' }]) {
+      expect(awaitingApproval(summary({ awaiting_approval: awaiting }))).toBeNull();
+      expect(
+        describeQueueStatus(
+          summary({ manager_state: 'executing_queue', awaiting_approval: awaiting })
+        ).label
+      ).toBe('running');
+    }
+  });
+
+  test("the running card's line names the approver, the count and where to answer", () => {
+    expect(awaitingApprovalLine({ owner: 'alice', target: 'va', steps: 1 })).toBe(
+      'Waiting for alice to approve 1 write on va — web terminal: write switch → Programs → Review'
+    );
+  });
+
   test('an unreadable manager reads as an error with its reason', () => {
     const described = describeQueueStatus({ available: false, reason: 'manager_unreachable' });
     expect(described.tone).toBe('err');

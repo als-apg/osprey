@@ -71,6 +71,9 @@ SURVEY_MESSAGE_CAP = 200_000
 #: answers them ``None``, so a plan that asks one may go elsewhere for real.
 _ANSWERED = frozenset({"read", "locate"})
 
+#: The holder a bridge reports requests for: its own lane's queueserver.
+WORKER_HOLDER_ENV = "BLUESKY_WORKER_HOLDER"
+
 #: The refusals an extension can answer: the grant is short, not wrong.
 EXTENDABLE = frozenset({"auth_exhausted", "auth_range", "auth_channel", "auth_expired"})
 
@@ -428,6 +431,50 @@ class PlanAuthorization:
                 os.environ.pop(wa.AUTHORIZATION_ENV_VAR, None)
             else:
                 os.environ[wa.AUTHORIZATION_ENV_VAR] = self._previous_env
+
+
+def awaiting_approval() -> dict[str, Any] | None:
+    """The write request this lane's worker is waiting on, for the queue summary.
+
+    Read on the bridge's side: the requests directory the deployment binds
+    read-only (``OSPREY_WRITE_REQUESTS_DIR``), narrowed to the requests filed
+    by this lane's queueserver (:data:`WORKER_HOLDER_ENV`). A worker runs one
+    plan at a time and withdraws its request once it is answered or the run
+    ends, so a live request is the running plan's. ``None`` when there is none,
+    or when the bridge has no directory to read.
+    """
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from osprey_connectors import write_authorization as wa
+
+    holder = (os.environ.get(WORKER_HOLDER_ENV) or "").strip()
+    directory = (os.environ.get(wa.REQUESTS_DIR_ENV_VAR) or "").strip()
+    if not holder or not directory:
+        return None
+    try:
+        requests, _unreadable = wa.list_requests(Path(directory))
+    except OSError:
+        return None
+    now = time.time_ns()
+    mine = [r for r in requests if r.holder == holder and r.expires_at_ns > now]
+    if not mine:
+        return None
+    request = min(mine, key=lambda r: r.requested_at_ns)
+
+    def iso(ns: int) -> str:
+        return datetime.fromtimestamp(ns / 1e9, tz=UTC).isoformat(timespec="seconds")
+
+    return {
+        "id": request.id,
+        "owner": request.owner,
+        "target": request.target,
+        "steps": request.steps,
+        "channels": sorted(request.channels),
+        "label": request.label,
+        "requested_at": iso(request.requested_at_ns),
+        "expires_at": iso(request.expires_at_ns),
+    }
 
 
 def run_under_grant(

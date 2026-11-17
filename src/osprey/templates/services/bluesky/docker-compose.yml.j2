@@ -448,6 +448,14 @@ services:
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 {% endif %}
+{%- if svc.writes_enabled and not external %}
+      # The write requests this lane's queueserver files, read-only, and the
+      # name it files them under: a plan waiting for a person to approve its
+      # writes shows in the queue summary as `awaiting_approval`
+      # (`bluesky_bridge.write_grant.awaiting_approval`).
+      {{ write_requests_env }}: {{ write_requests_container_dir }}
+      BLUESKY_WORKER_HOLDER: {{ qserver }}
+{%- endif %}
 {#- The env passthrough axis, on EVERY container this file renders — the
     bridge here, the queueserver, Redis and Tiled. `services.bluesky.env` is
     one declaration on one service block, and the profile has no per-container
@@ -531,6 +539,11 @@ services:
       # connector follows. The writes gate above still decides WHETHER to mount.
       - {{ limits_mount.source }}:{{ limits_mount.target }}:ro
 {% endif %}
+{%- if svc.writes_enabled and not external %}
+      # The queueserver's write requests, READ-ONLY: the bridge only reports
+      # that one is waiting; approving it is the web terminal's.
+      - {{ write_requests_mount_source }}:{{ write_requests_container_dir }}:ro
+{%- endif %}
     networks:
 {%- if external %}
       # Single-homed: the external RE Manager lives outside compose and is

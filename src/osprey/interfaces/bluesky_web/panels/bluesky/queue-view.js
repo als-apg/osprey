@@ -48,6 +48,8 @@ import {
   abortOutcomeTone,
   abortRefusalTone,
   abortSuccessMessage,
+  awaitingApproval,
+  awaitingApprovalLine,
   classifyQueueRefusal,
   clearControl,
   clearMenuEntries,
@@ -489,6 +491,16 @@ export function createQueueView({
     runningSelect.disabled = runId === null;
     runningCard.classList.toggle('selected', runId !== null && runId === state.selected);
 
+    const awaiting = awaitingApproval(state.queue.status);
+    if (awaiting !== null) {
+      // Moved nothing yet: the plan waits for a person, which is the one fact
+      // worth the line, and its bar shows no progress it has not made.
+      runningProgressLabel.textContent = awaitingApprovalLine(awaiting);
+      runningProgressBar.classList.add('indeterminate');
+      runningProgressFill.style.width = '100%';
+      runningProgressBar.removeAttribute('aria-valuenow');
+      return;
+    }
     const progress = describeProgress(item.progress);
     runningProgressLabel.textContent = progress.label;
     // An unknown denominator renders as an indeterminate bar, never as 0% — a

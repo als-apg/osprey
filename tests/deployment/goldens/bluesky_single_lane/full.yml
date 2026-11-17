@@ -206,6 +206,12 @@ services:
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 
+      # The write requests this lane's queueserver files, read-only, and the
+      # name it files them under: a plan waiting for a person to approve its
+      # writes shows in the queue summary as `awaiting_approval`
+      # (`bluesky_bridge.write_grant.awaiting_approval`).
+      OSPREY_WRITE_REQUESTS_DIR: /opt/osprey/write_authorization/requests
+      BLUESKY_WORKER_HOLDER: queueserver
       HTTP_PROXY: ${HTTP_PROXY}
       NO_PROXY: ${NO_PROXY}
     volumes:
@@ -259,6 +265,9 @@ services:
       # connector follows. The writes gate above still decides WHETHER to mount.
       - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
 
+      # The queueserver's write requests, READ-ONLY: the bridge only reports
+      # that one is waiting; approving it is the web terminal's.
+      - ./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro
     networks:
       # Dual-homed: osprey-network for the bluesky-web sidecar and Tiled,
       # bluesky-internal to reach the RE Manager's control socket.

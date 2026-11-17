@@ -1100,6 +1100,13 @@ async def queue_list() -> str:
         completed runs. The record keeps only the most recent withdrawals, so
         this is a recent count, not a lifetime total.
 
+        ``awaiting_approval`` is ``null``, or the write request the running
+        plan waits on: ``owner``, ``target``, ``steps``, ``channels`` and
+        ``label``. The manager still says ``executing_queue``, but such a plan
+        has moved nothing: it waits for ``owner`` to approve those writes from
+        the web terminal's write switch (Programs → Review). Tell the person
+        that, never that the plan is running; you cannot approve it.
+
         ``items`` are the pending items in execution order, each with its
         ``item_uid``, plan ``name`` and ``kwargs``. ``running_item`` is the item
         under way (``null`` when idle) and carries ``progress`` when the point

@@ -292,3 +292,50 @@ def test_without_a_ledger_directory_the_flow_is_off(
     # At asked with no grant the connector judges by the switch alone (#2337).
     assert connector.writes == [1.0, 2.0, 3.0]
     assert person.seen == []
+
+
+# --- the bridge's view: what the queue summary says while a run waits --------
+
+
+def test_the_bridge_reports_the_request_its_worker_waits_on(
+    ledger: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(wa.REQUESTS_DIR_ENV_VAR, str(ledger / wa.REQUESTS_DIR_NAME))
+    monkeypatch.setenv(write_grant.WORKER_HOLDER_ENV, ME)
+    assert write_grant.awaiting_approval() is None
+
+    request = wa.write_request(
+        TARGET,
+        {CHANNEL: (1.0, 3.0)},
+        steps=3,
+        expires_at_ns=time.time_ns() + 600 * 10**9,
+        lease_s=60.0,
+        label="bluesky quad_scan",
+        owner=ME,
+    )
+
+    assert write_grant.awaiting_approval() == {
+        "id": request.id,
+        "owner": ME,
+        "target": TARGET,
+        "steps": 3,
+        "channels": [CHANNEL],
+        "label": "bluesky quad_scan",
+        "requested_at": write_grant.awaiting_approval()["requested_at"],
+        "expires_at": write_grant.awaiting_approval()["expires_at"],
+    }
+    # Another holder's request (an optimizer run) is not this queue's.
+    monkeypatch.setenv(write_grant.WORKER_HOLDER_ENV, "optimizer")
+    assert write_grant.awaiting_approval() is None
+    # Withdrawn: the summary goes back to nothing.
+    monkeypatch.setenv(write_grant.WORKER_HOLDER_ENV, ME)
+    wa.withdraw_request(request.id)
+    assert write_grant.awaiting_approval() is None
+
+
+def test_a_bridge_with_no_requests_directory_reports_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(wa.REQUESTS_DIR_ENV_VAR, raising=False)
+    monkeypatch.setenv(write_grant.WORKER_HOLDER_ENV, ME)
+    assert write_grant.awaiting_approval() is None

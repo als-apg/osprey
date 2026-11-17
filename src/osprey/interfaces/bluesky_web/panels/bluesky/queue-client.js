@@ -306,6 +306,39 @@ export function queueArmed(status) {
   return Boolean(status) && status?.available === true && status?.queue_autostart_enabled === true;
 }
 
+/**
+ * The write request the running plan waits on, from the bridge's
+ * `awaiting_approval` summary key, or `null` when there is none or it is not
+ * the shape the bridge publishes.
+ *
+ * @param {QueueStatus|null} status
+ * @returns {{owner: string, target: string, steps: number, label: string}|null}
+ */
+export function awaitingApproval(status) {
+  const value = status ? status.awaiting_approval : null;
+  if (!value || typeof value !== 'object') return null;
+  const { owner, target, steps, label } = /** @type {Record<string, unknown>} */ (value);
+  if (typeof owner !== 'string' || typeof target !== 'string' || typeof steps !== 'number') {
+    return null;
+  }
+  return { owner, target, steps, label: typeof label === 'string' ? label : '' };
+}
+
+/**
+ * The running plan's progress line while it waits for an approval: who must
+ * approve how many writes, and where.
+ *
+ * @param {{owner: string, target: string, steps: number}} awaiting
+ * @returns {string}
+ */
+export function awaitingApprovalLine(awaiting) {
+  const writes = awaiting.steps === 1 ? '1 write' : `${awaiting.steps} writes`;
+  return (
+    `Waiting for ${awaiting.owner} to approve ${writes} on ${awaiting.target} — ` +
+    'web terminal: write switch → Programs → Review'
+  );
+}
+
 /** @typedef {'ok'|'info'|'warn'|'err'|'neutral'} BadgeTone */
 
 /**
@@ -356,6 +389,24 @@ export function describeQueueStatus(status) {
   }
   /** @param {string} sentence */
   const hint = (sentence) => `${sentence} (manager: ${raw})`;
+  const awaiting = awaitingApproval(status);
+  if (awaiting !== null && raw !== 'idle') {
+    // The manager calls this plan executing; it has moved nothing and waits
+    // for a person. Said first, because it is the one thing to do next.
+    const writes = awaiting.steps === 1 ? '1 write' : `${awaiting.steps} writes`;
+    return {
+      label: 'awaiting approval',
+      tone: 'warn',
+      note:
+        `The running plan waits for ${awaiting.owner} to approve ${writes} on ` +
+        `${awaiting.target}. Nothing has moved yet.`,
+      raw,
+      hint: hint(
+        'Approve it in the web terminal: the write switch, then Programs → Review. ' +
+          'Abort drops the plan and the request.'
+      ),
+    };
+  }
   if (status.queue_stop_pending === true) {
     return {
       label: 'stopping after current',

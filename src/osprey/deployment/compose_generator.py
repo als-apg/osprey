@@ -2966,6 +2966,16 @@ def _inject_project_metadata(config):
     from osprey_connectors.write_authorization import LEDGER_DIR_ENV_VAR
 
     config_with_labels["write_ledger_env"] = LEDGER_DIR_ENV_VAR
+    # The holders' requests alone, in the same two spellings plus the variable
+    # that names them: what a Bluesky bridge reads READ-ONLY to tell its queue
+    # that the running plan waits for a person's approval.
+    from osprey_connectors.write_authorization import REQUESTS_DIR_ENV_VAR
+
+    config_with_labels["write_requests_mount_source"] = repo_relative_mount_source(
+        write_requests_relpath()
+    )
+    config_with_labels["write_requests_container_dir"] = WRITE_REQUESTS_CONTAINER_DIR
+    config_with_labels["write_requests_env"] = REQUESTS_DIR_ENV_VAR
 
     # ARIEL's markdown mirror, in the same two spellings and for the same
     # reason as the spool and state zones above: the HOST bind source compose resolves
