@@ -401,6 +401,7 @@ def _generate(
         rack_classes=draw.rack_classes,
         symbols=draw.symbols,
         above=draw.above,
+        annotate=draw.annotate,
     )
     document = layout.render(
         view, graph=graph, screens=screens, doc_id=own[: -len(SCREEN_SUFFIX)], colours=draw.colours

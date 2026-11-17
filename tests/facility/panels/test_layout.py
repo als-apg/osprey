@@ -1314,3 +1314,46 @@ def test_a_card_header_shows_the_short_name_as_an_alias(panel_graph) -> None:
     ]
     texts = [n["props"]["text"] for n in header]
     assert "XR01:QF1" in texts and "F1" in texts
+
+
+ANNOTATE = {"quadrupole": ("current_readback",), "ion_pump": ("vacuum_readback",)}
+
+
+def _values(doc: dict) -> dict[str, dict]:
+    return {n["props"]["pv"]: n for n in _by_type(doc, "pv-label")}
+
+
+def test_a_strip_shows_the_annotated_values_under_its_symbols_and_beside_its_badges(
+    panel_graph,
+) -> None:
+    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=ANNOTATE)
+    doc, _ = draw(view, panel_graph)
+    values = _values(doc)
+    quad, pump = values["XR01-QF1:Current-RB"], values["XR01-IP1:Pressure-RB"]
+    assert quad["props"]["fontSize"] == layout.SMALL_SIZE
+    assert quad["props"]["foregroundColor"] == symbols.MUTED_TEXT
+    (label,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "F1"]
+    centre = label["geometry"]["x"] + label["geometry"]["width"] / 2
+    g = quad["geometry"]
+    assert abs(g["x"] + g["width"] / 2 - centre) < 1 and g["y"] >= label["geometry"]["y"]
+    (circle,) = [
+        n
+        for n in _by_type(doc, "polygon")
+        if n["props"].get("tooltip") == "XR01:IP1" and len(n["props"]["points"]) > 8
+    ]
+    assert pump["geometry"]["x"] >= circle["geometry"]["x"] + circle["geometry"]["width"]
+    assert any(t.startswith("values: ") and "current_readback (A)" in t for t in _texts(doc))
+
+
+def test_over_the_budget_values_are_dropped_not_symbols_and_the_strip_says_so(
+    panel_graph, monkeypatch
+) -> None:
+    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=ANNOTATE)
+    full, _ = draw(view, panel_graph)
+    monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 0)
+    doc, _ = draw(view, panel_graph)
+    assert not _values(doc)
+    assert any("values not shown" in t for t in _texts(doc))
+    shapes = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "XR01:QF1"]
+    assert shapes  # the symbol stays
+    assert len(_values(full)) == 3  # two quadrupoles and the pump

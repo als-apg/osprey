@@ -786,12 +786,26 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
 # -- place view ------------------------------------------------------------------
 
 
+def _annotations(
+    graph: PanelGraph, thing: Thing, signals: Iterable[str]
+) -> tuple[tuple[str, str | None], ...]:
+    """Per stated signal, the device's first channel (by name) stating it, with its unit."""
+    channels = sorted(graph.channels(thing.id, "device"), key=lambda c: c.name)
+    found = []
+    for signal in signals:
+        channel = next((c for c in channels if c.signal == signal), None)
+        if channel is not None:
+            found.append((channel.name, channel.unit))
+    return tuple(found)
+
+
 def place_view(
     graph: PanelGraph,
     place_id: str,
     *,
     symbols: Mapping[str, str] = _EMPTY,
     above: frozenset[str] = frozenset(),
+    annotate: Mapping[str, tuple[str, ...]] = MappingProxyType({}),
 ) -> View:
     """The devices of a place's contents in beam order, the rest in a tray or counted.
 
@@ -811,6 +825,9 @@ def place_view(
         graph: The panel graph.
         place_id: The place.
         symbols: Device class -> symbol; a class not named is ``generic``.
+        annotate: Symbol -> the stated signals whose values its elements
+            show: per signal, the device's first channel (by name) that
+            states it, with its unit.
         above: The symbols drawn on the lane above the beam (the draw settings
             name classes; :func:`~osprey.facility.panels.emit.load_draw` gives
             their symbols).
@@ -843,6 +860,7 @@ def place_view(
                     link,
                     channels,  # type: ignore[arg-type]
                     short=thing.short_name,
+                    annotations=_annotations(graph, thing, annotate.get(symbol, ())),
                 )
             )
         elif thing.cls is not None and thing.cls in symbols:
@@ -1263,6 +1281,7 @@ def describe(
     rack_classes: frozenset[str] = frozenset(),
     symbols: Mapping[str, str] = _EMPTY,
     above: frozenset[str] = frozenset(),
+    annotate: Mapping[str, tuple[str, ...]] = MappingProxyType({}),
     system_of: Callable[[Thing], str | None] | None = None,
 ) -> View:
     """The view a target addresses, each parameter passed to the function that takes it.
@@ -1276,7 +1295,7 @@ def describe(
     if target.view == "set":
         return set_overview(graph, target.id)
     if target.view == "place":
-        return place_view(graph, target.id, symbols=symbols, above=above)
+        return place_view(graph, target.id, symbols=symbols, above=above, annotate=annotate)
     if target.view == "rack":
         return rack_elevation(graph, target.id)
     if target.view == "rollup":

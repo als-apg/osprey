@@ -1117,3 +1117,17 @@ def test_a_class_the_draw_settings_lift_is_drawn_on_the_upper_lane(panel_graph, 
     lanes = {e.thing: (e.symbol, e.lane) for e in strip.elements}
     assert lanes["XR01:IP1"] == ("pump", "above")
     assert lanes["XR01:QF1"][1] == "beam"
+
+
+def test_a_strip_element_carries_the_values_its_symbols_annotation_names(panel_graph):
+    annotate = {"quadrupole": ("current_readback",), "ion_pump": ("vacuum_readback",)}
+    view = place_view(
+        panel_graph, "XR/XR01", symbols={**BEAMLINE, "Pump": "ion_pump"}, annotate=annotate
+    )
+    (strip,) = _section(view, "strip").items
+    values = {e.thing: e.annotations for e in strip.elements}
+    assert values["XR01:QF1"] == (("XR01-QF1:Current-RB", "A"),)
+    assert values["XR01:IP1"] == (("XR01-IP1:Pressure-RB", None),)
+    plain = place_view(panel_graph, "XR/XR01", symbols={**BEAMLINE, "Pump": "ion_pump"})
+    (strip,) = _section(plain, "strip").items
+    assert all(e.annotations == () for e in strip.elements)  # nothing named, nothing shown

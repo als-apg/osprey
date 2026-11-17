@@ -44,6 +44,7 @@ class Placed:
         link: Its card, or ``None``.
         channels: Its rule-bearing channels, as the element states them.
         short: Its stated short name, or ``None``.
+        annotations: The channels whose values it shows, each with its unit.
     """
 
     thing: str
@@ -56,6 +57,7 @@ class Placed:
     link: Link | None
     channels: tuple[str, ...] = ()
     short: str | None = None
+    annotations: tuple[tuple[str, str | None], ...] = ()
 
 
 def arrange(
@@ -143,6 +145,7 @@ def arrange_scaled(
                 e.link,
                 e.channels,
                 e.short,
+                e.annotations,
             )
         )
         cursor += width

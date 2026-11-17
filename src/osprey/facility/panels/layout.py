@@ -157,6 +157,9 @@ CHIP_LIGHT = 12
 LEGEND_ROW = 52
 RING_PAD = 6  # a state ring's distance from its symbol
 TAG_HEIGHT = 16  # the word above a ring
+VALUE_STEP = 16  # one live value under a symbol's name
+VALUE_MAX = 80  # the widest a value under a symbol gets
+BADGE_VALUE_WIDTH = 64  # a value beside a badge
 TAG_WIDTH = 64  # room for the longest word a ring carries, at the small size
 SUMMARY_ROW = 36  # one row of a by-system summary
 SUMMARY_COLUMNS = 2
@@ -290,6 +293,8 @@ _LOOKS_LEGEND = (
 _LOCATOR_CAPTION = "to scale · position along the beam (m)"
 _NO_RULE_YET = "no health rule yet"
 _TRAY_TITLE = "in our lists, not placed"
+_VALUES = "values: "
+_DROPPED = "{} values not shown: the screen's budget is spent"
 _READS = "{} rule channel{}"
 _MAGNETS = frozenset(
     {"bend", "quadrupole", "quadrupole_f", "quadrupole_d", "sextupole", "skew_quadrupole"}
@@ -1124,6 +1129,10 @@ class _Page:
         self.node_form = False  # a rack over its budget: one light per unit (elevation)
         self.budget = Budget()  # spent by the strip's symbols, chips and summary rows
         self.colours: Mapping[str, str] = colours  # a symbol's type colour, by symbol name
+        self.shown: dict[
+            str, dict[str | None, str | None]
+        ] = {}  # strip values: symbol, signal, unit
+        self.dropped = 0  # strip values the budget left out
 
     # -- primitives -----------------------------------------------------------
 
@@ -1757,6 +1766,7 @@ class _Page:
             widths = {kind: units * SYMBOL_UNIT for kind, units in symbols.WIDTH_UNITS.items()}
             for row in _strip_rows(item.elements, widths):
                 self.strip_row(row, widths, item.extent_m)
+            self.values_line()
             self.legend(item.elements)
         if item.tray:
             self.tray(item)
@@ -1802,6 +1812,10 @@ class _Page:
             cy = axis - (STEM_HIGH if level else STEM_LOW)
             self.line([(x, cy + BADGE / 2), (x, axis)], MUTED_TEXT)
             self.badge(p, x, cy)
+            values = self.affordable(p)
+            for i, channel in enumerate(values):
+                top = cy - len(values) * VALUE_STEP / 2 + i * VALUE_STEP
+                self.value(x + BADGE / 2 + GAP / 2, top, BADGE_VALUE_WIDTH, channel)
         for p, tag_level in zip(beam, tags, strict=True):
             x = MARGIN + p.x
             self.symbol(p, x, axis, p.width / symbols.WIDTH_UNITS[p.symbol], tag_level)
@@ -1815,11 +1829,65 @@ class _Page:
             self.text(MARGIN + left, top, text, size=STRIP_LABEL_SIZE, w=w, h=STRIP_LABEL_STEP)
             lines = max(lines, level + 1)
         names = axis + STRIP_LABEL_TOP + lines * STRIP_LABEL_STEP
-        self.y = max(axis + STRIP_AXIS, names) + LEADER_GAP
+        below = names
+        for p, slot in zip(beam, _slots(beam), strict=True):
+            for i, channel in enumerate(self.affordable(p)):
+                top = names + i * VALUE_STEP
+                self.value(MARGIN + p.x - slot / 2, top, slot, channel)
+                below = max(below, top + VALUE_STEP)
+        self.y = max(axis + STRIP_AXIS, below) + LEADER_GAP
         if extent is not None:
             self.locator(beam, extent)
         else:
             self.y += ROW_GAP
+
+    def affordable(self, element: strip.Placed) -> list[str]:
+        """The channels of *element*'s values, when the screen's budget allows them all;
+        none, counted in :attr:`dropped`, when it does not."""
+        channels = [channel for channel, _unit in element.annotations]
+        if not channels:
+            return []
+        if not self.budget.take([(0, frozenset(channels))]):
+            self.dropped += len(channels)
+            return []
+        for channel, unit in element.annotations:
+            units = self.shown.setdefault(element.symbol, {})
+            signal = self.graph.channel(channel).signal
+            if units.get(signal) is None:  # the first unit stated for the signal
+                units[signal] = unit
+        return channels
+
+    def value(self, x: float, y: float, w: float, channel: str) -> None:
+        """A channel's live value on the strip: small, muted, no unit (the strip's
+        values line names the units)."""
+        props = {
+            "pv": channel,
+            "fontSize": SMALL_SIZE,
+            "foregroundColor": MUTED_TEXT,
+            "backgroundColor": TRANSPARENT,
+            "showUnits": False,
+            "alarmSensitive": False,
+            "alarmBorder": False,
+        }
+        self.s.widget("pv-label", x, y, w, VALUE_STEP, props)
+
+    def values_line(self) -> None:
+        """What the values on the strip are, and how many the budget left out."""
+        if self.shown:
+            parts = []
+            for kind in symbols.KINDS:
+                if kind in self.shown:
+                    signals = ", ".join(
+                        f"{signal} ({unit})" if unit else str(signal)
+                        for signal, unit in self.shown[kind].items()
+                    )
+                    parts.append(f"{SYMBOL_WORDS[kind]}: {signals}")
+            self.text(MARGIN, self.y, _VALUES + " · ".join(parts), size=SMALL_SIZE, fg=MUTED_TEXT)
+            self.next_row()
+        if self.dropped:
+            note = _DROPPED.format(self.dropped)
+            self.text(MARGIN, self.y, note, size=SMALL_SIZE, fg=MUTED_TEXT)
+            self.next_row()
 
     def badge(self, element: strip.Placed, cx: float, cy: float) -> None:
         """A device off the axis: a circle with its kind's letter, filled with its
@@ -2312,6 +2380,19 @@ def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float
         ends[level] = left + w
         found.append((text, left, w, level))
     return found
+
+
+def _slots(beam: Sequence[strip.Placed]) -> list[float]:
+    """The width each symbol's values may take: the room to its nearer neighbour,
+    at least the symbol's own width, at most :data:`VALUE_MAX`."""
+    out = []
+    for i, p in enumerate(beam):
+        room = [b.x - p.x for b in beam[i + 1 : i + 2]] + [
+            p.x - a.x for a in beam[max(i - 1, 0) : i]
+        ]
+        near = min(room) if room else VALUE_MAX
+        out.append(min(max(near - STRIP_LABEL_GAP, p.width), VALUE_MAX))
+    return out
 
 
 def stem_levels(xs: Sequence[float], room: float = BADGE + BADGE_GAP) -> list[int]:

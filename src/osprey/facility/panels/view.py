@@ -232,6 +232,8 @@ class StripElement:
             symbol shows; none, and the symbol has no state to show.
         short: The short name the data states for it, its label on the strip;
             ``None`` with none.
+        annotations: The channels whose values the strip shows with it, each with
+            its unit (``None`` with none stated).
     """
 
     thing: str
@@ -242,6 +244,7 @@ class StripElement:
     link: Link | None
     channels: tuple[str, ...] = ()
     short: str | None = None
+    annotations: tuple[tuple[str, str | None], ...] = ()
 
 
 @dataclass(frozen=True)
