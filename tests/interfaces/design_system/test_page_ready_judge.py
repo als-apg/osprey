@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 import osprey
-from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT, route_problem
+from osprey.interfaces.design_system.panels.page_ready import (
+    DESIGN_SYSTEM_STATIC,
+    FAILED,
+    MARKUP_VALUES,
+    READY_IMPORT,
+    route_problem,
+)
 
 PACKAGE = Path(osprey.__file__).resolve().parent
 WEB_TERMINAL_STATIC = PACKAGE / "interfaces" / "web_terminal" / "static"
@@ -29,6 +35,10 @@ TRUE_PROBLEM = (
 NEVER_PROBLEM = (
     f"never sets the page-ready mark; the panel's script adds `{READY_IMPORT}` and calls "
     "markPageReady() once its first state is drawn, error or not"
+)
+FAILED_PROBLEM = (
+    'data-page-ready="failed" is the writer\'s value for a page that threw while pending; '
+    "markup declares true or pending"
 )
 PENDING_PROBLEM = (
     'calls markPageReady() without data-page-ready="pending" on <html>, so the page '
@@ -53,6 +63,7 @@ def _panel_index(root: Path) -> Path:
             '<html data-page-ready="yes"></html>',
             "data-page-ready='yes' is not a declared value (true or pending)",
         ),
+        (f'<html data-page-ready="failed">{INLINE_MARK}</html>', FAILED_PROBLEM),
     ],
     ids=[
         "pending-and-mark",
@@ -62,6 +73,7 @@ def _panel_index(root: Path) -> Path:
         "literal-true",
         "pending-and-start-up-only",
         "undeclared-value",
+        "failed-in-markup",
     ],
 )
 def test_an_app_panel_takes_the_late_route_only(
@@ -84,6 +96,25 @@ def test_an_app_panel_is_never_excused_by_a_dresser_or_a_literal_set_by_script()
 
     assert route_problem(shell_page, shell, app_panel=True) == NEVER_PROBLEM
     assert route_problem(literal, WEB_TERMINAL_STATIC / "x.html", app_panel=True) == (NEVER_PROBLEM)
+
+
+def test_markup_that_declares_failed_is_refused_on_every_route(tmp_path: Path) -> None:
+    for page in (
+        '<html data-page-ready="failed"></html>',
+        f'<html data-page-ready="failed">{INLINE_MARK}</html>',
+        f'<html data-page-ready="failed">{INLINE_THEME}</html>',
+    ):
+        for app_panel in (False, True):
+            assert route_problem(page, _panel_index(tmp_path), app_panel=app_panel) == (
+                FAILED_PROBLEM
+            )
+
+
+def test_the_judge_and_the_writer_name_the_same_values() -> None:
+    writer = (DESIGN_SYSTEM_STATIC / "js" / "page-ready.js").read_text(encoding="utf-8")
+    assert MARKUP_VALUES[1] == "pending"
+    assert f"const PENDING = '{MARKUP_VALUES[1]}';" in writer
+    assert f"const FAILED = '{FAILED}';" in writer
 
 
 def test_the_general_route_still_accepts_the_three_routes(tmp_path: Path) -> None:
