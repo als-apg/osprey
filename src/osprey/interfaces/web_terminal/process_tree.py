@@ -7,7 +7,9 @@ them; :func:`tree_groups` finds every group a descendant belongs to and
 :func:`end_groups` ends them. A chat child runs in the server's own process
 group, where no group signal may be sent, so its descendants in that group are
 listed by :func:`server_group_members` and ended one by one with
-:func:`end_processes`.
+:func:`end_processes`. Both surfaces look with :func:`read_started_tree`
+while their child lives and, once they have stopped it, end and report what
+the look found with :func:`end_started_tree`.
 
 The tree is read in-process with psutil, so a read never forks and has no
 timeout: a busy host makes it slower, never unknown. A tree is read through
@@ -34,6 +36,7 @@ the same on every look while the group lives.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import re
 import signal
@@ -45,7 +48,7 @@ from typing import Generic, TypeVar
 
 from osprey.deployment import process_table
 from osprey.deployment.process_table import ProcessRow, ProcessTableUnreadable
-from osprey_connectors.logger import get_logger
+from osprey_connectors.logger import ComponentLogger, get_logger
 
 logger = get_logger("process_tree")
 
@@ -336,6 +339,118 @@ def server_group_members(root: int, rows: dict[int, ProcessRow]) -> list[Process
     return sorted(members, key=lambda row: (row.started, row.pid))
 
 
+@dataclass(frozen=True)
+class StartedTree:
+    """What a child had started, read while it was alive.
+
+    ``groups`` are the process groups its descendants are in
+    (:func:`tree_groups`), ``members`` its descendants in the server's own
+    group (:func:`server_group_members`). ``read`` is False when the process
+    table could not be read: what the child started is then unknown, not
+    empty.
+    """
+
+    groups: tuple[ProcessGroup, ...]
+    members: tuple[ProcessRow, ...]
+    read: bool
+
+
+@dataclass(frozen=True)
+class TreeEnding:
+    """What a stop did about the processes a child had started.
+
+    ``read`` is False when the process table could not be read while the child
+    was alive: nothing was ended because nothing could be looked for, which is
+    not the same as the child having started nothing. The ``ended`` fields
+    hold what was signalled, the ``surviving`` ones what a read still found
+    after SIGKILL, and the ``unknown`` ones what the table could not be read
+    to re-identify: it was not signalled and may still be running.
+    """
+
+    read: bool
+    ended_groups: tuple[ProcessGroup, ...] = ()
+    ended_members: tuple[ProcessRow, ...] = ()
+    surviving_groups: tuple[ProcessGroup, ...] = ()
+    surviving_members: tuple[ProcessRow, ...] = ()
+    unknown_groups: tuple[ProcessGroup, ...] = ()
+    unknown_members: tuple[ProcessRow, ...] = ()
+
+
+def read_started_tree(
+    pid: int, alive: Callable[[], bool], *, child: str, log: logging.Logger | ComponentLogger
+) -> StartedTree:
+    """Read what *pid* has started, from one table read while *alive* says it runs.
+
+    The table is read through :func:`read_while_alive`. When it could not be
+    read the tree is returned unread and empty, and a warning on *log* names
+    the child, as *child* (the log's name for it, such as ``"PTY child"``),
+    and the cause. Blocking (it reads the process table).
+    """
+    try:
+        rows = read_while_alive(alive)
+    except ProcessTableUnreadable as exc:
+        log.warning(
+            "Could not read the process table while the %s %d was alive (%s); "
+            "what it started is left running",
+            child,
+            pid,
+            exc.cause,
+        )
+        return StartedTree((), (), read=False)
+    return StartedTree(
+        groups=tuple(tree_groups(pid, rows)),
+        members=tuple(server_group_members(pid, rows)),
+        read=True,
+    )
+
+
+def end_started_tree(
+    pid: int, tree: StartedTree, *, child: str, log: logging.Logger | ComponentLogger
+) -> TreeEnding:
+    """End what *tree* found under the child *pid*, and log on *log* what became of it.
+
+    Groups are ended with :func:`end_groups` and server-group members with
+    :func:`end_processes`, each only when there is one to end, so an empty
+    tree takes no read. *child* is the log's name for the child. Blocking.
+    """
+    if not tree.groups and not tree.members:
+        return TreeEnding(read=tree.read)
+    groups = end_groups(tree.groups) if tree.groups else Ending[ProcessGroup]()
+    members = end_processes(tree.members) if tree.members else Ending[ProcessRow]()
+    if groups.ended or members.ended:
+        log.info(
+            "Ended %d process group(s) and %d process(es) the %s %d started: %s",
+            len(groups.ended),
+            len(members.ended),
+            child,
+            pid,
+            _describe_started(groups.ended, members.ended),
+        )
+    if groups.survivors or members.survivors:
+        log.warning(
+            "Process(es) the %s %d started survived SIGKILL: %s",
+            child,
+            pid,
+            _describe_started(groups.survivors, members.survivors),
+        )
+    if groups.unknown or members.unknown:
+        log.warning(
+            "%s %d: process table unreadable: started process(es) may still be running: %s",
+            child[:1].upper() + child[1:],
+            pid,
+            _describe_started(groups.unknown, members.unknown),
+        )
+    return TreeEnding(
+        read=tree.read,
+        ended_groups=groups.ended,
+        ended_members=members.ended,
+        surviving_groups=groups.survivors,
+        surviving_members=members.survivors,
+        unknown_groups=groups.unknown,
+        unknown_members=members.unknown,
+    )
+
+
 def still_running(
     groups: Sequence[ProcessGroup], rows: dict[int, ProcessRow]
 ) -> list[ProcessGroup]:
@@ -528,3 +643,9 @@ def describe(groups: Sequence[ProcessGroup]) -> str:
         f"pgid {g.pgid} {name_for(g.command)!r} (pids {', '.join(str(p) for p, _ in g.members)})"
         for g in groups
     )
+
+
+def _describe_started(groups: Sequence[ProcessGroup], members: Sequence[ProcessRow]) -> str:
+    """One line naming *groups* and then *members*, either part left out when empty."""
+    parts = (describe(groups), describe_processes(members))
+    return "; ".join(part for part in parts if part)
