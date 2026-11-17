@@ -272,13 +272,21 @@ def test_an_application_with_no_package_passes_the_boundary_saying_so(
 # --- the panel's design-system styling ------------------------------------------
 
 
+#: An inline module that sets the page-ready mark.
+INLINE_MARK = (
+    '<script type="module">import { markPageReady } from '
+    "'/design-system/js/page-ready.js'; markPageReady();</script>"
+)
+
+
 def _page(
     *sheets: str,
     body: str = '<main class="osprey-card knob"></main>',
     html: str = '<html data-page-ready="true">',
+    head: str = "",
 ) -> str:
     links = "".join(f'<link rel="stylesheet" href="/design-system/css/{s}">\n' for s in sheets)
-    return f"{html}\n<head>\n{links}</head>\n<body>{body}</body>\n</html>\n"
+    return f"{html}\n<head>\n{links}{head}</head>\n<body>{body}</body>\n</html>\n"
 
 
 STYLED_PAGE = _page("tokens.css", "base.css", "primitives.css")
@@ -443,6 +451,21 @@ def test_a_panel_with_no_script_carries_the_mark_in_its_markup(
 
     assert result.exit_code == 1
     assert "[page_ready]" in result.output
+
+
+def test_a_panel_that_marks_itself_without_pending_is_refused(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _panel(
+        lifecycle_repo,
+        _page("tokens.css", "base.css", "primitives.css", html="<html>", head=INLINE_MARK),
+    )
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[page_ready]")]
+    assert "pending" in line
 
 
 # --- an installed application, checked from its origin -------------------------
