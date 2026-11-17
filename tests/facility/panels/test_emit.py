@@ -648,3 +648,15 @@ def test_a_part_of_an_excluded_thing_has_no_screen_link_or_bound_channel(tmp_pat
     text = "".join(p.read_text() for p in out.rglob("*.json"))
     assert "SAF1:CARD" not in text and "SAF1-CARD" not in text
     assert not [p for p in check(graph, out) if "SAF1" in p.detail]
+
+
+def test_a_channel_a_roll_up_row_opens_is_not_unrolled(panel_graph, tmp_path, monkeypatch):
+    from osprey.facility.panels import layout
+
+    monkeypatch.setattr(layout, "SCREEN_FORMULA_BUDGET", 0)  # every row opens its screen
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    found = check(panel_graph, out)
+    assert not [p for p in found if p.kind == "unrolled"]
+    static = {p.file for p in found if p.kind == "static_rollup"}
+    assert "rollup/rollup-place-xr.screen.json" in static  # it opens only roll-ups with none

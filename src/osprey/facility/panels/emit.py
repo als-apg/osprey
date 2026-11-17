@@ -127,8 +127,8 @@ class Problem:
         kind: ``stale``, ``missing``, ``orphan``, ``dangling_link``,
             ``unknown_channel``, ``stamp``, ``invalid``, ``oversize``,
             ``incomplete`` (an earlier write did not finish), ``unrolled``
-            (a channel with a rule the engine can evaluate that no roll-up
-            screen reads),
+            (a channel with a rule a light can read that no roll-up screen
+            reads, nor a screen one of its rows opens),
             ``static_rollup`` (a roll-up that reads a rule a light can read,
             where no row has a live light and no row opens a screen that
             has one), ``long_formula`` (an expression the formula engine
@@ -796,6 +796,7 @@ def check(
                 Problem("missing", relative, f"no file for {target.view} of {target.id}")
             )
     rolled: set[str] | None = set()
+    opened: set[str] = set()
     for relative in wanted:
         if relative not in valid:
             if wanted[relative].view == "rollup":
@@ -807,12 +808,26 @@ def check(
             )
         )
         if rolled is not None and wanted[relative].view == "rollup":
-            rolled.update(_bound_channels(json.loads((out / relative).read_bytes())))
+            document = json.loads((out / relative).read_bytes())
+            rolled.update(_bound_channels(document))
+            here = posixpath.dirname(relative)
+            opened.update(posixpath.normpath(posixpath.join(here, ref)) for ref in _links(document))
     if rolled is not None:
+        # a row with no live light opens the screen that reads its channels (one level)
+        for relative in sorted(opened & valid):
+            if wanted[relative].view != "rollup":
+                try:
+                    rolled.update(_bound_channels(json.loads((out / relative).read_bytes())))
+                except (OSError, ValueError):
+                    continue  # reported as invalid
         # a channel no light can read has no rule to read (see _carried)
         ruled = dict.fromkeys(row.channel for row in graph.rules())
         problems.extend(
-            Problem("unrolled", INDEX, f"{name} has a health rule and no roll-up screen reads it")
+            Problem(
+                "unrolled",
+                INDEX,
+                f"{name} has a health rule and no roll-up screen, or screen one opens, reads it",
+            )
             for name in ruled
             if name not in rolled and _carried(graph, name)
         )
