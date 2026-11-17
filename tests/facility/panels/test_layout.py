@@ -466,14 +466,22 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
     (section,) = [s for s in view.sections if s.title == "picture"]
     (picture,) = section.items
     assert all(part.channel is None for part in picture.parts)
-    doc, _ = draw(View(view.id, view.title, (), (section,)), graph)
-    assert not [n for n in _by_type(doc, "polygon") if n.get("rules")]  # the frame only
+    corners = tuple(
+        replace(picture.parts[0], part=f"o{i}", kind="outline", x_mm=x, y_mm=y)
+        for i, (x, y) in enumerate(((-9.0, -9.0), (9.0, -9.0), (0.0, 9.0)))
+    )
+    outlined = replace(picture, parts=picture.parts + corners)
+    doc, _ = draw(View(view.id, view.title, (), (Section("picture", (outlined,)),)), graph)
+    assert not [n for n in _by_type(doc, "polygon") if n.get("rules")]
     assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == [
         "pole 1",
         "thermal switch 1",
     ]
 
-    named = replace(picture, parts=(replace(picture.parts[1], channel="XR01-QF1:Current-RB"),))
+    named = replace(
+        outlined,
+        parts=(replace(picture.parts[1], channel="XR01-QF1:Current-RB"), *corners),
+    )
     doc, _ = draw(View(view.id, view.title, (), (Section("picture", (named,)),)), graph)
     (shape,) = [n for n in _by_type(doc, "polygon") if n.get("rules")]
     assert bound(doc, shape) == ("XR01-QF1:Current-RB",)
@@ -997,48 +1005,76 @@ def _picture_view(parts) -> View:
     return card("pic", Picture("Magnet", "end", rows))
 
 
-def test_no_two_picture_labels_overlap_and_each_has_a_leader(panel_graph) -> None:
-    crowded = [(f"part {i}", "pole", (-1) ** i * 10.0, 5.0 + 0.1 * i) for i in range(12)]
-    for view in (
-        _picture_view(crowded),
-        *[v for v in fixture_views(panel_graph) if v.id.view == "card"],
-    ):
+_CORNERS = [
+    ("o1", "outline", -12.0, -9.0),
+    ("o2", "outline", 12.0, -9.0),
+    ("o3", "outline", 0, 9.0),
+]
+
+
+def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(panel_graph) -> None:
+    from osprey.facility.panels.layout import _crossing
+
+    crowded = [(f"part {i}", "pole", (-1) ** i * (10.0 - i), 5.0 - 0.9 * i) for i in range(12)]
+    scattered = [(f"bit {i}", "pole", (i * 7 % 11) - 5.0, (i * 5 % 9) - 4.0) for i in range(14)]
+    for parts in (crowded, scattered):
+        view = _picture_view([*parts, *_CORNERS])
         doc, _ = draw(view, panel_graph)
-        names = {
-            p.part for s in view.sections for i in s.items if hasattr(i, "parts") for p in i.parts
-        }
+        names = {name for name, *_rest in parts}
         boxes = [
             n["geometry"]
             for n in _by_type(doc, "text-label")
             if n["props"]["text"] in names and n["props"]["fontSize"] == layout.SMALL_SIZE
         ]
-        assert len(boxes) == len(names), view.id
+        assert len(boxes) == len(names)
         leaders = [
-            n
+            [
+                (n["geometry"]["x"] + q["x"], n["geometry"]["y"] + q["y"])
+                for q in n["props"]["points"]
+            ]
             for n in _by_type(doc, "line")
             if n["props"]["lineColor"] == symbols.MUTED_TEXT and len(n["props"]["points"]) == 2
         ]
-        assert len(leaders) >= len(names), view.id
+        assert len(leaders) == len(names)
         for a, b in [(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1 :]]:
             apart_x = a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"]
             apart_y = a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
-            assert apart_x or apart_y, (view.id, a, b)
+            assert apart_x or apart_y, (a, b)
+        ends = [(p[0], p[1]) for p in leaders]
+        for i, a in enumerate(ends):
+            for b in ends[i + 1 :]:
+                assert not _crossing(*a, *b), (a, b)
 
 
-def test_a_picture_draws_only_the_outline_the_table_states(panel_graph) -> None:
-    parts = [("pole 1", "pole", 5.0, 5.0), ("probe", "a-kind-of-the-facility", -5.0, 0.0)]
+def test_a_picture_without_an_outline_is_a_list_of_parts_by_kind(panel_graph) -> None:
+    parts = [
+        ("pole 1", "pole", 5.0, 5.0),
+        ("probe", "a-kind-of-the-facility", -5.0, 0.0),
+        ("pole 2", "pole", -5.0, 5.0),
+    ]
     doc, _ = draw(_picture_view(parts), panel_graph)
-    assert "outline not in the data" in _texts(doc)
-    (frame,) = [n for n in _by_type(doc, "polygon") if n["props"].get("lineStyle") == "dashed"]
-    assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == ["pole 1", "probe"]
+    texts = _texts(doc)
+    assert "PARTS" in texts and "PICTURE" not in texts
+    assert "outline not in the data" not in texts
+    assert not _by_type(doc, "ellipse") and not _by_type(doc, "line")
+    kinds = [t for t in texts if t in ("pole", "a-kind-of-the-facility")]
+    assert kinds == ["pole", "a-kind-of-the-facility"]  # in table order
+    for name in ("pole 1", "pole 2", "probe"):
+        assert name in texts
+    bare = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "no rule"]
+    assert len(bare) == 3  # each chip has its light, in the no-rule look
+
+
+def test_a_picture_draws_the_outline_the_table_states(panel_graph) -> None:
+    parts = [("pole 1", "pole", 5.0, 5.0), ("probe", "a-kind-of-the-facility", -5.0, 0.0)]
     corners = [
         ("o1", "outline", -9.0, -9.0),
         ("o2", "outline", 9.0, -9.0),
         ("o3", "outline", 0.0, 9.0),
     ]
     doc, _ = draw(_picture_view([*parts, *corners]), panel_graph)
-    assert "outline not in the data" not in _texts(doc)
-    assert not [n for n in _by_type(doc, "polygon") if n["props"].get("lineStyle") == "dashed"]
+    assert "PARTS" not in _texts(doc)
+    assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == ["pole 1", "probe"]
     outline = [n for n in _by_type(doc, "line") if len(n["props"]["points"]) == len(corners) + 1]
     assert len(outline) == 1  # the stated points, closed
     assert "o1" not in _texts(doc)  # an outline point is no part

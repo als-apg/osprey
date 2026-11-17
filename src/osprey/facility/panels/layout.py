@@ -309,7 +309,7 @@ _AGGREGATE_TEXT = "{} channels, open for detail"
 _SUMMARY_TEXT = "{} channels: a live summary of this level needs a server-side aggregate"
 _PART = "part {} of {}"
 _ID_PARTS = re.compile(r"[:/]")
-_NO_OUTLINE = "outline not in the data"
+_PARTS = "parts"
 #: The kind of a pictures row that is a point of the class's outline, not a part.
 OUTLINE_KIND = "outline"
 _ELLIPSIS = "\u2026"
@@ -1202,6 +1202,7 @@ class _Page:
         self.lit: set[str] = set()  # channels whose light a card's table drew
         self.facts_bottom: float = 0  # a rack's right column, where it ends
         self.cell_w: float = SET_CELL_WIDTH  # a set overview's cell width
+        self.parts_listed: set[str] = set()  # a card's parts listed without a picture
 
     # -- primitives -----------------------------------------------------------
 
@@ -1415,7 +1416,8 @@ class _Page:
             widget = elsewhere
         common = {"pv": channel, "fontSize": TEXT_SIZE, "foregroundColor": PAGE_TEXT}
         if widget == "pv-text-input":
-            self.s.widget(widget, x, y, w, ROW, {**common, "backgroundColor": FIELD_BACKGROUND})
+            props = {**common, "backgroundColor": FIELD_BACKGROUND, "alarmSensitiveBorder": False}
+            self.s.widget(widget, x, y, w, ROW, props)
         elif widget == "pv-button":
             props = {
                 **common,
@@ -1436,7 +1438,7 @@ class _Page:
                 "backgroundColor": FIELD_BACKGROUND,
                 "showUnits": False,  # the unit is a label of its own: a tile never cuts it
                 "alarmSensitive": True,
-                "alarmBorder": True,
+                "alarmSensitiveBorder": False,  # the viewer frames it once; the light says state
                 "align": "right",
             }
             self.s.widget("pv-label", x, y, w, ROW, props)
@@ -1759,9 +1761,14 @@ class _Page:
         deviation or of the readback's rule."""
         name, setpoint, readback = self.signal_columns()
         units = " / ".join(dict.fromkeys(u for u in (row.unit, row.readback_unit) if u))
-        label = f"{row.label} ({units})" if units else row.label
+        raw = row.label in (row.channel, row.readback)  # no signal name: the channel's own
+        word = _short(row.label) if raw else row.label
+        label = f"{word} ({units})" if units else word
         label = _cut(label, CARD_LABEL_WIDTH, TEXT_SIZE)
         self.text(name, self.y, label, w=min(text_width(label, TEXT_SIZE), CARD_LABEL_WIDTH))
+        if raw:  # the full name, muted, under the short one
+            full = _cut(row.label, CARD_LABEL_WIDTH, SMALL_SIZE)
+            self.small(name, self.y + ROW, full, fg=MUTED_TEXT)
         shown = row.readback
         if row.readback is not None:
             self.field(setpoint, self.y, row.channel, drawn_as=row.drawn_as, writable=True)
@@ -1780,7 +1787,7 @@ class _Page:
             self.lit.add(shown)
         if row.inferred:
             self.mark(x + GAP, self.y, symbols.INFERRED_MARK)
-        self.next_row()
+        self.next_row(ROW + SMALL_LINE if raw else ROW)
 
     def chain(self, section: Section) -> None:
         """The fed-by chain: the device's box, and each feeder's box right of it with an
@@ -1895,7 +1902,9 @@ class _Page:
         top = self.y
         self.y += PANEL_PAD
         if not (section.items and isinstance(section.items[0], Strip | Band)):
-            self.heading(section.title)
+            pictures = [i for i in section.items if isinstance(i, Picture)]
+            plain = pictures and not any(_outlined(i) for i in pictures)
+            self.heading(_PARTS if plain else section.title)
         self.items(section)
         self.y += PANEL_PAD - ROW_GAP
         self.s.widget(
@@ -2908,14 +2917,14 @@ class _Page:
     # -- picture and elevation ------------------------------------------------
 
     def picture(self, picture: Picture) -> None:
-        """A device class's picture: its parts where the table puts them, each named.
-
-        The outline is what the table states (rows of kind :data:`OUTLINE_KIND`,
-        joined in file order); with none, the bounding frame of the parts is
-        drawn dashed and captioned, never an invented shape. Every other kind
-        is the generic marker. Names sit in a column on each side, joined to
-        their part by a leader line (:func:`picture_labels`).
-        """
+        """A device class's picture: its outline as the table states it (rows of kind
+        :data:`OUTLINE_KIND`, joined in file order) and its parts where the table
+        puts them, each named in a column on its side, joined to it by a leader
+        line; no two leaders cross (:func:`picture_labels`). Without an outline in
+        the data there is no picture: the parts are listed (:meth:`part_list`)."""
+        if not _outlined(picture):
+            self.part_list(picture)
+            return
         top = self.y + ROW
         self.text(MARGIN, self.y, f"{picture.view} view", size=SMALL_SIZE)
         left_col = MARGIN
@@ -2932,18 +2941,11 @@ class _Page:
             a, b = _picture_xy(picture.view, part)
             return cx + a * scale, cy - b * scale
 
-        if outline:
-            points = [at(part) for part in outline]
-            self.line([*points, points[0]], PAGE_TEXT)
-        elif parts:
-            xs = [at(part)[0] for part in parts]
-            ys = [at(part)[1] for part in parts]
-            fx, fy = min(xs) - PART_MARKER, min(ys) - PART_MARKER
-            fw, fh = max(xs) - min(xs) + 2 * PART_MARKER, max(ys) - min(ys) + 2 * PART_MARKER
-            self.box(fx, fy, fw, fh, dashed=True)
-            self.text(fx, fy + fh + ROW_GAP, _NO_OUTLINE, size=SMALL_SIZE)
+        points = [at(part) for part in outline]
+        self.line([*points, points[0]], PAGE_TEXT)
         placed = [(part.part, *at(part)) for part in parts]
-        labels = picture_labels(placed, cx, top, top + PICTURE_SIZE)
+        anchors = (left_col + PART_LABEL_WIDTH, right_col)
+        labels = picture_labels(placed, cx, top, top + PICTURE_SIZE, anchors)
         for part, (name, px, py), (side, label_y) in zip(parts, placed, labels, strict=True):
             channel = part.channel  # stated by the pictures row; no table states one yet
             if channel is not None and self.graph.rule(channel):
@@ -2954,12 +2956,31 @@ class _Page:
                 props[_TOOLTIP] = part.part
                 self.s.widget("ellipse", px - half, py - half, PART_MARKER, PART_MARKER, props)
             lx = left_col if side == "left" else right_col
-            anchor = lx + PART_LABEL_WIDTH if side == "left" else lx
+            anchor = anchors[0] if side == "left" else anchors[1]
             self.line([(px, py), (anchor, label_y + ROW / 2)], MUTED_TEXT)
             align = "right" if side == "left" else "left"
             self.text(lx, label_y, name, size=SMALL_SIZE, w=PART_LABEL_WIDTH, align=align)
         bottom = max([top + PICTURE_SIZE, *(y + ROW for _side, y in labels)])
         self.y = bottom + ROW + ROW_GAP
+
+    def part_list(self, picture: Picture) -> None:
+        """A class's parts with no outline in the data: chips grouped by the kind the
+        table states, a small heading each, each chip with its part's light (the
+        no-rule look while no row names the part's channel). A part listed by an
+        earlier view of the class is not listed again."""
+        kinds: dict[str, list[tuple[str, Link | None, Node | None]]] = {}
+        for part in picture.parts:
+            if part.part in self.parts_listed:
+                continue
+            self.parts_listed.add(part.part)
+            channel = part.channel
+            ruled = channel is not None and bool(self.graph.rule(channel))
+            node = Node(part.part, None, (channel,) if ruled else (), not ruled)  # type: ignore[arg-type]
+            kinds.setdefault(part.kind, []).append((part.part, None, node))
+        for kind, entries in kinds.items():
+            self.text(self.x0, self.y, kind.replace("_", " "), size=SMALL_SIZE, fg=MUTED_TEXT)
+            self.y += ROW
+            self.chips(self.x0, entries)
 
     def elevation(self, elevation: Elevation) -> None:
         """A rack as it stands: its frame, each chassis a bar at its true unit spanning
@@ -3140,7 +3161,11 @@ def _unit_top(unit: RackUnit) -> int:
 
 
 def picture_labels(
-    parts: Sequence[tuple[str, float, float]], centre: float, top: float, bottom: float
+    parts: Sequence[tuple[str, float, float]],
+    centre: float,
+    top: float,
+    bottom: float,
+    anchors: tuple[float, float] | None = None,
 ) -> list[tuple[str, float]]:
     """Where each part's name goes: ``(side, y)`` per ``(name, x, y)`` part, in order.
 
@@ -3148,7 +3173,9 @@ def picture_labels(
     right one. In each column the names go in order of their part's ``y``,
     each at its part's height or just under the name above it, so no two
     overlap; a column that runs past *bottom* is pushed back up, never
-    above *top*.
+    above *top*. With *anchors* (the x where the left and the right
+    column's leaders end), two leaders of a column that cross swap their
+    names' places until none cross: each swap shortens the leaders, so it ends.
     """
     slots: list[tuple[str, float]] = [("", 0.0)] * len(parts)
     for side in ("left", "right"):
@@ -3165,9 +3192,48 @@ def picture_labels(
             ys[0] = top
             for k in range(1, len(ys)):
                 ys[k] = max(ys[k], ys[k - 1] + ROW + ROW_GAP)
+        if anchors is not None:
+            ax = anchors[0] if side == "left" else anchors[1]
+            _uncross(mine, ys, parts, ax)
         for i, y in zip(mine, ys, strict=True):
             slots[i] = (side, y)
     return slots
+
+
+def _uncross(
+    mine: list[int], ys: list[float], parts: Sequence[tuple[str, float, float]], ax: float
+) -> None:
+    """Swap the label heights *ys* of the parts *mine* until no two leaders from a part to
+    (*ax*, its label's middle) cross."""
+
+    def leader(k: int) -> tuple[tuple[float, float], tuple[float, float]]:
+        _n, px, py = parts[mine[k]]
+        return (px, py), (ax, ys[k] + ROW / 2)
+
+    for _round in range(len(mine) ** 2 + 1):
+        swapped = False
+        for a, b in itertools.combinations(range(len(mine)), 2):
+            if _crossing(*leader(a), *leader(b)):
+                ys[a], ys[b] = ys[b], ys[a]
+                swapped = True
+        if not swapped:
+            return
+
+
+def _crossing(p1, p2, q1, q2) -> bool:
+    """Whether the segments p1-p2 and q1-q2 cross at a point inside both."""
+
+    def turn(a, b, c) -> float:
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    d1, d2 = turn(q1, q2, p1), turn(q1, q2, p2)
+    d3, d4 = turn(p1, p2, q1), turn(p1, p2, q2)
+    return d1 * d2 < 0 and d3 * d4 < 0
+
+
+def _outlined(picture: Picture) -> bool:
+    """Whether the table states an outline for *picture*."""
+    return any(part.kind == OUTLINE_KIND for part in picture.parts)
 
 
 def _picture_xy(view: str, part) -> tuple[float, float]:

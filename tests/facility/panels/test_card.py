@@ -119,3 +119,31 @@ def test_a_card_with_many_health_lights_draws_the_limit_and_counts_the_rest(pane
     doc = stub_render(replace(view, sections=sections), panel_graph)
     texts = [n["props"]["text"] for n in _by_type(doc, "text-label")]
     assert "3 more not drawn" in texts
+
+
+def test_a_row_named_by_its_raw_channel_shows_the_last_part_and_the_name_muted(
+    panel_graph,
+) -> None:
+    from osprey.facility.panels.view import Target, View
+
+    raw = ValueRow("XR01-QF1:Current-RB", "XR01-QF1:Current-RB", None, None, False)
+    named = ValueRow("current readback", "XR01-QF1:Current-RB", None, None, False)
+    view = View(
+        Target("card", "device", "XR01:QF1"), "XR01:QF1", (),
+        (Section("signals", (raw, named)),),
+    )  # fmt: skip
+    doc = stub_render(view, panel_graph)
+    short = _text(doc, "Current-RB")
+    full = _text(doc, "XR01-QF1:Current-RB")
+    assert full["props"]["fontSize"] == layout.SMALL_SIZE
+    assert full["props"]["foregroundColor"] == layout.MUTED_TEXT
+    assert full["geometry"]["y"] >= short["geometry"]["y"] + layout.ROW
+    assert _text(doc, "current readback")["geometry"]["y"] >= full["geometry"]["y"] + layout.ROW_GAP
+
+
+def test_a_value_field_is_framed_once_by_the_viewer(panel_graph) -> None:
+    doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
+    for field in _fields(doc).values():
+        if field["type"] in ("pv-label", "pv-text-input"):
+            assert field["props"]["alarmSensitiveBorder"] is False
+            assert "alarmBorder" not in field["props"]
