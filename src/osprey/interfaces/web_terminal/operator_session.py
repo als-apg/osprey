@@ -1273,10 +1273,10 @@ class OperatorSession:
             # tool_result this deny becomes carries ``refusal``. Any other ask is
             # the operator's to answer on a card, whatever the tier.
             if writes and not self._render.tier_allows:
-                from osprey_connectors.refusals import refusal_text
+                from osprey_connectors.refusals import VerdictReason, refusal_text
 
                 machine = target["machine_kind"] if target else None
-                return PermissionResultDeny(message=refusal_text("tier_never", machine))
+                return PermissionResultDeny(message=refusal_text(VerdictReason.TIER_NEVER, machine))
         plan = tool_input.get("plan")
         if kind == "plan" and not (isinstance(plan, str) and plan.strip()):
             return PermissionResultDeny(message=_NO_PLAN_MESSAGE)

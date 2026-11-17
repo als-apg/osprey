@@ -42,7 +42,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_operator_child_env,
 )
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import control_context, posture_store, workspace
+from osprey_connectors import _control_state, testing, workspace
 from tests.interfaces.web_terminal._started_app import terminal_client
 
 SESSION_ID_ENV = "OSPREY_SESSION_ID"
@@ -70,11 +70,11 @@ def shared_root(tmp_path, monkeypatch):
             "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=root,
         ),
-        patch.object(posture_store, "resolve_shared_data_root", return_value=root),
+        patch.object(_control_state, "resolve_shared_data_root", return_value=root),
     ):
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         yield root
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
 
 # ``shared_root`` rebinds the agent-data resolver the app under test reads.

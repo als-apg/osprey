@@ -33,7 +33,7 @@ import yaml
 from websockets.sync import client as websockets_client
 
 from osprey.integrations.canopy.sidecar import CanopySidecar
-from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 
 #: How long the two servers get to come up.
@@ -73,10 +73,10 @@ CONFIG = {
 
 def write_record(state_dir: Path, *, target: str, generation: int) -> None:
     control_context.write_record(
-        control_context.ControlContext(target=target, generation=generation, posture={}),
+        control_context.ControlContext(target=target, generation=generation),
         path=state_dir / control_context.RECORD_FILENAME,
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def status_of(url: str, headers: dict[str, str] | None = None) -> int:
@@ -138,9 +138,9 @@ def launch(tmp_path, monkeypatch):
         if name.startswith(("CANOPY_", "OSPREY_CANOPY_", "OSPREY_CONTROL_TARGET", "EPICS_")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -166,7 +166,7 @@ def launch(tmp_path, monkeypatch):
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([*paths, inherited] if inherited else paths))
 
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     # A stray file in the terminal's working directory must change nothing.
     (tmp_path / ".env").write_text("CANOPY_API_KEYS=stray:read+write\n", encoding="utf-8")
@@ -184,7 +184,7 @@ def launch(tmp_path, monkeypatch):
     yield build
     for sidecar in sidecars:
         sidecar.stop()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -250,7 +250,7 @@ def test_a_killed_data_is_replaced(running):
 
 def test_a_forbidden_variable_is_a_refused_start_and_the_panel_is_retracted(launch, monkeypatch):
     """DATA leaves with 78, is not started again, and the sidecar reports its end."""
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "someone")
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "someone")
     retracted = []
     sidecar = launch()
     sidecar.spawn()
@@ -261,7 +261,7 @@ def test_a_forbidden_variable_is_a_refused_start_and_the_panel_is_retracted(laun
     wait_for(lambda: retracted, "the retraction", 30.0)
 
     assert sidecar.exit_status == 78
-    assert f"{posture_store.CONTROL_OWNER_ENV_VAR} must not be set" in sidecar.stderr_tail
+    assert f"{write_switch.CONTROL_OWNER_ENV_VAR} must not be set" in sidecar.stderr_tail
     assert sidecar.data_starts == 1
     assert refuses(url) and refuses(data_url)
     with pytest.raises(ProcessLookupError):

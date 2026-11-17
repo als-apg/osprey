@@ -2,7 +2,7 @@
 
 ``ControlSystemConnector`` wraps every subclass's ``write_channel`` and
 ``write_multiple_channels``; the wrapper asks ``_writes_enabled``, which is
-:func:`osprey_connectors.posture_store.write_verdict` for the connector's own
+:func:`osprey_connectors.write_switch.write_verdict` for the connector's own
 machine — the one the factory stamped as ``_control_target``. A refused write
 never reaches the transport and comes back ``REFUSED`` / ``WRITES_DISABLED``,
 its message the refusals contract's phrase for the verdict's reason.
@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.connector_types import (
     TARGET_LIVE,
     TARGET_STANDIN,
@@ -82,7 +82,7 @@ def _switch(root: Path, *targets: str, posture: dict[str, str] | None = None) ->
         payload = json.loads(path.read_text(encoding="utf-8"))
         payload["posture"] = dict(posture)
         write_payload(path, payload)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
 
 def _built(target: str | None, connector_type: str | None = "epics") -> RecordingConnector:
@@ -175,7 +175,7 @@ class TestTheSwitchDecides:
         control_context.set_switch(
             [TARGET_LIVE], "off", path=control_context._record_path_under(root)
         )
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         result = await connector.write_channel("A:SP", 2.0)
 
         _refused(result, "switch_off", "real")
@@ -184,7 +184,7 @@ class TestTheSwitchDecides:
     @pytest.mark.asyncio
     async def test_an_old_sandbox_narrowing_does_not_refuse_with_the_switch_on(self, tier, root):
         tier(ALLOWED)
-        _switch(root, TARGET_LIVE, posture={TARGET_LIVE: posture_store.POSTURE_SANDBOX})
+        _switch(root, TARGET_LIVE, posture={TARGET_LIVE: write_switch.LAUNCH_PIN_SANDBOX})
         connector = _built(TARGET_LIVE)
 
         result = await connector.write_channel("A:SP", 1.0)
@@ -283,7 +283,7 @@ class TestTheEarlierTermsRefuseFirst:
     async def test_a_launch_pin_refuses_with_the_switch_on(self, tier, root, monkeypatch):
         tier(ALLOWED)
         _switch(root, TARGET_LIVE)
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "live=sandbox")
         connector = _built(TARGET_LIVE)
 
         result = await connector.write_channel("A:SP", 1.0)
@@ -295,7 +295,7 @@ class TestTheEarlierTermsRefuseFirst:
     async def test_an_unreadable_launch_pin_refuses_too(self, tier, root, monkeypatch):
         tier(ALLOWED)
         _switch(root, TARGET_LIVE)
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "garbage")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "garbage")
         connector = _built(TARGET_LIVE)
 
         result = await connector.write_channel("A:SP", 1.0)
@@ -327,7 +327,7 @@ class TestTheMonitorIsTheVerdict:
 
         allowed = connector._writes_enabled
 
-        verdict = posture_store.write_verdict(section, target)
+        verdict = write_switch.write_verdict(section, target)
         assert allowed is verdict.allowed
         assert connector._last_verdict == verdict
 
@@ -352,9 +352,7 @@ class TestTheMonitorIsTheVerdict:
     )
     def test_every_monitor_refusal_names_no_key_file_or_variable(self, reason):
         """The monitor's words are the contract's, plus the channel and the marker."""
-        verdict = posture_store.WriteVerdict(
-            allowed=False, reason=reason, target=TARGET_LIVE, kind="real"
-        )
+        verdict = write_switch.Refused(reason=reason, target=TARGET_LIVE, kind="real")
 
         result = connector_base._verdict_refusal("A:SP", 1.0, verdict, wording="script")
 
@@ -408,7 +406,7 @@ class TestOneRecordReadPerWrite:
     async def test_a_pinned_write_reads_the_record_once(self, tier, root, monkeypatch):
         tier(ALLOWED)
         _switch(root, TARGET_LIVE)
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "live=sandbox")
         reads = _count_record_reads(monkeypatch)
         connector = _built(TARGET_LIVE)
 

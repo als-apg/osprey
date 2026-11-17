@@ -11,7 +11,7 @@ already depend on the audit package, and nothing here depends on them.
 
 The posture *value* is the write verdict's, read for the control target this
 process's writes are about: :func:`verdict` asks
-:func:`osprey_connectors.posture_store.write_verdict` about
+:func:`osprey_connectors.write_switch.write_verdict` about
 :func:`recorded_control_target`, and :func:`posture` spells its answer the way
 the record does — ``writes`` when the verdict allows, ``sandbox`` when it
 refuses. So the record reads ``sandbox`` whenever a write to that target would
@@ -45,10 +45,12 @@ import os
 from typing import TYPE_CHECKING
 
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS, POSTURE_SOURCES
-from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
+from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR as POSTURE_ENV_VAR
+from osprey_connectors.execution_mode import READONLY_MODE as SANDBOX_MODE
+from osprey_connectors.execution_mode import is_readonly_run
 
 if TYPE_CHECKING:
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.write_switch import WriteVerdict
 
 logger = logging.getLogger("osprey.audit.posture")
 
@@ -71,7 +73,7 @@ __all__ = [
 ]
 
 #: :data:`POSTURE_ENV_VAR`, :data:`SANDBOX_MODE` and :func:`is_readonly_run` are
-#: :mod:`osprey_connectors.posture_env`'s, re-exported so the recorders keep one
+#: :mod:`osprey_connectors.execution_mode`'s, re-exported so the recorders keep one
 #: import: the session posture's variable, the one value of it that sandboxes,
 #: and the first term of the write verdict. A standard-library leaf, so importing
 #: it keeps this module a leaf.
@@ -161,7 +163,7 @@ def control_system_section() -> object:
 def verdict() -> WriteVerdict:
     """The write verdict for this process's recorded control target.
 
-    :func:`osprey_connectors.posture_store.write_verdict` for
+    :func:`osprey_connectors.write_switch.write_verdict` for
     :func:`control_system_section` and :func:`recorded_control_target`, with the
     owner left to that function's own ladder. ``None`` for a target that cannot
     be named is passed through, and the verdict answers it as it answers any
@@ -174,13 +176,14 @@ def verdict() -> WriteVerdict:
     ``osprey-connectors`` is a declared dependency of this package, so the lazy
     import below is a leaf's import-cost rule, not an optional feature.
     """
-    from osprey_connectors.posture_store import WriteVerdict, write_verdict
+    from osprey_connectors.refusals import VerdictReason
+    from osprey_connectors.write_switch import Refused, write_verdict
 
     try:
         return write_verdict(control_system_section(), recorded_control_target())
     except Exception:  # write_verdict never raises by contract; refuse if it does
         logger.debug("Write verdict could not be reached; refusing", exc_info=True)
-        return WriteVerdict(allowed=False, reason="record_unavailable", target=None, kind=None)
+        return Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None)
 
 
 def posture_source(declared: str | None = None) -> str:

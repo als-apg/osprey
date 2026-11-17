@@ -33,7 +33,7 @@ from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
 from osprey.registry.mcp import framework_mixed_read_write_tools, framework_write_tools
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey.utils.workspace import STATE_DIR_RELPATH
-from osprey_connectors import posture_store, session_hold
+from osprey_connectors import session_hold, write_switch
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import (
@@ -106,13 +106,16 @@ def stamps(tmp_path, monkeypatch) -> ApprovalStamps:
 
 
 def _flag() -> None:
-    assert session_hold.open_flag(
-        KEY,
-        flag_id="f1",
-        source=SOURCE,
-        reason="off the plan",
-        prompt_ref="record:f1",
-        prompt_excerpt="move the corrector",
+    assert (
+        session_hold.open_flag(
+            KEY,
+            flag_id="f1",
+            source=SOURCE,
+            reason="off the plan",
+            prompt_ref="record:f1",
+            prompt_excerpt="move the corrector",
+        )
+        == "opened"
     )
 
 
@@ -392,7 +395,7 @@ def test_a_script_launched_while_held_is_refused_and_its_pin_stays_writes():
         enforce_posture_clamp("readwrite", tool="execute")
     _assert_held(json.loads(str(excinfo.value)))
 
-    expected = posture_store.launch_posture_stamp("live", posture_store.POSTURE_WRITES)
+    expected = write_switch.launch_pin_stamp("live", write_switch.LAUNCH_PIN_WRITES)
     assert executor._launch_posture("live") == expected
 
 
@@ -402,8 +405,8 @@ def test_a_release_lets_the_script_launch_and_pins_it_for_writes():
     _release()
     assert enforce_posture_clamp("readwrite", tool="execute") is None
     stamp = executor._launch_posture("live")
-    assert stamp == posture_store.launch_posture_stamp("live", posture_store.POSTURE_WRITES)
-    assert posture_store.POSTURE_SANDBOX not in stamp
+    assert stamp == write_switch.launch_pin_stamp("live", write_switch.LAUNCH_PIN_WRITES)
+    assert write_switch.LAUNCH_PIN_SANDBOX not in stamp
 
 
 @pytest.mark.usefixtures("hold_root", "launchable")
@@ -584,8 +587,8 @@ def test_an_older_connectors_install_fails_at_import_with_the_version_message(mo
     """Every site stops the server, in words that say what to install."""
     probe = (
         "import importlib\n"
-        "from osprey_connectors import posture_store\n"
-        "del posture_store.execution_verdict, posture_store.session_hold_refusal\n"
+        "from osprey_connectors import write_switch\n"
+        "del write_switch.execution_verdict, write_switch.session_hold_refusal\n"
         "try:\n"
         f"    importlib.import_module({module!r})\n"
         "except RuntimeError as exc:\n"

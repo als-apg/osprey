@@ -45,7 +45,7 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     owner,
@@ -110,14 +110,14 @@ def deployment(tmp_path, monkeypatch):
         # and out of whatever record this machine happens to be carrying.
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
         isolate_verdict_environment(monkeypatch, tmp_path)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", _TOKEN)
         initialize_server_context()
         return tmp_path
 
     yield _stage
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _deployment_on(root: Path, target: str, generation: int = 0, **kwargs: Any) -> Path:
@@ -139,7 +139,7 @@ def _write_raw_record(root: Path, body: str) -> Path:
     path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 

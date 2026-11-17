@@ -70,19 +70,15 @@ from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey.mcp_server.control_system.tools.channel_write import _limits_violation_error
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.control_system._base import ChannelValue, ConnectorContext
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
-from osprey_connectors.errors import (
-    ChannelNotFoundError,
-    ChannelUnreachableError,
-    LimitsViolation,
-    RefusalReason,
-)
+from osprey_connectors.errors import ChannelNotFoundError, ChannelUnreachableError, LimitsViolation
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.ipc._verification import derive_endpoints
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     isolated_connector_registries,
@@ -201,9 +197,9 @@ def state_root(tmp_path, monkeypatch):
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
     isolate_verdict_environment(monkeypatch, tmp_path)
     harness_write_control_context(tmp_path, owned_by=None, switch={"live": "on", "va": "on"})
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -694,7 +690,7 @@ class TestSandboxEndpointMatchesTheDerivation:
         # to say what that store holds rather than inheriting whatever the suite
         # runs under: no session key means nothing addressed this session, which
         # is the un-narrowed answer this test is about.
-        monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
         monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
         env: dict[str, str] = {}
 
@@ -707,8 +703,8 @@ class TestSandboxEndpointMatchesTheDerivation:
             # started. Composed rather than spelled, so the pin follows the
             # target this scenario derives instead of a literal that would
             # survive a rename.
-            host_executor.ENV_LAUNCH_POSTURE: posture_store.launch_posture_stamp(
-                "va", posture_store.POSTURE_WRITES
+            host_executor.ENV_LAUNCH_POSTURE: write_switch.launch_pin_stamp(
+                "va", write_switch.LAUNCH_PIN_WRITES
             ),
         }
         for name, value in env.items():
@@ -787,7 +783,7 @@ class TestTheSimulatorInProcessIsTheBaseline:
         config_path = tmp_path / "config.yml"
         config_path.write_text(yaml.dump(raw), encoding="utf-8")
         control_context.write_record(control_context.ControlContext(target="live", generation=0))
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         manager = ConnectorHostManager(
             MCPServerConfig(raw=raw, config_path=config_path),

@@ -33,11 +33,11 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     ConnectorUnavailableError,
     LimitsViolation,
-    RefusalReason,
 )
 from osprey_connectors.ipc import Endpoint
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.refusals import RefusalReason
 
 TS = datetime(2026, 8, 22, 14, 30, 5, 123456, tzinfo=UTC)
 

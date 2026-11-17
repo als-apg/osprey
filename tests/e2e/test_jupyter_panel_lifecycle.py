@@ -101,7 +101,7 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.control_context import RECORD_FILENAME
 from osprey_connectors.dotenv import parse_dotenv_file
-from osprey_connectors.posture_store import STATE_DIR_NAME
+from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,
@@ -263,7 +263,7 @@ def _record_path(agent_data_root: str) -> str:
     and the controls servers all read to learn which machine the deployment is
     on.
     """
-    return f"{agent_data_root}/{STATE_DIR_NAME}/{USER}/{RECORD_FILENAME}"
+    return f"{agent_data_root}/{CONTROL_STATE_DIR_NAME}/{USER}/{RECORD_FILENAME}"
 
 
 def _control_context(agent_data_root: str) -> dict[str, Any] | None:

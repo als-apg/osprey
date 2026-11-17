@@ -50,6 +50,7 @@ import yaml
 from osprey.deployment import status_display
 from osprey.deployment.reach import reach_errors
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
+from osprey_connectors import _control_state
 from osprey_connectors.write_target import KIND_BANNERS
 from tests.cli._lifecycle_build import invoke_build_in
 from tests.fixtures.lifecycle_repo import (
@@ -354,10 +355,9 @@ def test_status_names_an_unvouched_standin_the_real_machine(tmp_path, setup) -> 
 
 def test_status_never_borrows_another_directory_for_an_unnamed_login(tmp_path, monkeypatch) -> None:
     """A login whose directory cannot be named reads real, not the caller's reports."""
-    from osprey_connectors import posture_store
 
     _write_report(tmp_path, 1, kind="rehearsal", age_s=1)
-    monkeypatch.setattr(posture_store, "state_dir", lambda: tmp_path)
+    monkeypatch.setattr(_control_state, "state_dir", lambda: tmp_path)
 
     assert status_display._target_cell("standin", None, now=_NOW) == (
         f"standin ({KIND_BANNERS['real']})"

@@ -62,8 +62,8 @@ and still answers a ping, so it was kept; under
 :class:`ConnectRefusedError` is a policy refusal of ``connect()``, not a lost
 connector, and is read by its ``ConnectionError`` base as a bare one was.
 
-:class:`RefusalReason` names why a write was refused, who refused it and what
-to do about it. ``ChannelWriteFailedError`` carries the ``WriteOutcome`` of the
+:class:`~osprey_connectors.refusals.RefusalReason` names why a write was
+refused, who refused it and what to do about it. ``ChannelWriteFailedError`` carries the ``WriteOutcome`` of the
 write that raised, so the outcome a caller branches on and the outcome the
 result reports are one vocabulary.
 
@@ -82,6 +82,7 @@ from pydantic import field_validator
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.model import FrozenModel
+from osprey_connectors.refusals import RefusalReason, VerdictReason
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -111,7 +112,6 @@ __all__ = [
     "NaiveDatetimeError",
     "RecoveryAction",
     "RecoveryRecord",
-    "RefusalReason",
     "StateLockedError",
     "StateUnavailableError",
     "raw_client_write_message",
@@ -256,81 +256,20 @@ class LimitsViolation(FrozenModel):
         )
 
 
-_REFERENCE_MONITOR = "the reference monitor"
-_CONTROL_SYSTEM = "the control system"
-_NEVER_SENT = (
-    "This write was refused on policy grounds; it was never sent to the control system.",
-)
-
-
-class RefusalReason(StrEnum):
-    """Why a write was refused, with who refused it and what to do about it.
-
-    Each member's value is the reason word a result and an exception carry.
-    :attr:`refuser` names who refused a write for the reason, and is ``None``
-    for ``CHANNEL_NOT_FOUND``: nothing was denied, the address is not a
-    channel. :attr:`remedy` holds the reason's own suggestion sentences, in
-    the order a message lists them; it is empty for ``CHANNEL_NOT_FOUND``,
-    whose answer is rendered as "not a channel".
-
-    ``RAW_CLIENT_WRITE`` means user code called a control-system client
-    library's put directly instead of going through
-    ``osprey.runtime.write_channel``; nothing was sent.
-    ``CONTROL_SYSTEM_REFUSED`` is the one reason under which the write was
-    sent: the control system was asked and denied it.
-    ``BATCH_REFUSED`` is a write of a batch that passed every check of its own
-    and was not sent because another write of the batch was refused.
-    """
-
-    refuser: str | None
-    remedy: tuple[str, ...]
-
-    def __new__(
-        cls, value: str, refuser: str | None = None, remedy: tuple[str, ...] = ()
-    ) -> "RefusalReason":
-        member = str.__new__(cls, value)
-        member._value_ = value
-        member.refuser = refuser
-        member.remedy = remedy
-        return member
-
-    WRITES_DISABLED = ("WRITES_DISABLED", _REFERENCE_MONITOR, _NEVER_SENT)
-    LIMITS = ("LIMITS", _REFERENCE_MONITOR, _NEVER_SENT)
-    VALIDATION_ERROR = ("VALIDATION_ERROR", _REFERENCE_MONITOR, _NEVER_SENT)
-    CONTROL_SYSTEM_REFUSED = (
-        "CONTROL_SYSTEM_REFUSED",
-        _CONTROL_SYSTEM,
-        (
-            "The control system itself denied this write (access security); no value was written.",
-            "Report it to the operator: write access for this channel is granted "
-            "by the control system, not by OSPREY.",
-        ),
-    )
-    RAW_CLIENT_WRITE = ("RAW_CLIENT_WRITE", _REFERENCE_MONITOR, _NEVER_SENT)
-    BATCH_REFUSED = (
-        "BATCH_REFUSED",
-        _REFERENCE_MONITOR,
-        (
-            "No write of this batch was sent: another write in it was refused.",
-            "Resolve that write's refusal and submit the batch again.",
-        ),
-    )
-    CHANNEL_NOT_FOUND = ("CHANNEL_NOT_FOUND", None, ())
-
-
 class ChannelWriteBlockedError(ChannelError):
     """Raised when a channel write was refused and no value was written.
 
     Distinct from ChannelWriteFailedError, which means the write was attempted
     and its outcome is a failure rather than a denial.
 
-    ``reason`` is the :class:`RefusalReason` member that says why, and its
-    :attr:`~RefusalReason.refuser` and :attr:`~RefusalReason.remedy` say who
+    ``reason`` is the :class:`~osprey_connectors.refusals.RefusalReason` member
+    that says why, and its :attr:`~osprey_connectors.refusals.RefusalReason.refuser`
+    and :attr:`~osprey_connectors.refusals.RefusalReason.remedy` say who
     refused and what to do. The word of a member is taken for the member, as
     the connector-host IPC carries it; any other word raises ``ValueError``.
 
     ``verdict_reason`` narrows ``WRITES_DISABLED`` to the reason the write
-    verdict gave, a member of :data:`osprey_connectors.refusals.REASONS`, when
+    verdict gave, a :class:`~osprey_connectors.refusals.VerdictReason`, when
     it gave one: ``switch_off``, ``auth_exhausted``, ``auth_range`` and the
     rest, so a program branches on the word rather than the message.
 
@@ -344,12 +283,12 @@ class ChannelWriteBlockedError(ChannelError):
         reason: RefusalReason | str,
         *,
         message: str | None = None,
-        verdict_reason: str | None = None,
+        verdict_reason: VerdictReason | str | None = None,
         violation: LimitsViolation | None = None,
     ):
         self.address = address
         self.reason = RefusalReason(reason)
-        self.verdict_reason = verdict_reason
+        self.verdict_reason = None if verdict_reason is None else VerdictReason(verdict_reason)
         self.violation = violation
         refuser = self.reason.refuser
         if refuser is not None:
@@ -522,7 +461,7 @@ class ChannelNotFoundError(ChannelError, LookupError):
     Channel Access search that finds nothing times out) raises
     :class:`ChannelUnreachableError` instead. A write to such an address is not
     raised: it comes back ``refused`` with ``refusal_reason``
-    :attr:`RefusalReason.CHANNEL_NOT_FOUND`.
+    :attr:`~osprey_connectors.refusals.RefusalReason.CHANNEL_NOT_FOUND`.
     """
 
     def __init__(self, address: str):

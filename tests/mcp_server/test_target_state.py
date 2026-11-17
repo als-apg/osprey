@@ -21,7 +21,7 @@ import pytest
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import server, server_context, target_state
-from osprey_connectors import control_context
+from osprey_connectors import _control_state, control_context, testing
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
@@ -30,7 +30,7 @@ from tests.mcp_server._report_root import state_root as state_root
 @pytest.fixture(autouse=True)
 def empty_proc(tmp_path_factory, monkeypatch):
     """An empty ``/proc``, so a PID faked through ``os.kill`` never meets a real thread."""
-    monkeypatch.setattr(control_context, "_PROC_ROOT", str(tmp_path_factory.mktemp("proc")))
+    monkeypatch.setattr(_control_state, "_PROC_ROOT", str(tmp_path_factory.mktemp("proc")))
 
 
 TARGETS_META = {
@@ -115,7 +115,7 @@ class TestPathContract:
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
 
         assert target_state.state_dir() == (
-            stamped / target_state.STATE_DIR_NAME / acting_identity()
+            stamped / target_state.CONTROL_STATE_DIR_NAME / acting_identity()
         )
 
     def test_the_server_report_lands_under_the_stamped_root(self, tmp_path, monkeypatch):
@@ -126,7 +126,7 @@ class TestPathContract:
 
         target_state.write_server_record(server_pid=4321)
 
-        directory = stamped / target_state.STATE_DIR_NAME / acting_identity()
+        directory = stamped / target_state.CONTROL_STATE_DIR_NAME / acting_identity()
         written = list(directory.glob(target_state.REPORT_FILE_GLOB))
         assert [p.name for p in written] == ["server_4321.json"]
         assert target_state.read(4321)["server_pid"] == 4321
@@ -625,9 +625,9 @@ class TestDisplayOnlyReport:
     def _one_root_for_every_reader(self, state_root, monkeypatch):
         """Stamp the scratch root too, so the connector-side readers resolve it."""
         monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(state_root))
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         yield
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
     @staticmethod
     def _write_display_only(state_root, pid, *, updated_at):
@@ -662,7 +662,7 @@ class TestDisplayOnlyReport:
             ),
             encoding="utf-8",
         )
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         return path
 
     def test_a_controls_server_never_writes_a_statement(self):
@@ -817,10 +817,10 @@ class TestServerStartClaimsTheRecord:
 
         assert claimed is not None
         assert (claimed.target, claimed.generation) == ("va", 7)
-        assert claimed.owner is not None
-        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
-        assert claimed.owner.pid == os.getpid()
-        assert claimed.owner.port is None
+        assert claimed.writer is not None
+        assert claimed.writer.kind == "controls_server"
+        assert claimed.writer.pid == os.getpid()
+        assert claimed.writer.port is None
 
     def test_server_start_claim_keeps_the_switch_it_found(
         self, control_context_root, write_control_context
@@ -838,7 +838,8 @@ class TestServerStartClaimsTheRecord:
 
         assert claimed is not None
         assert claimed.switch == {"va": "asked"}
-        assert claimed.posture == control_context._posture_mirror({"va": "asked"})
+        stored = json.loads(control_context.record_path().read_text(encoding="utf-8"))
+        assert stored["posture"] == control_context._posture_mirror({"va": "asked"})
 
     def test_claim_moves_generation_zero_live_record_to_va(
         self, control_context_root, write_control_context
@@ -853,8 +854,8 @@ class TestServerStartClaimsTheRecord:
 
         assert claimed is not None
         assert (claimed.target, claimed.generation) == ("va", 0)
-        assert claimed.owner is not None
-        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert claimed.writer is not None
+        assert claimed.writer.kind == "controls_server"
         assert control_context.read_record().target == "va"
 
     def test_claim_keeps_a_switched_live_record(self, control_context_root, write_control_context):
@@ -875,14 +876,14 @@ class TestServerStartClaimsTheRecord:
             control_context_root,
             target="standin",
             generation=4,
-            owned_by=make_owner(control_context.OWNER_WEB_TERMINAL, pid=_dead_pid(), port=8443),
+            owned_by=make_owner("web_terminal", pid=_dead_pid(), port=8443),
         )
 
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert claimed.owner is not None
-        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert claimed.writer is not None
+        assert claimed.writer.kind == "controls_server"
         assert (claimed.target, claimed.generation) == ("standin", 4)
 
     def test_server_start_claims_over_an_owner_too_degraded_to_name_a_process(
@@ -905,8 +906,8 @@ class TestServerStartClaimsTheRecord:
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert claimed.owner is not None
-        assert claimed.owner.pid == os.getpid()
+        assert claimed.writer is not None
+        assert claimed.writer.pid == os.getpid()
         assert (claimed.target, claimed.generation) == ("va", 7)
 
     def test_server_start_follows_a_live_web_terminal_owner(
@@ -918,8 +919,8 @@ class TestServerStartClaimsTheRecord:
         followed = server_context.claim_control_context(baseline="live")
 
         assert followed is not None
-        assert followed.owner is not None
-        assert followed.owner.kind == control_context.OWNER_WEB_TERMINAL
+        assert followed.writer is not None
+        assert followed.writer.kind == "web_terminal"
         assert path.read_text(encoding="utf-8") == before
 
     def test_server_start_follows_a_live_controls_server_owner(
@@ -931,15 +932,15 @@ class TestServerStartClaimsTheRecord:
             control_context_root,
             target="va",
             generation=7,
-            owned_by=make_owner(control_context.OWNER_CONTROLS_SERVER),
+            owned_by=make_owner("controls_server"),
         )
         before = path.read_text(encoding="utf-8")
 
         followed = server_context.claim_control_context(baseline="live")
 
         assert followed is not None
-        assert followed.owner is not None
-        assert followed.owner.pid == os.getpid()
+        assert followed.writer is not None
+        assert followed.writer.pid == os.getpid()
         assert path.read_text(encoding="utf-8") == before
 
     def test_server_start_writes_a_baseline_record_when_there_is_none(self, control_context_root):
@@ -948,9 +949,10 @@ class TestServerStartClaimsTheRecord:
         assert claimed is not None
         assert (claimed.target, claimed.generation, claimed.switch) == ("live", 0, {})
         # No switch turned on: the mirror refuses every machine.
-        assert claimed.posture == control_context._posture_mirror({})
-        assert claimed.owner is not None
-        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        stored = json.loads(control_context.record_path().read_text(encoding="utf-8"))
+        assert stored["posture"] == control_context._posture_mirror({})
+        assert claimed.writer is not None
+        assert claimed.writer.kind == "controls_server"
         assert control_context._record_path_under(control_context_root).exists()
 
     def test_server_start_writes_a_baseline_record_over_an_unreadable_one(
@@ -973,14 +975,13 @@ class TestServerStartClaimsTheRecord:
         claimed = server_context.claim_control_context(baseline="live", server_pid=4321)
 
         assert claimed is not None
-        assert claimed.owner is not None
-        assert claimed.owner.pid == 4321
+        assert claimed.writer is not None
+        assert claimed.writer.pid == 4321
 
     def test_server_start_claim_survives_an_unresolvable_agent_data_root(self, monkeypatch):
-        from osprey_connectors import posture_store
 
-        monkeypatch.setattr(posture_store, "_agent_data_root", lambda: None)
-        control_context.invalidate_cache()
+        monkeypatch.setattr(_control_state, "_agent_data_root", lambda: None)
+        testing.invalidate_cache()
 
         assert server_context.claim_control_context(baseline="live") is None
 
@@ -1070,8 +1071,8 @@ class TestServerStartStep:
         assert reports == [None]
         record = control_context.read_record()
         assert record is not None
-        assert record.owner is not None
-        assert record.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert record.writer is not None
+        assert record.writer.kind == "controls_server"
         assert (record.target, record.generation) == ("va", 7)
 
     def test_server_start_step_claims_even_when_the_report_cannot_be_written(
@@ -1091,8 +1092,8 @@ class TestServerStartStep:
 
         record = control_context.read_record()
         assert record is not None
-        assert record.owner is not None
-        assert record.owner.pid == os.getpid()
+        assert record.writer is not None
+        assert record.writer.pid == os.getpid()
 
     def test_server_start_step_never_raises(self, monkeypatch):
         def boom():

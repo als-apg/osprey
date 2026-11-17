@@ -3,7 +3,7 @@
 An owner reaches a queueserver worker as one reserved kwarg on the queue item,
 and the wrapper is where it stops being an argument and becomes context: the
 wrapper's whole body runs inside
-:func:`~osprey_connectors.posture_store.bind_owner`, so every write the plan
+:func:`~osprey_connectors.write_switch.bind_owner`, so every write the plan
 makes is gated against the chip of the person who queued it, and nothing the
 plan's own schema validates ever sees the reserved key.
 
@@ -61,15 +61,10 @@ from osprey.services.bluesky_bridge import qserver_startup, session_upload
 from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
-from osprey_connectors.posture_store import (
-    NO_OWNER,
-    RESERVED_OWNER_KWARG,
-    WriteVerdict,
-    current_owner,
-)
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_switch import NO_OWNER, RESERVED_OWNER_KWARG, Refused, current_owner
 from tests.services.bluesky_bridge._fake_connector import FakeConnector
 
 _OWNER = "alice"
@@ -104,9 +99,7 @@ def refuse_a_switched_off_write() -> None:
         connector_base._verdict_refusal(
             _CHANNEL,
             _SETPOINT,
-            WriteVerdict(
-                allowed=False, reason="switch_off", target=_REFUSAL_TARGET, kind=_REFUSAL_KIND
-            ),
+            Refused(reason="switch_off", target=_REFUSAL_TARGET, kind=_REFUSAL_KIND),
             wording="script",
         )
     )
@@ -152,7 +145,7 @@ _PROBE_SOURCE = '''PLAN_METADATA = {"name": "stub_plan"}
 
 from pydantic import BaseModel, ConfigDict
 
-from osprey_connectors.posture_store import current_owner
+from osprey_connectors.write_switch import current_owner
 
 
 class PARAMS(BaseModel):
@@ -171,7 +164,7 @@ _REFUSAL_SOURCE = '''PLAN_METADATA = {"name": "stub_plan"}
 
 from pydantic import BaseModel, ConfigDict
 
-from osprey_connectors.posture_store import current_owner
+from osprey_connectors.write_switch import current_owner
 
 from tests.services.bluesky_bridge.test_plan_wrapper_owner import refuse_a_switched_off_write
 
@@ -203,7 +196,7 @@ _FAILURE_SOURCE = f'''PLAN_METADATA = {{"name": "stub_plan"}}
 from pydantic import BaseModel, ConfigDict
 
 from osprey_connectors.errors import ChannelWriteFailedError
-from osprey_connectors.posture_store import current_owner
+from osprey_connectors.write_switch import current_owner
 
 
 class PARAMS(BaseModel):
@@ -229,11 +222,11 @@ def clean_owner_environment(monkeypatch: pytest.MonkeyPatch):
     the way out as well as the way in: a test that binds an owner and then
     fails mid-plan would otherwise hand its owner to the next test.
     """
-    monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "/var/osprey/control")
-    posture_store._owner_var.set(NO_OWNER)
+    monkeypatch.delenv(write_switch.CONTROL_OWNER_ENV_VAR, raising=False)
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "/var/osprey/control")
+    write_switch._owner_var.set(NO_OWNER)
     yield
-    posture_store._owner_var.set(NO_OWNER)
+    write_switch._owner_var.set(NO_OWNER)
 
 
 @pytest.fixture(autouse=True)
@@ -250,7 +243,7 @@ def monitor_refusal_inputs(monkeypatch: pytest.MonkeyPatch):
         return {"writes_enabled": True} if key == "control_system" else default
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", armed)
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
     monkeypatch.delenv(POSTURE_ENV_VAR, raising=False)
 
 
@@ -338,7 +331,7 @@ def test_the_binding_is_gone_when_the_generator_finishes(probe_wrapper: Any) -> 
     """The next run in this worker must not be gated against this run's owner."""
     assert list(probe_wrapper(**{RESERVED_OWNER_KWARG: _OWNER})) == [_OWNER, _OWNER]
 
-    assert posture_store._owner_var.get() is NO_OWNER
+    assert write_switch._owner_var.get() is NO_OWNER
     assert current_owner() is NO_OWNER
 
 
@@ -355,7 +348,7 @@ def test_the_binding_is_gone_when_the_generator_is_closed_mid_plan(probe_wrapper
 
     plan.close()
 
-    assert posture_store._owner_var.get() is NO_OWNER
+    assert write_switch._owner_var.get() is NO_OWNER
 
 
 # --- the reserved kwarg, against the plan's own schema ----------------------
@@ -414,7 +407,7 @@ def test_a_refused_write_logs_exactly_one_warning_naming_the_owner(
     assert monitor_refusal.reason in line
     assert _SWITCH_OFF_PHRASE in line
 
-    assert posture_store._owner_var.get() is NO_OWNER
+    assert write_switch._owner_var.get() is NO_OWNER
 
 
 def test_the_refusal_travels_on_unchanged(
@@ -459,7 +452,7 @@ def test_a_write_that_failed_in_the_plans_own_frame_earns_no_line(
 
     assert _warnings_from(caplog, logger_name) == []
     assert failure.value.address == _CHANNEL
-    assert posture_store._owner_var.get() is NO_OWNER
+    assert write_switch._owner_var.get() is NO_OWNER
 
 
 def test_an_owner_less_refusal_names_the_sentinel(
@@ -743,7 +736,7 @@ def _status_like_source(kind: str) -> str:
 
 from pydantic import BaseModel, ConfigDict
 
-from osprey_connectors.posture_store import current_owner
+from osprey_connectors.write_switch import current_owner
 from tests.services.bluesky_bridge.test_plan_wrapper_owner import make_status_like
 
 
@@ -805,7 +798,7 @@ def test_a_failure_carrying_a_status_like_is_read_without_waiting_on_it(
     # read as a refusal, and nothing replaced it.
     assert type(failure.value) is RuntimeError
     assert isinstance(failure.value.args[0], _STALLING_SHAPES[kind])
-    assert posture_store._owner_var.get() is NO_OWNER
+    assert write_switch._owner_var.get() is NO_OWNER
 
 
 def test_a_refusal_reported_under_another_bound_still_earns_its_line(

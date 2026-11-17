@@ -39,7 +39,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
-from osprey_connectors import control_context
+from osprey_connectors import testing
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     agent_data_dir,
@@ -88,7 +88,7 @@ def _lay_down_session_1(repo: Path, monkeypatch: pytest.MonkeyPatch) -> str:
         scenario_sessions_dir,
         write_scenario_sessions,
     )
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
     from osprey_connectors.simulation.state import read_active_state
     from osprey_connectors.workspace import resolve_simulation_state_dir
 
@@ -124,10 +124,10 @@ def _lay_down_session_1(repo: Path, monkeypatch: pytest.MonkeyPatch) -> str:
         )
     )
     with monkeypatch.context() as m:
-        m.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(seed.parent))
-        control_context.invalidate_cache()
+        m.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(seed.parent))
+        testing.invalidate_cache()
         report = lay_down_scenario_sessions(app)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     assert key in report.laid and not report.incomplete, report
     return key
 

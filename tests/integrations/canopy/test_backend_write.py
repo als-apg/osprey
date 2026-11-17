@@ -48,7 +48,7 @@ from osprey.runtime import session as session_module
 from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import SessionWriteResult
 from osprey.services.python_executor.execution.wrapper import armed_contract
-from osprey_connectors import connector_types, control_context, posture_store, session_hold
+from osprey_connectors import connector_types, control_context, session_hold, testing, write_switch
 from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
@@ -152,11 +152,11 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     control_context.write_record(
         control_context.ControlContext(target=target, generation=generation), path=path
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     if switch is None:
         switch = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     _set_switch_to(path, switch)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -192,7 +192,7 @@ def state_dir(tmp_path, monkeypatch, audit_dir, armed, exits):  # noqa: ARG001 -
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -201,9 +201,9 @@ def state_dir(tmp_path, monkeypatch, audit_dir, armed, exits):  # noqa: ARG001 -
         if name.startswith(("OSPREY_CONTROL_TARGET", "EPICS_", "CANOPY_EPICS__", "OSPREY_CANOPY_")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         session_hold.HOLD_DIR_ENV_VAR,
         session_module.SESSION_KEY_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
@@ -221,7 +221,7 @@ def state_dir(tmp_path, monkeypatch, audit_dir, armed, exits):  # noqa: ARG001 -
     _Machine.reset()
     yield directory
     _Machine.reset()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -367,14 +367,17 @@ def _hold_store(tmp_path: Path, monkeypatch, *keys: str) -> Path:
 
 
 def _raise_hold(root: Path, key: str) -> None:
-    assert session_hold.open_flag(
-        key,
-        flag_id="flag-1",
-        source="watchdog:limits",
-        reason="a limit was refused",
-        prompt_ref="turn-7",
-        prompt_excerpt="set the current to 900",
-        root=root,
+    assert (
+        session_hold.open_flag(
+            key,
+            flag_id="flag-1",
+            source="watchdog:limits",
+            reason="a limit was refused",
+            prompt_ref="turn-7",
+            prompt_excerpt="set the current to 900",
+            root=root,
+        )
+        == "opened"
     )
 
 

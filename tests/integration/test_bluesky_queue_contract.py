@@ -69,7 +69,7 @@ from osprey.services.bluesky_bridge.session_upload import (
 )
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+from osprey_connectors.write_switch import RESERVED_OWNER_KWARG
 from tests._control_system import IN_PROCESS, section_for
 from tests.services.bluesky_bridge._bridge_state import reset_bridge_state
 

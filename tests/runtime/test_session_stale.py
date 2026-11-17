@@ -30,7 +30,7 @@ from osprey.runtime.session import (
     EXIT_TRANSPORT_STALE,
     ControlSession,
 )
-from osprey_connectors import connector_types, control_context, posture_store, session_hold
+from osprey_connectors import connector_types, control_context, session_hold, testing, write_switch
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -81,7 +81,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     control_context.write_record(
         control_context.ControlContext(target=target, generation=generation), path=path
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     if switch is None:
         wanted = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     elif isinstance(switch, Mapping):
@@ -89,7 +89,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     else:
         wanted = dict.fromkeys(switch, "allowed")
     _set_switch_to(path, wanted)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -100,7 +100,7 @@ def state_dir(tmp_path, monkeypatch):
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -109,16 +109,16 @@ def state_dir(tmp_path, monkeypatch):
         if name.startswith("OSPREY_CONTROL_TARGET") or name.startswith("EPICS_"):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield directory
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -336,11 +336,11 @@ class TestCachedVerdict:
 
         def unreadable(_section, target, **_kwargs):
             # What the verdict answers for a record it cannot read; it never raises.
-            return posture_store.WriteVerdict(
-                allowed=False, reason="record_unavailable", target=target, kind="simulator"
+            return write_switch.Refused(
+                reason="record_unavailable", target=target, kind="simulator"
             )
 
-        monkeypatch.setattr(posture_store, "write_verdict", unreadable)
+        monkeypatch.setattr(write_switch, "write_verdict", unreadable)
         write_record(armed_va, switch=NARROWED)
         assert path.exists()
         took = await _until(lambda: session.writes["reason"] == "record_unavailable")
@@ -469,14 +469,17 @@ class TestSessionHold:
 
     @staticmethod
     def _raise(root: Path) -> None:
-        assert session_hold.open_flag(
-            "alice-1",
-            flag_id="flag-1",
-            source="watchdog:limits",
-            reason="a limit was refused",
-            prompt_ref="turn-7",
-            prompt_excerpt="set the current to 900",
-            root=root,
+        assert (
+            session_hold.open_flag(
+                "alice-1",
+                flag_id="flag-1",
+                source="watchdog:limits",
+                reason="a limit was refused",
+                prompt_ref="turn-7",
+                prompt_excerpt="set the current to 900",
+                root=root,
+            )
+            == "opened"
         )
 
     async def test_a_hold_raised_before_open_is_read_at_open(self, armed_va, held_session):
@@ -524,14 +527,17 @@ class TestSessionKeys:
 
     @staticmethod
     def _raise(root: Path, key: str) -> None:
-        assert session_hold.open_flag(
-            key,
-            flag_id="flag-1",
-            source="watchdog:limits",
-            reason="a limit was refused",
-            prompt_ref="turn-7",
-            prompt_excerpt="set the current to 900",
-            root=root,
+        assert (
+            session_hold.open_flag(
+                key,
+                flag_id="flag-1",
+                source="watchdog:limits",
+                reason="a limit was refused",
+                prompt_ref="turn-7",
+                prompt_excerpt="set the current to 900",
+                root=root,
+            )
+            == "opened"
         )
 
     @staticmethod

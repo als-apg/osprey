@@ -18,8 +18,8 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
     LimitsViolation,
     RecoveryRecord,
-    RefusalReason,
 )
+from osprey_connectors.refusals import RefusalReason
 
 
 class TestChannelWriteBlockedError:

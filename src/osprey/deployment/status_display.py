@@ -1195,11 +1195,11 @@ def _mapped_tier(section, login):
     """*login*'s entry in the staged map *section*: a tier word, or ``unknown``.
 
     The ceiling a shared container's write verdict applies, under its bound
-    tree (:func:`~osprey_connectors.posture_store.write_ceiling`), so a
+    tree (:func:`~osprey_connectors.write_switch.write_ceiling`), so a
     malformed map is unreadable as a whole; no staged map (*section* ``None``)
     is ``unknown`` too.
     """
-    from osprey_connectors.posture_store import write_ceiling
+    from osprey_connectors.write_switch import write_ceiling
 
     if section is None:
         return "unknown"
@@ -1324,7 +1324,8 @@ def writes_rows(config, repo_root):
         status = "missing"
         record = None
         if tree is not None:
-            record, status = read_record_status(path=tree / login / RECORD_FILENAME)
+            read = read_record_status(path=tree / login / RECORD_FILENAME)
+            record, status = read.value, read.status
         if status == "unreadable":
             rows.append((login, tier, "?", RECORD_UNREADABLE))
             continue
@@ -1483,26 +1484,27 @@ def authorization_rows(config, repo_root, *, now=None):
     except Exception:
         return []
     ledgers = [Path(repo_root) / write_ledger_relpath()]
-    found, _unreadable = wa.listed_grants(
-        [tree / login / wa.AUTHORIZATIONS_DIR_NAME for login in _recorded_identities(tree)],
-        ledgers,
+    listing = wa.list_grants(
+        *[tree / login / wa.AUTHORIZATIONS_DIR_NAME for login in _recorded_identities(tree)],
+        self_issued=ledgers,
     )
     rows = []
-    for grant, _directory in found:
-        record, status = read_record_status(path=tree / grant.owner / RECORD_FILENAME)
-        if status == "unreadable":
+    for listed in listing.items:
+        grant = listed.grant
+        read = read_record_status(path=tree / grant.owner / RECORD_FILENAME)
+        if read.status == "unreadable":
             continue
         own = tree / grant.owner / wa.AUTHORIZATIONS_DIR_NAME
-        standing = wa.grant_standing(grant, record, [*ledgers, own], now=now)
+        standing = wa.grant_standing(grant, read.value, [*ledgers, own], now=now)
         if not standing.in_force:
             continue
-        if standing.used is None:
+        if standing.steps_spent is None:
             used, lease = "?", LEASE_UNREADABLE
         else:
-            used, lease = str(standing.used), _lease_cell(standing.ledger, grant, now)
+            used, lease = str(standing.steps_spent), _lease_cell(standing.ledger, grant, now)
         left = max(0.0, (grant.expires_at - now).total_seconds())
         holder = grant.holder
-        if grant.approver.surface == wa.SELF_ISSUE_SURFACE:
+        if grant.approver.surface == "write_switch":
             holder = f"{holder} (self-issued)"
         rows.append(
             (

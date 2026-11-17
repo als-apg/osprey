@@ -29,7 +29,7 @@ import yaml
 import osprey.runtime as runtime
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -86,7 +86,7 @@ def runtime_state(monkeypatch):
         runtime.ENV_CONTROL_TARGET_GENERATION,
         runtime.ENV_CONTROL_TARGET_REFUSAL,
         runtime.ENV_IN_CELL,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -113,9 +113,9 @@ def state_root(tmp_path, monkeypatch):
     root = tmp_path / "var" / "agent_data"
     state_dir_under(root).mkdir(parents=True)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +231,7 @@ class _FakePool:
         self.record_loop()
         self.asked.append((target, execution_mode))
         connector_type = resolve_target(self.section, target)
-        allowed = posture_store.write_verdict(self.section, target).allowed
+        allowed = write_switch.write_verdict(self.section, target).allowed
         handle = _FakeHandle(
             self,
             target,
@@ -376,10 +376,10 @@ class TestTheKernelPool:
         runtime._route_connector_through_pool()
         stamp_env(monkeypatch, target="va", generation="0")
 
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=readonly")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=readonly")
         runtime.read_channel("SR:X")
         first = runtime._runtime_connector
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=writes")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=writes")
         runtime.read_channel("SR:X")
 
         assert first.disconnected
@@ -390,7 +390,7 @@ class TestTheKernelPool:
         _serve(monkeypatch, SWITCHABLE)
         runtime._route_connector_through_pool()
         stamp_env(monkeypatch, target="va", generation="0")
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=writes")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=writes")
 
         runtime.read_channel("SR:X")
         first = runtime._runtime_connector
@@ -544,7 +544,7 @@ def switch_record(tmp_path, monkeypatch):
     write_control_context(root, target="va", generation=1, owned_by=None)
     stamp_env(monkeypatch, target="va", generation="1")
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class TestTheSwitchRespawns:
@@ -613,7 +613,7 @@ class TestTheSwitchRespawns:
     @pytest.mark.usefixtures("switch_record", "fake_pool")
     def test_a_launch_pin_holds_the_child_on_read_only_after_a_turn_on(self, monkeypatch):
         _serve(monkeypatch, SWITCHABLE_ALLOWED)
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=sandbox")
         runtime._route_connector_through_pool()
 
         runtime.read_channel("SR:X")

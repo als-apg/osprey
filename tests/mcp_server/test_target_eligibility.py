@@ -31,7 +31,7 @@ import pytest
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY
 from osprey.mcp_server.control_system import target_eligibility as te
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.ipc._verification import (
     DEFAULT_CA_PORT,
     DEFAULT_PVA_PORT,
@@ -1134,7 +1134,7 @@ def verdict_root(tmp_path, monkeypatch):
     root = tmp_path / "agent_data"
     isolate_verdict_environment(monkeypatch, root)
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _switch_on(root, *targets: str) -> None:
@@ -1239,7 +1239,7 @@ def test_an_owner_the_login_map_does_not_name_refuses_as_owner_unknown(verdict_r
 def test_an_unreadable_record_refuses_as_record_unavailable(verdict_root) -> None:
     _switch_on(verdict_root, VA)
     control_context._record_path_under(verdict_root).write_text("{not json", encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     section = _tier_config("allowed")["control_system"]
 
     verdict = te.target_write_verdict(section, VA)
@@ -1250,12 +1250,12 @@ def test_an_unreadable_record_refuses_as_record_unavailable(verdict_root) -> Non
 
 @pytest.mark.usefixtures("verdict_root")
 def test_a_verdict_that_raises_refuses_rather_than_allows(monkeypatch) -> None:
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     def boom(*_args, **_kwargs):
         raise RuntimeError("the verdict could not be reached")
 
-    monkeypatch.setattr(posture_store, "write_verdict", boom)
+    monkeypatch.setattr(write_switch, "write_verdict", boom)
 
     verdict = te.target_write_verdict(_tier_config("allowed")["control_system"], VA)
 
@@ -1917,11 +1917,11 @@ def _display_only_report_on_disk(tmp_path, monkeypatch) -> None:
     """Lay down DATA's report, and nothing else, in a scratch state directory."""
     import json
 
-    from osprey_connectors import control_context, posture_store
+    from osprey_connectors import control_context, write_switch
 
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    control_context.invalidate_cache()
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    testing.invalidate_cache()
     path = control_context.report_path(DATA_PID)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -1964,7 +1964,7 @@ def test_with_only_a_display_only_report_live_a_switch_takes_the_no_server_path(
         reports = control_context.live_reports(is_alive=lambda pid: True)
         assert _statement_reports()
     finally:
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
     verdict = te.evaluate_switch(
         _config(),
@@ -1989,14 +1989,13 @@ def test_an_unfiltered_display_only_report_would_be_named_by_the_gate(
     tmp_path, monkeypatch
 ) -> None:
     """Why the filter sits at the source: the gate itself cannot tell DATA apart."""
-    from osprey_connectors import control_context
 
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     _display_only_report_on_disk(tmp_path, monkeypatch)
     try:
         unfiltered = _statement_reports()
     finally:
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
     verdict = te.evaluate_switch(
         _config(),

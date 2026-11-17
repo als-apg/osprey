@@ -139,7 +139,7 @@ def worker_writes_enabled() -> bool:
 
     The startup half of the write verdict
     (:func:`~osprey.services.bluesky_bridge.queue_backend.lane_tier_allows`):
-    :func:`osprey_connectors.posture_store.backstop_verdict` allows (the run is
+    :func:`osprey_connectors.write_switch.backstop_verdict` allows (the run is
     not read-only and the login tier allows writes), and the lane is not
     degraded. Stated at startup so a worker that can never write says so,
     rather than leaving an operator to discover it on a refused write.
@@ -450,7 +450,7 @@ def _make_plan_function(
         probe_before_motion,
         warn_if_write_refused,
     )
-    from osprey_connectors.posture_store import bind_owner, current_owner
+    from osprey_connectors.write_switch import bind_owner, current_owner
 
     def plan_function(**kwargs: Any) -> Generator[Any, Any, Any]:
         with bind_owner(kwargs) as clean:

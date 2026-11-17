@@ -22,7 +22,7 @@ import yaml
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import config_view
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context, write_server_report
@@ -268,11 +268,11 @@ def chip_hub(
     What is specific to this feature is the environment rather than a patch:
 
     * ``OSPREY_AGENT_DATA_ROOT`` — the ONE stamp both the
-      control-context record reader and ``posture_store`` resolve through, and
+      control-context record reader and ``write_switch`` resolve through, and
       the stamp this feature puts in every session child's environment. Pinning
       it to *tmp_path* keeps every write off the real agent-data tree. Patching
       ``resolve_shared_data_root`` instead is a no-op on the store —
-      ``posture_store`` reads this stamp first and binds the resolver at import
+      ``write_switch`` reads this stamp first and binds the resolver at import
       — so it would redirect one half and leave the other writing into the
       repository's own ``var/agent_data``.
     * ``OSPREY_EXECUTION_MODE`` is cleared: a read-only *run* is a
@@ -314,7 +314,7 @@ def chip_hub(
     workspace = tmp_path / "_agent_data"
     workspace.mkdir(exist_ok=True)
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    (root / write_switch.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
     config = write_config(tmp_path / "config.yml", writes=writes, login_tiers=login_tiers)
 
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
@@ -354,7 +354,7 @@ def reset_process_memos() -> None:
     reused across tests could otherwise serve one test's record, render or
     narrowing to the next.
     """
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     config_view.reset_rendered_config_memo()
 
 
@@ -426,17 +426,15 @@ def render_section(app: Any) -> dict[str, Any]:
     return config["control_system"]
 
 
-def write_verdict_for(
-    app: Any, target: str, login: str | None = None
-) -> posture_store.WriteVerdict:
+def write_verdict_for(app: Any, target: str, login: str | None = None) -> write_switch.WriteVerdict:
     """The write verdict a new call by *login* to *target* meets, read fresh.
 
     The same call the route makes for each row (``ignore_launch_pin``: the pin
     is a fact about a run already going). *login* defaults to the signed-in
     one, which is this process's acting identity — no test here pins another.
     """
-    control_context.invalidate_cache()
-    return posture_store.write_verdict(
+    testing.invalidate_cache()
+    return write_switch.write_verdict(
         render_section(app),
         target,
         owner=acting_identity() if login is None else login,
@@ -454,8 +452,9 @@ def verdict_word(app: Any, target: str) -> str:
     armed switch still refused — or one nobody can read, which must never be
     shown as off.
     """
-    control_context.invalidate_cache()
-    record, status = control_context.read_record_status()
+    testing.invalidate_cache()
+    read = control_context.read_record_status()
+    record, status = read.value, read.status
     if status == "unreadable":
         return "locked"
     if control_context.switch_position(record, target) == "off":
@@ -468,7 +467,7 @@ def verdict_word(app: Any, target: str) -> str:
 
 def recorded_position(target: str) -> str:
     """*target*'s stored position, read the way every write path reads it."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     record = read_record()
     assert record is not None, "the control-context record disappeared"
     return control_context.switch_position(record, target)

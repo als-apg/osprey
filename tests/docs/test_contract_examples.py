@@ -207,14 +207,17 @@ def _store_example_record(root: Path) -> None:
 def test_hold_record_has_the_keys_the_writer_writes(tmp_path: Path) -> None:
     from osprey_connectors import session_hold
 
-    assert session_hold.open_flag(
-        _SESSION_KEY,
-        flag_id="f1",
-        source="guard-circumvention",
-        reason="r",
-        prompt_ref="s:1",
-        prompt_excerpt="e",
-        root=tmp_path,
+    assert (
+        session_hold.open_flag(
+            _SESSION_KEY,
+            flag_id="f1",
+            source="guard-circumvention",
+            reason="r",
+            prompt_ref="s:1",
+            prompt_excerpt="e",
+            root=tmp_path,
+        )
+        == "opened"
     )
     written = json.loads((tmp_path / _SESSION_KEY / session_hold.RECORD_NAME).read_text())
     example = _example("watchdog-hold-record.json")
@@ -238,8 +241,8 @@ def test_hold_record_is_read_as_a_held_session(tmp_path: Path) -> None:
 
 
 def test_session_held_text_is_the_refusal_a_write_gets(tmp_path: Path) -> None:
-    from osprey_connectors.posture_store import session_hold_refusal
     from osprey_connectors.refusals import refusal_text
+    from osprey_connectors.write_switch import session_hold_refusal
 
     _store_example_record(tmp_path)
     verdict = session_hold_refusal(root=tmp_path, session_keys=[_SESSION_KEY])

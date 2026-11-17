@@ -30,7 +30,7 @@ from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey.runtime import session as session_module
 from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import ControlSession
-from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
     ChannelWriteBlockedError,
@@ -102,7 +102,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     control_context.write_record(
         control_context.ControlContext(target=target, generation=generation), path=path
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     if switch is None:
         wanted = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     elif isinstance(switch, Mapping):
@@ -110,7 +110,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     else:
         wanted = dict.fromkeys(switch, "allowed")
     _set_switch_to(path, wanted)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -125,7 +125,7 @@ def state_dir(tmp_path, monkeypatch, audit_dir):  # noqa: ARG001 - captures the 
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -134,16 +134,16 @@ def state_dir(tmp_path, monkeypatch, audit_dir):  # noqa: ARG001 - captures the 
         if name.startswith("OSPREY_CONTROL_TARGET") or name.startswith("EPICS_"):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_module, "_MARGIN_S", MARGIN_S)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield directory
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -474,11 +474,11 @@ class TestConnectorRows:
 
         def unreadable(_section, target, **_kwargs):
             # What the verdict answers for a record it cannot read; it never raises.
-            return posture_store.WriteVerdict(
-                allowed=False, reason="record_unavailable", target=target, kind="simulator"
+            return write_switch.Refused(
+                reason="record_unavailable", target=target, kind="simulator"
             )
 
-        monkeypatch.setattr(posture_store, "write_verdict", unreadable)
+        monkeypatch.setattr(write_switch, "write_verdict", unreadable)
         write_record(va)
         session = await opened()
 
@@ -535,14 +535,17 @@ class TestConnectorRows:
         monkeypatch.setenv(session_module.SESSION_KEY_ENV_VAR, "alice-1")
         write_record(va)
         session = await opened()
-        assert session_hold.open_flag(
-            "alice-1",
-            flag_id="flag-1",
-            source="watchdog:limits",
-            reason="a limit was refused",
-            prompt_ref="turn-7",
-            prompt_excerpt="set the current to 900",
-            root=root,
+        assert (
+            session_hold.open_flag(
+                "alice-1",
+                flag_id="flag-1",
+                source="watchdog:limits",
+                reason="a limit was refused",
+                prompt_ref="turn-7",
+                prompt_excerpt="set the current to 900",
+                root=root,
+            )
+            == "opened"
         )
 
         result = await session.write(CHANNEL, 1.5, origin=ORIGIN)
@@ -660,7 +663,7 @@ class TestSessionRows:
         write_record(va)
         session = await opened()
         (va / control_context.RECORD_FILENAME).unlink()
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         await self._refused(
             session,

@@ -163,7 +163,7 @@ async def _client() -> dict[str, Any]:
     from osprey.integrations.canopy.backend import OspreyPVConnector
     from osprey.runtime.session import STATE_BOUND, Binding, ControlSession
     from osprey_connectors.control_system._epics_connector import EPICSConnector
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.write_switch import Refused
 
     connector = EPICSConnector()
     await connector.connect(ConnectorContext(settings={"timeout_s": 3.0}))
@@ -172,7 +172,7 @@ async def _client() -> dict[str, Any]:
         binding=Binding("ioc", 1, "epics", "Soft IOC", STATE_BOUND),
         connector=connector,
         record_key=None,
-        verdict=WriteVerdict(allowed=False, reason="switch_off", target="ioc", kind=None),
+        verdict=Refused(reason="switch_off", target="ioc", kind=None),
     )
     adapter = OspreyPVConnector(connect_report_s=5.0)
     adapter._loop = asyncio.get_running_loop()

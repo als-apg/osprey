@@ -34,7 +34,13 @@ import pytest
 from osprey.audit import posture
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.python_executor import executor as host_executor
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import (
+    _control_state,
+    connector_types,
+    control_context,
+    testing,
+    write_switch,
+)
 from osprey_connectors_tests._harness import pin_identity, state_dir_under, write_control_context
 from osprey_connectors_tests._write_fakes import turn_switch
 
@@ -59,11 +65,11 @@ def data_root(tmp_path, monkeypatch):
     """A scratch agent-data root, stamped, with every posture env name cleared."""
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -75,17 +81,17 @@ class TestStampFormat:
     """``<target>=<posture>``, written in one place and read as the pin term."""
 
     def test_the_stamp_is_one_target_equals_posture_pair(self):
-        assert posture_store.launch_posture_stamp("standin", "sandbox") == "standin=sandbox"
-        assert posture_store.launch_posture_stamp("va", "writes") == "va=writes"
+        assert write_switch.launch_pin_stamp("standin", "sandbox") == "standin=sandbox"
+        assert write_switch.launch_pin_stamp("va", "writes") == "va=writes"
 
     def test_no_target_is_spelled_as_every_target(self, monkeypatch):
         """A run that cannot name its machine is pinned for all of them."""
-        stamp = posture_store.launch_posture_stamp(None, "sandbox")
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
+        stamp = write_switch.launch_pin_stamp(None, "sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, stamp)
 
         assert stamp == "*=sandbox"
-        for target in posture_store.CONTROL_TARGETS:
-            assert posture_store._launch_pin_term(target) == "pinned", target
+        for target in connector_types.CONTROL_TARGETS:
+            assert _control_state.launch_pin_term(target) == "pinned", target
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +136,7 @@ class TestExecutorStampsThePin:
     def test_the_pin_this_process_inherited_is_ignored(self, data_root, monkeypatch):
         """The pin is asked with the pin ignored, so it never merely echoes itself."""
         write_control_context(data_root, target="standin", switch={"standin": "asked"})
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
 
         assert host_executor._launch_posture("standin") == "standin=writes"
 
@@ -152,7 +158,7 @@ class TestExecutorStampsThePin:
         state_dir = state_dir_under(data_root)
         assert state_dir.name == identity
         assert (state_dir / control_context.RECORD_FILENAME).exists()
-        assert stamp == posture_store.launch_posture_stamp("standin", posture_store.POSTURE_WRITES)
+        assert stamp == write_switch.launch_pin_stamp("standin", write_switch.LAUNCH_PIN_WRITES)
 
     @pytest.mark.usefixtures("data_root")
     def test_an_unreachable_verdict_fails_closed(self, monkeypatch):
@@ -161,7 +167,7 @@ class TestExecutorStampsThePin:
         def boom(*args, **kwargs):
             raise RuntimeError("verdict exploded")
 
-        monkeypatch.setattr(posture_store, "write_verdict", boom)
+        monkeypatch.setattr(write_switch, "write_verdict", boom)
 
         assert host_executor._launch_posture("standin") == "standin=sandbox"
 
@@ -170,8 +176,8 @@ class TestASwitchAgainstARunningSandbox:
     """Off reaches the running sandbox at its next write; on reaches only the next run.
 
     The sandbox's own reference monitor asks
-    :func:`~osprey_connectors.posture_store.write_verdict` on every write, with
-    the launch pin in force — :data:`~osprey_connectors.posture_store.LAUNCH_POSTURE_ENV_VAR`
+    :func:`~osprey_connectors.write_switch.write_verdict` on every write, with
+    the launch pin in force — :data:`~osprey_connectors.write_switch.LAUNCH_PIN_ENV_VAR`
     stamped from :func:`_launch_posture` exactly as the executor stamps it.
     """
 
@@ -182,17 +188,17 @@ class TestASwitchAgainstARunningSandbox:
     @staticmethod
     def _launch(monkeypatch, target: str) -> str:
         """Launch a run on *target*: compute the pin and stamp it as the sandbox sees it."""
-        monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-        control_context.invalidate_cache()
+        monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
+        testing.invalidate_cache()
         stamp = host_executor._launch_posture(target)
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
-        control_context.invalidate_cache()
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, stamp)
+        testing.invalidate_cache()
         return stamp
 
     @staticmethod
-    def _next_write(target: str) -> posture_store.WriteVerdict:
-        control_context.invalidate_cache()
-        return posture_store.write_verdict(ARMED_TIER, target)
+    def _next_write(target: str) -> write_switch.WriteVerdict:
+        testing.invalidate_cache()
+        return write_switch.write_verdict(ARMED_TIER, target)
 
     def test_an_off_record_refuses_the_next_write_of_a_running_sandbox(
         self, data_root, monkeypatch
@@ -232,7 +238,7 @@ class TestMarkerCarriesThePin:
         root = tmp_path / "var" / "agent_data"
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
         monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
-        (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
+        (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
 
         # Act
         with host_executor._in_flight_marker("standin", "standin=sandbox"):
@@ -254,13 +260,13 @@ def test_the_stamp_is_not_pinnable_from_a_server_spec():
     """A spec that could set it could hand a narrowed run the writes posture."""
     from osprey.registry.mcp import NON_PINNABLE_AUDIT_MARKERS
 
-    assert posture_store.LAUNCH_POSTURE_ENV_VAR == "OSPREY_LAUNCH_POSTURE"
-    assert posture_store.LAUNCH_POSTURE_ENV_VAR in NON_PINNABLE_AUDIT_MARKERS
+    assert write_switch.LAUNCH_PIN_ENV_VAR == "OSPREY_LAUNCH_POSTURE"
+    assert write_switch.LAUNCH_PIN_ENV_VAR in NON_PINNABLE_AUDIT_MARKERS
 
 
 def test_the_executor_and_the_store_spell_one_name():
     """Two modules, one environment variable — imported, so it cannot drift."""
-    assert host_executor.ENV_LAUNCH_POSTURE is posture_store.LAUNCH_POSTURE_ENV_VAR
+    assert host_executor.ENV_LAUNCH_POSTURE is write_switch.LAUNCH_PIN_ENV_VAR
     # Never cleared with the routing stamp: absence would read as "unpinned",
     # and the unstamped run is the one that needs the pin most.
     assert host_executor.ENV_LAUNCH_POSTURE not in host_executor._STAMP_ENV_NAMES

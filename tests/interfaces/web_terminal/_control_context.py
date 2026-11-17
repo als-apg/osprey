@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from typing import Any
 from unittest.mock import patch
 
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 
 
 @contextmanager
@@ -43,5 +43,5 @@ def read_record() -> Any:
     The posture store's memo is dropped too, so a verdict read after it is
     taken against the same file.
     """
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return control_context.read_record()

@@ -1566,10 +1566,10 @@ async def test_the_owner_ladder_is_never_consulted(tmp_path, monkeypatch):
     ladder answers here with the armed login. That answer must not reach the
     record as the write's owner: only the dispatch job's stamp does.
     """
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     ladder = MagicMock(return_value=FIXTURE_IDENTITY)
-    monkeypatch.setattr(posture_store, "current_owner", ladder)
+    monkeypatch.setattr(write_switch, "current_owner", ladder)
     facts = await _stamped_facts(tmp_path, monkeypatch)
 
     assert "owner" not in facts
@@ -1803,10 +1803,10 @@ async def test_a_record_naming_an_unknown_target_is_refused(tmp_path, monkeypatc
 
 async def test_a_write_no_owner_can_be_named_for_is_refused(tmp_path, monkeypatch):
     """The owner ladder yields nobody: ``owner_unknown``, even for a stamped write."""
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     _prepare(tmp_path, monkeypatch)
-    monkeypatch.setattr(posture_store, "current_owner", lambda *_a, **_k: posture_store.NO_OWNER)
+    monkeypatch.setattr(write_switch, "current_owner", lambda *_a, **_k: write_switch.NO_OWNER)
     connector = AsyncMock()
 
     with _approved(), assert_raises_error(error_type="writes_disabled") as ctx:

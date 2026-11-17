@@ -1,6 +1,6 @@
 """A held session's writes are refused where they execute, and nowhere else.
 
-``posture_store.session_hold_refusal`` answers one question: is the session
+``write_switch.session_hold_refusal`` answers one question: is the session
 named by the environment held? ``execution_verdict`` orders that answer after
 the read-only run and the tier and before the rest of ``write_verdict``, and the
 connector's write wrappers ask it after ``_writes_enabled``. ``write_verdict``
@@ -18,20 +18,20 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey_connectors import posture_store, session_hold
+from osprey_connectors import _control_state, session_hold, write_switch
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.ipc._pool import ConnectorHostPool
-from osprey_connectors.posture_store import (
+from osprey_connectors.refusals import REASONS, refusal_phrase, refusal_text
+from osprey_connectors.write_switch import (
     NO_OWNER,
-    WriteVerdict,
+    Refused,
     backstop_verdict,
     execution_verdict,
     session_hold_refusal,
     write_verdict,
 )
-from osprey_connectors.refusals import REASONS, refusal_phrase, refusal_text
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST
 from osprey_connectors_tests._harness._control_context_fixtures import (
     isolate_verdict_environment,
@@ -80,25 +80,31 @@ def hold_root(tmp_path, monkeypatch) -> Path:
 
 
 def _flag(flag_id: str = "f1", source: str = "watchdog:scope") -> None:
-    assert session_hold.open_flag(
-        KEY,
-        flag_id=flag_id,
-        source=source,
-        reason="off the plan",
-        prompt_ref=f"record:{flag_id}",
-        prompt_excerpt="move the corrector",
+    assert (
+        session_hold.open_flag(
+            KEY,
+            flag_id=flag_id,
+            source=source,
+            reason="off the plan",
+            prompt_ref=f"record:{flag_id}",
+            prompt_excerpt="move the corrector",
+        )
+        == "opened"
     )
 
 
 def _flag_for(key: str, flag_id: str = "f1", source: str = "watchdog:scope") -> None:
     session_hold.ensure_session(key)
-    assert session_hold.open_flag(
-        key,
-        flag_id=flag_id,
-        source=source,
-        reason="off the plan",
-        prompt_ref=f"record:{flag_id}",
-        prompt_excerpt="move the corrector",
+    assert (
+        session_hold.open_flag(
+            key,
+            flag_id=flag_id,
+            source=source,
+            reason="off the plan",
+            prompt_ref=f"record:{flag_id}",
+            prompt_excerpt="move the corrector",
+        )
+        == "opened"
     )
 
 
@@ -165,7 +171,7 @@ def test_an_open_flag_refuses_and_a_release_lifts_it():
     assert session_hold_refusal() is None
     _flag()
     refusal = session_hold_refusal()
-    assert refusal == WriteVerdict(allowed=False, reason="session_held", target=None, kind=None)
+    assert refusal == Refused(reason="session_held", target=None, kind=None)
     _release("f1")
     assert session_hold_refusal() is None
 
@@ -260,7 +266,7 @@ def test_any_held_session_holds_with_its_own_flags():
 
     _flag_for(OTHER, source="watchdog:other")
     refusal = session_hold_refusal(session_keys=[KEY, OTHER])
-    assert refusal == WriteVerdict(allowed=False, reason="session_held", target=None, kind=None)
+    assert refusal == Refused(reason="session_held", target=None, kind=None)
     assert refusal.detail == "Raised by: watchdog:other."
 
     _flag("f2", source="watchdog:mine")
@@ -338,7 +344,7 @@ def test_the_hold_comes_before_the_owner_rung(hold_root, monkeypatch, tmp_path):
     monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(hold_root))
     monkeypatch.setenv(SESSION_ID, KEY)
     _flag()
-    monkeypatch.setattr(posture_store, "owner_tier_term", lambda *a, **k: "never")
+    monkeypatch.setattr(write_switch, "owner_tier_term", lambda *a, **k: "never")
     assert write_verdict(ARMED_SECTION, TARGET_VA).reason == "tier_never"
     assert execution_verdict(ARMED_SECTION, TARGET_VA).reason == "session_held"
 
@@ -356,7 +362,7 @@ def test_a_session_not_held_gets_the_write_verdict_unchanged(monkeypatch, tmp_pa
 def test_the_keywords_reach_the_write_verdict(monkeypatch, tmp_path):
     _armed(monkeypatch, tmp_path)
     assert execution_verdict(ARMED_SECTION, TARGET_VA, owner=NO_OWNER).reason == "owner_unknown"
-    monkeypatch.setattr(posture_store, "_launch_pin_term", lambda *a, **k: "pinned")
+    monkeypatch.setattr(_control_state, "launch_pin_term", lambda *a, **k: "pinned")
     assert execution_verdict(ARMED_SECTION, TARGET_VA).reason == "launch_pinned"
     assert execution_verdict(ARMED_SECTION, TARGET_VA, ignore_launch_pin=True).allowed is True
 

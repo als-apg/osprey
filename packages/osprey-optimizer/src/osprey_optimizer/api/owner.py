@@ -2,7 +2,7 @@
 
 On a deployment whose optimizer container holds the control-context tree, the
 connector governs a write by the switch of the login the write is for
-(:func:`osprey_connectors.posture_store.current_owner`). The container's own
+(:func:`osprey_connectors.write_switch.current_owner`). The container's own
 account names nobody, so with no owner stamped every write is refused
 ``owner_unknown``. A run therefore carries its owner the way a dispatch job
 does: the worker process exports it as ``OSPREY_CONTROL_OWNER`` before anything
@@ -31,7 +31,7 @@ import logging
 import os
 import re
 
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR
+from osprey_connectors.write_switch import CONTROL_OWNER_ENV_VAR
 
 logger = logging.getLogger(__name__)
 

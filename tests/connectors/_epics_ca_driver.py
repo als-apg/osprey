@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._ca_loop import get_ca_loop
@@ -432,7 +432,7 @@ def _writes_armed() -> Iterator[None]:
         path = control_context._record_path_under(Path(scratch))
         control_context.write_record(
             control_context.ControlContext(
-                target=_ARMED_TARGET, generation=1, owner=None, posture={}, last_switch=None
+                target=_ARMED_TARGET, generation=1, owner=None, last_switch=None
             ),
             path=path,
         )
@@ -440,7 +440,7 @@ def _writes_armed() -> Iterator[None]:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=0, path=path)
         except control_context.StoppedSinceError as stamped:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         with (
             patch("osprey_connectors.config.get_config_value", _armed_config),
             patch.object(

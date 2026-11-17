@@ -1502,14 +1502,14 @@ async def _refused_in_the_tool(mw, tool: str) -> tuple[ToolError, list[str]]:
     """Drive a call whose tool asks the write verdict itself and refuses on it.
 
     The stand-in for a real write tool's own gate: it asks
-    :func:`~osprey_connectors.posture_store.write_verdict` about the recorded
+    :func:`~osprey_connectors.write_switch.write_verdict` about the recorded
     target, as the in-tool gates do, and raises the verdict's phrase. Returns
     the error and the hops, so a test can tell "refused before the tool" from
     "refused in it".
     """
     from osprey.audit import posture as posture_module
-    from osprey_connectors.posture_store import write_verdict
     from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.write_switch import write_verdict
 
     seen: list[str] = []
 

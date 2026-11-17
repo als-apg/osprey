@@ -3,7 +3,7 @@
 Safety: PreToolUse hooks put the write to an approver before this tool runs,
 and the tool checks two things itself, first and in this order: the write
 verdict for the session's control target
-(:func:`~osprey_connectors.posture_store.execution_verdict`, the write verdict
+(:func:`~osprey_connectors.write_switch.execution_verdict`, the write verdict
 and the session's hold), then the record the
 approval prompt left for this call
 (:func:`~osprey.mcp_server.approval_record.require_approval_record`).
@@ -143,12 +143,11 @@ from osprey_connectors.errors import (
     NOT_A_CHANNEL,
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
-    RefusalReason,
 )
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict
-from osprey_connectors.refusals import refusal_text
+from osprey_connectors.refusals import RefusalReason, VerdictReason, refusal_text
 from osprey_connectors.targets import baseline_target
 from osprey_connectors.workspace import load_osprey_config
+from osprey_connectors.write_switch import CONTROL_OWNER_ENV_VAR, Refused
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system import ChannelWriteResult
@@ -683,10 +682,10 @@ def _check_write_verdict(record: control_context.ControlContext | None, config: 
         verdict = execution_verdict(section or {}, target)
     except Exception:  # unknown posture must not write
         logger.warning("Write verdict for channel_write could not be reached", exc_info=True)
-        verdict = WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
+        verdict = Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=target, kind=None)
     if verdict.allowed:
         return
-    reason = verdict.reason or "record_unavailable"
+    reason = verdict.reason
     make_error(
         WRITES_DISABLED_ERROR,
         refusal_text(

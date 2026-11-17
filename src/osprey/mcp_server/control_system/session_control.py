@@ -120,7 +120,7 @@ import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from osprey.audit import posture
 from osprey.mcp_server.control_system import target_state
@@ -131,6 +131,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors import control_context
+from osprey_connectors.control_context import SwitchStatus
 
 logger = logging.getLogger("osprey.mcp_server.control_system.session_control")
 
@@ -148,9 +149,9 @@ POLL_INTERVAL_S = 1.0
 # says so in its own report.
 
 #: The record moved (or was already where the request asked for).
-STATUS_APPLIED = control_context.SWITCH_APPLIED
+STATUS_APPLIED: Final[SwitchStatus] = "applied"
 #: The gate said no. Neither target nor generation moved.
-STATUS_REFUSED = control_context.SWITCH_REFUSED
+STATUS_REFUSED: Final[SwitchStatus] = "refused"
 
 #: An exception the consumption did not classify. Restated from
 #: :data:`~osprey.mcp_server.control_system.tools.control_target.REASON_INTERNAL_ERROR`
@@ -345,7 +346,7 @@ class SessionControlReconciler:
             readable record and none could be written.
         """
         record = control_context.read_record()
-        if control_context.live_owner(record) is not None:
+        if control_context.live_writer(record) is not None:
             return record
 
         from osprey.mcp_server.control_system.server_context import claim_control_context
@@ -434,8 +435,7 @@ class SessionControlReconciler:
         """
         try:
             target_state.publish_last_switch(
-                {"generation": generation, "status": target_state.SWITCH_APPLYING},
-                expires_in_s=hosts.applying_bound_s(),
+                target_state.switch_applying(generation, bound_s=hosts.applying_bound_s())
             )
         except Exception:
             logger.warning(
@@ -595,7 +595,7 @@ class SessionControlReconciler:
             return
 
         record = control_context.read_record()
-        if record is None or not control_context.owned_here(record):
+        if record is None or not control_context.written_here(record):
             # A follower answers nothing. It files requests of its own and
             # waits for the owner exactly as every other surface does.
             return
@@ -631,9 +631,9 @@ class SessionControlReconciler:
         # record can have been answered by an earlier pass of this same loop, or
         # taken over by a process that outranks this one.
         record = control_context.read_record()
-        if record is None or not control_context.owned_here(record):
+        if record is None or not control_context.written_here(record):
             return True
-        if (record.last_switch or {}).get("request_id") == request_id:
+        if record.last_switch is not None and record.last_switch.request_id == request_id:
             # Answered already. The unlink is all that was outstanding, and it
             # is safe precisely because the answer is in the record: reaching
             # this terminus twice writes nothing twice.
@@ -642,18 +642,22 @@ class SessionControlReconciler:
             return False
 
         wanted = str(body.get("target") or "").strip()
+        asked_at = target_state.request_stamp(body)
+        requested_by = _requester(body, pid)
         if wanted == record.target:
             # No mint. The deployment is where the request asked for it to be,
             # and a generation bumped for a switch that did not happen would
             # refuse every write bound to the old one for nothing.
             await self._answer(
                 record,
-                body,
                 pid=pid,
-                status=STATUS_APPLIED,
-                reason=None,
-                detail=control_context.unchanged_detail(wanted, record.generation),
-                generation=record.generation,
+                terminus=control_context.SwitchTerminus.unchanged(
+                    request_id=request_id,
+                    target=wanted,
+                    generation=record.generation,
+                    requested_at=asked_at,
+                    requested_by=requested_by,
+                ),
             )
             return True
 
@@ -663,35 +667,43 @@ class SessionControlReconciler:
             logger.exception("Switch request %r could not be judged", request_id)
             await self._answer(
                 record,
-                body,
                 pid=pid,
-                status=STATUS_REFUSED,
-                reason=REASON_INTERNAL_ERROR,
-                detail=f"{type(exc).__name__}: {exc}",
-                generation=None,
+                terminus=control_context.SwitchTerminus.refused(
+                    request_id=request_id,
+                    target=wanted,
+                    reason=REASON_INTERNAL_ERROR,
+                    detail=f"{type(exc).__name__}: {exc}",
+                    requested_at=asked_at,
+                    requested_by=requested_by,
+                ),
             )
             return True
 
         if not verdict.allowed:
             await self._answer(
                 record,
-                body,
                 pid=pid,
-                status=STATUS_REFUSED,
-                reason=str(verdict.reason or ""),
-                detail=verdict.detail,
-                generation=None,
+                terminus=control_context.SwitchTerminus.refused(
+                    request_id=request_id,
+                    target=wanted,
+                    reason=str(verdict.reason or ""),
+                    detail=verdict.detail,
+                    requested_at=asked_at,
+                    requested_by=requested_by,
+                ),
             )
             return True
 
         await self._answer(
             record,
-            body,
             pid=pid,
-            status=STATUS_APPLIED,
-            reason=None,
-            detail=control_context.applied_detail(wanted, record.generation + 1),
-            generation=record.generation + 1,
+            terminus=control_context.SwitchTerminus.applied(
+                request_id=request_id,
+                target=wanted,
+                generation=record.generation + 1,
+                requested_at=asked_at,
+                requested_by=requested_by,
+            ),
         )
         return True
 
@@ -735,20 +747,16 @@ class SessionControlReconciler:
     async def _answer(
         self,
         record: control_context.ControlContext,
-        body: dict[str, Any],
         *,
         pid: int,
-        status: str,
-        reason: str | None,
-        detail: str,
-        generation: int | None,
+        terminus: control_context.SwitchTerminus,
     ) -> None:
         """End one request: write the record, verify, consume, report, record.
 
-        *generation* is the record's generation AFTER this answer, and ``None``
-        is what makes it a refusal — a refusal moves neither target nor
-        generation, and its terminus carries a null generation because there is
-        no binding to name.
+        *terminus* is the answer; its ``generation`` is the record's generation
+        AFTER it, and ``None`` is what makes it a refusal — a refusal moves
+        neither target nor generation, and its terminus carries a null
+        generation because there is no binding to name.
 
         The record is written before the request file is removed, and only
         removed once the write has been read back: the requester polls the
@@ -756,27 +764,13 @@ class SessionControlReconciler:
         answer did not stick would leave it with neither an outcome nor a
         pending gesture to wait on.
         """
-        request_id = str(body.get("request_id") or "")
-        wanted = str(body.get("target") or "").strip()
-        requested_by = _requester(body, pid)
-
-        updated = control_context.terminus(
-            record,
-            request_id=request_id,
-            target=wanted,
-            requested_at=target_state.request_stamp(body),
-            requested_by=requested_by,
-            status=status,
-            reason=reason,
-            detail=detail,
-            generation=generation,
-        )
-
-        if not control_context.write_terminus(updated, request_id):
+        stuck = control_context.write_terminus(record.answered(terminus), terminus.request_id)
+        if stuck != "stuck":
             logger.warning(
-                "The answer to switch request %r did not stick; leaving the request for "
+                "The answer to switch request %r did not stick (%s); leaving the request for "
                 "whichever process owns the control context now",
-                request_id,
+                terminus.request_id,
+                stuck,
             )
             return
 
@@ -788,18 +782,18 @@ class SessionControlReconciler:
         # record that it did. The activity emit is a convenience for whoever is
         # watching; the ledger is the trail.
         self._record_gesture(
-            status=status,
-            reason=reason,
-            request_id=request_id,
-            target=wanted,
-            requested_by=requested_by,
+            status=terminus.status,
+            reason=terminus.reason,
+            request_id=terminus.request_id,
+            target=terminus.target,
+            requested_by=terminus.requested_by,
         )
         await self._notify(
             from_target=record.target,
-            to_target=wanted,
-            status=status,
-            reason=reason,
-            generation=generation,
+            to_target=terminus.target,
+            status=terminus.status,
+            reason=terminus.reason,
+            generation=terminus.generation,
         )
 
     async def _notify(

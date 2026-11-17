@@ -1,7 +1,7 @@
 """The hub's per-operator session stores: session meta, and the hub side of the ledger.
 
 **Session meta** is one JSON document, ``session-meta.json``, beside the transcript
-map and the ledger (:func:`osprey_connectors.posture_store.state_dir`, the rule
+map and the ledger (:func:`osprey_connectors.write_switch.state_dir`, the rule
 :mod:`~osprey.interfaces.web_terminal.transcript_map` uses). It holds what the
 operator and the naming service say about each *transcript* — a session in the
 sidebar is a transcript, not a key::
@@ -58,7 +58,7 @@ from typing import Any
 from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey.stores import session_ledger
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.identity import acting_identity
 
 logger = logging.getLogger(__name__)
@@ -129,11 +129,11 @@ def _now() -> str:
 def ledger_state_dir() -> Path | None:
     """The state directory the ledger and the meta live in, or ``None``.
 
-    :func:`osprey_connectors.posture_store.state_dir` can raise as well as answer
+    :func:`osprey_connectors.write_switch.state_dir` can raise as well as answer
     ``None``; both mean "no location" here.
     """
     try:
-        return posture_store.state_dir()
+        return write_switch.state_dir()
     except Exception:  # an unresolvable root is "no file", not a crash
         logger.warning("The session stores' location does not resolve", exc_info=True)
         return None

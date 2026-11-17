@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.artifacts.app import create_app
 from osprey.stores import session_ledger
 from osprey.stores.artifact_forms import RUN_RECORD_KEY
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 
 EXEC = "toolu_run1"
 KEY = "11111111-1111-4111-8111-111111111111"
@@ -42,12 +42,12 @@ def state_dir(tmp_path, monkeypatch) -> Path:
     """The ledger's state directory, bound so the app never reads a real one."""
     bound = tmp_path / "state"
     bound.mkdir()
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(bound))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(bound))
     monkeypatch.delenv("OSPREY_SESSION_ID", raising=False)
     monkeypatch.delenv("OSPREY_ARTIFACT_ORIGIN", raising=False)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield bound
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -623,7 +623,7 @@ class TestLedgerUnavailable:
 
     def test_no_state_directory_is_unavailable(self, client, store, monkeypatch):
         _text(store, minute=1, session_id=KEY)
-        monkeypatch.setattr(posture_store, "state_dir", lambda: None)
+        monkeypatch.setattr(write_switch, "state_dir", lambda: None)
         assert _session_list(client, {"session": T1})["ledger"] == "unavailable"
 
 

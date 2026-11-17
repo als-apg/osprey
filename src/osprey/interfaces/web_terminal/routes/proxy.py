@@ -106,7 +106,7 @@ from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import CALLER_HEADER, OWNER_HEADER, SESSION_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.refusals import refusal_text
+from osprey_connectors.refusals import VerdictReason, refusal_text
 from osprey_connectors.session_hold import is_held, is_safe_session_key
 
 logger = logging.getLogger(__name__)
@@ -494,7 +494,9 @@ async def _held_session_refusal(request: Request, *, agent: bool, what: str) -> 
         keys = live_session_keys(request.app)
     for key in keys:
         if await asyncio.to_thread(is_held, key, root=root):
-            return refusal_text("session_held", detail=f"The {what} is refused while held.")
+            return refusal_text(
+                VerdictReason.SESSION_HELD, detail=f"The {what} is refused while held."
+            )
     return None
 
 

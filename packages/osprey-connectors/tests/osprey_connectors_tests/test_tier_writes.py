@@ -301,9 +301,9 @@ def test_published_kind_of_other_targets_is_the_name_table(
 
 
 def test_published_kind_reads_the_state_dir_by_default(tmp_path: Path, monkeypatch) -> None:
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path))
     _report(tmp_path, os.getpid(), {"standin": {"machine_kind": "rehearsal"}})
     assert published_machine_kind(TARGET_STANDIN) == "rehearsal"
 
@@ -332,11 +332,11 @@ def test_tier_word_is_the_tier_words_as_a_type():
 def test_write_ceiling_is_the_tier_on_a_host_and_the_rung_under_a_tree(
     monkeypatch, tree_bound, section, ceiling
 ):
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     if tree_bound:
-        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
+        monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
     else:
-        monkeypatch.delenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
-    assert posture_store.write_ceiling(section, "alice") == ceiling
-    assert posture_store.write_ceiling(section, "alice", tree_bound=tree_bound) == ceiling
+        monkeypatch.delenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
+    assert write_switch.write_ceiling(section, "alice") == ceiling
+    assert write_switch.write_ceiling(section, "alice", tree_bound=tree_bound) == ceiling

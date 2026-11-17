@@ -56,7 +56,6 @@ import requests
 from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.interfaces.web_terminal.session_handoff import ERROR_SESSION_ATTACHED_ELSEWHERE
-from osprey_connectors import control_context
 from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.web_terminal._control_context import read_record
 
@@ -752,8 +751,8 @@ def test_the_machine_already_held_is_offered_no_switch_and_pends_nothing(
             assert body["target"] == ACTIVE_TARGET, body
             assert body["generation"] == RECORD_GENERATION, body
             assert body["request_id"], body
-            assert body["detail"] == control_context.unchanged_detail(
-                ACTIVE_TARGET, RECORD_GENERATION
+            assert body["detail"] == (
+                f"The control target is already {ACTIVE_TARGET!r} (generation {RECORD_GENERATION})."
             ), body
 
             # (iii) nothing moved, and no terminus was written for it.

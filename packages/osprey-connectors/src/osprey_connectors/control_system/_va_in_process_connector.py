@@ -65,14 +65,10 @@ from osprey_connectors.control_system._base import (
     SendReport,
     values_match,
 )
-from osprey_connectors.errors import (
-    NOT_A_CHANNEL,
-    ChannelNotFoundError,
-    ConnectorUnavailableError,
-    RefusalReason,
-)
+from osprey_connectors.errors import NOT_A_CHANNEL, ChannelNotFoundError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.view import (

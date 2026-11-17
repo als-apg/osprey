@@ -83,7 +83,7 @@ from osprey.mcp_server.control_system.server_context import (
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
-from osprey_connectors import control_context
+from osprey_connectors import testing
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.workspace import reset_config_cache
@@ -350,15 +350,15 @@ def state_root(tmp_path, monkeypatch):
     would start, so a claim merges it rather than replacing it.
     """
     root = tmp_path / "var" / "agent_data"
-    (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
+    (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     write_control_context(
         root, target="live", generation=0, owned_by=None, switch={"live": "asked", "va": "asked"}
     )
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)

@@ -73,14 +73,14 @@ from osprey.mcp_server.control_system.endpoint_prober import (
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
-from osprey_connectors import control_context
+from osprey_connectors import testing
 from osprey_connectors.control_system import ChannelValue, WriteOutcome, raise_for_write_result
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelUnreachableError,
     ChannelWriteBlockedError,
-    RefusalReason,
 )
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port
@@ -438,15 +438,15 @@ def state_root(tmp_path, monkeypatch):
     would start, so a claim merges it rather than replacing it.
     """
     root = tmp_path / "var" / "agent_data"
-    (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
+    (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     write_control_context(
         root, target="va", generation=0, owned_by=None, switch={"live": "asked", "va": "asked"}
     )
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)

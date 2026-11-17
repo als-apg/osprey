@@ -5,9 +5,9 @@ import pytest
 from osprey_connectors.errors import (
     RAW_CLIENT_WRITE_MARKER,
     ChannelWriteBlockedError,
-    RefusalReason,
     raw_client_write_message,
 )
+from osprey_connectors.refusals import RefusalReason
 
 
 def test_reason_is_a_valid_blocked_reason():

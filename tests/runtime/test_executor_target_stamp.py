@@ -33,7 +33,7 @@ import pytest
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
@@ -55,11 +55,11 @@ def state_root(tmp_path, monkeypatch):
     root = tmp_path / "var" / "agent_data"
     state_dir_under(root).mkdir(parents=True)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def write_record(
@@ -90,10 +90,9 @@ def write_record(
     record = control_context.ControlContext(
         target=target,
         generation=generation,
-        posture=dict(posture or {}),
     )
     control_context.write_record(record, path=path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -125,7 +124,7 @@ def write_report(
     }
     path = control_context._report_path_under(root, pid)
     path.write_text(json.dumps(payload), encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -150,7 +149,7 @@ def write_swapping_report(root: Path, pid: int, *, session: str, generation: int
 def applying(generation: int, *, seconds_left: float = 60.0) -> dict[str, Any]:
     """A switch block saying this server is mid-swap and still within its bound."""
     return {
-        "status": control_context.REPORT_APPLYING,
+        "status": "applying",
         "generation": generation,
         "expires_at": (datetime.now(UTC) + timedelta(seconds=seconds_left)).isoformat(),
     }
@@ -158,7 +157,7 @@ def applying(generation: int, *, seconds_left: float = 60.0) -> dict[str, Any]:
 
 def failed(generation: int) -> dict[str, Any]:
     """A switch block saying this server could not follow the fleet."""
-    return {"status": control_context.REPORT_FAILED, "generation": generation}
+    return {"status": "failed", "generation": generation}
 
 
 def stamp_env(monkeypatch, *, target: str, generation: str) -> None:
@@ -311,7 +310,7 @@ class TestDeploymentRecordLookup:
 
     def test_corrupt_record_is_ignored(self, state_root):
         control_context._record_path_under(state_root).write_text("{not json", encoding="utf-8")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         assert host_executor._control_context_record() is None
 
@@ -320,7 +319,7 @@ class TestDeploymentRecordLookup:
         control_context._record_path_under(state_root).write_text(
             json.dumps({"schema": 1, "target": "va"}), encoding="utf-8"
         )
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         assert host_executor._control_context_record() is None
 
@@ -328,13 +327,13 @@ class TestDeploymentRecordLookup:
         control_context._record_path_under(state_root).write_text(
             json.dumps({"schema": 1, "target": "production", "generation": 1}), encoding="utf-8"
         )
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         assert host_executor._control_context_record() is None
 
     def test_an_unresolvable_root_is_not_an_error(self, tmp_path, monkeypatch):
         monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path / "never-created"))
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         assert host_executor._control_context_record() is None
 
@@ -739,7 +738,7 @@ class TestExecuteViaLocalStamping:
         """The pin reaches the child, and the marker states the same thing.
 
         Both halves of FR15 through the real launch path: the sandbox reads the
-        stamp back through ``posture_store``, and the in-flight marker is what
+        stamp back through ``write_switch``, and the in-flight marker is what
         the posture route consults before it agrees to widen anything.
         """
         # Arrange

@@ -1,7 +1,7 @@
 """A panel write is judged per write and per tick on the one execution verdict.
 
 Nothing about writes is rendered into DATA's environment. DATA reads the
-execution verdict (:func:`osprey_connectors.posture_store.execution_verdict`)
+execution verdict (:func:`osprey_connectors.write_switch.execution_verdict`)
 at every write and on every heartbeat tick, with the hold of every session the
 terminal runs: the sidecar names them in ``sessions.json`` in DATA's working
 directory and names the hold store in DATA's environment. No session, no hold.
@@ -56,10 +56,10 @@ from osprey.runtime import budget as budget_module
 from osprey.runtime.budget import write_budget
 from osprey.runtime.session import EXIT_BINDING_MOVED
 from osprey.runtime.session_outcomes import refusal_message
-from osprey_connectors import control_context, posture_store, session_hold
+from osprey_connectors import session_hold, testing, write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
-from osprey_connectors.posture_store import WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_switch import Allowed, Refused, WriteVerdict, _SessionHeld
 
 # The backend's fixtures and helpers: a real session over a recording machine,
 # bound to ``va@3`` with its switch allowed, the exit recorded.
@@ -91,7 +91,8 @@ CLAIMS = json.loads(
 CLAIM_ROWS = {row["id"]: row for row in CLAIMS["rows"]}
 
 #: The detail a hold raised by ``watchdog:limits`` adds to its verdict.
-HOLD_DETAIL = "Raised by: watchdog:limits."
+HOLD_SOURCE = "watchdog:limits"
+HOLD_DETAIL = f"Raised by: {HOLD_SOURCE}."
 
 
 def _writes(value: Any) -> dict[str, Any]:
@@ -150,22 +151,22 @@ def deployment(tmp_path, monkeypatch):
         if name.startswith(("CANOPY_", "OSPREY_CANOPY_", "OSPREY_CONTROL_TARGET")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         session_hold.HOLD_DIR_ENV_VAR,
     ):
         monkeypatch.delenv(name, raising=False)
     built = Deployment(tmp_path)
     monkeypatch.setenv("OSPREY_CONFIG", str(built.config_path))
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(built.state_dir))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(built.state_dir))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.chdir(tmp_path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield built
     for sidecar in built.sidecars:
         sidecar.stop()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _wait_for(predicate, timeout: float = 5.0) -> None:
@@ -181,13 +182,14 @@ def _wait_for(predicate, timeout: float = 5.0) -> None:
 def _verdict_for(row: dict) -> WriteVerdict:
     """The execution verdict *row* names, for the simulator; a hold names its source."""
     verdict = row["verdict"]
-    return WriteVerdict(
-        allowed=verdict["allowed"],
+    if verdict["allowed"]:
+        return Allowed(target="va", kind="simulator", position=verdict["position"])
+    held = verdict["reason"] == "session_held"
+    return Refused(
         reason=verdict["reason"],
         target="va",
         kind="simulator",
-        position=verdict["position"],
-        detail=HOLD_DETAIL if verdict["reason"] == "session_held" else None,
+        cause=_SessionHeld(sources=(HOLD_SOURCE,)) if held else None,
     )
 
 
@@ -233,7 +235,7 @@ class TestTheClaimTable:
 
     @pytest.mark.parametrize("reason", ["owner_unknown", "owner_foreign", "launch_pinned"])
     def test_any_other_refusal_is_locked_with_its_reason(self, reason):
-        verdict = WriteVerdict(allowed=False, reason=reason, target="va", kind="simulator")
+        verdict = Refused(reason=reason, target="va", kind="simulator")
         session = SimpleNamespace(
             target_moving=False, binding=SimpleNamespace(state="bound"), verdict=verdict
         )
@@ -257,14 +259,17 @@ def _hold_store(tmp_path: Path, monkeypatch, *keys: str) -> Path:
 
 
 def _raise(root: Path, key: str) -> None:
-    assert session_hold.open_flag(
-        key,
-        flag_id="flag-1",
-        source="watchdog:limits",
-        reason="a limit was refused",
-        prompt_ref="turn-7",
-        prompt_excerpt="set the current to 900",
-        root=root,
+    assert (
+        session_hold.open_flag(
+            key,
+            flag_id="flag-1",
+            source="watchdog:limits",
+            reason="a limit was refused",
+            prompt_ref="turn-7",
+            prompt_excerpt="set the current to 900",
+            root=root,
+        )
+        == "opened"
     )
 
 

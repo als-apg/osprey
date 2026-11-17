@@ -49,6 +49,7 @@ import pytest
 import yaml
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey_connectors import testing
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -463,7 +464,7 @@ def acting_in(
     """
     from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
     from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
-    from osprey_connectors import control_context, posture_store
+    from osprey_connectors import control_context, write_switch
     from osprey_connectors.workspace import reset_config_cache
     from osprey_connectors_tests._harness import write_control_context
 
@@ -480,7 +481,7 @@ def acting_in(
     removed = (
         "OSPREY_EXECUTION_MODE",
         "OSPREY_DISPATCH_RUN",
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         ENV_CONTROL_TARGET,
         ENV_CONTROL_TARGET_GENERATION,
     )
@@ -491,7 +492,7 @@ def acting_in(
         for name, value in values.items():
             patch.setenv(name, value)
         reset_config_cache()
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         if not control_context._record_path_under(agent_data).exists():
             write_control_context(
                 agent_data,
@@ -504,7 +505,7 @@ def acting_in(
             yield
         finally:
             reset_config_cache()
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------

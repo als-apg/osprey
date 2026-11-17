@@ -312,11 +312,8 @@ def _raw_write_refusal(marker: str, address: str) -> Exception:
     so a run without the package still refuses, recognisably.
     """
     try:
-        from osprey_connectors.errors import (
-            ChannelWriteBlockedError,
-            RefusalReason,
-            raw_client_write_message,
-        )
+        from osprey_connectors.errors import ChannelWriteBlockedError, raw_client_write_message
+        from osprey_connectors.refusals import RefusalReason
     except Exception:
         return RuntimeError(
             f"{marker}: write to '{address}' bypassed the reference monitor. "

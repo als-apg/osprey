@@ -22,6 +22,12 @@ from osprey_connectors.refusals import (
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST
 from osprey_connectors_tests._paths import REPO_ROOT
 
+
+def _package_phrases() -> dict[str, str]:
+    """The package's phrase table: each reason's word and its phrase, in order."""
+    return {reason.value: reason.phrase for reason in refusals.VerdictReason}
+
+
 _TWIN_PATH = REPO_ROOT / "src/osprey/templates/claude_code/claude/hooks/osprey_target_state.py"
 
 LIFTERS = {
@@ -54,6 +60,9 @@ def test_public_names_are_listed():
         "KIND_WORDS",
         "REASONS",
         "STORE_PATH_MARKERS",
+        "RefusalReason",
+        "VerdictReason",
+        "VerdictReasonField",
         "refusal_phrase",
         "refusal_text",
     }
@@ -187,7 +196,7 @@ def twin(monkeypatch):
 
 
 def test_the_twin_phrase_table_matches(twin):
-    assert twin._PHRASES == refusals._PHRASES
+    assert twin._PHRASES == _package_phrases()
 
 
 @pytest.mark.parametrize("kind", [None, *KIND_WORDS, "nonsense"])

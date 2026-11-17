@@ -32,7 +32,8 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
     raise_for_write_result,
 )
-from osprey_connectors.errors import ChannelWriteBlockedError, LimitsViolation, RefusalReason
+from osprey_connectors.errors import ChannelWriteBlockedError, LimitsViolation
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors_tests._epics_fakes import ECA_NOWTACCESS
 from osprey_connectors_tests._write_fakes import arm_switch, make_mock_epics_connector
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config

@@ -37,7 +37,7 @@ import yaml
 
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.routes import write_authorizations as routes
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.write_authorization import Approver, ChannelRange, Grant
@@ -175,7 +175,7 @@ def approve(client, request_id: str):
 def own_grants() -> tuple[Grant, ...]:
     directory = wa.authorizations_dir()
     assert directory is not None
-    return wa.list_grants(directory)[0]
+    return tuple(listed.grant for listed in wa.list_grants(directory).items)
 
 
 def row(client, target: str = TARGET) -> dict[str, Any]:
@@ -264,7 +264,7 @@ class TestApproval:
         assert response.status_code == 200, response.text
         (grant,) = own_grants()
         assert grant.id == request.id
-        assert (grant.approver.identity, grant.approver.surface) == (acting_identity(), "chip")
+        assert (grant.approver.by, grant.approver.surface) == (acting_identity(), "chip")
         assert grant.holder == "optimizer"
         chip = row(client)
         assert chip["switch"] == "off"
@@ -365,7 +365,7 @@ class TestStopping:
             json={"session_id": SESSION, "target": target, "state": "off", "epoch": None},
         )
         assert response.status_code == 200, response.text
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         (grant,) = own_grants()
         assert grant.revoked is not None
         chip = row(client)
@@ -385,7 +385,7 @@ class TestEndedByTheLedger:
             holder_start=None,
             pid_ns=None,
             lease_expires_at=lease,
-            steps=tuple(
+            spent=tuple(
                 wa.LedgerStep(n=n, spent_at=LONG_AGO + timedelta(seconds=n), channels=("SR:A",))
                 for n in range(1, steps + 1)
             ),
@@ -423,7 +423,7 @@ class TestSelfIssued:
         """A program's grant self-issued at allowed, in the ledger the terminal sees read-only."""
         ledgers = requests_dir.parent
         monkeypatch.setenv(wa.LEDGER_VIEW_DIR_ENV_VAR, str(ledgers))
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         record = control_context.read_record()
         assert record is not None
         epoch = record.switch_epoch
@@ -432,7 +432,7 @@ class TestSelfIssued:
                 control_context.set_switch([TARGET], "asked", epoch=None)
             epoch = stamped.value.epoch
         control_context.set_switch([TARGET], "allowed", epoch=epoch)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         now = datetime.now(UTC)
         grant = Grant(
             id=uuid.uuid4().hex,
@@ -445,7 +445,7 @@ class TestSelfIssued:
             issued_at=now,
             expires_at=FAR_FUTURE,
             lease_s=30.0,
-            approver=Approver(identity="tuning-scripts", surface="write_switch", approved_at=now),
+            approver=Approver(by="tuning-scripts", surface="write_switch", approved_at=now),
             label="scan",
         )
         wa._issue_grant(grant, directory=ledgers, peers=())
@@ -474,7 +474,7 @@ class TestSelfIssued:
             json={"session_id": SESSION, "target": TARGET, "state": "off", "epoch": None},
         )
         assert response.status_code == 200, response.text
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         assert row(client)["program_hold"] is False
         (entry,) = client.get("/api/terminal/write-authorizations").json()["authorizations"]
         assert entry["id"] == held.id and entry["in_force"] is False

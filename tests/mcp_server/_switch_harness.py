@@ -44,7 +44,7 @@ import yaml
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from osprey_connectors.connector_types import EPICS
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from tests._child_stubs import CHILD_STUBS
@@ -118,7 +118,7 @@ gateway does to a put.
 import asyncio
 import os
 
-from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.control_system._base import SendReport
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelUnreachableError
@@ -357,9 +357,9 @@ def state_root(tmp_path, monkeypatch):
     """
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
     isolate_verdict_environment(monkeypatch, tmp_path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -438,9 +438,9 @@ def posture_root(tmp_path, monkeypatch):
     root = tmp_path / "agent_data"
     isolate_verdict_environment(monkeypatch, root)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 # ------------------------------------------------------------------- helpers
@@ -463,10 +463,10 @@ def arm(root, *targets):
     the switch goes through the person's gesture.
     """
     write_control_context(root, owned_by=None, switch=dict.fromkeys(targets, "on"))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def narrow(root, *targets):
     """Record the operator's narrowing of *targets* on this deployment."""
-    write_control_context(root, posture=dict.fromkeys(targets, posture_store.POSTURE_SANDBOX))
-    control_context.invalidate_cache()
+    write_control_context(root, posture=dict.fromkeys(targets, write_switch.LAUNCH_PIN_SANDBOX))
+    testing.invalidate_cache()

@@ -18,12 +18,12 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.errors import BuildProfileError
 from osprey.facility.views.facts import zero_source_facts
 from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
-from osprey_connectors.posture_store import STATE_DIR_NAME
 from osprey_connectors.workspace import (
     RENDERED_CONFIG_RELPATH,
     agent_data_base_dir,
     resolve_shared_data_root,
 )
+from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 from tests._preset_data import bundle_data_root
 from tests.cli._lifecycle_build import invoke_build
 from tests.cli._template_projects import create_project_with_manifest
@@ -1587,7 +1587,7 @@ class TestFacilityPermissions:
         store_rules = deny[len(self.DEFAULT_DENY) :]
         assert len(store_rules) == 2
         assert all(
-            rule.startswith("Edit(") and rule.endswith(f"/{STATE_DIR_NAME}/**)")
+            rule.startswith("Edit(") and rule.endswith(f"/{CONTROL_STATE_DIR_NAME}/**)")
             for rule in store_rules
         ), store_rules
 

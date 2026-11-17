@@ -66,7 +66,7 @@ from osprey_optimizer.models.protocols import EnvironmentProtocol
 from osprey_optimizer.utils.interval_thread import IntervalThread
 
 if TYPE_CHECKING:
-    from osprey_connectors.write_authorization import RunCompletion
+    from osprey_connectors.write_authorization import ChannelRange, RunCompletion
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,18 @@ class WritePlan:
     def steps(self) -> int:
         """The write calls the run makes: one per evaluation, plus its completion's."""
         return self.evaluations + (0 if self.completion == "none" else 1)
+
+    def ranges(self) -> dict[str, ChannelRange]:
+        """Each channel's range as an authorization states it.
+
+        Raises:
+            ValueError: A range is not finite.
+        """
+        from osprey_connectors.write_authorization import ChannelRange
+
+        return {
+            channel: ChannelRange.of(low, high) for channel, (low, high) in self.channels.items()
+        }
 
 
 def _narrow(
@@ -227,7 +239,7 @@ def retire_self_issued(grant: Any) -> None:
     from osprey_connectors import write_authorization as wa
     from osprey_connectors.identity import acting_identity
 
-    if grant is None or grant.approver.surface != wa.SELF_ISSUE_SURFACE:
+    if grant is None or grant.approver.surface != "write_switch":
         return
     try:
         wa.revoke_grants(by=acting_identity(), directory=wa.ledger_dir(), ids=[grant.id])
@@ -354,7 +366,7 @@ class RunAuthorization:
             grant = wa.self_issue(
                 _control_system_section(),
                 plan.target,
-                plan.channels,
+                plan.ranges(),
                 steps=plan.steps,
                 expires_at=expires_at,
                 lease_s=LEASE_S,
@@ -376,7 +388,7 @@ class RunAuthorization:
         try:
             request = wa.write_request(
                 plan.target,
-                plan.channels,
+                plan.ranges(),
                 steps=plan.steps,
                 expires_at=expires_at,
                 lease_s=LEASE_S,
@@ -470,16 +482,12 @@ class RunAuthorization:
         grant_id = self._grant_id
         if grant_id is None or self._authority.ended is not None:
             return
-        if wa.renew_lease(grant_id, owner=self._owner):
-            return
-        reason = "auth_lease_lapsed"
         try:
-            wa.approved_grant(grant_id, owner=self._owner)
+            wa.renew_lease(grant_id, owner=self._owner)
         except wa.AuthorizationRefusedError as refused:
-            reason = refused.reason
-        except Exception:  # the lease is what failed; that is the reason given
-            logger.debug("Could not read why %s lapsed", grant_id, exc_info=True)
-        self.end(reason, "The lease could not be renewed; the run makes no further write.")
+            self.end(
+                refused.reason, "The lease could not be renewed; the run makes no further write."
+            )
 
     # -- the end ------------------------------------------------------------
 

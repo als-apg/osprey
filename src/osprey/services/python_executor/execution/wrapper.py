@@ -1305,8 +1305,8 @@ if not _execution_dir.exists():
         The lock is entered with one
         :class:`~osprey.runtime.guarded_run.ActionContext`: the process's
         stamped target (:func:`~osprey.runtime.guarded_run.guarded_run_target`),
-        the owner :func:`~osprey_connectors.posture_store.current_owner` names
-        (``None`` for :data:`~osprey_connectors.posture_store.NO_OWNER`),
+        the owner :func:`~osprey_connectors.write_switch.current_owner` names
+        (``None`` for :data:`~osprey_connectors.write_switch.NO_OWNER`),
         that same target as the one the run was admitted on — the executor
         checked any approval against it before spawning, and no approval field
         reaches the sandbox — and ``limits_off`` from that target's limits
@@ -1329,8 +1329,8 @@ if not _execution_dir.exists():
                     from osprey.runtime.guarded_run import (
                         target_limits_off as _osprey_limits_off,
                     )
-                    from osprey_connectors.posture_store import NO_OWNER as _OSPREY_NO_OWNER
-                    from osprey_connectors.posture_store import current_owner as _osprey_owner
+                    from osprey_connectors.write_switch import NO_OWNER as _OSPREY_NO_OWNER
+                    from osprey_connectors.write_switch import current_owner as _osprey_owner
                 except ImportError:
                     _osprey_lock = _OspreyRunBusy = _OspreyActionContext = None
                     _osprey_target = _osprey_owner = _OSPREY_NO_OWNER = None

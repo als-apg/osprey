@@ -1,7 +1,7 @@
 """The write verdict in the Bluesky plan lane's arming gate.
 
 The queue surface asks the write verdict
-(``osprey_connectors.posture_store.write_verdict``) for the control target its
+(``osprey_connectors.write_switch.write_verdict``) for the control target its
 bound lane serves, fresh on every call, before anything is POSTed. Writes are
 armed here the way a person arms them: a tier that allows writes and a record
 whose switch is on for the machine. A refusal is the verdict's phrase
@@ -42,7 +42,7 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -337,7 +337,7 @@ async def test_an_owner_missing_from_the_login_map_refuses_owner_unknown(tmp_pat
         {"bind": "provisioned", "records": {"alice": {"status": "ok", "switch": {"live": "on"}}}},
         monkeypatch,
     )
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "alice")
     reset_verdict_state()
 
     await _start_refused("owner_unknown", "real")
@@ -353,7 +353,7 @@ async def test_an_owned_item_writes_through_its_owners_switch(tmp_path, monkeypa
         {"bind": "provisioned", "records": {"alice": {"status": "ok", "switch": {"live": "on"}}}},
         monkeypatch,
     )
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "alice")
     reset_verdict_state()
 
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
@@ -365,7 +365,7 @@ async def test_an_unreadable_record_refuses_record_unavailable(tmp_path, monkeyp
     _configure(tmp_path, monkeypatch)
     path = _switch(tmp_path, "live")
     path.write_text("{not json", encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     reset_verdict_state()
 
     await _start_refused("record_unavailable", "real")
@@ -392,7 +392,7 @@ async def test_an_owner_less_dispatch_run_refuses_owner_unscheduled(tmp_path, mo
     _switch(tmp_path, "live")
     if tree:
         _stage_tree(tmp_path, {"bind": "provisioned", "records": {}}, monkeypatch)
-    monkeypatch.setenv(posture_store.DISPATCH_RUN_ENV_VAR, "1")
+    monkeypatch.setenv(write_switch.DISPATCH_RUN_ENV_VAR, "1")
     reset_verdict_state()
 
     await _start_refused("owner_unscheduled", "real")

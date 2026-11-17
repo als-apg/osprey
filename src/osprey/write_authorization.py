@@ -275,7 +275,7 @@ def grant_summary(
         "lease_s": grant.lease_s,
         "expires_at": _clock(grant.expires_at),
         "expires_in_s": _left_s(grant.expires_at, now),
-        "approver": {"identity": grant.approver.identity, "surface": grant.approver.surface},
+        "approver": {"identity": grant.approver.by, "surface": grant.approver.surface},
         "channels": {
             address: {"min": bound.min, "max": bound.max}
             for address, bound in grant.channels.items()

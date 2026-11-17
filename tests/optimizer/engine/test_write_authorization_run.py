@@ -26,8 +26,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.refusals import VerdictReason
 from osprey_connectors_tests._harness import write_payload
 from osprey_optimizer.api.owner import stamp_owner
 from osprey_optimizer.environments import interface as iface_module
@@ -87,14 +88,14 @@ def _record(tree: Path, state: str) -> None:
     ).model_dump(mode="json")
     payload["switch"] = {TARGET: state}
     write_payload(tree / OWNER / control_context.RECORD_FILENAME, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class Deployment:
     """The optimizer container's write path, and the run driven over it."""
 
     def __init__(self, tmp_path: Path) -> None:
-        self.tree = tmp_path / posture_store.STATE_DIR_NAME
+        self.tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
         self.ledger = tmp_path / "write_ledger"
         self.states: list[dict[str, Any]] = []
         self.authority: WriteAuthority | None = None
@@ -116,7 +117,7 @@ class Deployment:
 
     def spent(self, authorization: str) -> int:
         path = self.ledger / f"{authorization}.ledger.json"
-        return len(wa._parse_ledger(path.read_text()).steps) if path.exists() else 0
+        return len(wa._parse_ledger(path.read_text()).spent) if path.exists() else 0
 
     def approve(self, request_path: Path) -> wa.Grant:
         request = wa.read_request(request_path)
@@ -206,13 +207,13 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Depl
 
     built = Deployment(tmp_path)
     built.tree.mkdir()
-    (built.tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n")
+    (built.tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n")
     built.ledger.mkdir()
     built.switch("off")
 
     for name in (
-        posture_store.DISPATCH_RUN_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.DISPATCH_RUN_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
         "OSPREY_SESSION_ID",
         wa.AUTHORIZATION_ENV_VAR,
@@ -220,11 +221,11 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Depl
         wa.LEDGER_VIEW_DIR_ENV_VAR,
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "unset-by-the-fixture")
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "unset-by-the-fixture")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("CONFIG_FILE", str(config))
     monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", HOLDER)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(built.tree))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(built.tree))
     monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(built.ledger))
     monkeypatch.setenv(
         "PYTHONPATH",
@@ -234,12 +235,12 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Depl
     )
     monkeypatch.setattr(run_auth, "POLL_S", 0.05)
     stamp_owner(OWNER)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     random.seed(7)
     yield built
     install_process_authority(None)
     iface_module.reset_bridge()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _approve_when_asked(deployment: Deployment) -> threading.Thread:
@@ -268,7 +269,7 @@ def test_at_allowed_the_run_self_issues_and_spends_one_step_per_evaluation_and_o
 
     grant_id = deployment.granted_id()
     granted = next(s for s in deployment.states if s.get("state") == "granted")
-    assert granted["approver"] == wa.SELF_ISSUE_SURFACE
+    assert granted["approver"] == "write_switch"
     assert granted["steps"] == EVALUATIONS + 1
     assert granted["completion"] == "apply_best"
     # The grant is in the run's own ledger directory, never in the read-only tree.
@@ -559,9 +560,12 @@ def test_a_lease_that_cannot_be_renewed_ends_the_run_with_no_further_write(
     monkeypatch.setattr(run_auth, "LEASE_S", 3.0)
     bus = EventBus()
 
+    def refuse_the_renewal(*_args: Any, **_kwargs: Any) -> wa.Ledger:
+        raise wa.AuthorizationRefusedError(VerdictReason.AUTH_LEASE_LAPSED)
+
     def lose_the_lease_after_the_first(event: Any) -> None:
         if event.type == EventType.ITERATION_COMPLETED and event.data.iteration == 1:
-            monkeypatch.setattr(wa, "renew_lease", lambda *_args, **_kwargs: False)
+            monkeypatch.setattr(wa, "renew_lease", refuse_the_renewal)
             assert deployment.authority is not None
             deadline = time.monotonic() + 10
             while deployment.authority.ended is None:
@@ -589,7 +593,7 @@ def test_a_lapsed_lease_is_refused_by_the_child_itself(
     def outlive_the_lease(event: Any) -> None:
         if event.type == EventType.ITERATION_COMPLETED and event.data.iteration == 1:
             # The worker believes its renewals land; none does.
-            monkeypatch.setattr(wa, "renew_lease", lambda *_args, **_kwargs: True)
+            monkeypatch.setattr(wa, "renew_lease", lambda *_args, **_kwargs: None)
             time.sleep(2.5)
 
     bus.subscribe_all(outlive_the_lease)
@@ -646,10 +650,10 @@ BODY = {"variables": {A: 1.5, B: -1.0}, "override_unhealthy": True}
 
 
 def _only_grant(directory: Path) -> wa.Grant:
-    grants, unreadable = wa.list_grants(directory)
-    assert unreadable == ()
-    [grant] = grants
-    return grant
+    listing = wa.list_grants(directory)
+    assert listing.unreadable == ()
+    [listed] = listing.items
+    return listed.grant
 
 
 def test_a_manual_write_at_allowed_is_one_self_issued_step_at_exactly_its_values(
@@ -661,7 +665,7 @@ def test_a_manual_write_at_allowed_is_one_self_issued_step_at_exactly_its_values
     assert deployment.values() == {A: 1.5, B: -1.0}
     grant = _only_grant(deployment.ledger)
     assert grant.owner == OWNER and grant.holder == HOLDER
-    assert grant.approver.surface == wa.SELF_ISSUE_SURFACE
+    assert grant.approver.surface == "write_switch"
     assert grant.steps == 1
     assert dict(grant.channels) == {
         A: wa.ChannelRange(min=1.5, max=1.5),
@@ -693,7 +697,8 @@ def test_a_manual_write_below_allowed_is_refused_and_asks_for_allowed(
     assert SET_ALLOWED in detail["message"]
     assert deployment.values() == before
     assert deployment.requests() == []
-    assert wa.list_grants(deployment.ledger) == ((), ())
+    listing = wa.list_grants(deployment.ledger)
+    assert (listing.items, listing.unreadable) == ((), ())
 
 
 def test_a_manual_write_for_nobody_is_refused_owner_unknown(
@@ -766,7 +771,7 @@ def test_a_manual_restore_is_its_own_one_step_authorization_at_the_start_values(
     assert done.status_code == 200, done.text
     assert done.json()["restored"] == start
     assert deployment.values() == start
-    grants, _ = wa.list_grants(deployment.ledger)
+    grants = [listed.grant for listed in wa.list_grants(deployment.ledger).items]
     [grant] = [g for g in grants if g.id != first.id]
     assert dict(grant.channels) == {
         name: wa.ChannelRange(min=value, max=value) for name, value in start.items()

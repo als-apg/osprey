@@ -121,7 +121,7 @@ async def test_old_armed_config_refuses_as_tier_never_with_the_switch_on(
 async def test_unreachable_verdict_refuses_record_unavailable(tmp_path, monkeypatch, stamps):
     _deploy(tmp_path, monkeypatch)
     with (
-        patch(f"{_MOD}.posture_store.write_verdict", side_effect=RuntimeError("boom")),
+        patch(f"{_MOD}.write_switch.write_verdict", side_effect=RuntimeError("boom")),
         patch(f"{_MOD}._http_post_drive") as post,
         stamps.approved("phoebus_drive"),
         assert_raises_error(error_type="writes_disabled") as ctx,

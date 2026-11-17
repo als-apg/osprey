@@ -20,10 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.config import ConfigBuilder, load_project_dotenv
 from osprey_connectors.log_filter import quiet_logger
-from osprey_connectors.posture_store import WriteCeiling
+from osprey_connectors.write_switch import WriteCeiling
 
 logger = logging.getLogger(__name__)
 
@@ -133,9 +133,9 @@ def login_tier(section: Any, login: str) -> WriteCeiling:
 
     The two tier terms of the write verdict first, in its order: the
     deployment's tier (:func:`~osprey_connectors.write_tier.tier_writes`), then the
-    login's own rung (:func:`~osprey_connectors.posture_store.owner_tier_term`).
+    login's own rung (:func:`~osprey_connectors.write_switch.owner_tier_term`).
     Otherwise the verdict's own ceiling
-    (:func:`~osprey_connectors.posture_store.write_ceiling`). A render that
+    (:func:`~osprey_connectors.write_switch.write_ceiling`). A render that
     could not be read is ``unknown``: no tier was read, which is not the answer
     of a render saying ``never``. Never raises.
     """
@@ -146,8 +146,8 @@ def login_tier(section: Any, login: str) -> WriteCeiling:
 
         if tier_writes(section) == "never":
             return "never"
-        rung = posture_store.owner_tier_term(section, login)
-        ceiling = posture_store.write_ceiling(section, login)
+        rung = write_switch.owner_tier_term(section, login)
+        ceiling = write_switch.write_ceiling(section, login)
     except Exception:  # an unreadable tier is not an allowed one
         logger.warning("Could not read the write tier for login %s", login)
         return TIER_UNKNOWN

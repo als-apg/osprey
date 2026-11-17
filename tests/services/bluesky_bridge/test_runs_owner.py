@@ -25,7 +25,7 @@ from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import runs
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import OWNER_META_KEY, QueueBackend
-from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+from osprey_connectors.write_switch import RESERVED_OWNER_KWARG
 
 
 class _ScriptedManager:

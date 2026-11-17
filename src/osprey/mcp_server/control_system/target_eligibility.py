@@ -38,7 +38,7 @@ shared with the library's
 :class:`~osprey_connectors.ipc.ConnectorHostPool`: it restates
 ``EPICSConnector.connect()``'s gateway selection and environment derivation
 *positively* — the role it would pick given the write verdict for the target and
-:func:`~osprey_connectors.posture_env.is_readonly_run`, and the
+:func:`~osprey_connectors.execution_mode.is_readonly_run`, and the
 CA/PVA mode each gateway would produce — rather than re-deciding it, so this
 module and the process it describes cannot disagree about where a target lands,
 which port it lands on, or whether it may be written to once there.
@@ -87,7 +87,7 @@ Whether a target may be written, right now
 Config is not the last word on whether writes are allowed for a target. The
 tier in ``config.yml`` is a ceiling; the login's switch, the run's mode and the
 owner of the session decide the rest, and all of them are combined into one
-answer by :func:`~osprey_connectors.posture_store.write_verdict`. The
+answer by :func:`~osprey_connectors.write_switch.write_verdict`. The
 connector child takes that same verdict on every write and on its own gateway
 selection, so a parent that derived from config alone would derive
 ``write_access`` for a target the child has just connected to on ``read_only``
@@ -116,7 +116,7 @@ from osprey.deployment.honesty import (
     pairing_for_target,
     target_section,
 )
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.config import unresolved_placeholders
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
@@ -127,6 +127,7 @@ from osprey_connectors.connector_types import (
 )
 from osprey_connectors.deployment.simulator import virtual_accelerator_active
 from osprey_connectors.deployment.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
+from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.ipc import (
     GATEWAYS_MISSING,
     GATEWAYS_NONE_DECLARED,
@@ -139,7 +140,7 @@ from osprey_connectors.ipc import (
     live_collision,
     subsection,
 )
-from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import resolve_target
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_eligibility")
@@ -243,10 +244,10 @@ class TargetAvailability:
 # ---------------------------------------------------------------------------
 
 
-def target_write_verdict(section: Any, target: str) -> posture_store.WriteVerdict:
+def target_write_verdict(section: Any, target: str) -> write_switch.WriteVerdict:
     """The write verdict for *target* on this deployment, right now.
 
-    :func:`~osprey_connectors.posture_store.write_verdict` for *target*, with
+    :func:`~osprey_connectors.write_switch.write_verdict` for *target*, with
     the launch pin honoured as the connector child honours it. It never raises;
     a verdict that could not be reached here refuses as ``record_unavailable``
     rather than allowing.
@@ -266,12 +267,10 @@ def target_write_verdict(section: Any, target: str) -> posture_store.WriteVerdic
         The verdict: ``allowed``, and the ``reason`` when it refuses.
     """
     try:
-        return posture_store.write_verdict(section, target)
+        return write_switch.write_verdict(section, target)
     except Exception:  # write_verdict never raises; a refusal is still the floor
         logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
-        return posture_store.WriteVerdict(
-            allowed=False, reason="record_unavailable", target=None, kind=None
-        )
+        return write_switch.Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None)
 
 
 def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> bool:

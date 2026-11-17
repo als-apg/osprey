@@ -36,7 +36,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor
 from osprey.mcp_server.python_executor.executor import INFLIGHT_FILE_PREFIX, INFLIGHT_FILE_SUFFIX
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 
 #: Hang guard for every wait in this module; never an assertion about speed.
 HANG_GUARD_S = 60.0
@@ -187,7 +187,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the marker directory into *tmp_path*."""
     root = tmp_path / "var" / "agent_data"
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
     monkeypatch.setattr(executor, "resolve_agent_interpreter", lambda root=None: sys.executable)

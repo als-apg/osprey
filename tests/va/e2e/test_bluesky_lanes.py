@@ -93,7 +93,7 @@ from osprey.mcp_server.bluesky.server_context import (
 from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
@@ -608,10 +608,10 @@ def session_state(tmp_path, monkeypatch):
     (the preset's ``control_system.writes: allowed``) and the switch must too.
     """
     root = tmp_path / "var" / "agent_data"
-    (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
+    (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     def switch_session_to(target: str, *, generation: int = 0) -> None:
         write_control_context(
@@ -620,7 +620,7 @@ def session_state(tmp_path, monkeypatch):
 
     yield switch_session_to
     target_state.delete_on_shutdown(server_pid=os.getpid())
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -656,7 +656,7 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     # on every add (``current_owner`` here); its writes follow THAT owner's
     # switch, read from the deployment's control tree. On for the simulator,
     # so an armed add executes rather than failing its first write.
-    owner = posture_store.current_owner()
+    owner = write_switch.current_owner()
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     config = yaml.safe_load(stack.config_path.read_text(encoding="utf-8"))
     ensure_control_target_dir(config, stack.repo, owner, relative_to=stack.repo)

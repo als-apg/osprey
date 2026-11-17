@@ -26,7 +26,7 @@ from osprey.interfaces.channel_finder import directory_values_supervisor as supe
 from osprey.interfaces.channel_finder.directory_values_supervisor import ValueSupervisor
 from osprey.interfaces.web_terminal.supervised_child import BACKOFF_S, PREVIOUS_EXIT_ENV
 from osprey.runtime.session_env import FORBIDDEN_ENV
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 _FAKE_CHILD = """
@@ -114,7 +114,7 @@ def session_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, config_file: Pa
     """The inherited variables of Value child IPC, and none of the forbidden ones."""
     state = tmp_path / "control_target" / "operator"
     state.mkdir(parents=True)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(state))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
@@ -225,14 +225,14 @@ def test_a_replacement_after_a_move_is_rendered_again(
 
     moved = tmp_path / "control_target" / "moved"
     moved.mkdir(parents=True)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(moved))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(moved))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "second-operator")
     fake.release.touch()
 
     assert _wait_until(lambda: len(fake.starts()) == 2)
     first, second = (start["env"] for start in fake.starts())
     assert first[AUDIT_IDENTITY_ENV] == "test-operator"
-    assert second[posture_store.CONTROL_CONTEXT_DIR_ENV_VAR] == str(moved)
+    assert second[write_switch.CONTROL_CONTEXT_DIR_ENV_VAR] == str(moved)
     assert second[AUDIT_IDENTITY_ENV] == "second-operator"
 
 
@@ -257,7 +257,7 @@ def test_the_rendered_environment(session_env: Path, config_file: Path, monkeypa
 
     assert "OSPREY_TERMINAL_SECRET" not in set(env)
     assert env["OSPREY_CONFIG"] == env["CONFIG_FILE"] == str(config_file.resolve())
-    assert env[posture_store.CONTROL_CONTEXT_DIR_ENV_VAR] == str(session_env)
+    assert env[write_switch.CONTROL_CONTEXT_DIR_ENV_VAR] == str(session_env)
     assert env[AUDIT_IDENTITY_ENV] == "test-operator"
 
 

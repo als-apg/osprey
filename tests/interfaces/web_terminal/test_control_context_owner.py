@@ -38,25 +38,26 @@ from osprey.interfaces.web_terminal.control_context_owner import (
     ControlContextOwner,
     Mutation,
 )
-from osprey_connectors import control_context
-from osprey_connectors.control_context import ControlContext, Owner
+from osprey_connectors import control_context, testing
+from osprey_connectors.control_context import ControlContext, RecordWriter, SwitchTerminus
 from osprey_connectors.model import evolve
 
-TERMINAL = Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=4242, port=8080)
-OTHER_TERMINAL = Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=9999, port=8090)
-SERVER = Owner(kind=control_context.OWNER_CONTROLS_SERVER, pid=7777)
+TERMINAL = RecordWriter(kind="web_terminal", pid=4242, port=8080)
+OTHER_TERMINAL = RecordWriter(kind="web_terminal", pid=9999, port=8090)
+SERVER = RecordWriter(kind="controls_server", pid=7777)
 
-#: A sample change for a mutation to make. ``last_switch`` is carried verbatim;
-#: ``posture`` is no longer one — every write derives it from ``switch``.
-MARK = {"request_id": "req-1", "status": "applied", "generation": 3}
+#: A sample change for a mutation to make: a ``last_switch`` terminus.
+MARK = SwitchTerminus.unchanged(
+    request_id="req-1", target="live", generation=3, requested_at=None, requested_by="pid:1"
+)
 
 
 @pytest.fixture(autouse=True)
 def _forget_the_parsed_record():
     """The record cache is process-global; no test may inherit another's."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -69,7 +70,7 @@ def record_file() -> Path:
     path = control_context.record_path()
     assert path is not None
     control_context.write_record(
-        ControlContext(target="live", generation=3, owner=TERMINAL), path=path
+        ControlContext(target="live", generation=3, writer=TERMINAL), path=path
     )
     return path
 
@@ -81,7 +82,7 @@ def context_owner(record_file: Path) -> ControlContextOwner:  # noqa: ARG001
 
 def read(path: Path) -> ControlContext | None:
     """The record as it is on disk right now, past the signature cache."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return control_context.read_record(path=path)
 
 
@@ -90,7 +91,7 @@ def read(path: Path) -> ControlContext | None:
 
 async def test_the_returned_record_is_written(context_owner, record_file):
     def mark(record):
-        return Mutation(record=evolve(record, last_switch=dict(MARK)), result=None)
+        return Mutation(record=evolve(record, last_switch=MARK), result=None)
 
     await context_owner.mutate_record(mark)
 
@@ -122,13 +123,13 @@ async def test_the_owner_is_reasserted_on_every_write(context_owner, record_file
     """A caller cannot hand ownership away by accident, or drop it entirely."""
 
     def careless(record):
-        return Mutation(record=evolve(record, owner=SERVER, target="va"), result=None)
+        return Mutation(record=evolve(record, writer=SERVER, target="va"), result=None)
 
     await context_owner.mutate_record(careless)
 
     stored = read(record_file)
     assert stored is not None
-    assert stored.owner == TERMINAL
+    assert stored.writer == TERMINAL
     assert stored.target == "va"
 
 
@@ -149,7 +150,7 @@ async def test_an_exception_from_the_callable_leaves_the_record_alone(context_ow
 
 async def test_a_foreign_owner_refuses_the_mutation(record_file):
     control_context.write_record(
-        ControlContext(target="live", generation=3, owner=OTHER_TERMINAL), path=record_file
+        ControlContext(target="live", generation=3, writer=OTHER_TERMINAL), path=record_file
     )
     context_owner = ControlContextOwner(TERMINAL)
     called: list[object] = []
@@ -165,7 +166,7 @@ async def test_a_foreign_owner_refuses_the_mutation(record_file):
     assert caught.value.error == "context_owned_elsewhere"
     assert called == []
     stored = read(record_file)
-    assert stored is not None and stored.owner == OTHER_TERMINAL
+    assert stored is not None and stored.writer == OTHER_TERMINAL
 
 
 def _turn_on(path: Path, target: str) -> ControlContext:
@@ -205,7 +206,7 @@ async def test_the_switch_gesture_needs_no_ownership(record_file):
     the login's, so its writer asks no such question and changes no owner.
     """
     control_context.write_record(
-        ControlContext(target="live", generation=3, owner=OTHER_TERMINAL), path=record_file
+        ControlContext(target="live", generation=3, writer=OTHER_TERMINAL), path=record_file
     )
     with pytest.raises(ContextOwnedElsewhere):
         await ControlContextOwner(TERMINAL).mutate_record(lambda r: Mutation.unchanged(None))
@@ -215,7 +216,7 @@ async def test_the_switch_gesture_needs_no_ownership(record_file):
     stored = read(record_file)
     assert stored is not None
     assert stored.switch == {"va": "asked"}
-    assert stored.owner == OTHER_TERMINAL
+    assert stored.writer == OTHER_TERMINAL
 
 
 async def test_a_vanished_record_refuses_the_mutation(context_owner, record_file):
@@ -231,12 +232,12 @@ async def test_a_vanished_record_refuses_the_mutation(context_owner, record_file
 async def test_a_claim_may_run_over_a_foreign_owner(record_file):
     """The ownership rules live above this primitive, so a claim opts the check out."""
     control_context.write_record(
-        ControlContext(target="va", generation=6, owner=SERVER), path=record_file
+        ControlContext(target="va", generation=6, writer=SERVER), path=record_file
     )
     context_owner = ControlContextOwner(TERMINAL)
 
     def claim(record):
-        assert record is not None and record.owner == SERVER
+        assert record is not None and record.writer == SERVER
         assert (record.target, record.generation) == ("va", 6)
         return Mutation(record=record, result="claimed")
 
@@ -244,7 +245,7 @@ async def test_a_claim_may_run_over_a_foreign_owner(record_file):
 
     stored = read(record_file)
     assert stored is not None
-    assert stored.owner == TERMINAL
+    assert stored.writer == TERMINAL
     assert (stored.target, stored.generation) == ("va", 6)
 
 
@@ -261,7 +262,7 @@ async def test_a_claim_may_create_the_record_from_nothing():
 
     stored = read(path)
     assert stored is not None
-    assert stored.owner == TERMINAL
+    assert stored.writer == TERMINAL
 
 
 @pytest.mark.parametrize(
@@ -274,7 +275,7 @@ async def test_web_terminal_claim_follows_baseline_at_generation_zero(
 ):
     """The terminal's claim applies the same rule as the controls server's."""
     control_context.write_record(
-        ControlContext(target="live", generation=generation, owner=None, last_switch=dict(MARK)),
+        ControlContext(target="live", generation=generation, writer=None, last_switch=MARK),
         path=record_file,
     )
     task = owner_module.ControlContextOwnerTask(SimpleNamespace(state=SimpleNamespace()))
@@ -285,7 +286,7 @@ async def test_web_terminal_claim_follows_baseline_at_generation_zero(
     assert follows is None
     stored = read(record_file)
     assert stored is not None
-    assert stored.owner == task.identity
+    assert stored.writer == task.identity
     assert (stored.target, stored.generation) == (expected, generation)
     assert stored.last_switch == MARK
 
@@ -331,7 +332,7 @@ async def test_the_path_is_resolved_on_each_mutation(tmp_path, monkeypatch):
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(after))
     path = control_context._record_path_under(after)
     control_context.write_record(
-        ControlContext(target="live", generation=1, owner=TERMINAL), path=path
+        ControlContext(target="live", generation=1, writer=TERMINAL), path=path
     )
 
     await context_owner.mutate_record(
@@ -387,7 +388,7 @@ async def test_both_changes_land_when_the_pool_is_blocked_mid_job(context_owner,
     def mark(record):
         entered.set()
         assert release.wait(5), "the first job was never released"
-        return Mutation(record=evolve(record, last_switch=dict(MARK)), result="first")
+        return Mutation(record=evolve(record, last_switch=MARK), result="first")
 
     def bump(record):
         second_entered.set()

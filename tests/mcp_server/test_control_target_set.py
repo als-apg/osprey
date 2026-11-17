@@ -50,7 +50,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as py_executor
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.connector_types import LIVE_STANDIN
 from osprey_connectors_tests._harness import owner, write_control_context, write_server_report
 from tests._live import async_wait_until
@@ -86,13 +86,13 @@ def record_root(state_root, monkeypatch):
     here is what makes one directory hold the record, the reports and the
     requests — which is the thing under test, not an incidental of it.
     """
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(state_root))
-    (state_root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    control_context.invalidate_cache()
+    (state_root / write_switch.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    testing.invalidate_cache()
     yield state_root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -125,13 +125,13 @@ def install_context(manager, monkeypatch) -> ControlSystemContext:
     return context
 
 
-def owned_here(root, target="live", generation=1, **kwargs):
+def written_here(root, target="live", generation=1, **kwargs):
     """A record this process owns, so the tool answers it where it stands."""
     return write_control_context(
         root,
         target=target,
         generation=generation,
-        owned_by=owner(control_context.OWNER_CONTROLS_SERVER, pid=os.getpid()),
+        owned_by=owner("controls_server", pid=os.getpid()),
         **kwargs,
     )
 
@@ -143,7 +143,7 @@ def owned_elsewhere(root, target="live", generation=1, *, owner_pid=None, **kwar
         target=target,
         generation=generation,
         owned_by=owner(
-            control_context.OWNER_CONTROLS_SERVER,
+            "controls_server",
             pid=os.getppid() if owner_pid is None else owner_pid,
         ),
         **kwargs,
@@ -369,7 +369,7 @@ async def owner_answers(
         root,
         target=body["target"] if mint else record.target,
         generation=generation if mint else record.generation,
-        owned_by=record.owner,
+        owned_by=record.writer,
         last_switch={
             "request_id": body["request_id"],
             "target": body["target"],
@@ -429,7 +429,7 @@ class TestTheGateRefusals:
         """
         manager = make_manager(raw=raw_config(va_probe=None))
         install_context(manager, monkeypatch)
-        owned_here(record_root)
+        written_here(record_root)
         write_marker("live", pid=os.getpid())
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
@@ -460,7 +460,7 @@ class TestTheGateRefusals:
         """
         manager = make_manager()
         install_context(manager, monkeypatch)
-        owned_here(record_root)
+        written_here(record_root)
         write_marker("va", pid=os.getpid())
 
         with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
@@ -482,7 +482,7 @@ class TestTheGateRefusals:
         """Order again: the run is the thing to deal with first."""
         manager = make_manager(raw=raw_config(va_probe=None))
         install_context(manager, monkeypatch)
-        owned_here(record_root)
+        written_here(record_root)
         write_marker("live", pid=os.getpid())
 
         with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
@@ -501,7 +501,7 @@ class TestTheGateRefusals:
         """
         manager = make_manager(raw=config_with_gateways(va_probe=None))
         install_context(manager, monkeypatch)
-        owned_here(record_root)
+        written_here(record_root)
         stale = write_marker("va", pid=dead_pid())
 
         with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
@@ -525,7 +525,7 @@ class TestTheGateRefusals:
         raw = config_with_gateways(va_probe=None)
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        owned_here(record_root, target="live", generation=4)
+        written_here(record_root, target="live", generation=4)
         expected = te.evaluate_switch(
             raw,
             "va",
@@ -549,7 +549,7 @@ class TestTheGateRefusals:
         """A target name nothing resolves reaches the gate, not a traceback."""
         manager = make_manager()
         install_context(manager, monkeypatch)
-        owned_here(record_root)
+        written_here(record_root)
 
         with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
             await TOOL(target="banana")
@@ -567,7 +567,7 @@ class TestTheGateRefusals:
         """
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
-        owned_here(record_root)
+        written_here(record_root)
         our_report(
             record_root,
             reachability={
@@ -600,7 +600,7 @@ class TestTheGateRefusals:
         """
         manager = make_manager(raw=config_with_gateways(va_probe=None))
         install_context(manager, monkeypatch)
-        owned_here(record_root, target="live", generation=7)
+        written_here(record_root, target="live", generation=7)
 
         with assert_raises_error(error_type=control_target.ERROR_REFUSED):
             await TOOL(target="va")
@@ -608,12 +608,12 @@ class TestTheGateRefusals:
         record = control_context.read_record()
         assert (record.target, record.generation) == ("live", 7)
         terminus = record.last_switch
-        assert terminus["status"] == control_context.SWITCH_REFUSED
-        assert terminus["target"] == "va"
-        assert terminus["reason"] == REASON_PROBE_CHANNEL_MISSING
+        assert terminus.status == "refused"
+        assert terminus.target == "va"
+        assert terminus.reason == REASON_PROBE_CHANNEL_MISSING
         # A refusal names no binding, because there is none to name.
-        assert terminus["generation"] is None
-        assert terminus["request_id"]
+        assert terminus.generation is None
+        assert terminus.request_id
 
 
 class TestTheStandinIsGatedAsAThirdTarget:
@@ -638,7 +638,7 @@ class TestTheStandinIsGatedAsAThirdTarget:
         raw = config_with_a_standin(strict_limits=False)
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        owned_here(record_root, target="live", generation=1)
+        written_here(record_root, target="live", generation=1)
         our_report(record_root, last_switch=applied_block(2))
 
         payload = extract_response_dict(await TOOL(target="standin"))
@@ -659,7 +659,7 @@ class TestTheStandinIsGatedAsAThirdTarget:
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
         assert ACK_LEAF not in raw["control_system"].get("target_switch", {})
-        owned_here(record_root, target="live", generation=1)
+        written_here(record_root, target="live", generation=1)
         our_report(record_root, last_switch=applied_block(2))
 
         payload = extract_response_dict(await TOOL(target="standin"))
@@ -685,7 +685,7 @@ class TestTheStandinIsGatedAsAThirdTarget:
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
         assert manager.baseline == "standin"
-        owned_here(record_root, target="standin")
+        written_here(record_root, target="standin")
 
         with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
             await TOOL(target="live")
@@ -713,7 +713,7 @@ class TestTheStandinIsGatedAsAThirdTarget:
         )
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
-        owned_here(record_root, target="standin", generation=1)
+        written_here(record_root, target="standin", generation=1)
         our_report(record_root, last_switch=applied_block(2))
 
         payload = extract_response_dict(await TOOL(target="live"))
@@ -742,7 +742,7 @@ class TestTheNoMintAnswer:
     ):
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
-        owned_here(record_root, target="live", generation=5)
+        written_here(record_root, target="live", generation=5)
 
         payload = extract_response_dict(await TOOL(target="live"))
 
@@ -762,7 +762,7 @@ class TestTheNoMintAnswer:
         """
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
-        path = owned_here(record_root, target="live", generation=5)
+        path = written_here(record_root, target="live", generation=5)
         before = path.stat().st_ino
 
         await TOOL(target="live")
@@ -806,7 +806,7 @@ class TestTheOwningServerAnswersItself:
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=3)
+        written_here(record_root, target="live", generation=3)
         our_report(record_root, last_switch=applied_block(4))
 
         payload = extract_response_dict(await TOOL(target="va"))
@@ -819,10 +819,10 @@ class TestTheOwningServerAnswersItself:
         record = control_context.read_record()
         assert (record.target, record.generation) == ("va", 4)
         terminus = record.last_switch
-        assert terminus["status"] == control_context.SWITCH_APPLIED
-        assert terminus["generation"] == 4
-        assert terminus["target"] == "va"
-        assert terminus["requested_by"] == f"pid:{os.getpid()}"
+        assert terminus.status == "applied"
+        assert terminus.generation == 4
+        assert terminus.target == "va"
+        assert terminus.requested_by == f"pid:{os.getpid()}"
         assert emitted == [
             {"from_target": "live", "to_target": "va", "outcome": "success", "generation": 4}
         ]
@@ -839,7 +839,7 @@ class TestTheOwningServerAnswersItself:
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=0)
+        written_here(record_root, target="live", generation=0)
         our_report(record_root, last_switch=applied_block(1))
 
         async def refuse(*args, **kwargs):
@@ -867,7 +867,7 @@ class TestTheOwningServerAnswersItself:
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=0)
+        written_here(record_root, target="live", generation=0)
         our_report(record_root)
 
         async def publish_when_asked():
@@ -894,7 +894,7 @@ class TestTheOwningServerAnswersItself:
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=0)
+        written_here(record_root, target="live", generation=0)
         our_report(
             record_root,
             last_switch={
@@ -933,7 +933,7 @@ class TestTheOwningServerAnswersItself:
         )
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=0)
+        written_here(record_root, target="live", generation=0)
         our_report(
             record_root,
             applied_target="live",
@@ -961,7 +961,7 @@ class TestTheOwningServerAnswersItself:
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=0)
+        written_here(record_root, target="live", generation=0)
         our_report(record_root)
         # What ``poll_once`` does with no live child: adopt, publish nothing.
         await manager.reconcile("va", 1)
@@ -985,7 +985,7 @@ class TestTheOwningServerAnswersItself:
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=2)
+        written_here(record_root, target="live", generation=2)
         applying = os.getppid()
         write_server_report(
             record_root,
@@ -1024,9 +1024,7 @@ class TestAFollowerFilesARequest:
         owned_elsewhere(record_root, target="live", generation=0)
         our_report(record_root)
 
-        answering = asyncio.create_task(
-            owner_answers(record_root, status=control_context.SWITCH_APPLIED)
-        )
+        answering = asyncio.create_task(owner_answers(record_root, status="applied"))
         payload = extract_response_dict(await TOOL(target="va"))
         body = await answering
 
@@ -1054,9 +1052,7 @@ class TestAFollowerFilesARequest:
         owned_elsewhere(record_root, target="live", generation=6)
         our_report(record_root)
 
-        answering = asyncio.create_task(
-            owner_answers(record_root, status=control_context.SWITCH_APPLIED)
-        )
+        answering = asyncio.create_task(owner_answers(record_root, status="applied"))
         payload = extract_response_dict(await TOOL(target="va"))
         await answering
 
@@ -1085,7 +1081,7 @@ class TestAFollowerFilesARequest:
         answering = asyncio.create_task(
             owner_answers(
                 record_root,
-                status=control_context.SWITCH_REFUSED,
+                status="refused",
                 reason=REASON_PROBE_CHANNEL_MISSING,
                 detail="Target 'va' names no probe channel.",
                 mint=False,
@@ -1208,7 +1204,7 @@ class TestOneSwitchAtATime:
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=0)
+        written_here(record_root, target="live", generation=0)
         our_report(record_root, last_switch=applied_block(1))
 
         first, second = await asyncio.gather(TOOL(target="va"), TOOL(target="va"))
@@ -1292,7 +1288,7 @@ class TestTheSwitchEndpointsAreNoted:
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
         allow_every_target(monkeypatch)
-        owned_here(record_root, target="live", generation=3)
+        written_here(record_root, target="live", generation=3)
         our_report(record_root, last_switch=applied_block(4))
 
         with call_scope("toolu_switch", None) as call:
@@ -1511,8 +1507,8 @@ class TestServerStartup:
         record = control_context.read_record()
         assert record is not None, "create_server must claim the control context"
         assert (record.target, record.generation) == ("va", 0)
-        assert record.owner.pid == os.getpid()
-        assert record.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert record.writer.pid == os.getpid()
+        assert record.writer.kind == "controls_server"
 
     async def test_the_lifespan_runs_the_endpoint_prober(self, monkeypatch, _no_prober):
         """The prober needs a running loop, so the lifespan owns it, not create_server."""

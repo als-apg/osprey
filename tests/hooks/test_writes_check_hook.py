@@ -15,7 +15,7 @@ import json
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as _TWIN
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -187,7 +187,7 @@ VERDICT_SHAPES = [
 def test_the_hook_decides_as_the_package_verdict(
     tmp_path, hook_runner, make_config, stamped_root, section, target, on
 ):
-    """The hook and ``posture_store.write_verdict`` answer one call identically.
+    """The hook and ``write_switch.write_verdict`` answer one call identically.
 
     The expected value is the package's verdict for the same section, record
     and identity; with no record the session sits on the baseline.
@@ -195,8 +195,8 @@ def test_the_hook_decides_as_the_package_verdict(
     config = make_config({"control_system": section})
     if target is not None:
         _switch(stamped_root, target, on=on)
-    control_context.invalidate_cache()
-    expected = posture_store.write_verdict(section, target or baseline_target(section))
+    testing.invalidate_cache()
+    expected = write_switch.write_verdict(section, target or baseline_target(section))
 
     result = _channel_write(tmp_path, hook_runner, config)
 

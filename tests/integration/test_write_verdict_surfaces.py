@@ -44,9 +44,9 @@ from tests.integration._write_verdict_surfaces_registry import (
 
 REPO = Path(__file__).resolve().parents[2]
 SRC_ROOTS = (REPO / "src", REPO / "packages" / "osprey-connectors" / "src")
-#: The verdict functions a src module may ask. The two authorized compositions
-#: of ``osprey_connectors.write_authorization`` are the switch verdict for a
-#: process naming no authorization, so a caller of either is a surface too.
+#: The verdict functions a src module may ask. The authorized compositions of
+#: ``osprey_connectors.write_authorization`` stand on the switch verdict, whose
+#: refusals stand under an authorization, so a caller of one is a surface too.
 VERDICT_NAMES = frozenset(
     {
         "write_verdict",
@@ -54,13 +54,14 @@ VERDICT_NAMES = frozenset(
         "backstop_verdict",
         "authorized_write_verdict",
         "authorized_execution_verdict",
+        "spend_authorized_write",
     }
 )
 
 #: The modules that define a verdict rather than ask one.
 DEFINING_MODULES = frozenset(
     {
-        "osprey_connectors.posture_store",
+        "osprey_connectors.write_switch",
         "osprey.templates.claude_code.claude.hooks.osprey_target_state",
     }
 )
@@ -246,7 +247,7 @@ POSITION_SURFACES = (
 
 def _sides(staged: Staged) -> Any:
     """The package's and the twin's ``(allowed, reason, position)`` for one row."""
-    from osprey_connectors.posture_store import write_verdict
+    from osprey_connectors.write_switch import write_verdict
     from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
     from tests.integration._write_verdict_surfaces_registry import _import_hook
 

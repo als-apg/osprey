@@ -43,7 +43,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.integrations.canopy.backend import SURFACE
 from osprey.integrations.canopy.sidecar import CanopySidecar
 from osprey.runtime import session as session_module
-from osprey_connectors import connector_types, control_context, posture_store, session_hold
+from osprey_connectors import connector_types, control_context, session_hold, testing, write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import _set_switch_to
@@ -133,9 +133,9 @@ def launch(tmp_path, monkeypatch, recorded_entries):
         if name.startswith(("CANOPY_", "OSPREY_CANOPY_", "OSPREY_CONTROL_TARGET", "EPICS_")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         session_hold.HOLD_DIR_ENV_VAR,
         session_module.SESSION_KEY_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
@@ -162,17 +162,17 @@ def launch(tmp_path, monkeypatch, recorded_entries):
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([*paths, inherited] if inherited else paths))
 
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.chdir(tmp_path)
     record = state_dir / control_context.RECORD_FILENAME
     control_context.write_record(
         control_context.ControlContext(target="va", generation=1), path=record
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     # The switch on for the bound target, so the write verdict allows.
     _set_switch_to(record, {"va": "allowed"})
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     sidecars: list[CanopySidecar] = []
 
@@ -203,7 +203,7 @@ def launch(tmp_path, monkeypatch, recorded_entries):
     yield start
     for sidecar in sidecars:
         sidecar.stop()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def test_a_put_is_relayed_end_to_end_and_confirmed(launch):
@@ -256,7 +256,7 @@ def test_a_switch_turned_off_under_a_running_data_refuses_the_next_put(launch):
     sidecar = launch(_config(writes="allowed"))
     assert _put(sidecar, {"value": 1.0, "binding": BINDING})[0] == 200
     _set_switch_to(launch.record, {})
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     status, payload = _put(sidecar, {"value": 2.0, "binding": BINDING})
     assert status == 403, payload
@@ -270,7 +270,7 @@ def test_a_switch_turned_off_under_a_running_data_refuses_the_next_put(launch):
 
 def test_at_asked_a_put_without_a_confirmation_is_refused(launch):
     _set_switch_to(launch.record, {"va": "asked"})
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     sidecar = launch(_config(writes="allowed"))
     status, payload = _put(sidecar, {"value": 4.25, "binding": BINDING})
 
@@ -287,14 +287,17 @@ def _hold_store(launch, *keys: str) -> Path:
 
 
 def _raise(root: Path, key: str) -> None:
-    assert session_hold.open_flag(
-        key,
-        flag_id="flag-1",
-        source="watchdog:limits",
-        reason="a limit was refused",
-        prompt_ref="turn-7",
-        prompt_excerpt="set the current to 900",
-        root=root,
+    assert (
+        session_hold.open_flag(
+            key,
+            flag_id="flag-1",
+            source="watchdog:limits",
+            reason="a limit was refused",
+            prompt_ref="turn-7",
+            prompt_excerpt="set the current to 900",
+            root=root,
+        )
+        == "opened"
     )
 
 

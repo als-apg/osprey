@@ -448,14 +448,17 @@ class TestFlags:
         assert not hold_root.exists()
 
     async def test_an_existing_flag_is_not_announced_again(self, make_runner, hold_root, frames):
-        assert open_flag(
-            POOL_KEY,
-            flag_id="first",
-            source="d1",
-            reason="r",
-            prompt_ref=f"{RECORD_SESSION}:{SUBMISSION}",
-            prompt_excerpt="p",
-            root=hold_root,
+        assert (
+            open_flag(
+                POOL_KEY,
+                flag_id="first",
+                source="d1",
+                reason="r",
+                prompt_ref=f"{RECORD_SESSION}:{SUBMISSION}",
+                prompt_excerpt="p",
+                root=hold_root,
+            )
+            == "opened"
         )
         runner = make_runner([decision("d1")], engine=StubEngine(flagged={"d1"}))
 

@@ -4,20 +4,22 @@ Which machine a deployment is pointed at, how many times that has moved, and
 what one operator has narrowed are properties of the deployment as that
 operator holds it, not of any process tree inside it. They live in a single
 JSON file, :data:`RECORD_FILENAME` inside the acting identity's directory
-under :data:`STATE_DIR_NAME` (the state directory,
-:func:`~osprey_connectors.posture_store.state_dir`), and this module is where
+under :data:`~osprey_connectors.write_switch.CONTROL_STATE_DIR_NAME` (the
+state directory, :func:`~osprey_connectors.write_switch.state_dir`), and this
+module is where
 it is written and read.
 
-The file has exactly one writer at a time — its **owner**: the web terminal
-when one is running, otherwise a controls MCP server. Everything else is a
+The file has exactly one writer at a time — its **writer**, stored under the
+key ``owner`` (:class:`RecordWriter`): the web terminal when one is running,
+otherwise a controls MCP server. Everything else is a
 reader: every chat session, every notebook kernel, every
 executor sandbox, every sibling MCP server, and the stdlib-only hooks, which
 cannot import this module and therefore restate the rules below. Treat
 them as the contract; a change here is a change there.
 
-**1. Where the file is.** :func:`record_path` — the record sits in the same
-directory as the posture store, and the root resolves by that store's rule 1
-(:func:`osprey_connectors.posture_store.state_dir`) rather than by a
+**1. Where the file is.** :func:`record_path` — the record sits in the state
+directory, and the root resolves by the write switch's rule 1
+(:func:`osprey_connectors.write_switch.state_dir`) rather than by a
 second derivation here: a record one process writes and another looks for
 somewhere else is worse than no record at all. An unresolvable root makes
 :func:`record_path` ``None``, which reads as "no record" and makes
@@ -36,24 +38,25 @@ The other fields are annotations on that identity and degrade on their
 own, because each has a meaningful "not stated" value that a reader can act
 on safely:
 
-* ``owner`` → ``None``, which is *ownerless* — the state a claim is for. An
-  owner that does not name one of :data:`_OWNER_KINDS` and a live PID is not
-  an owner anybody should defer to, so reading it as ownerless is what lets
+* ``owner`` → ``None``, which is *ownerless* — the state a claim is for. The
+  field names the record's writer (:class:`RecordWriter`), a process. A writer
+  that does not name one of the :data:`WriterKind` words and a live PID is not
+  a writer anybody should defer to, so reading it as ownerless is what lets
   the next process take the file over instead of stalling behind a ghost.
-* ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never
-  an input: a record's JSON form (``model_dump(mode="json")``) holds ``sandbox`` for every
-  machine in :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` whose position
-  is off (:func:`_posture_mirror`), whatever the record it was built
-  from carried, and no write decision reads it back. A file written before
-  the mirror may still hold an old narrowing; it is parsed by the posture
-  store's grammar (rule 2 there) and ignored by the verdict.
+* ``posture`` → not read. A mirror of ``switch`` kept for old readers (the
+  stdlib hooks among them), never an input: a record's JSON form
+  (``model_dump(mode="json")``) holds ``sandbox`` for every machine in
+  :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` whose position is
+  off (:func:`_posture_mirror`), and nothing in this package reads it back.
 * ``last_switch`` → ``None``. It is the terminus of the last switch request
-  — applied or refused — and it is carried verbatim. This module owns the
+  — applied or refused — a :class:`SwitchTerminus`. This module owns the
   block's shape, because a requester polls it for its own ``request_id``
-  (:func:`terminus` builds it, :func:`write_terminus` stores it and reads it
-  back); the switch machinery owns what one says. **A refusal is a record
+  (the constructors build it, :func:`write_terminus` stores it and reads it
+  back); the switch machinery owns what one says. The block is ``None`` only
+  when its ``request_id`` or ``status`` does not read; every other field of it
+  degrades on its own (:func:`_parse_terminus`). **A refusal is a record
   write that moves nothing else**: the same target, the same generation, the
-  same posture, a new ``last_switch``. That is the whole of how a refusal is
+  same switch, a new ``last_switch``. That is the whole of how a refusal is
   reported.
 * ``switch`` → ``{}``, every machine's writes off. A per-target map of which
   only ``"asked"`` and ``"allowed"`` leaves survive, and a target absent from
@@ -98,9 +101,10 @@ file share ``flock`` is not guaranteed to exclude anything; that residual is
 closed by the sandboxed connector host, not here.
 
 **4. When a change is seen.** Every read re-stats the file and re-parses on
-``(st_mtime_ns, st_size, st_ino)``, the same signature the posture store uses
-and for the same reason: writes arrive as temp+rename, so two of them inside
-one filesystem clock tick differ by inode when mtime and size do not.
+``(st_mtime_ns, st_size, st_ino)``, the signature :func:`file_signature`
+answers for every file in the directory: writes arrive as temp+rename, so two
+of them inside one filesystem clock tick differ by inode when mtime and size do
+not.
 
 **5. Who else lives in that directory.** The record says what the deployment
 is pointed at; it does not say what any one controls server has managed to do
@@ -128,26 +132,44 @@ files' addressees are all judged by it and there must be one answer.
 This module imports nothing from ``osprey`` and holds no config: it runs
 inside connector-host children, executor sandboxes and notebook kernels,
 where the dependency budget is the lean connector chain. The import direction
-is one-way — the posture store below it, never the reverse at module scope.
+is one-way: where the state is and the file primitives live below it, in the
+package's private ``_control_state``, and the write switch above it reads it;
+this module imports neither the switch nor, at module scope, anything above.
 """
 
 from __future__ import annotations
 
 import contextlib
+import errno
 import fcntl
 import json
 import logging
 import os
+import stat
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final, Generic, Literal, TypeVar, get_args
+from typing import Final, Generic, Literal, NamedTuple, Protocol, Self, TypeVar, get_args
 
-from pydantic import Field, SerializerFunctionWrapHandler, field_validator, model_serializer
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
-from osprey_connectors import posture_store
+from osprey_connectors import _control_state
+from osprey_connectors._control_state import (
+    CONTROL_STATE_DIR_NAME,
+    CONTROL_TREE_MARKER_NAME,
+    file_signature,
+    is_process_alive,
+    sweep_dead,
+    write_json_atomic,
+)
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     TARGET_STANDIN,
@@ -161,22 +183,20 @@ from osprey_connectors.errors import (
     StateUnavailableError,
     require_aware,
 )
-from osprey_connectors.identity import acting_identity
+from osprey_connectors.identity import acting_identity, is_path_segment
 from osprey_connectors.model import (
     FrozenModel,
     Instant,
     ReadOnlyMapping,
-    _stored_instant,
+    ReadResult,
+    ReadStatus,
     empty_mapping,
     evolve,
     parse_instant,
 )
-from osprey_connectors.posture_store import ArmedPosition, Posture, SwitchPosition
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import REASONS, VerdictReason, VerdictReasonField, refusal_phrase
 from osprey_connectors.safety_file import (
-    SHARED_FILE_MODE,
     SHARED_LOCK_MODE,
-    atomic_replace,
     ensure_shared_dir,
 )
 from osprey_connectors.targets import _MACHINE_KINDS as _TARGET_MACHINE_KINDS
@@ -185,32 +205,29 @@ logger = logging.getLogger("osprey_connectors.control_context")
 
 __all__ = [
     "claimed",
-    "REPORT_APPLIED",
-    "REPORT_APPLYING",
-    "REPORT_FAILED",
-    "OWNER_CONTROLS_SERVER",
-    "OWNER_WEB_TERMINAL",
-    "OwnerKind",
+    "ArmedPosition",
+    "SwitchPosition",
+    "ReachableState",
+    "SwitchProgressStatus",
+    "SwitchStatus",
+    "TerminusOutcome",
+    "WriterKind",
     "RECORD_FILENAME",
     "REPORT_FILE_GLOB",
-    "REPORT_FILE_PREFIX",
-    "REPORT_FILE_SUFFIX",
-    "STATE_DIR_NAME",
-    "SWITCH_APPLIED",
-    "SWITCH_POSITIONS",
-    "SWITCH_REFUSED",
     "ControlContext",
-    "Owner",
+    "MachineStatement",
+    "Reachable",
+    "RecordWriter",
     "ServerReport",
     "StoppedSinceError",
-    "applied_detail",
+    "SwitchProgress",
+    "SwitchTerminus",
+    "WritesStatement",
     "blocking_pids",
-    "invalidate_cache",
     "is_process_alive",
-    "live_owner",
+    "live_writer",
     "live_reports",
-    "write_statement",
-    "owned_here",
+    "written_here",
     "converged",
     "file_signature",
     "parse_record",
@@ -218,16 +235,18 @@ __all__ = [
     "read_record",
     "read_record_status",
     "read_report",
+    "read_tree_context",
+    "TreeContext",
+    "VerdictSurface",
     "record_path",
     "report_path",
     "report_paths",
     "set_switch",
     "sweep_dead",
     "switch_position",
-    "terminus",
     "write_json_atomic",
-    "unchanged_detail",
     "write_record",
+    "write_report",
     "write_terminus",
     "held_epoch",
     "RecordUnavailableError",
@@ -242,41 +261,46 @@ _SCHEMA_VERSION = 1
 #: this literal.
 RECORD_FILENAME = "control_context.json"
 
-#: The tree of per-identity directories the record shares with the posture
-#: store, the per-server reports and the request files — one directory per
-#: identity, each holding every one of those families. Taken from the store
-#: rather than re-spelled so one directory cannot be two directories.
-STATE_DIR_NAME = posture_store.STATE_DIR_NAME
+#: A machine's three switch positions, narrowest first. ``off`` is never stored
+#: in the control-context record: it is a target absent from its ``switch`` map.
+SwitchPosition = Literal["off", "asked", "allowed"]
 
-#: The two kinds of process that can own the record. A web terminal outranks a
-#: controls server — it is the one an operator is looking at.
-OwnerKind = Literal["web_terminal", "controls_server"]
-OWNER_WEB_TERMINAL: Final = "web_terminal"
-OWNER_CONTROLS_SERVER: Final = "controls_server"
-_OWNER_KINDS: frozenset[OwnerKind] = frozenset(get_args(OwnerKind))
+#: The two positions that arm a machine — every value the record's ``switch``
+#: map stores, and the effective position an allowed verdict carries.
+ArmedPosition = Literal["asked", "allowed"]
 
-#: The two termini a switch request can reach in the record. ``applied`` moved
-#: the target and minted a generation; ``refused`` moved nothing.
-SWITCH_APPLIED = "applied"
-SWITCH_REFUSED = "refused"
+#: The word the record's ``posture`` mirror stores for a machine at off: the
+#: one word of the grammar old readers know (:func:`_posture_mirror`).
+_MIRROR_SANDBOX: Final = "sandbox"
+
+#: The mirror's one word, as a type.
+_MirrorWord = Literal["sandbox"]
+
+#: The two kinds of process that can write the record — its **writer**, which
+#: the file stores under ``owner``. A web terminal outranks a controls server —
+#: it is the one an operator is looking at. A process, not a login: the login
+#: whose switch governs a write is the write switch's owner.
+WriterKind = Literal["web_terminal", "controls_server"]
+
+#: The two termini a switch request can reach in the record, as stored.
+#: ``applied`` moved the target and minted a generation, or found the target
+#: already there (:meth:`SwitchTerminus.unchanged`); ``refused`` moved nothing.
+SwitchStatus = Literal["applied", "refused"]
 
 #: How far one controls server has got through the switch the record names.
 #: ``applying`` is a swap in flight and stops every session while its bound
 #: holds; ``applied`` is arrival, which the binding states as well; ``failed``
 #: is a swap that will not land without an operator, and stops only the session
-#: whose server it is. Distinct from the record's :data:`SWITCH_APPLIED` /
-#: :data:`SWITCH_REFUSED`, which are a request's terminus rather than a
-#: server's progress.
-REPORT_APPLYING = "applying"
-REPORT_APPLIED = "applied"
-REPORT_FAILED = "failed"
+#: whose server it is. Distinct from the record's :data:`SwitchStatus`, which
+#: is a request's terminus rather than a server's progress.
+SwitchProgressStatus = Literal["applying", "applied", "failed"]
 
 #: One report file per controls server, in the state directory beside the record.
 #: The PID in the name is the address and is what makes a report left behind by
 #: a killed server sweepable without opening it.
-REPORT_FILE_PREFIX = "server_"
-REPORT_FILE_SUFFIX = ".json"
-REPORT_FILE_GLOB = f"{REPORT_FILE_PREFIX}*{REPORT_FILE_SUFFIX}"
+_REPORT_FILE_PREFIX = "server_"
+_REPORT_FILE_SUFFIX = ".json"
+REPORT_FILE_GLOB = f"{_REPORT_FILE_PREFIX}*{_REPORT_FILE_SUFFIX}"
 
 #: Guards every :class:`_ParsedFiles` cache below.
 _CACHE_LOCK = threading.Lock()
@@ -296,8 +320,9 @@ _SWITCH_ASKED: Final = "asked"
 _SWITCH_ALLOWED: Final = "allowed"
 
 #: The word a record written before the three positions arms a machine with.
-#: Read, and taken by :func:`set_switch`, as :data:`_SWITCH_ASKED`; never written. Every other value a payload
-#: carries under ``switch`` is dropped on parse (rule 2).
+#: Read as :data:`_SWITCH_ASKED` and never written; :func:`set_switch` no longer
+#: takes it. Every other value a payload carries under ``switch`` is dropped on
+#: parse (rule 2).
 _SWITCH_LEGACY_ON: Final = "on"
 
 #: The record lock's file, beside the record: ``<record path>`` plus this.
@@ -317,46 +342,178 @@ _LOCK_POLL_S = 0.01
 # -- the record -------------------------------------------------------------
 
 
-class Owner(FrozenModel):
-    """The process currently allowed to write the record.
+class RecordWriter(FrozenModel):
+    """The process currently allowed to write the record, stored under ``owner``.
+
+    A process and not a login: the login whose switch governs a write is the
+    write switch's owner (:func:`~osprey_connectors.write_switch.current_owner`).
 
     Attributes:
-        kind: An :data:`OwnerKind`.
-        pid: The owning process's PID — how every other process decides
-            whether the owner is still alive.
-        port: The web terminal's port, so a follower can name where the owner
+        kind: A :data:`WriterKind`.
+        pid: The writing process's PID — how every other process decides
+            whether the writer is still alive.
+        port: The web terminal's port, so a follower can name where the writer
             is in a refusal an operator has to act on. ``None`` for a controls
             server, which serves nothing an operator can open.
     """
 
-    kind: OwnerKind
+    kind: WriterKind
     pid: int
     port: int | None = None
+
+
+class SwitchTerminus(FrozenModel):
+    """How the last switch request ended: the record's ``last_switch`` block.
+
+    A requester polls the record for its own ``request_id`` and reads the
+    outcome beside it, so every surface that answers a switch builds the block
+    through one of the three constructors (:meth:`applied`, :meth:`unchanged`,
+    :meth:`refused`) and stores it with :meth:`ControlContext.answered`. The
+    field order is the stored key order.
+
+    Attributes:
+        request_id: The id the requester is waiting on.
+        target: The target that was asked for — recorded whether or not the
+            deployment went there, because a refusal has to say what it
+            refused. It may name no target at all.
+        requested_at: When the request was made, as its own stamp states it,
+            or ``None`` when it states none that reads.
+        requested_by: Who to name: an audit session where the requester has
+            one, ``pid:<n>`` where it does not. Not a login.
+        status: ``applied`` or ``refused``.
+        reason: The switch gate's machine-readable reason on a refusal (its
+            own words, such as ``switch_in_progress``; possibly ``""``),
+            ``None`` when applied.
+        detail: The sentence an operator reads.
+        generation: The record's generation after the answer, or ``None`` for
+            a refusal, which names no binding because there is none.
+    """
+
+    request_id: str
+    target: str
+    requested_at: Instant | None
+    requested_by: str
+    status: SwitchStatus
+    reason: str | None
+    detail: str
+    generation: int | None
+
+    @classmethod
+    def applied(
+        cls,
+        *,
+        request_id: str,
+        target: str,
+        generation: int,
+        requested_at: datetime | None,
+        requested_by: str,
+    ) -> Self:
+        """A switch that happened: the deployment is now on *target* at *generation*, the new one.
+
+        The detail has one spelling whichever of the four surfaces answered —
+        the terminal owner's request half, the controls server's reconciler,
+        the HTTP switch route and the agent's own ``control_target_set`` —
+        because the chip resolves a pending switch against what it finds here.
+
+        Raises:
+            NaiveDatetimeError: *requested_at* names no zone.
+        """
+        return cls(
+            request_id=request_id,
+            target=target,
+            requested_at=_aware_or_none(requested_at),
+            requested_by=requested_by,
+            status="applied",
+            reason=None,
+            detail=f"The control target is now {target!r} (generation {generation}).",
+            generation=generation,
+        )
+
+    @classmethod
+    def unchanged(
+        cls,
+        *,
+        request_id: str,
+        target: str,
+        generation: int,
+        requested_at: datetime | None,
+        requested_by: str,
+    ) -> Self:
+        """A request for the target of record: an APPLIED terminus that mints no generation.
+
+        *generation* is the record's own. The deployment is where the request
+        asked for it to be, and a generation bumped for a switch that did not
+        happen would refuse every write bound to the old one, for nothing.
+
+        Raises:
+            NaiveDatetimeError: *requested_at* names no zone.
+        """
+        return cls(
+            request_id=request_id,
+            target=target,
+            requested_at=_aware_or_none(requested_at),
+            requested_by=requested_by,
+            status="applied",
+            reason=None,
+            detail=f"The control target is already {target!r} (generation {generation}).",
+            generation=generation,
+        )
+
+    @classmethod
+    def refused(
+        cls,
+        *,
+        request_id: str,
+        target: str,
+        reason: str,
+        detail: str,
+        requested_at: datetime | None,
+        requested_by: str,
+    ) -> Self:
+        """A request the gate said no to: neither target nor generation moves.
+
+        Raises:
+            NaiveDatetimeError: *requested_at* names no zone.
+        """
+        return cls(
+            request_id=request_id,
+            target=target,
+            requested_at=_aware_or_none(requested_at),
+            requested_by=requested_by,
+            status="refused",
+            reason=reason,
+            detail=detail,
+            generation=None,
+        )
+
+
+def _aware_or_none(moment: datetime | None) -> datetime | None:
+    """*moment* checked for a zone, or ``None``. Raises ``NaiveDatetimeError``."""
+    return None if moment is None else require_aware(moment, name="requested_at")
 
 
 class ControlContext(FrozenModel):
     """One deployment's control context.
 
     :func:`read_record` hands back the cached instance, which is frozen: a
-    caller that needs a changed record builds a new one. Its ``posture``,
-    ``last_switch`` and ``switch`` maps are read-only
-    (:data:`~osprey_connectors.model.ReadOnlyMapping`) for the same reason: they
-    are the cached instance's own, and an in-place edit would reach every other
-    reader in the process.
+    caller that needs a changed record builds a new one. Its ``switch`` map is
+    read-only (:data:`~osprey_connectors.model.ReadOnlyMapping`) for the same
+    reason: it is the cached instance's own, and an in-place edit would reach
+    every other reader in the process.
+
+    The stored ``posture`` field is not a field here: it is the mirror of
+    ``switch`` the serializer derives (:func:`_posture_mirror`), and no reader
+    of this record reads it back.
 
     Attributes:
         target: The control target the deployment is pointed at.
-        generation: How many times that has moved. Minted by the owner and
+        generation: How many times that has moved. Minted by the writer and
             by nobody else; a reader pins its work to it.
-        owner: The process allowed to write this file, or ``None`` when the
-            record is ownerless and free to be claimed.
-        posture: The ``posture`` field as read off disk — the mirror of
-            ``switch`` (:func:`_posture_mirror`), or an old narrowing in a file
-            written before it. A reading only: the record's JSON form ignores
-            it and derives the field from ``switch``, so nothing set here is
-            ever stored, and no write decision reads it.
-        last_switch: The terminus of the last switch request, verbatim, or
-            ``None`` when no request has reached one.
+        writer: The process allowed to write this file, stored under
+            ``owner``, or ``None`` when the record has no writer and is free
+            to be claimed.
+        last_switch: The terminus of the last switch request, or ``None``
+            when no request has reached one.
         switch: The position the person has put each machine at,
             ``{target: "asked" | "allowed"}``; an absent target is off, and
             :func:`switch_position` is how it is read. :func:`write_record`
@@ -375,9 +532,8 @@ class ControlContext(FrozenModel):
 
     target: ControlTarget
     generation: int
-    owner: Owner | None = None
-    posture: ReadOnlyMapping[str, Posture] = Field(default_factory=empty_mapping)
-    last_switch: ReadOnlyMapping[str, object] | None = None
+    writer: RecordWriter | None = Field(default=None, alias="owner")
+    last_switch: SwitchTerminus | None = None
     switch: ReadOnlyMapping[str, ArmedPosition] = Field(default_factory=empty_mapping)
     switch_epoch: int | None = None
 
@@ -386,6 +542,21 @@ class ControlContext(FrozenModel):
     def _switch_words(cls, value: object) -> dict[str, ArmedPosition]:
         return _parse_switch(dict(value) if isinstance(value, Mapping) else value)
 
+    def answered(self, terminus: SwitchTerminus) -> ControlContext:
+        """This record once *terminus* has answered a switch request.
+
+        Every answer to a switch gesture ends here, whoever writes it: the
+        owning server answering its own agent, and the reconciler answering a
+        request another process filed. An applied terminus moves the target
+        and the generation to its own; a refusal moves nothing but
+        ``last_switch``. Not modified; :func:`write_terminus` stores the result.
+        """
+        if terminus.generation is None:
+            return evolve(self, last_switch=terminus)
+        return evolve(
+            self, target=terminus.target, generation=terminus.generation, last_switch=terminus
+        )
+
     @model_serializer(mode="wrap")
     def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
         """This record as the JSON object :func:`write_record` stores.
@@ -393,14 +564,14 @@ class ControlContext(FrozenModel):
         The seven contract fields and the schema, in this order, and nothing
         else: the object round-trips through :func:`parse_record` unchanged, and
         a key some future version added does not survive a rewrite by this one.
-        The ``posture`` field is the mirror of ``switch``
-        (:func:`_posture_mirror`), never :attr:`posture`: a narrowing is not
+        :attr:`writer` is stored under ``owner``, and the ``posture`` field is
+        the mirror of ``switch`` (:func:`_posture_mirror`): a narrowing is not
         something a writer can store.
         """
         fields: dict[str, object] = handler(self)
         return {
             "schema": _SCHEMA_VERSION,
-            "owner": fields["owner"],
+            "owner": fields["owner" if "owner" in fields else "writer"],
             "target": fields["target"],
             "generation": fields["generation"],
             "posture": _posture_mirror(self.switch),
@@ -410,7 +581,7 @@ class ControlContext(FrozenModel):
         }
 
 
-def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, Posture]:
+def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, _MirrorWord]:
     """The ``posture`` field a record with *switch* stores — ``{target: "sandbox"}``.
 
     ``sandbox`` for every machine in
@@ -424,17 +595,45 @@ def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, Posture]:
         switch: The record's switch, ``{target: "asked" | "allowed"}``.
     """
     return {
-        target: posture_store.POSTURE_SANDBOX
+        target: _MIRROR_SANDBOX
         for target in CONTROL_TARGETS
         if _switch_word(switch.get(target)) is None
     }
+
+
+def _parse_posture_value(value: object) -> dict[str, _MirrorWord]:
+    """The record's ``posture`` mirror as ``{target: "sandbox"}`` — the switched-off targets.
+
+    The grammar of the mirror field (rule 2), in one place: the stdlib hook
+    twin reads the mirror, and its parity test holds that reader to this one.
+    Nothing in this package reads the field — the switch decides every write —
+    so this is the shape a reader that predates the switch sees, and nothing
+    more.
+
+    Never raises. Anything that is not a ``"sandbox"`` entry — a bare
+    ``"writes"``, an unknown string, a non-string target key, a hand-edited or
+    future-version shape — is dropped, so a field nobody can repair from the
+    browser never fails a read.
+    """
+    if isinstance(value, str):
+        if value == _MIRROR_SANDBOX:
+            return dict.fromkeys(CONTROL_TARGETS, _MIRROR_SANDBOX)
+        # Bare "writes" (and every unknown string) maps nothing.
+        return {}
+    if isinstance(value, dict):
+        return {
+            target: posture
+            for target, posture in value.items()
+            if isinstance(target, str) and posture == _MIRROR_SANDBOX
+        }
+    return {}
 
 
 def switch_position(record: ControlContext | None, target: str) -> SwitchPosition:
     """Where the person has put *target* — the one reader of the ``switch`` map.
 
     Never raises. No record and a target absent from the map read as off; the
-    map holds only :data:`~osprey_connectors.posture_store.ArmedPosition` words
+    map holds only :data:`ArmedPosition` words
     (a parsed ``"on"`` is already ``"asked"``).
 
     Args:
@@ -452,7 +651,7 @@ def claimed(record: ControlContext, baseline: ControlTarget) -> ControlContext:
     A record nobody has switched follows the deployment's baseline; every
     applied switch mints ``generation + 1``, so generation 0 is a claim and
     never a switch. An unswitched record on another target moves to
-    *baseline* and keeps its generation, owner and last switch terminus. A switched record, or one already
+    *baseline* and keeps its generation, writer and last switch terminus. A switched record, or one already
     on *baseline*, is returned as it is.
     """
     if record.generation != 0 or record.target == baseline:
@@ -484,7 +683,7 @@ def _record_path_under(root: Path) -> Path:
     The container bind deliberately does not apply: a caller passing a root has
     said which tree it means, and that is a statement about the host layout.
     """
-    return root / STATE_DIR_NAME / acting_identity() / RECORD_FILENAME
+    return root / CONTROL_STATE_DIR_NAME / acting_identity() / RECORD_FILENAME
 
 
 def record_path() -> Path | None:
@@ -494,7 +693,7 @@ def record_path() -> Path | None:
     empty deployment, and for a writer it is what a route reports as
     ``store_unavailable``.
     """
-    directory = posture_store.state_dir()
+    directory = _control_state.state_dir()
     return None if directory is None else directory / RECORD_FILENAME
 
 
@@ -512,13 +711,13 @@ def _positive_int(value: object) -> int | None:
     return int(value)
 
 
-def _parse_owner(value: object) -> Owner | None:
-    """One ``owner`` object as an :class:`Owner`, or ``None`` when ownerless.
+def _parse_writer(value: object) -> RecordWriter | None:
+    """One ``owner`` object as a :class:`RecordWriter`, or ``None`` when it names none.
 
-    Rule 2 of the module contract for this field: an owner has to name a kind
+    Rule 2 of the module contract for this field: a writer has to name a kind
     this version knows and a plausible PID, because the answer decides whether
     another process defers to it or takes the record over. Anything less is
-    ownerless — the claimable state — rather than an error.
+    no writer — the claimable state — rather than an error.
     """
     if not isinstance(value, dict):
         return None
@@ -526,11 +725,56 @@ def _parse_owner(value: object) -> Owner | None:
     pid = _positive_int(value.get("pid"))
     if pid is None:
         return None
-    if kind == OWNER_WEB_TERMINAL:
-        return Owner(kind=OWNER_WEB_TERMINAL, pid=pid, port=_positive_int(value.get("port")))
-    if kind == OWNER_CONTROLS_SERVER:
-        return Owner(kind=OWNER_CONTROLS_SERVER, pid=pid, port=_positive_int(value.get("port")))
+    if kind == "web_terminal":
+        return RecordWriter(kind="web_terminal", pid=pid, port=_positive_int(value.get("port")))
+    if kind == "controls_server":
+        return RecordWriter(kind="controls_server", pid=pid, port=_positive_int(value.get("port")))
     return None
+
+
+def _string(value: object, default: str) -> str:
+    """*value* when it is a string, the empty one included, else *default*."""
+    return value if isinstance(value, str) else default
+
+
+def _optional_string(value: object) -> str | None:
+    """*value* when it is a string, the empty one included, else ``None``."""
+    return value if isinstance(value, str) else None
+
+
+def _parse_terminus(value: object) -> SwitchTerminus | None:
+    """One ``last_switch`` block as a :class:`SwitchTerminus`, or ``None`` (rule 2).
+
+    The block is ``None`` only when it names no ``request_id`` or no
+    :data:`SwitchStatus`: a requester matches on the one and reads the other,
+    so a block without either answers nobody, and :func:`write_terminus` reads
+    it as an answer that did not stick. Every other field degrades on its own
+    to its "not stated" value — an empty ``target``, ``requested_by`` or
+    ``detail``, and ``None`` for a stamp that states no instant, a reason that
+    is not a string and a generation that is not a non-negative integer.
+    """
+    if not isinstance(value, dict):
+        return None
+    request_id = value.get("request_id")
+    status = value.get("status")
+    if not isinstance(request_id, str):
+        return None
+    if status == "applied":
+        stored: SwitchStatus = "applied"
+    elif status == "refused":
+        stored = "refused"
+    else:
+        return None
+    return SwitchTerminus(
+        request_id=request_id,
+        target=_string(value.get("target"), ""),
+        requested_at=_instant(value.get("requested_at")),
+        requested_by=_string(value.get("requested_by"), ""),
+        status=stored,
+        reason=_optional_string(value.get("reason")),
+        detail=_string(value.get("detail"), ""),
+        generation=_non_negative_int(value.get("generation")),
+    )
 
 
 def _switch_word(value: object) -> ArmedPosition | None:
@@ -601,38 +845,17 @@ def parse_record(raw: object) -> ControlContext | None:
     generation = raw.get("generation")
     if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
         return None
-    last_switch = raw.get("last_switch")
     return ControlContext(
         target=target,
         generation=generation,
-        owner=_parse_owner(raw.get("owner")),
-        posture=posture_store.parse_posture_value(raw.get("posture")),
-        last_switch=dict(last_switch) if isinstance(last_switch, dict) else None,
+        writer=_parse_writer(raw.get("owner")),
+        last_switch=_parse_terminus(raw.get("last_switch")),
         switch=_parse_switch(raw.get("switch")),
         switch_epoch=_parse_epoch(raw.get("switch_epoch")),
     )
 
 
 # -- reading ----------------------------------------------------------------
-
-
-def file_signature(path: Path | None) -> tuple[int, int, int] | None:
-    """``(mtime_ns, size, inode)`` for *path*, or ``None`` when it is absent.
-
-    Rule 4 of the module contract, and the same answer for everything that
-    watches one of these files: the cache below re-parses on it, and the
-    reconciler wakes on it. The inode is the third element because
-    :func:`write_json_atomic` replaces the file rather than rewriting it, so
-    two switches inside one filesystem clock tick differ there and nowhere
-    else. An unresolvable path has no signature, which reads as "no file".
-    """
-    if path is None:
-        return None
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size, st.st_ino)
 
 
 class _ParsedFiles(Generic[_Parsed]):
@@ -677,12 +900,7 @@ class _ParsedFiles(Generic[_Parsed]):
             self._entries.clear()
 
 
-#: How a record read ended: a usable record, no file, or a file (or root)
-#: that states nothing usable.
-_RecordStatus = Literal["ok", "missing", "unreadable"]
-
-
-def _read(path: Path) -> tuple[ControlContext | None, _RecordStatus]:
+def _read(path: Path) -> tuple[ControlContext | None, ReadStatus]:
     """*path* parsed, with how the read ended. Uncached; never raises."""
     try:
         raw = path.read_text(encoding="utf-8")
@@ -699,7 +917,18 @@ def _read(path: Path) -> tuple[ControlContext | None, _RecordStatus]:
     return (None, "unreadable") if record is None else (record, "ok")
 
 
-_RECORDS = _ParsedFiles(_read)
+def _read_result(path: Path) -> ReadResult[ControlContext]:
+    """One uncached read of the record at *path*, as :func:`read_record_status` answers it."""
+    record, status = _read(path)
+    return ReadResult[ControlContext](status=status, value=record, path=path)
+
+
+def _no_record(status: ReadStatus, path: Path | None) -> ReadResult[ControlContext]:
+    """A read that ended at *status* before the file was parsed."""
+    return ReadResult[ControlContext](status=status, value=None, path=path)
+
+
+_RECORDS = _ParsedFiles(_read_result)
 
 
 def read_record(*, path: Path | None = None) -> ControlContext | None:
@@ -717,29 +946,27 @@ def read_record(*, path: Path | None = None) -> ControlContext | None:
         path: Read this file instead of :func:`record_path`. For a caller that
             has already resolved a root, and for tests.
     """
-    record, _status = read_record_status(path=path)
-    return record
+    return read_record_status(path=path).value
 
 
-def read_record_status(
-    *, path: Path | None = None
-) -> tuple[ControlContext | None, Literal["ok", "missing", "unreadable"]]:
+def read_record_status(*, path: Path | None = None) -> ReadResult[ControlContext]:
     """The record and how reading it ended — for a caller that must tell why.
 
     :func:`read_record` answers ``None`` for "nobody has written one yet" and
     for "something broke it" alike; a write verdict refuses both but names
-    them differently. ``"missing"`` is no file at the path; ``"unreadable"``
-    is every other way of having no usable record — an unresolvable
-    agent-data root, an OS or decode failure, invalid JSON, a foreign schema,
-    an unusable identity. ``"ok"`` comes with the record. Cached like
-    :func:`read_record` (rule 4); never raises.
+    them differently. The status ``"missing"`` is no file at the path;
+    ``"unreadable"`` is every other way of having no usable record — an
+    unresolvable agent-data root (``path`` ``None``), an OS or decode failure,
+    invalid JSON, a foreign schema, an unusable identity. ``"ok"`` comes with
+    the record as ``value``. Cached like :func:`read_record` (rule 4); never
+    raises.
 
     Args:
         path: Read this file instead of :func:`record_path`.
     """
     target_path = record_path() if path is None else path
     if target_path is None:
-        return None, "unreadable"
+        return _no_record("unreadable", None)
     cached = _RECORDS.read(target_path)
     if cached is not None:
         return cached
@@ -747,54 +974,280 @@ def read_record_status(
     try:
         target_path.stat()
     except FileNotFoundError:
-        return None, "missing"
+        return _no_record("missing", target_path)
     except OSError:
-        return None, "unreadable"
+        return _no_record("unreadable", target_path)
     # It appeared between the two stats; this read answers for that instant.
-    return _read(target_path)
+    return _read_result(target_path)
 
 
-def invalidate_cache() -> None:
-    """Forget every parsed file. For tests and for a process that moved roots."""
+def _invalidate_cache() -> None:
+    """Forget every parsed file: after an approval stood on the record, and for tests.
+
+    Tests reach it as :func:`osprey_connectors.testing.invalidate_cache`.
+    """
     _RECORDS.clear()
     _REPORTS.clear()
 
 
-# -- writing ----------------------------------------------------------------
+# -- the read-only tree -----------------------------------------------------
 
 
-def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
-    """Write *payload* to *path* as JSON, replacing any existing file. Rule 3.
+class TreeContext(NamedTuple):
+    """One read of one owner's whole record out of the read-only tree.
 
-    The file is replaced whole through ``safety_file.atomic_replace``, so a
-    failed write leaves neither half a file nor litter beside it.
+    Attributes:
+        record: The parsed record — its ``switch`` already filtered by
+            this module's parser to the targets
+            at ``"asked"`` or ``"allowed"`` — or ``None`` when the tree holds no record for
+            this owner or the record could not be read.
+        unavailable: ``None`` when the read reached an answer — a record, or
+            a provisioned tree holding none for this owner — and otherwise the
+            operator-facing sentence saying what could not be read and what to
+            do about it. The caller turns a non-``None`` into its own refusal;
+            the remedy is this reader's, because only the read knows which of
+            the ways of not knowing happened.
+    """
 
-    Every file in the state directory is written this way, the record and the
-    per-server reports and requests alike: they are read by processes that
-    never coordinate with the writer, so a reader must never be able to see
-    half of one.
+    record: ControlContext | None
+    unavailable: str | None
 
-    The mode is load-bearing, not a preference: those readers run under other
-    uids — a dispatch worker at uid 1000 reading what the host account wrote —
-    and reach the file through the setgid group of the state directory, so the
-    file is given 0640 whatever the umask: under umask 077 a record only the
-    owner can read makes every owned lane write refuse
-    ``control_context_unavailable``, while CI at umask 022 stays green and never
-    sees it. Every directory this writer creates — the
-    levels above the leaf as much as the leaf — is set to exactly 0o2770 rather
-    than merely widened, because a directory left at the umask 0755 would let
-    ``other`` list the identity names (``safety_file.ensure_shared_dir``).
+
+def _tree_unprovisioned(tree: Path, why: str) -> str:
+    """The remedy for a tree that was never built: *why* names how it shows."""
+    return (
+        f"the control-context tree {tree} {why}, so it is not provisioned — "
+        "run `osprey build` on the deployment"
+    )
+
+
+def _tree_unreadable(tree: Path) -> str:
+    """The remedy for a tree this container cannot get into."""
+    return (
+        f"the control-context tree {tree} is not readable by this container — "
+        "check the group join; on Docker Desktop the bind's ownership is remapped, "
+        "so share the tree through a group the container can join or run the "
+        "worker on a Linux host"
+    )
+
+
+def _tree_record_unreadable(record_file: Path, detail: str) -> str:
+    """The remedy for a record that is THERE and could not be used: *detail* says how."""
+    return (
+        f"the control-context record {record_file} is present but {detail} — "
+        "check the file's mode and group"
+    )
+
+
+def _tree_record_oversized(record_file: Path) -> str:
+    """The remedy for a record too large to be the one a chip wrote.
+
+    Its own sentence rather than the unreadable one's: the mode and the group
+    permitted this read, so an operator sent to check them finds both correct
+    and learns nothing. A record is a few hundred bytes, and one past the bound
+    is a file something other than the chip put at that name.
+    """
+    return (
+        f"the control-context record {record_file} is larger than the "
+        f"{_RECORD_READ_LIMIT} bytes a record may be, so it was not read — "
+        "re-select the control target to write the record again"
+    )
+
+
+def _tree_planted_link(path: Path, what: str) -> str:
+    """The remedy for a symbolic link where a real *what* belongs.
+
+    Its own wording rather than a mode-and-group one, because the operator has
+    to remove something rather than fix a permission, and because a link here is
+    the one failure that may be somebody's doing.
+    """
+    return (
+        f"the control-context {what} {path} is a symbolic link, which this reader "
+        "will not follow: the tree is group-writable, so a link planted there can "
+        "point one account's reader at a record its owner never wrote — remove it "
+        "and check the directory's mode and group"
+    )
+
+
+#: The most a record may be and still be read. A record is a few hundred bytes,
+#: so this is headroom rather than a limit anything real approaches. It exists
+#: because the file lives in a group-writable tree and is re-read on every
+#: gated write: without it, the account whose plan is running chooses how much
+#: the container allocates per write, and the container is shared with other
+#: people's plans.
+_RECORD_READ_LIMIT: Final = 64 * 1024
+
+
+def _read_no_follow(path: Path) -> str:
+    """*path*'s text, refusing to follow a symbolic link at its last component.
+
+    ``O_NOFOLLOW`` rather than a :meth:`~pathlib.Path.is_symlink` check before
+    an ordinary open: the check and the open are two trips to the filesystem,
+    and the directory holding this file is group-writable by parties other than
+    its owner, so a link planted between the two would be followed by a reader
+    that had just decided there was none. The flag makes the kernel decide it
+    once, at the open, and a link raises ``ELOOP`` there.
+
+    The read is bounded at :data:`_RECORD_READ_LIMIT` and an over-long file
+    raises rather than being truncated into a parse — a truncated record either
+    fails to parse or, worse, parses into a different switch than the one on
+    disk. The bound is applied to the read itself rather than to a prior
+    :func:`os.fstat`, so nothing is allocated for a file that grew between the
+    two.
 
     Raises:
-        OSError: The write itself failed.
+        OSError: The file is absent (``FileNotFoundError``), is a symbolic link
+            (``ELOOP``), is longer than the limit (``EFBIG``), or could not be
+            read.
+        UnicodeDecodeError: The bytes are not UTF-8.
     """
-    ensure_shared_dir(path.parent)
-    atomic_replace(
-        path,
-        json.dumps(payload, indent=2).encode("utf-8"),
-        mode=SHARED_FILE_MODE,
-        sync="best_effort",
-    )
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        with os.fdopen(fd, encoding="utf-8", closefd=False) as handle:
+            text = handle.read(_RECORD_READ_LIMIT + 1)
+    finally:
+        os.close(fd)
+    if len(text) > _RECORD_READ_LIMIT:
+        raise OSError(
+            errno.EFBIG,
+            f"the file is larger than the {_RECORD_READ_LIMIT} bytes a record may be",
+        )
+    return text
+
+
+def read_tree_context(tree: Path, owner: object) -> TreeContext:
+    """*owner*'s whole record out of the read-only *tree*, with the reason when there is none.
+
+    The reader a container uses when it holds the whole tree and no chip of its
+    own: a lane's queueserver, the dispatch worker. It fails CLOSED, and that is
+    the whole difference from the host reader.
+    :func:`read_record` folds an unreadable
+    file into ``None`` — tolerable for a display on the host, and wrong here,
+    where an unprovisioned bind, a group the container could not join or a
+    record written 0600 must not be answered as the owner's switch. So this
+    reader does not go through it.
+
+    Exactly one failure is not a refusal: an ENOENT on the record. A tree that
+    is provisioned and readable and holds no record for this owner is an owner
+    whose every switch is off. Every other failure on a PRESENT path — EACCES,
+    EISDIR, a corrupt payload, a payload from another schema — is a switch that
+    may exist and cannot be read, and is reported rather than guessed at.
+
+    **Nothing here follows a symbolic link.** The tree root is group-writable
+    (2770) and its group is shared with accounts other than the one reading, so
+    any account in it can plant a link under another identity's name; followed,
+    that link decides whether a real machine is written to, from a file its
+    supposed owner never wrote. The marker and the ``<owner>/`` directory are
+    therefore checked with :func:`os.lstat` and the record is opened
+    ``O_NOFOLLOW`` — the open is what closes the window between a check and a
+    read — and a link found at any of the three answers unavailable NAMING the
+    path. Never ENOENT: an absent record means every switch is off, and a
+    planted link is not an absence.
+
+    There is no cache. The parse memo in this module is reached through the reader
+    whose ``None`` this one exists to avoid, and a memo of its own would be a
+    second thing to invalidate for a file that is a few hundred bytes and is
+    read once per verdict.
+
+    Args:
+        tree: The tree bind, from :func:`control_context_tree`.
+        owner: The name whose record to read — one path segment, resolved by
+            :func:`~osprey_connectors.write_switch.current_owner` before the call. :data:`~osprey_connectors.write_switch.NO_OWNER` never
+            reaches here: work that belongs to nobody is refused before
+            any record is read.
+
+    Returns:
+        A :class:`TreeContext`: the parsed record (``None`` when the tree holds
+        none for this owner, or when it could not be read) and the sentence when
+        it could not. Never raises: this is read on a write path.
+    """
+    if not tree.is_dir():
+        return TreeContext(None, _tree_unprovisioned(tree, "does not exist"))
+    if not os.access(tree, os.R_OK | os.X_OK):
+        return TreeContext(None, _tree_unreadable(tree))
+
+    marker = tree / CONTROL_TREE_MARKER_NAME
+    try:
+        marker_mode = os.lstat(marker).st_mode
+    except FileNotFoundError:
+        return TreeContext(
+            None, _tree_unprovisioned(tree, f"carries no {CONTROL_TREE_MARKER_NAME}")
+        )
+    except OSError:
+        return TreeContext(None, _tree_unreadable(tree))
+    if stat.S_ISLNK(marker_mode):
+        # A link here would let any account in the tree's group declare an
+        # unbuilt tree provisioned, which is the fail-open this marker exists
+        # to close.
+        return TreeContext(None, _tree_planted_link(marker, "tree marker"))
+    if not stat.S_ISREG(marker_mode):
+        return TreeContext(
+            None,
+            _tree_unprovisioned(tree, f"carries a {CONTROL_TREE_MARKER_NAME} that is not a file"),
+        )
+
+    # An owner that is not one path segment addresses no record in this tree,
+    # and must not be answered as an owner whose switches are off: the name
+    # arrived on a queue item, and a name nobody can look up is a lookup that
+    # did not happen rather than a lookup that found nothing.
+    if not is_path_segment(owner):
+        return TreeContext(
+            None,
+            f"the owner {owner!r} is not a name the control-context tree can hold, "
+            "so no narrowing can be read for it — the owner a plan carries must be "
+            "one directory name",
+        )
+
+    owner_dir = tree / owner
+    try:
+        owner_mode = os.lstat(owner_dir).st_mode
+    except FileNotFoundError:
+        # The one absence that is an answer: every switch is off for this
+        # owner, and a missing ``<owner>/`` directory says exactly that.
+        return TreeContext(None, None)
+    except OSError:
+        logger.debug("Could not stat the control-context directory %s", owner_dir, exc_info=True)
+        return TreeContext(None, _tree_unreadable(tree))
+    if stat.S_ISLNK(owner_mode):
+        # ``O_NOFOLLOW`` on the record below guards its last component only, so
+        # the directory above it is checked here: a link at this level redirects
+        # the read just as effectively.
+        return TreeContext(None, _tree_planted_link(owner_dir, "directory"))
+
+    record_file = owner_dir / RECORD_FILENAME
+    try:
+        record = parse_record(_read_no_follow(record_file))
+    except FileNotFoundError:
+        # No record for this owner: the same answer as no directory.
+        return TreeContext(None, None)
+    except Exception as exc:  # every failure here REFUSES
+        # Blanket on purpose, and the opposite of the one this reader avoids:
+        # an unexpected failure on a present record leaves a switch that may
+        # exist unread, so it answers unavailable rather than guessing.
+        logger.debug("Could not read the control-context record at %s", record_file, exc_info=True)
+        code: object = getattr(exc, "errno", None)
+        if code == errno.ELOOP:
+            return TreeContext(None, _tree_planted_link(record_file, "record"))
+        if code == errno.EFBIG:
+            # Asked by name for the same reason the planted link is: the size
+            # bound refuses a file whose mode and group are beyond reproach, so
+            # the generic remedy points at two things an operator then finds
+            # correct.
+            return TreeContext(None, _tree_record_oversized(record_file))
+        strerror: object = getattr(exc, "strerror", None)
+        detail = strerror or type(exc).__name__
+        return TreeContext(
+            None, _tree_record_unreadable(record_file, f"could not be read ({detail})")
+        )
+    if record is None:
+        return TreeContext(
+            None,
+            _tree_record_unreadable(record_file, "is not a record this version can read"),
+        )
+    return TreeContext(record, None)
+
+
+# -- writing ----------------------------------------------------------------
 
 
 def _lock_path(path: Path) -> Path:
@@ -938,7 +1391,7 @@ _ALL_TARGETS = "all"
 #: A machine's three positions, narrowest first: a later one widens an earlier
 #: one. The gesture's words and every reader's order. ``"off"`` is not stored
 #: (rule 2).
-SWITCH_POSITIONS: tuple[SwitchPosition, ...] = get_args(SwitchPosition)
+_SWITCH_POSITIONS: tuple[SwitchPosition, ...] = get_args(SwitchPosition)
 
 
 class StoppedSinceError(ConnectorsError):
@@ -959,14 +1412,14 @@ class StoppedSinceError(ConnectorsError):
             ``None`` when there is no usable record to retry against.
         stamped: ``True`` only when this refusal just stamped an epoch on an
             epoch-less record — nothing was stopped, so a retry is safe.
-        reason: Always ``"stopped_since"``, a member of
-            :data:`osprey_connectors.refusals.REASONS`.
+        reason: Always
+            :attr:`~osprey_connectors.refusals.VerdictReason.STOPPED_SINCE`.
     """
 
     def __init__(self, *, epoch: int | None, stamped: bool = False) -> None:
         self.epoch = epoch
         self.stamped = stamped
-        self.reason = "stopped_since"
+        self.reason: Literal[VerdictReason.STOPPED_SINCE] = VerdictReason.STOPPED_SINCE
         super().__init__(refusal_phrase(self.reason))
 
 
@@ -1003,12 +1456,12 @@ def _gesture_targets(
 
 def _widens(state: SwitchPosition, position: SwitchPosition) -> bool:
     """Whether moving a machine at *position* to *state* widens it."""
-    return SWITCH_POSITIONS.index(state) > SWITCH_POSITIONS.index(position)
+    return _SWITCH_POSITIONS.index(state) > _SWITCH_POSITIONS.index(position)
 
 
 def set_switch(
     targets: Sequence[str] | Literal["all"],
-    state: SwitchPosition | Literal["on"],
+    state: SwitchPosition,
     *,
     epoch: int | None = None,
     path: Path | None = None,
@@ -1060,8 +1513,9 @@ def set_switch(
 
     Args:
         targets: The machines, or ``"all"``.
-        state: ``"off"``, ``"asked"`` or ``"allowed"``; the legacy ``"on"``
-            is taken as ``"asked"`` and never stored.
+        state: ``"off"``, ``"asked"`` or ``"allowed"``. The legacy ``"on"``
+            is refused like any other word; a stored ``"on"`` still reads as
+            ``"asked"`` (rule 2).
         epoch: The epoch the gesture was begun against. Ignored when nothing
             widens.
         path: Write this file instead of :func:`record_path`.
@@ -1081,11 +1535,8 @@ def set_switch(
         StateLockedError: The record stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
-    if state == _SWITCH_LEGACY_ON:
-        # A framework released before the three positions sends "on".
-        state = _SWITCH_ASKED
-    if state not in SWITCH_POSITIONS:
-        raise ValueError(f"set_switch state must be one of {SWITCH_POSITIONS}, not {state!r}")
+    if state not in _SWITCH_POSITIONS:
+        raise ValueError(f"set_switch state must be one of {_SWITCH_POSITIONS}, not {state!r}")
     names = _gesture_targets(targets, state)
     if state != _SWITCH_OFF and (
         epoch is not None and (isinstance(epoch, bool) or not isinstance(epoch, int))
@@ -1164,7 +1615,8 @@ def held_epoch(path: Path, target: ControlTarget) -> Iterator[int]:
     the block takes comes after this one. A record that is not there is
     created on *target* with every switch off and a fresh epoch, and an
     epoch-less record is given one, so that a later stop of every machine has
-    an epoch to move past.
+    an epoch to move past. A block that ends without raising drops the parse
+    cache once the lock is released, so the next read is of what it stood on.
 
     Raises:
         RecordUnavailableError: The record is there and cannot be read.
@@ -1181,6 +1633,7 @@ def held_epoch(path: Path, target: ControlTarget) -> Iterator[int]:
             base = ControlContext(target=target, generation=0) if current is None else current
             _write_record_unlocked(evolve(base, switch_epoch=epoch), path)
         yield epoch
+    _invalidate_cache()
 
 
 def _revoke_on_stop(record_file: Path, names: list[str] | None, by: str | None) -> None:
@@ -1201,6 +1654,7 @@ def _revoke_on_stop(record_file: Path, names: list[str] | None, by: str | None) 
     Raises:
         StateLockedError: The grants directory stayed locked.
         OSError: It is not a plain directory, or a mark could not be written.
+        ValueError: *by* names no login a mark can carry; nothing is marked.
     """
     from osprey_connectors import write_authorization
 
@@ -1215,11 +1669,12 @@ def _try_revoke_on_stop(record_file: Path, names: list[str] | None, by: str | No
     """:func:`_revoke_on_stop`, ``False`` (logged) when the marks could not be written.
 
     A stop never reports itself not taken over its marks: the caller ends the
-    grants through the epoch instead (fail-closed, see :func:`set_switch`).
+    grants through the epoch instead (fail-closed, see :func:`set_switch`). A
+    stop by a name that is not a login is one such: a mark cannot carry it.
     """
     try:
         _revoke_on_stop(record_file, names, by)
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         logger.warning(
             "A stop could not mark the grants beside %s revoked; it ends them by the epoch",
             record_file,
@@ -1230,60 +1685,6 @@ def _try_revoke_on_stop(record_file: Path, names: list[str] | None, by: str | No
 
 
 # -- process liveness -------------------------------------------------------
-
-_PROC_ROOT = "/proc"
-
-
-def _is_thread_id(pid: int) -> bool:
-    """Whether the kernel knows *pid* as a thread of some other process.
-
-    Linux draws PIDs and thread ids from one number space, and ``/proc/<tid>``
-    opens by number though no listing shows it. A process is its own thread
-    group leader, so a ``Tgid`` that differs from *pid* means a thread. ``False``
-    when ``/proc`` says nothing, which is every platform without one.
-    """
-    try:
-        with open(f"{_PROC_ROOT}/{pid}/status", "rb") as status:
-            for line in status:
-                if line.startswith(b"Tgid:"):
-                    return int(line.split()[1]) != pid
-    except (OSError, ValueError, IndexError):
-        return False  # no /proc, or one that does not read like Linux's: no claim either way
-    return False
-
-
-def is_process_alive(pid: object) -> bool:
-    """Whether *pid* names a running process.
-
-    ``os.kill(pid, 0)`` sends no signal and only asks the kernel whether the
-    process exists — the ``osprey web`` PID-file check does the same. A
-    ``PermissionError`` means the process exists but belongs to another user, so
-    it counts as ALIVE: sweeping a file whose owner is merely unreachable would
-    delete live state. Non-positive PIDs are rejected without calling
-    ``os.kill`` at all, because 0 and negatives address process *groups*.
-
-    ``os.kill`` also answers for a thread id, which is no process: a PID kept
-    in a record that outlived its container can land on a thread of the
-    process reading it, which would then follow itself for ever
-    (:func:`_is_thread_id`). A real process on that PID is not told apart.
-
-    Anything that is not an ``int`` names no process and is ``False`` without
-    a call either, so a field read off a file can be handed over unconverted.
-    That includes ``bool``: ``True`` is ``1`` to ``os.kill``, and PID 1 is
-    always alive, so a report carrying ``"server_pid": true`` would otherwise
-    read as a running server forever.
-    """
-    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        pass  # another user's process still exists; the thread check below applies to it too
-    except OSError:  # pragma: no cover - platform oddity; assume alive
-        return True
-    return not _is_thread_id(pid)
 
 
 def _is_foreign_process(pid: object) -> bool:
@@ -1313,165 +1714,60 @@ def _is_foreign_process(pid: object) -> bool:
     return False
 
 
-def _pid_from_filename(name: str, prefix: str, suffix: str) -> int | None:
-    """The PID *name* encodes, or ``None`` when it encodes none.
+# -- the record's writer ---------------------------------------------------
 
-    Shared by every family of file in the state directory: each is named for the
-    process that owns it precisely so a sweeper can judge it without opening
-    it, and a name that does not follow the rule is judged the same way in all
-    of them — no PID, therefore no live owner.
+
+def written_here(record: ControlContext | None) -> bool:
+    """Whether THIS process is *record*'s writer, and may therefore write it.
+
+    PID equality and nothing else: the record names one writing process, and
+    a second rule about the writer's *kind* would let two processes disagree
+    about who writes one file. A record with no writer is written by nobody,
+    so it is not written here either — it is claimed first, and claiming is a
+    write.
     """
-    if not name.startswith(prefix) or not name.endswith(suffix):
-        return None
-    stem = name[len(prefix) : -len(suffix)]
-    try:
-        return int(stem)
-    except ValueError:
-        return None
+    return record is not None and record.writer is not None and record.writer.pid == os.getpid()
 
 
-# -- ownership --------------------------------------------------------------
+def live_writer(record: ControlContext | None) -> RecordWriter | None:
+    """*record*'s writer while its process still runs, else ``None``.
 
-
-def owned_here(record: ControlContext | None) -> bool:
-    """Whether THIS process owns *record*, and may therefore write it.
-
-    PID equality and nothing else: the record names one owning process, and a
-    second rule about the owner's *kind* would let two processes disagree
-    about who writes one file. An ownerless record is owned by nobody, so it
-    is not owned here either — it is claimed first, and claiming is a write.
-    """
-    return record is not None and record.owner is not None and record.owner.pid == os.getpid()
-
-
-def live_owner(record: ControlContext | None) -> Owner | None:
-    """*record*'s owner while its process still runs, else ``None``.
-
-    The one question every would-be claimant asks first: an owner whose
+    The one question every would-be claimant asks first: a writer whose
     process is gone holds nothing, and its record is free. ``None`` covers
-    every way of having no live owner — no record, no owner, a dead one — so
+    every way of having no live writer — no record, no writer, a dead one — so
     a caller that only wants to know whether to claim need not tell them
     apart.
 
-    A PID that is running under another user is not the owner either
+    A PID that is running under another user is not the writer either
     (:func:`_is_foreign_process`). The record outlives the container that wrote
     it, and the PID it names is then handed out again: a record written by a
     terminal that ran as PID 1 names, in the next container, whatever runs as
     PID 1 there — an init process owned by root, alive for as long as the
-    container is. Read as a live owner, that process would be followed by
+    container is. Read as a live writer, that process would be followed by
     every terminal for ever, and nobody could switch the target again.
     """
-    if record is None or record.owner is None:
+    if record is None or record.writer is None:
         return None
-    pid = record.owner.pid
+    pid = record.writer.pid
     if not is_process_alive(pid) or _is_foreign_process(pid):
         return None
-    return record.owner
+    return record.writer
 
 
 # -- the terminus of a switch ----------------------------------------------
 
-
-def unchanged_detail(target: str, generation: int) -> str:
-    """The ``detail`` for a request that asked for the target of record.
-
-    One sentence with one spelling, because four surfaces write it into the same
-    field: the terminal owner's request half, the controls server's reconciler,
-    the HTTP switch route and the agent's own ``control_target_set``. A record
-    whose terminus read differently depending on which surface answered would be
-    two vocabularies in one place, and the chip resolves a pending switch
-    against what it finds there.
-
-    It is an APPLIED terminus and mints no generation: the deployment is where
-    the request asked for it to be, and a generation bumped for a switch that
-    did not happen would refuse every write bound to the old one, for nothing.
-    """
-    return f"The control target is already {target!r} (generation {generation})."
+#: How :func:`write_terminus` ended. Only ``stuck`` means the answer is in the
+#: record; every other word is an answer the caller must not treat as given.
+TerminusOutcome = Literal["stuck", "write_failed", "unreadable", "not_writer", "overwritten"]
 
 
-def applied_detail(target: str, generation: int) -> str:
-    """The ``detail`` for a switch that happened. *generation* is the new one.
-
-    The companion to :func:`unchanged_detail`, written by the same four
-    surfaces and for the same reason.
-    """
-    return f"The control target is now {target!r} (generation {generation})."
-
-
-def terminus(
-    record: ControlContext,
-    *,
-    request_id: str,
-    target: str,
-    requested_at: datetime | None,
-    requested_by: str,
-    status: str,
-    reason: str | None,
-    detail: str,
-    generation: int | None,
-) -> ControlContext:
-    """*record* as it will be once a switch request has been answered.
-
-    Every answer to a switch gesture ends here, whoever writes it: the owning
-    server answering its own agent, and the reconciler answering a request
-    another process filed. The block is what a requester polls for — it looks
-    for its own ``request_id`` and reads the outcome beside it — so the shape
-    is fixed here rather than at each terminus.
-
-    *generation* is what the record carries AFTER the answer, and ``None`` is
-    what makes the answer a refusal: a refusal moves neither target nor
-    generation, and its block names no binding because there is none.
-
-    Raises:
-        NaiveDatetimeError: *requested_at* names no zone.
-
-    Args:
-        record: The record being answered against. Not modified.
-        request_id: The id the requester is waiting on.
-        target: The target that was asked for — recorded whether or not the
-            deployment went there, because a refusal has to say what it
-            refused.
-        requested_at: When the request was made, as its own stamp states it,
-            or ``None`` when it states none that reads. Stored as ISO-8601 in
-            UTC with ``+00:00``.
-        requested_by: Who to name in the block: an audit session where the
-            requester has one, ``pid:<n>`` where it does not.
-        status: :data:`SWITCH_APPLIED` or :data:`SWITCH_REFUSED`.
-        reason: The refusal's machine-readable reason, ``None`` when applied.
-        detail: The sentence an operator reads.
-        generation: The record's generation after the answer, or ``None`` for
-            a refusal.
-    """
-    moved = generation is not None
-    stamp = (
-        None
-        if requested_at is None
-        else _stored_instant(require_aware(requested_at, name="requested_at"))
-    )
-    return evolve(
-        record,
-        target=target if moved else record.target,
-        generation=generation if generation is not None else record.generation,
-        last_switch={
-            "request_id": request_id,
-            "target": target,
-            "requested_at": stamp,
-            "requested_by": requested_by,
-            "status": status,
-            "reason": reason,
-            "detail": detail,
-            "generation": generation,
-        },
-    )
-
-
-def write_terminus(updated: ControlContext, request_id: str) -> bool:
+def write_terminus(updated: ControlContext, request_id: str) -> TerminusOutcome:
     """Write *updated*, read it back, and say whether the answer stuck.
 
-    Read-verified because the record has one owner but two processes reach for
-    it: a server answers its own agent in one place and consumes other
+    Read-verified because the record has one writer but two processes reach
+    for it: a server answers its own agent in one place and consumes other
     processes' requests in another, and this call can also lose the record
-    outright to a new owner between the write and the read. A lost update has
+    outright to a new writer between the write and the read. A lost update has
     to be discovered here rather than reported to an agent as a switch that
     happened.
 
@@ -1479,25 +1775,237 @@ def write_terminus(updated: ControlContext, request_id: str) -> bool:
     and keeps the on-disk switch: a terminus never turns a machine on or off.
 
     Three things have to hold for the answer to be believed: the record is
-    still readable, this process still owns it, and the block in it is the one
-    just written. The caller decides what a ``False`` means for it — the owner
-    refuses its agent, the reconciler leaves the request file for the next
-    pass — and neither may treat the switch as done.
+    still readable, this process is still its writer, and the block in it is
+    the one just written. A block that no longer reads (:func:`_parse_terminus`
+    answers ``None`` for it) is not the one just written. The caller decides
+    what anything but ``stuck`` means for it — the owner refuses its agent, the
+    reconciler leaves the request file for the next pass — and neither may
+    treat the switch as done.
+
+    Returns:
+        ``stuck`` when the record read back carries this answer;
+        ``write_failed`` when the write raised; ``unreadable`` when no record
+        reads back; ``not_writer`` when this process is no longer its writer;
+        ``overwritten`` when the block read back is not this request's.
     """
     try:
         write_record(updated)
     except Exception:
         logger.warning("Could not write the control-context record", exc_info=True)
-        return False
+        return "write_failed"
     confirmed = read_record()
-    return (
-        confirmed is not None
-        and owned_here(confirmed)
-        and (confirmed.last_switch or {}).get("request_id") == request_id
-    )
+    if confirmed is None:
+        return "unreadable"
+    if not written_here(confirmed):
+        return "not_writer"
+    if confirmed.last_switch is None or confirmed.last_switch.request_id != request_id:
+        return "overwritten"
+    return "stuck"
 
 
 # -- the per-server reports -------------------------------------------------
+
+
+#: The keys a :class:`SwitchProgress` stores for each status, in order — the
+#: keys each of a controls server's publications has always written. An
+#: ``applying`` block publishes its ``expires_at`` only when it has a bound.
+_PROGRESS_KEYS: Mapping[SwitchProgressStatus, tuple[str, ...]] = {
+    "applying": ("generation", "status", "at", "expires_at"),
+    "applied": ("generation", "status", "at"),
+    "failed": ("generation", "status", "reason", "detail", "at"),
+}
+
+#: The progress keys a block whose status does not read stores when they state something.
+_PROGRESS_OPTIONAL_KEYS: tuple[str, ...] = ("reason", "detail", "at", "expires_at")
+
+
+class SwitchProgress(FrozenModel):
+    """How far one controls server has got through a switch: its report's ``last_switch``.
+
+    Rule 5: every field degrades on its own when read, and the block is never
+    dropped for one bad field. What a fleet reader judges is ``generation``,
+    ``status`` and ``expires_at`` (:func:`blocking_pids`): a block whose
+    generation or status does not read blocks nobody, as it never did, and a
+    bound that does not read is no bound, which keeps blocking. A server
+    publishes one through :meth:`applying`, :meth:`applied` or :meth:`failed`.
+
+    Attributes:
+        generation: The record generation the server is binding, or ``None``
+            when the block names none.
+        status: An :data:`SwitchProgressStatus` word, or ``None`` when it names
+            none this version knows.
+        reason: A failure's machine-readable reason.
+        detail: A failure's sentence.
+        at: When the server published the block — what a reader ages it from.
+        expires_at: The bound an ``applying`` block stops blocking every
+            session at, computed by the one process that knows its timeouts.
+            ``None`` is "no bound", which keeps blocking.
+    """
+
+    generation: int | None
+    status: SwitchProgressStatus | None
+    reason: str | None = None
+    detail: str | None = None
+    at: Instant | None = None
+    expires_at: Instant | None = None
+
+    @classmethod
+    def applying(cls, generation: int, *, at: datetime, expires_at: datetime | None) -> Self:
+        """A swap to *generation* in flight since *at*, blocking every session until *expires_at*.
+
+        ``None`` for *expires_at* is an ``applying`` block with no bound, which
+        a reader keeps waiting on: the fail-closed outcome, and a caller's bug.
+
+        Raises:
+            NaiveDatetimeError: *at* or *expires_at* names no zone.
+        """
+        return cls(
+            generation=generation,
+            status="applying",
+            at=require_aware(at, name="at"),
+            expires_at=None if expires_at is None else require_aware(expires_at, name="expires_at"),
+        )
+
+    @classmethod
+    def applied(cls, generation: int, *, at: datetime) -> Self:
+        """Arrival at *generation*, at *at*.
+
+        Raises:
+            NaiveDatetimeError: *at* names no zone.
+        """
+        return cls(generation=generation, status="applied", at=require_aware(at, name="at"))
+
+    @classmethod
+    def failed(
+        cls, generation: int, *, reason: str | None, detail: str | None, at: datetime
+    ) -> Self:
+        """A swap to *generation* that will not land without an operator.
+
+        Raises:
+            NaiveDatetimeError: *at* names no zone.
+        """
+        return cls(
+            generation=generation,
+            status="failed",
+            reason=reason,
+            detail=detail,
+            at=require_aware(at, name="at"),
+        )
+
+    @model_serializer(mode="wrap")
+    def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        """The block as a report stores it: exactly the keys its status has always written.
+
+        An ``applying`` block with no bound stores no ``expires_at``. A block
+        whose status does not read stores its generation and status, and each
+        other field only when it states something.
+        """
+        fields: dict[str, object] = handler(self)
+        if self.status is None:
+            keys = ("generation", "status") + tuple(
+                key for key in _PROGRESS_OPTIONAL_KEYS if fields[key] is not None
+            )
+        else:
+            keys = _PROGRESS_KEYS[self.status]
+            if self.status == "applying" and self.expires_at is None:
+                keys = keys[:-1]
+        return {key: fields[key] for key in keys}
+
+
+#: What a statement says about reaching the machine. ``yes`` until the
+#: connector is lost, ``no`` once it is — the lost-connector root,
+#: :class:`~osprey_connectors.errors.ConnectorUnavailableError`. A channel that
+#: does not answer (:class:`~osprey_connectors.errors.ChannelUnreachableError`)
+#: is that channel's failure and never makes the machine unreachable.
+ReachableState = Literal["yes", "no"]
+
+
+class Reachable(FrozenModel):
+    """The ``reachable`` axis of a machine statement.
+
+    Attributes:
+        state: ``yes`` or ``no``.
+        since: When it became so, or ``None`` when that is not stated.
+        reason: Why, in words, or ``None``.
+    """
+
+    state: ReachableState
+    since: Instant | None = None
+    reason: str | None = None
+
+
+class VerdictSurface(Protocol):
+    """What :meth:`WritesStatement.of` reads of a write verdict: its uniform surface.
+
+    Both members of :data:`~osprey_connectors.write_switch.WriteVerdict` answer
+    it; it is spelled here because the switch reads this module, not the
+    reverse.
+    """
+
+    @property
+    def allowed(self) -> bool: ...
+
+    @property
+    def position(self) -> ArmedPosition | None: ...
+
+    @property
+    def reason(self) -> VerdictReason | None: ...
+
+    @property
+    def kind(self) -> MachineKind | None: ...
+
+
+class WritesStatement(FrozenModel):
+    """The ``writes`` axis of a machine statement: one execution verdict's own terms.
+
+    ``allowed``, ``position`` (whether a person is asked, never a boolean
+    "on"), ``reason`` (a :data:`~osprey_connectors.refusals.REASONS` member when
+    refused) and ``kind``. A reader renders the refusal with
+    :func:`~osprey_connectors.refusals.refusal_phrase`; no surface words it
+    again. :meth:`of` builds one from a verdict.
+
+    A statement that disagrees with itself cannot be built: ``allowed`` is
+    exactly "no reason", and a position is stated only when allowed.
+    """
+
+    allowed: bool
+    position: ArmedPosition | None
+    reason: VerdictReasonField | None
+    kind: MachineKind | None
+
+    @model_validator(mode="after")
+    def _agrees(self) -> Self:
+        if self.allowed != (self.reason is None):
+            raise ValueError("a writes statement is allowed exactly when it states no reason")
+        if self.position is not None and not self.allowed:
+            raise ValueError("a refused writes statement states no position")
+        return self
+
+    @classmethod
+    def of(cls, verdict: VerdictSurface) -> Self:
+        """The statement of *verdict*, read through the verdict's uniform surface.
+
+        Args:
+            verdict: :func:`~osprey_connectors.write_switch.execution_verdict`
+                for the session's target, so a held session states
+                ``session_held``.
+        """
+        return cls(
+            allowed=verdict.allowed,
+            position=verdict.position,
+            reason=verdict.reason,
+            kind=verdict.kind,
+        )
+
+
+class MachineStatement(FrozenModel):
+    """What a display process says about the machine it shows: ``{reachable, writes}``.
+
+    Each axis is ``None`` until stated.
+    """
+
+    reachable: Reachable | None
+    writes: WritesStatement | None
 
 
 class ServerReport(FrozenModel):
@@ -1506,7 +2014,8 @@ class ServerReport(FrozenModel):
     Rule 5 of the module contract. Every field but ``server_pid`` is an
     observation that can be absent — a server that has just started has
     answered nothing yet — so each degrades on its own to a value a reader can
-    act on rather than invalidating the report.
+    act on rather than invalidating the report. :func:`write_report` stores
+    one; the field order is the stored key order.
 
     Attributes:
         server_pid: The reporting server. Its identity, and how a reader knows
@@ -1521,9 +2030,8 @@ class ServerReport(FrozenModel):
         children: The connector-host PIDs it spawned, so a later server can
             reap them if this one is killed.
         reachability: Its last probe per target, ``{}`` when it has not probed.
-        last_switch: Its progress through the current switch — ``applying``,
-            ``applied`` or ``failed``, with the ``expires_at`` bound only this
-            process could compute — or ``None``.
+        switch_progress: Its progress through the current switch, stored under
+            ``last_switch``, or ``None``.
         last_posture_realign: Its last posture realignment, or ``None``.
         targets: Per-target display metadata, ``{}`` when it has none.
         updated_at: When it last wrote, an aware ``datetime`` in UTC, or
@@ -1531,19 +2039,13 @@ class ServerReport(FrozenModel):
             instant with its offset; a stamp with none states no moment).
         statement: The machine statement a process that displays the machine
             (a panel backend) writes in place of controlling it, ``None`` on a
-            controls server's report. ``{"reachable": ..., "writes": ...}``,
-            each axis ``None`` until stated: ``reachable`` is
-            ``{"state", "since", "reason"}`` with ``state`` one of
-            :data:`_REACHABLE_STATES`, and ``writes`` is :func:`write_statement`
-            of the session's execution verdict. A statement that does not have
-            this shape states nothing, and the report is then an ordinary one.
+            controls server's report. A statement that does not have the
+            statement's shape states nothing, and the report is then an
+            ordinary one.
 
-    The publication blocks (``reachability``, ``last_switch``,
-    ``last_posture_realign``, ``statement``) are their writers' JSON, kept as
-    the file states it and served whole; their stamps (``at``,
-    ``expires_at``, ``since``, ``probed_at``) are ISO-8601 text, which a
-    reader that judges one parses with
-    :func:`~osprey_connectors.model.parse_instant` (:func:`_switch_bound`).
+    ``reachability``, ``last_posture_realign`` and ``targets`` are their
+    writers' JSON, kept as the file states it and served whole: framework
+    display data no reader here judges. Their stamps are ISO-8601 text.
     """
 
     server_pid: int
@@ -1552,11 +2054,11 @@ class ServerReport(FrozenModel):
     applied_generation: int | None = None
     children: tuple[int, ...] = ()
     reachability: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
-    last_switch: ReadOnlyMapping[str, object] | None = None
+    switch_progress: SwitchProgress | None = Field(default=None, alias="last_switch")
     last_posture_realign: ReadOnlyMapping[str, object] | None = None
     targets: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
     updated_at: Instant | None = None
-    statement: ReadOnlyMapping[str, ReadOnlyMapping[str, object] | None] | None = None
+    statement: MachineStatement | None = None
 
     @property
     def display_only(self) -> bool:
@@ -1572,15 +2074,32 @@ class ServerReport(FrozenModel):
     def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
         """This report as the JSON object its file holds.
 
-        The ten contract fields, plus ``statement`` as the eleventh for a
-        display-only report and only then, so the object round-trips through
+        The ten contract fields, :attr:`switch_progress` stored under
+        ``last_switch``, plus ``statement`` as the eleventh for a display-only
+        report and only then, so the object round-trips through
         :func:`_parse_report` unchanged and a controls server's report never
         reads back as display-only.
         """
         fields: dict[str, object] = handler(self)
+        stored = {
+            "last_switch" if key == "switch_progress" else key: value
+            for key, value in fields.items()
+        }
         if self.statement is None:
-            del fields["statement"]
-        return fields
+            del stored["statement"]
+        return stored
+
+
+def write_report(report: ServerReport, path: Path) -> None:
+    """Store *report* at *path*, replacing any existing one atomically (rule 3).
+
+    The one writer of a report file, a controls server's and a display
+    process's alike.
+
+    Raises:
+        OSError: The write failed.
+    """
+    write_json_atomic(path, report.model_dump(mode="json"))
 
 
 def _non_negative_int(value: object) -> int | None:
@@ -1626,67 +2145,88 @@ def _mapping(value: object) -> dict[str, object]:
     return dict(value) if isinstance(value, dict) else {}
 
 
-#: What a statement says about reaching the machine. ``yes`` until the
-#: connector is lost, ``no`` once it is — the lost-connector root,
-#: :class:`~osprey_connectors.errors.ConnectorUnavailableError`. A channel that
-#: does not answer (:class:`~osprey_connectors.errors.ChannelUnreachableError`)
-#: is that channel's failure and never makes the machine unreachable.
-_REACHABLE_STATES: tuple[str, ...] = ("yes", "no")
+def _parse_progress(value: object) -> SwitchProgress | None:
+    """One ``last_switch`` block as a :class:`SwitchProgress`, or ``None`` when not a mapping.
 
-#: The keys of a statement's ``writes``: the execution verdict's own terms.
-_WRITES_STATEMENT_KEYS: tuple[str, ...] = ("allowed", "position", "reason", "kind")
+    Every field degrades alone (rule 5), so no bad field takes the block with
+    it: a generation that is not a non-negative integer, a status this version
+    does not know and a stamp that states no instant are each ``None``, and a
+    reason or detail that is not a string is ``None``.
+    """
+    if not isinstance(value, dict):
+        return None
+    status = value.get("status")
+    known: SwitchProgressStatus | None
+    if status == "applying":
+        known = "applying"
+    elif status == "applied":
+        known = "applied"
+    elif status == "failed":
+        known = "failed"
+    else:
+        known = None
+    return SwitchProgress(
+        generation=_non_negative_int(value.get("generation")),
+        status=known,
+        reason=_optional_string(value.get("reason")),
+        detail=_optional_string(value.get("detail")),
+        at=_instant(value.get("at")),
+        expires_at=_instant(value.get("expires_at")),
+    )
+
 
 _WRITE_POSITIONS: tuple[ArmedPosition | None, ...] = (None, *get_args(ArmedPosition))
 _MACHINE_KINDS: tuple[MachineKind | None, ...] = (None, *get_args(MachineKind))
 
 
-def write_statement(verdict: posture_store.WriteVerdict) -> dict[str, object]:
-    """The ``writes`` half of a machine statement, from one execution verdict.
+def _reachable_statement(value: object) -> Reachable | None:
+    """*value* as the ``reachable`` axis, or ``None`` when it is not of its shape.
 
-    The verdict's own terms and nothing else: ``allowed``, ``position`` (whether
-    a person is asked, never a boolean "on"), ``reason`` (a
-    :data:`~osprey_connectors.refusals.REASONS` member when refused) and
-    ``kind``. A reader renders the refusal with
-    :func:`~osprey_connectors.refusals.refusal_phrase`; no surface words it
-    again.
-
-    Args:
-        verdict: :func:`~osprey_connectors.posture_store.execution_verdict` for
-            the session's target, so a held session states ``session_held``.
+    A ``since`` that is a string but states no instant reads as ``None``.
     """
-    return {
-        "allowed": verdict.allowed,
-        "position": verdict.position,
-        "reason": verdict.reason,
-        "kind": verdict.kind,
-    }
-
-
-def _reachable_statement(value: object) -> dict[str, object] | None:
-    """*value* as the ``reachable`` axis, or ``None`` when it is not one."""
-    if not isinstance(value, dict) or value.get("state") not in _REACHABLE_STATES:
+    if not isinstance(value, dict) or value.get("state") not in get_args(ReachableState):
         return None
     since, reason = value.get("since"), value.get("reason")
     if not (since is None or isinstance(since, str)):
         return None
     if not (reason is None or isinstance(reason, str)):
         return None
-    return {"state": value["state"], "since": since, "reason": reason}
+    return Reachable.model_validate(
+        {"state": value["state"], "since": _instant(since), "reason": reason}
+    )
 
 
-def _writes_statement(value: object) -> dict[str, object] | None:
-    """*value* as the ``writes`` axis, or ``None`` when it is not a verdict's terms."""
+def _writes_statement(value: object) -> WritesStatement | None | Literal[False]:
+    """*value* as the ``writes`` axis; ``False`` when it is not of its shape.
+
+    ``None`` is a verdict's terms that disagree with themselves — allowed with a
+    reason, refused without one, or refused at a position — or a reason that is
+    no refusal's word, which states the axis as not stated rather than
+    unmaking the statement.
+    """
     if not isinstance(value, dict) or not isinstance(value.get("allowed"), bool):
-        return None
+        return False
     if value.get("position") not in _WRITE_POSITIONS or value.get("kind") not in _MACHINE_KINDS:
-        return None
+        return False
     reason = value.get("reason")
     if not (reason is None or isinstance(reason, str)):
+        return False
+    if reason is not None and reason not in REASONS:
         return None
-    return {key: value.get(key) for key in _WRITES_STATEMENT_KEYS}
+    allowed = value["allowed"]
+    if allowed != (reason is None) or (value.get("position") is not None and not allowed):
+        return None
+    return WritesStatement.model_validate(
+        {
+            "allowed": allowed,
+            "position": value.get("position"),
+            "reason": reason,
+            "kind": value.get("kind"),
+        }
+    )
 
 
-def _statement(value: object) -> dict[str, dict[str, object] | None] | None:
+def _statement(value: object) -> MachineStatement | None:
     """*value* as a machine statement, or ``None`` when it is not one.
 
     A statement is a mapping holding both ``reachable`` and ``writes``, each
@@ -1696,16 +2236,18 @@ def _statement(value: object) -> dict[str, dict[str, object] | None] | None:
     """
     if not isinstance(value, dict) or "reachable" not in value or "writes" not in value:
         return None
-    reachable, writes = value["reachable"], value["writes"]
-    if reachable is not None:
-        reachable = _reachable_statement(reachable)
+    reachable: Reachable | None = None
+    if value["reachable"] is not None:
+        reachable = _reachable_statement(value["reachable"])
         if reachable is None:
             return None
-    if writes is not None:
-        writes = _writes_statement(writes)
-        if writes is None:
+    writes: WritesStatement | None = None
+    if value["writes"] is not None:
+        parsed = _writes_statement(value["writes"])
+        if parsed is False:
             return None
-    return {"reachable": reachable, "writes": writes}
+        writes = parsed
+    return MachineStatement(reachable=reachable, writes=writes)
 
 
 def _parse_report(raw: object) -> ServerReport | None:
@@ -1725,7 +2267,6 @@ def _parse_report(raw: object) -> ServerReport | None:
     if server_pid is None:
         return None
     applied_target = raw.get("applied_target")
-    last_switch = raw.get("last_switch")
     last_realign = raw.get("last_posture_realign")
     return ServerReport(
         server_pid=server_pid,
@@ -1734,7 +2275,7 @@ def _parse_report(raw: object) -> ServerReport | None:
         applied_generation=_non_negative_int(raw.get("applied_generation")),
         children=_child_pids(raw.get("children")),
         reachability=_mapping(raw.get("reachability")),
-        last_switch=dict(last_switch) if isinstance(last_switch, dict) else None,
+        switch_progress=_parse_progress(raw.get("last_switch")),
         last_posture_realign=dict(last_realign) if isinstance(last_realign, dict) else None,
         targets=_mapping(raw.get("targets")),
         updated_at=_instant(raw.get("updated_at")),
@@ -1751,18 +2292,18 @@ def _report_path_under(root: Path, server_pid: object) -> Path:
     """
     return (
         root
-        / STATE_DIR_NAME
+        / CONTROL_STATE_DIR_NAME
         / acting_identity()
-        / f"{REPORT_FILE_PREFIX}{server_pid}{REPORT_FILE_SUFFIX}"
+        / f"{_REPORT_FILE_PREFIX}{server_pid}{_REPORT_FILE_SUFFIX}"
     )
 
 
 def report_path(server_pid: object) -> Path | None:
     """The report path of *server_pid*, or ``None`` without an agent-data root."""
-    directory = posture_store.state_dir()
+    directory = _control_state.state_dir()
     if directory is None:
         return None
-    return directory / f"{REPORT_FILE_PREFIX}{server_pid}{REPORT_FILE_SUFFIX}"
+    return directory / f"{_REPORT_FILE_PREFIX}{server_pid}{_REPORT_FILE_SUFFIX}"
 
 
 def report_paths() -> list[Path]:
@@ -1772,7 +2313,7 @@ def report_paths() -> list[Path]:
     answer "no reports", the same as an empty deployment, because a caller
     describing a fleet has the same nothing to say in each case.
     """
-    directory = posture_store.state_dir()
+    directory = _control_state.state_dir()
     if directory is None:
         return []
     try:
@@ -1871,8 +2412,8 @@ def _published_targets(directory: str) -> dict[str, object]:
     deleted), and the first live report carrying a non-empty ``targets``
     mapping is the answer. Never raises.
     """
-    prefix = REPORT_FILE_PREFIX
-    suffix = REPORT_FILE_SUFFIX
+    prefix = _REPORT_FILE_PREFIX
+    suffix = _REPORT_FILE_SUFFIX
     try:
         names = sorted(
             n for n in os.listdir(directory) if n.startswith(prefix) and n.endswith(suffix)
@@ -1917,7 +2458,7 @@ def published_machine_kind(
     Args:
         target: The control target.
         state_dir: The directory holding the servers' reports; ``None`` reads
-            :func:`osprey_connectors.posture_store.state_dir`.
+            :func:`osprey_connectors.write_switch.state_dir`.
 
     Returns:
         ``real``, ``rehearsal`` or ``simulator``. Never raises.
@@ -1926,7 +2467,7 @@ def published_machine_kind(
         return _TARGET_MACHINE_KINDS.get(target, "real") if is_control_target(target) else "real"
     try:
         if state_dir is None:
-            state_dir = posture_store.state_dir()
+            state_dir = _control_state.state_dir()
         if not isinstance(state_dir, str | os.PathLike):
             # Only a path names a report directory; ``None`` names none.
             return "real"
@@ -1939,63 +2480,11 @@ def published_machine_kind(
     return "real"
 
 
-# -- sweeping ---------------------------------------------------------------
-
-
-def sweep_dead(
-    directory: Path,
-    *,
-    prefix: str,
-    suffix: str,
-    keep: str | None = None,
-    is_alive: Callable[[object], bool] = is_process_alive,
-) -> list[Path]:
-    """Unlink every ``prefix<pid>suffix`` file in *directory* whose PID is gone.
-
-    A process that is killed rather than asked to stop leaves its file behind,
-    and a later process that happens to reuse the PID would otherwise inherit
-    it. The name is the whole judgement — a file whose name encodes no PID
-    encodes no owner either, and goes the same way.
-
-    Args:
-        directory: Where to look. A missing or unreadable one sweeps nothing.
-        prefix: Filename prefix of the family to sweep.
-        suffix: Filename suffix of the family to sweep.
-        keep: A filename to leave alone without probing it. This is how a
-            process spares its own file: asking whether oneself is alive is a
-            way to get it wrong.
-        is_alive: The liveness predicate.
-
-    Returns:
-        The paths removed, in discovery order.
-    """
-    try:
-        entries = sorted(directory.glob(f"{prefix}*{suffix}"))
-    except OSError:
-        return []
-
-    removed: list[Path] = []
-    for entry in entries:
-        if keep is not None and entry.name == keep:
-            continue
-        pid = _pid_from_filename(entry.name, prefix, suffix)
-        if pid is not None and is_alive(pid):
-            continue
-        try:
-            entry.unlink(missing_ok=True)
-        except OSError as exc:  # pragma: no cover - unwritable state dir
-            logger.warning("Could not remove stale file %s: %s", entry, exc)
-            continue
-        logger.info("Swept stale file %s (owner pid %s gone)", entry.name, pid)
-        removed.append(entry)
-    return removed
-
-
 # -- convergence ------------------------------------------------------------
 
 
-def _switch_at(report: ServerReport, generation: int) -> Mapping[str, object] | None:
-    """*report*'s switch block when it is about *generation*, else ``None``.
+def _switch_at(report: ServerReport, generation: int) -> SwitchProgress | None:
+    """*report*'s switch progress when it is about *generation*, else ``None``.
 
     A block that names a different generation is about a swap this record has
     already moved past — the server re-adopts on its next tick — and a block
@@ -2003,28 +2492,10 @@ def _switch_at(report: ServerReport, generation: int) -> Mapping[str, object] | 
     this record's business; a server left behind by either is still judged by
     what it is bound to.
     """
-    block = report.last_switch
-    if not isinstance(block, dict):
-        return None
-    if _non_negative_int(block.get("generation")) != generation:
+    block = report.switch_progress
+    if block is None or block.generation != generation:
         return None
     return block
-
-
-def _switch_bound(block: Mapping[str, object]) -> datetime | None:
-    """The ``expires_at`` of *block* as an aware instant, or ``None`` for no bound.
-
-    The bound is a wall clock the publishing server computed from its own
-    spawn, probe and drain timeouts — the only process that knows them — so
-    this reader parses it (:func:`~osprey_connectors.model.parse_instant`) and
-    does not derive one. A stamp that states no offset states no moment, and
-    reads as no bound.
-
-    ``None`` is "no bound", which keeps blocking rather than expiring
-    immediately: an unreadable deadline is not a reason to decide a swap
-    finished.
-    """
-    return _instant(block.get("expires_at"))
 
 
 def _bound_off_record(report: ServerReport, record: ControlContext) -> bool:
@@ -2095,10 +2566,15 @@ def blocking_pids(
     reference = datetime.now(UTC) if now is None else require_aware(now, name="now")
     blocked: set[int] = set()
     for report in fleet:
-        block = _switch_at(report, record.generation) or {}
-        status = block.get("status")
-        if status == REPORT_APPLYING and not _holds_no_connector(report):
-            bound = _switch_bound(block)
+        block = _switch_at(report, record.generation)
+        status = None if block is None else block.status
+        if block is not None and status == "applying" and not _holds_no_connector(report):
+            # ``None`` is no bound, which keeps blocking rather than expiring
+            # immediately: an unreadable deadline is not a reason to decide a
+            # swap finished. The bound is a wall clock the publishing server
+            # computed from its own spawn, probe and drain timeouts — the only
+            # process that knows them — so it is read, never derived.
+            bound = block.expires_at
             if bound is None or reference <= bound:
                 # A swap in flight: nobody launches anywhere until it lands,
                 # because the server holding the connector is between two
@@ -2110,7 +2586,7 @@ def blocking_pids(
                 continue
         if not session or report.session != session:
             continue
-        if status in (REPORT_APPLYING, REPORT_FAILED) or _bound_off_record(report, record):
+        if status in ("applying", "failed") or _bound_off_record(report, record):
             blocked.add(report.server_pid)
     return tuple(sorted(blocked))
 

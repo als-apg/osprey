@@ -39,9 +39,9 @@ from osprey.services.watchdog.config import (
 )
 from osprey.services.watchdog.history import SessionNodes, read_session_nodes
 from osprey.services.watchdog.verdict import ErrorType, Verdict, record_verdict
-from osprey_connectors.posture_store import state_dir
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.session_hold import open_flag
+from osprey_connectors.write_switch import state_dir
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.services.watchdog.engines.agent import JudgeCredentials
@@ -542,7 +542,7 @@ class WatchdogRunner:
         if ids.session_key is None or self._hold_root is None:
             return None
         flag_id = str(uuid.uuid4())
-        opened = await asyncio.to_thread(
+        outcome = await asyncio.to_thread(
             open_flag,
             ids.session_key,
             flag_id=flag_id,
@@ -552,7 +552,7 @@ class WatchdogRunner:
             prompt_excerpt=ids.prompt,
             root=self._hold_root,
         )
-        return flag_id if opened else None
+        return flag_id if outcome == "opened" else None
 
     async def _send(self, frame: dict[str, Any]) -> None:
         try:

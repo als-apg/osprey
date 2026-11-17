@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from osprey_connectors import testing
 from osprey_connectors.model import evolve
 
 
@@ -81,7 +82,7 @@ async def move_the_deployment(manager: Any, target: str) -> dict[str, Any]:
     assert record is not None, "no control-context record to move — claim_the_record first"
     generation = record.generation + 1
     control_context.write_record(evolve(record, target=target, generation=generation))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return await manager.reconcile(target, generation)
 
 

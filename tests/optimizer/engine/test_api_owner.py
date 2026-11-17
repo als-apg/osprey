@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR
+from osprey_connectors.write_switch import CONTROL_OWNER_ENV_VAR
 from osprey_optimizer.api import optimization_lifecycle as ol
 from osprey_optimizer.api.owner import OWNER_HEADER, owner_from_header, stamp_owner
 from osprey_optimizer.api.runner import run_optimization_process

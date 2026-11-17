@@ -42,7 +42,7 @@ def root(tmp_path) -> Path:
     return path
 
 
-def _open(root: Path, flag_id: str, *, source="watchdog:a", prompt_ref=None, key=KEY) -> bool:
+def _open(root: Path, flag_id: str, *, source="watchdog:a", prompt_ref=None, key=KEY) -> str:
     return session_hold.open_flag(
         key,
         flag_id=flag_id,
@@ -83,7 +83,7 @@ def test_no_root_writes_nothing(tmp_path, monkeypatch):
         session_hold.open_flag(
             KEY, flag_id="f1", source="s", reason="r", prompt_ref="p", prompt_excerpt="e"
         )
-        is False
+        == "no_store"
     )
     assert list(tmp_path.iterdir()) == []
 
@@ -92,7 +92,7 @@ def test_the_env_root_is_used_when_no_argument(root, monkeypatch):
     monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(root))
     session_hold.ensure_session(KEY)
     assert session_hold.is_held(KEY) is False
-    assert _open(None, "f1") is True  # root=None -> env
+    assert _open(None, "f1") == "opened"  # root=None -> env
     assert session_hold.is_held(KEY) is True
     assert _record_path(root).is_file()
 
@@ -120,7 +120,7 @@ def test_ensure_session_creates_an_empty_unheld_record(root):
 
 def test_ensure_session_over_an_existing_record_with_open_flags_changes_nothing(root):
     session_hold.ensure_session(KEY, root=root)
-    assert _open(root, "f1")
+    assert _open(root, "f1") == "opened"
     before = _record_path(root).read_bytes()
     session_hold.ensure_session(KEY, root=root)
     assert _record_path(root).read_bytes() == before
@@ -140,7 +140,7 @@ def test_ensure_session_over_a_corrupt_record_changes_nothing(root):
 
 def test_open_then_answer_by_flag_ids_releases(root):
     session_hold.ensure_session(KEY, root=root)
-    assert _open(root, "f1")
+    assert _open(root, "f1") == "opened"
     assert session_hold.is_held(KEY, root=root) is True
     [flag] = session_hold.open_flags(KEY, root=root)
     assert isinstance(flag, HoldFlag)
@@ -230,11 +230,11 @@ def test_a_bare_string_of_ids_is_refused(root):
 
 def test_duplicate_source_and_prompt_ref_opens_once(root):
     session_hold.ensure_session(KEY, root=root)
-    assert _open(root, "f1", source="watchdog:a", prompt_ref="p1") is True
-    assert _open(root, "f2", source="watchdog:a", prompt_ref="p1") is False
+    assert _open(root, "f1", source="watchdog:a", prompt_ref="p1") == "opened"
+    assert _open(root, "f2", source="watchdog:a", prompt_ref="p1") == "duplicate"
     assert [f.flag_id for f in session_hold.open_flags(KEY, root=root)] == ["f1"]
     # A different source on the same prompt is a second flag.
-    assert _open(root, "f3", source="watchdog:b", prompt_ref="p1") is True
+    assert _open(root, "f3", source="watchdog:b", prompt_ref="p1") == "opened"
     assert len(session_hold.open_flags(KEY, root=root)) == 2
 
 
@@ -242,7 +242,7 @@ def test_duplicate_is_checked_against_closed_flags_too(root):
     session_hold.ensure_session(KEY, root=root)
     _open(root, "f1", prompt_ref="p1")
     session_hold.answer_flags(KEY, ["f1"], answer="continue", operator="a", root=root)
-    assert _open(root, "f2", prompt_ref="p1") is False
+    assert _open(root, "f2", prompt_ref="p1") == "duplicate"
     assert session_hold.is_held(KEY, root=root) is False
 
 
@@ -262,7 +262,7 @@ def test_the_excerpt_is_truncated_to_200_chars(root):
 
 
 def test_open_flag_without_ensure_creates_the_record_and_holds(root):
-    assert _open(root, "f1") is True
+    assert _open(root, "f1") == "opened"
     assert session_hold.is_held(KEY, root=root) is True
 
 
@@ -534,7 +534,7 @@ _CHILD = textwrap.dedent(
         assert session_hold.open_flag(
             key, flag_id=f"{prefix}-{i}", source=prefix, reason="r",
             prompt_ref=f"p-{i}", prompt_excerpt="e", root=root,
-        )
+        ) == "opened"
     """
 )
 

@@ -55,9 +55,10 @@ from osprey.mcp_server.control_system import (
     target_eligibility,
     target_state,
 )
-from osprey_connectors import control_context, posture_store, workspace
+from osprey_connectors import control_context, testing, workspace, write_switch
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.ipc import _verification as verification
+from osprey_connectors.model import ReadResult
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import (
     owner,
@@ -90,6 +91,9 @@ OTHER_TERMINAL_PID = os.getppid()
 OTHER_TERMINAL_PORT = 8090
 
 #: Each machine kind's banner (C-WORDS, D4): the label every GET row carries.
+#: A record read that found no file.
+_NO_RECORD = ReadResult[control_context.ControlContext](status="missing", value=None, path=None)
+
 REAL_LABEL = "Live — writes move hardware"
 REHEARSAL_LABEL = "Rehearsal — nothing moves"
 SIM_LABEL = "Simulator — nothing moves"
@@ -276,7 +280,7 @@ def agent_data_root(tmp_path, monkeypatch):
     """Point every resolver at one throwaway agent-data root.
 
     ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
-    ``posture_store`` both prefer, and the ONLY way this route reaches either —
+    ``write_switch`` both prefer, and the ONLY way this route reaches either —
     patching ``resolve_shared_data_root`` would redirect one of them and leave
     the other reading the repository's own ``var/agent_data``.
     """
@@ -287,9 +291,9 @@ def agent_data_root(tmp_path, monkeypatch):
     # from whatever ran before it: it would zero every ``effective`` below.
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(control_context_owner.WEB_PORT_ENV, raising=False)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -476,7 +480,7 @@ class TestTheTarget:
         assert [row["target"] for row in payload["targets"] if row["is_baseline"]] == ["standin"]
 
     def test_no_record_falls_back_to_the_baseline_at_no_generation(self, client):
-        with patch.object(control_context, "read_record_status", return_value=(None, "missing")):
+        with patch.object(control_context, "read_record_status", return_value=_NO_RECORD):
             payload = get_posture(client)
         assert payload["control_target"] == "standin"
         assert payload["generation"] is None
@@ -527,7 +531,7 @@ class TestTheOwner:
             agent_data_root,
             target="live",
             generation=4,
-            owned_by=owner(kind=control_context.OWNER_CONTROLS_SERVER, pid=SERVER_A),
+            owned_by=owner(kind="controls_server", pid=SERVER_A),
         )
         del client.app.state.control_context_owner
         payload = get_posture(client)
@@ -908,9 +912,9 @@ class TestLastSwitchAndRealign:
                 last_switch={
                     "request_id": "req-1",
                     "target": "live",
+                    "requested_at": stamp(age_s=12),
                     "status": "applied",
                     "generation": 4,
-                    "at": stamp(age_s=12),
                 },
             )
             payload = get_posture(client)
@@ -921,8 +925,8 @@ class TestLastSwitchAndRealign:
     def test_a_terminus_stamped_only_by_its_request_is_aged_from_it(
         self, make_client, agent_data_root
     ):
-        # control_context.terminus copies the request's `requested_at` and
-        # writes no `at`. Unaged, the popover kept the outcome up for good.
+        # A terminus carries the request's `requested_at` and no `at`.
+        # Unaged, the popover kept the outcome up for good.
         with make_client() as client:
             write_control_context(
                 agent_data_root,
@@ -1152,7 +1156,7 @@ def armed(tmp_path, **kwargs):
 def fresh_verdict(config_path, target):
     """The write verdict a new call by the signed-in login gets, asked directly."""
     section = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))["control_system"]
-    return posture_store.write_verdict(section, target, owner=acting_identity())
+    return write_switch.write_verdict(section, target, owner=acting_identity())
 
 
 def switch_on(agent_data_root, *targets):
@@ -1177,7 +1181,7 @@ def make_unreadable():
     path = control_context.record_path()
     assert path is not None
     path.write_text("{not json", encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class TestTheWriteColumns:
@@ -1233,7 +1237,7 @@ class TestTheWriteColumns:
         }
 
     def test_no_record_is_every_switch_off_not_unknown(self, client):
-        with patch.object(control_context, "read_record_status", return_value=(None, "missing")):
+        with patch.object(control_context, "read_record_status", return_value=_NO_RECORD):
             payload = get_posture(client)
         assert all(row["switch"] == "off" for row in payload["targets"])
         assert payload["switch_epoch"] is None
@@ -1311,7 +1315,7 @@ class TestTheWriteColumns:
             assert path is not None
             payload = json.loads(path.read_text(encoding="utf-8"))
             write_payload(path, {**payload, "switch": {"va": "on"}})
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
             posture = get_posture(client)
         assert row_for(posture, "va")["switch"] == "asked"
         assert row_for(posture, "va")["prompt"] is True
@@ -1509,3 +1513,123 @@ class TestNoSessionScope:
 
 async def _noop_cleanup() -> None:
     """The lifespan's shutdown calls this on whatever registry it finds."""
+
+
+# -- the served bytes of the switch blocks ------------------------------------
+
+#: The record's terminus and two servers' progress, each as its writer stores it.
+_SERVED_TERMINUS = {
+    "request_id": "req-9",
+    "target": "live",
+    "requested_at": "2026-01-01T00:00:15.125000+00:00",
+    "requested_by": "sess-1",
+    "status": "applied",
+    "reason": None,
+    "detail": "The control target is now 'live' (generation 4).",
+    "generation": 4,
+}
+_SERVED_APPLYING = {
+    "generation": 4,
+    "status": "applying",
+    "at": "2026-01-01T00:00:05.000250+00:00",
+    "expires_at": "2026-01-01T00:00:35.000250+00:00",
+}
+_SERVED_FAILED = {
+    "generation": 4,
+    "status": "failed",
+    "reason": "spawn_failed",
+    "detail": "The child did not answer.",
+    "at": "2026-01-01T00:00:06+00:00",
+}
+
+#: What ``GET /api/terminal/posture`` served for them before the blocks were
+#: typed, captured byte for byte with every age fixed at 1.5 s.
+_SERVED_BYTES = """{
+  "last_switch": {
+    "request_id": "req-9",
+    "target": "live",
+    "requested_at": "2026-01-01T00:00:15.125000+00:00",
+    "requested_by": "sess-1",
+    "status": "applied",
+    "reason": null,
+    "detail": "The control target is now 'live' (generation 4).",
+    "generation": 4,
+    "age_s": 1.5
+  },
+  "servers": [
+    {
+      "pid": 5150,
+      "session": "s-1",
+      "applied_target": "live",
+      "applied_generation": 3,
+      "children": [
+        11
+      ],
+      "last_switch": {
+        "generation": 4,
+        "status": "applying",
+        "at": "2026-01-01T00:00:05.000250+00:00",
+        "expires_at": "2026-01-01T00:00:35.000250+00:00",
+        "age_s": 1.5
+      },
+      "last_posture_realign": {
+        "state": "done",
+        "at": "2026-01-01T00:00:05+00:00"
+      },
+      "updated_at": "2026-01-01T00:00:07+00:00"
+    },
+    {
+      "pid": 5151,
+      "session": "s-2",
+      "applied_target": "va",
+      "applied_generation": 4,
+      "children": [],
+      "last_switch": {
+        "generation": 4,
+        "status": "failed",
+        "reason": "spawn_failed",
+        "detail": "The child did not answer.",
+        "at": "2026-01-01T00:00:06+00:00",
+        "age_s": 1.5
+      },
+      "last_posture_realign": null,
+      "updated_at": "2026-01-01T00:00:08+00:00"
+    }
+  ]
+}"""
+
+
+def test_the_served_switch_blocks_keep_their_bytes(make_client, agent_data_root, monkeypatch):
+    """The chip and the popover read these keys: typing the blocks moves none of them."""
+    from osprey.interfaces.web_terminal.routes import websocket
+
+    monkeypatch.setattr(websocket, "_age_seconds", lambda stamp: None if not stamp else 1.5)
+    with make_client() as client:
+        write_control_context(
+            agent_data_root, target="live", generation=4, last_switch=_SERVED_TERMINUS
+        )
+        write_server_report(
+            agent_data_root,
+            SERVER_A,
+            session="s-1",
+            applied_target="live",
+            applied_generation=3,
+            children=[11],
+            last_switch=_SERVED_APPLYING,
+            last_posture_realign={"state": "done", "at": "2026-01-01T00:00:05+00:00"},
+            updated_at="2026-01-01T00:00:07+00:00",
+        )
+        write_server_report(
+            agent_data_root,
+            SERVER_B,
+            session="s-2",
+            applied_target="va",
+            applied_generation=4,
+            last_switch=_SERVED_FAILED,
+            updated_at="2026-01-01T00:00:08+00:00",
+        )
+        with only_alive(SERVER_A, SERVER_B):
+            payload = get_posture(client)
+    served = {"last_switch": payload["last_switch"], "servers": payload["servers"]}
+    assert json.dumps(served, indent=2) == _SERVED_BYTES
+    assert set(payload["owner"]) == {"kind", "pid", "port", "self"}

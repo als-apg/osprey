@@ -46,7 +46,7 @@ import yaml
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces import vendor
 from osprey.interfaces._serving import run_app_server
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors_tests._harness import write_control_context
 from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
@@ -355,7 +355,7 @@ def hub_with_gallery(
     watch = tmp_path / "_agent_data"
     watch.mkdir(exist_ok=True)
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    (root / write_switch.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
     config = _write_config(tmp_path / "config.yml")
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)

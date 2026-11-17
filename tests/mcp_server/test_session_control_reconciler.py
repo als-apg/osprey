@@ -55,7 +55,7 @@ from osprey.mcp_server.control_system import session_control, target_eligibility
 from osprey.mcp_server.control_system.connector_host_manager import SwitchError
 from osprey.mcp_server.control_system.server_context import ControlSystemContext
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors_tests._harness import _control_context_fixtures as fixtures
 from osprey_connectors_tests._harness import isolate_verdict_environment
 
@@ -157,9 +157,7 @@ class FakeManager:
             # leave the deployment reading as mid-swap for ever, which is a
             # state no real server can be in.
             target_state.publish_switch(self._target, self._generation)
-            target_state.publish_last_switch(
-                {"generation": self._generation, "status": target_state.SWITCH_APPLIED}
-            )
+            target_state.publish_last_switch(target_state.switch_applied(self._generation))
         return {
             "target": self._target,
             "generation": self._generation,
@@ -214,7 +212,7 @@ def deployment(control_context_root, monkeypatch):
     """
     isolate_verdict_environment(monkeypatch, control_context_root)
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     target_state.write_server_record({"live": {"label": "Live"}, "va": {"label": "VA"}})
     target_state.publish_reachability(
         {
@@ -230,7 +228,7 @@ def deployment(control_context_root, monkeypatch):
     )
     write_record()
     yield control_context_root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -304,9 +302,7 @@ def write_record(
         target,
         generation,
         posture,
-        owned_by=(
-            fixtures.owner(control_context.OWNER_CONTROLS_SERVER) if owned_by is OURS else owned_by
-        ),
+        owned_by=(fixtures.owner("controls_server") if owned_by is OURS else owned_by),
         last_switch=last_switch,
         switch=switch,
     )
@@ -335,9 +331,11 @@ def record() -> control_context.ControlContext | None:
 
 
 def terminus() -> dict | None:
-    """The record's ``last_switch`` — a REQUEST's outcome, not a server's."""
+    """The record's ``last_switch`` as stored — a REQUEST's outcome, not a server's."""
     current = record()
-    return None if current is None else current.last_switch
+    if current is None or current.last_switch is None:
+        return None
+    return current.last_switch.model_dump(mode="json")
 
 
 def write_request(
@@ -428,32 +426,33 @@ class TestOwnership:
         await session_control.SessionControlReconciler().poll_once()
 
         current = record()
-        assert current.owner.kind == control_context.OWNER_CONTROLS_SERVER
-        assert current.owner.pid == os.getpid()
+        assert current.writer.kind == "controls_server"
+        assert current.writer.pid == os.getpid()
         assert (current.target, current.generation) == ("va", 3)
         assert current.switch == {"live": "asked"}
-        assert current.posture == {"va": "sandbox", "standin": "sandbox"}
+        stored = json.loads(control_context.record_path().read_text(encoding="utf-8"))
+        assert stored["posture"] == {"va": "sandbox", "standin": "sandbox"}
 
     @pytest.mark.usefixtures("records")
     async def test_a_record_owned_by_a_dead_process_is_claimed(self, monkeypatch):
         manager = FakeManager()
         install_context(manager, monkeypatch)
-        write_record(owned_by=fixtures.owner(control_context.OWNER_WEB_TERMINAL, dead_pid()))
+        write_record(owned_by=fixtures.owner("web_terminal", dead_pid()))
 
         await session_control.SessionControlReconciler().poll_once()
 
-        assert record().owner.pid == os.getpid()
+        assert record().writer.pid == os.getpid()
 
     @pytest.mark.usefixtures("records")
     async def test_a_live_web_terminal_owner_is_followed_not_claimed(self, monkeypatch):
         """A terminal outranks a server: it is what the operator is looking at."""
         manager = FakeManager()
         install_context(manager, monkeypatch)
-        write_record(owned_by=fixtures.owner(control_context.OWNER_WEB_TERMINAL, OTHER_PID))
+        write_record(owned_by=fixtures.owner("web_terminal", OTHER_PID))
 
         await session_control.SessionControlReconciler().poll_once()
 
-        assert record().owner.pid == OTHER_PID
+        assert record().writer.pid == OTHER_PID
 
     @pytest.mark.usefixtures("records")
     async def test_a_follower_reconciles_to_the_record_it_does_not_own(self, monkeypatch):
@@ -463,7 +462,7 @@ class TestOwnership:
         write_record(
             target="va",
             generation=4,
-            owned_by=fixtures.owner(control_context.OWNER_WEB_TERMINAL, OTHER_PID),
+            owned_by=fixtures.owner("web_terminal", OTHER_PID),
         )
 
         await session_control.SessionControlReconciler().poll_once()
@@ -475,7 +474,7 @@ class TestOwnership:
         """The outcome block belongs to the owner; a second answer is a clobber."""
         manager = FakeManager()
         install_context(manager, monkeypatch)
-        write_record(owned_by=fixtures.owner(control_context.OWNER_WEB_TERMINAL, OTHER_PID))
+        write_record(owned_by=fixtures.owner("web_terminal", OTHER_PID))
         write_request("va")
 
         await session_control.SessionControlReconciler().poll_once()
@@ -683,7 +682,7 @@ class TestSwitchRequests:
 
         current = record()
         assert (current.target, current.generation) == ("va", 1)
-        outcome = current.last_switch
+        outcome = terminus()
         assert outcome["request_id"] == request_id
         assert outcome["target"] == "va"
         assert outcome["status"] == session_control.STATUS_APPLIED
@@ -730,7 +729,7 @@ class TestSwitchRequests:
 
         current = record()
         assert (current.target, current.generation) == ("live", 0)
-        outcome = current.last_switch
+        outcome = terminus()
         assert outcome["request_id"] == request_id
         assert outcome["target"] == "va"
         assert outcome["status"] == session_control.STATUS_REFUSED
@@ -774,9 +773,9 @@ class TestSwitchRequests:
 
         current = record()
         assert (current.target, current.generation) == ("live", 4)
-        assert current.last_switch["request_id"] == request_id
-        assert current.last_switch["status"] == session_control.STATUS_APPLIED
-        assert current.last_switch["generation"] == 4
+        assert current.last_switch.request_id == request_id
+        assert current.last_switch.status == session_control.STATUS_APPLIED
+        assert current.last_switch.generation == 4
         assert requests() == []
         assert emitted[0]["outcome"] == "success"
 
@@ -847,7 +846,7 @@ class TestSwitchRequests:
             applied_generation=0,
             last_switch={
                 "generation": 0,
-                "status": control_context.REPORT_APPLYING,
+                "status": "applying",
                 "at": datetime.now(UTC).isoformat(),
                 "expires_at": (datetime.now(UTC) + timedelta(seconds=60)).isoformat(),
             },
@@ -873,7 +872,7 @@ class TestSwitchRequests:
             applied_generation=0,
             last_switch={
                 "generation": 0,
-                "status": control_context.REPORT_APPLYING,
+                "status": "applying",
                 "at": (datetime.now(UTC) - timedelta(seconds=120)).isoformat(),
                 "expires_at": (datetime.now(UTC) - timedelta(seconds=60)).isoformat(),
             },
@@ -952,8 +951,8 @@ class TestSwitchRequests:
 
     def test_the_terminus_vocabulary_is_the_records_own(self):
         """``applied`` / ``refused`` — a server's ``applying`` is a report word."""
-        assert session_control.STATUS_APPLIED == control_context.SWITCH_APPLIED
-        assert session_control.STATUS_REFUSED == control_context.SWITCH_REFUSED
+        assert session_control.STATUS_APPLIED == "applied"
+        assert session_control.STATUS_REFUSED == "refused"
 
     @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
     async def test_a_second_gesture_from_the_same_requester_is_answered_too(self, monkeypatch):
@@ -972,7 +971,7 @@ class TestSwitchRequests:
 
         current = record()
         assert (current.target, current.generation) == ("live", 2)
-        assert current.last_switch["request_id"] == second
+        assert current.last_switch.request_id == second
 
 
 class TestRequestsNobodyIsWaitingFor:
@@ -1303,13 +1302,20 @@ class TestDisplayRepublication:
 
         writes = 0
         real_write = target_state._atomic_write_json
+        real_report = target_state._write_report
 
         def counted(path, record_):
             nonlocal writes
             writes += 1
             real_write(path, record_)
 
+        def counted_report(path, report):
+            nonlocal writes
+            writes += 1
+            real_report(path, report)
+
         monkeypatch.setattr(target_state, "_atomic_write_json", counted)
+        monkeypatch.setattr(target_state, "_write_report", counted_report)
         manager.display_publishes = 0
 
         for _ in range(10):
@@ -1479,10 +1485,10 @@ class TestTheSwitchReachesARunningChild:
                 state_root,
                 "va",
                 manager.active_generation(),
-                owned_by=fixtures.owner(control_context.OWNER_CONTROLS_SERVER),
+                owned_by=fixtures.owner("controls_server"),
                 switch=switch,
             )
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
 
         write_va_record(None)
         install_context(manager, monkeypatch, raw=raw)

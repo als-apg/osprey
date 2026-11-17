@@ -10,7 +10,7 @@ every call — refused or not — leaves a record.
 
 **What it decides.** It is the BACKSTOP, not the write gate. A call whose
 fully-qualified name is in the clamp set is refused before the tool runs when
-:func:`~osprey_connectors.posture_store.backstop_verdict` refuses — a read-only
+:func:`~osprey_connectors.write_switch.backstop_verdict` refuses — a read-only
 run (``OSPREY_EXECUTION_MODE=readonly``) or a tier that allows no writes
 (``tier_never``) — and the refusal says so in
 :func:`~osprey_connectors.refusals.refusal_phrase`'s words. The backstop names
@@ -18,7 +18,7 @@ no target and opens no record, so a switch that is off never refuses here: the
 tool's own write verdict and the connector's reference monitor own that, for
 the machine the write actually lands on. A clamped call the backstop allows is
 then refused when the session is held
-(:func:`~osprey_connectors.posture_store.session_hold_refusal`), except the tools
+(:func:`~osprey_connectors.write_switch.session_hold_refusal`), except the tools
 of :data:`_NEVER_HELD`, by bare name on the verified and the degraded path alike.
 The clamp set is the rendered
 ``hook_config.json``'s ``write_tools`` *minus* its ``mixed_read_write_tools`` —
@@ -154,14 +154,14 @@ from osprey.mcp_server.approval_record import (
 from osprey.mcp_server.errors import make_error
 from osprey.utils.session_hold_api import refusal_detail, session_hold_refusal
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.posture_store import backstop_verdict
 from osprey_connectors.refusals import refusal_text
+from osprey_connectors.write_switch import backstop_verdict
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import mcp.types as mt
     from fastmcp.tools.base import ToolResult
 
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.write_switch import Refused, WriteVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -804,7 +804,7 @@ def _record(
 def _backstop() -> WriteVerdict:
     """The backstop verdict for this call: read-only run, then tier, nothing else.
 
-    :func:`~osprey_connectors.posture_store.backstop_verdict` over the section
+    :func:`~osprey_connectors.write_switch.backstop_verdict` over the section
     :func:`osprey.audit.posture.control_system_section` reads — ``None`` when
     the config cannot be read, which the backstop answers ``tier_never``. It is
     target-blind on purpose: whether the switch is on for a machine is the
@@ -814,7 +814,7 @@ def _backstop() -> WriteVerdict:
     return backstop_verdict(posture.control_system_section())
 
 
-def _clamp_refusal(backstop: WriteVerdict, tool: str) -> WriteVerdict | None:
+def _clamp_refusal(backstop: WriteVerdict, tool: str) -> Refused | None:
     """Why a clamped call is refused: the *backstop*, then the session's hold.
 
     The tools of :data:`_NEVER_HELD` pass the hold and answer only to the
@@ -917,7 +917,7 @@ class AuditMiddleware(Middleware):
             else None
         )
         if refusal is not None:
-            refused_for = refusal.reason or "tier_never"
+            refused_for = refusal.reason
             _record(
                 surface=surface,
                 subject=subject,

@@ -57,7 +57,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -169,7 +169,7 @@ def _prepare(tmp_path, monkeypatch, *, session=None, config=_CONFIG):
     from osprey.mcp_server.control_system import server_context
 
     monkeypatch.setattr(server_context, "switch_capable", lambda _raw: False)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     initialize_server_context()
     return root
 
@@ -185,7 +185,7 @@ def _root():
     the ``control_target/<identity>`` hops itself, so a directory that already
     carries them names a file no reader ever resolves.
     """
-    return posture_store.stamped_agent_data_root()
+    return write_switch.stamped_agent_data_root()
 
 
 def _write_record(target, generation, **fields):
@@ -224,7 +224,7 @@ def _applying(generation, *, expires_in_s=60.0):
     only the session whose server it is.
     """
     return {
-        "status": control_context.REPORT_APPLYING,
+        "status": "applying",
         "generation": generation,
         "at": _iso(),
         "expires_at": _iso(expires_in_s),
@@ -234,7 +234,7 @@ def _applying(generation, *, expires_in_s=60.0):
 def _failed(generation):
     """A ``failed`` switch block for *generation* — a server that could not follow."""
     return {
-        "status": control_context.REPORT_FAILED,
+        "status": "failed",
         "generation": generation,
         "at": _iso(),
     }

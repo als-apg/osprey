@@ -107,14 +107,17 @@ class FakePool:
 
 
 def _flag(root: Path, flag_id: str, *, source: str = "wd", key: str = KEY) -> None:
-    assert open_flag(
-        key,
-        flag_id=flag_id,
-        source=source,
-        reason="risky",
-        prompt_ref=make_prompt_ref(RECORD_SESSION, flag_id),
-        prompt_excerpt=PROMPT,
-        root=root,
+    assert (
+        open_flag(
+            key,
+            flag_id=flag_id,
+            source=source,
+            reason="risky",
+            prompt_ref=make_prompt_ref(RECORD_SESSION, flag_id),
+            prompt_excerpt=PROMPT,
+            root=root,
+        )
+        == "opened"
     )
 
 

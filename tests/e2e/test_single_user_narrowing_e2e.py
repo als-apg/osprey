@@ -88,8 +88,8 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.connector_types import CONTROL_TARGETS, TARGET_VA
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_switch import LAUNCH_PIN_SANDBOX
 from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,
@@ -360,8 +360,7 @@ def _narrow_the_build_account(repo: Path) -> Path:
     record = ControlContext(
         target=TARGET_VA,
         generation=1,
-        owner=None,
-        posture=dict.fromkeys(CONTROL_TARGETS, POSTURE_SANDBOX),
+        writer=None,
     )
     return write_record(record, path=identity_dir / RECORD_FILENAME)
 
@@ -873,7 +872,7 @@ def test_the_build_accounts_record_is_group_readable_on_a_deployed_stack(
         "umask 077 does not quietly produce a 0600 record that no lane can read"
     )
     record = json.loads(record_path.read_text(encoding="utf-8"))
-    assert all(record["posture"][target] == POSTURE_SANDBOX for target in CONTROL_TARGETS), (
+    assert all(record["posture"][target] == LAUNCH_PIN_SANDBOX for target in CONTROL_TARGETS), (
         f"the fixture's narrowing did not reach every target: {record}"
     )
 

@@ -66,7 +66,7 @@ from osprey.interfaces.web_terminal.config_view import (
     section_of,
 )
 from osprey.interfaces.web_terminal.routes import websocket as posture_routes
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, write_switch
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.errors import AlreadyApprovedError
@@ -187,7 +187,7 @@ class _Facts:
     login: str
     configured: tuple[str, ...]
     ceiling: str
-    lock: posture_store.WriteVerdict | None = None
+    lock: write_switch.Refused | None = None
     request: wa.WriteRequest | None = None
     request_problem: str | None = None
     limits: dict[str, Any] | None = None
@@ -254,13 +254,16 @@ def _facts(config_path: Path | None, request_id: str) -> _Facts:
         return facts
     target = facts.request.target
     if target in facts.configured:
-        verdict = posture_store.write_verdict(
+        verdict = write_switch.write_verdict(
             None if section is UNREADABLE else section,
             target,
             owner=login,
             ignore_launch_pin=True,
         )
-        if verdict.reason in posture_routes._TURN_ON_LOCKS:
+        if (
+            isinstance(verdict, write_switch.Refused)
+            and verdict.reason in posture_routes._TURN_ON_LOCKS
+        ):
             facts.lock = verdict
     facts.approved = _own_grant_exists(request_id)
     if config is UNREADABLE or not isinstance(config, dict):
@@ -281,7 +284,7 @@ def _locks(facts: _Facts) -> dict[str, Any] | None:
         return {"status": 403, "reason": posture_routes.POSTURE_REASON_TIER_CAPS,
                 "ceiling": facts.ceiling}  # fmt: skip
     if facts.lock is not None:
-        reason = str(facts.lock.reason)
+        reason = facts.lock.reason
         return {"status": 403, "reason": reason,
                 "phrase": refusal_phrase(reason, facts.lock.kind)}  # fmt: skip
     return None
@@ -338,7 +341,7 @@ def _listing() -> dict[str, Any]:
     """Pending requests for this login, and this login's grants. BLOCKING."""
     login = acting_identity()
     now = datetime.now(UTC)
-    record, _status = control_context.read_record_status()
+    record = control_context.read_record_status().value
     own = wa.authorizations_dir()
     if own is not None:
         try:
@@ -349,24 +352,28 @@ def _listing() -> dict[str, Any]:
     # seen read-only: those end by moving the switch off ``allowed``, never by
     # a revoke from here. The ledgers are the holders', in the same view, and
     # a program on the host keeps its ledger beside the grant.
-    found, unlisted = wa.listed_grants([] if own is None else [own], wa.self_issued_directories())
+    listing = wa.list_grants(
+        *([] if own is None else [own]), self_issued=wa.self_issued_directories()
+    )
     ledgers = _ledger_directories()
-    unreadable = len(unlisted)
+    unreadable = len(listing.unreadable)
     grants: list[dict[str, Any]] = []
-    for grant, found_in in found:
+    for listed in listing.items:
+        grant = listed.grant
         if grant.owner != login:
             continue
         standing = wa.grant_standing(grant, record, ledgers, now=now)
-        row = approval.grant_summary(grant, used=standing.used, now=now)
+        row = approval.grant_summary(grant, used=standing.steps_spent, now=now)
         row["in_force"] = standing.in_force
-        row["self_issued"] = grant.approver.surface == wa.SELF_ISSUE_SURFACE
-        row["revocable"] = found_in == own
+        row["self_issued"] = grant.approver.surface == "write_switch"
+        row["revocable"] = listed.directory == own
         grants.append(row)
     pending: list[dict[str, Any]] = []
     approved = {row["id"] for row in grants}
     for directory in _request_directories():
         try:
-            requests, broken = wa.list_requests(directory)
+            listed_requests = wa.list_requests(directory)
+            requests, broken = listed_requests.items, listed_requests.unreadable
         except OSError:
             requests, broken = (), (directory,)
         unreadable += len(broken)

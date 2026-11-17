@@ -81,7 +81,7 @@ import sys
 #: Set by the headless entry points in ``osprey.agent_runner``.
 SKIP_ENV_VAR = "OSPREY_WATCHDOG_SKIP"
 
-#: The mark of a dispatch job. Mirrors ``posture_store.DISPATCH_RUN_ENV_VAR``.
+#: The mark of a dispatch job. Mirrors ``write_switch.DISPATCH_RUN_ENV_VAR``.
 DISPATCH_RUN_ENV_VAR = "OSPREY_DISPATCH_RUN"
 
 #: The argument that makes a run of this file the detached child.

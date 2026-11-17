@@ -199,7 +199,9 @@ def deployment(tmp_path, monkeypatch):
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
     reset_config_cache()
 
-    (root / "var" / "agent_data" / target_state.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    (root / "var" / "agent_data" / target_state.CONTROL_STATE_DIR_NAME).mkdir(
+        parents=True, exist_ok=True
+    )
     return root
 
 

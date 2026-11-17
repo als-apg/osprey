@@ -476,7 +476,7 @@ def _approve_when_asked(deadline_s: float) -> wa.Grant:
     directory = wa.requests_dir()
     assert directory is not None, "no requests directory resolves for this login"
     while time.monotonic() < deadline:
-        requests, _unreadable = wa.list_requests(directory)
+        requests = wa.list_requests(directory).items
         if requests:
             (request,) = requests
             return wa.approve_request(request, surface="cli")

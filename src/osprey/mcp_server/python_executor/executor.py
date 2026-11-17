@@ -58,9 +58,9 @@ from osprey.stores.artifact_manifest import (
 )
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
 from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES, PRESET_TRACKING_DIRNAME
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.posture_env import POSTURE_ENV_VAR
+from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
@@ -157,11 +157,11 @@ _STAMP_ENV_NAMES = (
 #: The per-target write posture the run was LAUNCHED under, stamped into the
 #: sandbox environment and recorded in the in-flight marker. The format and the
 #: reading side belong to
-#: :mod:`osprey_connectors.posture_store`, which is where the sandbox's own
+#: :mod:`osprey_connectors.write_switch`, which is where the sandbox's own
 #: reference monitor asks the question; the name is imported from there rather
 #: than re-spelled, because unlike the stamps above this one is read by a
 #: module this process can import.
-ENV_LAUNCH_POSTURE = posture_store.LAUNCH_POSTURE_ENV_VAR
+ENV_LAUNCH_POSTURE = write_switch.LAUNCH_PIN_ENV_VAR
 
 #: The in-flight marker contract, spelled here and restated in
 #: :mod:`osprey.mcp_server.control_system.tools.control_target`, which reads
@@ -725,7 +725,7 @@ def _launch_posture(target: str | None) -> str:
     """The :data:`ENV_LAUNCH_POSTURE` value for a run about to start on *target*.
 
     The write verdict
-    (:func:`~osprey_connectors.posture_store.write_verdict`) for *target* at the
+    (:func:`~osprey_connectors.write_switch.write_verdict`) for *target* at the
     instant of launch, asked with the launch pin ignored — this IS the pin, and
     a pin that consulted itself would only ever echo the one this process
     inherited. That answer is pinned into the run rather than left to be
@@ -747,7 +747,7 @@ def _launch_posture(target: str | None) -> str:
     permitted = False
     if target is not None:
         try:
-            permitted = posture_store.write_verdict(
+            permitted = write_switch.write_verdict(
                 posture.control_system_section(), target, ignore_launch_pin=True
             ).allowed
         except Exception:  # write_verdict never raises; an unreachable one grants nothing
@@ -756,8 +756,8 @@ def _launch_posture(target: str | None) -> str:
                 target,
                 exc_info=True,
             )
-    value = posture_store.POSTURE_WRITES if permitted else posture_store.POSTURE_SANDBOX
-    return posture_store.launch_posture_stamp(target, value)
+    value = write_switch.LAUNCH_PIN_WRITES if permitted else write_switch.LAUNCH_PIN_SANDBOX
+    return write_switch.launch_pin_stamp(target, value)
 
 
 def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
@@ -932,7 +932,7 @@ def _check_store_path(code: str, osprey_config: Mapping[str, Any], tool: str) ->
     fault = approval_enabled_fault(osprey_config)
     if fault is not None:
         return Refusal(APPROVAL_CONFIG_INVALID, f"not run: {fault} (approval_config_invalid).")
-    dispatch_run = os.environ.get(posture_store.DISPATCH_RUN_ENV_VAR) == "1"
+    dispatch_run = os.environ.get(write_switch.DISPATCH_RUN_ENV_VAR) == "1"
     if dispatch_run or not ask_capable(osprey_config, tool):
         return Refusal(APPROVAL_MISSING, STORE_PATH_REFUSAL)
     if require_approval_record(tool, osprey_config) is not None:
@@ -1199,7 +1199,7 @@ async def _execute_via_local(
     # the read_only gateway when this says readonly, so a readonly run cannot
     # write however the call is spelled — the pre-execution regex only ever
     # saw the standard spellings.
-    sandbox_env[POSTURE_ENV_VAR] = execution_mode
+    sandbox_env[EXECUTION_MODE_ENV_VAR] = execution_mode
     # Which machine those writes and reads reach is the second runtime property
     # of the subprocess, and it is stamped for the same reason as the mode: the
     # sandbox is a fresh process that builds its own connector, so the target

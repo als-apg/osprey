@@ -48,7 +48,7 @@ holder can decide privately which machine ``live`` means.
 
 Writes are deliberately **not** grantable by launch payload. The connector's
 write guard decides every write by the write verdict
-(:func:`osprey_connectors.posture_store.write_verdict`): the write tier of the
+(:func:`osprey_connectors.write_switch.write_verdict`): the write tier of the
 project config's ``control_system`` section — not the section in the init
 frame — and the login's switch for the machine, read from the record this
 child's environment names. ``execution_mode`` here can only *add* the
@@ -212,9 +212,9 @@ from collections import deque
 from typing import TYPE_CHECKING, Literal, Protocol, SupportsFloat, TypedDict, get_args
 
 from osprey_connectors.errors import ConnectorInternalError
+from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR, READONLY_MODE, is_readonly_run
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
-from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping
@@ -522,11 +522,13 @@ def _named_authorization() -> str | None:
     """The program's write authorization this child names, for its report; ``None`` for none.
 
     The child's ``writes_enabled`` and its gateway were decided on it
-    (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`).
+    (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`);
+    the connectors' write guard reads it from the environment, and this asks
+    the same reader.
     """
-    from osprey_connectors.write_authorization import named_authorization
+    from osprey_connectors.control_system._base import _named_authorization
 
-    return named_authorization()
+    return _named_authorization()
 
 
 def _rule_role(gateways: dict[str, object], writes_enabled: bool, readonly_run: bool) -> str | None:
@@ -713,7 +715,7 @@ async def _build_connector(
         os.environ["CONFIG_FILE"] = str(config_file)
     if payload.get("execution_mode") == "readonly":
         # Restriction only: an inherited readonly claim is never cleared here.
-        os.environ[POSTURE_ENV_VAR] = SANDBOX_MODE
+        os.environ[EXECUTION_MODE_ENV_VAR] = READONLY_MODE
 
     from osprey_connectors import connector_types, targets
     from osprey_connectors.factory import ConnectorFactory

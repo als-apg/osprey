@@ -2943,10 +2943,10 @@ def _inject_project_metadata(config):
     # service mounts the tree is the template's decision — a lane with writes
     # disabled has no owned write to judge and renders no mount — and a template
     # that never names these keys is unaffected.
-    from osprey_connectors.posture_store import STATE_DIR_NAME
+    from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 
     config_with_labels["osprey_control_tree_mount_source"] = repo_relative_mount_source(
-        (agent_data_base / STATE_DIR_NAME).as_posix(), repo_root
+        (agent_data_base / CONTROL_STATE_DIR_NAME).as_posix(), repo_root
     )
     config_with_labels["osprey_container_control_tree_dir"] = _CONTAINER_CONTROL_TREE_DIR
 
@@ -4930,7 +4930,7 @@ def deployed_app_audit_identities(config):
 #: one of them report a tree that is in fact provisioned. The mode is therefore
 #: set explicitly on the descriptor, the same idiom the record writer uses.
 #:
-#: The reader in ``osprey_connectors.posture_store`` restates the filename rather
+#: The reader in ``osprey_connectors.write_switch`` restates the filename rather
 #: than importing it: the connectors package may not import the deployment layer.
 CONTROL_TREE_MARKER_NAME = ".osprey-control-tree"
 CONTROL_TREE_MARKER_MODE = 0o640
@@ -4959,7 +4959,7 @@ def control_target_tree_dir(config, repo_root):
     spelled here: ``agent_data.base_dir`` through
     :func:`~osprey_connectors.workspace.agent_data_base_dir`, so a project that
     relocated its agent-data root moves the tree with it; and the WRITER's own
-    :data:`~osprey_connectors.posture_store.STATE_DIR_NAME`, so the directory a
+    :data:`~osprey_connectors.write_switch.CONTROL_STATE_DIR_NAME`, so the directory a
     terminal writes its record into and the directory this path provisions cannot
     be spelled apart. A literal either side would leave the bind pointing at a
     path the deploy never creates — which the runtime then creates root-owned,
@@ -4982,15 +4982,10 @@ def control_target_tree_dir(config, repo_root):
     :return: The control-context tree root
     :rtype: pathlib.Path
     """
-    # Aliased on import: ``osprey_connectors.workspace`` — already imported here for
-    # two other names — exports a ``STATE_DIR_NAME`` of its own, spelled "var".
-    # Under one name, folding this constant into that import line is a one-word
-    # edit that silently repoints the whole tree at <agent-data root>/var, which
-    # is the single class of drift this seam exists to make impossible.
-    from osprey_connectors.posture_store import STATE_DIR_NAME as CONTROL_TREE_DIR_NAME
     from osprey_connectors.workspace import agent_data_base_dir, anchored_path
+    from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 
-    return anchored_path(agent_data_base_dir(config), Path(repo_root)) / CONTROL_TREE_DIR_NAME
+    return anchored_path(agent_data_base_dir(config), Path(repo_root)) / CONTROL_STATE_DIR_NAME
 
 
 def control_target_identity_dir(config, repo_root, identity):

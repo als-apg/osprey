@@ -79,7 +79,7 @@ import yaml
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces._serving import run_app_server
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors_tests._harness import write_control_context, write_server_report
 from tests.interfaces._browser import open_hub_page, rail_entry, wait_for_page_ready
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_app, hub_server
@@ -542,7 +542,7 @@ def _control_target_lab(
     workspace = tmp_path / "watch"
     workspace.mkdir(exist_ok=True)
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    (root / write_switch.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
 
     config = write_config(tmp_path / "config.yml")
     document = yaml.safe_load(config.read_text(encoding="utf-8"))

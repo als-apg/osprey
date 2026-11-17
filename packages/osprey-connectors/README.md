@@ -73,11 +73,11 @@ Most modules are their own API, each imported by its own path:
 | Building connectors | `factory` (the factory and the built-in registry), `connector_types` (the type names and the row each built-in is described by), `targets` (which machine a control target means), `archiver_selection` (which archiver a config selects), `connection` (an outbound connection block's address, bound, login and CA), `call_timeout` (a connector call's bound) |
 | Configuration | `config`, `workspace` (where a process finds its config and agent data), `dotenv` (the deployment's env chain), `yaml_loader` |
 | Errors and logging | `errors`, `logger`, `log_filter` |
-| Writing safely | `posture_env` (the read-only run), `write_tier` (the login tier's write ceiling), `limits_posture` (the limits posture a type or target runs under), `posture_store` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle) |
+| Writing safely | `execution_mode` (the read-only run), `write_tier` (the login tier's write ceiling), `limits_posture` (the limits posture a type or target runs under), `write_switch` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle) |
 | The deployment's machines | `deployment.simulator` (its virtual accelerator), `deployment.standin` (its stand-in soft IOC), `deployment.archive_targets` (which machines its archive serves) |
 | Supervising connector processes | `process` (starting and stopping child processes), `recovery` (what to do about a failed connector call) |
 | Read-only services | `service_answers` (what every service backend answers), `service_targets` (which source answers each kind on each target) |
-| Utilities | `identity` (who an audit record names), `relative_time`, `safety_file` (replacing a file whole) |
+| Utilities | `identity` (who an audit record names), `relative_time`, `safety_file` (replacing a file whole), `testing` (dropping the parsed control-state files between tests) |
 
 So are the `simulation` package and its modules (`simulation.state`,
 `simulation.view`, `simulation.archive`, ...): its root imports neither numpy
@@ -99,8 +99,8 @@ and their names are imported from the subpackage itself:
 `osprey_connectors.control_system.write_door`, the door a connector opens around
 its own write, is a public module of its own.
 
-The read-only run — `POSTURE_ENV_VAR`, `SANDBOX_MODE` and `is_readonly_run()` —
-lives in `osprey_connectors.posture_env`, a leaf that imports nothing from the
+The read-only run — `EXECUTION_MODE_ENV_VAR`, `READONLY_MODE` and `is_readonly_run()` —
+lives in `osprey_connectors.execution_mode`, a leaf that imports nothing from the
 package. `osprey_connectors.control_system` exported `is_readonly_run` before
 2026.10.0 and no longer does.
 
@@ -115,8 +115,8 @@ first, and ruff's `PLC2701` and `tests/connectors/test_public_api.py` the
 second. import-linter also holds this package to never importing `osprey`, and
 holds every top-level module of it in layers: the connector host above the
 factory, the factory above the archivers, the archivers above the
-control-system connectors, those above the simulation core, and the posture
-store, config loading and the bottom layer (`posture_env`, `connector_types`,
+control-system connectors, those above the simulation core, and the write
+switch, config loading and the bottom layer (`execution_mode`, `connector_types`,
 `identity`, ...) below them all.
 
 ## Import map

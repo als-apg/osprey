@@ -21,7 +21,7 @@ from canopy.epics.gateway import build_connector
 from osprey.integrations.canopy import backend as backend_module
 from osprey.runtime import session as session_module
 from osprey.runtime.session import STATE_BOUND, STATE_FALLBACK, STATE_UNSERVABLE
-from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors_tests._fake_connector import FakeConnector
@@ -48,10 +48,10 @@ class _RefusingConnector(FakeConnector):
 
 def _write_record(state_dir: Path) -> None:
     control_context.write_record(
-        control_context.ControlContext(target="va", generation=3, posture={}),
+        control_context.ControlContext(target="va", generation=3),
         path=state_dir / control_context.RECORD_FILENAME,
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ def state_dir(tmp_path, monkeypatch):
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -70,9 +70,9 @@ def state_dir(tmp_path, monkeypatch):
         if name.startswith(("OSPREY_CONTROL_TARGET", "EPICS_", "CANOPY_EPICS__")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -88,9 +88,9 @@ def state_dir(tmp_path, monkeypatch):
         raise AssertionError(f"the backend tried to end the test process with status {status}")
 
     monkeypatch.setattr(backend_module.os, "_exit", no_exit)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield directory
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _identity(connector) -> tuple:

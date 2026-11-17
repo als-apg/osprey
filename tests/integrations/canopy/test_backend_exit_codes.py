@@ -59,7 +59,7 @@ from osprey.runtime.session import (
     Binding,
     SessionEnvironmentError,
 )
-from osprey_connectors import connector_types, control_context, posture_store, session_hold
+from osprey_connectors import connector_types, control_context, session_hold, testing, write_switch
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import ConnectorUnavailableError
@@ -87,9 +87,9 @@ def write_record(state_dir: Path, *, target="live", generation=3) -> Path:
     control_context.write_record(
         control_context.ControlContext(target=target, generation=generation), path=path
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     _set_switch_to(path, dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed"))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -136,7 +136,7 @@ class _Child:
         }
         env.update(
             {
-                posture_store.CONTROL_CONTEXT_DIR_ENV_VAR: str(self.state_dir),
+                write_switch.CONTROL_CONTEXT_DIR_ENV_VAR: str(self.state_dir),
                 AUDIT_IDENTITY_ENV: "test-operator",
                 "OSPREY_CONFIG": str(config),
                 "CONFIG_FILE": str(config),
@@ -215,7 +215,7 @@ def child(tmp_path):
     yield start
     for process in started:
         process.stop()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class TestServedProcess:
@@ -223,11 +223,9 @@ class TestServedProcess:
 
     def test_a_refused_environment_exits_78_before_serving(self, child):
         """A forbidden variable is a refused start: status 78, the reason logged, nothing served."""
-        process = child(
-            **{RENDERED_FOR_ENV: "none", posture_store.CONTROL_OWNER_ENV_VAR: "someone"}
-        )
+        process = child(**{RENDERED_FOR_ENV: "none", write_switch.CONTROL_OWNER_ENV_VAR: "someone"})
         assert process.wait() == 78
-        assert f"{posture_store.CONTROL_OWNER_ENV_VAR} must not be set" in process.output
+        assert f"{write_switch.CONTROL_OWNER_ENV_VAR} must not be set" in process.output
         assert STARTED not in process.output
 
     def test_an_environment_that_names_no_record_exits_78(self, child):
@@ -311,7 +309,7 @@ def deployment(tmp_path, monkeypatch):
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -320,9 +318,9 @@ def deployment(tmp_path, monkeypatch):
         if name.startswith(("OSPREY_CONTROL_TARGET", "EPICS_", "CANOPY_EPICS__")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         session_hold.HOLD_DIR_ENV_VAR,
         session_module.SESSION_KEY_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
@@ -344,11 +342,11 @@ def deployment(tmp_path, monkeypatch):
 
     monkeypatch.setattr(backend_module.os, "_exit", fake_exit)
     _TrackedFake.connected = _TrackedFake.connects = 0
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _TrackedFake)
         yield directory, exits
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _backend():
@@ -362,7 +360,7 @@ class TestBeforeTheExit:
         """Status 78 with nothing connected and no session kept."""
         _, exits = deployment
         monkeypatch.setenv(RENDERED_FOR_ENV, "none")
-        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "someone")
+        monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "someone")
         backend = _backend()
         with pytest.raises(_Exited):
             await backend.start()
@@ -386,7 +384,7 @@ class TestBeforeTheExit:
     ):
         """Were the exit ever to return, ``start`` does not carry on into serving."""
         monkeypatch.setenv(RENDERED_FOR_ENV, "none")
-        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "someone")
+        monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "someone")
         monkeypatch.setattr(backend_module.os, "_exit", lambda status: None)
         with pytest.raises(SessionEnvironmentError):
             await _backend().start()
@@ -655,7 +653,7 @@ def _switch(directory: Path, switch: dict[str, str]) -> None:
     """Set the record's switch to exactly *switch*; the record itself stays ``va@3``."""
     time.sleep(0.002)
     _set_switch_to(directory / control_context.RECORD_FILENAME, switch)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _hold_store(directory: Path, monkeypatch, *keys: str) -> Path:
@@ -673,14 +671,17 @@ def _name_sessions(keys) -> None:
 
 
 def _raise_hold(root: Path, key: str) -> None:
-    assert session_hold.open_flag(
-        key,
-        flag_id="flag-1",
-        source="watchdog:limits",
-        reason="a limit was refused",
-        prompt_ref="turn-7",
-        prompt_excerpt="set the current to 900",
-        root=root,
+    assert (
+        session_hold.open_flag(
+            key,
+            flag_id="flag-1",
+            source="watchdog:limits",
+            reason="a limit was refused",
+            prompt_ref="turn-7",
+            prompt_excerpt="set the current to 900",
+            root=root,
+        )
+        == "opened"
     )
 
 
@@ -938,7 +939,7 @@ WALL_START = 1_760_700_000.0
 
 HOLD_S = epics_connector_module.STALE_HOLD_DOWN_S
 
-SAME_RECORD = control_context.ControlContext(target="va", generation=3, posture={})
+SAME_RECORD = control_context.ControlContext(target="va", generation=3)
 
 
 class _ReachClock:
@@ -1245,7 +1246,7 @@ class TestTheNextProcessStartsInTheLastStatement:
             await run.backend.close()
         assert _statement_file()["binding_key"] == "va@3"
 
-        moved = control_context.ControlContext(target="va", generation=4, posture={})
+        moved = control_context.ControlContext(target="va", generation=4)
         carried = sidecar_module.carried_reach(Path.cwd(), moved)
         assert carried is None
         assert not (Path.cwd() / STATEMENT_FILENAME).exists()

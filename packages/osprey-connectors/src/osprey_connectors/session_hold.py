@@ -30,10 +30,10 @@ operator and the time.
 
 **Reads** follow no symbolic link: the session directory is checked with
 :func:`os.lstat` and the record is opened ``O_NOFOLLOW`` and bounded, the same
-reader the posture store uses for its tree.
+reader the record uses for the read-only tree.
 
 This module imports only :mod:`~osprey_connectors.safety_file` and the
-model bases from the package, so the posture store can import it.
+model bases from the package, so the write switch can import it.
 """
 
 from __future__ import annotations
@@ -78,6 +78,10 @@ logger = logging.getLogger(__name__)
 
 #: The environment variable naming the hold root when no ``root`` is passed.
 HOLD_DIR_ENV_VAR: Final = "OSPREY_SESSION_HOLD_DIR"
+
+#: What :func:`open_flag` did: opened the flag, or wrote nothing because there
+#: is no store, the flag is there already, or the record cannot be read.
+_FlagOutcome = Literal["opened", "no_store", "duplicate", "record_unreadable"]
 
 #: The record's file name inside a session's directory.
 RECORD_NAME: Final = "record.json"
@@ -442,14 +446,15 @@ def open_flag(
     prompt_ref: str,
     prompt_excerpt: str,
     root: Path | str | None = None,
-) -> bool:
-    """Open one flag; ``True`` when it was opened.
+) -> _FlagOutcome:
+    """Open one flag, and say what became of it.
 
-    ``False`` when there is no root, when a flag with the same
-    ``(source, prompt_ref)`` or the same ``flag_id`` exists (open or closed),
-    or when the record exists and is unreadable — that session is already held
-    by the synthetic flag, and only its answer rewrites the record. A missing
-    record is created with the flag.
+    ``"opened"`` when it was opened; a missing record is created with the
+    flag. Otherwise nothing is written: ``"no_store"`` when there is no root,
+    ``"duplicate"`` when a flag with the same ``(source, prompt_ref)`` or the
+    same ``flag_id`` exists (open or closed), and ``"record_unreadable"`` when
+    the record exists and is unreadable — that session is already held by the
+    synthetic flag, and only its answer rewrites the record.
 
     Raises:
         ValueError: *session_key* is not a safe file name.
@@ -458,7 +463,7 @@ def open_flag(
     """
     resolved = hold_root(root)
     if resolved is None:
-        return False
+        return "no_store"
     key = _checked_key(session_key)
     if len(prompt_excerpt) > _EXCERPT_LIMIT:
         prompt_excerpt = prompt_excerpt[: _EXCERPT_LIMIT - 1] + "…"
@@ -469,13 +474,13 @@ def open_flag(
                 logger.warning(
                     "session hold record %s is unreadable; flag %s not added", path, flag_id
                 )
-                return False
+                return "record_unreadable"
             flags = []
         for entry in flags:
             if entry.flag_id == flag_id or (
                 entry.source == source and entry.prompt_ref == prompt_ref
             ):
-                return False
+                return "duplicate"
         flags.append(
             _open_entry(
                 flag_id=flag_id,
@@ -487,7 +492,7 @@ def open_flag(
             )
         )
         _write(path, key, flags)
-    return True
+    return "opened"
 
 
 def _close(

@@ -1,6 +1,6 @@
 """The backstop verdict: the target-blind, record-blind floor under every write.
 
-:func:`~osprey_connectors.posture_store.backstop_verdict` answers for callers that
+:func:`~osprey_connectors.write_switch.backstop_verdict` answers for callers that
 know no target and hold no owner — a write that cannot be traced to a machine
 still has to be refused under a read-only run or a ``never`` tier. It refuses
 ``readonly_run`` first, then ``tier_never``, and otherwise allows. These tests pin
@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from osprey_connectors import control_context, limits_posture, posture_store, targets
-from osprey_connectors.posture_store import NO_OWNER, WriteVerdict, backstop_verdict
+from osprey_connectors import _control_state, control_context, limits_posture, targets, write_switch
 from osprey_connectors.refusals import REASONS
+from osprey_connectors.write_switch import NO_OWNER, Allowed, WriteVerdict, backstop_verdict
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._write_verdict_cases import case_environment
 
@@ -45,14 +45,14 @@ def blind(monkeypatch):
     for module, name in (
         (control_context, "read_record_status"),
         (control_context, "read_record"),
-        (posture_store, "_read_tree_context"),
-        (posture_store, "_tree_is_bound"),
-        (posture_store, "_control_context_tree"),
-        (posture_store, "resolve_target"),
-        (posture_store, "machine_kind"),
-        (posture_store, "current_owner"),
-        (posture_store, "owner_tier_term"),
-        (posture_store, "_launch_pin_term"),
+        (control_context, "read_tree_context"),
+        (_control_state, "tree_is_bound"),
+        (_control_state, "control_context_tree"),
+        (write_switch, "resolve_target"),
+        (write_switch, "machine_kind"),
+        (write_switch, "current_owner"),
+        (write_switch, "owner_tier_term"),
+        (_control_state, "launch_pin_term"),
         (targets, "resolve_target"),
         (targets, "machine_kind"),
         (limits_posture, "resolve_target"),
@@ -78,14 +78,14 @@ def test_allowed_tier_allows_with_no_target_and_no_kind():
     verdict = backstop_verdict(LIVE)
 
     # Assert
-    assert verdict == WriteVerdict(allowed=True, reason=None, target=None, kind=None)
+    assert verdict == Allowed(target=None, kind=None, position=None)
 
 
 @pytest.mark.usefixtures("blind")
 def test_asked_tier_allows():
     verdict = backstop_verdict(ASKED)
 
-    assert verdict == WriteVerdict(allowed=True, reason=None, target=None, kind=None)
+    assert verdict == Allowed(target=None, kind=None, position=None)
 
 
 @pytest.mark.parametrize("stored", ["asked", "allowed"])
@@ -115,7 +115,7 @@ def test_allow_needs_no_record_no_switch_and_no_owner():
     verdict = backstop_verdict(LIVE)
 
     assert verdict.allowed is True
-    assert posture_store._owner_var.get() is NO_OWNER
+    assert write_switch._owner_var.get() is NO_OWNER
 
 
 # --- the refusals ---------------------------------------------------------
@@ -172,7 +172,7 @@ def test_a_switched_off_record_does_not_refuse_the_backstop(tmp_path):
 
 @pytest.mark.usefixtures("blind")
 def test_a_tier_reader_that_raises_refuses_tier_never(monkeypatch):
-    monkeypatch.setattr(posture_store, "tier_allows", _fail("tier_allows (raising)"))
+    monkeypatch.setattr(write_switch, "tier_allows", _fail("tier_allows (raising)"))
 
     _refused(backstop_verdict(LIVE), "tier_never")
 
@@ -180,6 +180,6 @@ def test_a_tier_reader_that_raises_refuses_tier_never(monkeypatch):
 @pytest.mark.usefixtures("blind")
 def test_readonly_run_does_not_read_the_tier(monkeypatch):
     monkeypatch.setenv(EXECUTION_MODE, "readonly")
-    monkeypatch.setattr(posture_store, "tier_allows", _fail("tier_allows"))
+    monkeypatch.setattr(write_switch, "tier_allows", _fail("tier_allows"))
 
     _refused(backstop_verdict(LIVE), "readonly_run")

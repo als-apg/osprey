@@ -465,8 +465,11 @@ as well, so it ends every grant of that owner rather than none. A self-issued
 grant ends once its owner's switch leaves ``allowed``.
 
 **Reasons.** Each ``auth_*`` reason is a member of
-``osprey_connectors.refusals.REASONS`` with its phrase, and arrives as
-``verdict_reason`` on a refused write. In the order the terms are judged:
+``osprey_connectors.refusals.VerdictReason`` with its phrase, and arrives as
+``verdict_reason`` on a refused write. A refused verdict also carries a
+``cause`` saying which of the cases below refused (the channel, the range, the
+machine the grant covers, who stopped it, the budget), and so does an
+``AuthorizationRefusedError``. In the order the terms are judged:
 
 .. list-table::
    :header-rows: 1

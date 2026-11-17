@@ -199,7 +199,7 @@ def _ceiling(scope: _Scope, owner: str, *, in_container: bool) -> str:
     the login map those containers enforce (staged by the build); for one on
     this host, the rendered config, as the web terminal's card reads it.
     """
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
     from osprey_connectors.write_tier import tier_writes
 
     section = (scope.config or {}).get("control_system")
@@ -212,10 +212,10 @@ def _ceiling(scope: _Scope, owner: str, *, in_container: bool) -> str:
             staged = _staged_login_tiers(scope.repo_root)
             if staged is not None:
                 return str(_mapped_tier(staged, owner))
-        rung = posture_store.owner_tier_term(section, owner)
+        rung = write_switch.owner_tier_term(section, owner)
         if rung in ("never", "unknown"):
             return rung
-        return posture_store.write_ceiling(section, owner)
+        return write_switch.write_ceiling(section, owner)
     except Exception:  # an unreadable tier is not an allowed one
         return "unknown"
 
@@ -387,7 +387,7 @@ def approve(
         raise click.Abort() from None
     report(
         f"Approved {grant.id}: {grant.holder} may write {grant.steps} times on {grant.target} "
-        f"(approver {grant.approver.identity}, cli)."
+        f"(approver {grant.approver.by}, cli)."
     )
 
 
@@ -425,12 +425,7 @@ def list_(owner: str | None, as_json: bool, repo: Path | None) -> None:
 
     def record_of(login: str) -> Any:
         if login not in records:
-            record_file = scope.record_file(login)
-            records[login] = (
-                control_context.read_record_status(path=record_file)
-                if record_file is not None
-                else control_context.read_record_status()
-            )[0]
+            records[login] = control_context.read_record_status(path=scope.record_file(login)).value
         return records[login]
 
     owner_dirs: list[Path] = []
@@ -446,26 +441,27 @@ def list_(owner: str | None, as_json: bool, repo: Path | None) -> None:
     # The programs' self-issued grants are in the holders' write ledger, beside
     # the ledgers that count every grant's steps.
     ledgers = [] if scope.ledger is None else [scope.ledger]
-    found, unlisted = wa.listed_grants(owner_dirs, ledgers)
-    for path in unlisted:
+    listing = wa.list_grants(*owner_dirs, self_issued=ledgers)
+    for path in listing.unreadable:
         warn(f"Cannot be read: {path}")
-    for grant, _directory in found:
+    for listed in listing.items:
+        grant = listed.grant
         if owner is not None and grant.owner != owner:
             continue
         standing = wa.grant_standing(
             grant, record_of(grant.owner), scope.ledger_dirs(grant.owner), now=now
         )
-        row = grant_summary(grant, used=standing.used, now=now)
+        row = grant_summary(grant, used=standing.steps_spent, now=now)
         row["in_force"] = standing.in_force
-        row["self_issued"] = grant.approver.surface == wa.SELF_ISSUE_SURFACE
+        row["self_issued"] = grant.approver.surface == "write_switch"
         grants.append(row)
     pending: list[dict[str, Any]] = []
     issued = {row["id"] for row in grants}
     for directory in scope.request_dirs(_owners(scope, owner)):
         try:
-            requests, _unreadable = wa.list_requests(directory)
+            requests = wa.list_requests(directory).items
         except OSError:
-            requests, _unreadable = (), ()
+            requests = ()
         for request in requests:
             if request.id in issued or now >= request.expires_at:
                 continue

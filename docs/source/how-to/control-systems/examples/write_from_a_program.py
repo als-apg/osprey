@@ -18,7 +18,10 @@ def ask() -> wa.WriteRequest:
     # docs: ask begins
     request = wa.write_request(
         "standin",
-        {"SR:CORRECTOR:H1": (-0.5, 0.5), "SR:CORRECTOR:H2": (-0.5, 0.5)},
+        {
+            "SR:CORRECTOR:H1": wa.ChannelRange.of(-0.5, 0.5),
+            "SR:CORRECTOR:H2": wa.ChannelRange.of(-0.5, 0.5),
+        },
         steps=41,  # 40 evaluations + apply_best
         expires_at=datetime.now(UTC) + timedelta(hours=2),
         lease_s=30.0,
@@ -54,7 +57,9 @@ async def write(pool: ConnectorHostPool, grant: wa.Grant) -> None:
             print(result.address, result.outcome.value, result.verdict_reason)
     # docs: outcome ends
     # docs: renew begins
-    if not wa.renew_lease(grant.id):  # False: the lease has lapsed, stop
+    try:
+        wa.renew_lease(grant.id)
+    except wa.AuthorizationRefusedError:  # the lease lapsed or the grant ended: stop
         return
     # docs: renew ends
 

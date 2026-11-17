@@ -24,7 +24,7 @@ This module holds that divergence, and nothing else:
   conversation that actually moved and by nothing per session.
 
 **Where the file lives.** Beside the control-context record, under the same one
-path rule (:func:`osprey_connectors.posture_store.state_dir`): a deployment that
+path rule (:func:`osprey_connectors.write_switch.state_dir`): a deployment that
 resolves one of these two files resolves both, and an operator looking for
 either finds them in one directory. A root that does not resolve is a map with
 no location — every :func:`get` still answers, the process keeps its in-memory
@@ -48,7 +48,7 @@ import logging
 from pathlib import Path
 
 from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +61,14 @@ STORE_FILENAME = "session-transcripts.json"
 def store_path() -> Path | None:
     """Where the map lives, or ``None`` when it has no location.
 
-    Delegates to :func:`osprey_connectors.posture_store.state_dir`, rule 1 of
+    Delegates to :func:`osprey_connectors.write_switch.state_dir`, rule 1 of
     that module's contract and the resolution the control-context record itself
     uses, so the two files are co-sited by construction rather than by two
     rules that agree today. That resolution can raise as well as
     answer ``None``; both mean the same thing here, a map that is memory-only.
     """
     try:
-        directory = posture_store.state_dir()
+        directory = write_switch.state_dir()
     except Exception:  # an unresolvable root is "no file", not a crash
         logger.warning("The transcript map's location does not resolve", exc_info=True)
         return None

@@ -97,17 +97,27 @@ def test_a_golden_switch_the_reader_reads_as_off_breaks_the_contract(tmp_path: P
         contracts.check_switch_golden(fixtures)
 
 
-def test_the_legacy_gesture_word_arms_at_asked_and_is_never_stored(tmp_path: Path) -> None:
+def test_the_legacy_gesture_word_is_refused_and_leaves_the_record(tmp_path: Path) -> None:
+    source = contracts.SWITCH_ON_FIXTURES / control_context.RECORD_FILENAME
     path = contracts.check_set_switch_legacy_word(tmp_path)
-    assert '"on"' not in path.read_text()
+    assert path.read_bytes() == source.read_bytes()
 
 
-def test_a_package_that_refuses_the_legacy_gesture_word_breaks_the_contract(
+def test_a_package_that_takes_the_legacy_gesture_word_breaks_the_contract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def refuse(_targets, state, **_kwargs):
-        raise ValueError(f"set_switch state must be off, asked or allowed, not {state!r}")
+    monkeypatch.setattr(control_context, "set_switch", lambda *_args, **_kwargs: None)
+    with pytest.raises(contracts.ContractError, match="was taken"):
+        contracts.check_set_switch_legacy_word(tmp_path)
 
-    monkeypatch.setattr(control_context, "set_switch", refuse)
-    with pytest.raises(contracts.ContractError, match='"on"'):
+
+def test_a_refused_legacy_gesture_that_writes_breaks_the_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def write_then_refuse(_targets, state, *, path, **_kwargs):
+        path.write_text("{}", encoding="utf-8")
+        raise ValueError(f"set_switch state must be one of the positions, not {state!r}")
+
+    monkeypatch.setattr(control_context, "set_switch", write_then_refuse)
+    with pytest.raises(contracts.ContractError, match="wrote the record"):
         contracts.check_set_switch_legacy_word(tmp_path)

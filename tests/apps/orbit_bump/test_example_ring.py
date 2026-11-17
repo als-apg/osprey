@@ -35,7 +35,7 @@ from osprey.apps.manifest import launch_token_env
 from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
 from osprey.interfaces.common_middleware import WebAuthMiddleware
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import (
     FIXTURE_IDENTITY,
@@ -206,10 +206,8 @@ def deployment(va_render: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv(launch_token_env(APP_NAME), TOKEN)
     monkeypatch.chdir(tmp_path)
     reset_config_cache()
-    write_control_context(
-        posture_store.stamped_agent_data_root(), "va", 1, switch={"va": "allowed"}
-    )
-    control_context.invalidate_cache()
+    write_control_context(write_switch.stamped_agent_data_root(), "va", 1, switch={"va": "allowed"})
+    testing.invalidate_cache()
     yield section
     reset_config_cache()
 

@@ -117,7 +117,6 @@ from osprey.services.auth_sidecar.roster_env import (
 # validity predicate, shared with the sidecar that builds the throttle.
 from osprey.services.auth_sidecar.throttle import THROTTLE_DEFAULTS, throttle_problems
 from osprey.utils.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
-from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
 from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     SIMULATOR_LOG_DIR_RELPATH,
@@ -127,6 +126,7 @@ from osprey_connectors.write_authorization import (
     LEDGER_VIEW_DIR_ENV_VAR,
     REQUESTS_DIR_ENV_VAR,
 )
+from osprey_connectors.write_switch import CONTROL_CONTEXT_DIR_ENV_VAR, CONTROL_STATE_DIR_NAME
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -752,14 +752,14 @@ def _container_control_context_dir(container_agent_data_dir: str, identity: str)
     service's ``OSPREY_CONTROL_CONTEXT_DIR`` carries. Anchored on this
     service's own ``container_agent_data_dir`` — already resolved by
     :func:`_container_agent_data_dir` from ``agent_data.base_dir`` — because
-    ``<agent-data root>/<STATE_DIR_NAME>/<identity>`` is exactly where the
+    ``<agent-data root>/<CONTROL_STATE_DIR_NAME>/<identity>`` is exactly where the
     writer inside resolves its state directory. A target anchored anywhere else
     points the mount and the writer at two different directories, and nothing
     reports it: the chip flips, the record lands in the container's writable
     layer, and every owned write in the deployment goes on as if nothing were
     narrowed.
 
-    The ``control_target`` half is :data:`~osprey_connectors.posture_store.STATE_DIR_NAME`,
+    The ``control_target`` half is :data:`~osprey_connectors.write_switch.CONTROL_STATE_DIR_NAME`,
     never a literal, for the reason that constant exists: a record the writer
     puts in one directory and a reader looks for in another is a narrowing that
     silently never applies.
@@ -769,7 +769,7 @@ def _container_control_context_dir(container_agent_data_dir: str, identity: str)
     merely unreadable to it — it is not in its filesystem, to read or to
     overwrite with a narrowing that user never made.
     """
-    return (PurePosixPath(container_agent_data_dir) / STATE_DIR_NAME / identity).as_posix()
+    return (PurePosixPath(container_agent_data_dir) / CONTROL_STATE_DIR_NAME / identity).as_posix()
 
 
 def _control_context_mount_source(config: Any, identity: str) -> str:
@@ -795,7 +795,7 @@ def _control_context_mount_source(config: Any, identity: str) -> str:
     anchor off the container path in the template.
     """
     base = PurePosixPath(agent_data_base_dir(config))
-    return repo_relative_mount_source((base / STATE_DIR_NAME / identity).as_posix())
+    return repo_relative_mount_source((base / CONTROL_STATE_DIR_NAME / identity).as_posix())
 
 
 def _channel_catalog_mounts(config: Any) -> list[str]:

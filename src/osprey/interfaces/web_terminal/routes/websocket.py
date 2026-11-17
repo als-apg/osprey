@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -60,11 +60,11 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
-from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_context import published_machine_kind
+from osprey_connectors import control_context, write_switch
+from osprey_connectors.control_context import SwitchPosition, published_machine_kind
+from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import VerdictReason, refusal_phrase
 from osprey_connectors.session_hold import has_no_record, is_held, is_safe_session_key
 from osprey_connectors.write_target import KIND_BANNERS
 
@@ -95,13 +95,13 @@ router = APIRouter()
 # by the login would meet (C-GET); it carries no narrowing.
 
 #: The switch position that arms nothing.
-SWITCH_OFF = control_context.SWITCH_POSITIONS[0]
+SWITCH_OFF = get_args(SwitchPosition)[0]
 
 #: The positions in widening order. The login's ceiling compares on the same
 #: scale, which is why ``never`` and ``unknown`` are absent: neither is a position.
 #: Keyed by ``str``: it ranks request words, which a position may not be.
 _POSITION_RANK: dict[str, int] = {
-    position: rank for rank, position in enumerate(control_context.SWITCH_POSITIONS)
+    position: rank for rank, position in enumerate(get_args(SwitchPosition))
 }
 
 
@@ -1579,7 +1579,7 @@ def _target_request_facts(app: Any, config_path: Path | None) -> _TargetRequestF
 
 #: The switch was neither applied nor refused: the fleet has not settled, so no
 #: answer can be written without overwriting the one it is about to produce.
-#: Not a :data:`~osprey_connectors.control_context.SWITCH_REFUSED` terminus —
+#: Not a ``refused`` terminus (:data:`~osprey_connectors.control_context.SwitchStatus`) —
 #: the record is not touched at all.
 SWITCH_IN_PROGRESS = "switch_in_progress"
 
@@ -1589,8 +1589,8 @@ class _SwitchOutcome:
     """What the mutation decided, carried back out of the worker thread.
 
     Attributes:
-        status: :data:`~osprey_connectors.control_context.SWITCH_APPLIED`,
-            :data:`~osprey_connectors.control_context.SWITCH_REFUSED`, or
+        status: ``applied`` or ``refused``
+            (:data:`~osprey_connectors.control_context.SwitchStatus`), or
             :data:`SWITCH_IN_PROGRESS`.
         generation: The generation the record carries after the answer — the
             one the fleet reconciles to, and what the chip resolves its pending
@@ -1649,11 +1649,18 @@ def _switch_mutation(
     from osprey.mcp_server.control_system import target_eligibility
 
     if wanted == record.target:
+        unchanged = control_context.SwitchTerminus.unchanged(
+            request_id=request_id,
+            target=wanted,
+            generation=record.generation,
+            requested_at=requested_at,
+            requested_by=requested_by,
+        )
         return Mutation.unchanged(
             _SwitchOutcome(
-                status=control_context.SWITCH_APPLIED,
+                status=unchanged.status,
                 generation=record.generation,
-                detail=control_context.unchanged_detail(wanted, record.generation),
+                detail=unchanged.detail,
             )
         )
 
@@ -1684,31 +1691,33 @@ def _switch_mutation(
         kernel_name=facts.kernel_names.get,
         config_path=facts.config_path,
     )
-    applied = verdict.allowed
-    if applied:
-        generation: int | None = record.generation + 1
-        detail = control_context.applied_detail(wanted, record.generation + 1)
-    else:
-        generation = None
-        detail = verdict.detail
-    return Mutation(
-        record=control_context.terminus(
-            record,
+    if verdict.allowed:
+        terminus = control_context.SwitchTerminus.applied(
             request_id=request_id,
             target=wanted,
+            generation=record.generation + 1,
             requested_at=requested_at,
             requested_by=requested_by,
-            status=control_context.SWITCH_APPLIED if applied else control_context.SWITCH_REFUSED,
-            reason=None if applied else str(verdict.reason or ""),
-            detail=detail,
-            generation=generation,
-        ),
+        )
+        message = terminus.detail
+    else:
+        terminus = control_context.SwitchTerminus.refused(
+            request_id=request_id,
+            target=wanted,
+            reason=str(verdict.reason or ""),
+            detail=verdict.detail,
+            requested_at=requested_at,
+            requested_by=requested_by,
+        )
+        message = _verdict_message(verdict)
+    return Mutation(
+        record=record.answered(terminus),
         result=_SwitchOutcome(
-            status=control_context.SWITCH_APPLIED if applied else control_context.SWITCH_REFUSED,
-            generation=record.generation if generation is None else generation,
-            reason="" if applied else str(verdict.reason or ""),
-            detail=detail,
-            message=detail if applied else _verdict_message(verdict),
+            status=terminus.status,
+            generation=record.generation if terminus.generation is None else terminus.generation,
+            reason=terminus.reason or "",
+            detail=terminus.detail,
+            message=message,
         ),
     )
 
@@ -1876,7 +1885,7 @@ async def request_terminal_target(body: TargetRequest, request: Request):
     except ContextOwnerError as exc:
         raise _context_error_refusal(session_id, exc, subject=subject, detail=detail) from exc
 
-    if outcome.status != control_context.SWITCH_APPLIED:
+    if outcome.status != "applied":
         raise _refuse_gesture(
             session_id,
             subject=subject,
@@ -1957,7 +1966,7 @@ class _PostureRequestFacts:
     #: How reading the login's record ended: ``ok``, ``missing``, ``unreadable``.
     record_status: str
     #: The verdict that locks a widening (:data:`_TURN_ON_LOCKS`), else ``None``.
-    lock: posture_store.WriteVerdict | None
+    lock: write_switch.Refused | None
     #: Where the machine stands now; ``None`` for all-off or an unreadable record.
     before: str | None = None
     #: The login's ceiling (:func:`~osprey.interfaces.web_terminal.config_view.login_tier`)
@@ -1982,7 +1991,7 @@ def _posture_post_facts(
 ) -> _PostureRequestFacts:
     """Read the render, the record, and a widening's lock and ceiling. BLOCKING.
 
-    The lock is :func:`~osprey_connectors.posture_store.write_verdict` for
+    The lock is :func:`~osprey_connectors.write_switch.write_verdict` for
     *login* with the launch pin ignored — the pin is a fact about a run, not
     about the switch — and only its :data:`_TURN_ON_LOCKS` refuse: asked of a
     machine whose switch is still off, the verdict would otherwise always
@@ -1991,7 +2000,8 @@ def _posture_post_facts(
     """
     section = section_of(rendered_config(config_path))
     configured = _configured_target_names(section)
-    record, status = control_context.read_record_status()
+    read = control_context.read_record_status()
+    record, status = read.value, read.status
     before = None
     if target != ALL_TARGETS and status != "unreadable":
         before = control_context.switch_position(record, target)
@@ -1999,8 +2009,8 @@ def _posture_post_facts(
     ceiling = None
     if target in configured and _widens(state, before):
         ceiling = login_tier(section, login)
-        verdict = posture_store.write_verdict(section, target, owner=login, ignore_launch_pin=True)
-        if verdict.reason in _TURN_ON_LOCKS:
+        verdict = write_switch.write_verdict(section, target, owner=login, ignore_launch_pin=True)
+        if isinstance(verdict, write_switch.Refused) and verdict.reason in _TURN_ON_LOCKS:
             lock = verdict
     return _PostureRequestFacts(
         configured=configured,
@@ -2075,7 +2085,7 @@ def _posture_not_taken(
     if state == SWITCH_OFF:
         phrase = STOP_NOT_TAKEN_PHRASE
     else:
-        phrase = refusal_phrase("record_unavailable")
+        phrase = refusal_phrase(VerdictReason.RECORD_UNAVAILABLE)
         if record_missing:
             return _refuse_posture(
                 session_key,
@@ -2189,7 +2199,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
         )
 
     if facts.lock is not None:
-        lock_reason = cast(str, facts.lock.reason)
+        lock_reason = facts.lock.reason
         raise _refuse_posture(
             session_id,
             status_code=403,
@@ -2587,10 +2597,10 @@ def _owner_row(app: Any, record: Any) -> dict[str, Any] | None:
     if context.owner is not None:
         identity = context.follows if context.follows is not None else context.owner.identity
         return {**identity.model_dump(mode="json"), "self": context.follows is None}
-    recorded = getattr(record, "owner", None)
+    recorded = None if record is None else record.writer
     if recorded is None:
         return None
-    return {**recorded.model_dump(mode="json"), "self": control_context.owned_here(record)}
+    return {**recorded.model_dump(mode="json"), "self": control_context.written_here(record)}
 
 
 def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
@@ -2622,7 +2632,11 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
             "applied_target": report.applied_target,
             "applied_generation": report.applied_generation,
             "children": list(report.children),
-            "last_switch": _aged(report.last_switch),
+            "last_switch": _aged(
+                None
+                if report.switch_progress is None
+                else report.switch_progress.model_dump(mode="json")
+            ),
             "last_posture_realign": report.last_posture_realign,
             "updated_at": None if report.updated_at is None else report.updated_at.isoformat(),
         }
@@ -2820,14 +2834,14 @@ def _target_display(
     return meta
 
 
-def _row_verdict(section: Any, target: str, login: str) -> posture_store.WriteVerdict:
+def _row_verdict(section: Any, target: str, login: str) -> write_switch.WriteVerdict:
     """The write verdict for a new call by *login* to *target* (C-GET, FR 5).
 
     The launch pin is ignored: it is a fact about a run already going, and the
     row answers what the next write would meet — exactly the verdict the POST's
     turn-on lock reads.
     """
-    return posture_store.write_verdict(
+    return write_switch.write_verdict(
         None if section is UNREADABLE else section,
         target,
         owner=login,
@@ -2868,8 +2882,9 @@ def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
     ledgers = write_authorization.self_issued_directories()
     now = datetime.now(UTC)
     holds: dict[str, list[dict[str, Any]]] = {}
-    found, _unreadable = write_authorization.listed_grants([] if own is None else [own], ledgers)
-    for grant, _directory in found:
+    listing = write_authorization.list_grants(*([] if own is None else [own]), self_issued=ledgers)
+    for listed in listing.items:
+        grant = listed.grant
         if grant.owner != login:
             continue
         standing = write_authorization.grant_standing(grant, record, ledgers, now=now)
@@ -2881,9 +2896,9 @@ def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
                 "holder": grant.holder,
                 "label": grant.label,
                 "steps": grant.steps,
-                "used": standing.used,
+                "used": standing.steps_spent,
                 "expires_in_s": max(0.0, round((grant.expires_at - now).total_seconds(), 1)),
-                "self_issued": grant.approver.surface == write_authorization.SELF_ISSUE_SURFACE,
+                "self_issued": grant.approver.surface == "write_switch",
             }
         )
     return holds
@@ -2932,7 +2947,7 @@ def _posture_view(
     (:func:`~osprey.interfaces.web_terminal.config_view.rendered_config`).
 
     **The write columns are the verdict's.** Each row carries
-    :func:`~osprey_connectors.posture_store.write_verdict` for a new call by the
+    :func:`~osprey_connectors.write_switch.write_verdict` for a new call by the
     signed-in login — the one rule every write path applies — and that function
     reads the record itself (cached by signature, so ordinarily the same read).
     A switch landing mid-render can still move a later row's verdict; the window
@@ -2948,7 +2963,8 @@ def _posture_view(
     config = rendered_config(config_path)
     derive_path = str(config_path) if config_path else None
     section = section_of(config)
-    record, record_status = control_context.read_record_status()
+    read = control_context.read_record_status()
+    record, record_status = read.value, read.status
     reports = _live_reports()
     login = acting_identity()
 
@@ -3042,7 +3058,11 @@ def _posture_view(
         "servers": _server_rows(reports),
         "execution_in_flight": _execution_rows(),
         "held": _session_held(app, session_id),
-        "last_switch": _aged(None if record is None else record.last_switch),
+        "last_switch": _aged(
+            None
+            if record is None or record.last_switch is None
+            else record.last_switch.model_dump(mode="json")
+        ),
         "last_posture_realign": _fleet_realign(reports),
         "targets": rows,
     }

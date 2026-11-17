@@ -37,7 +37,7 @@ from osprey.services.bluesky_bridge import document_plane, live_rows, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend, QueueItemInvalidError
-from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+from osprey_connectors.write_switch import RESERVED_OWNER_KWARG
 from tests.services.bluesky_bridge._queue_fakes import FakeManager, install_backend, status_doc
 
 _GRID_SCAN_ARGS: dict[str, Any] = {

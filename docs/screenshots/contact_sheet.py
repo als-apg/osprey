@@ -62,7 +62,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, NamedTuple
 from unittest import mock
 
-from osprey_connectors import control_context
+from osprey_connectors import testing
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -977,8 +977,8 @@ def hermetic_hub(
                 )
             )
             # The stores' location is cached per process; read it under the stamp.
-            control_context.invalidate_cache()
-            stack.callback(control_context.invalidate_cache)
+            testing.invalidate_cache()
+            stack.callback(testing.invalidate_cache)
             if e2e:
                 # The hub sites its server-side stores (the uploads' artifact
                 # store among them) under the shared data root; a deployment's

@@ -75,7 +75,7 @@ the target and connector type this process resolved. A child that fails any of
 it is stopped before the caller sees anything.
 
 Write posture is never granted by the pool. The child decides every write by
-the write verdict (:func:`osprey_connectors.posture_store.write_verdict`) over
+the write verdict (:func:`osprey_connectors.write_switch.write_verdict`) over
 the ``control_system`` section of the project config at ``config_file`` — not
 the section it was sent — and the login's switch for its target, read from the
 record its inherited environment names; with no config file reachable its
@@ -218,7 +218,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Final, Literal, TypeVar
 
-from osprey_connectors import posture_store, write_authorization
+from osprey_connectors import write_authorization, write_switch
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.connector_types import TRANSPORT_CA, ControlTarget
 from osprey_connectors.control_system._base import (
@@ -233,6 +233,7 @@ from osprey_connectors.errors import (
     RecoveryAction,
     RecoveryRecord,
 )
+from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.ipc._host import START_PHASES, StartPhase
 from osprey_connectors.ipc._launch import (
     AttributedReader,
@@ -255,7 +256,6 @@ from osprey_connectors.ipc._verification import (
     readonly_gateway_refusal,
     verify_host_report,
 )
-from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
 from osprey_connectors.recovery import RecoveryPolicy, Timing
 from osprey_connectors.targets import machine_kind
@@ -366,7 +366,7 @@ def _child_env(key: _Key) -> dict[str, str]:
     _target, _mode, owner, authorization = _key_parts(key)
     env = host_env()
     if owner is not None:
-        env[posture_store.CONTROL_OWNER_ENV_VAR] = owner
+        env[write_switch.CONTROL_OWNER_ENV_VAR] = owner
     env.pop(write_authorization.AUTHORIZATION_ENV_VAR, None)
     if authorization is not None:
         env[write_authorization.AUTHORIZATION_ENV_VAR] = authorization
@@ -1217,8 +1217,12 @@ class ConnectorHostPool:
         and the same agent-data root. A key's *owner* is the one stamped in the
         child's environment; a key's *authorization* is judged as the child
         judges its gateway
-        (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`).
+        (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`);
+        a key that names none is judged by
+        :func:`~osprey_connectors.write_switch.write_verdict`.
         """
+        if authorization is None:
+            return write_switch.write_verdict(section, target, owner=owner).allowed
         return write_authorization.authorized_write_verdict(
             section, target, authorization=authorization, owner=owner
         ).allowed

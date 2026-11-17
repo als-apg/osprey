@@ -28,7 +28,7 @@ the session-scoped root appends ``sessions/<OSPREY_SESSION_ID>``, which a reader
 outside the server's environment cannot reproduce.
 
 The whole directory is overridden by
-:data:`~osprey_connectors.posture_store.CONTROL_CONTEXT_DIR_ENV_VAR` when a
+:data:`~osprey_connectors.write_switch.CONTROL_CONTEXT_DIR_ENV_VAR` when a
 container carries the bind, and the root alone by
 :data:`~osprey.audit.posture.OSPREY_AGENT_DATA_ROOT`
 when the environment carries it. The web terminal's spawn sites stamp the root
@@ -49,7 +49,7 @@ fixed and greppable:
   ``agent_data.base_dir`` moves this directory somewhere a stdlib-only hook does
   not look; the hook then finds no state and falls back to the deployment
   baseline, which is the documented fail-closed outcome rather than a wrong one;
-* fixed subdirectory: :data:`STATE_DIR_NAME` (``control_target``);
+* fixed subdirectory: :data:`CONTROL_STATE_DIR_NAME` (``control_target``);
 * one directory inside it per identity, named by the ladder
   :mod:`osprey_connectors.identity` owns — which the hook restates too, for
   the same reason it restates everything else here. A hook that resolved a
@@ -106,7 +106,7 @@ A display-only report states no session, no switch, no realignment, no
 children, no targets and no reachability (``null``, ``[]``, ``{}``); only its
 ``applied_target``/``applied_generation`` (its connector's binding) and its
 ``statement`` say anything. ``writes`` is
-:func:`osprey_connectors.control_context.write_statement` of the session's
+:class:`osprey_connectors.control_context.WritesStatement` of the session's
 execution verdict, and ``reachable`` is ``no`` only for a lost connector. A
 statement of any other shape states nothing, and the report reads as a
 controls server's.
@@ -149,8 +149,11 @@ publication blocks the header chip reads. They are empty on a fresh report —
 :func:`write_server_record` resets them with everything else, because none of
 them describes anything a NEW server has done yet — and each is merged in by its
 own publisher (:func:`publish_last_switch`, :func:`publish_reachability`,
-:func:`publish_posture_realign`). Every reader takes them with ``.get()`` and
-tolerates both absence and null. Reachability carries wall-clock ``probed_at``
+:func:`publish_posture_realign`). ``last_switch`` is a
+:class:`~osprey_connectors.control_context.SwitchProgress`, built by
+:func:`switch_applying`, :func:`switch_applied` or :func:`switch_failed`; every
+reader of the raw file takes the blocks with ``.get()`` and tolerates both
+absence and null. Reachability carries wall-clock ``probed_at``
 stamps rather than an age, because the reader is in another process: an age
 computed here would be the age at write time, and the whole point of the block
 is to let a reader tell a fresh sweep from a prober that stopped.
@@ -192,10 +195,11 @@ from pathlib import Path
 from typing import Any, Final
 
 from osprey.audit.posture import posture_session
-from osprey_connectors import control_context, posture_store
-from osprey_connectors.connector_types import ControlTarget
+from osprey_connectors import control_context, write_switch
+from osprey_connectors.connector_types import ControlTarget, is_control_target
+from osprey_connectors.control_context import ServerReport, SwitchProgress, SwitchProgressStatus
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import parse_instant
+from osprey_connectors.model import evolve, parse_instant
 from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
@@ -213,20 +217,19 @@ TARGET_NAMES: tuple[ControlTarget, ...] = (TARGET_LIVE, TARGET_VA, TARGET_STANDI
 
 #: Fixed subdirectory of the agent-data root, holding one directory per
 #: identity. Part of the path contract above, and taken from
-#: :mod:`osprey_connectors.control_context` for the same reason the report
+#: :mod:`osprey_connectors.write_switch` for the same reason the report
 #: names below are: the record and these reports share one directory, and two
 #: spellings of it would make it two. Only the stdlib-only hooks, which can
 #: import neither, restate the literal.
-STATE_DIR_NAME = control_context.STATE_DIR_NAME
+CONTROL_STATE_DIR_NAME = write_switch.CONTROL_STATE_DIR_NAME
 
 #: One report file per server process. The PID in the name is what makes a
 #: stale report sweepable without opening it. Taken from
-#: :mod:`osprey_connectors.control_context` rather than re-spelled here: the
-#: writer and the readers that glob for it must not be able to disagree about
-#: which family of files this is.
-REPORT_FILE_PREFIX = control_context.REPORT_FILE_PREFIX
-REPORT_FILE_SUFFIX = control_context.REPORT_FILE_SUFFIX
+#: :mod:`osprey_connectors.control_context`'s glob rather than re-spelled here:
+#: the writer and the readers that glob for it must not be able to disagree
+#: about which family of files this is.
 REPORT_FILE_GLOB = control_context.REPORT_FILE_GLOB
+REPORT_FILE_PREFIX, _, REPORT_FILE_SUFFIX = REPORT_FILE_GLOB.partition("*")
 
 #: One in-flight marker per execution, written by the python executor before a
 #: sandbox subprocess starts and removed in a ``finally``. It lives in
@@ -263,12 +266,12 @@ REQUEST_TTL_S = 30
 #: now, which is what makes the fleet not converged, so it carries the
 #: ``expires_at`` past which a reader stops letting it block everybody
 #: (:func:`publish_last_switch`). ``applied`` and ``failed`` are termini and are
-#: read together with ``applied_target`` / ``applied_generation``. Taken from
-#: :mod:`osprey_connectors.control_context`, whose readers decide from them
-#: whether a session is held up, for the same reason the report names are.
-SWITCH_APPLYING = control_context.REPORT_APPLYING
-SWITCH_APPLIED = control_context.REPORT_APPLIED
-SWITCH_FAILED = control_context.REPORT_FAILED
+#: read together with ``applied_target`` / ``applied_generation``. The words of
+#: :data:`osprey_connectors.control_context.SwitchProgressStatus`, whose readers
+#: decide from them whether a session is held up; the type holds each to one.
+SWITCH_APPLYING: Final[SwitchProgressStatus] = "applying"
+SWITCH_APPLIED: Final[SwitchProgressStatus] = "applied"
+SWITCH_FAILED: Final[SwitchProgressStatus] = "failed"
 
 __all__ = [
     "INFLIGHT_FILE_GLOB",
@@ -281,7 +284,7 @@ __all__ = [
     "REQUEST_FILE_PREFIX",
     "REQUEST_FILE_SUFFIX",
     "REQUEST_TTL_S",
-    "STATE_DIR_NAME",
+    "CONTROL_STATE_DIR_NAME",
     "SWITCH_APPLIED",
     "SWITCH_APPLYING",
     "SWITCH_FAILED",
@@ -310,6 +313,9 @@ __all__ = [
     "request_file_path",
     "state_dir",
     "sweep_stale",
+    "switch_applied",
+    "switch_applying",
+    "switch_failed",
     "triage_request",
     "write_request",
     "write_server_record",
@@ -322,10 +328,10 @@ __all__ = [
 def state_dir() -> Path:
     """This identity's directory, holding its servers' reports. Not created by reading.
 
-    :data:`~osprey_connectors.posture_store.CONTROL_CONTEXT_DIR_ENV_VAR` wins
+    :data:`~osprey_connectors.write_switch.CONTROL_CONTEXT_DIR_ENV_VAR` wins
     over everything: it is the directory a container has bound for its own
     state, already per-identity, so neither hop below is appended to it. It is
-    read through :func:`~osprey_connectors.posture_store.bound_state_dir` for
+    read through :func:`~osprey_connectors.write_switch.bound_state_dir` for
     the same reason the stamp is read through the store below — one variable,
     one normalisation, or the report and the record land in different places.
 
@@ -346,7 +352,7 @@ def state_dir() -> Path:
     in the wrong place".
 
     The stamp is read through
-    :func:`~osprey_connectors.posture_store.stamped_agent_data_root` rather
+    :func:`~osprey_connectors.write_switch.stamped_agent_data_root` rather
     than off the environment here, because the control-context record sits in
     this same directory and the two must not normalise one variable differently
     — a ``~`` or a padded value would otherwise put the report and the record
@@ -359,12 +365,12 @@ def state_dir() -> Path:
     where the store reader answers ``None``, and the web terminal's switch
     route turns that raise into its ``store_unavailable`` 503.
     """
-    bound = posture_store.bound_state_dir()
+    bound = write_switch.bound_state_dir()
     if bound is not None:
         return bound
-    stamped = posture_store.stamped_agent_data_root()
+    stamped = write_switch.stamped_agent_data_root()
     root = stamped if stamped is not None else resolve_shared_data_root()
-    return root / STATE_DIR_NAME / acting_identity()
+    return root / CONTROL_STATE_DIR_NAME / acting_identity()
 
 
 def report_file_path(server_pid: int | None = None) -> Path:
@@ -528,10 +534,19 @@ def _atomic_write_json(path: Path, record: dict[str, Any]) -> None:
     The rule lives in
     :func:`osprey_connectors.control_context.write_json_atomic`, with the
     record that shares this directory and is read the same way. It keeps a
-    name here because the reports and requests are written through it and a
-    test that makes a write fail patches this one.
+    name here because the requests are written through it and a test that
+    makes a write fail patches this one.
     """
     control_context.write_json_atomic(path, record)
+
+
+def _write_report(path: Path, report: ServerReport) -> None:
+    """Store this server's *report* at *path*: :func:`osprey_connectors.control_context.write_report`.
+
+    It keeps a name here for the reason :func:`_atomic_write_json` does: a test
+    that makes a report write fail, or counts them, patches this one.
+    """
+    control_context.write_report(report, path)
 
 
 def write_server_record(
@@ -573,42 +588,37 @@ def write_server_record(
     # this process has asked for nothing yet — and leaving it would let an owner
     # move the deployment on a gesture nobody made in this session.
     remove_request(requested_by_pid=pid)
-    report = {
-        "server_pid": pid,
-        "session": posture_session() if session is None else str(session),
-        # Null, not the baseline: this server has launched nothing yet, and a
-        # reader that took a start-time guess for an observation would count an
-        # unconverged fleet as converged.
-        "applied_target": None,
-        "applied_generation": None,
-        "children": _normalize_children(children),
-        # The three publication blocks start empty: none of them describes
-        # anything this server has done yet, and a stale switch outcome or an
-        # inherited reachability sweep would be read as this server's own.
-        "reachability": {},
-        "last_switch": None,
-        "last_posture_realign": None,
-        "targets": _normalize_targets(targets_meta),
-        "updated_at": _now_iso(),
-    }
-    _atomic_write_json(report_file_path(pid), report)
-    logger.debug("Server report initialized for pid %s (session %r)", pid, report["session"])
+    # Null binding, not the baseline: this server has launched nothing yet, and
+    # a reader that took a start-time guess for an observation would count an
+    # unconverged fleet as converged. The three publication blocks start empty:
+    # none of them describes anything this server has done yet, and a stale
+    # switch outcome or an inherited reachability sweep would be read as this
+    # server's own.
+    report = ServerReport(
+        server_pid=pid,
+        session=posture_session() if session is None else str(session),
+        children=tuple(_normalize_children(children)),
+        targets=_normalize_targets(targets_meta),
+        updated_at=_now(),
+    )
+    _write_report(report_file_path(pid), report)
+    logger.debug("Server report initialized for pid %s (session %r)", pid, report.session)
 
 
-def _update(server_pid: int | None, changes: dict[str, Any]) -> bool:
-    """Merge *changes* into this server's report. ``False`` if there is none.
+def _update(server_pid: int | None, **changes: Any) -> bool:
+    """Read this server's report, evolve it by *changes*, write it. ``False`` if there is none.
 
-    ``updated_at`` moves on every merge, because a reader deciding whether a
-    server is still saying anything ages it from exactly this stamp.
+    ``updated_at`` moves on every write, because a reader deciding whether a
+    server is still saying anything ages it from exactly this stamp. A report
+    that does not read (:func:`~osprey_connectors.control_context.read_report`)
+    is no report to update.
     """
     path = report_file_path(server_pid)
-    report = read_file(path)
+    report = control_context.read_report(path)
     if report is None:
         logger.error("No server report at %s to update; write_server_record first", path)
         return False
-    report.update(changes)
-    report["updated_at"] = _now_iso()
-    _atomic_write_json(path, report)
+    _write_report(path, evolve(report, **changes, updated_at=_now()))
     return True
 
 
@@ -637,13 +647,19 @@ def publish_switch(
         ``True`` when the report was updated, ``False`` when none exists
         (nothing was written, and the caller has a start-ordering bug).
     """
-    changes: dict[str, Any] = {
-        "applied_target": str(target),
-        "applied_generation": int(generation),
-    }
-    if children is not None:
-        changes["children"] = _normalize_children(children)
-    return _update(server_pid, changes)
+    # A name no control target has is written as what every reader parses it
+    # to: no binding stated.
+    applied_target = target if is_control_target(target) else None
+    if children is None:
+        return _update(
+            server_pid, applied_target=applied_target, applied_generation=int(generation)
+        )
+    return _update(
+        server_pid,
+        applied_target=applied_target,
+        applied_generation=int(generation),
+        children=tuple(_normalize_children(children)),
+    )
 
 
 def publish_targets(
@@ -675,7 +691,7 @@ def publish_targets(
         ``True`` when the report was updated, ``False`` when none exists
         (nothing was written, and the caller has a start-ordering bug).
     """
-    return _update(server_pid, {"targets": _normalize_targets(targets_meta)})
+    return _update(server_pid, targets=_normalize_targets(targets_meta))
 
 
 # -- publication blocks ----------------------------------------------------
@@ -726,49 +742,41 @@ def applying_bound_s(
     return float(drain_timeout_s) + 2 * (float(spawn_timeout_s) + float(probe_timeout_s))
 
 
-def _expires_at(at: datetime, expires_in_s: float) -> datetime:
-    """*at* moved forward by *expires_in_s*.
+def switch_applying(generation: int, *, bound_s: float | None) -> SwitchProgress:
+    """This server's swap to *generation*, in flight from now.
 
-    Anchored on the block's own ``at`` rather than on ``now`` so the deadline
-    and the stamp a reader ages from cannot disagree by the cost of the write.
+    The block carries the ``expires_at`` past which it stops blocking the whole
+    deployment: *bound_s* from its own ``at``, normally :func:`applying_bound_s`
+    of this server's own spawn / probe / drain timeouts. Anchored on the block's
+    ``at`` rather than on the write so the deadline and the stamp a reader ages
+    from cannot disagree by the cost of the write.
+
+    ``None`` for *bound_s* publishes no bound at all: a reader with no deadline
+    keeps waiting, which is the fail-closed outcome, and inventing one here
+    would be this module guessing at timeouts it does not hold. It is logged,
+    because it is a caller's bug.
     """
-    return at + timedelta(seconds=float(expires_in_s))
+    at = _now()
+    if bound_s is None:
+        logger.warning(
+            "Publishing an %r switch block with no expires_at; readers will keep "
+            "treating this server as mid-swap until it publishes a terminus",
+            SWITCH_APPLYING,
+        )
+        return SwitchProgress.applying(generation, at=at, expires_at=None)
+    return SwitchProgress.applying(
+        generation, at=at, expires_at=at + timedelta(seconds=float(bound_s))
+    )
 
 
-def _normalize_last_switch(outcome: Any, expires_in_s: float | None) -> dict[str, Any] | None:
-    """Coerce a switch block to the shape readers age, bound and match on.
+def switch_applied(generation: int) -> SwitchProgress:
+    """This server's arrival at *generation*, now."""
+    return SwitchProgress.applied(generation, at=_now())
 
-    Written through largely verbatim: the vocabulary is the switch lifecycle's
-    (``generation``, ``status``, ``reason``, ``detail``), and restating it here
-    would give this module an opinion about refusals it does not arbitrate.
-    What is enforced is the part every reader depends on — a wall-clock ``at``,
-    so a block can be aged rather than believed forever, and on an
-    :data:`SWITCH_APPLYING` block the ``expires_at`` past which it stops
-    blocking the whole deployment.
 
-    An ``applying`` block published with no bound at all is written as it
-    stands: a reader with no deadline keeps waiting, which is the fail-closed
-    outcome, and inventing one here would be this module guessing at timeouts
-    it does not hold. It is logged, because it is a caller's bug.
-    """
-    if not isinstance(outcome, dict):
-        return None
-    block = dict(outcome)
-    if not block.get("at"):
-        block["at"] = _now_iso()
-    if block.get("status") == SWITCH_APPLYING and not block.get("expires_at"):
-        if expires_in_s is None:
-            logger.warning(
-                "Publishing an %r switch block with no expires_at; readers will keep "
-                "treating this server as mid-swap until it publishes a terminus",
-                SWITCH_APPLYING,
-            )
-        else:
-            # A caller's ``at`` that states no instant anchors nothing: the
-            # bound runs from now, as it does when the block is stamped here.
-            at = _instant(block["at"]) or _now()
-            block["expires_at"] = _expires_at(at, expires_in_s).isoformat()
-    return block
+def switch_failed(generation: int, *, reason: str | None, detail: str | None) -> SwitchProgress:
+    """This server's swap to *generation* that will not land without an operator, now."""
+    return SwitchProgress.failed(generation, reason=reason, detail=detail, at=_now())
 
 
 def _normalize_reachability(rows: Any) -> dict[str, Any]:
@@ -823,9 +831,8 @@ def _normalize_posture_realign(state: Any) -> dict[str, Any] | None:
 
 
 def publish_last_switch(
-    outcome: dict[str, Any] | None,
+    progress: SwitchProgress | None,
     *,
-    expires_in_s: float | None = None,
     server_pid: int | None = None,
 ) -> bool:
     """Publish how far this server has got through the generation it is binding.
@@ -839,21 +846,14 @@ def publish_last_switch(
     SYNCHRONOUS by contract; see the section comment above.
 
     Args:
-        outcome: ``{generation, status, reason, detail, at, expires_at}``;
-            ``at`` is stamped here when the caller leaves it out. ``status`` is
-            one of :data:`SWITCH_APPLYING`, :data:`SWITCH_APPLIED`,
-            :data:`SWITCH_FAILED`. ``None`` clears the block.
-        expires_in_s: Seconds an :data:`SWITCH_APPLYING` block stays
-            authoritative, normally :func:`applying_bound_s` of this server's
-            own spawn / probe / drain timeouts. Stamped into ``expires_at``
-            relative to ``at``; ignored when the caller supplied one, and when
-            the block is a terminus, which needs no deadline.
+        progress: :func:`switch_applying`, :func:`switch_applied` or
+            :func:`switch_failed`. ``None`` clears the block.
         server_pid: Reporting PID; defaults to this process.
 
     Returns:
         ``True`` when the report was updated, ``False`` when there is none.
     """
-    return _update(server_pid, {"last_switch": _normalize_last_switch(outcome, expires_in_s)})
+    return _update(server_pid, switch_progress=progress)
 
 
 def publish_reachability(rows: Any, *, server_pid: int | None = None) -> bool:
@@ -875,7 +875,7 @@ def publish_reachability(rows: Any, *, server_pid: int | None = None) -> bool:
     Returns:
         ``True`` when the report was updated, ``False`` when there is none.
     """
-    return _update(server_pid, {"reachability": _normalize_reachability(rows)})
+    return _update(server_pid, reachability=_normalize_reachability(rows))
 
 
 def publish_posture_realign(state: dict[str, Any] | None, *, server_pid: int | None = None) -> bool:
@@ -896,7 +896,7 @@ def publish_posture_realign(state: dict[str, Any] | None, *, server_pid: int | N
     Returns:
         ``True`` when the report was updated, ``False`` when there is none.
     """
-    return _update(server_pid, {"last_posture_realign": _normalize_posture_realign(state)})
+    return _update(server_pid, last_posture_realign=_normalize_posture_realign(state))
 
 
 def record_child_pids(children: list[int] | None, *, server_pid: int | None = None) -> bool:
@@ -905,7 +905,7 @@ def record_child_pids(children: list[int] | None, *, server_pid: int | None = No
     Pass an empty list (or ``None``) to clear them — after the children have
     been reaped, so the report does not list already-dead PIDs.
     """
-    return _update(server_pid, {"children": _normalize_children(children)})
+    return _update(server_pid, children=tuple(_normalize_children(children)))
 
 
 # -- switch requests (the web server writes, the reconciler consumes) -------
@@ -1030,7 +1030,7 @@ def request_stamp(record: Any) -> datetime | None:
 
     Its ``requested_at``, an ISO-8601 instant that states its offset, as the
     aware ``datetime`` a terminus records
-    (:func:`osprey_connectors.control_context.terminus`).
+    (:class:`osprey_connectors.control_context.SwitchTerminus`).
     """
     return _instant(record.get("requested_at")) if isinstance(record, dict) else None
 

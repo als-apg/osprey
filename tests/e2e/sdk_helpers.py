@@ -40,7 +40,7 @@ import yaml
 from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice, seed_claude_state
 from osprey.facility.views.simulator import withdraw_scenarios
 from osprey.port_layout import BLOCK_SIZE
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.targets import baseline_target
@@ -667,14 +667,15 @@ def set_switch_in_record(
     """
     names = sorted(targets) if targets is not None else _default_switch_targets(repo)
     path = switch_record_path(repo, owner)
-    control_context.invalidate_cache()
-    current, status = control_context.read_record_status(path=path)
+    testing.invalidate_cache()
+    read = control_context.read_record_status(path=path)
+    current, status = read.value, read.status
     if current is None:
         baseline = _default_switch_targets(repo)[0]
         control_context.write_record(
             control_context.ControlContext(target=baseline, generation=1), path=path
         )
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         current = control_context.read_record(path=path)
     epoch = (current.switch_epoch if current is not None else None) or 0
     try:
@@ -683,7 +684,7 @@ def set_switch_in_record(
         if not refused.stamped or refused.epoch is None:
             raise
         stored = control_context.set_switch(names, position, epoch=refused.epoch, path=path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     assert stored is not None, f"the switch for {owner!r} was not stored at {path} ({status})"
     return stored
 
@@ -907,14 +908,14 @@ def arm_deployed_queue_owner(
     provisioned the way the deploy provisions it. Call it after ``osprey build``
     and before ``osprey up``.
 
-    The login is :func:`~osprey_connectors.posture_store.current_owner`, the
+    The login is :func:`~osprey_connectors.write_switch.current_owner`, the
     same ladder an in-process tool walks. *targets* defaults to the deployment's
     baseline target; *position* is passed to :func:`set_switch_in_record`.
     """
     from osprey.deployment.compose_generator import ensure_control_target_dir
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    owner = posture_store.current_owner()
+    owner = write_switch.current_owner()
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     ensure_control_target_dir(_render_config(repo), repo, owner, relative_to=repo)
     set_switch_in_record(repo, owner=owner, targets=targets, position=position)

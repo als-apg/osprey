@@ -65,8 +65,8 @@ from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER, verify_launch_token
 from osprey.utils.module_loading import load_by_path
 from osprey.utils.owner_header import CALLER_HEADER, caller_from_header, owner_from_header
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
-from osprey_connectors.posture_store import WriteVerdict, bind_owner, write_verdict
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_switch import WriteVerdict, bind_owner, write_verdict
 
 __all__ = [
     "CALLER_HEADER",

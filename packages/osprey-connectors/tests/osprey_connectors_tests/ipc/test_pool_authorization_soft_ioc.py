@@ -24,7 +24,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelWriteBlockedError
@@ -108,7 +108,7 @@ def deployment(tmp_path, monkeypatch, iocs):
 
 def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = True) -> Grant:
     """Approve *channels* for this login as holder; start this process's lease unless told not to."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     record = control_context.read_record()
     assert record is not None and isinstance(record.switch_epoch, int)
     now = datetime.now(UTC)
@@ -123,7 +123,7 @@ def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = Tr
         issued_at=now,
         expires_at=FAR_FUTURE,
         lease_s=600.0,
-        approver=Approver(identity="alice", surface="chip", approved_at=now),
+        approver=Approver(by="alice", surface="chip", approved_at=now),
         label="run-1",
     )
     _issue_grant(grant)
@@ -135,7 +135,7 @@ def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = Tr
 def spent(grant: Grant) -> int:
     directory = wa.ledger_dir()
     assert directory is not None
-    return len(_parse_ledger((directory / f"{grant.id}.ledger.json").read_text()).steps)
+    return len(_parse_ledger((directory / f"{grant.id}.ledger.json").read_text()).spent)
 
 
 async def value(connector: Any, channel: str) -> Any:
@@ -281,7 +281,7 @@ async def test_an_approved_request_ends_at_the_persons_stop(deployment, ioc_pref
     pool = deployment
     request = wa.write_request(
         "live",
-        {sp: (0.0, 50.0)},
+        {sp: wa.ChannelRange.of(0.0, 50.0)},
         steps=5,
         expires_at=FAR_FUTURE,
         lease_s=600.0,
@@ -297,7 +297,7 @@ async def test_an_approved_request_ends_at_the_persons_stop(deployment, ioc_pref
         assert landed.outcome is WriteOutcome.CONFIRMED
 
         control_context.set_switch(stop, "off")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         stopped = await held.write_channel(sp, 12.0, confirm=True)
         assert (stopped.outcome, stopped.verdict_reason) == (WriteOutcome.REFUSED, "auth_revoked")

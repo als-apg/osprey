@@ -21,7 +21,7 @@ import yaml
 from osprey.apps.sdk import ApprovalRefused, BoundState, check_approved_call
 from osprey.apps.sdk._approval import input_digest
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
-from osprey_connectors import control_context, posture_store, session_hold
+from osprey_connectors import session_hold, testing, write_switch
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import (
@@ -86,12 +86,12 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     def write_record(target: str = "va", switch: dict[str, str] | None = None) -> None:
         write_control_context(
-            posture_store.stamped_agent_data_root(),
+            write_switch.stamped_agent_data_root(),
             target,
             1,
             switch={"va": "on", "live": "on"} if switch is None else switch,
         )
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
     write_config(_config())
     write_record()
@@ -228,13 +228,16 @@ def _hold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(tmp_path / "holds"))
     monkeypatch.setenv("OSPREY_SESSION_ID", HOLD_KEY)
     session_hold.ensure_session(HOLD_KEY)
-    assert session_hold.open_flag(
-        HOLD_KEY,
-        flag_id="f1",
-        source=HOLD_SOURCE,
-        reason="off the plan",
-        prompt_ref="record:f1",
-        prompt_excerpt="set the knob",
+    assert (
+        session_hold.open_flag(
+            HOLD_KEY,
+            flag_id="f1",
+            source=HOLD_SOURCE,
+            reason="off the plan",
+            prompt_ref="record:f1",
+            prompt_excerpt="set the knob",
+        )
+        == "opened"
     )
 
 
@@ -376,9 +379,9 @@ def test_approval_refused_from_refusal_appends_guidance():
 
 
 def test_approval_refused_from_verdict_names_the_tool():
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.write_switch import Refused
 
-    verdict = WriteVerdict(allowed=False, reason="tier_never", target="va", kind="simulator")
+    verdict = Refused(reason="tier_never", target="va", kind="simulator")
     refused = ApprovalRefused.from_verdict(verdict, TOOL)
     assert refused.reason == "tier_never"
     assert refused.details == {"reason": "tier_never", "target": "va"}

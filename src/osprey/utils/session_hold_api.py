@@ -24,7 +24,7 @@ def _installed_connectors() -> str:
 
 
 try:
-    from osprey_connectors.posture_store import execution_verdict, session_hold_refusal
+    from osprey_connectors.write_switch import execution_verdict, session_hold_refusal
 except ImportError as exc:
     # A RuntimeError, not an ImportError: an optional-import guard must not read
     # a server that cannot hold a session's writes as a feature that is absent.

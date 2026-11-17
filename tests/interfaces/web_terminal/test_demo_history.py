@@ -51,7 +51,7 @@ from osprey.simulation.apply import (
 )
 from osprey.stores import session_ledger
 from osprey.stores.artifact_store import EXAMPLE_ORIGIN, ArtifactStore
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from tests.interfaces.web_terminal._started_app import terminal_client
 from tests.simulation.test_apply_scenario_sessions import (  # noqa: F401
     HOST,
@@ -90,7 +90,7 @@ class Deployment:
     def __init__(self, project: Path, claude_dir: Path, record: HermeticRecord) -> None:
         self.project = project
         self.agent_data = project / "var" / "agent_data"
-        self.state_dir = self.agent_data / posture_store.STATE_DIR_NAME / OPERATOR
+        self.state_dir = self.agent_data / write_switch.CONTROL_STATE_DIR_NAME / OPERATOR
         self.seed_path = self.state_dir / SCENARIO_SESSIONS_FILENAME
         self.claude_dir = claude_dir
         self.record = record
@@ -158,12 +158,12 @@ def deployment(built_view, tmp_path, monkeypatch) -> Iterator[Deployment]:  # no
     claude_dir = tmp_path / "claude"
     for name in ("OSPREY_SESSION_ID", "OSPREY_DISPATCH_RUN_ID", "OSPREY_ARTIFACT_ORIGIN"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(project / "var" / "agent_data"))
     monkeypatch.setenv("OSPREY_TERMINAL_USER", OPERATOR)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_dir))
     monkeypatch.setenv("CONFIG_FILE", str(project / "config.yml"))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     assert activate_default_scenarios(config, project) == ("nominal", *DEFAULTS)
 
@@ -176,7 +176,7 @@ def deployment(built_view, tmp_path, monkeypatch) -> Iterator[Deployment]:  # no
         dep = Deployment(project, claude_dir, HermeticRecord(backend, sessions_dir, OPERATOR))
         dep.seed = json.loads(dep.seed_path.read_text())
         yield dep
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 # ---------------------------------------------------------------------------

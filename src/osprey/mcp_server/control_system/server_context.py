@@ -181,7 +181,7 @@ def claim_control_context(
     """
     try:
         record = control_context.read_record()
-        owner = control_context.live_owner(record)
+        owner = control_context.live_writer(record)
         if record is not None and owner is not None:
             logger.info(
                 "Following the control context owned by %s pid %s: target %r, generation %s",
@@ -193,18 +193,16 @@ def claim_control_context(
             return record
 
         pid = os.getpid() if server_pid is None else server_pid
-        owner = control_context.Owner(
-            kind=control_context.OWNER_CONTROLS_SERVER, pid=pid, port=None
-        )
+        writer = control_context.RecordWriter(kind="controls_server", pid=pid, port=None)
         claimed = (
-            control_context.ControlContext(target=baseline, generation=0, owner=owner)
+            control_context.ControlContext(target=baseline, generation=0, writer=writer)
             if record is None
-            else evolve(control_context.claimed(record, baseline), owner=owner)
+            else evolve(control_context.claimed(record, baseline), writer=writer)
         )
         control_context.write_record(claimed)
 
         confirmed = control_context.read_record()
-        if confirmed is None or confirmed.owner is None or confirmed.owner.pid != pid:
+        if confirmed is None or confirmed.writer is None or confirmed.writer.pid != pid:
             logger.warning(
                 "The control-context claim did not stick; another process owns the record now"
             )

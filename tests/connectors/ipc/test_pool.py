@@ -28,7 +28,7 @@ import pytest
 import yaml
 
 import osprey_connectors
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors import recovery as recovery_module
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
@@ -41,7 +41,6 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
     RecoveryAction,
     RecoveryRecord,
-    RefusalReason,
 )
 from osprey_connectors.ipc import _pool as pool_module
 from osprey_connectors.ipc._host import START_PHASES
@@ -56,7 +55,7 @@ from osprey_connectors.ipc._pool import (
 )
 from osprey_connectors.ipc._proxy import ChildUnresponsiveError, raised_by_child
 from osprey_connectors.recovery import Timing
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import RefusalReason, refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
@@ -361,7 +360,7 @@ async def test_writes_follow_the_switch_at_spawn_time(pools, writable):
     """Off at spawn: the child refuses. A fresh child after the turn-on writes."""
     section, config_file, log = writable
     control_context.set_switch(["live"], "off")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     pool = pools(section, config_file=config_file)
 
     off = await pool.connector("live")
@@ -385,7 +384,7 @@ async def test_a_switch_turned_between_derive_and_report_respawns_once(
     """The verdict moved while the child started: a fresh child, not an aborted start."""
     section, config_file, log = writable
     control_context.set_switch(["live"], "off")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     real = pool_module.ConnectorHostPool._writes_allowed
     asked: list[bool] = []
 
@@ -450,7 +449,7 @@ def test_the_derived_role_follows_the_switch(isolated, switch, role, writes):
 
 @pytest.mark.usefixtures("switched_on")
 def test_a_launch_pin_holds_the_derived_role_on_read_only(monkeypatch):
-    monkeypatch.setenv(pool_module.posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    monkeypatch.setenv(pool_module.write_switch.LAUNCH_PIN_ENV_VAR, "live=sandbox")
     pool = ConnectorHostPool(_epics_section({"read_only": _CA_ROW_RO, "write_access": _CA_ROW_RW}))
 
     derivation, _, writes = pool._derive(("live", None), pool._section)

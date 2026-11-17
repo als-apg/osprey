@@ -556,8 +556,10 @@ person would:
    :end-before: # docs: ask ends
    :dedent: 4
 
-``expires_at`` is a timezone-aware ``datetime``, at most a day away; a naive
-one raises ``NaiveDatetimeError``. The holder is the program's acting
+Each channel's range is a ``ChannelRange``: ``ChannelRange.of(lo, hi)``
+builds one from its two bounds, and raises ``ValueError`` for a bound that is
+not finite or a ``lo`` above ``hi``. ``expires_at`` is a timezone-aware
+``datetime``, at most a day away; a naive one raises ``NaiveDatetimeError``. The holder is the program's acting
 identity; the owner is the login the run stands in for (``OSPREY_CONTROL_OWNER`` in a container). A program's container
 needs both that variable and ``OSPREY_WRITE_LEDGER_DIR`` bound writable: the
 program opens and renews its lease there, and its connector child spends the
@@ -593,7 +595,9 @@ config_file=default_config_path())``:
    :end-before: # docs: write ends
    :dedent: 4
 
-and, between write calls, renews its lease:
+and, between write calls, renews its lease. A renewal that is refused raises
+``AuthorizationRefusedError``, whose ``reason`` and ``cause`` say why; the
+program stops writing then:
 
 .. literalinclude:: examples/write_from_a_program.py
    :language: python
@@ -607,7 +611,7 @@ writes nothing; a write the limits database then refuses, and one whose put
 fails, has still spent its step.
 
 **4. Read the reason.** A refused write returns ``outcome`` ``REFUSED`` with
-``verdict_reason`` set (``write_channel_checked`` raises
+``verdict_reason`` set, a ``VerdictReason`` (``write_channel_checked`` raises
 ``ChannelWriteBlockedError`` carrying it). End the run on any ``auth_*``
 reason rather than retrying: ``auth_exhausted`` (no step left),
 ``auth_expired``, ``auth_revoked`` (a person stopped it), ``auth_lease_lapsed``,

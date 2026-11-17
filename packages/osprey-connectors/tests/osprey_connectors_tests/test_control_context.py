@@ -18,10 +18,11 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import _control_state, control_context, testing, write_switch
 from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.errors import NaiveDatetimeError, StateUnavailableError
 from osprey_connectors.model import evolve
+from osprey_connectors.refusals import VerdictReason
 from osprey_connectors_tests._paths import REPO_ROOT
 
 # --- fixtures --------------------------------------------------------------
@@ -31,7 +32,7 @@ from osprey_connectors_tests._paths import REPO_ROOT
 def proc_root(tmp_path_factory, monkeypatch):
     """An empty ``/proc``, so a PID faked through ``os.kill`` never meets a real thread."""
     root = tmp_path_factory.mktemp("proc")
-    monkeypatch.setattr(control_context, "_PROC_ROOT", str(root))
+    monkeypatch.setattr(_control_state, "_PROC_ROOT", str(root))
     return root
 
 
@@ -44,26 +45,26 @@ def data_root(tmp_path, monkeypatch):
     this module to that deployment's directory and never look at the root the
     test just laid down.
     """
-    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    control_context.invalidate_cache()
+    monkeypatch.setenv(_control_state._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    testing.invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
 def rootless(monkeypatch):
     """No stamp, no bind and no derivable root: the record has nowhere to live."""
-    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(_control_state._AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(
-        posture_store,
+        _control_state,
         "resolve_shared_data_root",
         lambda: (_ for _ in ()).throw(RuntimeError("no project root")),
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _payload(**overrides):
@@ -77,11 +78,11 @@ def _payload(**overrides):
         "last_switch": {
             "request_id": "r-1",
             "target": "va",
-            "requested_at": 1000.0,
-            "requested_by": 4242,
+            "requested_at": "2026-01-01T00:00:00+00:00",
+            "requested_by": "pid:4242",
             "status": "applied",
             "reason": None,
-            "detail": None,
+            "detail": "The control target is now 'va' (generation 7).",
             "generation": 7,
         },
     }
@@ -100,7 +101,7 @@ def _write_raw(root: Path, payload, *, encoding: str = "utf-8") -> Path:
 # --- path resolution -------------------------------------------------------
 
 
-def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
+def test_record_lives_in_the_state_dir(data_root, monkeypatch):
     """One file per identity, under one directory, named the same by both readers.
 
     The identity is pinned rather than taken from the account running pytest:
@@ -111,7 +112,7 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
 
     identity = pin_identity(monkeypatch)
 
-    assert control_context.STATE_DIR_NAME == "control_target"
+    assert write_switch.CONTROL_STATE_DIR_NAME == "control_target"
     assert control_context.RECORD_FILENAME == "control_context.json"
     assert (
         control_context.record_path()
@@ -123,7 +124,7 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
 @pytest.mark.usefixtures("rootless")
 def test_record_path_is_none_without_a_root():
     assert control_context.record_path() is None
-    assert posture_store.state_dir() is None
+    assert write_switch.state_dir() is None
 
 
 # --- writing ---------------------------------------------------------------
@@ -134,26 +135,23 @@ def test_write_then_read_round_trips():
     record = control_context.ControlContext(
         target="va",
         generation=7,
-        owner=control_context.Owner(kind="web_terminal", pid=os.getpid(), port=8080),
-        last_switch={"request_id": "r-1", "status": "applied", "generation": 7},
+        writer=control_context.RecordWriter(kind="web_terminal", pid=os.getpid(), port=8080),
+        last_switch=control_context.SwitchTerminus.applied(
+            request_id="r-1", target="va", generation=7, requested_at=None, requested_by="pid:1"
+        ),
     )
     path = control_context.write_record(record)
     assert path == control_context.record_path()
     stored = control_context.read_record()
-    # A first write stamps the epoch (rule 3); every caller-set field round-trips,
-    # and the posture field is the mirror of the (empty) switch.
-    assert stored == evolve(
-        record, switch_epoch=stored.switch_epoch, posture=control_context._posture_mirror({})
-    )
+    # A first write stamps the epoch (rule 3); every caller-set field round-trips.
+    assert stored == evolve(record, switch_epoch=stored.switch_epoch)
     assert isinstance(stored.switch_epoch, int) and stored.switch_epoch > 0
 
 
 @pytest.mark.usefixtures("data_root")
 def test_a_narrowing_input_is_not_stored():
     """No writer takes a narrowing: the JSON form writes the mirror of the switch."""
-    record = control_context.ControlContext(
-        target="live", generation=1, posture={"va": "sandbox"}, switch={"va": "on"}
-    )
+    record = control_context.ControlContext(target="live", generation=1, switch={"va": "on"})
     assert record.model_dump(mode="json")["posture"] == {"live": "sandbox", "standin": "sandbox"}
 
     control_context.write_record(record)
@@ -161,7 +159,7 @@ def test_a_narrowing_input_is_not_stored():
     # write_record keeps the on-disk switch (empty on a fresh root), and the
     # mirror follows what is stored, not what the caller passed.
     assert payload["switch"] == {}
-    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
+    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, write_switch.LAUNCH_PIN_SANDBOX)
 
 
 @pytest.mark.parametrize(
@@ -190,14 +188,14 @@ def test_the_stored_mirror_follows_the_switch():
     assert stored()["posture"] == {"va": "sandbox", "standin": "sandbox"}
 
     control_context.set_switch(["live"], "off")
-    assert stored()["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
+    assert stored()["posture"] == dict.fromkeys(CONTROL_TARGETS, write_switch.LAUNCH_PIN_SANDBOX)
 
 
 def test_write_creates_the_state_directory(data_root):
     assert not (data_root / "control_target").exists()
     control_context.write_record(control_context.ControlContext(target="live", generation=0))
     assert control_context.record_path().is_file()
-    assert control_context.record_path().parent == posture_store.state_dir()
+    assert control_context.record_path().parent == write_switch.state_dir()
 
 
 @pytest.mark.usefixtures("data_root")
@@ -206,7 +204,7 @@ def test_write_payload_carries_exactly_the_record_contract():
         control_context.ControlContext(
             target="standin",
             generation=2,
-            owner=control_context.Owner(kind="controls_server", pid=4242),
+            writer=control_context.RecordWriter(kind="controls_server", pid=4242),
         )
     )
     payload = json.loads(control_context.record_path().read_text(encoding="utf-8"))
@@ -222,7 +220,7 @@ def test_write_payload_carries_exactly_the_record_contract():
     }
     assert payload["schema"] == control_context._SCHEMA_VERSION == 1
     assert payload["owner"] == {"kind": "controls_server", "pid": 4242, "port": None}
-    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
+    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, write_switch.LAUNCH_PIN_SANDBOX)
     assert payload["last_switch"] is None
     assert payload["switch"] == {}
     assert isinstance(payload["switch_epoch"], int) and payload["switch_epoch"] > 0
@@ -237,7 +235,7 @@ def test_write_replaces_atomically_and_leaves_no_litter():
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     assert first.stat().st_ino != before
     # The record and its lock (rule 3) — no temp file left behind.
-    assert sorted(p.name for p in posture_store.state_dir().iterdir()) == [
+    assert sorted(p.name for p in write_switch.state_dir().iterdir()) == [
         "control_context.json",
         "control_context.json.lock",
     ]
@@ -246,7 +244,7 @@ def test_write_replaces_atomically_and_leaves_no_litter():
 @pytest.mark.usefixtures("data_root")
 def test_a_written_record_is_group_readable_and_not_owner_only():
     """Mode 0640 exactly: the worker uid reads the record through the shared group."""
-    state = posture_store.state_dir()
+    state = write_switch.state_dir()
     state.mkdir(parents=True)
     os.chmod(state, 0o2770)
 
@@ -312,7 +310,7 @@ def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with():
     identity hop and set ITS mode, so the assertion would pass on a directory
     nobody had provisioned.
     """
-    state = posture_store.state_dir()
+    state = write_switch.state_dir()
     state.mkdir(parents=True)
     os.chmod(state, 0o2750)
 
@@ -332,30 +330,32 @@ def test_refusal_terminus_moves_nothing_else():
     applied = control_context.ControlContext(
         target="va",
         generation=7,
-        owner=control_context.Owner(kind="web_terminal", pid=os.getpid(), port=8080),
-        last_switch={"request_id": "r-1", "status": "applied", "generation": 7},
+        writer=control_context.RecordWriter(kind="web_terminal", pid=os.getpid(), port=8080),
+        last_switch=control_context.SwitchTerminus.applied(
+            request_id="r-1", target="va", generation=7, requested_at=None, requested_by="pid:1"
+        ),
     )
     control_context.write_record(applied)
-    refusal = evolve(
-        applied,
-        last_switch={
-            "request_id": "r-2",
-            "target": "live",
-            "status": "refused",
-            "reason": "target_unreachable",
-            "detail": "live did not answer",
-            "generation": None,
-        },
+    refusal = applied.answered(
+        control_context.SwitchTerminus.refused(
+            request_id="r-2",
+            target="live",
+            reason="target_unreachable",
+            detail="live did not answer",
+            requested_at=None,
+            requested_by="pid:1",
+        )
     )
     control_context.write_record(refusal)
 
     after = control_context.read_record()
     assert after.target == applied.target
     assert after.generation == applied.generation
-    assert after.posture == control_context._posture_mirror(after.switch)
-    assert after.owner == applied.owner
-    assert after.last_switch["status"] == "refused"
-    assert after.last_switch["reason"] == "target_unreachable"
+    assert after.writer == applied.writer
+    assert after.last_switch is not None
+    assert after.last_switch.status == "refused"
+    assert after.last_switch.reason == "target_unreachable"
+    assert after.last_switch.generation is None
 
 
 # --- reading: the record survives ------------------------------------------
@@ -366,9 +366,11 @@ def test_read_parses_a_hand_written_payload(data_root):
     record = control_context.read_record()
     assert record.target == "va"
     assert record.generation == 7
-    assert record.owner == control_context.Owner(kind="web_terminal", pid=os.getpid(), port=8080)
-    assert record.posture == {"live": "sandbox"}
-    assert record.last_switch["request_id"] == "r-1"
+    assert record.writer == control_context.RecordWriter(
+        kind="web_terminal", pid=os.getpid(), port=8080
+    )
+    assert record.last_switch is not None
+    assert record.last_switch.request_id == "r-1"
 
 
 @pytest.mark.parametrize("target", CONTROL_TARGETS)
@@ -466,7 +468,7 @@ def test_unusable_owner_reads_as_ownerless_and_keeps_the_record(data_root, owner
     _write_raw(data_root, _payload(owner=owner))
     record = control_context.read_record()
     assert record is not None
-    assert record.owner is None
+    assert record.writer is None
     assert record.target == "va"
 
 
@@ -474,43 +476,47 @@ def test_absent_owner_reads_as_ownerless(data_root):
     payload = _payload()
     del payload["owner"]
     _write_raw(data_root, payload)
-    assert control_context.read_record().owner is None
+    assert control_context.read_record().writer is None
 
 
 @pytest.mark.parametrize("port", [None, "8080", 0, True, -1])
 def test_unusable_owner_port_reads_as_no_port(data_root, port):
     _write_raw(data_root, _payload(owner={"kind": "controls_server", "pid": 4242, "port": port}))
-    owner = control_context.read_record().owner
-    assert owner == control_context.Owner(kind="controls_server", pid=4242, port=None)
+    writer = control_context.read_record().writer
+    assert writer == control_context.RecordWriter(kind="controls_server", pid=4242, port=None)
 
 
-@pytest.mark.parametrize(
-    ("stored", "expected"),
-    [
-        ({"live": "sandbox"}, {"live": "sandbox"}),
-        ({"live": "sandbox", "va": "writes"}, {"live": "sandbox"}),
-        ({"live": "writes"}, {}),
-        ("sandbox", dict.fromkeys(CONTROL_TARGETS, "sandbox")),
-        ("writes", {}),
-        ({}, {}),
-        (None, {}),
-        (["live"], {}),
-        ({"live": True}, {}),
-    ],
-)
-def test_posture_follows_the_store_entry_grammar(data_root, stored, expected):
+@pytest.mark.parametrize("stored", [{"live": "sandbox"}, "sandbox", "writes", None, ["live"], 7])
+def test_the_stored_posture_is_not_read(data_root, stored):
+    """The mirror is the hooks' to read: whatever it holds, the record is the same."""
     _write_raw(data_root, _payload(posture=stored))
-    assert control_context.read_record().posture == expected
+    record = control_context.read_record()
+    assert record is not None
+    assert not hasattr(record, "posture")
+    assert record == control_context.parse_record(_payload())
 
 
-def test_absent_posture_reads_as_empty(data_root):
+def test_absent_posture_reads_the_same_record(data_root):
     payload = _payload()
     del payload["posture"]
     _write_raw(data_root, payload)
-    assert control_context.read_record().posture == {}
+    assert control_context.read_record() == control_context.parse_record(_payload())
 
 
-@pytest.mark.parametrize("last_switch", [None, "applied", 7, ["applied"]])
+@pytest.mark.parametrize(
+    "last_switch",
+    [
+        None,
+        "applied",
+        7,
+        ["applied"],
+        {"status": "applied"},
+        {"request_id": 7, "status": "applied"},
+        {"request_id": "r-1"},
+        {"request_id": "r-1", "status": "unchanged"},
+        {"request_id": "r-1", "status": None},
+    ],
+)
 def test_unusable_last_switch_reads_as_none_and_keeps_the_record(data_root, last_switch):
     _write_raw(data_root, _payload(last_switch=last_switch))
     record = control_context.read_record()
@@ -519,19 +525,45 @@ def test_unusable_last_switch_reads_as_none_and_keeps_the_record(data_root, last
     assert record.generation == 7
 
 
-def test_last_switch_is_kept_verbatim(data_root):
+def test_a_well_formed_last_switch_reads_as_written(data_root):
     terminus = {
         "request_id": "r-9",
         "target": "live",
-        "requested_at": 1234.5,
-        "requested_by": 99,
+        "requested_at": "2026-01-01T00:00:00.250000+00:00",
+        "requested_by": "sess-1",
         "status": "refused",
         "reason": "busy",
         "detail": "sandbox 3f2a is writing",
         "generation": None,
     }
     _write_raw(data_root, _payload(last_switch=terminus))
-    assert control_context.read_record().last_switch == terminus
+    assert control_context.read_record().last_switch.model_dump(mode="json") == terminus
+
+
+@pytest.mark.parametrize(
+    ("key", "bad", "read"),
+    [
+        ("target", 7, ""),
+        ("requested_at", 1234.5, None),
+        ("requested_at", "2026-01-01T00:00:00", None),
+        ("requested_at", "not a stamp", None),
+        ("requested_by", 99, ""),
+        ("reason", 3, None),
+        ("detail", None, ""),
+        ("generation", -1, None),
+        ("generation", True, None),
+        ("generation", "7", None),
+    ],
+)
+def test_a_bad_last_switch_field_degrades_alone(data_root, key, bad, read):
+    """Rule 2: one bad field of the block reads as "not stated"; the block is kept."""
+    block = {**_payload()["last_switch"], key: bad}
+    _write_raw(data_root, _payload(last_switch=block))
+    terminus = control_context.read_record().last_switch
+    assert terminus is not None
+    assert getattr(terminus, key) == read
+    assert terminus.request_id == "r-1"
+    assert terminus.status == "applied"
 
 
 # --- when a change is seen -------------------------------------------------
@@ -551,7 +583,7 @@ def test_an_unchanged_signature_is_not_re_parsed(data_root):
     assert path.stat().st_size == signature.st_size
 
     assert control_context.read_record() is first
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     assert control_context.read_record().generation == 8
 
 
@@ -696,13 +728,13 @@ def test_a_record_naming_a_thread_has_no_live_owner(proc_root, monkeypatch):
     record = control_context.parse_record(json.dumps(_payload(owner=owner)))
 
     assert record is not None
-    assert record.owner is not None and record.owner.pid == 424
-    assert control_context.live_owner(record) is None
+    assert record.writer is not None and record.writer.pid == 424
+    assert control_context.live_writer(record) is None
 
 
 @pytest.mark.skipif(not Path("/proc/self/status").exists(), reason="needs a Linux /proc")
 def test_a_real_thread_id_passes_the_kernel_check_and_is_no_process(monkeypatch):
-    monkeypatch.setattr(control_context, "_PROC_ROOT", "/proc")
+    monkeypatch.setattr(_control_state, "_PROC_ROOT", "/proc")
     named = threading.Event()
     release = threading.Event()
     tids = []
@@ -743,19 +775,19 @@ def _owned_record(pid):
     return control_context.ControlContext(
         target="va",
         generation=3,
-        owner=control_context.Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=pid, port=8090),
+        writer=control_context.RecordWriter(kind="web_terminal", pid=pid, port=8090),
     )
 
 
 def test_a_running_owner_of_this_user_is_the_live_owner(monkeypatch):
     monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
     record = _owned_record(4321)
-    assert control_context.live_owner(record) == record.owner
+    assert control_context.live_writer(record) == record.writer
 
 
 def test_an_exited_owner_is_no_live_owner(monkeypatch):
     monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
-    assert control_context.live_owner(_owned_record(4321)) is None
+    assert control_context.live_writer(_owned_record(4321)) is None
 
 
 def test_another_users_process_under_the_owners_pid_is_no_live_owner(monkeypatch):
@@ -768,13 +800,13 @@ def test_another_users_process_under_the_owners_pid_is_no_live_owner(monkeypatch
     """
     monkeypatch.setattr(os, "kill", _kill_denied_for({1}))
     assert control_context.is_process_alive(1) is True
-    assert control_context.live_owner(_owned_record(1)) is None
+    assert control_context.live_writer(_owned_record(1)) is None
 
 
 def test_no_record_and_no_owner_have_no_live_owner():
-    assert control_context.live_owner(None) is None
+    assert control_context.live_writer(None) is None
     ownerless = control_context.ControlContext(target="va", generation=0)
-    assert control_context.live_owner(ownerless) is None
+    assert control_context.live_writer(ownerless) is None
 
 
 def test_only_a_refused_signal_says_another_users_process(monkeypatch):
@@ -806,15 +838,15 @@ def test_nothing_but_a_positive_int_is_another_users_process(monkeypatch, value)
 
 def test_claimed_unswitched_record_follows_baseline(caplog):
     """A record nobody has switched follows the deployment's baseline."""
-    owner = control_context.Owner(kind="web_terminal", pid=4242, port=8090)
-    record = control_context.ControlContext(target="live", generation=0, owner=owner)
+    owner = control_context.RecordWriter(kind="web_terminal", pid=4242, port=8090)
+    record = control_context.ControlContext(target="live", generation=0, writer=owner)
 
     with caplog.at_level("WARNING", logger="osprey_connectors.control_context"):
         result = control_context.claimed(record, "va")
 
     assert result.target == "va"
     assert result.generation == 0
-    assert result.owner == owner
+    assert result.writer == owner
     warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
     assert len(warnings) == 1
     assert "live" in warnings[0] and "va" in warnings[0]
@@ -839,20 +871,25 @@ def test_claimed_returns_the_record_itself_without_a_warning(caplog, target, gen
     assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
 
-def test_claimed_keeps_posture_narrowings():
-    """Narrowings only ever refuse, so following the baseline keeps every one."""
+def test_claimed_keeps_the_switch_and_the_last_terminus():
+    """Following the baseline moves the target and nothing a person or a request set."""
+    refused = control_context.SwitchTerminus.refused(
+        request_id="r-1",
+        target="standin",
+        reason="target_unconfigured",
+        detail="",
+        requested_at=None,
+        requested_by="pid:1",
+    )
     record = control_context.ControlContext(
-        target="live",
-        generation=0,
-        posture={"live": "sandbox", "va": "sandbox"},
-        last_switch={"generation": 0, "status": "refused"},
+        target="live", generation=0, last_switch=refused, switch={"va": "asked"}
     )
 
     result = control_context.claimed(record, "va")
 
     assert result.target == "va"
-    assert result.posture == {"live": "sandbox", "va": "sandbox"}
-    assert result.last_switch == {"generation": 0, "status": "refused"}
+    assert result.switch == {"va": "asked"}
+    assert result.last_switch == refused
 
 
 # --- the per-server reports ------------------------------------------------
@@ -886,8 +923,8 @@ def _write_report(root: Path, pid, payload=None) -> Path:
 
 def test_reports_live_beside_the_record(data_root):
     """Every family of file in this directory moves together, identity hop included."""
-    expected = posture_store.state_dir() / "server_4321.json"
-    assert control_context.REPORT_FILE_PREFIX == "server_"
+    expected = write_switch.state_dir() / "server_4321.json"
+    assert control_context._REPORT_FILE_PREFIX == "server_"
     assert control_context.REPORT_FILE_GLOB == "server_*.json"
     assert control_context.report_path(4321) == expected
     assert control_context._report_path_under(data_root, 4321) == expected
@@ -919,28 +956,84 @@ def test_a_report_stamp_reads_as_its_instant_and_is_written_in_utc(stamp):
 
 
 def _answered(requested_at):
-    return control_context.terminus(
-        control_context.ControlContext(target="va", generation=0),
-        request_id="r-1",
-        target="live",
-        requested_at=requested_at,
-        requested_by="pid:1",
-        status=control_context.SWITCH_APPLIED,
-        reason=None,
-        detail="",
-        generation=1,
+    return control_context.ControlContext(target="va", generation=0).answered(
+        control_context.SwitchTerminus.applied(
+            request_id="r-1",
+            target="live",
+            generation=1,
+            requested_at=requested_at,
+            requested_by="pid:1",
+        )
     )
+
+
+def _stored_terminus(record):
+    return record.model_dump(mode="json")["last_switch"]
 
 
 def test_a_switch_answer_stores_its_request_stamp_in_utc():
     stamp = datetime(2026, 1, 1, 9, 0, 0, 250_000, tzinfo=timezone(timedelta(hours=9)))
-    assert _answered(stamp).last_switch["requested_at"] == "2026-01-01T00:00:00.250000+00:00"
-    assert _answered(None).last_switch["requested_at"] is None
+    assert _stored_terminus(_answered(stamp))["requested_at"] == "2026-01-01T00:00:00.250000+00:00"
+    assert _stored_terminus(_answered(None))["requested_at"] is None
 
 
-def test_a_switch_answer_refuses_a_naive_request_stamp():
+@pytest.mark.parametrize(
+    "build",
+    [
+        control_context.SwitchTerminus.applied,
+        control_context.SwitchTerminus.unchanged,
+        lambda **terms: control_context.SwitchTerminus.refused(
+            reason="r", detail="d", **{k: v for k, v in terms.items() if k != "generation"}
+        ),
+    ],
+)
+def test_a_switch_answer_refuses_a_naive_request_stamp(build):
     with pytest.raises(NaiveDatetimeError):
-        _answered(datetime(2026, 1, 1))
+        build(
+            request_id="r-1",
+            target="live",
+            generation=1,
+            requested_at=datetime(2026, 1, 1),
+            requested_by="pid:1",
+        )
+
+
+def test_an_applied_answer_moves_the_target_and_mints_its_generation():
+    record = control_context.ControlContext(target="va", generation=2, switch={"va": "asked"})
+    terminus = control_context.SwitchTerminus.applied(
+        request_id="r-1", target="live", generation=3, requested_at=None, requested_by="pid:1"
+    )
+    answered = record.answered(terminus)
+    assert (answered.target, answered.generation, answered.last_switch) == ("live", 3, terminus)
+    assert answered.switch == record.switch
+    assert terminus.detail == "The control target is now 'live' (generation 3)."
+
+
+def test_an_unchanged_answer_is_an_applied_terminus_that_mints_nothing():
+    record = control_context.ControlContext(target="va", generation=2)
+    terminus = control_context.SwitchTerminus.unchanged(
+        request_id="r-1", target="va", generation=2, requested_at=None, requested_by="pid:1"
+    )
+    answered = record.answered(terminus)
+    assert (answered.target, answered.generation) == ("va", 2)
+    assert terminus.status == "applied"
+    assert terminus.reason is None
+    assert terminus.detail == "The control target is already 'va' (generation 2)."
+
+
+def test_a_refused_answer_moves_nothing_but_the_block():
+    record = control_context.ControlContext(target="va", generation=2)
+    terminus = control_context.SwitchTerminus.refused(
+        request_id="r-1",
+        target="nowhere",
+        reason="",
+        detail="",
+        requested_at=None,
+        requested_by="pid:1",
+    )
+    answered = record.answered(terminus)
+    assert (answered.target, answered.generation) == ("va", 2)
+    assert (terminus.status, terminus.reason, terminus.generation) == ("refused", "", None)
 
 
 @pytest.mark.parametrize("value", [None, 0, -1, True, "4321", 4321.0])
@@ -974,7 +1067,7 @@ def test_a_server_that_has_not_answered_yet_reports_no_applied_target():
         ("children", "111", ()),
         ("children", [111, 111, 0, "x", 222], (111, 222)),
         ("reachability", "up", {}),
-        ("last_switch", "applied", None),
+        ("switch_progress", "applied", None),
         ("last_posture_realign", 3, None),
         ("targets", [], {}),
         ("updated_at", 17, None),
@@ -985,7 +1078,8 @@ def test_a_server_that_has_not_answered_yet_reports_no_applied_target():
 )
 def test_a_degraded_report_field_degrades_alone(field, value, expected):
     """The identity is ``server_pid``; every annotation on it stands or falls alone."""
-    report = control_context._parse_report(_report_payload(4321, **{field: value}))
+    key = "last_switch" if field == "switch_progress" else field
+    report = control_context._parse_report(_report_payload(4321, **{key: value}))
     assert report is not None
     assert report.server_pid == 4321
     assert getattr(report, field) == expected
@@ -1010,7 +1104,7 @@ def test_an_unchanged_report_signature_is_not_re_parsed(data_root):
     assert path.stat().st_size == signature.st_size
 
     assert control_context.read_report(path) is first
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     assert control_context.read_report(path).applied_generation == 8
 
 
@@ -1088,7 +1182,8 @@ def test_a_display_only_report_round_trips_eleven_fields():
     report = control_context._parse_report(payload)
 
     assert report.display_only is True
-    assert report.statement == _STATEMENT
+    assert report.statement is not None
+    assert report.statement.model_dump(mode="json") == _STATEMENT
     assert report.model_dump(mode="json") == payload
     assert len(report.model_dump(mode="json")) == 11
     assert control_context._parse_report(report.model_dump(mode="json")) == report
@@ -1138,56 +1233,109 @@ def test_a_statement_not_yet_stated_on_either_axis_is_well_formed():
     report = control_context._parse_report(
         _display_payload(4321, statement={"reachable": None, "writes": None})
     )
-    assert report.statement == {"reachable": None, "writes": None}
+    assert report.statement == control_context.MachineStatement(reachable=None, writes=None)
     assert report.display_only is True
 
 
-@pytest.mark.parametrize("state", control_context._REACHABLE_STATES)
+@pytest.mark.parametrize("state", ["yes", "no"])
 def test_reachable_is_stated_as_one_of_the_two_roots(state):
     statement = {
         "reachable": {"state": state, "since": "2026-01-01T00:00:00+00:00"},
         "writes": None,
     }
     report = control_context._parse_report(_display_payload(4321, statement=statement))
-    assert report.statement["reachable"] == {
+    assert report.statement.model_dump(mode="json")["reachable"] == {
         "state": state,
         "since": "2026-01-01T00:00:00+00:00",
         "reason": None,
     }
 
 
-def test_write_statement_carries_the_verdicts_terms_and_nothing_else():
-    verdict = posture_store.WriteVerdict(
-        allowed=False,
+def test_a_reachable_since_that_states_no_instant_is_not_stated():
+    """The statement stays a display process's; only the stamp degrades."""
+    statement = {"reachable": {"state": "no", "since": "t", "reason": None}, "writes": None}
+    report = control_context._parse_report(_display_payload(4321, statement=statement))
+    assert report.display_only is True
+    assert report.statement.reachable == control_context.Reachable(state="no")
+
+
+def test_a_writes_statement_carries_the_verdicts_terms_and_nothing_else():
+    verdict = write_switch.Refused(
         reason="session_held",
         target="va",
         kind="simulator",
-        position=None,
-        detail="a watchdog flagged the session",
+        cause=write_switch._SessionHeld(sources=("watchdog:a",)),
     )
-    writes = control_context.write_statement(verdict)
+    writes = control_context.WritesStatement.of(verdict).model_dump(mode="json")
 
-    assert tuple(writes) == control_context._WRITES_STATEMENT_KEYS
     assert writes == {
         "allowed": False,
         "position": None,
         "reason": "session_held",
         "kind": "simulator",
     }
+    assert tuple(writes) == ("allowed", "position", "reason", "kind")
     report = control_context._parse_report(
         _display_payload(4321, statement={"reachable": None, "writes": writes})
     )
-    assert report.statement["writes"] == writes
+    assert report.statement.writes == control_context.WritesStatement.of(verdict)
 
-    allowed = posture_store.WriteVerdict(
-        allowed=True, reason=None, target="live", kind="real", position="asked"
-    )
-    assert control_context.write_statement(allowed) == {
+    allowed = write_switch.Allowed(target="live", kind="real", position="asked")
+    assert control_context.WritesStatement.of(allowed).model_dump(mode="json") == {
         "allowed": True,
         "position": "asked",
         "reason": None,
         "kind": "real",
     }
+
+
+@pytest.mark.parametrize(
+    "terms",
+    [
+        {"allowed": True, "position": "asked", "reason": "switch_off", "kind": "real"},
+        {"allowed": False, "position": None, "reason": None, "kind": "real"},
+        {"allowed": False, "position": "asked", "reason": "switch_off", "kind": "real"},
+    ],
+)
+def test_a_writes_statement_that_disagrees_with_itself_cannot_be_built(terms):
+    with pytest.raises(ValueError, match="writes statement"):
+        control_context.WritesStatement.model_validate(terms)
+
+
+@pytest.mark.parametrize(
+    "writes",
+    [
+        {"allowed": True, "position": "asked", "reason": "switch_off", "kind": "real"},
+        {"allowed": False, "position": None, "reason": None, "kind": "real"},
+        {"allowed": False, "position": "allowed", "reason": "switch_off", "kind": "real"},
+    ],
+)
+def test_a_stored_writes_axis_that_disagrees_with_itself_reads_as_not_stated(writes):
+    """The report stays a display process's, so no fleet reader starts counting it."""
+    report = control_context._parse_report(
+        _display_payload(4321, statement={"reachable": None, "writes": writes})
+    )
+    assert report.display_only is True
+    assert report.statement.writes is None
+
+
+def test_a_stored_writes_reason_that_is_no_refusal_word_reads_as_not_stated():
+    """An unknown word degrades the axis; the report still parses and stays display-only."""
+    writes = {"allowed": False, "position": None, "reason": "no_such_word", "kind": "real"}
+    report = control_context._parse_report(
+        _display_payload(4321, statement={"reachable": None, "writes": writes})
+    )
+    assert report is not None
+    assert report.display_only is True
+    assert report.statement.writes is None
+
+
+def test_a_writes_statement_holds_its_reason_as_the_refusal_member():
+    writes = {"allowed": False, "position": None, "reason": "switch_off", "kind": "real"}
+    statement = control_context.WritesStatement.model_validate(writes)
+    assert statement.reason is VerdictReason.SWITCH_OFF
+    with pytest.raises(ValueError, match="unknown refusal reason"):
+        control_context.WritesStatement.model_validate({**writes, "reason": "no_such_word"})
 
 
 def test_fleet_readers_leave_out_a_display_only_report(data_root):
@@ -1231,8 +1379,8 @@ def test_blocking_pids_passes_over_a_display_only_report(session, target, genera
 def _sweep(directory, **kwargs):
     return control_context.sweep_dead(
         directory,
-        prefix=control_context.REPORT_FILE_PREFIX,
-        suffix=control_context.REPORT_FILE_SUFFIX,
+        prefix=control_context._REPORT_FILE_PREFIX,
+        suffix=control_context._REPORT_FILE_SUFFIX,
         **kwargs,
     )
 
@@ -1241,7 +1389,7 @@ def test_a_dead_owners_file_is_swept(data_root, monkeypatch):
     dead = _write_report(data_root, 4321, _report_payload(4321))
     monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
 
-    assert _sweep(posture_store.state_dir()) == [dead]
+    assert _sweep(write_switch.state_dir()) == [dead]
     assert not dead.exists()
 
 
@@ -1249,7 +1397,7 @@ def test_a_live_owners_file_is_left_alone(data_root, monkeypatch):
     alive = _write_report(data_root, 4321, _report_payload(4321))
     monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
 
-    assert _sweep(posture_store.state_dir()) == []
+    assert _sweep(write_switch.state_dir()) == []
     assert alive.exists()
 
 
@@ -1257,13 +1405,13 @@ def test_the_kept_file_is_never_probed(data_root, monkeypatch):
     own = _write_report(data_root, 1234, _report_payload(1234))
     monkeypatch.setattr(os, "kill", _kill_with_dead({1234}))
 
-    assert _sweep(posture_store.state_dir(), keep=own.name) == []
+    assert _sweep(write_switch.state_dir(), keep=own.name) == []
     assert own.exists()
 
 
 @pytest.mark.usefixtures("data_root")
 def test_a_filename_that_encodes_no_pid_is_swept():
-    directory = posture_store.state_dir()
+    directory = write_switch.state_dir()
     directory.mkdir(parents=True)
     junk = directory / "server_notapid.json"
     junk.write_text("{}", encoding="utf-8")
@@ -1274,8 +1422,8 @@ def test_a_filename_that_encodes_no_pid_is_swept():
 
 @pytest.mark.usefixtures("data_root")
 def test_a_missing_directory_sweeps_to_empty():
-    assert not posture_store.state_dir().exists()
-    assert _sweep(posture_store.state_dir()) == []
+    assert not write_switch.state_dir().exists()
+    assert _sweep(write_switch.state_dir()) == []
 
 
 # --- convergence -----------------------------------------------------------
@@ -1295,7 +1443,7 @@ def _stamp(offset_s, *, tz=UTC):
 
 
 def _report(pid, **overrides):
-    """One parsed report; the defaults are a server applied at ``va``/7."""
+    """One report as a fleet reader parses it off its file; the defaults are a server applied at ``va``/7."""
     fields = {
         "server_pid": pid,
         "session": "sess-1",
@@ -1304,7 +1452,9 @@ def _report(pid, **overrides):
         "last_switch": {"generation": 7, "status": "applied", "at": _stamp(-60)},
     }
     fields.update(overrides)
-    return control_context.ServerReport(**fields)
+    report = control_context._parse_report(fields)
+    assert report is not None
+    return report
 
 
 def _applying(pid, *, generation=7, expires_in=300.0, session="sess-1", **overrides):
@@ -1634,6 +1784,65 @@ def test_every_unconverged_reason_is_named_once_and_in_pid_order():
     assert control_context.converged(record, reports, "sess-1") is False
 
 
+#: The safety table of the typed switch block (rule 5): each row is a block a
+#: fleet reader parses off a live server's report with one field bad, and
+#: whether it still holds every session. A bad field degrades alone, so an
+#: ``applying`` block keeps blocking whatever else is wrong with it, an
+#: unreadable bound is no bound, and a generation or status that does not read
+#: names no swap the fleet coordinates on — as before the block was typed.
+_SAFETY_TABLE = [
+    pytest.param({"detail": 7}, True, id="applying-bad-detail-blocks"),
+    pytest.param({"detail": ["x"]}, True, id="applying-list-detail-blocks"),
+    pytest.param({"reason": 3}, True, id="applying-bad-reason-blocks"),
+    pytest.param({"reason": {"why": "x"}}, True, id="applying-mapping-reason-blocks"),
+    pytest.param({"at": "yesterday"}, True, id="applying-bad-at-blocks"),
+    pytest.param({"at": 1234.5}, True, id="applying-numeric-at-blocks"),
+    pytest.param({"at": "2026-01-01T00:00:00"}, True, id="applying-naive-at-blocks"),
+    pytest.param({"expires_at": "soon"}, True, id="unreadable-bound-blocks"),
+    pytest.param({"expires_at": 1234}, True, id="numeric-bound-blocks"),
+    pytest.param({"expires_at": None}, True, id="absent-bound-blocks"),
+    pytest.param({"status": "Applying"}, False, id="unknown-status-does-not-block"),
+    pytest.param({"status": None}, False, id="no-status-does-not-block"),
+    pytest.param({"status": 7}, False, id="non-word-status-does-not-block"),
+    pytest.param({"generation": "7"}, False, id="text-generation-does-not-block"),
+    pytest.param({"generation": True}, False, id="boolean-generation-does-not-block"),
+    pytest.param({"generation": -7}, False, id="negative-generation-does-not-block"),
+    pytest.param({"generation": None}, False, id="no-generation-does-not-block"),
+]
+
+
+@pytest.mark.parametrize(("bad", "blocks"), _SAFETY_TABLE)
+def test_the_switch_block_safety_table(data_root, bad, blocks):
+    """Read off the file a live server wrote, through the readers the gates use."""
+    block = {
+        "generation": 7,
+        "status": "applying",
+        "reason": None,
+        "detail": None,
+        "at": _stamp(-1),
+        "expires_at": _stamp(300.0),
+        **bad,
+    }
+    payload = {
+        "server_pid": 4321,
+        "session": "sess-1",
+        "applied_target": "live",
+        "applied_generation": 6,
+        "children": [5001],
+        "last_switch": block,
+    }
+    _write_report(data_root, 4321, payload)
+    reports = control_context.live_reports(is_alive=lambda pid: True)
+    [report] = reports
+    assert report.switch_progress is not None, "the block is never dropped for one bad field"
+    record = _context()
+    for session in (None, "sess-other", "kernel:abc"):
+        assert control_context.converged(record, reports, session) is not blocks
+        assert control_context.blocking_pids(record, reports, session) == (
+            (4321,) if blocks else ()
+        )
+
+
 def test_converged_reads_a_one_shot_iterable_of_reports_once():
     record = _context()
     reports = iter([_applying(4321)])
@@ -1658,16 +1867,19 @@ def test_the_record_fixture_round_trips_through_read_record(data_root):
         data_root,
         target="va",
         generation=7,
-        last_switch={"request_id": "req-1", "status": control_context.SWITCH_APPLIED},
+        last_switch={"request_id": "req-1", "status": "applied"},
     )
 
     assert path == control_context.record_path()
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert stored["posture"] == control_context._posture_mirror({})
+    assert stored["last_switch"] == {"request_id": "req-1", "status": "applied"}
     record = control_context.read_record()
     assert record is not None
     assert record.target == "va"
     assert record.generation == 7
-    assert record.posture == control_context._posture_mirror({})
-    assert record.last_switch == {"request_id": "req-1", "status": control_context.SWITCH_APPLIED}
+    assert record.last_switch is not None
+    assert (record.last_switch.request_id, record.last_switch.status) == ("req-1", "applied")
 
 
 def test_the_record_fixture_defaults_to_an_owner_that_is_alive(data_root):
@@ -1683,10 +1895,10 @@ def test_the_record_fixture_defaults_to_an_owner_that_is_alive(data_root):
 
     record = control_context.read_record()
     assert record is not None
-    assert record.owner is not None
-    assert record.owner.kind == control_context.OWNER_WEB_TERMINAL
-    assert record.owner.pid == os.getpid()
-    assert control_context.is_process_alive(record.owner.pid) is True
+    assert record.writer is not None
+    assert record.writer.kind == "web_terminal"
+    assert record.writer.pid == os.getpid()
+    assert control_context.is_process_alive(record.writer.pid) is True
 
 
 def test_the_record_fixture_writes_an_ownerless_record_on_request(data_root):
@@ -1696,7 +1908,7 @@ def test_the_record_fixture_writes_an_ownerless_record_on_request(data_root):
 
     record = control_context.read_record()
     assert record is not None
-    assert record.owner is None
+    assert record.writer is None
 
 
 def test_the_record_fixture_owns_by_a_named_process_on_request(data_root):
@@ -1704,13 +1916,13 @@ def test_the_record_fixture_owns_by_a_named_process_on_request(data_root):
 
     write_control_context(
         data_root,
-        owned_by=owner(control_context.OWNER_CONTROLS_SERVER, pid=4321),
+        owned_by=owner("controls_server", pid=4321),
     )
 
     record = control_context.read_record()
     assert record is not None
-    assert record.owner == control_context.Owner(
-        kind=control_context.OWNER_CONTROLS_SERVER, pid=4321, port=None
+    assert record.writer == control_context.RecordWriter(
+        kind="controls_server", pid=4321, port=None
     )
 
 
@@ -1726,7 +1938,7 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
         applied_generation=7,
         children=[9001, 9002],
         reachability={"va": {"reachable": True}},
-        last_switch={"generation": 7, "status": control_context.REPORT_APPLIED},
+        last_switch={"generation": 7, "status": "applied"},
         last_posture_realign={"at": "2026-01-01T00:00:00Z"},
         targets={"va": {"selected_role": "primary"}},
         updated_at="2026-01-01T00:00:01Z",
@@ -1741,7 +1953,7 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
         applied_generation=7,
         children=(9001, 9002),
         reachability={"va": {"reachable": True}},
-        last_switch={"generation": 7, "status": control_context.REPORT_APPLIED},
+        last_switch={"generation": 7, "status": "applied"},
         last_posture_realign={"at": "2026-01-01T00:00:00Z"},
         targets={"va": {"selected_role": "primary"}},
         updated_at="2026-01-01T00:00:01Z",
@@ -1760,7 +1972,7 @@ def test_the_report_fixture_defaults_to_a_server_that_has_answered_nothing(data_
     assert report.applied_generation is None
     assert report.children == ()
     assert report.reachability == {}
-    assert report.last_switch is None
+    assert report.switch_progress is None
 
 
 def test_the_record_fixture_drops_the_read_cache_after_every_write(data_root, monkeypatch):
@@ -1774,13 +1986,13 @@ def test_the_record_fixture_drops_the_read_cache_after_every_write(data_root, mo
     from osprey_connectors_tests._harness import write_control_context
 
     drops = []
-    real_invalidate = control_context.invalidate_cache
+    real_invalidate = testing.invalidate_cache
 
     def spy():
         drops.append(True)
         real_invalidate()
 
-    monkeypatch.setattr(control_context, "invalidate_cache", spy)
+    monkeypatch.setattr(testing, "invalidate_cache", spy)
 
     write_control_context(data_root, target="va", generation=7)
     assert drops, "write_control_context did not drop the read cache"
@@ -1793,11 +2005,11 @@ def test_the_record_fixture_drops_the_read_cache_after_every_write(data_root, mo
 
 
 def test_the_record_fixture_writes_a_non_mapping_posture_verbatim(data_root):
-    """The posture parsers' degradation cases have to be statable.
+    """The hook's posture parser's degradation cases have to be statable.
 
     A bare ``"sandbox"`` is the shape the session-wide posture wrote before
-    targets existed, and both parsers still have a rule for it. A fixture that
-    could only write mappings would leave every such suite hand-rolling a
+    targets existed, and the hook's parser still has a rule for it. A fixture
+    that could only write mappings would leave every such suite hand-rolling a
     payload beside this writer.
     """
     from osprey_connectors_tests._harness import write_control_context
@@ -1805,9 +2017,7 @@ def test_the_record_fixture_writes_a_non_mapping_posture_verbatim(data_root):
     path = write_control_context(data_root, posture="sandbox")
 
     assert json.loads(path.read_text(encoding="utf-8"))["posture"] == "sandbox"
-    record = control_context.read_record()
-    assert record is not None
-    assert record.posture == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
+    assert control_context.read_record() is not None
 
 
 def test_the_fixture_writes_a_degraded_record_through_the_raw_payload_hatch(data_root):
@@ -1867,9 +2077,8 @@ def test_the_switch_fields_round_trip_through_the_payload():
     )
     payload = record.model_dump(mode="json")
     assert payload["switch"] == {"live": "asked"} and payload["switch_epoch"] == 42
-    mirrored = evolve(record, posture=control_context._posture_mirror(record.switch))
-    assert control_context.parse_record(payload) == mirrored
-    assert control_context.parse_record(json.dumps(payload)) == mirrored
+    assert control_context.parse_record(payload) == record
+    assert control_context.parse_record(json.dumps(payload)) == record
 
 
 # --- the status reader -------------------------------------------------------
@@ -1879,7 +2088,8 @@ def test_status_reads_ok_with_the_record(data_root):
     from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 
     write_control_context(data_root, target="standin", generation=2)
-    record, status = control_context.read_record_status()
+    read = control_context.read_record_status()
+    record, status = read.value, read.status
     assert status == "ok"
     assert record is not None and record.target == "standin"
     assert record == control_context.read_record()
@@ -1887,7 +2097,8 @@ def test_status_reads_ok_with_the_record(data_root):
 
 @pytest.mark.usefixtures("data_root")
 def test_status_reads_missing_when_there_is_no_file():
-    assert control_context.read_record_status() == (None, "missing")
+    read = control_context.read_record_status()
+    assert (read.status, read.value, read.path) == ("missing", None, control_context.record_path())
     assert control_context.read_record() is None
 
 
@@ -1904,13 +2115,13 @@ def test_status_reads_missing_when_there_is_no_file():
 )
 def test_status_reads_unreadable_for_a_file_that_states_nothing(data_root, raw):
     _write_raw(data_root, raw)
-    assert control_context.read_record_status() == (None, "unreadable")
+    assert control_context.read_record_status().status == "unreadable"
     assert control_context.read_record() is None
 
 
 def test_status_reads_unreadable_for_a_record_that_is_not_utf8(data_root):
     _write_raw(data_root, json.dumps(_payload(detail="é")), encoding="utf-16")
-    assert control_context.read_record_status() == (None, "unreadable")
+    assert control_context.read_record_status().status == "unreadable"
 
 
 def test_status_reads_unreadable_when_the_path_cannot_be_stat_ed(data_root):
@@ -1918,37 +2129,35 @@ def test_status_reads_unreadable_when_the_path_cannot_be_stat_ed(data_root):
     blocker = data_root / "blocker"
     blocker.parent.mkdir(parents=True, exist_ok=True)
     blocker.write_text("", encoding="utf-8")
-    assert control_context.read_record_status(path=blocker / "record.json") == (
-        None,
-        "unreadable",
-    )
+    assert control_context.read_record_status(path=blocker / "record.json").status == "unreadable"
 
 
 @pytest.mark.usefixtures("rootless")
 def test_status_reads_unreadable_without_a_root():
-    assert control_context.read_record_status() == (None, "unreadable")
+    assert control_context.read_record_status().status == "unreadable"
     assert control_context.read_record() is None
 
 
 @pytest.mark.usefixtures("data_root")
 def test_status_honours_an_explicit_path(tmp_path):
     elsewhere = tmp_path / "elsewhere.json"
-    assert control_context.read_record_status(path=elsewhere) == (None, "missing")
+    assert control_context.read_record_status(path=elsewhere).status == "missing"
     control_context.write_record(
         control_context.ControlContext(target="va", generation=1), path=elsewhere
     )
-    record, status = control_context.read_record_status(path=elsewhere)
+    read = control_context.read_record_status(path=elsewhere)
+    record, status = read.value, read.status
     assert status == "ok" and record.target == "va"
-    assert control_context.read_record_status() == (None, "missing")
+    assert control_context.read_record_status().status == "missing"
 
 
 def test_status_follows_a_record_that_is_corrupted_after_it_was_read(data_root):
     from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 
     write_control_context(data_root)
-    assert control_context.read_record_status()[1] == "ok"
+    assert control_context.read_record_status().status == "ok"
     _write_raw(data_root, "{broken")
-    assert control_context.read_record_status() == (None, "unreadable")
+    assert control_context.read_record_status().status == "unreadable"
 
 
 # --- a record this version writes, read by the readers that predate it ---------
@@ -1987,7 +2196,7 @@ def test_a_record_with_switch_fields_reads_unchanged_through_every_older_reader(
     assert payload["posture"] == mirror
 
     record = control_context.read_record()
-    assert (record.target, record.generation, record.posture) == ("standin", 5, mirror)
+    assert (record.target, record.generation) == ("standin", 5)
 
     hook = _load_target_state_hook(monkeypatch)
     assert hook.parse_record(path.read_text(encoding="utf-8")) == {

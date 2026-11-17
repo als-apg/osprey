@@ -61,7 +61,7 @@ whatever its widgets are wired to, so a deployment offers the drive or not.
 
 A drive the deployment offers is a write, so it then follows its machine's
 switch like every other write: the write verdict
-(:func:`osprey_connectors.posture_store.execution_verdict`) for the baseline, the
+(:func:`osprey_connectors.write_switch.execution_verdict`) for the baseline, the
 only machine the bridge drives, must allow it, and where the approval policy
 asks, the approval prompt must have left its record for the call
 (:func:`osprey.mcp_server.approval_record.require_approval_record`).
@@ -116,7 +116,7 @@ from osprey.mcp_server.http import (
 from osprey.mcp_server.phoebus.server import mcp
 from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.targets import baseline_target
 from osprey_connectors.workspace import (
     agent_data_base_dir,
@@ -275,7 +275,7 @@ def _check_drive_switch() -> None:
     The message is the verdict's phrase, which says who can lift the refusal
     and names no config key; ``details`` carries the reason and the target.
     """
-    from osprey_connectors.refusals import refusal_text
+    from osprey_connectors.refusals import VerdictReason, refusal_text
 
     try:
         config = load_osprey_config()
@@ -284,12 +284,12 @@ def _check_drive_switch() -> None:
         verdict = execution_verdict(section or {}, target)
     except Exception:  # unknown posture must not drive a panel
         logger.warning("Write verdict for phoebus_drive could not be reached", exc_info=True)
-        verdict = posture_store.WriteVerdict(
-            allowed=False, reason="record_unavailable", target=None, kind=None
+        verdict = write_switch.Refused(
+            reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None
         )
     if verdict.allowed:
         return
-    reason = verdict.reason or "record_unavailable"
+    reason = verdict.reason
     make_error(
         "writes_disabled",
         refusal_text(

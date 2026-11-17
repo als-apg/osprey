@@ -384,7 +384,7 @@ def _pooled_writes_allowed(target: str | None) -> bool:
     answer is a child whose gateway no longer matches. Reads the record through
     its signature cache: one stat when it has not changed. Never raises.
     """
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
     from osprey_connectors.targets import baseline_target
 
     try:
@@ -393,14 +393,14 @@ def _pooled_writes_allowed(target: str | None) -> bool:
     except Exception:
         logger.debug("No write verdict for the pooled connector", exc_info=True)
         return False
-    return posture_store.write_verdict(section, key).allowed
+    return write_switch.write_verdict(section, key).allowed
 
 
 def _launch_pin() -> str | None:
     """The launch posture pin in this process's environment, or ``None``."""
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    return os.environ.get(posture_store.LAUNCH_POSTURE_ENV_VAR)
+    return os.environ.get(write_switch.LAUNCH_PIN_ENV_VAR)
 
 
 def _target_connector_config() -> dict[str, Any] | None:
@@ -484,7 +484,7 @@ def _claim_cell() -> None:
 
         from osprey.audit import posture
         from osprey.mcp_server.control_system import target_state
-        from osprey_connectors import posture_store
+        from osprey_connectors import write_switch
 
         session = posture.posture_session() or ""
         kernel_id = (
@@ -507,7 +507,7 @@ def _claim_cell() -> None:
             "surface": INFLIGHT_SURFACE,
             "kernel_id": kernel_id,
             "target": _stamped_target(),
-            "launch_posture": os.environ.get(posture_store.LAUNCH_POSTURE_ENV_VAR),
+            "launch_posture": os.environ.get(write_switch.LAUNCH_PIN_ENV_VAR),
             "started_at": datetime.now().astimezone().isoformat(),
         }
         # A reader must never meet half a marker, so it is replaced whole
