@@ -2247,7 +2247,10 @@ class _Page:
                 text = _cut(found.text, w - GAP, TEXT_SIZE)
                 self.text(x0 + GAP / 2, y, text, w=min(text_width(text, TEXT_SIZE), w - GAP))
             if isinstance(cell.member, Link):
-                self.nav(x0, y, w, ROW, cell.member)
+                member = cell.member
+                if not found.channels and text_width(found.text, TEXT_SIZE) > w - GAP:
+                    member = Link(f"{member.label}: {found.text}", member.target)  # cut: whole
+                self.nav(x0, y, w, ROW, member)
             return
         right = x0 + w - CHIP_LIGHT
         pair = cell.pair

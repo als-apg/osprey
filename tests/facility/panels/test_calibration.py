@@ -175,3 +175,12 @@ def test_a_kind_shows_only_on_the_devices_under_its_place(panel_graph) -> None:
         if s.title == "calibration" for i in s.items if isinstance(i, Fact)
     ]  # fmt: skip
     assert len(facts) == 1
+
+
+def test_a_cut_cell_shows_its_whole_text_on_hover(panel_graph, monkeypatch) -> None:
+    monkeypatch.setattr(layout, "SET_CELL_MAX", 60)  # too narrow for "a / b"
+    doc = stub_render(
+        calibration_overview(panel_graph, "XR-QUAD", "integrated_gradient"), panel_graph
+    )
+    tips = [str(n["props"].get("tooltip")) for n in nodes(doc) if n["type"] == "rectangle"]
+    assert any(t.endswith("+0.01 % / +1.24 %") and "XR02" in t for t in tips)
