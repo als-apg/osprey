@@ -165,7 +165,7 @@ def test_a_corrupt_record_is_unreadable_on_both_sides(stamped_root):
     # Act / Assert
     assert reader.read_record({}) is None
     assert reader.read_record_status({}) == (None, "unreadable")
-    assert control_context.read_record_status(path=path)[1] == "unreadable"
+    assert control_context.read_record_status(path=path).status == "unreadable"
 
 
 def test_a_non_string_target_is_dropped_by_both_parsers():
@@ -709,7 +709,7 @@ def test_an_unreadable_record_is_unreadable_on_both_sides(stamped_root):
         if os.access(path, os.R_OK):  # pragma: no cover - root can read anything
             pytest.skip("this user can read a mode-000 file; the rule is untestable here")
         assert reader.read_record_status({}) == (None, "unreadable")
-        assert control_context.read_record_status(path=path)[1] == "unreadable"
+        assert control_context.read_record_status(path=path).status == "unreadable"
     finally:
         path.chmod(0o600)
         control_context.invalidate_cache()
@@ -746,7 +746,7 @@ def test_an_undecodable_record_is_unreadable_on_both_sides(tmp_path, monkeypatch
     assert reader.read_record({}) is None
     assert reader.read_record_status({}) == (None, "unreadable")
     path = control_context._record_path_under(root)
-    assert control_context.read_record_status(path=path)[1] == "unreadable"
+    assert control_context.read_record_status(path=path).status == "unreadable"
     control_context.invalidate_cache()
 
 

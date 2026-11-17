@@ -609,7 +609,8 @@ def test_demoted_login_is_tier_never_and_the_switch_stays(root):
     before = path.read_bytes()
     _refused(write_verdict(NEVER, "live"), "tier_never")
     assert path.read_bytes() == before
-    record, status = control_context.read_record_status(path=path)
+    read = control_context.read_record_status(path=path)
+    record, status = read.value, read.status
     assert status == "ok"
     assert record.switch == {"live": "asked"}
     # Restored, the same position arms again.

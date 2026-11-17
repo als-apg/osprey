@@ -250,15 +250,12 @@ def _session_machine(
     process that finds no record cannot tell "nobody switched" from "looked in
     the wrong place", and the hook refuses it as ``posture_unknown``.
     """
-    if record_path is None:
-        record, status = control_context.read_record_status()
-    else:
-        record, status = control_context.read_record_status(path=record_path)
-    if record is not None:
-        return record.target
+    read = control_context.read_record_status(path=record_path)
+    if read.value is not None:
+        return read.value.target
     if stamped is None:
         stamped = posture_store.stamped_agent_data_root() is not None
-    if status != "missing" or not stamped:
+    if read.status != "missing" or not stamped:
         return UNRESOLVED
     return baseline_target(_section(config))
 

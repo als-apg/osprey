@@ -175,7 +175,7 @@ def approve(client, request_id: str):
 def own_grants() -> tuple[Grant, ...]:
     directory = wa.authorizations_dir()
     assert directory is not None
-    return wa.list_grants(directory)[0]
+    return tuple(listed.grant for listed in wa.list_grants(directory).items)
 
 
 def row(client, target: str = TARGET) -> dict[str, Any]:
@@ -264,7 +264,7 @@ class TestApproval:
         assert response.status_code == 200, response.text
         (grant,) = own_grants()
         assert grant.id == request.id
-        assert (grant.approver.identity, grant.approver.surface) == (acting_identity(), "chip")
+        assert (grant.approver.by, grant.approver.surface) == (acting_identity(), "chip")
         assert grant.holder == "optimizer"
         chip = row(client)
         assert chip["switch"] == "off"
@@ -385,7 +385,7 @@ class TestEndedByTheLedger:
             holder_start=None,
             pid_ns=None,
             lease_expires_at=lease,
-            steps=tuple(
+            spent=tuple(
                 wa.LedgerStep(n=n, spent_at=LONG_AGO + timedelta(seconds=n), channels=("SR:A",))
                 for n in range(1, steps + 1)
             ),
@@ -445,7 +445,7 @@ class TestSelfIssued:
             issued_at=now,
             expires_at=FAR_FUTURE,
             lease_s=30.0,
-            approver=Approver(identity="tuning-scripts", surface="write_switch", approved_at=now),
+            approver=Approver(by="tuning-scripts", surface="write_switch", approved_at=now),
             label="scan",
         )
         wa._issue_grant(grant, directory=ledgers, peers=())

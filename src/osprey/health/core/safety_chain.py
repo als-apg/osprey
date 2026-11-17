@@ -411,11 +411,8 @@ def _switch_rows(cfg: Mapping[str, Any], repo: Path) -> list[CheckResult]:
         if directory is not None:
             from osprey_connectors.write_authorization import list_grants
 
-            try:
-                grants, _ = list_grants(directory / "authorizations")
-            except OSError:
-                continue
-            in_force += sum(1 for g in grants if g.live_at(now))
+            listing = list_grants(directory / "authorizations")
+            in_force += sum(1 for listed in listing.items if listed.grant.live_at(now))
     rows.append(
         _row(
             "write_authorizations",
@@ -437,7 +434,8 @@ def _switch_row(
         return _row(name, Status.OK, f"{login}: writes never ({why})", f"never ({why})")
     if directory is None:
         return _row(name, Status.SKIP, f"{login}: control record not visible here", "not visible")
-    record, status = control_context.read_record_status(path=directory / "control_context.json")
+    read = control_context.read_record_status(path=directory / "control_context.json")
+    record, status = read.value, read.status
     if status == "unreadable":
         return _row(
             name,

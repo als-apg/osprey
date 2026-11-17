@@ -169,7 +169,7 @@ def approve(monkeypatch: pytest.MonkeyPatch, *, name: bool = True, **fields: Any
         "issued_at": now,
         "expires_at": FAR_FUTURE,
         "lease_s": 60.0,
-        "approver": Approver(identity="alice", surface="chip", approved_at=now),
+        "approver": Approver(by="alice", surface="chip", approved_at=now),
         "label": "run-1",
         "revoked": None,
     }
@@ -186,7 +186,7 @@ def steps(grant: Grant) -> int:
     directory = wa.ledger_dir()
     assert directory is not None
     ledger = _parse_ledger((directory / f"{grant.id}.ledger.json").read_text())
-    return len(ledger.steps)
+    return len(ledger.spent)
 
 
 def connector(cls: type[ControlSystemConnector] = BaseBatchConnector) -> Any:

@@ -141,9 +141,11 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Final, Literal, NoReturn, Self, TypeVar, get_args
+from typing import Annotated, Final, Literal, NoReturn, Self, TypeVar, get_args
 
 from pydantic import (
+    AfterValidator,
+    ConfigDict,
     Field,
     SerializerFunctionWrapHandler,
     ValidationError,
@@ -164,8 +166,14 @@ from osprey_connectors.errors import (
     StateUnavailableError,
     require_aware,
 )
-from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import FrozenModel, Instant, ReadOnlyMapping, evolve
+from osprey_connectors.identity import acting_identity, is_path_segment
+from osprey_connectors.model import (
+    FrozenModel,
+    Instant,
+    Listing,
+    ReadOnlyMapping,
+    evolve,
+)
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
@@ -191,6 +199,8 @@ __all__ = [
     "GrantStanding",
     "Ledger",
     "LedgerStep",
+    "ListedGrant",
+    "Login",
     "Revocation",
     "RunCompletion",
     "WriteRequest",
@@ -203,7 +213,6 @@ __all__ = [
     "ledger_dir",
     "list_grants",
     "list_requests",
-    "listed_grants",
     "named_authorization",
     "prune_grants",
     "read_request",
@@ -283,9 +292,6 @@ _LOCK_POLL_S: Final = 0.01
 _PROC_STAT: Final = "/proc/{pid}/stat"
 _PID_NS_LINK: Final = "/proc/self/ns/pid"
 
-#: Characters that cannot appear in the one path segment an owner names.
-_UNSAFE_SEGMENT: Final = frozenset({"/", "\\", "\x00"})
-
 _Status = Literal["ok", "absent", "unreadable"]
 
 
@@ -303,40 +309,41 @@ def _now() -> datetime:
 #
 # Each file holds one of the records below as a JSON object, with ``schema``
 # beside its fields: the record's JSON form, ``model_dump(mode="json")``, is
-# that object (:class:`_StoredRecord`), and :func:`_parse_stored` reads it back. A record built in this process checks
-# only the types of its fields; the reader's rules (module rule 2: names that
-# are names, ids, counts, finite bounds, an order between two stamps) are its
-# validators too, and they run when a record is read from a file
-# (:data:`_FROM_FILE`). Every writer here reads back what it is about to write
-# (:func:`_issue_grant`, :func:`write_request`), so a record breaking them is
-# refused before it lands, at the point it always was.
+# that object (:class:`_StoredRecord`), and :func:`_parse_stored` reads it back.
+# The reader's rules (module rule 2: names that are names, ids, counts, finite
+# bounds, an order between two stamps) are the records' own validators, so a
+# record that breaks one is refused when it is built, in this process or from
+# a file alike, and nothing that breaks one can be written. Reading a file adds
+# only what a file can get wrong and a record built here cannot: the JSON (no
+# ``NaN``, no repeated key), the schema, and every field present.
 
-#: The validation context a record is read from a file under: it turns the
-#: reader's rules on.
+#: The validation context a record is read from a file under: a number field
+#: is then held as a float (:func:`_number`). No validity rule depends on it.
 _FROM_FILE: Final = object()
 
 
-def _from_file(info: ValidationInfo[object]) -> bool:
-    """Whether the record is being read from a file, where the reader's rules apply."""
-    return info.context is _FROM_FILE
-
-
-def _named(value: str, info: ValidationInfo[object]) -> str:
-    """*value* read from a file must be a name: not blank, no space around it."""
-    if _from_file(info) and (not value.strip() or value != value.strip()):
+def _named(value: str) -> str:
+    """*value* must be a name: not blank, no space around it. It is never stripped."""
+    if not value.strip() or value != value.strip():
         raise ValueError("is not a name")
     return value
 
 
-def _at_least(value: int, minimum: int, info: ValidationInfo[object]) -> int:
-    if _from_file(info) and value < minimum:
+#: A login, as a grant, a request, an approval and a stop name one: not blank
+#: and no space around it. Validated, never normalised: ``" bob"`` is refused,
+#: not taken for ``"bob"``.
+Login = Annotated[str, AfterValidator(_named)]
+
+
+def _at_least(value: int, minimum: int) -> int:
+    if value < minimum:
         raise ValueError(f"is not an integer of at least {minimum}")
     return value
 
 
-def _stamp(value: datetime, info: ValidationInfo[object]) -> datetime:
-    """An instant read from a file must not be before the epoch."""
-    if _from_file(info) and value < _EPOCH:
+def _stamp(value: datetime) -> datetime:
+    """An instant a record states must not be before the epoch."""
+    if value < _EPOCH:
         raise ValueError("is before 1970-01-01T00:00:00+00:00")
     return value
 
@@ -346,13 +353,15 @@ def _number(
 ) -> float:
     """A number field's value: a float when read from a file, and as given when built here.
 
-    Read from a file, an integer is made a float, as the reader always made it,
-    so a rewrite of that file writes ``1.0`` for a ``1``. Built in this
-    process, an ``int`` or a ``float`` is kept as it was given, so a writer
-    handed ``60`` writes ``60``, as before; a ``bool``, and anything else JSON
-    would not write as a number (a numpy integer among them), is refused.
+    Only how the number is held depends on where it came from, never whether
+    it is valid. Read from a file, an integer is made a float, as the reader
+    always made it, so a rewrite of that file writes ``1.0`` for a ``1``.
+    Built in this process, an ``int`` or a ``float`` is kept as it was given,
+    so a writer handed ``60`` writes ``60``, as before; a ``bool``, and
+    anything else JSON would not write as a number (a numpy integer among
+    them), is refused.
     """
-    if _from_file(info):
+    if info.context is _FROM_FILE:
         number: float = handler(value)
         return number
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -370,39 +379,48 @@ def _as_held(value: float) -> int | float:
     return value
 
 
-def _positive_finite(value: float, info: ValidationInfo[object]) -> float:
-    """*value* read from a file must be a finite number above zero."""
-    if _from_file(info):
-        if not math.isfinite(value):
-            raise ValueError("is not finite")
-        if value <= 0:
-            raise ValueError("is not positive")
+def _positive_finite(value: float) -> float:
+    """*value* must be a finite number above zero."""
+    if not math.isfinite(value):
+        raise ValueError("is not finite")
+    if value <= 0:
+        raise ValueError("is not positive")
     return value
 
 
-def _hex_id(value: str, info: ValidationInfo[object]) -> str:
-    if _from_file(info) and _ID.fullmatch(value) is None:
+def _hex_id(value: str) -> str:
+    if _ID.fullmatch(value) is None:
         raise ValueError("is not a 32-digit lowercase hex string")
     return value
 
 
-def _channel_map(
-    value: Mapping[str, ChannelRange], info: ValidationInfo[object]
-) -> Mapping[str, ChannelRange]:
-    """A file's ``channels`` must name at least one channel, by a non-blank address."""
-    if _from_file(info):
-        if not value:
-            raise ValueError("names no channel")
-        if any(not address.strip() for address in value):
-            raise ValueError("a channel address is empty")
+def _channel_map(value: Mapping[str, ChannelRange]) -> Mapping[str, ChannelRange]:
+    """``channels`` must name at least one channel, by a non-blank address."""
+    if not value:
+        raise ValueError("names no channel")
+    if any(not address.strip() for address in value):
+        raise ValueError("a channel address is empty")
     return value
 
 
 class ChannelRange(FrozenModel):
-    """The closed range of values one channel may be written with."""
+    """The closed range of values one channel may be written with.
+
+    Both bounds are finite and ``min`` is not above ``max``.
+    """
 
     min: float
     max: float
+
+    @classmethod
+    def of(cls, lo: float, hi: float) -> Self:
+        """The range ``[lo, hi]``, each bound taken as a ``float``.
+
+        Raises:
+            ValueError: A bound is not a number, is not finite, or *lo* is
+                above *hi*.
+        """
+        return cls(min=float(lo), max=float(hi))
 
     def holds(self, value: object) -> bool:
         """Whether *value* is a finite real number inside the range."""
@@ -421,53 +439,50 @@ class ChannelRange(FrozenModel):
         return _number(value, handler, info)
 
     @model_validator(mode="after")
-    def _readable(self, info: ValidationInfo[object]) -> Self:
-        """Read from a file, both bounds are finite and ``min`` is not above ``max``."""
-        if _from_file(info):
-            if not (math.isfinite(self.min) and math.isfinite(self.max)):
-                raise ValueError("a bound is not finite")
-            if self.min > self.max:
-                raise ValueError("min is above max")
+    def _readable(self) -> Self:
+        """Both bounds are finite and ``min`` is not above ``max``."""
+        if not (math.isfinite(self.min) and math.isfinite(self.max)):
+            raise ValueError("a bound is not finite")
+        if self.min > self.max:
+            raise ValueError("min is above max")
         return self
 
 
+#: An instant a record states: aware, in UTC, and not before the epoch.
+_Stamp = Annotated[Instant, AfterValidator(_stamp)]
+
+
 class Approver(FrozenModel):
-    """Who recorded the approval, from which surface, and when."""
+    """Who recorded the approval, from which surface, and when.
 
-    identity: str
+    Attributes:
+        by: The login that approved; the file states it as ``identity``.
+        surface: Where the approval was given.
+        approved_at: When.
+    """
+
+    model_config = ConfigDict(serialize_by_alias=True)
+
+    by: Login = Field(alias="identity")
     surface: ApproverSurface
-    approved_at: Instant
-
-    @field_validator("identity")
-    @classmethod
-    def _identity(cls, value: str, info: ValidationInfo[object]) -> str:
-        return _named(value, info)
-
-    @field_validator("approved_at")
-    @classmethod
-    def _stamp(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
-        return _stamp(value, info)
+    approved_at: _Stamp
 
 
 class Revocation(FrozenModel):
     """A stop that ended a grant: when, and whose gesture."""
 
-    revoked_at: Instant
-    by: str
-
-    @field_validator("revoked_at")
-    @classmethod
-    def _stamp(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
-        return _stamp(value, info)
-
-    @field_validator("by")
-    @classmethod
-    def _by(cls, value: str, info: ValidationInfo[object]) -> str:
-        return _named(value, info)
+    revoked_at: _Stamp
+    by: Login
 
 
 class _StoredRecord(FrozenModel):
-    """A record one file holds: its JSON form carries ``schema`` beside its fields."""
+    """A record one file holds: its JSON form carries ``schema`` beside its fields.
+
+    A field whose name differs from its file key is written under the key
+    (``serialize_by_alias``), so every dump of the record is the file's form.
+    """
+
+    model_config = ConfigDict(serialize_by_alias=True)
 
     @model_serializer(mode="wrap")
     def _stored(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
@@ -475,39 +490,76 @@ class _StoredRecord(FrozenModel):
         return {"schema": _SCHEMA_VERSION, **fields}
 
 
-class Grant(_StoredRecord):
-    """One authorization, as its file states it.
+class _AuthorizationTerms(_StoredRecord):
+    """The terms a request asks for and its grant carries: the same fields, the same rules.
 
     Attributes:
-        id: ``uuid4().hex``; the file is ``<id>.json``.
-        owner: The login whose switch the grant stands in for.
-        holder: The acting identity that may write under it.
-        target: The control target it covers.
-        switch_epoch: The owner's record's ``switch_epoch`` at issue, a
-            token compared only for equality; a record whose epoch has moved
-            since (a stop of every machine) ends it.
-        channels: ``{address: ChannelRange}``, at least one.
+        id: ``uuid4().hex``; the file is ``<id>.json``, and a grant approved
+            from a request has the request's id.
+        owner: The login whose switch the run stands in for.
+        holder: The acting identity that may write.
+        target: The control target.
+        channels: ``{address: ChannelRange}``, at least one, each address
+            spelled exactly as the holder will write it.
         steps: How many write calls it allows, at least one.
-        issued_at: When it was written.
         expires_at: When it ends whatever else happens.
         lease_s: How long one renewal of the holder's lease lasts.
-        approver: Who approved it.
-        label: The run it was approved for, free text.
-        revoked: The stop that ended it, or ``None``.
+        label: The run, free text.
     """
 
     id: str
-    owner: str
-    holder: str
+    owner: Login
+    holder: Login
     target: ControlTarget
-    switch_epoch: int
     channels: ReadOnlyMapping[str, ChannelRange]
     steps: int
-    issued_at: Instant
-    expires_at: Instant
+    expires_at: _Stamp
     lease_s: float
-    approver: Approver
     label: str = ""
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        return _hex_id(value)
+
+    @field_validator("steps")
+    @classmethod
+    def _steps(cls, value: int) -> int:
+        return _at_least(value, 1)
+
+    @field_validator("channels")
+    @classmethod
+    def _channels(cls, value: Mapping[str, ChannelRange]) -> Mapping[str, ChannelRange]:
+        return _channel_map(value)
+
+    _held = field_serializer("lease_s")(_as_held)
+
+    @field_validator("lease_s", mode="wrap")
+    @classmethod
+    def _lease(
+        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo[object]
+    ) -> float:
+        return _positive_finite(_number(value, handler, info))
+
+
+class Grant(_AuthorizationTerms):
+    """One authorization, as its file states it: the terms, and their approval.
+
+    The terms are :class:`_AuthorizationTerms`'s, as the request asked for
+    them; ``label`` is the run it was approved for.
+
+    Attributes:
+        switch_epoch: The owner's record's ``switch_epoch`` at issue, a
+            token compared only for equality; a record whose epoch has moved
+            since (a stop of every machine) ends it.
+        issued_at: When it was written.
+        approver: Who approved it.
+        revoked: The stop that ended it, or ``None``.
+    """
+
+    switch_epoch: int
+    issued_at: _Stamp
+    approver: Approver
     revoked: Revocation | None = None
 
     def live_at(self, now: datetime) -> bool:
@@ -518,50 +570,14 @@ class Grant(_StoredRecord):
         """
         return self.revoked is None and require_aware(now, name="now") < self.expires_at
 
-    @field_validator("id")
-    @classmethod
-    def _id(cls, value: str, info: ValidationInfo[object]) -> str:
-        return _hex_id(value, info)
-
-    @field_validator("owner", "holder", "target")
-    @classmethod
-    def _names(cls, value: str, info: ValidationInfo[object]) -> str:
-        return _named(value, info)
-
     @field_validator("switch_epoch")
     @classmethod
-    def _epoch(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 0, info)
-
-    @field_validator("issued_at", "expires_at")
-    @classmethod
-    def _stamps(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
-        return _stamp(value, info)
-
-    @field_validator("steps")
-    @classmethod
-    def _steps(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 1, info)
-
-    @field_validator("channels")
-    @classmethod
-    def _channels(
-        cls, value: Mapping[str, ChannelRange], info: ValidationInfo[object]
-    ) -> Mapping[str, ChannelRange]:
-        return _channel_map(value, info)
-
-    _held = field_serializer("lease_s")(_as_held)
-
-    @field_validator("lease_s", mode="wrap")
-    @classmethod
-    def _lease(
-        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo[object]
-    ) -> float:
-        return _positive_finite(_number(value, handler, info), info)
+    def _epoch(cls, value: int) -> int:
+        return _at_least(value, 0)
 
     @model_validator(mode="after")
-    def _expiry(self, info: ValidationInfo[object]) -> Self:
-        if _from_file(info) and self.expires_at <= self.issued_at:
+    def _expiry(self) -> Self:
+        if self.expires_at <= self.issued_at:
             raise ValueError("the grant expires before it was issued")
         return self
 
@@ -570,23 +586,18 @@ class LedgerStep(FrozenModel):
     """One write call spent: its number, when, and the channels it named."""
 
     n: int
-    spent_at: Instant
+    spent_at: _Stamp
     channels: tuple[str, ...] = Field(strict=False)
 
     @field_validator("n")
     @classmethod
-    def _number(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 1, info)
-
-    @field_validator("spent_at")
-    @classmethod
-    def _stamp(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
-        return _stamp(value, info)
+    def _number(cls, value: int) -> int:
+        return _at_least(value, 1)
 
     @field_validator("channels")
     @classmethod
-    def _channels(cls, value: tuple[str, ...], info: ValidationInfo[object]) -> tuple[str, ...]:
-        if _from_file(info) and (not value or not all(value)):
+    def _channels(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or not all(value):
             raise ValueError("is not a non-empty list of names")
         return value
 
@@ -607,37 +618,32 @@ class Ledger(_StoredRecord):
             compared for equality, not a time.
         lease_expires_at: When the lease lapses unless renewed first; the
             epoch once it has lapsed for good.
-        steps: Every write call spent, in order, numbered from 1.
+        spent: Every write call spent, in order, numbered from 1; the file
+            states it as ``steps``.
     """
 
     authorization: str
     holder_pid: int | None
     holder_start: str | None
     pid_ns: str | None
-    lease_expires_at: Instant
-    steps: tuple[LedgerStep, ...] = Field(default=(), strict=False)
+    lease_expires_at: _Stamp
+    spent: tuple[LedgerStep, ...] = Field(default=(), strict=False, alias="steps")
 
     @field_validator("authorization")
     @classmethod
-    def _id(cls, value: str, info: ValidationInfo[object]) -> str:
-        return _hex_id(value, info)
+    def _id(cls, value: str) -> str:
+        return _hex_id(value)
 
     @field_validator("holder_pid")
     @classmethod
-    def _pid(cls, value: int | None, info: ValidationInfo[object]) -> int | None:
-        return None if value is None else _at_least(value, 1, info)
-
-    @field_validator("lease_expires_at")
-    @classmethod
-    def _stamp(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
-        return _stamp(value, info)
+    def _pid(cls, value: int | None) -> int | None:
+        return None if value is None else _at_least(value, 1)
 
     @model_validator(mode="after")
-    def _numbered(self, info: ValidationInfo[object]) -> Self:
-        if _from_file(info):
-            for index, step in enumerate(self.steps, start=1):
-                if step.n != index:
-                    raise ValueError(f"step {index} is numbered {step.n}")
+    def _numbered(self) -> Self:
+        for index, step in enumerate(self.spent, start=1):
+            if step.n != index:
+                raise ValueError(f"step {index} is numbered {step.n}")
         return self
 
 
@@ -692,8 +698,9 @@ def _parse_stored(model: type[_Stored], raw: str | bytes | bytearray, what: str)
 
     The text is JSON with no ``NaN``/``Infinity`` and no repeated key. Its
     object holds ``schema``, exactly :data:`_SCHEMA_VERSION`, and every field
-    of *model*, a field with a default included, and nothing else; each field
-    is of its type and meets the reader's rules (:data:`_FROM_FILE`).
+    of *model* under its file key, a field with a default included, and
+    nothing else; each field is of its type and meets the record's rules, and
+    a number is held as a float (:data:`_FROM_FILE`).
 
     Raises:
         ValueError: The text is not such a record. The message names *what*,
@@ -709,7 +716,11 @@ def _parse_stored(model: type[_Stored], raw: str | bytes | bytearray, what: str)
         record = model.model_validate(fields, context=_FROM_FILE)
     except ValidationError as exc:
         raise ValueError(f"{what} is unreadable at {_first_error(exc)}") from None
-    unset = sorted(model.model_fields.keys() - record.model_fields_set)
+    unset = sorted(
+        info.alias or name
+        for name, info in model.model_fields.items()
+        if name not in record.model_fields_set
+    )
     if unset:
         raise ValueError(f"{what} has no {', '.join(unset)}")
     return record
@@ -787,14 +798,6 @@ class _Place:
         return self.root.joinpath(*self.segments)
 
 
-def _safe_segment(name: object) -> bool:
-    return (
-        isinstance(name, str)
-        and name.strip() not in {"", ".", ".."}
-        and not (_UNSAFE_SEGMENT & set(name))
-    )
-
-
 def _owner_place(owner: str) -> _Place | None:
     """Where *owner*'s grants live for this process, or ``None`` when nowhere usable.
 
@@ -803,7 +806,7 @@ def _owner_place(owner: str) -> _Place | None:
     """
     if posture_store._tree_is_bound():
         tree = posture_store._control_context_tree()
-        if tree is None or not _safe_segment(owner):
+        if tree is None or not is_path_segment(owner):
             return None
         return _Place(tree, (owner, AUTHORIZATIONS_DIR_NAME))
     if owner != acting_identity():
@@ -992,10 +995,10 @@ def _governing_record(owner: str) -> tuple[bool, control_context.ControlContext 
             return False, None
         read = posture_store._read_tree_context(tree, owner)
         return read.unavailable is None, read.record
-    record, status = control_context.read_record_status()
-    if status == "unreadable":
+    own = control_context.read_record_status()
+    if own.status == "unreadable":
         return False, None
-    return True, record if status == "ok" else None
+    return True, own.value
 
 
 # -- the holder's liveness ----------------------------------------------------
@@ -1213,7 +1216,7 @@ def _judge(
         return refuse("auth_unreadable", "The write ledger cannot be read.")
     if not _lease_live(ledger, now):
         return refuse("auth_lease_lapsed")
-    if len(ledger.steps) >= grant.steps:
+    if len(ledger.spent) >= grant.steps:
         return refuse("auth_exhausted", f"{grant.steps} of {grant.steps} writes used.")
 
     return _Judgement(
@@ -1441,10 +1444,10 @@ def _spend(
                 return judged.verdict
             ledger = judged.ledger
             channels = tuple(str(address) for address, _value in batch or ())
-            step = LedgerStep(n=len(ledger.steps) + 1, spent_at=now, channels=channels)
+            step = LedgerStep(n=len(ledger.spent) + 1, spent_at=now, channels=channels)
             _write_json(
                 place.path / f"{authorization_id}{_LEDGER_SUFFIX}",
-                evolve(ledger, steps=(*ledger.steps, step)).model_dump(mode="json"),
+                evolve(ledger, spent=(*ledger.spent, step)).model_dump(mode="json"),
             )
             return judged.verdict
     except Exception:  # an unrecorded step is never an allowed write
@@ -1651,11 +1654,12 @@ def _prepare_directory(directory: Path) -> None:
         raise OSError(errno.ENOTDIR, f"{directory} is not a plain directory; nothing was written")
 
 
-def list_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
+def _grants_in(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
     """Every grant file in *directory*: the grants read, and the paths that could not be.
 
     A file is a grant file by its name, ``<id>.json``; ledgers and locks beside
-    them are not. A missing directory holds none.
+    them are not. A missing directory holds none. The writers' listing: a
+    directory that cannot be listed raises, so no check is made without it.
 
     Raises:
         OSError: The directory is a link or cannot be listed.
@@ -1785,8 +1789,7 @@ def _issue_grant(
         The path written.
 
     Raises:
-        ValueError: *grant* is not a grant this version can read back, or
-            its budget, expiry or lease is past a ceiling
+        ValueError: Its budget, expiry or lease is past a ceiling
             (:func:`_within_ceilings`); nothing is written.
         AlreadyApprovedError: A grant with this id exists.
         AuthorizationRefusedError: ``auth_overlap``.
@@ -1794,8 +1797,6 @@ def _issue_grant(
         StateLockedError: The lock was not acquired.
         OSError: The directory is not a plain directory, or the write failed.
     """
-    payload = grant.model_dump(mode="json")
-    _parse_grant(json.dumps(payload))  # what is written must read back
     _within_ceilings(grant.steps, grant.issued_at, grant.expires_at, grant.lease_s)
     target_dir = _grant_directory(directory, grant.owner)
     _prepare_directory(target_dir)
@@ -1803,7 +1804,7 @@ def _issue_grant(
     with _locked(target_dir / _DIRECTORY_LOCK_NAME):
         if os.path.lexists(path):
             raise AlreadyApprovedError(path, authorization=grant.id)
-        existing, unreadable = list_grants(target_dir)
+        existing, unreadable = _grants_in(target_dir)
         if unreadable:
             logger.warning(
                 "Unreadable grants beside %s, left out of the overlap check: %s", path, unreadable
@@ -1818,7 +1819,7 @@ def _issue_grant(
             raise AuthorizationRefusedError(
                 "auth_overlap", f"Held by {held.holder} under {held.id} ({held.label})."
             )
-        _write_json(path, payload)
+        _write_json(path, grant.model_dump(mode="json"))
     return path
 
 
@@ -1839,6 +1840,8 @@ def revoke_grants(
     defaults to this process's own authorizations directory.
 
     Raises:
+        ValueError: *by* is not a login (:data:`Login`) and a grant was to be
+            marked; nothing is marked.
         StateUnavailableError: No directory is reachable.
         StateLockedError: The lock was not acquired.
         OSError: The directory is not a plain directory, or a write failed.
@@ -1851,7 +1854,7 @@ def revoke_grants(
     wanted = None if ids is None else frozenset(ids)
     with _locked(target_dir / _DIRECTORY_LOCK_NAME):
         now = _now()
-        existing, _unreadable = list_grants(target_dir)
+        existing, _unreadable = _grants_in(target_dir)
         for grant in existing:
             if grant.revoked is not None:
                 continue
@@ -1865,24 +1868,10 @@ def revoke_grants(
     return tuple(marked)
 
 
-def _channel_ranges(
-    channels: Mapping[str, ChannelRange | tuple[float, float]],
-) -> dict[str, ChannelRange]:
-    """*channels* as ranges: each value a :class:`ChannelRange` or a ``(min, max)`` pair."""
-    ranges: dict[str, ChannelRange] = {}
-    for address, bound in channels.items():
-        if isinstance(bound, ChannelRange):
-            ranges[address] = bound
-        else:
-            low, high = bound
-            ranges[address] = ChannelRange(min=float(low), max=float(high))
-    return ranges
-
-
 def self_issue(
     section: object,
     target: str,
-    channels: Mapping[str, ChannelRange | tuple[float, float]],
+    channels: Mapping[str, ChannelRange],
     *,
     steps: int,
     expires_at: datetime,
@@ -1900,8 +1889,10 @@ def self_issue(
     honoured afterwards only while the position stays ``allowed``; the first
     write after it leaves ``allowed`` ends it for good (:func:`_spend`).
 
-    *expires_at* is an aware instant (any zone; the grant stores it in UTC),
-    at most :data:`MAX_EXPIRES_S` after now.
+    *channels* maps each address to its :class:`ChannelRange`
+    (:meth:`ChannelRange.of` builds one from two bounds). *expires_at* is an
+    aware instant (any zone; the grant stores it in UTC), at most
+    :data:`MAX_EXPIRES_S` after now.
 
     Raises:
         ValueError: The channels, steps, expiry or lease are malformed, or
@@ -1938,12 +1929,9 @@ def self_issue(
         raise AuthorizationRefusedError("target_unknown")
     now = _now()
     holder = acting_identity()
-    ranges = _channel_ranges(channels)
-    approver = Approver(identity=holder, surface=SELF_ISSUE_SURFACE, approved_at=now)
     authorization = uuid.uuid4().hex
-    # The ledger directory before the grant is built: a grant its fields refuse
-    # is refused after a missing ledger directory is, as when the issue's
-    # read-back was the first to judge it.
+    # The ledger directory before the grant and its approver are built: a
+    # grant its fields refuse is refused after a missing ledger directory is.
     place = _checked_ledger_place(authorization, create=True)
     grant = Grant(
         id=authorization,
@@ -1951,12 +1939,12 @@ def self_issue(
         holder=holder,
         target=target,
         switch_epoch=epoch,
-        channels=ranges,
+        channels=dict(channels),
         steps=steps,
         issued_at=now,
         expires_at=expires_at,
         lease_s=lease_s,
-        approver=approver,
+        approver=Approver(by=holder, surface=SELF_ISSUE_SURFACE, approved_at=now),
         label=label,
     )
     path = _issue_grant(grant, directory=place.path, peers=self_issued_directories())
@@ -2000,14 +1988,14 @@ def self_issued_directories() -> tuple[Path, ...]:
 def _self_issued_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
     """The self-issued grants in a ledger *directory*, and the paths that could not be read.
 
-    :func:`list_grants`, keeping only the grants approved by the switch
+    :func:`_grants_in`, keeping only the grants approved by the switch
     (:data:`SELF_ISSUE_SURFACE`): a grant there claiming any other surface is
     never honoured, because the holder can write there, so it is not listed.
 
     Raises:
         OSError: The directory is a link or cannot be listed.
     """
-    grants, unreadable = list_grants(directory)
+    grants, unreadable = _grants_in(directory)
     return (
         tuple(grant for grant in grants if grant.approver.surface == SELF_ISSUE_SURFACE),
         unreadable,
@@ -2073,7 +2061,7 @@ def prune_grants(
     cutoff = now - timedelta(seconds=after_s)
     removed: list[str] = []
     with _locked(directory / _DIRECTORY_LOCK_NAME):
-        existing, _unreadable = list_grants(directory)
+        existing, _unreadable = _grants_in(directory)
         for grant in existing:
             if grant.revoked is None and now < grant.expires_at:
                 continue
@@ -2105,14 +2093,14 @@ class GrantStanding(FrozenModel):
         in_force: :func:`_grant_in_force`, and the holder's ledger has not
             ended it: a grant whose lease lapsed or whose every step is spent
             refuses the next write, so it is not shown standing.
-        used: The steps the ledger counts; ``0`` while there is no ledger yet,
-            ``None`` when it cannot be read.
+        steps_spent: The steps the ledger counts; ``0`` while there is no
+            ledger yet, ``None`` when it cannot be read.
         ledger: The ledger read, or ``None``.
     """
 
     grant: Grant
     in_force: bool
-    used: int | None
+    steps_spent: int | None
     ledger: Ledger | None
 
 
@@ -2139,33 +2127,50 @@ def grant_standing(
     in_force = _grant_in_force(grant, record, now=now)
     for ledger in _ledgers_of(grant.id, ledger_dirs):
         if ledger is None:
-            return GrantStanding(grant=grant, in_force=in_force, used=None, ledger=None)
-        used = len(ledger.steps)
-        ended = now >= ledger.lease_expires_at or used >= grant.steps
-        return GrantStanding(grant=grant, in_force=in_force and not ended, used=used, ledger=ledger)
-    return GrantStanding(grant=grant, in_force=in_force, used=0, ledger=None)
+            return GrantStanding(grant=grant, in_force=in_force, steps_spent=None, ledger=None)
+        spent = len(ledger.spent)
+        ended = now >= ledger.lease_expires_at or spent >= grant.steps
+        return GrantStanding(
+            grant=grant, in_force=in_force and not ended, steps_spent=spent, ledger=ledger
+        )
+    return GrantStanding(grant=grant, in_force=in_force, steps_spent=0, ledger=None)
 
 
-def listed_grants(
-    owner_dirs: Iterable[Path], ledger_dirs: Iterable[Path]
-) -> tuple[list[tuple[Grant, Path]], list[Path]]:
-    """Every grant in *owner_dirs* and every self-issued one in *ledger_dirs*, each once.
+class ListedGrant(FrozenModel):
+    """One grant a listing found, and the directory it was found in."""
 
-    Each with the directory it was found in, and the paths that could not be
-    read: a grant file, or a directory that cannot be listed. Nothing is
-    written and nothing pruned.
+    grant: Grant
+    directory: Path
+
+
+def list_grants(*directories: Path, self_issued: Iterable[Path] = ()) -> Listing[ListedGrant]:
+    """Every grant in *directories* and every self-issued one in *self_issued*, each once.
+
+    *directories* are grants directories, every grant in them listed;
+    *self_issued* are ledger directories, where only a grant approved by the
+    switch (:data:`SELF_ISSUE_SURFACE`) is listed, because only that one is
+    honoured there. A file is a grant file by its name, ``<id>.json``; ledgers
+    and locks beside them are not. A directory named twice is listed once, a
+    grant found twice is listed where it was found first, and a missing
+    directory holds none.
+
+    Returns:
+        Each grant with the directory it was found in, and the paths that
+        could not be read: a grant file, or a directory that is a link or
+        cannot be listed. Nothing is written and nothing pruned; never
+        raises :class:`OSError`.
     """
-    grants: list[tuple[Grant, Path]] = []
+    grants: list[ListedGrant] = []
     unreadable: list[Path] = []
     seen: set[str] = set()
     listed: set[str] = set()
-    sources = [(Path(d), False) for d in owner_dirs] + [(Path(d), True) for d in ledger_dirs]
-    for directory, self_issued in sources:
+    sources = [(Path(d), False) for d in directories] + [(Path(d), True) for d in self_issued]
+    for directory, only_self_issued in sources:
         if os.path.normpath(directory) in listed:
             continue
         listed.add(os.path.normpath(directory))
         try:
-            found, broken = (_self_issued_grants if self_issued else list_grants)(directory)
+            found, broken = (_self_issued_grants if only_self_issued else _grants_in)(directory)
         except OSError:
             logger.warning("Could not list the authorizations in %s", directory, exc_info=True)
             unreadable.append(directory)
@@ -2174,8 +2179,8 @@ def listed_grants(
         for grant in found:
             if grant.id not in seen:
                 seen.add(grant.id)
-                grants.append((grant, directory))
-    return grants, unreadable
+                grants.append(ListedGrant(grant=grant, directory=directory))
+    return Listing[ListedGrant](items=tuple(grants), unreadable=tuple(unreadable))
 
 
 def approved_grant(authorization: str, *, owner: str | NoOwner | None = None) -> Grant | None:
@@ -2214,98 +2219,40 @@ REQUESTS_DIR_NAME: Final = "requests"
 _REQUEST_READ_LIMIT: Final = 1024 * 1024
 
 
-class WriteRequest(_StoredRecord):
+class WriteRequest(_AuthorizationTerms):
     """A holder asking for an authorization: what a person approves.
 
     The holder writes it into ``<ledger dir>/requests/<id>.json``; an approval
     issues the grant under the same id, so the holder knows which
-    authorization to wait for and name.
+    authorization to wait for and name. The terms are
+    :class:`_AuthorizationTerms`'s: ``owner`` is the login who approves, and
+    ``steps`` counts the run's completion write.
 
     Attributes:
-        id: ``uuid4().hex``; the grant approved from it has the same id.
-        owner: The login whose switch the run stands in for, who approves.
-        holder: The acting identity that will write.
-        target: The control target.
-        channels: ``{address: ChannelRange}``, each address spelled exactly as
-            the holder will write it.
-        steps: The write calls the run will make, its completion's included.
         requested_at: When the request was written.
-        expires_at: When the authorization is to end whatever happens.
-        lease_s: How long one renewal of the holder's lease lasts.
-        label: The run, free text.
         completion: What the run does once its evaluations are done, each a
             write the budget pays for: nothing, the best point found, or the
             values it started from.
     """
 
-    id: str
-    owner: str
-    holder: str
-    target: ControlTarget
-    channels: ReadOnlyMapping[str, ChannelRange]
-    steps: int
-    requested_at: Instant
-    expires_at: Instant
-    lease_s: float
-    label: str = ""
+    requested_at: _Stamp
     completion: RunCompletion = "none"
 
     def grant(self, *, switch_epoch: int, approver: Approver, issued_at: datetime) -> Grant:
         """The grant approving this request exactly as asked, under its id."""
-        return Grant(
-            id=self.id,
-            owner=self.owner,
-            holder=self.holder,
-            target=self.target,
-            switch_epoch=switch_epoch,
-            channels=dict(self.channels),
-            steps=self.steps,
-            issued_at=issued_at,
-            expires_at=self.expires_at,
-            lease_s=self.lease_s,
-            approver=approver,
-            label=self.label,
+        terms = {name: getattr(self, name) for name in _AuthorizationTerms.model_fields}
+        return Grant.model_validate(
+            {
+                **terms,
+                "switch_epoch": switch_epoch,
+                "issued_at": issued_at,
+                "approver": approver,
+            }
         )
 
-    @field_validator("id")
-    @classmethod
-    def _id(cls, value: str, info: ValidationInfo[object]) -> str:
-        return _hex_id(value, info)
-
-    @field_validator("owner", "holder", "target")
-    @classmethod
-    def _names(cls, value: str, info: ValidationInfo[object]) -> str:
-        return _named(value, info)
-
-    @field_validator("requested_at", "expires_at")
-    @classmethod
-    def _stamps(cls, value: datetime, info: ValidationInfo[object]) -> datetime:
-        return _stamp(value, info)
-
-    @field_validator("steps")
-    @classmethod
-    def _steps(cls, value: int, info: ValidationInfo[object]) -> int:
-        return _at_least(value, 1, info)
-
-    @field_validator("channels")
-    @classmethod
-    def _channels(
-        cls, value: Mapping[str, ChannelRange], info: ValidationInfo[object]
-    ) -> Mapping[str, ChannelRange]:
-        return _channel_map(value, info)
-
-    _held = field_serializer("lease_s")(_as_held)
-
-    @field_validator("lease_s", mode="wrap")
-    @classmethod
-    def _lease(
-        cls, value: object, handler: ValidatorFunctionWrapHandler, info: ValidationInfo[object]
-    ) -> float:
-        return _positive_finite(_number(value, handler, info), info)
-
     @model_validator(mode="after")
-    def _expiry(self, info: ValidationInfo[object]) -> Self:
-        if _from_file(info) and self.expires_at <= self.requested_at:
+    def _expiry(self) -> Self:
+        if self.expires_at <= self.requested_at:
             raise ValueError("the request expires before it was made")
         return self
 
@@ -2358,7 +2305,7 @@ def read_request(path: Path) -> WriteRequest:
     return request
 
 
-def list_requests(directory: Path) -> tuple[tuple[WriteRequest, ...], tuple[Path, ...]]:
+def list_requests(directory: Path) -> Listing[WriteRequest]:
     """Every request file in *directory*: the requests read, and the paths that could not be.
 
     A missing directory holds none.
@@ -2370,7 +2317,7 @@ def list_requests(directory: Path) -> tuple[tuple[WriteRequest, ...], tuple[Path
     try:
         mode = os.lstat(directory).st_mode
     except FileNotFoundError:
-        return (), ()
+        return Listing[WriteRequest](items=(), unreadable=())
     if not stat.S_ISDIR(mode):
         raise OSError(errno.ENOTDIR, f"{directory} is not a plain directory")
     found: list[WriteRequest] = []
@@ -2385,12 +2332,12 @@ def list_requests(directory: Path) -> tuple[tuple[WriteRequest, ...], tuple[Path
         except Exception as exc:  # every failure on a present request is reported
             logger.warning("The write request %s cannot be read: %s", directory / name, exc)
             unreadable.append(directory / name)
-    return tuple(found), tuple(unreadable)
+    return Listing[WriteRequest](items=tuple(found), unreadable=tuple(unreadable))
 
 
 def write_request(
     target: str,
-    channels: Mapping[str, ChannelRange | tuple[float, float]],
+    channels: Mapping[str, ChannelRange],
     *,
     steps: int,
     expires_at: datetime,
@@ -2407,9 +2354,11 @@ def write_request(
     there when absent. Nothing is approved by writing it: a person approves it
     from the chip or the CLI, which issues the grant under the same id
     (:func:`approved_grant` waits for it), or the holder self-issues at
-    ``allowed`` (:func:`self_issue`). *expires_at* is an aware instant (any
-    zone; the request stores it in UTC), at most :data:`MAX_EXPIRES_S` after
-    now; the request is stamped with the module's clock.
+    ``allowed`` (:func:`self_issue`). *channels* maps each address to its
+    :class:`ChannelRange` (:meth:`ChannelRange.of` builds one from two
+    bounds). *expires_at* is an aware instant (any zone; the request stores it
+    in UTC), at most :data:`MAX_EXPIRES_S` after now; the request is stamped
+    with the module's clock.
 
     Raises:
         ValueError: The target, channels, steps, expiry, lease or completion are
@@ -2432,7 +2381,7 @@ def write_request(
         owner=resolved,
         holder=acting_identity(),
         target=target,
-        channels=_channel_ranges(channels),
+        channels=dict(channels),
         steps=steps,
         requested_at=_now(),
         expires_at=expires_at,
@@ -2440,13 +2389,11 @@ def write_request(
         label=label,
         completion=completion,
     )
-    payload = request.model_dump(mode="json")
-    _parse_request(json.dumps(payload))  # what is written must read back
     _within_ceilings(request.steps, request.requested_at, request.expires_at, request.lease_s)
     place = _checked_ledger_place(request.id, create=True)
     directory = place.path / REQUESTS_DIR_NAME
     _prepare_directory(directory)
-    _write_json(directory / f"{request.id}{_GRANT_SUFFIX}", payload)
+    _write_json(directory / f"{request.id}{_GRANT_SUFFIX}", request.model_dump(mode="json"))
     return request
 
 
@@ -2515,8 +2462,9 @@ def approve_request(
         The grant written.
 
     Raises:
-        ValueError: *surface* is not an approval surface, or the grant is
-            past a ceiling (:func:`_within_ceilings`); nothing is written.
+        ValueError: *surface* is not an approval surface, *approver* is not a
+            login (:data:`Login`), or the grant is past a ceiling
+            (:func:`_within_ceilings`); nothing is written.
         AuthorizationRefusedError: ``record_unavailable`` for an unreadable record;
             ``auth_expired`` for a request whose expiry has passed;
             ``auth_overlap`` from the issue; ``owner_foreign``
@@ -2544,7 +2492,7 @@ def approve_request(
                 raise AuthorizationRefusedError("auth_expired", "The request's expiry has passed.")
             grant = request.grant(
                 switch_epoch=epoch,
-                approver=Approver(identity=identity, surface=surface, approved_at=now),
+                approver=Approver(by=identity, surface=surface, approved_at=now),
                 issued_at=now,
             )
             _issue_grant(

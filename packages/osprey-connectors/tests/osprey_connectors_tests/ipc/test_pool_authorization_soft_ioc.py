@@ -123,7 +123,7 @@ def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = Tr
         issued_at=now,
         expires_at=FAR_FUTURE,
         lease_s=600.0,
-        approver=Approver(identity="alice", surface="chip", approved_at=now),
+        approver=Approver(by="alice", surface="chip", approved_at=now),
         label="run-1",
     )
     _issue_grant(grant)
@@ -135,7 +135,7 @@ def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = Tr
 def spent(grant: Grant) -> int:
     directory = wa.ledger_dir()
     assert directory is not None
-    return len(_parse_ledger((directory / f"{grant.id}.ledger.json").read_text()).steps)
+    return len(_parse_ledger((directory / f"{grant.id}.ledger.json").read_text()).spent)
 
 
 async def value(connector: Any, channel: str) -> Any:
@@ -281,7 +281,7 @@ async def test_an_approved_request_ends_at_the_persons_stop(deployment, ioc_pref
     pool = deployment
     request = wa.write_request(
         "live",
-        {sp: (0.0, 50.0)},
+        {sp: wa.ChannelRange.of(0.0, 50.0)},
         steps=5,
         expires_at=FAR_FUTURE,
         lease_s=600.0,

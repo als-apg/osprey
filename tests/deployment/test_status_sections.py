@@ -1655,7 +1655,7 @@ def _spend(repo: Path, grant, steps: int, lease_left_s: float, *, directory=None
         holder_start=None,
         pid_ns=None,
         lease_expires_at=datetime.now(UTC) + timedelta(seconds=lease_left_s),
-        steps=tuple(
+        spent=tuple(
             wa.LedgerStep(
                 n=n, spent_at=datetime(2026, 1, 1, 0, 0, n, tzinfo=UTC), channels=("SR:A",)
             )

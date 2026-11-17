@@ -556,8 +556,10 @@ person would:
    :end-before: # docs: ask ends
    :dedent: 4
 
-``expires_at`` is a timezone-aware ``datetime``, at most a day away; a naive
-one raises ``NaiveDatetimeError``. The holder is the program's acting
+Each channel's range is a ``ChannelRange``: ``ChannelRange.of(lo, hi)``
+builds one from its two bounds, and raises ``ValueError`` for a bound that is
+not finite or a ``lo`` above ``hi``. ``expires_at`` is a timezone-aware
+``datetime``, at most a day away; a naive one raises ``NaiveDatetimeError``. The holder is the program's acting
 identity; the owner is the login the run stands in for (``OSPREY_CONTROL_OWNER`` in a container). A program's container
 needs both that variable and ``OSPREY_WRITE_LEDGER_DIR`` bound writable: the
 program opens and renews its lease there, and its connector child spends the

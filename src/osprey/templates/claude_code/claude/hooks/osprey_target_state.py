@@ -1137,7 +1137,7 @@ _MACHINE_KINDS = {TARGET_LIVE: "real", TARGET_STANDIN: "real", TARGET_VA: "simul
 _MACHINE_KIND_KEY = "machine_kind"
 
 # What makes an owner name unusable as one directory of the tree. Mirrors
-# ``posture_store._TREE_UNSAFE``.
+# ``identity.is_path_segment``.
 _TREE_UNSAFE = frozenset({"/", "\\", "\x00"})
 
 #: The closed set of refusal reasons. Mirrors ``refusals.REASONS``, in order.

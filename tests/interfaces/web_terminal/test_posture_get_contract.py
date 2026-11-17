@@ -58,6 +58,7 @@ from osprey.mcp_server.control_system import (
 from osprey_connectors import control_context, posture_store, workspace
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.ipc import _verification as verification
+from osprey_connectors.model import ReadResult
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import (
     owner,
@@ -90,6 +91,9 @@ OTHER_TERMINAL_PID = os.getppid()
 OTHER_TERMINAL_PORT = 8090
 
 #: Each machine kind's banner (C-WORDS, D4): the label every GET row carries.
+#: A record read that found no file.
+_NO_RECORD = ReadResult[control_context.ControlContext](status="missing", value=None, path=None)
+
 REAL_LABEL = "Live — writes move hardware"
 REHEARSAL_LABEL = "Rehearsal — nothing moves"
 SIM_LABEL = "Simulator — nothing moves"
@@ -476,7 +480,7 @@ class TestTheTarget:
         assert [row["target"] for row in payload["targets"] if row["is_baseline"]] == ["standin"]
 
     def test_no_record_falls_back_to_the_baseline_at_no_generation(self, client):
-        with patch.object(control_context, "read_record_status", return_value=(None, "missing")):
+        with patch.object(control_context, "read_record_status", return_value=_NO_RECORD):
             payload = get_posture(client)
         assert payload["control_target"] == "standin"
         assert payload["generation"] is None
@@ -1233,7 +1237,7 @@ class TestTheWriteColumns:
         }
 
     def test_no_record_is_every_switch_off_not_unknown(self, client):
-        with patch.object(control_context, "read_record_status", return_value=(None, "missing")):
+        with patch.object(control_context, "read_record_status", return_value=_NO_RECORD):
             payload = get_posture(client)
         assert all(row["switch"] == "off" for row in payload["targets"])
         assert payload["switch_epoch"] is None

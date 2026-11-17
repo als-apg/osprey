@@ -668,7 +668,8 @@ def set_switch_in_record(
     names = sorted(targets) if targets is not None else _default_switch_targets(repo)
     path = switch_record_path(repo, owner)
     control_context.invalidate_cache()
-    current, status = control_context.read_record_status(path=path)
+    read = control_context.read_record_status(path=path)
+    current, status = read.value, read.status
     if current is None:
         baseline = _default_switch_targets(repo)[0]
         control_context.write_record(

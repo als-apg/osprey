@@ -166,6 +166,8 @@ from osprey_connectors.model import (
     FrozenModel,
     Instant,
     ReadOnlyMapping,
+    ReadResult,
+    ReadStatus,
     _stored_instant,
     empty_mapping,
     evolve,
@@ -677,12 +679,7 @@ class _ParsedFiles(Generic[_Parsed]):
             self._entries.clear()
 
 
-#: How a record read ended: a usable record, no file, or a file (or root)
-#: that states nothing usable.
-_RecordStatus = Literal["ok", "missing", "unreadable"]
-
-
-def _read(path: Path) -> tuple[ControlContext | None, _RecordStatus]:
+def _read(path: Path) -> tuple[ControlContext | None, ReadStatus]:
     """*path* parsed, with how the read ended. Uncached; never raises."""
     try:
         raw = path.read_text(encoding="utf-8")
@@ -699,7 +696,18 @@ def _read(path: Path) -> tuple[ControlContext | None, _RecordStatus]:
     return (None, "unreadable") if record is None else (record, "ok")
 
 
-_RECORDS = _ParsedFiles(_read)
+def _read_result(path: Path) -> ReadResult[ControlContext]:
+    """One uncached read of the record at *path*, as :func:`read_record_status` answers it."""
+    record, status = _read(path)
+    return ReadResult[ControlContext](status=status, value=record, path=path)
+
+
+def _no_record(status: ReadStatus, path: Path | None) -> ReadResult[ControlContext]:
+    """A read that ended at *status* before the file was parsed."""
+    return ReadResult[ControlContext](status=status, value=None, path=path)
+
+
+_RECORDS = _ParsedFiles(_read_result)
 
 
 def read_record(*, path: Path | None = None) -> ControlContext | None:
@@ -717,29 +725,27 @@ def read_record(*, path: Path | None = None) -> ControlContext | None:
         path: Read this file instead of :func:`record_path`. For a caller that
             has already resolved a root, and for tests.
     """
-    record, _status = read_record_status(path=path)
-    return record
+    return read_record_status(path=path).value
 
 
-def read_record_status(
-    *, path: Path | None = None
-) -> tuple[ControlContext | None, Literal["ok", "missing", "unreadable"]]:
+def read_record_status(*, path: Path | None = None) -> ReadResult[ControlContext]:
     """The record and how reading it ended — for a caller that must tell why.
 
     :func:`read_record` answers ``None`` for "nobody has written one yet" and
     for "something broke it" alike; a write verdict refuses both but names
-    them differently. ``"missing"`` is no file at the path; ``"unreadable"``
-    is every other way of having no usable record — an unresolvable
-    agent-data root, an OS or decode failure, invalid JSON, a foreign schema,
-    an unusable identity. ``"ok"`` comes with the record. Cached like
-    :func:`read_record` (rule 4); never raises.
+    them differently. The status ``"missing"`` is no file at the path;
+    ``"unreadable"`` is every other way of having no usable record — an
+    unresolvable agent-data root (``path`` ``None``), an OS or decode failure,
+    invalid JSON, a foreign schema, an unusable identity. ``"ok"`` comes with
+    the record as ``value``. Cached like :func:`read_record` (rule 4); never
+    raises.
 
     Args:
         path: Read this file instead of :func:`record_path`.
     """
     target_path = record_path() if path is None else path
     if target_path is None:
-        return None, "unreadable"
+        return _no_record("unreadable", None)
     cached = _RECORDS.read(target_path)
     if cached is not None:
         return cached
@@ -747,11 +753,11 @@ def read_record_status(
     try:
         target_path.stat()
     except FileNotFoundError:
-        return None, "missing"
+        return _no_record("missing", target_path)
     except OSError:
-        return None, "unreadable"
+        return _no_record("unreadable", target_path)
     # It appeared between the two stats; this read answers for that instant.
-    return _read(target_path)
+    return _read_result(target_path)
 
 
 def invalidate_cache() -> None:
@@ -1201,6 +1207,7 @@ def _revoke_on_stop(record_file: Path, names: list[str] | None, by: str | None) 
     Raises:
         StateLockedError: The grants directory stayed locked.
         OSError: It is not a plain directory, or a mark could not be written.
+        ValueError: *by* names no login a mark can carry; nothing is marked.
     """
     from osprey_connectors import write_authorization
 
@@ -1215,11 +1222,12 @@ def _try_revoke_on_stop(record_file: Path, names: list[str] | None, by: str | No
     """:func:`_revoke_on_stop`, ``False`` (logged) when the marks could not be written.
 
     A stop never reports itself not taken over its marks: the caller ends the
-    grants through the epoch instead (fail-closed, see :func:`set_switch`).
+    grants through the epoch instead (fail-closed, see :func:`set_switch`). A
+    stop by a name that is not a login is one such: a mark cannot carry it.
     """
     try:
         _revoke_on_stop(record_file, names, by)
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         logger.warning(
             "A stop could not mark the grants beside %s revoked; it ends them by the epoch",
             record_file,
