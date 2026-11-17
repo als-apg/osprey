@@ -101,8 +101,10 @@ async def artifact_export(
             "dependency_missing",
             str(exc),
             [
-                "Install Playwright: pip install playwright",
-                "Install browser: playwright install chromium",
+                "Install the browser where this server runs: "
+                "python -m playwright install --only-shell chromium.",
+                "An image built with images.skip_browser has no browser; "
+                "the interactive artifact in the gallery is unaffected.",
             ],
         )
     except ExportDeadlineError as exc:

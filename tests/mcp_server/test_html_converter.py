@@ -217,6 +217,26 @@ class TestChromiumAutoInstall:
             with pytest.raises(PlaywrightNotInstalledError, match="proxy blocked the CDN"):
                 await convert_html_to_image(html_file, output_file)
 
+    async def test_failed_install_says_the_browser_is_missing(self, tmp_path, monkeypatch):
+        """A failed install names the absent browser, not a command to retry."""
+        html_file, output_file = self._html(tmp_path)
+
+        def _failing_run(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="403 Forbidden")
+
+        monkeypatch.setattr(converter_mod.subprocess, "run", _failing_run)
+        monkeypatch.setattr(converter_mod, "_install_attempted", False)
+        monkeypatch.setattr(converter_mod, "_install_error", None)
+
+        mock_mod, _, _ = _make_playwright_mock(
+            launch_side_effect=[Exception(MISSING_BROWSER_ERROR)] * 2
+        )
+        with patch.dict(sys.modules, {"playwright.async_api": mock_mod}):
+            with pytest.raises(
+                PlaywrightNotInstalledError, match="Headless Chromium is not installed"
+            ):
+                await convert_html_to_image(html_file, output_file)
+
     async def test_unrelated_launch_failure_propagates(self, tmp_path, _install_calls):
         """A launch failure that is not a missing binary surfaces as itself."""
         html_file, output_file = self._html(tmp_path)
