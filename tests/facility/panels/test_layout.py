@@ -35,7 +35,15 @@ from osprey.facility.panels.layout import (
     unexpressed,
 )
 from osprey.facility.panels.model import load_graph
-from osprey.facility.panels.view import Light, Node, Section, StripElement, Target, View
+from osprey.facility.panels.view import (
+    Light,
+    Node,
+    Section,
+    StripElement,
+    Target,
+    ValueRow,
+    View,
+)
 from tests.facility.panels._fixture import copy_tables, write_fixture_facility
 from tests.facility.panels._views import (
     ABOVE,
@@ -59,6 +67,8 @@ PINNED_WIDGETS = {
     "pv-label",
     "pv-text-input",
     "related-display-button",
+    "pv-button",
+    "waveform-plot",
     "rectangle",
     "ellipse",
     "line",
@@ -736,3 +746,40 @@ def test_a_rack_unit_and_a_grid_cell_with_no_rule_are_in_the_none_look(panel_gra
             assert {p: node["props"][p] for p in symbols.LIGHT_PROPS} == {
                 p: none[p] for p in symbols.LIGHT_PROPS
             }
+
+
+WRITABLE = {"pv-text-input", "pv-button"}
+
+
+@pytest.mark.parametrize(
+    ("drawn_as", "writable", "widget"),
+    [
+        ("value", False, "pv-label"),
+        ("state", False, "pv-label"),
+        ("text", False, "pv-label"),
+        ("setpoint", True, "pv-text-input"),
+        ("command", True, "pv-button"),
+        ("waveform", False, "waveform-plot"),
+        (None, True, "pv-text-input"),  # no row: a writable channel is a setpoint
+        ("setpoint", False, "pv-label"),  # never an input on a channel that is no setpoint
+    ],
+)
+def test_a_value_is_drawn_as_the_widget_its_drawn_as_names(panel_graph, drawn_as, writable, widget):
+    row = ValueRow("x", "X:A", None, None, writable, drawn_as=drawn_as)
+    doc, _ = draw(card("one", row), panel_graph)
+    assert [n["type"] for n in nodes(doc) if n["type"].startswith(("pv-", "waveform"))] == [widget]
+    assert layout.WIDGETS[drawn_as or ("setpoint" if writable else "untyped")]
+
+
+def test_nothing_writable_is_drawn_outside_a_device_cards_own_rows(panel_graph) -> None:
+    rows = (
+        ValueRow("sp", "X:SP", "X:RB", None, True, drawn_as="setpoint"),
+        ValueRow("cmd", "X:CMD", None, None, True, drawn_as="command"),
+    )
+    elsewhere = View(Target("place", "place", "X"), "x", (), (Section("s", rows),))
+    doc, _ = draw(elsewhere, panel_graph)
+    assert not {n["type"] for n in nodes(doc)} & WRITABLE
+    for view in fixture_views(panel_graph):
+        found = {n["type"] for n in nodes(draw(view, panel_graph)[0])} & WRITABLE
+        if not (view.id.view == "card" and view.id.kind == "device"):
+            assert not found, view.id

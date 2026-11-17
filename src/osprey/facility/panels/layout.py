@@ -25,6 +25,7 @@ import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import health, strip, symbols
@@ -62,6 +63,7 @@ from osprey.facility.panels.view import (
 __all__ = [
     "FORMAT_REQUESTS",
     "MIN_STRIP_SCALE",
+    "WIDGETS",
     "Ladder",
     "ladder",
     "aggregates",
@@ -129,7 +131,28 @@ TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts 
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
 MOSAIC_GAP = 3
 MAX_TABLE_ROWS = 400  # rows of one table drawn; the rest are counted under it
+WAVEFORM_WIDTH = 520
+WAVEFORM_HEIGHT = 140
+COMMAND_LABEL = "send"  # what a command's button reads
+COMMAND_VALUE = 1  # what pressing a command's button writes
 # --- end constants -------------------------------------------------------------
+
+#: The widget a value is drawn as, by its ``drawn_as`` in ``record_types.csv``:
+#: (on a device card's own signals and settings, anywhere else). Writable widgets
+#: are in the first column only, and only for a writable channel. A channel with
+#: no row (or ``untyped``) is drawn as a ``setpoint`` when writable.
+WIDGETS: Mapping[str, tuple[str, str]] = MappingProxyType(
+    {
+        "value": ("pv-label", "pv-label"),  # an analogue value, with its unit
+        "setpoint": ("pv-text-input", "pv-label"),
+        "state": ("pv-label", "pv-label"),  # an enum: the label's text is its state
+        "command": ("pv-button", "pv-label"),
+        "waveform": ("waveform-plot", "pv-label"),
+        "text": ("pv-label", "pv-label"),
+        "untyped": ("pv-label", "pv-label"),
+    }
+)
+_WRITABLE_WIDGETS = frozenset({"pv-text-input", "pv-button"})
 
 #: Widgets the format lacks, drawn with the nearest one: (name, why).
 FORMAT_REQUESTS: tuple[tuple[str, str], ...] = (
@@ -538,6 +561,8 @@ class _Page:
         self.screens = screens
         self.s = _Screen(doc_id, view.title)
         self.y: float = MARGIN
+        # writable widgets only on a device card's own signals and settings
+        self.on_card = view.id.view == "card" and view.id.kind == "device"
 
     # -- primitives -----------------------------------------------------------
 
@@ -675,18 +700,47 @@ class _Page:
         values = {state: looks[state][symbols.MARK_PROP] for state in symbols.STATES}
         mark_rules.append(self.s.rule(f"{names} mark", symbols.MARK_PROP, rule, values))
 
-    def field(self, x, y, channel: str, *, writable: bool, w=VALUE_WIDTH) -> float:
-        common = {
-            "pv": channel,
-            "fontSize": TEXT_SIZE,
-            "foregroundColor": PAGE_TEXT,
-            "backgroundColor": FIELD_BACKGROUND,
-        }
-        if writable:
-            self.s.widget("pv-text-input", x, y, w, ROW, common)
+    def field(
+        self, x, y, channel: str, *, drawn_as: str | None = None, writable=False, w=VALUE_WIDTH
+    ) -> float:
+        """A channel's value in the widget :data:`WIDGETS` names for its ``drawn_as``.
+
+        A writable widget only on a device card, and only for a writable
+        channel; anywhere else the value is a label. Returns the right edge.
+        """
+        kind = drawn_as if drawn_as not in (None, "untyped") else None
+        if kind is None:
+            kind = "setpoint" if writable else "untyped"
+        on_card, elsewhere = WIDGETS[kind]
+        widget = on_card if self.on_card else elsewhere
+        if widget in _WRITABLE_WIDGETS and not (self.on_card and writable):
+            widget = elsewhere
+        common = {"pv": channel, "fontSize": TEXT_SIZE, "foregroundColor": PAGE_TEXT}
+        if widget == "pv-text-input":
+            self.s.widget(widget, x, y, w, ROW, {**common, "backgroundColor": FIELD_BACKGROUND})
+        elif widget == "pv-button":
+            props = {
+                **common,
+                "label": COMMAND_LABEL,
+                "pressValue": COMMAND_VALUE,
+                "backgroundColor": FIELD_BACKGROUND,
+            }
+            self.s.widget(widget, x, y, w, ROW, props)
+        elif widget == "waveform-plot":
+            curve = {"name": channel, "y_channel": channel, "color": PAGE_TEXT}
+            props = {"title": channel, "curves": [curve]}
+            self.s.widget(widget, x, y, WAVEFORM_WIDTH, WAVEFORM_HEIGHT, props)
+            self.y += WAVEFORM_HEIGHT - ROW
+            return x + WAVEFORM_WIDTH
         else:
-            props = {**common, "showUnits": True, "alarmSensitive": True, "alarmBorder": True}
-            props["align"] = "right"
+            props = {
+                **common,
+                "backgroundColor": FIELD_BACKGROUND,
+                "showUnits": True,
+                "alarmSensitive": True,
+                "alarmBorder": True,
+                "align": "right",
+            }
             self.s.widget("pv-label", x, y, w, ROW, props)
         return x + w
 
@@ -759,9 +813,9 @@ class _Page:
 
     def value_row(self, row: ValueRow) -> None:
         x = self.text(MARGIN, self.y, row.label, w=LABEL_WIDTH)
-        x = self.field(x + GAP, self.y, row.channel, writable=row.writable)
+        x = self.field(x + GAP, self.y, row.channel, drawn_as=row.drawn_as, writable=row.writable)
         if row.readback is not None:
-            x = self.field(x + GAP, self.y, row.readback, writable=False)
+            x = self.field(x + GAP, self.y, row.readback)
         deviation = _tolerance_ladder(row)
         if deviation is not None:
             x = self.light(x + GAP, self.y, [Light(row.channel)], rule=deviation)
@@ -850,7 +904,7 @@ class _Page:
         if cell.pair is None or cell.pair.readback is None:
             return
         below = y + ROW + ROW_GAP
-        x = self.field(x0, below, cell.pair.readback, writable=False)
+        x = self.field(x0, below, cell.pair.readback)
         deviation = _tolerance_ladder(cell.pair)
         if deviation is not None:
             x = self.light(x + GAP, below, [Light(cell.pair.channel)], rule=deviation)

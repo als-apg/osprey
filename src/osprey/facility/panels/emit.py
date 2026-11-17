@@ -566,14 +566,15 @@ def write(
 
 
 def _bound_channels(document: Any) -> Iterator[str]:
-    """Every channel a screen binds: a widget's ``pv`` and each name in a rule's ``pvs``."""
+    """Every channel a screen binds: a widget's ``pv``, a curve's ``y_channel`` and each
+    name in a rule's ``pvs``."""
     stack = [document]
     while stack:
         node = stack.pop()
         if isinstance(node, dict):
-            pv = node.get("pv")
-            if isinstance(pv, str):
-                yield pv
+            for key in ("pv", "y_channel"):
+                if isinstance(node.get(key), str):
+                    yield node[key]
             pvs = node.get("pvs")
             if isinstance(pvs, list):
                 for item in pvs:
