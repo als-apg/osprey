@@ -2596,6 +2596,19 @@ keys:
     covered-by: pv_directory.alarm_state.settings
     default: no-fallback
     default_note: "the build refuses `type: osprey_alarm_relay` without it, naming this key"
+  pv_directory.alarm_state.settings.auth:
+    rendered: false
+    covered-by: pv_directory.alarm_state.settings
+    note: >-
+      the login a Kafka broker asks for — a user and a password named by
+      environment variable, sent as SASL; unset sends no login
+    default: null
+  pv_directory.alarm_state.settings.auth.username: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: null}
+  pv_directory.alarm_state.settings.auth.password_env: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: null}
+  pv_directory.alarm_state.settings.auth.mechanism: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: PLAIN}
+  pv_directory.alarm_state.settings.auth.cleartext: {rendered: false, covered-by: pv_directory.alarm_state.settings.auth, default: false}
+  pv_directory.alarm_state.settings.tls: {rendered: false, covered-by: pv_directory.alarm_state.settings, default: null}
+  pv_directory.alarm_state.settings.tls.ca_bundle: {rendered: false, covered-by: pv_directory.alarm_state.settings.tls, default: null}
   pv_directory.alarm_state.replay_file:
     evidence: 'block\.get\("replay_file"\)'
     default: no-fallback
