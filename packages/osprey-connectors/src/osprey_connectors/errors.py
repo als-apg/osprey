@@ -43,8 +43,8 @@ a ``ValueError``. The hierarchy, with each builtin second base::
     │   ├── ipc.ChildUnresponsiveError        (TimeoutError)
     │   ├── ipc.ConnectorHostSlowCallError    (TimeoutError)
     │   └── ipc.ChildLostError                (ConnectorUnavailableError)
-    ├── ipc.FrameDecodeError                  (ValueError)
-    └── ipc.FrameEncodeError                  (TypeError)
+    ├── ipc._frames.FrameDecodeError          (ValueError) internal to the wire codec
+    └── ipc._frames.FrameEncodeError          (TypeError) internal to the wire codec
 
 Three contract roots classify what a connector call raises, and no class lies
 under two of them: :class:`ChannelError`, a failure about one named channel

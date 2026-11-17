@@ -1,6 +1,6 @@
 """The gateway role is decided in one function, and every caller answers with it.
 
-:func:`osprey_connectors.ipc._verification._selected_role` holds the rule: writes
+:func:`osprey_connectors.control_system._gateway_role._selected_role` holds the rule: writes
 allowed through a configured write gateway; a machine reached only through a write
 gateway reads through it while off; a readonly run never selects the write gateway.
 ``EPICSConnector.connect()``, the connector host's report (``_host._rule_role``) and the
@@ -20,10 +20,11 @@ import pytest
 import osprey_connectors.control_system._epics_connector as epics_connector_module
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors.control_system._gateway_role import _selected_role
 from osprey_connectors.errors import ConnectRefusedError
+from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.ipc import _host, _pool
 from osprey_connectors.ipc._pool import ConnectorHostPool, HostKey
-from osprey_connectors.ipc._verification import _selected_role, derive_endpoints
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     InlineCaLoop,

@@ -2590,7 +2590,7 @@ def _ca_name_servers(config):
     A simulator or stand-in baseline is a container this deployment runs, named
     by its compose service on the port its block states; only the first instance,
     the simulator, has a default port. A live baseline is the gateway the render's
-    tier selects (:func:`~osprey_connectors.ipc.derive_endpoints`): ``write_access``
+    tier selects (:func:`~osprey_connectors.gateways.derive_endpoints`): ``write_access``
     on an armed render, else ``read_only``, falling back to ``write_access`` only
     when no read-only gateway is configured.
 
@@ -2600,7 +2600,7 @@ def _ca_name_servers(config):
     :rtype: str or None
     """
     from osprey_connectors.connector_types import DEFAULT_VA_PORT, TARGET_STANDIN, TARGET_VA
-    from osprey_connectors.ipc import derive_endpoints
+    from osprey_connectors.gateways import derive_endpoints
     from osprey_connectors.targets import baseline_target
 
     section = config.get("control_system")
@@ -2638,7 +2638,6 @@ def _drives_target_ca_env(config, key, block):
         a Channel Access target and no name server can be derived
     """
     from osprey_connectors.connector_types import speaks_channel_access
-    from osprey_connectors.ipc import ROLE_READ_ONLY, ROLE_WRITE_ACCESS
     from osprey_connectors.write_tier import tier_allows
 
     if block.get("network") == "host" or not speaks_channel_access(config.get("control_system")):
@@ -2646,7 +2645,7 @@ def _drives_target_ca_env(config, key, block):
     name_servers = _ca_name_servers(config)
     if name_servers is None:
         section = config.get("control_system")
-        role = ROLE_WRITE_ACCESS if tier_allows(section) else ROLE_READ_ONLY
+        role = "write_access" if tier_allows(section) else "read_only"
         app = block.get("app")
         if app:
             # A projected container: ``services.<key>`` is the projection's, so the

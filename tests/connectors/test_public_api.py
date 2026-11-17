@@ -355,16 +355,23 @@ def _loaded_after(statement: str) -> list[str]:
     return result.stdout.split()
 
 
-def test_importing_the_ipc_namespace_loads_only_the_codec():
+def test_importing_the_ipc_namespace_loads_none_of_its_modules():
     # The connector-host child runs as `python -m osprey_connectors.ipc._host`;
-    # a package that imported `_host` itself would load it twice. The codec and
-    # its exception registry are pure and are imported eagerly.
+    # a package that imported `_host` itself would load it twice. Every name is
+    # resolved on access, so the codec (and numpy with it) loads only when used.
     loaded = _loaded_after("import osprey_connectors.ipc")
 
-    assert [m for m in loaded if m.startswith("osprey_connectors.ipc._")] == [
-        "osprey_connectors.ipc._exceptions",
-        "osprey_connectors.ipc._frames",
-    ]
+    assert [m for m in loaded if m.startswith("osprey_connectors.ipc._")] == []
+
+
+def test_the_gateway_derivation_loads_no_ipc_module_and_no_codec():
+    # The compose generator, the endpoint prober and the eligibility checks
+    # derive endpoints without ever starting a child, so they load neither the
+    # supervisor's modules nor the wire codec's numpy.
+    loaded = _loaded_after("import osprey_connectors.gateways")
+
+    assert [m for m in loaded if m.startswith("osprey_connectors.ipc")] == []
+    assert "numpy" not in loaded
 
 
 def test_the_write_door_does_not_load_the_limits_validator():

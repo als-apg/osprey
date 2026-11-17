@@ -1232,7 +1232,8 @@ def _install_addr_list(monkeypatch, address, port):
 
 def _verify(config, report, writes_enabled):
     """Run the parent's own verification against a child's report."""
-    from osprey_connectors.ipc._verification import derive_endpoints, verify_child_report
+    from osprey_connectors.gateways import derive_endpoints
+    from osprey_connectors.ipc._verification import verify_child_report
 
     derivation = derive_endpoints(config, "va", writes_enabled=writes_enabled)
     return derivation, verify_child_report(derivation, report)

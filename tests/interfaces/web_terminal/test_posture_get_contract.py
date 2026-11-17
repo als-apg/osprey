@@ -55,9 +55,8 @@ from osprey.mcp_server.control_system import (
     target_eligibility,
     target_state,
 )
-from osprey_connectors import control_context, testing, workspace, write_switch
+from osprey_connectors import control_context, gateways, testing, workspace, write_switch
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.ipc import _verification as verification
 from osprey_connectors.model import ReadResult
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import (
@@ -1137,7 +1136,7 @@ class TestTargetIdentity:
 
         spy(target_eligibility, "target_availability")
         spy(connector_host_manager, "target_display_metadata")
-        spy(verification, "derive_endpoints")
+        spy(gateways, "derive_endpoints")
         get_posture(client)
         expected = str(client.app.state.config_path)
         for name, paths in seen.items():

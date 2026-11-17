@@ -182,7 +182,7 @@ def test_an_unbuilt_connector_names_no_transport():
 _TYPE_COMPARISON_HOMES = {
     "packages/osprey-connectors/src/osprey_connectors/connector_types.py",
     "packages/osprey-connectors/src/osprey_connectors/factory.py",
-    "packages/osprey-connectors/src/osprey_connectors/ipc/_verification.py",
+    "packages/osprey-connectors/src/osprey_connectors/gateways.py",
     "src/osprey/templates/claude_code/claude/hooks/osprey_target_state.py",
     "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py",
 }

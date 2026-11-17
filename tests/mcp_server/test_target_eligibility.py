@@ -32,16 +32,14 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors import control_context, testing
-from osprey_connectors.ipc._verification import (
+from osprey_connectors.gateways import (
     DEFAULT_CA_PORT,
     DEFAULT_PVA_PORT,
-    MODE_ADDR_LIST,
-    MODE_NAME_SERVER,
     Endpoint,
     TargetDerivation,
     derive_endpoints,
-    verify_child_report,
 )
+from osprey_connectors.ipc._verification import verify_child_report
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 
 LIVE = "live"
@@ -1837,14 +1835,14 @@ def _with_use_name_server(value: Any) -> dict[str, Any]:
 def test_a_resolved_off_placeholder_derives_the_address_list_mode(off: str) -> None:
     derivation = _derive(_with_use_name_server(off), LIVE)
 
-    assert derivation.endpoints["read_only"].mode == MODE_ADDR_LIST
+    assert derivation.endpoints["read_only"].mode == "addr_list"
 
 
 @pytest.mark.parametrize("on", ["true", "True", "1", "yes"])
 def test_a_resolved_on_placeholder_derives_the_name_server_mode(on: str) -> None:
     derivation = _derive(_with_use_name_server(on), LIVE)
 
-    assert derivation.endpoints["read_only"].mode == MODE_NAME_SERVER
+    assert derivation.endpoints["read_only"].mode == "name_server"
 
 
 def test_an_unreadable_use_name_server_is_ineligible_and_names_the_key() -> None:

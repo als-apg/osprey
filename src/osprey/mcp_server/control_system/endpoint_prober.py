@@ -77,7 +77,7 @@ from typing import Any
 from osprey.mcp_server.control_system import target_state
 from osprey.utils.seconds import positive_seconds
 from osprey_connectors.connector_types import ControlTarget, is_control_target
-from osprey_connectors.ipc import MODE_NAME_SERVER, Endpoint, derive_endpoints
+from osprey_connectors.gateways import Endpoint, derive_endpoints
 from osprey_connectors.targets import configured_targets
 
 logger = logging.getLogger(__name__)
@@ -201,7 +201,7 @@ class EndpointProber:
 
         Args:
             config: The full rendered config mapping, as
-                :func:`~osprey_connectors.ipc.derive_endpoints`
+                :func:`~osprey_connectors.gateways.derive_endpoints`
                 takes it.
             targets: The control targets to probe. Defaults to the targets this
                 deployment configures
@@ -412,7 +412,7 @@ class EndpointProber:
         """One endpoint's row. Connects only in name-server mode."""
         gateway = f"{endpoint.host}:{endpoint.port}"
 
-        if endpoint.mode != MODE_NAME_SERVER:
+        if endpoint.mode != "name_server":
             return self._row(STATUS_NOT_APPLICABLE, gateway, ADDR_LIST_DETAIL)
 
         host, port = endpoint.host, endpoint.port

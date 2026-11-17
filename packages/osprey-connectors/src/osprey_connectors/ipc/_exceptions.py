@@ -98,13 +98,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.model import FrozenModel, ReadOnlyMapping, empty_mapping
 
-__all__ = [
-    "EXCEPTION_SPECS",
-    "ExceptionFrameBody",
-    "ExceptionSpec",
-    "decode_exception",
-    "encode_exception",
-]
+__all__ = ["ExceptionFrameBody", "decode_exception", "encode_exception"]
 
 #: The roots of the failure vocabulary; every public class under one crosses typed.
 _CONTRACT_ROOTS: tuple[type[BaseException], ...] = (

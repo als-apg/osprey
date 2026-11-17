@@ -526,7 +526,6 @@ def write_gateway_only_warnings(config: Mapping[str, Any]) -> list[str]:
     not configure has no gateways to judge. Takes nested or dotted keys.
     """
     from osprey.deployment.web_terminals.lint import _nest_dotted
-    from osprey_connectors.ipc import ROLE_READ_ONLY, ROLE_WRITE_ACCESS
 
     control_system = _nest_dotted(config).get("control_system")
     connectors = control_system.get("connector") if isinstance(control_system, dict) else None
@@ -537,15 +536,15 @@ def write_gateway_only_warnings(config: Mapping[str, Any]) -> list[str]:
         gateways = block.get("gateways") if isinstance(block, dict) else None
         if not isinstance(gateways, dict):
             continue
-        if not gateways.get(ROLE_WRITE_ACCESS) or gateways.get(ROLE_READ_ONLY):
+        if not gateways.get("write_access") or gateways.get("read_only"):
             continue
         prefix = f"control_system.connector.{kind}.gateways"
         warnings.append(
             f"control_system.connector.{kind} has a write gateway and no read-only "
             "gateway: while writes are off it reads through the write gateway, so only "
             "the software refusal backs the write switch for this machine — the network "
-            f"layer cannot. Add {prefix}.{ROLE_READ_ONLY} (address and port of a "
-            f"read-only gateway) next to {prefix}.{ROLE_WRITE_ACCESS}."
+            f"layer cannot. Add {prefix}.read_only (address and port of a "
+            f"read-only gateway) next to {prefix}.write_access."
         )
     return warnings
 

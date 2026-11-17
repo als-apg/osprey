@@ -2461,7 +2461,7 @@ def _row_selected_role(
     *config_path* is the file *config* was parsed from; an unset gateway port is filled from it.
 
     The reachability collapse keys on it, so it is derived through
-    :func:`~osprey_connectors.ipc.derive_endpoints`
+    :func:`~osprey_connectors.gateways.derive_endpoints`
     — the function the connector-host child's own selection is verified against
     — with the row's ``write_allowed`` rather than the configured ceiling. A
     role derived from config alone would name the write gateway for a machine
@@ -2476,7 +2476,7 @@ def _row_selected_role(
     if config is UNREADABLE or not is_control_target(target):
         return None
     try:
-        from osprey_connectors.ipc import derive_endpoints
+        from osprey_connectors.gateways import derive_endpoints
 
         return derive_endpoints(
             config, target, writes_enabled=writes_enabled, config_path=config_path

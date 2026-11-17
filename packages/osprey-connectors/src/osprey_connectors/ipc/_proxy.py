@@ -114,7 +114,7 @@ from osprey_connectors.ipc._exceptions import decode_exception
 if TYPE_CHECKING:
     from osprey_connectors.ipc._host import HostMethod, ProxyMethod, SupervisorMethod
 
-__all__ = ["CHILD", "ChildLostError", "ChildUnresponsiveError", "ConnectorHostProxy"]
+__all__ = ["ChildLostError", "ChildUnresponsiveError", "ConnectorHostProxy"]
 
 # Named for the public namespace, not this private module, so a logging config
 # keyed on the name keeps matching whatever the module is called.

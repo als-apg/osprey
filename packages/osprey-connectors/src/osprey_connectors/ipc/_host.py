@@ -211,6 +211,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Literal, Protocol, SupportsFloat, TypedDict, get_args
 
+from osprey_connectors.epics_env import EPICS_ENV_PREFIXES, scrub_epics_env
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR, READONLY_MODE, is_readonly_run
 from osprey_connectors.ipc import _frames as frames
@@ -222,10 +223,6 @@ if TYPE_CHECKING:
     from osprey_connectors.control_system._base import ChannelValue, ControlSystemConnector
 
 __all__ = [
-    "EXIT_INIT_FAILED",
-    "EXIT_OK",
-    "EXIT_ORPHANED",
-    "PROXY_METHODS",
     "START_MARKS_FD_ENV",
     "START_PHASES",
     "WRITE_METHODS",
@@ -233,8 +230,6 @@ __all__ = [
     "ProxyMethod",
     "StartPhase",
     "SupervisorMethod",
-    "main",
-    "scrub_epics_env",
 ]
 
 #: Clean shutdown: pipe EOF, or an acknowledged ``disconnect``.
@@ -314,9 +309,6 @@ PROXY_METHODS: tuple[ProxyMethod, ...] = get_args(ProxyMethod)
 #: is composed from ``write_channel`` in the parent, so it is that one call.
 WRITE_METHODS: frozenset[ProxyMethod] = frozenset({"write_channel", "write_multiple_channels"})
 
-#: Every inherited variable with one of these prefixes is dropped at startup.
-EPICS_ENV_PREFIXES = ("EPICS_CA_", "EPICS_PVA_")
-
 #: How often the watchdog asks whether it still has a parent.
 WATCHDOG_INTERVAL_S = 1.0
 
@@ -331,27 +323,8 @@ logger = logging.getLogger("osprey_connectors.ipc.host")
 
 
 # --------------------------------------------------------------------------
-# Startup: environment scrub and stdout protection
+# Startup: stdout protection
 # --------------------------------------------------------------------------
-
-
-def scrub_epics_env(environ: dict[str, str] | None = None) -> dict[str, str]:
-    """Remove every inherited ``EPICS_CA_*``/``EPICS_PVA_*`` variable.
-
-    Args:
-        environ: Mapping to scrub, defaulting to :data:`os.environ`.
-
-    Returns:
-        The removed name/value pairs, for logging. Nothing is put back: an
-        endpoint this child was not configured with must not be reachable from
-        it, and a variable that survived the scrub would silently widen what
-        ``connect()`` decided.
-    """
-    env = os.environ if environ is None else environ
-    removed = {}
-    for name in [name for name in env if name.startswith(EPICS_ENV_PREFIXES)]:
-        removed[name] = env.pop(name)
-    return removed
 
 
 def _claim_frame_channel() -> int:
@@ -814,12 +787,12 @@ class _FrameStream:
             chunk = await self._reader.read(_READ_CHUNK_BYTES)
             if not chunk:
                 return None
-            self._ready.extend(self._parser._feed_raw(chunk))
+            self._ready.extend(self._parser.feed_raw(chunk))
         raw = self._ready.popleft()
         try:
             return frames.decode_frame(raw)
         except Exception as exc:
-            return _Undecodable(frames._request_id_of(raw), exc)
+            return _Undecodable(frames.request_id_of(raw), exc)
 
 
 class _FrameWriter:
