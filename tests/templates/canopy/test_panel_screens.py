@@ -67,7 +67,7 @@ def _check(doc: dict, spec_dir: Path, view) -> None:
 def test_an_aggregate_roll_up_validates(panel_graph, spec_dir: Path, monkeypatch) -> None:
     # A limit that every single fixture channel fits and the three-channel child does not.
     singles = [
-        layout.rule_length(layout.ladder(panel_graph, [light(panel_graph, c)])) for c in RULED
+        layout.engine_length(layout.ladder(panel_graph, [light(panel_graph, c)])) for c in RULED
     ]
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", max(singles))
     doc = stub_render(rollup_view(), panel_graph)

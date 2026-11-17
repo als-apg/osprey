@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.panels import layout
-from osprey.facility.panels.describe import describe, targets
+from osprey.facility.panels.describe import describe, light, targets
 from osprey.facility.panels.health import supported
 from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
 from osprey.facility.panels.symbols import WIDTH_UNITS
@@ -130,7 +130,9 @@ class Problem:
             (a channel with a rule the engine can evaluate that no roll-up
             screen reads),
             ``static_rollup`` (a roll-up that reads a rule the engine can
-            evaluate and draws no live light) or ``outside_set``.
+            evaluate and draws no live light), ``long_formula`` (an
+            expression the formula engine would refuse as too long) or
+            ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
     """
@@ -599,19 +601,30 @@ def _bound_channels(document: Any) -> Iterator[str]:
             stack.extend(node)
 
 
-def _reads(graph: PanelGraph, view: View) -> bool:
-    """Whether a roll-up view's root reads a channel with a row the engine can evaluate.
+def _carried(graph: PanelGraph, channel: str) -> bool:
+    """Whether a light can read the channel: its rule writes an arm, or would but is too long.
 
-    A channel whose every row has a form the engine cannot evaluate has no
-    rule a light could carry; a roll-up of only such channels is not static.
+    A channel whose rows the engine cannot evaluate, or whose rule can give no
+    state but ``unknown`` (no arm), or whose rows no condition can say (a
+    label), has nothing a light could read.
     """
+    if not any(supported(row.value) for row in graph.rule(channel)):
+        return False
+    rule = layout.ladder(graph, [light(graph, channel)])
+    if isinstance(rule, str):
+        return rule != "label condition"
+    return bool(rule.arms)
+
+
+def _reads(graph: PanelGraph, view: View) -> bool:
+    """Whether a roll-up view's root reads a channel a light can read (:func:`_carried`);
+    a roll-up of none is not static."""
     return any(
-        supported(row.value)
+        _carried(graph, channel)
         for section in view.sections
         for item in section.items
         if isinstance(item, Node)
         for channel in item.channels
-        for row in graph.rule(channel)
     )
 
 
@@ -638,6 +651,45 @@ def _links(document: Any) -> Iterator[str]:
             stack.extend(node.values())
         elif isinstance(node, list):
             stack.extend(node)
+
+
+def _long_formulas(document: Any, relative: str) -> list[Problem]:
+    """A ``long_formula`` problem per expression the engine would refuse as too long.
+
+    That is a screen formula's own expression, and every rule's expression
+    as the viewer compiles it (:func:`layout.engine_expression`).
+    """
+    limit = layout.RULE_EXPRESSION_LIMIT
+    found: list[Problem] = []
+    formulas = {
+        f["name"]: f
+        for f in document.get("formulas") or ()
+        if isinstance(f, Mapping) and isinstance(f.get("expression"), str)
+    }
+    for name, formula in formulas.items():
+        if len(formula["expression"]) > limit:
+            detail = f"formula {name} is {len(formula['expression'])} characters, over {limit}"
+            found.append(Problem("long_formula", relative, detail))
+    for node in _walk_nodes(document.get("root")):
+        for rule in node.get("rules") or ():
+            if not rule.get("conditions"):
+                continue
+            try:
+                length = len(layout.engine_expression(rule, formulas))
+            except (KeyError, TypeError):
+                continue  # a dangling formula is reported as a dangling link
+            if length > limit:
+                detail = f"rule {rule.get('id')} compiles to {length} characters, over {limit}"
+                found.append(Problem("long_formula", relative, detail))
+    return found
+
+
+def _walk_nodes(node: Any) -> Iterator[Mapping[str, Any]]:
+    if not isinstance(node, Mapping):
+        return
+    yield node
+    for child in node.get("children") or ():
+        yield from _walk_nodes(child)
 
 
 def check(
@@ -730,12 +782,12 @@ def check(
         if rolled is not None and wanted[relative].view == "rollup":
             rolled.update(_bound_channels(json.loads((out / relative).read_bytes())))
     if rolled is not None:
-        # a channel whose every row the engine cannot evaluate has no rule to read
-        ruled = dict.fromkeys(row.channel for row in graph.rules() if supported(row.value))
+        # a channel no light can read has no rule to read (see _carried)
+        ruled = dict.fromkeys(row.channel for row in graph.rules())
         problems.extend(
             Problem("unrolled", INDEX, f"{name} has a health rule and no roll-up screen reads it")
             for name in ruled
-            if name not in rolled
+            if name not in rolled and _carried(graph, name)
         )
     return problems
 
@@ -778,6 +830,7 @@ def _check_file(
         problems.append(
             Problem("stamp", relative, f"written from other {' and '.join(changed)} than now")
         )
+    problems += _long_formulas(document, relative)
     fresh, _title, view = _generate(graph, target, ids, draw)
     if target.view == "rollup" and _reads(graph, view) and not _live(document):
         problems.append(

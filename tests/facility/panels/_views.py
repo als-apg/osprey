@@ -120,6 +120,9 @@ RULED = (
     "XR02-BEND1:Current-RB",
 )
 
+#: Three of them whose joint rule is longer than any one channel's.
+THREE = (RULED[0], RULED[2], RULED[3])
+
 
 def rollup_view() -> View:
     """A roll-up: a root over every ruled channel; one child per channel, a three-channel
@@ -127,7 +130,7 @@ def rollup_view() -> View:
     grandchild = Node("deep", None, RULED[:1], False)
     children = (
         *(Node(c, Link(c, Target("card", "device", c)), (c,), False) for c in RULED),
-        Node("three", None, RULED[1:4], False, (grandchild,)),
+        Node("three", None, THREE, False, (grandchild,)),
         Node("none", None, (), True),
     )
     root = Node("ROOT", None, RULED, False, children)
@@ -166,12 +169,18 @@ def formulas(doc: dict) -> dict[str, dict]:
 
 
 def bound(doc: dict, node: dict) -> tuple[str, ...]:
-    """The channels a node's first rule reads, through the screen formula it names."""
-    names = []
-    for pv in node["rules"][0]["pvs"]:
-        found = formulas(doc).get(pv["name"])
-        names += list(found["bindings"].values()) if found else [pv["name"]]
-    return tuple(names)
+    """The channels a node's rules read, each once, through the screen formulas they
+    name: in the light's order (a formula's ``v<i>`` is its channel ``i``)."""
+    found: dict[str, tuple[int, int]] = {}
+    for rule in node["rules"]:
+        for pv in rule["pvs"]:
+            formula = formulas(doc).get(pv["name"])
+            if formula is None:
+                found.setdefault(pv["name"], (len(found), 0))
+                continue
+            for key, channel in formula["bindings"].items():
+                found.setdefault(channel, (int(key[1:]), 0))
+    return tuple(sorted(found, key=lambda channel: found[channel]))
 
 
 def resolved(doc: dict, values: dict) -> dict:

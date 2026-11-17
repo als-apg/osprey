@@ -27,10 +27,10 @@ from osprey.facility.panels.layout import (
     MIN_STRIP_SCALE,
     SYMBOL_UNIT,
     aggregates,
+    engine_length,
     ladder,
     needs,
     render,
-    rule_length,
     text_width,
     unexpressed,
 )
@@ -45,11 +45,17 @@ from osprey.facility.panels.view import (
     ValueRow,
     View,
 )
-from tests.facility.panels._fixture import copy_tables, graph_with_part, write_fixture_facility
+from tests.facility.panels._fixture import (
+    copy_tables,
+    graph_with_part,
+    graph_with_wide,
+    write_fixture_facility,
+)
 from tests.facility.panels._views import (
     ABOVE,
     RULED,
     SYMBOLS,
+    THREE,
     Screens,
     bound,
     card,
@@ -201,9 +207,9 @@ def test_a_text_label_row_cannot_be_written_and_the_light_is_unknown(tmp_path) -
 
 
 def _limit_between_one_channel_and_three(graph) -> int:
-    singles = [rule_length(ladder(graph, [light(graph, c)])) for c in RULED]
-    three = ladder(graph, [light(graph, c) for c in RULED[1:4]])
-    assert rule_length(three) > max(singles)
+    singles = [engine_length(ladder(graph, [light(graph, c)])) for c in RULED]
+    three = ladder(graph, [light(graph, c) for c in THREE])
+    assert engine_length(three) > max(singles)
     return max(singles)
 
 
@@ -265,16 +271,29 @@ def test_a_lights_rules_carry_the_looks_of_their_states(panel_graph) -> None:
     (shape,) = _by_type(doc, "polygon")
     rule = ladder(panel_graph, [item])
     assert [r["targetProperty"] for r in shape["rules"]] == list(symbols.LIGHT_PROPS)
-    (formula,) = doc["formulas"]  # the ladder, written once for every prop
-    assert formula["bindings"] == {"v0": "XR02-IP1:Pressure-RB"}
-    assert formula["expression"] == layout.state_formula(rule)
+    # one formula per arm, written once for every prop
+    assert [(f["expression"], f["bindings"]) for f in doc["formulas"]] == [
+        (expression, bindings) for expression, bindings in layout.arm_formulas(rule)
+    ]
+    assert all(f["bindings"] == {"v0": "XR02-IP1:Pressure-RB"} for f in doc["formulas"])
+    names = [f"formula://{f['name']}" for f in doc["formulas"]]
     for r in shape["rules"]:
-        assert r["pvs"] == [{"name": f"formula://{formula['name']}", "trigger": True}]
+        assert {pv["name"] for pv in r["pvs"]} <= set(names)
         assert r["default"] == symbols.look("unknown")[r["targetProperty"]]
-        states = list(dict.fromkeys(state for _, state in rule.arms))
-        for condition, state in zip(r["conditions"], states, strict=True):
-            assert condition["expression"] == f"{{0}} == {layout.STATE_CODES[state]}"
-            assert condition["value"] == symbols.look(state)[r["targetProperty"]]
+        # the state of the first arm that holds reads its look; none holding, unknown's
+        for first in [*range(len(rule.arms)), None]:
+            held = {name: first is not None and i >= first for i, name in enumerate(names)}
+            state = rule.arms[first][1] if first is not None else "unknown"
+            truth = [held[pv["name"]] for pv in r["pvs"]]
+            chosen = next(
+                (
+                    c["value"]
+                    for c in r["conditions"]
+                    if eval(TOKEN.sub(r"v[\1]", c["expression"]), {}, {"v": truth})
+                ),
+                r["default"],
+            )
+            assert chosen == symbols.look(state)[r["targetProperty"]], (r["targetProperty"], state)
     (mark,) = [n for n in _by_type(doc, "text-label") if n.get("rules")]
     assert mark["rules"][0]["targetProperty"] == "text"
 
@@ -826,24 +845,27 @@ def test_a_lights_screen_formula_gives_the_ladders_state_for_every_value(panel_g
     if not rule.arms:  # rows the engine skips write no arm: no rule, no formula
         assert doc["formulas"] == []
         return
-    (formula,) = doc["formulas"]
+    (shape,) = _by_type(doc, "polygon")
     for value in VALUES:
-        code = resolved(doc, {channel: value})[f"formula://{formula['name']}"]
-        expected = evaluate(rule, [value])
-        assert code == layout.STATE_CODES[expected] or (code is None and expected == "unknown")
+        assert drawn(doc, shape, {channel: value}) == shown(evaluate(rule, [value])), value
 
 
 def test_a_ladder_is_written_once_per_light_not_once_per_prop(panel_graph) -> None:
     items = [light(panel_graph, c) for c in RULED]
     doc, _ = draw(card("node", Node("n", None, RULED, False)), panel_graph)
-    (formula,) = doc["formulas"]  # the shape's props and the mark read one formula
-    assert formula["expression"] == layout.state_formula(ladder(panel_graph, items, node=True))
+    rule = ladder(panel_graph, items, node=True)
+    # the shape's props and the mark read one formula per arm, each declared once
+    assert [f["expression"] for f in doc["formulas"]] == [e for e, _ in layout.arm_formulas(rule)]
+    names = {f"formula://{f['name']}" for f in doc["formulas"]}
     ruled = [n for n in nodes(doc) if n.get("rules")]
     assert len(ruled) == 2  # the shape and its mark
     for node in ruled:
-        for rule in node["rules"]:
-            assert rule["pvs"] == [{"name": f"formula://{formula['name']}", "trigger": True}]
-            assert all(len(c["expression"]) <= len("{0} == 4") for c in rule["conditions"])
+        for found in node["rules"]:
+            assert {pv["name"] for pv in found["pvs"]} <= names
+            # a condition names its formulas only: {0}, or {0} or {1} for arms of one look
+            assert all(
+                TOKEN.sub("", c["expression"]).strip(" or") == "" for c in found["conditions"]
+            )
 
 
 def test_an_aggregate_tile_opens_its_childs_screen(panel_graph, monkeypatch) -> None:
@@ -851,7 +873,7 @@ def test_an_aggregate_tile_opens_its_childs_screen(panel_graph, monkeypatch) -> 
         layout, "RULE_EXPRESSION_LIMIT", _limit_between_one_channel_and_three(panel_graph)
     )
     down = Target("rollup", "place", "XR/XR02", by="place")
-    child = Node("XR/XR02", Link("XR/XR02", down), RULED[1:4], False)
+    child = Node("XR/XR02", Link("XR/XR02", down), THREE, False)
     root = Node("XR", None, RULED, False, (child,))
     view = View(Target("rollup", "place", "XR", by="place"), "x", (), (Section("r", (root,)),))
     doc, screens = draw(view, panel_graph)
@@ -1015,3 +1037,145 @@ def test_a_bad_part_turns_the_place_of_its_whole_bad(tmp_path) -> None:
         quiet = dict.fromkeys(names, 1) | {card: 0}
         assert drawn(doc, root, quiet)["fillColor"] != symbols.look("bad")["fillColor"]
         assert drawn(doc, root, quiet | {card: 1}) == shown("bad"), place
+
+
+# ------------------------------------------------------------- the engine's expression
+
+
+def _engine_lengths(doc: dict) -> list[int]:
+    """The length of every rule's expression as the viewer compiles it for the engine."""
+    found = {f["name"]: f for f in doc.get("formulas", ())}
+    return [len(layout.engine_expression(r, found)) for n in nodes(doc) for r in n.get("rules", ())]
+
+
+def test_the_engine_expression_is_the_viewers_compile_of_a_rule() -> None:
+    formula = {
+        "name": "s00001",
+        "kind": "scalar",
+        "expression": "4 if (v0 == 1) else (1)",
+        "bindings": {"v0": "A"},
+    }
+    rule = {
+        "id": "r-0001",
+        "name": "n",
+        "targetProperty": "fill",
+        "default": False,
+        "pvs": [{"name": "formula://s00001", "trigger": True}],
+        "conditions": [{"expression": "{0} == 4", "value": True}],
+    }
+    assert layout.engine_expression(rule, {"s00001": formula}) == (
+        "True if ((4 if ({s00001.v0} == 1) else (1)) == 4) else (False)"
+    )
+    plain = dict(rule, pvs=[{"name": "A", "trigger": True}], default={"$role": "X"})
+    assert layout.engine_expression(plain, {}) == 'True if ({0} == 4) else ({"$role":"X"})'
+
+
+def test_the_bound_is_the_longest_expression_the_light_writes(panel_graph) -> None:
+    for items in ([light(panel_graph, c)] for c in RULED):
+        rule = ladder(panel_graph, items)
+        if not rule.arms:
+            continue  # no arm, no rule drawn
+        doc, _ = draw(card("one", *items), panel_graph)
+        assert layout.engine_length(rule) == max(_engine_lengths(doc)), items
+
+
+def test_no_drawn_rule_is_longer_than_the_engine_takes_even_for_forty_channels(tmp_path):
+    from osprey.facility.panels.describe import describe, health_rollup
+
+    graph = graph_with_wide(tmp_path, 40)
+    for view in [
+        *fixture_views(graph),
+        health_rollup(graph, "XR/XR01"),
+        health_rollup(graph, "XR"),
+    ]:
+        doc, _ = draw(view, graph)
+        assert max(_engine_lengths(doc), default=0) <= layout.RULE_EXPRESSION_LIMIT, view.id
+    doc, _ = draw(describe(graph, layout_target("XR01:WIDE1")), graph)
+    assert max(_engine_lengths(doc)) <= layout.RULE_EXPRESSION_LIMIT
+
+
+def layout_target(thing: str):
+    from osprey.facility.panels.view import Target
+
+    return Target("card", "device", thing)
+
+
+def test_a_channel_writes_the_shortest_condition_per_state(tmp_path) -> None:
+    graph = graph_with_wide(tmp_path, 1)
+    rule = ladder(graph, [light(graph, "XR01-WIDE1:Sig0-Sts")])
+    assert rule.arms == (
+        ("{0} == 1 or {0} >= 5", "bad"),
+        ("{0} == 2", "warn"),
+        ("{0} == 0", "normal"),
+    )
+
+
+def test_a_run_of_integer_values_is_one_test(tmp_path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        for value in (1, 2, 3, 4):
+            rows.write(
+                f"XR09-LOOSE1:Fault-Sts,{value},bad,database-severity,stated,xr-ioc,0a1b2c3,l.db:{value}\n"
+            )
+        rows.write(
+            "XR09-LOOSE1:Fault-Sts,0,normal,database-severity,stated,xr-ioc,0a1b2c3,l.db:9\n"
+        )
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    item = light(graph, "XR09-LOOSE1:Fault-Sts")
+    rule = ladder(graph, [item])
+    assert rule.arms[0] == ("{0} == {0} // 1 and 1 <= {0} <= 4", "bad")
+    for value in (-1, 0, 0.5, 1, 1.5, 2, 3, 4, 4.5, 5):
+        assert evaluate(rule, [value]) == flagged(channel_state(graph, item.channel, value), item)
+
+
+def test_the_simplified_ladder_is_the_worst_state_for_every_combination(tmp_path) -> None:
+    import itertools
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write(
+            "XR09-LOOSE1:Fault-Sts,0,normal,database-severity,stated,xr-ioc,0a1b2c3,l.db:3\n"
+        )
+        rows.write("XR09-LOOSE1:Fault-Sts,3,warn,database-severity,stated,xr-ioc,0a1b2c3,l.db:4\n")
+        rows.write("XR09-LOOSE1:Fault-Sts,>=4,bad,database-severity,stated,xr-ioc,0a1b2c3,l.db:5\n")
+        rows.write("XR02-QD1:Current-RB,>=6,bad,database-severity,stated,xr-ioc,0a1b2c3,m.db:7\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    # literals with agreeing and disagreeing sources, comparisons, bit tests beside a
+    # comparison, a flagged light
+    channels = ("XR09-LOOSE1:Fault-Sts", "XR01-IP1:State-Sts", "XR02-QD1:Current-RB")
+    items = [light(graph, c) for c in channels]
+    rule = ladder(graph, items)
+    assert not isinstance(rule, str)
+    values = (-1, 0, 0.5, 1, 2, 3, 4, 5, 6, 7)
+    for combo in itertools.product(values, repeat=3):
+        expected = worst(
+            flagged(channel_state(graph, item.channel, v), item)
+            for item, v in zip(items, combo, strict=True)
+        )
+        assert evaluate(rule, list(combo)) == expected, combo
+    formula = " ".join(condition for condition, _ in rule.arms)
+    assert "not (" not in formula  # no negation of what an earlier arm already ruled out
+
+
+def test_a_channel_with_bit_tests_and_other_rows_is_exact_too(tmp_path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write("XR02-QD1:Current-RB,>=8,bad,database-severity,stated,xr-ioc,0a1b2c3,m.db:9\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    item = light(graph, "XR02-QD1:Current-RB")
+    rule = ladder(graph, [item])
+    for value in (-3, -2, -1, 0, 0.5, 1, 2, 3, 4, 5, 6, 7, 7.5, 8, 9, 10, 11):
+        assert evaluate(rule, [value]) == flagged(channel_state(graph, item.channel, value), item)
+
+
+def test_a_channel_bad_above_its_last_value_writes_an_open_bound(tmp_path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write("XR09-LOOSE1:Fault-Sts,>1,bad,database-severity,stated,xr-ioc,0a1b2c3,l.db:3\n")
+        rows.write("XR09-LOOSE1:Fault-Sts,<0,warn,database-severity,stated,xr-ioc,0a1b2c3,l.db:4\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    item = light(graph, "XR09-LOOSE1:Fault-Sts")
+    rule = ladder(graph, [item])
+    assert rule.arms[:2] == (("{0} >= 1", "bad"), ("{0} < 0", "warn"))
+    for value in (-1, -0.5, 0, 0.5, 1, 1.5, 2):
+        assert evaluate(rule, [value]) == flagged(channel_state(graph, item.channel, value), item)

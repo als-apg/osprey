@@ -6,9 +6,10 @@ another, and draws every item with the pinned viewer's widgets. Colours are
 the theme roles of :mod:`~osprey.facility.panels.symbols`.
 
 States are the viewer's to compute. A light's rule over its channels, written from
-their health rows (see :func:`ladder`), is one screen formula
-(:func:`state_formula`) that gives a state's code; each prop of the light has a
-rule that reads that formula and sets the prop to the state's look. The viewer
+their health rows (see :func:`ladder`), is a list of arms, each a screen formula
+(:func:`arm_formulas`) that holds when the light is in that arm's state; each
+prop of the light has a rule (:func:`light_rule`) whose conditions read those
+formulas, first that holds wins, and set the prop to the state's look. The viewer
 shows the state the rows give the live value, and ``unknown`` before a value
 arrives. Nothing here reads a value.
 
@@ -23,6 +24,8 @@ Every size, spacing and font size is in the constants block below.
 
 from __future__ import annotations
 
+import itertools
+import json
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -66,7 +69,8 @@ __all__ = [
     "FORMAT_REQUESTS",
     "MIN_STRIP_SCALE",
     "OUTLINE_KIND",
-    "STATE_CODES",
+    "arm_formulas",
+    "light_rule",
     "WIDGETS",
     "Ladder",
     "ladder",
@@ -74,7 +78,8 @@ __all__ = [
     "needs",
     "render",
     "picture_labels",
-    "rule_length",
+    "engine_expression",
+    "engine_length",
     "strip_labels",
     "text_width",
     "unexpressed",
@@ -136,10 +141,10 @@ RACK_U = 22  # one rack unit
 RACK_WIDTH = 420
 RACK_LABEL_WIDTH = 56
 UNPOSITIONED_GAP = 40
-# The longest expression a light's rule may be. A light's ladder is one screen
-# formula (``4 if (c0) else (...)``) that CANOPY's formula engine evaluates; it
-# refuses one longer than ``max_expression_len``
-# (canopy/formula_engine/config.py at 166989aa: 2048 characters).
+# The longest expression the formula engine takes. The viewer compiles each rule
+# of a light into one expression, with the light's screen formula inlined once
+# per condition (see engine_expression); the engine refuses one longer than
+# ``max_expression_len`` (canopy/formula_engine/config.py at 166989aa: 2048).
 RULE_EXPRESSION_LIMIT = 2048
 TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts them
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
@@ -149,10 +154,8 @@ WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
 COMMAND_LABEL = "send"  # what a command's button reads
 COMMAND_VALUE = 1  # what pressing a command's button writes
-#: The number a light's screen formula gives each state; ``unknown`` when no arm holds.
-STATE_CODES: Mapping[str, int] = MappingProxyType(
-    {"normal": 0, "unknown": 1, "disagree": 2, "warn": 3, "bad": 4}
-)
+INTEGER_RUN = 3  # the fewest successive integer values a rule writes as one range test
+BIT_TESTS = 6  # the most bits a channel's rule writes as a table of their values
 # --- end constants -------------------------------------------------------------
 
 #: The widget a value is drawn as, by its ``drawn_as`` in ``record_types.csv``:
@@ -300,8 +303,284 @@ def _exclusive(a: health.Form, b: health.Form) -> bool:
     )
 
 
+#: For each arm of a ladder, the states an earlier arm has already ruled out for every
+#: channel: where a channel is in one of them, the arm may hold or not.
+_RULED_OUT: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "bad": frozenset(),
+        "warn": frozenset({"bad"}),
+        "disagree": frozenset({"bad", "warn"}),
+        "normal": frozenset({"bad", "warn", "disagree"}),
+    }
+)
+
+
+def _shown(state: State, item: Light) -> State:
+    """The state a light draws: a flagged light is never normal (disagree, else unknown)."""
+    if state != "normal":
+        return state
+    if item.disagree:
+        return "disagree"
+    return "unknown" if item.unsupported else state
+
+
+def _interval(points: Sequence[float], first: int, last: int, token: str) -> str:
+    """The test that a value is in segments *first* to *last* (see :func:`_channel_arms`).
+
+    Segment ``2j + 1`` is the point ``points[j]``; segment ``2j`` is the open
+    interval below it, and segment ``2 * len(points)`` the one above the last.
+    """
+    if first == last and first % 2:
+        return f"{token} == {_number(points[first // 2])}"
+    low: tuple[float, str] | None = None
+    if first % 2:
+        low = (points[first // 2], "<=")
+    elif first:
+        low = (points[first // 2 - 1], "<")
+    high: tuple[float, str] | None = None
+    if last % 2:
+        high = (points[last // 2], "<=")
+    elif last < 2 * len(points):
+        high = (points[last // 2], "<")
+    if low and high:
+        return f"{_number(low[0])} {low[1]} {token} {high[1]} {_number(high[0])}"
+    if low:
+        return f"{token} {'>=' if low[1] == '<=' else '>'} {_number(low[0])}"
+    if high:
+        return f"{token} {high[1]} {_number(high[0])}"
+    return f"{token} == {token}"  # every number; NaN is no number
+
+
+def _cover(points: Sequence[float], marks: Sequence[str], token: str) -> str | None:
+    """The shortest test true on every ``T`` segment and false on every ``F`` one.
+
+    A ``D`` segment may go either way. Each maximal run of segments with no
+    ``F`` that holds a ``T`` is one interval; a run of at least
+    :data:`INTEGER_RUN` single successive integers is one integer range test.
+    """
+    runs: list[tuple[int, int]] = []
+    start = None
+    for k, mark in enumerate([*marks, "F"]):
+        if mark != "F" and start is None:
+            start = k
+        elif mark == "F" and start is not None:
+            if "T" in marks[start:k]:
+                runs.append((start, k - 1))
+            start = None
+    terms: list[str] = []
+    i = 0
+    while i < len(runs):
+        j = i
+        while j + 1 < len(runs) and _successive(points, runs[j], runs[j + 1]):
+            j += 1
+        if j - i + 1 >= INTEGER_RUN:
+            low, high = points[runs[i][0] // 2], points[runs[j][0] // 2]
+            terms.append(
+                f"{token} == {token} // 1 and {_number(low)} <= {token} <= {_number(high)}"
+            )
+        else:
+            terms += [_interval(points, a, b, token) for a, b in runs[i : j + 1]]
+        i = j + 1
+    return " or ".join(terms) if terms else None
+
+
+def _successive(points: Sequence[float], a: tuple[int, int], b: tuple[int, int]) -> bool:
+    """Whether runs *a* and *b* are single points at successive integers."""
+    if a[0] != a[1] or b[0] != b[1] or not a[0] % 2 or not b[0] % 2:
+        return False
+    p, q = points[a[0] // 2], points[b[0] // 2]
+    return p == int(p) and q == p + 1
+
+
+def _bit_test(token: str, bit: int, wanted: int) -> str:
+    shifted = token if bit == 0 else f"{token} // {2**bit}"
+    return f"{shifted} % 2 == {wanted}"
+
+
+def _bits_of(value: int, bits: Sequence[int]) -> tuple[int, ...]:
+    return tuple((value >> bit) & 1 for bit in bits)
+
+
+def _segment_values(
+    points: Sequence[float], k: int, bits: Sequence[int]
+) -> tuple[float | None, dict[tuple[int, ...], int]]:
+    """A value of segment *k* that is no integer (``None`` when it has none) and, for
+    each combination of *bits* that an integer in it has, one such integer."""
+    period = 2 ** (max(bits) + 1)
+    if k % 2:
+        point = points[k // 2]
+        if point == int(point):
+            return None, {_bits_of(int(point), bits): int(point)}
+        return point, {}
+    low = points[k // 2 - 1] if k else None
+    high = points[k // 2] if k < 2 * len(points) else None
+    if low is None and high is None:
+        other, ints = 1 / 2, range(period)
+    elif low is None:
+        other = math.floor(high) - 1 / 2  # type: ignore[arg-type]
+        last = math.ceil(high) - 1  # type: ignore[arg-type]
+        ints = range(last - period + 1, last + 1)
+    elif high is None:
+        other = math.floor(low) + 1 + 1 / 2
+        first = math.floor(low) + 1
+        ints = range(first, first + period)
+    else:
+        other = (low + high) / 2
+        while other == int(other):  # halve toward the low end until it is no integer
+            other = (low + other) / 2
+        first, last = math.floor(low) + 1, math.ceil(high) - 1
+        ints = range(first, min(last, first + period - 1) + 1)
+    found: dict[tuple[int, ...], int] = {}
+    for value in ints:
+        found.setdefault(_bits_of(value, bits), value)
+    return other, found
+
+
+def _cubes(
+    bits: Sequence[int], true: set[tuple[int, ...]], false: set[tuple[int, ...]], token: str
+) -> list[str]:
+    """The fewest bit tests, ORed, that hold for every *true* combination and no *false*
+    one: a greedy cover by cubes; ``""`` is the cube of every combination."""
+    cubes = sorted(itertools.product((None, 0, 1), repeat=len(bits)), key=_fixed)
+    allowed = [q for q in cubes if not any(_in_cube(c, q) for c in false)]
+    chosen: list[tuple[int | None, ...]] = []
+    left = set(true)
+    while left:  # the cube that covers most of what is left, fewest bits on a tie
+        best = max(allowed, key=lambda q: (sum(_in_cube(c, q) for c in left), -_fixed(q)))
+        chosen.append(best)
+        left = {c for c in left if not _in_cube(c, best)}
+    return [
+        " and ".join(
+            _bit_test(token, bit, w) for bit, w in zip(bits, q, strict=True) if w is not None
+        )
+        for q in chosen
+    ]
+
+
+def _both(first: str, second: str) -> str:
+    """*first* and *second*; an ``or`` in either is put in parentheses."""
+    return " and ".join(f"({t})" if " or " in t else t for t in (first, second) if t)
+
+
+def _bit_arms(
+    graph: PanelGraph, item: Light, token: str, bits: Sequence[int], points: Sequence[float]
+) -> dict[str, str | None]:
+    """The conditions of a channel with bit tests among its rows.
+
+    A bit test matches integers only. On a segment of the number line (see
+    :func:`_channel_arms`) every value that is no integer has one state, and
+    an integer's state follows from the segment and its *bits*: each is read
+    from :func:`health.channel_state` at a value that has it. A condition is
+    the test that the value is no integer and in the segments where that
+    state holds, or an integer, in a run of segments, with the fewest bit
+    tests that say it; a combination no integer of a segment has may go
+    either way.
+    """
+    combos = list(itertools.product((0, 1), repeat=len(bits)))
+    other: list[State | None] = []
+    ints: list[dict[tuple[int, ...], State]] = []
+    for k in range(2 * len(points) + 1):
+        value, found = _segment_values(points, k, bits)
+        state = health.channel_state(graph, item.channel, value) if value is not None else None
+        other.append(_shown(state, item) if state is not None else None)
+        ints.append(
+            {
+                c: _shown(health.channel_state(graph, item.channel, v), item)
+                for c, v in found.items()
+            }
+        )
+    guard = f"{token} == {token} // 1"
+    arms: dict[str, str | None] = {}
+    for state, ruled_out in _RULED_OUT.items():
+
+        def mark(found: State | None, state=state, ruled_out=ruled_out) -> str:
+            if found is None or found in ruled_out:
+                return "D"
+            return "T" if found == state else "F"
+
+        parts: list[str] = []
+        apart = _cover(points, [mark(s) for s in other], token)
+        if apart is not None:
+            parts.append(_both(f"{token} != {token} // 1", apart))
+        # runs of segments whose integers want no conflicting marks, merged left to right
+        runs: list[list] = []
+        for k, states in enumerate(ints):
+            if not states:
+                continue
+            pattern = {c: mark(states.get(c)) for c in combos}
+            last = runs[-1] if runs else None
+            if last is not None and not any({last[2][c], pattern[c]} == {"T", "F"} for c in combos):
+                last[1] = k
+                for c in combos:
+                    if pattern[c] != "D":
+                        last[2][c] = pattern[c]
+            else:
+                runs.append([k, k, pattern])
+        terms: list[str] = []
+        for i, (_first, _last, pattern) in enumerate(runs):
+            true = {c for c in combos if pattern[c] == "T"}
+            if not true:
+                continue
+            low = 0 if i == 0 else runs[i - 1][1] + 1
+            high = 2 * len(points) if i == len(runs) - 1 else runs[i + 1][0] - 1
+            where = _interval(points, low, high, token)
+            where = "" if where == f"{token} == {token}" else where
+            false = {c for c in combos if pattern[c] == "F"}
+            tests = _cubes(bits, true, false, token)
+            which = "" if "" in tests else " or ".join(tests)
+            terms.append(_both(where, which))
+        if terms:
+            parts.append(guard if "" in terms else _both(guard, " or ".join(terms)))
+        arms[state] = " or ".join(parts) if parts else None
+    return arms
+
+
+def _fixed(cube: tuple[int | None, ...]) -> int:
+    return sum(w is not None for w in cube)
+
+
+def _in_cube(combo: tuple[int, ...], cube: tuple[int | None, ...]) -> bool:
+    return all(w is None or w == c for c, w in zip(combo, cube, strict=True))
+
+
 def _channel_arms(graph: PanelGraph, item: Light, token: str) -> dict[str, str | None] | str:
-    """The condition under which one channel is in each state, or why none can be written.
+    """The shortest condition under which one channel is in each state, or why none can be.
+
+    The numbers the channel's rows name cut the number line into segments
+    (open intervals and the points between them); the channel's state, as
+    the light draws it, is constant on each, and is read from
+    :func:`health.channel_state` at one value of each, so the conditions say
+    exactly what the engine says. The condition of an arm may hold or not
+    where an earlier arm has already ruled the channel out
+    (:data:`_RULED_OUT`). A channel with bit tests is :func:`_bit_arms`'s;
+    one with more than :data:`BIT_TESTS` bits is written row by row.
+    """
+    forms = [f for row in graph.rule(item.channel) if (f := health.form(row.value)) is not None]
+    if any(f.kind == "literal" and f.number is None for f in forms):
+        return "label condition"
+    bits = sorted({f.bit for f in forms if f.kind == "bit"})  # type: ignore[type-var]
+    if len(bits) > BIT_TESTS:
+        return _row_arms(graph, item, token)
+    points = sorted({f.number for f in forms if f.number is not None})
+    if bits:
+        return _bit_arms(graph, item, token, bits, points)  # type: ignore[arg-type]
+    samples: list[float] = []
+    for j, point in enumerate(points):
+        samples.append(point - 1 if j == 0 else (points[j - 1] + point) / 2)
+        samples.append(point)
+    samples.append(points[-1] + 1 if points else 0)
+    states = [_shown(health.channel_state(graph, item.channel, v), item) for v in samples]
+    arms: dict[str, str | None] = {}
+    for state, ruled_out in _RULED_OUT.items():
+        marks = ["T" if s == state else "D" if s in ruled_out else "F" for s in states]
+        arms[state] = _cover(points, marks, token)
+    return arms
+
+
+def _row_arms(graph: PanelGraph, item: Light, token: str) -> dict[str, str | None] | str:
+    """The condition under which one channel is in each state, written row by row.
+
+    For a channel with a bit test, which no interval of values can say.
 
     Rows with one condition are taken together, so agreeing sources write it
     once; two conditions no value can meet both of never disagree.
@@ -390,40 +669,139 @@ def ladder(graph: PanelGraph, lights: Sequence[Light], *, node: bool = False) ->
         per_channel.append(arms)
         written += sum(len(c) for c in arms.values() if c)
         if written > RULE_EXPRESSION_LIMIT:
-            return too_long  # every condition appears at least once in the ladder
+            return too_long  # every condition is written at least once: a cheap early exit
     if unwritten and len(unwritten) == len(lights):
         return reason
     out: list[tuple[str, State]] = []
     for state in _STATE_ORDER:
-        found = _any([c for arms in per_channel if (c := arms[state])])
-        if found is not None:
-            out.append((found, state))
+        found = [c for arms in per_channel if (c := arms[state])]
+        if found:
+            out.append((" or ".join(found), state))
     normals = [arms["normal"] for arms in per_channel]
     if normals and all(normals):
-        joined = normals[0] if len(normals) == 1 else " and ".join(f"({c})" for c in normals)
+        joined = " and ".join(f"({c})" if " or " in c else c for c in normals)  # type: ignore[operator]
         out.append((joined, "normal"))  # type: ignore[arg-type]
     rule = Ladder(tuple(item.channel for item in lights), tuple(out), tuple(unwritten))
-    return too_long if rule_length(rule) > RULE_EXPRESSION_LIMIT else rule
+    return too_long if engine_length(rule) > RULE_EXPRESSION_LIMIT else rule
 
 
-def state_formula(rule: Ladder) -> str:
-    """The screen formula of a light's ladder: the code (:data:`STATE_CODES`) of its state.
+def arm_formulas(rule: Ladder) -> list[tuple[str, dict[str, str]]]:
+    """The screen formula of each arm of *rule*: its condition and its bindings.
 
-    ``{i}`` of an arm is the formula's variable ``v<i>``, bound to
-    ``rule.channels[i]``; the first arm that holds gives its state's code, and
-    none holding gives ``unknown``'s. Every prop of the light reads this one
-    formula, so the ladder is written once per light, not once per prop.
+    ``{i}`` of an arm is the variable ``v<i>``, bound to ``rule.channels[i]``;
+    a formula binds the channels its arm reads, nothing else.
     """
-    out = str(STATE_CODES["unknown"])
-    for condition, state in reversed(rule.arms):
-        written = _TOKEN.sub(r"v\1", condition)
-        out = f"{STATE_CODES[state]} if ({written}) else ({out})"
+    out = []
+    for condition, _state in rule.arms:
+        used = sorted({int(i) for i in _TOKEN.findall(condition)})
+        out.append((_TOKEN.sub(r"v\1", condition), {f"v{i}": rule.channels[i] for i in used}))
     return out
 
 
-def rule_length(rule: Ladder) -> int:
-    """The length of a light's screen formula, the expression the format's limit bounds."""
-    return len(state_formula(rule))
+def light_rule(rule: Ladder, values: Mapping[str, Any], names: Sequence[str]) -> dict[str, Any]:
+    """One prop's rule over the arm formulas *names* (one per arm of *rule*).
+
+    The first arm that holds gives its state's value, none holding gives
+    ``unknown``'s, the default. The viewer inlines a formula once for each
+    ``{N}`` that names it, so each arm is named once: successive arms of one
+    value share a condition (``{0} or {1}``), and the arms after the last one
+    whose value is not the default's are left out.
+    """
+    default = values["unknown"]
+    groups: list[tuple[Any, list[int]]] = []
+    for index, (_condition, state) in enumerate(rule.arms):
+        value = values[state]
+        if groups and groups[-1][0] == value:
+            groups[-1][1].append(index)
+        else:
+            groups.append((value, [index]))
+    while groups and groups[-1][0] == default:
+        groups.pop()
+    pvs: list[dict[str, Any]] = []
+    conditions: list[dict[str, Any]] = []
+    for value, arms in groups:
+        tokens = []
+        for arm in arms:
+            tokens.append(f"{{{len(pvs)}}}")
+            pvs.append({"name": _FORMULA_PREFIX + names[arm], "trigger": True})
+        conditions.append({"expression": " or ".join(tokens), "value": value})
+    return {"default": default, "pvs": pvs, "conditions": conditions}
+
+
+def _literal(value: Any) -> str:
+    """A rule value as the viewer writes it into the expression (its ``pyLiteral``)."""
+    if value is None:
+        return "None"
+    if isinstance(value, bool):
+        return "True" if value else "False"
+    if isinstance(value, int | float):
+        return str(int(value)) if float(value).is_integer() else repr(value)
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+_WIRE_TOKEN = re.compile(r"\{([^{}]+)\}")
+
+
+def engine_expression(rule: Mapping[str, Any], formulas: Mapping[str, Mapping[str, Any]]) -> str:
+    """The one expression the viewer gives the formula engine for a conditional rule.
+
+    This is the viewer's rule compiler, step for step: a ``formula://`` pv's
+    screen formula has each binding name made a ``{<formula>.<name>}`` token
+    and is inlined, in parentheses, for that pv's ``{N}`` in every condition;
+    the conditions become ``value if (condition) else (...)`` ending in the
+    default. The engine refuses it when it is longer than
+    :data:`RULE_EXPRESSION_LIMIT`.
+    """
+    inlined: dict[str, str] = {}
+    for index, pv in enumerate(rule.get("pvs", ())):
+        name = pv["name"]
+        if not name.startswith(_FORMULA_PREFIX):
+            continue
+        decl = formulas[name[len(_FORMULA_PREFIX) :]]
+        wire = decl["expression"]
+        keys = sorted(decl.get("bindings", {}), key=len, reverse=True)
+        if not _WIRE_TOKEN.search(wire):
+            for key in keys:
+                wire = re.sub(
+                    rf"(?<![A-Za-z0-9_{{]){re.escape(key)}(?![A-Za-z0-9_}}])", f"{{{key}}}", wire
+                )
+        for key in keys:
+            wire = wire.replace(f"{{{key}}}", f"{{{decl['name']}.{key}}}")
+        inlined[str(index)] = f"({wire})"
+
+    def condition(text: str) -> str:
+        return _WIRE_TOKEN.sub(lambda m: inlined.get(m.group(1), m.group(0)), text)
+
+    out = _literal(rule["default"])
+    for item in reversed(rule.get("conditions", ())):
+        out = f"{_literal(item['value'])} if ({condition(item['expression'])}) else ({out})"
+    return out
+
+
+#: The width of a screen formula's name; every name has it, so a ladder's
+#: expression has one length wherever it is drawn.
+_FORMULA_NAME = "s{:05d}"
+
+
+def engine_length(rule: Ladder) -> int:
+    """The longest expression the engine receives for a light drawn with *rule*.
+
+    The rules a light writes (one per prop, for every prop any look sets) are
+    built by the writer's own functions and compiled by
+    :func:`engine_expression`; the bound is their longest.
+    """
+    names = [_FORMULA_NAME.format(i + 1) for i in range(len(rule.arms))]
+    formulas = {
+        name: {"name": name, "expression": expression, "bindings": bindings}
+        for name, (expression, bindings) in zip(names, arm_formulas(rule), strict=True)
+    }
+    looks = {state: symbols.look(state) for state in symbols.STATES}
+    longest = 0
+    for prop in (*symbols.LIGHT_PROPS, symbols.MARK_PROP):
+        values = {state: looks[state][prop] for state in symbols.STATES}
+        written = light_rule(rule, values, names)
+        longest = max(longest, len(engine_expression(written, formulas)))
+    return longest
 
 
 def chunks(graph: PanelGraph, lights: Sequence[Light]) -> list[list[Light]]:
@@ -439,7 +817,7 @@ def chunks(graph: PanelGraph, lights: Sequence[Light]) -> list[list[Light]]:
     cost = 0
     for item in lights:
         one = ladder(graph, [item])
-        length = rule_length(one) if isinstance(one, Ladder) else 0
+        length = engine_length(one) if isinstance(one, Ladder) else 0
         if part and cost + length > RULE_EXPRESSION_LIMIT:
             found.append(part)
             part, cost = [], 0
@@ -524,37 +902,31 @@ class _Screen:
     def widget(self, kind: str, x, y, w, h, props: dict[str, Any], **kw: Any) -> dict[str, Any]:
         return self.add({"type": kind, "props": props, "geometry": _geometry(x, y, w, h)}, **kw)
 
-    def formula(self, ladder: Ladder) -> str:
-        """The name of the screen formula of *ladder*, declared once per distinct ladder."""
-        key = (ladder.channels, ladder.arms)
-        name = self._formula_names.get(key)
-        if name is None:
-            name = f"state-{len(self._formula_names) + 1:04d}"
-            self._formula_names[key] = name
-            self.formulas.append(
-                {
-                    "name": name,
-                    "kind": "scalar",
-                    "expression": state_formula(ladder),
-                    "bindings": {f"v{i}": c for i, c in enumerate(ladder.channels)},
-                }
-            )
-        return name
+    def formulas_of(self, ladder: Ladder) -> list[str]:
+        """The names of *ladder*'s arm formulas, each distinct formula declared once."""
+        names = []
+        for expression, bindings in arm_formulas(ladder):
+            key = (expression, tuple(bindings.items()))
+            name = self._formula_names.get(key)
+            if name is None:
+                name = _FORMULA_NAME.format(len(self._formula_names) + 1)
+                if len(name) != len(_FORMULA_NAME.format(1)):
+                    raise ValueError("a screen holds more formulas than their names can number")
+                self._formula_names[key] = name
+                self.formulas.append(
+                    {"name": name, "kind": "scalar", "expression": expression, "bindings": bindings}
+                )
+            names.append(name)
+        return names
 
     def rule(self, name: str, target: str, ladder: Ladder, values: Mapping[str, Any]) -> dict:
-        """One prop's rule: the value of the state the light's formula gives, else unknown's."""
+        """One prop's rule: the value of the first arm that holds, else unknown's."""
         self._rules += 1
-        states = dict.fromkeys(state for _, state in ladder.arms)
         return {
             "id": f"r-{self._rules:04d}",
             "name": name,
             "targetProperty": target,
-            "default": values["unknown"],
-            "pvs": [{"name": _FORMULA_PREFIX + self.formula(ladder), "trigger": True}],
-            "conditions": [
-                {"expression": f"{{0}} == {STATE_CODES[state]}", "value": values[state]}
-                for state in states
-            ],
+            **light_rule(ladder, values, self.formulas_of(ladder)),
         }
 
     def document(self, height: float) -> dict[str, Any]:

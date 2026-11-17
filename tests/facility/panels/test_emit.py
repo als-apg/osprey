@@ -25,7 +25,7 @@ from osprey.facility.panels.emit import (
 )
 from osprey.facility.panels.model import PanelGraph
 from osprey.facility.panels.view import Target
-from tests.facility.panels._fixture import write_fixture_facility
+from tests.facility.panels._fixture import graph_with_wide, write_fixture_facility
 
 
 def _drop(*device_ids: str):
@@ -575,15 +575,16 @@ def test_a_roll_up_with_rule_channels_and_no_live_light_is_static(panel_graph, t
     assert "static_rollup" in kinds
 
 
-def test_no_fixture_roll_up_is_static_even_over_the_rule_limit(panel_graph, tmp_path, monkeypatch):
+def test_no_fixture_roll_up_is_static_even_over_the_rule_limit(tmp_path, monkeypatch):
     from osprey.facility.panels import layout
     from osprey.facility.panels.describe import light
 
+    panel_graph = graph_with_wide(tmp_path / "wide", 8)
     # every channel's rule fits alone, so a long node is drawn in parts
     singles = [
         layout.ladder(panel_graph, [light(panel_graph, r.channel)]) for r in panel_graph.rules()
     ]
-    limit = max(layout.rule_length(rule) for rule in singles if not isinstance(rule, str))
+    limit = max(layout.engine_length(rule) for rule in singles if not isinstance(rule, str))
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", limit)
     out = tmp_path / "out"
     write(panel_graph, out)
@@ -596,3 +597,17 @@ def test_no_fixture_roll_up_is_static_even_over_the_rule_limit(panel_graph, tmp_
         if str(n.get("props", {}).get("tooltip", "")).startswith("part ")
     ]
     assert parts and any(n.get("rules") for n in parts)  # a part of only skipped rows has none
+
+
+def test_a_rule_the_engine_would_refuse_as_too_long_is_a_long_formula(tmp_path, panel_graph):
+    out = tmp_path / "screens"
+    emit.write(panel_graph, out)
+    assert not [p for p in emit.check(panel_graph, out) if p.kind == "long_formula"]
+    victim = next(
+        f for f in sorted(out.rglob("*.screen.json")) if json.loads(f.read_text()).get("formulas")
+    )
+    doc = json.loads(victim.read_text())
+    doc["formulas"][0]["expression"] = " + ".join(["v0"] * 1100)
+    victim.write_text(json.dumps(doc))
+    found = [p for p in emit.check(panel_graph, out) if p.kind == "long_formula"]
+    assert found and all(p.file.endswith(victim.name) for p in found)

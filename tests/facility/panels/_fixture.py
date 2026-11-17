@@ -113,3 +113,32 @@ def graph_with_part(tmp_path: Path, *changes: Callable[[dict[str, Any]], None]):
     with (tables / "health.csv").open("a") as rows:
         rows.write(PART_RULE)
     return load_graph(write_fixture_facility(tmp_path / "facility.json", change), tables)
+
+
+def graph_with_wide(tmp_path: Path, channels: int):
+    """The fixture graph with ``XR01:WIDE1`` in ``XR/XR01``: *channels* rule channels.
+
+    Each ``XR01-WIDE1:Sig<i>-Sts`` has ``0`` normal (from two sources), ``1``
+    bad, ``2`` warn and ``>=5`` bad.
+    """
+    from osprey.facility.panels import load_graph
+
+    def wide(document: dict[str, Any]) -> None:
+        document["devices"].append(
+            {"id": "XR01:WIDE1", "class": "Infrastructure", "place": "XR/XR01"}
+        )
+        for i in range(channels):
+            document["channels"].append(
+                {"id": f"XR01-WIDE1:Sig{i}-Sts", "on": {"device": "XR01:WIDE1"}}
+            )
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        for i in range(channels):
+            name = f"XR01-WIDE1:Sig{i}-Sts"
+            for value, state in (("0", "normal"), ("1", "bad"), ("2", "warn"), (">=5", "bad")):
+                rows.write(
+                    f"{name},{value},{state},database-severity,stated,xr-ioc,0a1b2c3,w.db:{i}\n"
+                )
+            rows.write(f"{name},0,normal,screen,stated,xr-screens,4d5e6f7,w.screen:{i}\n")
+    return load_graph(write_fixture_facility(tmp_path / "facility.json", wide), tables)
