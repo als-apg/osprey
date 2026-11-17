@@ -7,8 +7,8 @@ addresses. Its registration follows the graph server's read-only posture:
   truthy only when the project configures a ``pv_directory`` section.
 - It is **allow-only**: every tool is auto-approved, ``permissions_ask`` is
   empty and no pre hook runs, because every tool reads.
-- Four tools are **optional**: each is offered only when its sub-block's
-  context key holds, and an absent key withholds it.
+- The alarm, put-log and fleet tools are **optional**: each is offered only
+  when its sub-block's context key holds, and an absent key withholds it.
 
 The walk in ``test_tool_classification_drift.py`` imports the package and so
 sees the unconditional tools only; the gated ones register through
@@ -46,6 +46,7 @@ _OPTIONAL_KEYS = {
     "alarm_history": "pv_directory_alarm_log",
     "alarm_config": "pv_directory_alarm_config",
     "put_history": "pv_directory_put_log",
+    "ioc_fleet": "pv_directory_fleet",
 }
 
 _ALL_TOOLS = _UNCONDITIONAL | set(_OPTIONAL_KEYS)

@@ -21,7 +21,7 @@ import importlib
 import logging
 import pkgutil
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -69,11 +69,14 @@ class ToolContext:
         predicates: The ``pv_directory`` context keys from ``resolve.py``.
         service: The process's one directory service.
         pv_facts: The PV and IOC facts over that service.
+        config: The rendered config, for a tool that reaches a service other
+            than the directory (the IOC fleet) through its own resolver.
     """
 
     predicates: dict[str, bool]
     service: DirectoryService
     pv_facts: Facts
+    config: Mapping[str, Any] = field(default_factory=dict)
 
 
 _context: ToolContext | None = None
@@ -109,7 +112,10 @@ def build_tool_context(config: Mapping[str, Any], *, project_dir: Path | None) -
         resolved = None
     service = DirectoryService(config, project_dir=project_dir)
     return ToolContext(
-        predicates=predicates(resolved), service=service, pv_facts=Facts(service, config)
+        predicates=predicates(resolved),
+        service=service,
+        pv_facts=Facts(service, config),
+        config=config,
     )
 
 
