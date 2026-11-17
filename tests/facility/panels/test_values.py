@@ -367,3 +367,43 @@ def test_no_value_field_on_a_card_overlaps_another(bpm_graph, panel_graph) -> No
         for i, a in enumerate(fields):
             for b in fields[i + 1 :]:
                 assert not _overlap(a, b), (a["props"]["pv"], b["props"]["pv"])
+
+
+def test_a_channel_compared_by_equality_with_whole_values_is_a_state_a_threshold_is_not(
+    tmp_path,
+) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as handle:
+        for value, state in (("!=0", "normal"), ("0", "bad"), ("==1", "normal")):
+            handle.write(f"XR01-PS1:On-Sts,{value},{state},screen,stated,xr-screens,4d5e6f7,ps:1\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    (on,) = [
+        n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == "XR01-PS1:On-Sts"
+    ]
+    assert on["props"]["precision"] == 0
+    doc = stub_render(device_card(graph, "XR02:IP1"), graph)
+    pressures = [
+        n for n in nodes(doc)
+        if n["type"] == "pv-label" and n["props"]["pv"] == "XR02-IP1:Pressure-RB"
+    ]  # fmt: skip
+    assert pressures and all(_rules(doc, n) for n in pressures)  # >=5 and <1 are thresholds
+
+
+def _compact(value: float) -> int:
+    expression = layout.precision_expression("{v}", compact=True).replace("{v}", f"({value!r})")
+    names = {"abs": abs, "max": max, "floor": math.floor, "log10": math.log10}
+    return eval(expression, {"__builtins__": {}}, names)  # the engine's own text, no builtins
+
+
+def test_a_long_value_takes_the_compact_rule_that_names_it_once(bpm_graph, monkeypatch) -> None:
+    full, compact = (layout.precision_expression("{v}", compact=c) for c in (False, True))
+    assert compact.count("{v}") == 1 and len(compact) < len(full)
+    assert [_compact(v) for v in (1.299, 0.0, 0.05, 123.4)] == [2, 3, 3, 0]
+    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", len(compact))
+    doc = stub_render(device_card(bpm_graph, "XR01:BPM1"), bpm_graph)
+    precision = [f for f in doc["formulas"] if f["name"].startswith("precision-")]
+    assert precision and all(f["expression"] == compact for f in precision)

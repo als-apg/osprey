@@ -193,6 +193,7 @@ COUNT_DIGITS = 3  # the least room for a count's number: what a dash takes
 SIGNIFICANT_DIGITS = 3  # a live float prints with this many significant digits
 PRECISION_FALLBACK = 3  # its decimals until its precision rule delivers, or with none
 FIXED_SMALLEST = 0.001  # below this a value keeps the viewer's own format (an exponent)
+COMPACT_SMALLEST = 0.1  # the compact rule prints smaller values as it prints this one
 VALUE_SAMPLE = "-0.00123"  # the widest number three significant digits print below 10 000
 RING_PAD = 6  # a state ring's distance from its symbol
 TAG_HEIGHT = 16  # the word above a ring
@@ -347,7 +348,7 @@ OUTLINE_KIND = "outline"
 _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
-_WHOLE = re.compile(r"-?\d+")  # a health rule's value that names one state
+_WHOLE = re.compile(r"(?:==|!=)?\s*-?\d+")  # a health rule's value naming one state, or not it
 _TOKEN = re.compile(r"\{(\d+)\}")
 _NAVIGATION_TARGET = "tab"
 _HOVER_LABEL = "hoverLabel"
@@ -1509,6 +1510,8 @@ class _Page:
         props["precision"] = PRECISION_FALLBACK
         expression = precision_expression(value)
         if len(expression) > RULE_EXPRESSION_LIMIT:
+            expression = precision_expression(value, compact=True)
+        if len(expression) > RULE_EXPRESSION_LIMIT:
             return []
         if not self.budget.take([(1, frozenset(bindings.values()))]):
             return []
@@ -1591,7 +1594,8 @@ class _Page:
             return None
 
     def prints_whole(self, channel: str) -> bool:
-        """Whether *channel* is a state: every health rule of it names one whole value."""
+        """Whether *channel* is a state: every health rule of it names one whole value,
+        as itself or with ``==`` or ``!=``; a threshold (``>=5``) is a measure's."""
         rules = self.graph.rule(channel)
         return bool(rules) and all(_WHOLE.fullmatch(r.value.strip()) for r in rules)
 
@@ -4158,12 +4162,16 @@ def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float
     return found
 
 
-def precision_expression(value: str) -> str:
+def precision_expression(value: str, *, compact: bool = False) -> str:
     """The decimals that print *value* (a formula expression) with
     :data:`SIGNIFICANT_DIGITS` significant digits: that many decimals for zero, and
     ``-1`` below :data:`FIXED_SMALLEST`, which the viewer ignores, so such a value
-    keeps the viewer's own format."""
+    keeps the viewer's own format. *compact* names *value* once, for one too long to
+    repeat: below :data:`COMPACT_SMALLEST` it prints as that does."""
     digits = SIGNIFICANT_DIGITS
+    if compact:
+        floor = _number(COMPACT_SMALLEST)
+        return f"max((0, {digits - 1} - floor(log10(max((abs({value}), {floor},)))),))"
     return (
         f"{digits} if {value} == 0 else (-1 if abs({value}) < {_number(FIXED_SMALLEST)} "
         f"else max((0, {digits - 1} - floor(log10(abs({value}))),)))"
