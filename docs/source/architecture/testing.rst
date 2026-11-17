@@ -37,8 +37,8 @@ What the suite is made of
 
 **The unit suite** is everything under ``tests/`` outside ``tests/e2e/``, plus the
 connectors package's own suite under ``packages/osprey-connectors/tests``. It is
-one check, ``pytest``, and runs under four parallel workers with every file kept
-on one worker. It reaches no model, and resets any process-global state it
+one check, ``pytest``, and runs under parallel workers, four in CI, with every
+file kept on one worker. It reaches no model, and resets any process-global state it
 touches. CI splits it into five shards. Three kinds of test leave the parallel
 sweep and run alone, in the ``serial-suites`` job: the real-terminal ``pty``
 tests, which read the bytes an operator would see; the ``wallclock`` tests,
@@ -151,14 +151,16 @@ advisory lane. What differs is the event that starts a lane.
      - ``deploy-e2e``, ``stack-e2e``, ``va-live-e2e``, ``orm-roundtrip-e2e``,
        ``privilege-split-e2e``, ``dockerfile-e2e``, ``full-chain-auth-e2e``,
        ``two-shape-boot-e2e``, ``qmd-sidecar-e2e``,
-       ``multi-user-deploy-lifecycle-e2e``
+       ``multi-user-deploy-lifecycle-e2e`` (only when the pull request's base
+       is ``main``)
      - they build and deploy images; house policy keeps that to same-repo
        branches
    * - a pull request labelled ``full-ci``
      - ``e2e-tests``, ``agentic-per-preset``, ``dispatch-stack-e2e``,
        ``target-switch-agentic-e2e``, ``dockerfile-agent-e2e``,
        ``nextcloud-talk-bridge-e2e``, ``gchat-bridge-e2e``
-     - they spend model tokens
+     - they spend model tokens; ``e2e-tests`` also runs on a manual dispatch
+       of the workflow that does not set ``run_benchmarks``
    * - the ``run_benchmarks`` dispatch
      - ``benchmarks``
      - it measures the model, not the change
@@ -173,7 +175,12 @@ moved. :doc:`/contributing/workflow` has the commands and the cost.
 Locally, ``scripts/check.py quick`` runs the fast checks and the parallel sweep
 without the ``slow`` tests. ``scripts/check.py full`` adds the slow tests, each
 serial suite and the builds. ``scripts/check.py run <id>`` runs one check as CI
-does.
+does. Before opening a pull request, ``scripts/check.py quick --changed
+origin/main`` runs the checks and tests the diff touches and names the CI lanes
+it touches. Neither tier runs a lane: the preset, container and agentic lanes
+are CI's, so a green ``quick`` says nothing about them.
+:doc:`/contributing/workflow` and :doc:`/contributing/development-setup` have
+the commands.
 
 Scenarios: how a fault is staged
 ================================

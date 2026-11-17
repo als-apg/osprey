@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 352" role="img" aria-labelledby="testing-suite-map-title testing-suite-map-desc">
   <title id="testing-suite-map-title">The OSPREY test suite: six families, what each proves, when each runs</title>
-  <desc id="testing-suite-map-desc">Six columns, left to right: the unit suite in process on every push; the preset lanes, static checks and build plus boot, on every push; the machine, scenario signatures and the Virtual Accelerator on a real Channel Access wire, on every push; the agent with a real model behind the full-ci label; the container stacks and the scripted gate tests, with no model, on every pull request; and the benchmark board where the model is on trial, on demand. A strip below names what a red means in each family, and a last strip names the checks a deployed facility runs on itself.</desc>
+  <desc id="testing-suite-map-desc">Six columns, left to right: the unit suite in process on every push; the preset lanes, static checks and build plus boot, on every push; the machine, scenario signatures and the Virtual Accelerator on a real Channel Access wire, on every push; the agent with a real model behind the full-ci label; the container stacks, most on a pull request from a branch of the repository and some behind the full-ci label, with the scripted gate tests on every pull request; and the benchmark board where the model is on trial, on demand. A strip below names what a red means in each family, and a last strip names the checks a deployed facility runs on itself.</desc>
   <defs>
     <marker id="testing-suite-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -19,7 +19,7 @@
   <text class="tn" x="91" y="74" text-anchor="middle">the code</text>
   <text class="ts" x="91" y="92" text-anchor="middle">tests/ · in process</text>
   <text class="ts" x="91" y="106" text-anchor="middle">no model, no service</text>
-  <text class="ts" x="91" y="120" text-anchor="middle">4 workers, then pty,</text>
+  <text class="ts" x="91" y="120" text-anchor="middle">4 workers in CI, then pty,</text>
   <text class="ts" x="91" y="134" text-anchor="middle">wallclock, live CA alone</text>
   <text class="ta" x="91" y="164" text-anchor="middle">every push</text>
 
@@ -59,9 +59,9 @@
   <text class="tn" x="716" y="74" text-anchor="middle">the stacks</text>
   <text class="ts" x="716" y="92" text-anchor="middle">tests/e2e · containers</text>
   <text class="ts" x="716" y="106" text-anchor="middle">one lane or cell each</text>
-  <text class="ts" x="716" y="120" text-anchor="middle">scripted gate tests</text>
-  <text class="ts" x="716" y="134" text-anchor="middle">no model</text>
-  <text class="ta" x="716" y="164" text-anchor="middle">every PR</text>
+  <text class="ts" x="716" y="120" text-anchor="middle">gate tests: every PR</text>
+  <text class="ts" x="716" y="134" text-anchor="middle">some need full-ci</text>
+  <text class="ta" x="716" y="164" text-anchor="middle">same-repo PR</text>
 
   <!-- column 6 · the board -->
   <rect class="mask" x="812" y="52" width="136" height="128" rx="6"/>
