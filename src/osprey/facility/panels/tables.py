@@ -10,7 +10,9 @@ line, the schema this module holds them to:
 - ``health.csv``: the state a channel's value means, one row per stated value
   and source, so two sources may state two states for one value;
 - ``excluded.csv``: things, channels and documents no screen shows;
-- ``pictures.csv``: the parts drawn on a device class's picture;
+- ``pictures.csv``: the drawing of a device class, seen from the end or the
+  side: its body (yoke, poles, coils, corrector windings, bore) and its parts
+  at their positions (see :class:`PicturePart`);
 - ``names.csv``: a thing's short name; ``metrics.csv``: the key numbers;
 - ``calibration_kinds.csv``: the calibration quantities a device class has;
 - ``calibrations.csv``: the calibration claims, one value of one kind for one
@@ -48,6 +50,7 @@ __all__ = [
     "OPTIONAL_COLUMNS",
     "OPTIONAL_FILES",
     "TOLERANCE_TERMS",
+    "PICTURE_SHAPES",
     "PICTURE_VIEWS",
     "PROBE_NEEDS",
     "PROBE_SHAPES",
@@ -147,6 +150,10 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "version",
             "state",
             "locator",
+            "w_mm",
+            "h_mm",
+            "angle_deg",
+            "signal",
         ],
         NAMES: [
             "thing",
@@ -229,6 +236,8 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
 OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         CALIBRATION_KINDS: frozenset({"under", "short"}),
+        # a file of the first eleven columns (parts at points, no signals) still reads
+        PICTURES: frozenset({"w_mm", "h_mm", "angle_deg", "signal"}),
         PROBE_PICTURES: frozenset({"under"}),
         METRICS: frozenset({"precision"}),
     }
@@ -258,6 +267,9 @@ DRAWN_AS: tuple[str, ...] = ("value", "setpoint", "state", "command", "text", "w
 HEALTH_STATES: tuple[str, ...] = ("normal", "warn", "bad")
 EXCLUDED_KINDS: tuple[str, ...] = ("thing", "channel", "document")
 PICTURE_VIEWS: tuple[str, ...] = ("end", "side")
+#: The kinds of a ``pictures.csv`` row that draw the body of the class, not a part:
+#: each needs ``w_mm`` (in a file that has the column).
+PICTURE_SHAPES: tuple[str, ...] = ("yoke", "pole", "coil", "corrector_winding", "bore")
 METRIC_VIEWS: tuple[str, ...] = ("place", "rollup")
 #: What a key number computes over the channels its row selects.
 MEASURES: tuple[str, ...] = (
@@ -339,7 +351,7 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "side_mm",
             "height_mm",
         ),
-        PICTURES: ("x_mm", "y_mm", "z_mm"),
+        PICTURES: ("x_mm", "y_mm", "z_mm", "w_mm", "h_mm", "angle_deg"),
         METRICS: ("order",),
         CALIBRATION_KINDS: ("order",),
         CALIBRATION_CURVES: ("x", "y"),
@@ -463,7 +475,52 @@ class Exclusion:
 
 @dataclass(frozen=True)
 class PicturePart:
-    """One row of ``pictures.csv``: a part drawn on a device class's picture."""
+    """One row of ``pictures.csv``: an element of a device class's drawing.
+
+    The drawing is in the plane of ``view``: ``end`` draws ``x_mm`` across and
+    ``y_mm`` up, looking along the beam; ``side`` draws ``z_mm`` across and
+    ``y_mm`` up. The origin is the beam axis. ``document``, ``version``,
+    ``state`` and ``locator`` cite where the row is stated.
+
+    By ``kind`` (:data:`PICTURE_SHAPES`; any other word is a part):
+
+    - ``yoke``: the iron, an ellipse ``w_mm`` across and ``h_mm`` high (a
+      circle when ``h_mm`` is empty) centred at ``x_mm``, ``y_mm``;
+    - ``pole``: a rectangle ``w_mm`` wide and ``h_mm`` long, its length along
+      ``angle_deg`` (0 is +x, counter-clockwise), centred at ``x_mm``, ``y_mm``;
+    - ``coil``: the coil round the pole at the same ``angle_deg``: two sides,
+      each ``w_mm`` wide and ``h_mm`` long, one at each flank of that pole;
+      with no such pole, one rectangle where the row puts it;
+    - ``corrector_winding``: a rectangle as a pole's, one row per winding;
+    - ``bore``: the aperture, an ellipse as the yoke's, with the beam at its
+      centre;
+    - ``outline``: one point of a polygon the class's rows of this kind make
+      in file order (the outline of a body no shape above states);
+    - any other word: a part at ``x_mm``, ``y_mm`` (a thermal switch, a
+      manifold, a terminal), named by ``part``.
+
+    ``signal`` (any row) names what the element shows live: a signal name
+    stated on the device, or a channel pattern with ``*`` and ``?`` matched
+    against the device's channel names (:meth:`PanelGraph.picture_channel`).
+    A part with a signal shows its state at its position (and its number
+    beside it when the channel is a value); one without is drawn plain.
+
+    The last four columns are optional: a file of the first eleven reads as
+    before, every row a part at a point, a shape kind included. In a file that
+    has them, a shape row must state ``w_mm``; ``w_mm`` and ``h_mm`` are above 0.
+    A class with shape or outline rows is drawn; one with parts only has them in
+    a dashed frame that says the outline is not stated; one with no rows has no
+    picture. An invented four-pole class (one pole, its coil, the bore, two
+    parts shown; ``x_mm``/``y_mm`` of a pole are its centre)::
+
+        device_class,view,part,kind,x_mm,y_mm,z_mm,document,version,state,locator,w_mm,h_mm,angle_deg,signal
+        Quad4,end,yoke,yoke,0,0,0,DWG-100,B,released,sheet 1,260,,,
+        Quad4,end,pole 1,pole,35.4,35.4,0,DWG-100,B,released,sheet 1,24,70,45,
+        Quad4,end,coil 1,coil,45.3,45.3,0,DWG-100,B,released,sheet 1,10,36,45,
+        Quad4,end,bore,bore,0,0,0,DWG-100,B,released,sheet 1,30,,,
+        Quad4,end,switch 1,thermal_switch,70,95,0,DWG-100,B,released,sheet 3,,,,switch_1_status
+        Quad4,end,water in,manifold,150,-40,0,DWG-100,B,released,sheet 3,,,,
+    """
 
     device_class: str
     view: str
@@ -476,9 +533,19 @@ class PicturePart:
     version: str | None
     state: str | None
     locator: str | None
-    #: The channel the part reads, for a light on the picture. A hook: the
-    #: table has no column for it yet, so every row read today gives ``None``.
+    w_mm: float | None = None
+    h_mm: float | None = None
+    angle_deg: float | None = None
+    signal: str | None = None
+    #: The channel ``signal`` resolves to on one device: set when a card is
+    #: described (:func:`osprey.facility.panels.describe.device_card`), ``None``
+    #: as the table is read.
     channel: str | None = None
+
+    @property
+    def shape(self) -> bool:
+        """Whether the row draws the body: a shape kind with its width stated."""
+        return self.kind in PICTURE_SHAPES and self.w_mm is not None
 
 
 @dataclass(frozen=True)
@@ -799,6 +866,8 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             _check_kind_unit(rows[-1], line)
         if name == PROBE_PICTURES:
             _check_probe_row(rows[-1], line, seen_probe)
+        if name == PICTURES and "w_mm" in header:
+            _check_picture_row(rows[-1], line)
         if lines is not None:
             lines.append(line)
     return tuple(rows)
@@ -840,6 +909,16 @@ def _check_probe_row(row: ProbeElement, line: int, seen: dict[tuple[str | None, 
                 f"class {row.cls}{under} already has {what} at line {seen[key]}",
             )
         seen[key] = line
+
+
+def _check_picture_row(row: PicturePart, line: int) -> None:
+    """In a file with the size columns, a shape row states its width; sizes are positive."""
+    if row.kind in PICTURE_SHAPES and row.w_mm is None:
+        raise PanelTableError(PICTURES, line, f"a {row.kind} needs w_mm")
+    for column in ("w_mm", "h_mm"):
+        value = getattr(row, column)
+        if value is not None and not value > 0:
+            raise PanelTableError(PICTURES, line, f"{column} is {value:g}, not above 0")
 
 
 def _check_calibrations(
