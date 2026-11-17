@@ -72,6 +72,7 @@ __all__ = [
     "SLUG_MAX",
     "Draw",
     "DRAW_FILE",
+    "ID_MAX",
     "EmitError",
     "Problem",
     "check",
@@ -97,8 +98,13 @@ NOTE_KINDS = frozenset({"outside_set"})
 
 _STAMP = re.compile(r" Facility ([0-9a-f]{64}), panels format (\d+), draw ([0-9a-f]{16})\.$")
 _STAMP_IN_TEXT = re.compile(r" Facility [0-9a-f]{64}, panels format \d+, draw [0-9a-f]{16}\.\"")
+#: The longest screen id :func:`screen_ids` can make: ``kind-by-slug-digest``,
+#: the digest lengthened to its longest (a SHA-256 in hex).
+ID_MAX = max(map(len, VIEW_KINDS)) + 1 + max(map(len, ("place", "system"))) + 1 + SLUG_MAX + 1 + 64
 #: The only paths ``write`` creates or deletes below ``out``.
-_FILE_SHAPE = re.compile(rf"(?:{'|'.join(VIEW_KINDS)})/[a-z0-9-]+{re.escape(SCREEN_SUFFIX)}")
+_FILE_SHAPE = re.compile(
+    rf"(?:{'|'.join(VIEW_KINDS)})/[a-z0-9-]{{1,{ID_MAX}}}{re.escape(SCREEN_SUFFIX)}"
+)
 _TEMPORARY = re.compile(r"\.[a-z0-9-]+" + re.escape(SCREEN_SUFFIX) + r"\.tmp")
 #: The drawing settings file, beside the rule tables.
 DRAW_FILE = "draw.json"
@@ -472,9 +478,6 @@ def write(
     if previous is None and out.exists() and any(out.iterdir()):
         raise EmitError(f"{out} is not empty and holds no {INDEX}; refusing to write into it")
     seen: set[str] = set()
-    _guard(out, INDEX, seen)
-    if out.is_dir():
-        _clean_temporaries(out)
     # The index is input from the disk: only paths of our own shape count as ours.
     owned: dict[str, dict[str, Any]] = {}
     ignored: list[str] = []
@@ -484,6 +487,21 @@ def write(
             owned[name] = entry
         else:
             ignored.append(str(name))
+    found = targets(graph, rack_classes=draw.rack_classes)
+    ids = screen_ids(found)
+    paths = {_path(t, ids) for t in found}
+    # Pre-flight: every path the run will write, delete or prune is looked at
+    # before the first byte is written. A link is an error; a listed name the
+    # file system cannot inspect is ignored and not carried on.
+    _guard(out, INDEX, seen)
+    for relative in sorted(paths | owned.keys()):
+        try:
+            _guard(out, relative, seen)
+        except OSError as error:
+            if relative in paths:
+                raise EmitError(f"{out / relative} cannot be inspected: {error}") from error
+            del owned[relative]
+            ignored.append(relative)
     if ignored:
         shown = ", ".join(ignored[:5]) + (" ..." if len(ignored) > 5 else "")
         warnings.warn(
@@ -492,9 +510,8 @@ def write(
             UserWarning,
             stacklevel=2,
         )
-    found = targets(graph, rack_classes=draw.rack_classes)
-    ids = screen_ids(found)
-    paths = {_path(t, ids) for t in found}
+    if out.is_dir():
+        _clean_temporaries(out)
     head = {
         "format": FORMAT_VERSION,
         "facility_hash": graph.content_hash,

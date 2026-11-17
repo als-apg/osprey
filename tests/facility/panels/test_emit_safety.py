@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import shutil
+import warnings
 from pathlib import Path
 
 import pytest
 
-from osprey.facility.panels import emit
-from osprey.facility.panels.emit import Draw, EmitError, check, write
+from osprey.facility.panels import emit, targets
+from osprey.facility.panels.emit import Draw, EmitError, check, screen_ids, write
 from tests.facility.panels.test_emit import _drop, _files, _graph, _kinds, _walk
 
 
@@ -275,3 +276,57 @@ def test_a_simulation_only_channel_is_a_failing_problem(panel_graph, tmp_path):
     victim.write_text(json.dumps(doc))
     found = [p for p in check(panel_graph, out) if p.kind == "unknown_channel"]
     assert found and all(p.failing and "simulation" in p.detail for p in found)
+
+
+# -- the pre-flight pass ---------------------------------------------------------------
+
+
+def _snapshot(out: Path) -> dict[str, tuple[bytes, int]]:
+    return {
+        p.relative_to(out).as_posix(): (p.read_bytes(), p.stat().st_mtime_ns)
+        for p in sorted(out.rglob("*"))
+        if p.is_file() and not p.is_symlink()
+    }
+
+
+@pytest.mark.parametrize("dangling", [False, True], ids=["external-file", "dangling"])
+def test_a_linked_file_stops_the_run_before_anything_is_touched(panel_graph, tmp_path, dangling):
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    victim = sorted((out / "rollup").glob("*.screen.json"))[-1]
+    outside = tmp_path / "outside.txt"
+    if not dangling:
+        outside.write_text("keep")
+    victim.unlink()
+    victim.symlink_to(outside)
+    before = _snapshot(out)
+    with pytest.raises(EmitError, match=victim.name):
+        write(panel_graph, out)
+    assert _snapshot(out) == before
+    assert json.loads((out / "index.json").read_text())["state"] == "complete"
+    assert not outside.exists() or outside.read_text() == "keep"
+
+
+def test_a_listed_name_too_long_for_the_file_system_is_ignored_not_carried(panel_graph, tmp_path):
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    index = json.loads((out / "index.json").read_text())
+    long_name = f"card/{'a' * 300}.screen.json"
+    index["screens"].append({"file": long_name})
+    (out / "index.json").write_text(json.dumps(index))
+    with pytest.warns(UserWarning, match="left alone"):
+        write(panel_graph, out)
+    assert long_name not in (out / "index.json").read_text()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        write(panel_graph, out)
+    assert check(panel_graph, out) == []
+
+
+def test_no_name_a_run_can_make_is_longer_than_the_shape_allows(panel_graph):
+    longest = max(len(i) for i in screen_ids(targets(panel_graph)).values())
+    assert longest <= emit.ID_MAX
+    big = [emit.Target("rollup", "place", "Q" * 500, "system")]
+    assert len(screen_ids(big)[big[0]]) <= emit.ID_MAX
+    assert emit._FILE_SHAPE.fullmatch(f"rollup/{'a' * emit.ID_MAX}.screen.json")
+    assert not emit._FILE_SHAPE.fullmatch(f"rollup/{'a' * (emit.ID_MAX + 1)}.screen.json")
