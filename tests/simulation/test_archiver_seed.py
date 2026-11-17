@@ -32,6 +32,7 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.config import get_facility_timezone
@@ -1069,11 +1070,9 @@ def test_a_naive_seed_anchor_is_refused_by_name_before_anything_is_written(archi
     assert collection.manifest is None
 
 
-def test_a_naive_build_anchor_is_refused_by_name(tmp_path):
-    view = write_texture_view(tmp_path, CHANNELS)
-
-    with pytest.raises(NaiveDatetimeError, match="anchor_at"):
-        build(view, ActiveState(names=[], anchor_at=NAIVE_T0), tz=get_facility_timezone())
+def test_a_naive_build_anchor_is_refused_by_name():
+    with pytest.raises(ValidationError, match="anchor_at"):
+        ActiveState(names=[], anchor_at=NAIVE_T0)
 
 
 @pytest.mark.parametrize("naive", ["sampled_at", "expire_at"])

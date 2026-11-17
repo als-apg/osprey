@@ -106,8 +106,8 @@ def event_subwindows(events: list[dict], *args, **kwargs) -> list[tuple[float, f
     )
 
 
-def _events(*events: dict) -> list[ArchiverEvent]:
-    return [ArchiverEvent.model_validate(event) for event in events]
+def _events(*events: dict) -> tuple[ArchiverEvent, ...]:
+    return tuple(ArchiverEvent.model_validate(event) for event in events)
 
 
 def _spike(offset: float, amplitude: float = 5e-9) -> dict:

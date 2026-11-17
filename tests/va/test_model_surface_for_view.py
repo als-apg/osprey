@@ -37,6 +37,7 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import DEFAULT_TICK_S, archive
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.state import ActiveState
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView
 from tests._builds import BuiltProject
 from tests._simulator_view import view_channel
@@ -661,10 +662,10 @@ def test_the_seeded_value_at_t_equals_the_live_value_at_t(tmp_path: Path, paddle
     _, composite, _ = _gate_surface(tmp_path, paddle=paddle)
     live = composite.get(list(GATED))
 
-    with archive.build(
-        tmp_path / "simulator", ["nominal"], tz=get_facility_timezone()
-    ) as seeded_archive:
-        seeded = seeded_archive.samples(list(GATED), [T0])
+    seeded_archive = archive.build(
+        tmp_path / "simulator", ActiveState(), tz=get_facility_timezone()
+    )
+    seeded = seeded_archive.samples(list(GATED), [T0])
 
     labels = ["FALSE", "TRUE"]
     assert seeded[GATED_SUM] == [pytest.approx(live[GATED_SUM], rel=1e-12)]

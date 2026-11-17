@@ -87,9 +87,10 @@ class _Collection:
 
 def _activate(root: Path, config: dict[str, Any], names: list[str], anchor: datetime) -> None:
     """Record ``names`` and ``anchor`` in the project's scenario state file, as `sim apply` does."""
-    view = json.loads((SimulatorView.path_for_project(root) / "scenarios.json").read_text())
-    targets = {scenario["name"]: set() for scenario in view["scenarios"]}
-    write_active_state(resolve_simulation_state_dir(config, root), targets, names, anchor_at=anchor)
+    scenarios = {s.name: s for s in SimulatorView.of_project(root).scenarios()}
+    write_active_state(
+        resolve_simulation_state_dir(config, root), scenarios, names, anchor_at=anchor
+    )
 
 
 # -- the demo's physics monitors -----------------------------------------------
