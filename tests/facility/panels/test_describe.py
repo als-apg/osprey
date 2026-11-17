@@ -671,11 +671,16 @@ def test_rollup_by_place_is_a_tree_of_children_with_their_channels(panel_graph):
     nodes = {node.label: node for node in root.children}
     assert nodes["XR01:IP1"].channels == ("XR01-IP1:State-Sts",)
     assert nodes["XR01:IP1"].link.target == card("XR01:IP1")
-    assert nodes["XR01:QF1"].no_rule is True and nodes["XR01:QF1"].channels == ()
-    # the rack has no rule: present, marked, and its link goes to its card
-    rack = nodes["XR/XR01/RK1"]
-    assert rack.no_rule is True
-    assert rack.link.target == Target("card", "place", "XR/XR01/RK1")
+    # with a rule first, in beam order (XR01:IP1 at s 1.25, the supply has none),
+    # then one row for the five without a rule, the rack among them, to the card
+    assert [node.label for node in root.children] == [
+        "XR01:IP1",
+        "XR01:PS1",
+        "5 without a rule",
+    ]
+    rest = root.children[-1]
+    assert rest.no_rule is True and rest.channels == ()
+    assert rest.link.target == Target("card", "place", "XR/XR01")
 
 
 def test_rollup_by_place_links_down_to_child_rollups(panel_graph):
@@ -694,14 +699,14 @@ def test_rollup_by_system_groups_devices_by_class_by_default(panel_graph):
     systems = {node.label: node for node in root.children}
     assert systems["Pump"].channels == ("XR01-IP1:State-Sts", "XR02-IP1:Pressure-RB")
     assert systems["PowerSupply"].channels == ("XR01-PS1:On-Sts",)
-    assert systems["ElectronicsChassis"].no_rule is True
+    assert "ElectronicsChassis" not in systems  # among the systems without a rule
+    assert root.children[-1].label == "2 without a rule"
     # one level: a system carries its devices' channels, not the devices, and
     # links to that system's roll-up within the place when it has a rule channel
     assert all(node.children == () for node in root.children)
     assert systems["Pump"].link.target == Target(
         "rollup", "place", "XR", by="system", system="Pump"
     )
-    assert systems["ElectronicsChassis"].link is None
 
 
 def test_a_rollup_shows_one_level_below_its_root(panel_graph):
@@ -880,8 +885,8 @@ def test_every_root_roll_up_has_a_not_placed_child_that_reads_the_unplaced(panel
     loose = "XR09-LOOSE1:Fault-Sts"
     for by in ("place", "system"):
         (root,) = _section(health_rollup(panel_graph, "XR", by), "roll-up").items
-        unplaced = root.children[-1]
-        assert unplaced.label == NOT_PLACED and unplaced.channels == (loose,)
+        unplaced = next(node for node in root.children if node.label == NOT_PLACED)
+        assert unplaced.channels == (loose,)
         assert unplaced.link.target == Target("rollup", "place", NOT_PLACED, by="place")
         assert loose in root.channels
     (sector,) = _section(health_rollup(panel_graph, "XR/XR01"), "roll-up").items
@@ -960,4 +965,4 @@ def test_a_system_within_a_place_has_its_own_roll_up_of_its_devices(panel_graph)
     )
     (root,) = _section(view, "roll-up").items
     assert root.label == "Pump" and root.channels == ("XR02-IP1:Pressure-RB",)
-    assert {node.label for node in root.children} == {"XR02:IP1", "XR02:IP2"}
+    assert [node.label for node in root.children] == ["XR02:IP1", "1 without a rule"]

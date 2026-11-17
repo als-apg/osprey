@@ -130,6 +130,7 @@ _NO_POSITION = "no position"
 _NOT_IN = "not placed"
 _NO_THING = "on no device"
 _OTHERS = "{} other things in this place"
+_WITHOUT = "{} without a rule"
 _DRAWN_RANK = {drawn: rank for rank, drawn in enumerate(DRAWN_AS)}
 _EMPTY: Mapping[str, str] = MappingProxyType({})
 
@@ -948,12 +949,41 @@ def _place_children(graph: PanelGraph, index: _Index, root_id: str, by: str) -> 
     return children
 
 
+def _beam_key(graph: PanelGraph, label: str) -> tuple[float, str]:
+    """Beam order for a node of a thing with a true ring position, else name order after."""
+    pose = graph.pose(label)
+    ring = pose is not None and pose.is_ring_position
+    return (pose.s_m if ring else math.inf, label)  # type: ignore[union-attr]
+
+
+def _ordered(
+    graph: PanelGraph,
+    children: list[Node],
+    rest: Target,
+    *,
+    sort: bool = True,
+    tail: Node | None = None,
+) -> list[Node]:
+    """A roll-up's children: those with a rule (in beam, else name, order unless *sort*
+    is false), then *tail*, then one row ``<n> without a rule`` that opens *rest*."""
+    ruled = [node for node in children if not node.no_rule]
+    if sort:
+        ruled.sort(key=lambda node: _beam_key(graph, node.label))
+    if tail is not None:
+        ruled.append(tail)
+    without = sum(node.no_rule for node in children)
+    if without:
+        label = _WITHOUT.format(without)
+        ruled.append(Node(label, Link(label, rest), (), True))
+    return ruled
+
+
 def _unplaced_rollup(graph: PanelGraph, index: _Index) -> View:
     """The roll-up of what is in no place: one node per device, then the channels on no thing."""
     children = [_device_node(graph, index, thing) for thing in graph.unplaced()]
     unheld = [channel.name for channel in graph.unheld() if graph.rule(channel.name)]
-    if unheld:
-        children.append(_node(_NO_THING, None, unheld))
+    tail = _node(_NO_THING, None, unheld) if unheld else None
+    children = _ordered(graph, children, _UNPLACED_CHECKOUT, tail=tail)
     root = _node(NOT_PLACED, None, unplaced_channels(graph), tuple(children))
     return View(_UNPLACED_ROLLUP, f"{NOT_PLACED} health", (), (Section("roll-up", (root,)),))
 
@@ -967,8 +997,9 @@ def _system_rollup(
 ) -> View:
     """One system within a place: a node per device of the system."""
     key = None if system == NO_SYSTEM and None in systems else system
-    children = list(systems.get(key, ()))
-    root = _node(system, None, (c for node in children for c in node.channels), tuple(children))
+    devices = list(systems.get(key, ()))
+    children = _ordered(graph, devices, Target("card", "place", place.id))
+    root = _node(system, None, (c for node in devices for c in node.channels), tuple(children))
     crumbs = (
         *_crumbs(graph, index, place.place, "rollup", "system"),
         _place_link(graph, index, place.id, Target("rollup", "place", place.id, by="system")),
@@ -999,7 +1030,10 @@ def health_rollup(
     With *system*, the roll-up is that one system within the place: a node
     per device of it. A node that reads no rule-bearing channel is present
     and marked ``no_rule``. No node below the root has children: one screen
-    shows one level.
+    shows one level. The children with a rule come first, in beam order (a
+    device with a true ring position) then name order, by system in name
+    order; then one row ``<n> without a rule`` for all the others, which opens
+    the place's card, where they are listed.
 
     A root place (one with no parent) has one more child, ``not placed``:
     every device in no place, linked to their own roll-up, whose channels the
@@ -1038,8 +1072,9 @@ def health_rollup(
     channels = rule_channels(graph, root_id, "place")
     unplaced = _unplaced_node(graph, index) if place.place is None else None
     if unplaced is not None:
-        children.append(unplaced)
         channels += unplaced.channels
+    rest = Target("card", "place", root_id)
+    children = _ordered(graph, children, rest, sort=by == "place", tail=unplaced)
     root = _node(root_id, None, channels, tuple(children))
     crumbs = _crumbs(graph, index, place.place, "rollup", by)
     title = f"{root_id} health by {by}"
