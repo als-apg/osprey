@@ -5087,3 +5087,41 @@ def test_down_given_the_pair_stops_it_without_reading_the_record(monkeypatch, tm
     assert [run["cmd"][0] for run in downs] == ["podman", "podman"]
     assert [run["env"]["COMPOSE_PROJECT_NAME"] for run in downs] == ["planned-name"] * 2
     assert set(probed) == {"podman"}
+
+
+def _dispatcher_on_the_host(tmp_path, port):
+    """A config whose repo root is ``tmp_path`` and whose dispatcher binds ``port`` on the host."""
+    return {
+        "project_root": str(tmp_path),
+        "services": {"event_dispatcher": {"network": "host", "port": port}},
+    }
+
+
+def test_a_passing_port_preflight_records_the_host_network_ports(monkeypatch, tmp_path):
+    from osprey.deployment import host_ports
+
+    monkeypatch.setattr(host_ports, "_port_is_free", lambda host, port: True)
+    config = _dispatcher_on_the_host(tmp_path, 19190)
+
+    container_lifecycle._preflight_host_ports(config, [])
+
+    assert host_ports.read_host_network_ports(tmp_path) == {
+        service: frozenset(found)
+        for service, found in host_ports.host_network_ports(config).items()
+    }
+    assert host_ports.read_host_network_ports(tmp_path)["event-dispatcher"] == {19190}
+
+
+def test_a_refused_port_preflight_keeps_the_previous_host_network_ports(monkeypatch, tmp_path):
+    from osprey.deployment import host_ports
+
+    host_ports.write_host_network_ports(tmp_path, {"event-dispatcher": [19191]})
+    monkeypatch.setattr(host_ports, "_port_is_free", lambda host, port: False)
+    monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: "")
+    monkeypatch.setattr(container_lifecycle, "_report_port_conflicts", lambda conflicts: None)
+    config = _dispatcher_on_the_host(tmp_path, 19190)
+
+    with pytest.raises(RuntimeError, match="host port preflight failed"):
+        container_lifecycle._preflight_host_ports(config, [])
+
+    assert host_ports.read_host_network_ports(tmp_path) == {"event-dispatcher": {19191}}

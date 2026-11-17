@@ -89,7 +89,10 @@ from osprey.deployment.host_binding import HostBinding, host_binding_of
 from osprey.deployment.host_ports import (
     find_port_conflicts,
     format_conflict_report,
+    host_network_ports,
     parse_host_port_bindings,
+    read_host_network_ports,
+    write_host_network_ports,
 )
 from osprey.deployment.qmd_service import preflight_qmd_corpora, preflight_qmd_models_dir
 from osprey.deployment.runtime_helper import (
@@ -4657,7 +4660,8 @@ def _preflight_host_ports(config, compose_files):
     every web-terminal roster index, for intra-deploy duplicates and external
     listeners (see :mod:`osprey.deployment.host_ports`). On any conflict the report is printed
     in the CLI's one failure shape and a :class:`RuntimeError` is raised so the
-    caller aborts before running a single container-touching command.
+    caller aborts before running a single container-touching command. A pass
+    records the host-network ports this start binds, for the next start's check.
 
     :param config: Loaded configuration dictionary
     :type config: dict
@@ -4665,9 +4669,16 @@ def _preflight_host_ports(config, compose_files):
     :type compose_files: list[str]
     :raises RuntimeError: If any host-port conflict is found
     """
+    root = Path(resolve_repo_root(config))
     bindings = parse_host_port_bindings(compose_files)
-    conflicts = find_port_conflicts(bindings, resolve_project_name(config), config)
+    conflicts = find_port_conflicts(
+        bindings,
+        resolve_project_name(config),
+        config,
+        last_host_ports=read_host_network_ports(root),
+    )
     if not conflicts:
+        write_host_network_ports(root, host_network_ports(config))
         return
     _report_port_conflicts(conflicts)
     raise RuntimeError(
