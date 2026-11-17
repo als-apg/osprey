@@ -590,6 +590,10 @@ to an icon strip. Below 640 px the list and reader stack and the reader gets a
 Back button. The <strong>Status and settings</strong> button in the header opens those
 drawers; Status counts each enabled enhancement module’s entries as Complete,
 Pending, Stale, Failed and N/A, as <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> does.</p>
+<p>The reader shows an entry’s text as stored. An entry that declares
+<code class="docutils literal notranslate"><span class="pre">body_format:</span> <span class="pre">markdown</span></code> is shown as formatted text instead, with tables,
+lists and links, and each picture at the place the text puts it; see
+<strong>Entry format</strong> in <a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a>.</p>
 <p>The reader’s <strong>Enhancements</strong> tab shows each enabled module’s state and output
 for the entry. A failed or stale card shows the command that re-runs it,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">enhance</span> <span class="pre">--module</span> <span class="pre">&lt;name&gt;</span> <span class="pre">--entry</span> <span class="pre">&lt;id&gt;</span></code>, with a <strong>Copy</strong> button;
