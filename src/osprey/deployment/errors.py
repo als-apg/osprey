@@ -173,6 +173,20 @@ class NoRenderedBuildError(DeploymentPreconditionError):
     summary = "No rendered build to start from"
 
 
+class BuildRenderedElsewhereError(DeploymentPreconditionError):
+    """The build in this repo was rendered for another checkout.
+
+    A render bakes the identity of the directory it ran in into every
+    container's labels. A ``build/`` copied or moved to another directory still
+    states the old one, so the containers it would start belong, by label, to a
+    checkout that is not this one: every verb run here would find none of them.
+    ``--as-built`` does not answer it, since the identity is not drift. The one
+    remedy is a build in this directory.
+    """
+
+    summary = "This build belongs to another directory"
+
+
 class UnmetPreconditionsError(DeploymentPreconditionError):
     """Every cheaply checkable precondition a start failed, reported at once.
 

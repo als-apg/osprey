@@ -179,8 +179,9 @@ own containers, volumes and images, starting with empty data; move its ports
 in the same overlay with ``deployment.port_base``. See
 :ref:`profile-host-variants` for how the overlay is selected.
 
-Moving a checkout with ``mv`` looks the same from the host: its old containers
-now record a path that no longer exists. The refusal says so and prints the one
-command that frees the name, ``docker rm -f`` with the old containers' names.
-The volumes are untouched and keep their data, and the moved checkout picks
-them up on its next ``osprey up``.
+Moving a checkout with ``mv`` moves its ``build/``, which still names the old
+directory, so ``osprey up`` refuses it with "this build was rendered in <old
+path>" until ``osprey build`` runs in the new one. Its old containers then meet
+the refusal above: they record a path that no longer exists, and the refusal
+says so and prints the one command that frees the name, ``docker rm -f`` with
+the old containers' names. The volumes are untouched and keep their data.

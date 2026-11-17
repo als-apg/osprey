@@ -41,7 +41,11 @@ from osprey.cli.deploy_cmd import down_verb, restart_verb
 from osprey.deployment import container_lifecycle
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity, resolve_project_name
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
-from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
+from tests.deployment.test_up_as_built import (
+    _RENDERED_CONFIG,
+    bake_labels_override,
+    render_build,
+)
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 # A rendered config that also turns the web-terminal stack on. `down` has to
@@ -606,6 +610,24 @@ def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, runtime)
     assert runtime["cmds"] == []
     assert "--as-built starts a build that already exists" in result.stderr
     assert "--as-built starts a build that already exists" not in result.stdout
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_build_rendered_elsewhere_refuses_the_restart_and_stops_nothing(
+    lifecycle_repo, runtime, tmp_path
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    bake_labels_override(lifecycle_repo, elsewhere)
+
+    result = run_restart(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0
+    assert runtime["cmds"] == []
+    assert f"this build was rendered in {elsewhere}" in result.stderr
+    assert "→ run `osprey build` here" in result.stderr
 
 
 @pytest.mark.usefixtures("no_web")
