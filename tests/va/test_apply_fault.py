@@ -42,6 +42,13 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_ports
 from tests.va._collection import assert_module_collected
 
@@ -202,7 +209,6 @@ def _channel(address: str, role: str) -> dict[str, Any]:
 
 def _write_view(data_dir: Path) -> Path:
     """The stub view under ``data_dir/simulator``; returns the view directory."""
-    from osprey_connectors.simulation.view import SCHEMAS
 
     channels = [
         _channel(address, "setpoint" if address in PAIRS.values() else "readback")
@@ -218,12 +224,12 @@ def _write_view(data_dir: Path) -> Path:
         for index, address in enumerate(sorted(PAIRS))
     ]
     documents = {
-        "served_models.json": {"models": [MODEL, "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": [MODEL, "texture"]},
+        AddressesDocument: {
             "channels": [channel["address"] for channel in channels],
             "status": [f"{CODE}:SIM:{MODEL}:STATUS"],
         },
-        "variables.json": {
+        VariablesDocument: {
             "code": CODE,
             "models": [
                 {
@@ -245,8 +251,8 @@ def _write_view(data_dir: Path) -> Path:
             ],
             "channels": channels,
         },
-        "seeds.json": {"seeds": {}},
-        "scenarios.json": {
+        SeedsDocument: {"seeds": {}},
+        ScenariosDocument: {
             "scenarios": [
                 {"name": "nominal"},
                 {"name": STUCK_SCENARIO, "channel_faults": {STUCK_SP: "stuck"}},
@@ -255,9 +261,9 @@ def _write_view(data_dir: Path) -> Path:
     }
     view = data_dir / "simulator"
     view.mkdir(parents=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 

@@ -48,7 +48,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "active_envelopes",
-    "declares_motion",
     "motion_envelope",
 ]
 
@@ -100,7 +99,7 @@ def _term(noise: Noise | None) -> float:
             return float(term)
 
 
-def declares_motion(seed: SeedRecord | None) -> bool:
+def _declares_motion(seed: SeedRecord | None) -> bool:
     """Whether a seed states motion: a non-zero noise term, ``drift``, or ``topoff``."""
     if seed is None:
         return False
@@ -143,7 +142,7 @@ def motion_envelope(
         )
     shape = topoff.topoff_record(seed)
     if shape is not None:
-        envelope += topoff.tooth_depth(shape)
+        envelope += topoff._tooth_depth(shape)
     held = topoff.held_value(seed)
     record = noise if noise is not None else (None if seed is None else seed.noise)
     nominal = held if held is not None else (None if seed is None else seed.nominal)

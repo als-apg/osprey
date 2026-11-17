@@ -16,9 +16,9 @@ from pydantic import TypeAdapter
 from osprey.facility.views import view_bytes
 from osprey_connectors.simulation.envelope import (
     _MOTION_SIGMAS,
+    _declares_motion,
     _noise_sigma,
     active_envelopes,
-    declares_motion,
     motion_envelope,
 )
 from osprey_connectors.simulation.records import (
@@ -26,9 +26,10 @@ from osprey_connectors.simulation.records import (
     ResolvedCoupling,
     ScenarioRecord,
     SeedRecord,
+    SeedsDocument,
 )
 from osprey_connectors.simulation.state import ActiveState, compose
-from osprey_connectors.simulation.view import SCHEMAS, SEEDS_FILE, SimulatorView
+from osprey_connectors.simulation.view import SimulatorView
 from tests._simulator_view import write_scenarios_view
 
 _DRIFT = {"amplitude": 0.005, "period_s": 600.0}
@@ -210,7 +211,9 @@ def test_nominal_counts_in_the_readers_envelope(tmp_path: Path) -> None:
     view = tmp_path / "data" / "simulator"
     view.mkdir(parents=True)
     seeds = {"T:A": {"nominal": 1.0, "noise": {"absolute": 0.1}}}
-    (view / SEEDS_FILE).write_bytes(view_bytes({"schema": SCHEMAS[SEEDS_FILE], "seeds": seeds}))
+    (view / SeedsDocument.FILE).write_bytes(
+        view_bytes({"schema": SeedsDocument.SCHEMA, "seeds": seeds})
+    )
     write_scenarios_view(tmp_path, {"nominal": {"still": ["T:A"]}, "loud": {}})
     reader = SimulatorView.open(view)
 
@@ -231,4 +234,4 @@ def test_nominal_counts_in_the_readers_envelope(tmp_path: Path) -> None:
     ],
 )
 def test_declares_motion_ignores_a_zero_term(seed: dict | None, expected: bool) -> None:
-    assert declares_motion(_seed(seed)) is expected
+    assert _declares_motion(_seed(seed)) is expected

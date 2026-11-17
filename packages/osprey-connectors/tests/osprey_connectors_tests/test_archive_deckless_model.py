@@ -8,8 +8,14 @@ from pathlib import Path
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
 from osprey_connectors.simulation.state import ActiveState
-from osprey_connectors.simulation.view import SCHEMAS
 
 T0 = 1_760_000_000.0
 
@@ -29,9 +35,9 @@ def _view(path: Path) -> Path:
         "on": None,
     }
     documents = {
-        "served_models.json": {"models": ["D", "texture"]},
-        "addresses.json": {"channels": ["T:RB"], "status": ["T:SIM:D:STATUS"]},
-        "variables.json": {
+        ServedModelsDocument: {"models": ["D", "texture"]},
+        AddressesDocument: {"channels": ["T:RB"], "status": ["T:SIM:D:STATUS"]},
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -45,14 +51,14 @@ def _view(path: Path) -> Path:
             ],
             "channels": [channel],
         },
-        "seeds.json": {"seeds": {"T:RB": {"nominal": 5.0}}},
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        SeedsDocument: {"seeds": {"T:RB": {"nominal": 5.0}}},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     view = path / "simulator"
     view.mkdir()
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 

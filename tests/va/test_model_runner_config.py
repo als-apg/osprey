@@ -28,13 +28,8 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     periodic_addresses,
     setting_records,
 )
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    SCHEMAS,
-    VARIABLES_FILE,
-    SimulatorView,
-    ViewSchemaError,
-)
+from osprey_connectors.simulation.records import AddressesDocument, VariablesDocument
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 from tests._builds import BuiltProject
 from tests._simulator_view import view_channel
 
@@ -51,7 +46,7 @@ def _binding(record: dict[str, Any], role: str, plane: str | None, refresh: str)
 
 
 VIEW: dict[str, Any] = {
-    "schema": SCHEMAS[VARIABLES_FILE],
+    "schema": VariablesDocument.SCHEMA,
     "code": "T",
     "models": [
         {
@@ -163,13 +158,13 @@ VIEW: dict[str, Any] = {
 def _write_view(directory: Path, variables: dict[str, Any]) -> Path:
     """Write ``variables`` and its ``addresses.json`` as a view under ``directory``."""
     addresses = {
-        "schema": SCHEMAS[ADDRESSES_FILE],
+        "schema": AddressesDocument.SCHEMA,
         "channels": sorted(channel["address"] for channel in variables["channels"]),
         "status": [STATUS],
     }
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / ADDRESSES_FILE).write_text(json.dumps(addresses), encoding="utf-8")
-    (directory / VARIABLES_FILE).write_text(json.dumps(variables), encoding="utf-8")
+    (directory / AddressesDocument.FILE).write_text(json.dumps(addresses), encoding="utf-8")
+    (directory / VariablesDocument.FILE).write_text(json.dumps(variables), encoding="utf-8")
     return directory
 
 
@@ -357,8 +352,8 @@ def test_the_refresh_words_are_the_view_vocabulary() -> None:
 def _demo_view(built: BuiltProject) -> tuple[SimulatorView, dict[str, Any], dict[str, Any]]:
     """The built demo's view, and its ``variables.json`` and ``addresses.json`` as written."""
     view = SimulatorView.of_render(built.build_dir)
-    variables = json.loads((view.path / VARIABLES_FILE).read_text(encoding="utf-8"))
-    addresses = json.loads((view.path / ADDRESSES_FILE).read_text(encoding="utf-8"))
+    variables = json.loads((view.path / VariablesDocument.FILE).read_text(encoding="utf-8"))
+    addresses = json.loads((view.path / AddressesDocument.FILE).read_text(encoding="utf-8"))
     return view, variables, addresses
 
 

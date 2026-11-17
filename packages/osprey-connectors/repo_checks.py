@@ -138,37 +138,37 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.archive.SeedReport": (
         "a seeding run reports, and reports progress, in this type"
     ),
-    "osprey_connectors.simulation.channel_faults.DISCONNECTED": (
-        "a word of the channel-fault vocabulary a scenario states"
-    ),
-    "osprey_connectors.simulation.channel_faults.FROZEN": (
-        "a word of the channel-fault vocabulary a scenario states"
-    ),
     "osprey_connectors.simulation.composite.WriteRefusedError": (
         "a caller reads which channel a refused write names"
     ),
     "osprey_connectors.simulation.logbook.PlotSeries": "a plot spec lists its series in this type",
+    "osprey_connectors.simulation.records.ArchiverEntry": (
+        "a scenario's archiver block lists each channel's events in this type"
+    ),
     "osprey_connectors.simulation.records.Direction": (
         "a word of the wiring vocabulary a wiring record's direction states"
     ),
     "osprey_connectors.simulation.records.LinearTerm": (
         "a seed's linear map holds an input stated as a record in this type"
     ),
+    "osprey_connectors.simulation.records.ModelFaultRecord": (
+        "a scenario's faults block holds each model's fault in this type"
+    ),
     "osprey_connectors.simulation.records.PlotRef": (
         "a logbook entry's attachments hold a plot spec in this type"
     ),
+    "osprey_connectors.simulation.records.TopoffLifetimeRecord": (
+        "a seed's topoff_lifetime names the channel it holds the lifetime of in this type"
+    ),
+    "osprey_connectors.simulation.records.WanderRecord": (
+        "a seed's drift and a coupling's gain_wander are stated in this type"
+    ),
     "osprey_connectors.simulation.state.Overlap": "a composition check answers in this type",
-    "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
-    "osprey_connectors.simulation.view.ENGINE_ROLES": "a word of the wiring vocabulary",
-    "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
-    "osprey_connectors.simulation.view.SCHEMAS": (
-        "a hand-written view stamps each file with its schema from this map"
-    ),
     "osprey_connectors.testing.invalidate_cache": (
         "a test drops the parsed control-context files through it"
     ),

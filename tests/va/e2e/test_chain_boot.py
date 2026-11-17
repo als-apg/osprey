@@ -130,7 +130,7 @@ def _model(served: Any, name: str) -> ModelRecord:
 
 def _channels(served: Any, name: str) -> list[str]:
     """Every address one model drives, sorted."""
-    bindings = served.tree.view.bindings(model=name, served_only=False)
+    bindings = served.tree.view.wiring(model=name, served_only=False)
     return sorted({binding.address for binding in bindings})
 
 
@@ -254,7 +254,7 @@ async def test_a_pyaml_measure_on_the_chain_writes_the_simulator_alone(
     """The orbit response of LTB, approved, under the run lock, which it releases."""
     deployment = _measuring(served)
     readings = sorted(
-        {b.address for b in served.tree.view.bindings(model=MEASURED, served_only=False)}
+        {b.address for b in served.tree.view.wiring(model=MEASURED, served_only=False)}
     )
     assert_readings_still(served.tree.view, readings, deployment.active_scenarios())
     assert gm.only_simulated_targets(deployment.config) == []

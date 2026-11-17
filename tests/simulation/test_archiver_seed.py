@@ -58,9 +58,9 @@ from osprey_connectors.simulation.archive import (
     waveform_collection,
     waveform_document,
 )
-from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.records import SeedsDocument, VariablesDocument
+from osprey_connectors.simulation.series import _epoch_seconds_array
 from osprey_connectors.simulation.state import ActiveState
-from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_texture_view
@@ -137,15 +137,15 @@ def write_pulse_view(render, *, pulse_seed=True, scenarios=None, driver=DRIVER):
         },
         scenarios,
     )
-    variables = json.loads((view / VARIABLES_FILE).read_text())
+    variables = json.loads((view / VariablesDocument.FILE).read_text())
     for record in variables["channels"]:
         if record["address"] == WAVE:
             record["shape"] = [TRACE_POINTS]
-    (view / VARIABLES_FILE).write_text(json.dumps(variables))
+    (view / VariablesDocument.FILE).write_text(json.dumps(variables))
     if pulse_seed:
-        seeds = json.loads((view / SEEDS_FILE).read_text())
+        seeds = json.loads((view / SeedsDocument.FILE).read_text())
         seeds["seeds"][WAVE] = {"pulse": {"driver": driver, "enable": ENABLE}}
-        (view / SEEDS_FILE).write_text(json.dumps(seeds))
+        (view / SeedsDocument.FILE).write_text(json.dumps(seeds))
     return view
 
 
@@ -417,7 +417,7 @@ class TestSynthesizeDocuments:
 
         documents = _synthesize_documents(archive, epoch)
 
-        stored = epoch_seconds_array([document[DATE_FIELD] for document in documents])
+        stored = _epoch_seconds_array([document[DATE_FIELD] for document in documents])
         assert [document[PRESSURE] for document in documents] == archive.series(PRESSURE, stored)
 
     def test_a_flag_channel_is_stored_as_its_option_index(self, archive):
@@ -739,7 +739,7 @@ class TestConnectorRoundtrip:
 
         rows = frame[frame["address"] == pv]
         assert len(rows) > 0
-        stamps = epoch_seconds_array(list(rows["timestamp"]))
+        stamps = _epoch_seconds_array(list(rows["timestamp"]))
         expected = archive.series(pv, stamps)
         assert np.allclose(rows["value"].to_numpy(), expected, rtol=0, atol=0)
 

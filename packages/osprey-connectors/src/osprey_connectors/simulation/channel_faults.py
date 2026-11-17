@@ -37,20 +37,17 @@ from osprey_connectors.simulation.records import ChannelFaultKind, ChannelRole
 
 __all__ = [
     "CHANNEL_FAULTS",
-    "DISCONNECTED",
-    "FROZEN",
     "STUCK",
-    "ChannelFault",
 ]
 
 #: Holds a setpoint's writes.
 STUCK: Final = "stuck"
 
 #: Holds a reading at the value it served when the fault became active.
-FROZEN: Final = "frozen"
+_FROZEN: Final = "frozen"
 
 #: Reads not-a-number, or the activation value, with the ``udf`` condition.
-DISCONNECTED: Final = "disconnected"
+_DISCONNECTED: Final = "disconnected"
 
 _FLOAT = "float"
 _UNDEFINED = "udf"
@@ -65,7 +62,7 @@ def _not_a_number(value_type: str, snapshot: object) -> object:
     return math.nan if value_type == _FLOAT else snapshot
 
 
-class ChannelFault(FrozenModel):
+class _ChannelFault(FrozenModel):
     """One channel fault's semantics.
 
     Attributes:
@@ -86,13 +83,13 @@ class ChannelFault(FrozenModel):
 
 #: Every channel fault, by its word: one entry per
 #: :data:`~osprey_connectors.simulation.records.ChannelFaultKind`, in its order.
-CHANNEL_FAULTS: Mapping[ChannelFaultKind, ChannelFault] = MappingProxyType(
+CHANNEL_FAULTS: Mapping[ChannelFaultKind, _ChannelFault] = MappingProxyType(
     {
-        STUCK: ChannelFault(roles=frozenset({"setpoint"}), write=True, read=None, severity=None),
-        FROZEN: ChannelFault(
+        STUCK: _ChannelFault(roles=frozenset({"setpoint"}), write=True, read=None, severity=None),
+        _FROZEN: _ChannelFault(
             roles=frozenset({"readback", "none"}), write=False, read=_snapshot, severity=None
         ),
-        DISCONNECTED: ChannelFault(
+        _DISCONNECTED: _ChannelFault(
             roles=frozenset({"setpoint", "readback", "none"}),
             write=True,
             read=_not_a_number,

@@ -16,12 +16,8 @@ from typing import Any
 import pytest
 
 from osprey.services.virtual_accelerator.serving.runner_config import apply_safety
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    SCHEMAS,
-    VARIABLES_FILE,
-    SimulatorView,
-)
+from osprey_connectors.simulation.records import AddressesDocument, VariablesDocument
+from osprey_connectors.simulation.view import SimulatorView
 from tests._simulator_view import view_channel
 
 #: The array byte limit the tests configure: 100 doubles.
@@ -31,7 +27,7 @@ LIMIT = 800
 def _view(tmp_path: Path, channels: list[dict[str, Any]]) -> SimulatorView:
     """A texture-only view serving ``channels``."""
     variables = {
-        "schema": SCHEMAS[VARIABLES_FILE],
+        "schema": VariablesDocument.SCHEMA,
         "code": "T",
         "models": [
             {
@@ -46,14 +42,14 @@ def _view(tmp_path: Path, channels: list[dict[str, Any]]) -> SimulatorView:
         "channels": channels,
     }
     addresses = {
-        "schema": SCHEMAS[ADDRESSES_FILE],
+        "schema": AddressesDocument.SCHEMA,
         "channels": sorted(channel["address"] for channel in channels),
         "status": [],
     }
     directory = tmp_path / "view"
     directory.mkdir()
-    (directory / ADDRESSES_FILE).write_text(json.dumps(addresses), encoding="utf-8")
-    (directory / VARIABLES_FILE).write_text(json.dumps(variables), encoding="utf-8")
+    (directory / AddressesDocument.FILE).write_text(json.dumps(addresses), encoding="utf-8")
+    (directory / VariablesDocument.FILE).write_text(json.dumps(variables), encoding="utf-8")
     return SimulatorView.open(directory)
 
 

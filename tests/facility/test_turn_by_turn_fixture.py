@@ -140,7 +140,7 @@ def test_the_view_carries_the_rings_inputs(view: SimulatorView) -> None:
 
 
 def test_the_chains_stored_current_may_be_zero(view: SimulatorView) -> None:
-    bindings = {b.address: b for b in view.bindings(model=CHAIN)}
+    bindings = {b.address: b for b in view.wiring(model=CHAIN)}
     assert bindings[CURRENT_SETPOINT].engine["start"] == 0.0
     band = view.channel(CURRENT_SETPOINT).value_range
     assert band is not None
@@ -148,7 +148,7 @@ def test_the_chains_stored_current_may_be_zero(view: SimulatorView) -> None:
 
 
 def test_the_ring_shot_counter_steps_after_the_ring_charge(view: SimulatorView) -> None:
-    bindings = {b.address: b for b in view.bindings(model=CHAIN)}
+    bindings = {b.address: b for b in view.wiring(model=CHAIN)}
     assert bindings[SHOT].engine["signal"] == "counter"
     assert bindings[CHARGE].engine["signal"] == "charge"
     assert bindings[CURRENT].engine["signal"] == "current"
@@ -160,8 +160,7 @@ def test_the_ring_shot_counter_steps_after_the_ring_charge(view: SimulatorView) 
 
 def test_the_ring_carries_every_turn_by_turn_record(view: SimulatorView) -> None:
     signals = {
-        b.address: (b.engine.get("signal"), b.element, b.direction)
-        for b in view.bindings(model=RING)
+        b.address: (b.engine.get("signal"), b.element, b.direction) for b in view.wiring(model=RING)
     }
     assert signals[RF_SWITCH] == ("rf_switch", None, "write")
     assert signals[PILOT_TONE] == ("pilot_tone", None, "write")
@@ -180,7 +179,7 @@ def test_the_ring_carries_every_turn_by_turn_record(view: SimulatorView) -> None
 
 
 def test_the_request_and_every_arm_are_commands_and_nothing_else_is(view: SimulatorView) -> None:
-    marked = {b.address for model in (CHAIN, RING) for b in view.bindings(model=model) if b.marks}
+    marked = {b.address for model in (CHAIN, RING) for b in view.wiring(model=model) if b.marks}
     assert marked == {REQUEST, *ARMS.values()}
 
 
@@ -201,7 +200,7 @@ def test_each_turn_array_is_a_waveform_of_the_rings_samples(
 
 
 def test_the_ring_keeps_its_orbit_monitors_and_correctors(view: SimulatorView) -> None:
-    bindings = {b.address: b for b in view.bindings(model=RING)}
+    bindings = {b.address: b for b in view.wiring(model=RING)}
     for element in MONITORS:
         for axis in ("X", "Y"):
             assert bindings[f"SR:DIAG:BPM:{element[3:]}:POSITION:{axis}"].element == element

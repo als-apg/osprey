@@ -132,7 +132,7 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import TEXTURE, values
-from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
+from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, _ChannelFault
 from osprey_connectors.simulation.records import SeedsDocument, VariablesDocument
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
@@ -144,7 +144,7 @@ from osprey_connectors.simulation.state import (
     parse_active_state,
 )
 from osprey_connectors.simulation.status import STATUS_NO_DECK, STATUS_OK
-from osprey_connectors.simulation.texture import TextureModel, channel_variable
+from osprey_connectors.simulation.texture import TextureModel, _channel_variable
 from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
@@ -424,7 +424,7 @@ class Composite(LUMEModel):
         self._composed: ComposedSet | None = None
         self._moving: frozenset[str] = frozenset()
         self._held_writes: frozenset[str] = frozenset()
-        self._faulted: dict[str, ChannelFault] = {}
+        self._faulted: dict[str, _ChannelFault] = {}
         self._fault_severity: dict[str, str] = {}
         self._snapshot: dict[str, object] = {}
         self._texture_demands: dict[str, object] = {}
@@ -472,7 +472,7 @@ class Composite(LUMEModel):
                 self._variables[address] = self._texture.supported_variables[address]
             else:
                 child = self._children[self._owner[address]]
-                self._variables[address] = channel_variable(
+                self._variables[address] = _channel_variable(
                     self._channels[address], self._start_value(child, address)
                 )
         for address in self._status:
@@ -836,8 +836,8 @@ class Composite(LUMEModel):
         as served, unfaulted, at this instant.
         """
         held: set[str] = set()
-        faulted: dict[str, ChannelFault] = {}
-        derived: dict[str, ChannelFault] = {}
+        faulted: dict[str, _ChannelFault] = {}
+        derived: dict[str, _ChannelFault] = {}
         severity: dict[str, str] = {}
         for address, word in sorted(channel_faults.items()):
             fault = CHANNEL_FAULTS.get(word)

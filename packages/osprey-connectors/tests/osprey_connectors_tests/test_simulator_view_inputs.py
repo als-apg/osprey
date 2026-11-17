@@ -8,23 +8,18 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    ADDRESSES_SCHEMA,
-    VARIABLES_FILE,
-    VARIABLES_SCHEMA,
-    SimulatorView,
-    ViewSchemaError,
-)
+from osprey_connectors.simulation.records import AddressesDocument, VariablesDocument
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 
 RELEASED_SCHEMA = "osprey.facility.simulator/3"
 
 
 def _view(tmp_path: Path, schema: str, models: list[dict[str, Any]]) -> SimulatorView:
-    (tmp_path / ADDRESSES_FILE).write_text(
-        json.dumps({"schema": ADDRESSES_SCHEMA, "channels": [], "status": []}), encoding="utf-8"
+    (tmp_path / AddressesDocument.FILE).write_text(
+        json.dumps({"schema": AddressesDocument.SCHEMA, "channels": [], "status": []}),
+        encoding="utf-8",
     )
-    (tmp_path / VARIABLES_FILE).write_text(
+    (tmp_path / VariablesDocument.FILE).write_text(
         json.dumps({"schema": schema, "code": "AR", "models": models, "channels": []}),
         encoding="utf-8",
     )
@@ -36,7 +31,7 @@ def _model(name: str, **extra: Any) -> dict[str, Any]:
 
 
 def test_the_writer_identifier_is_four() -> None:
-    assert VARIABLES_SCHEMA == "osprey.facility.simulator/4"
+    assert VariablesDocument.SCHEMA == "osprey.facility.simulator/4"
 
 
 def test_inputs_round_trip(tmp_path: Path) -> None:
@@ -44,7 +39,7 @@ def test_inputs_round_trip(tmp_path: Path) -> None:
         {"address": "INJ:BEAM:X", "engine": {"take": "x", "unit": "m"}},
         {"address": "INJ:BEAM:Y", "engine": {"take": "y"}},
     ]
-    view = _view(tmp_path, VARIABLES_SCHEMA, [_model("AR", inputs=inputs), _model("INJ")])
+    view = _view(tmp_path, VariablesDocument.SCHEMA, [_model("AR", inputs=inputs), _model("INJ")])
 
     model = view.model("AR")
     assert [dict(item) for item in model.inputs] == [
@@ -58,7 +53,7 @@ def test_inputs_round_trip(tmp_path: Path) -> None:
 
 def test_inputs_are_read_only(tmp_path: Path) -> None:
     inputs = [{"address": "INJ:BEAM:X", "engine": {"take": "x"}}]
-    view = _view(tmp_path, VARIABLES_SCHEMA, [_model("AR", inputs=inputs)])
+    view = _view(tmp_path, VariablesDocument.SCHEMA, [_model("AR", inputs=inputs)])
 
     record = view.model("AR").inputs[0]
     with pytest.raises(TypeError):
@@ -68,7 +63,7 @@ def test_inputs_are_read_only(tmp_path: Path) -> None:
 
 
 def test_a_model_without_inputs_has_none(tmp_path: Path) -> None:
-    view = _view(tmp_path, VARIABLES_SCHEMA, [_model("AR")])
+    view = _view(tmp_path, VariablesDocument.SCHEMA, [_model("AR")])
 
     assert view.model("AR").inputs == ()
 
@@ -91,4 +86,4 @@ def test_an_unknown_identifier_is_refused(tmp_path: Path, schema: str | None) ->
 
     with pytest.raises(ViewSchemaError, match="rebuild with osprey build") as raised:
         view.models()
-    assert repr(VARIABLES_SCHEMA) in str(raised.value)
+    assert repr(VariablesDocument.SCHEMA) in str(raised.value)

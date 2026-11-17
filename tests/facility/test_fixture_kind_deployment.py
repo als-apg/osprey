@@ -37,7 +37,7 @@ from click.testing import Result
 
 from osprey.facility import kinds
 from osprey.facility.errors import FacilityBuildError
-from osprey_connectors.simulation.view import VARIABLES_FILE
+from osprey_connectors.simulation.records import VariablesDocument
 from tests.facility._fixture_kind import (
     BLOCK,
     DISTRIBUTION,
@@ -277,7 +277,7 @@ def test_an_application_reads_the_kinds_facts_and_tool_keys_through_the_sdk(buil
 def test_the_settings_patch_reaches_the_facility_file_and_the_simulator_view(built) -> None:
     sr = _model(built.facility, "SR")
     variables = json.loads(
-        (built.build_dir / "data" / "simulator" / VARIABLES_FILE).read_text("utf-8")
+        (built.build_dir / "data" / "simulator" / VariablesDocument.FILE).read_text("utf-8")
     )
     (served,) = [model for model in variables["models"] if model["name"] == "SR"]
 

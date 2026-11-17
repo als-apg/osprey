@@ -40,16 +40,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
 
 __all__ = [
-    "apply_events",
     "channel_key_bytes",
     "clamp",
-    "driver_key_bytes",
-    "epoch_seconds_array",
-    "event_positions",
     "keyed_normals",
     "occurrence_span",
     "occurrences",
-    "wander",
 ]
 
 logger = get_logger("simulation_series")
@@ -114,12 +109,12 @@ def channel_key_bytes(channel: str) -> bytes:
     return hashlib.sha256(channel.encode("utf-8")).digest()
 
 
-def driver_key_bytes(driver: str) -> bytes:
+def _driver_key_bytes(driver: str) -> bytes:
     """Key for a scenario's shared latent driver, addressed by the driver's name.
 
     A driver is the common cause behind several channels, so its draws must not
     depend on which channel asks for them: every channel coupled to the driver
-    evaluates :func:`wander` under this one key and sees the identical value at
+    evaluates :func:`_wander` under this one key and sees the identical value at
     the same instant. The ``driver:`` namespace keeps a driver that happens to
     share a channel's name from replaying that channel's own texture stream.
 
@@ -250,7 +245,7 @@ def _wander_components(
     return periods, phases, np.asarray(weights / weights.sum())
 
 
-def wander(
+def _wander(
     channel_key: bytes, times_s: npt.ArrayLike, amplitude: float, period_s: float
 ) -> npt.NDArray[np.float64]:
     """Band-limited quasi-random baseline texture, evaluated on absolute time.
@@ -305,7 +300,7 @@ def clamp(value: float, min_value: float | None, max_value: float | None) -> flo
     return value
 
 
-def epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64] | None:
+def _epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64] | None:
     """Convert timestamps to epoch seconds, or None when not convertible."""
     values: list[float] = []
     for ts in timestamps:
@@ -360,7 +355,7 @@ def _ramp_end(event: RampEvent, *, anchor_s: float) -> float:
             return anchor_s + float(offset)
 
 
-def event_positions(
+def _event_positions(
     event: ArchiverEvent,
     t_frac: npt.NDArray[np.float64],
     times_s: npt.NDArray[np.float64] | None,
@@ -405,7 +400,7 @@ def _daily_occurrences(
     Placing the time-of-day in an explicit zone — rather than the deploy host's
     local zone — makes the result independent of the box ``$TZ``. Callers
     resolve and pass the facility zone, so this module stays free of config.
-    Assumes ascending timestamps (the same contract ``apply_events`` relies
+    Assumes ascending timestamps (the same contract ``_apply_events`` relies
     on via ``np.searchsorted``).
     """
     start = datetime.fromtimestamp(float(times_s[0]), tz)
@@ -575,7 +570,7 @@ def _loss_refill_bound(event: LossEvent, topoff: TopoffRecord | None) -> float |
     return float(topoff.period_s) + float(shots) / _REFILL_RATE_HZ
 
 
-def apply_events(
+def _apply_events(
     series: npt.NDArray[np.float64],
     events: Sequence[ArchiverEvent],
     n: int,
@@ -601,7 +596,7 @@ def apply_events(
     series = series.copy()
     for event in events:
         # A ``to`` is a number on the float channels whose series these events move.
-        for x, at in event_positions(event, t_frac, times_s, anchor_s=anchor_s, tz=tz):
+        for x, at in _event_positions(event, t_frac, times_s, anchor_s=anchor_s, tz=tz):
             match event:
                 case StepEvent():
                     end = _step_end(event, anchor_s=anchor_s, tz=tz)

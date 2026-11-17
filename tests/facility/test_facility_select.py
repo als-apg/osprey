@@ -99,7 +99,7 @@ def test_monitors_in_plane_are_monitors_of_that_plane_in_address_order(
     assert len(picked) == 3
     assert list(picked) == sorted(monitor_addresses(view, plane="x", model=model))[:3]
     for address in picked:
-        binding = view.binding(address)
+        binding = view.wiring_of(address)
         assert binding is not None
         assert binding.engine_role == "monitor"
         assert binding.plane == "x"
@@ -109,7 +109,7 @@ def test_monitors_in_plane_scopes_to_the_model(example: tuple[SimulatorView, dic
     view, _ = example
     model = lane_model(view)
     picked = monitors_in_plane(view, "x", 3, model=model)
-    wired = {record.address for record in view.bindings(model=model)}
+    wired = {record.address for record in view.wiring(model=model)}
     assert set(picked) <= wired
     unscoped = sorted(monitor_addresses(view, plane="x"))[:3]
     assert list(picked) != unscoped, "the example's unscoped run is another model's"

@@ -130,6 +130,13 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (  # noqa: E40
     build_request,
     parse_reply,
 )
+from osprey_connectors.simulation.records import (  # noqa: E402
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
 from tests._builds import BuiltProject, init_project, run_build  # noqa: E402
 from tests.facility._synthetic_trees import write_tree  # noqa: E402
 
@@ -324,7 +331,6 @@ _DESCRIBED_READBACK = {"engine_role": "readback", "plane": None, "refresh": "pas
 
 def _write_stub_view(root: Path) -> Path:
     """A view of two stub children and the texture; returns its directory."""
-    from osprey_connectors.simulation.view import SCHEMAS
 
     channels = [
         _stub_channel(STUB_RANGE, "M", value_range=[0.0, 1.0], precision=STUB_PRECISION),
@@ -371,29 +377,29 @@ def _write_stub_view(root: Path) -> Path:
         }
     )
     documents = {
-        "served_models.json": {"models": ["F", "M", "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": ["F", "M", "texture"]},
+        AddressesDocument: {
             "channels": sorted(channel["address"] for channel in channels),
             "status": [f"{STUB_CODE}:SIM:F:STATUS", f"{STUB_CODE}:SIM:M:STATUS"],
         },
-        "variables.json": {
+        VariablesDocument: {
             "code": STUB_CODE,
             "models": models,
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
-        "seeds.json": {
+        SeedsDocument: {
             "seeds": {
                 STUB_COUNT: {"nominal": STUB_COUNT_NOMINAL},
                 STUB_WAVE: {"nominal": STUB_WAVE_NOMINAL},
             }
         },
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     view = root / "data" / "simulator"
     view.mkdir(parents=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 

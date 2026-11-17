@@ -95,7 +95,7 @@ def _wiring_defaults(view: SimulatorView) -> dict[str, float]:
     """Every writable setpoint the view's wiring gives a default, with that default."""
     return {
         binding.address: float(binding.engine_entry()["default"])
-        for binding in view.bindings(served_only=False)
+        for binding in view.wiring(served_only=False)
         if binding.direction == "write"
         and binding.default is not None
         and _writable_setpoint(view.channel(binding.address))

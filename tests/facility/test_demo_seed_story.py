@@ -49,7 +49,7 @@ def test_the_stored_current_is_a_top_off_sawtooth_about_500_ma() -> None:
     held = topoff.held_value(SeedRecord.model_validate(seed))
     assert held is not None
     assert 499.5 < held < 500.0
-    tau, period = topoff.tau_period(TopoffRecord.model_validate(record))
+    tau, period = topoff._tau_period(TopoffRecord.model_validate(record))
     sawtooth = record["ceiling"] * (1 - math.exp(-(period - 1e-6) / tau))
     assert 0.5 < sawtooth < 0.7
 

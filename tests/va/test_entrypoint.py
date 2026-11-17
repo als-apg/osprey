@@ -21,20 +21,23 @@ import pytest
 
 from osprey.services.virtual_accelerator import entrypoint
 from osprey_connectors.simulation import DEFAULT_FAST_TICK_S, DEFAULT_TICK_S
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    SCHEMAS,
-    VARIABLES_FILE,
-    VIEW_RELPATH,
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+    ViewDocument,
 )
+from osprey_connectors.simulation.view import VIEW_RELPATH
 
-#: The documents of a minimal simulator view, by file name.
-VIEW: dict[str, dict[str, Any]] = {
-    "served_models.json": {"models": ["SR", "texture"]},
-    "addresses.json": {"channels": ["SR:A", "SR:B", "SR:C"], "status": ["ca:SIM:SR:STATUS"]},
-    "variables.json": {"code": "ca", "models": [], "channels": []},
-    "seeds.json": {"seeds": {}},
-    "scenarios.json": {"scenarios": []},
+#: The documents of a minimal simulator view, by document.
+VIEW: dict[type[ViewDocument], dict[str, Any]] = {
+    ServedModelsDocument: {"models": ["SR", "texture"]},
+    AddressesDocument: {"channels": ["SR:A", "SR:B", "SR:C"], "status": ["ca:SIM:SR:STATUS"]},
+    VariablesDocument: {"code": "ca", "models": [], "channels": []},
+    SeedsDocument: {"seeds": {}},
+    ScenariosDocument: {"scenarios": []},
 }
 
 RUNNER_MODULE = "osprey.services.virtual_accelerator.serving.runner"
@@ -55,9 +58,9 @@ class _Recorded:
 def _write_view(data_dir: Path) -> Path:
     view = data_dir / VIEW_RELPATH.name
     view.mkdir(parents=True)
-    for name, document in VIEW.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in VIEW.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 
@@ -152,10 +155,14 @@ class TestTheView:
         monkeypatch.setenv("VA_DATA_DIR", str(tmp_path))
         monkeypatch.setenv("VA_INSTANCE", "virtual_accelerator")
 
-        with pytest.raises(SystemExit, match=str(tmp_path / VIEW_RELPATH.name / ADDRESSES_FILE)):
+        with pytest.raises(
+            SystemExit, match=str(tmp_path / VIEW_RELPATH.name / AddressesDocument.FILE)
+        ):
             entrypoint.main()
 
-    @pytest.mark.parametrize("name", sorted(set(VIEW) - {ADDRESSES_FILE}))
+    @pytest.mark.parametrize(
+        "name", sorted(kind.FILE for kind in VIEW if kind is not AddressesDocument)
+    )
     @pytest.mark.usefixtures("recorded")
     def test_a_missing_view_file_is_refused_by_its_path(self, served: Path, name: str) -> None:
         """The process reads every file of the view before it serves, not on first use."""
@@ -169,7 +176,7 @@ class TestTheView:
 
     @pytest.mark.usefixtures("recorded")
     def test_a_view_file_that_is_not_json_is_refused_by_its_path(self, served: Path) -> None:
-        variables = served / VIEW_RELPATH.name / VARIABLES_FILE
+        variables = served / VIEW_RELPATH.name / VariablesDocument.FILE
         variables.write_text("{", encoding="utf-8")
 
         with pytest.raises(SystemExit) as caught:
@@ -180,9 +187,9 @@ class TestTheView:
     def test_a_version_one_view_exits_before_ready_naming_rebuild(
         self, served: Path, recorded: _Recorded, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        variables = served / VIEW_RELPATH.name / VARIABLES_FILE
+        variables = served / VIEW_RELPATH.name / VariablesDocument.FILE
         variables.write_text(
-            json.dumps({"schema": "osprey.facility.simulator/1", **VIEW[VARIABLES_FILE]}),
+            json.dumps({"schema": "osprey.facility.simulator/1", **VIEW[VariablesDocument]}),
             encoding="utf-8",
         )
 

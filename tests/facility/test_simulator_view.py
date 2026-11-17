@@ -32,12 +32,8 @@ from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation import TEXTURE
-from osprey_connectors.simulation.view import (
-    IOC_HEALTH_SIGNALS,
-    SCENARIOS_SCHEMA,
-    SEEDS_SCHEMA,
-    SimulatorView,
-)
+from osprey_connectors.simulation.records import ScenariosDocument, SeedsDocument
+from osprey_connectors.simulation.view import IOC_HEALTH_SIGNALS, SimulatorView
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
@@ -625,7 +621,7 @@ def test_seeds_are_each_channel_seed_record(built_demo: BuiltProject) -> None:
     }
 
     assert set(seeds) == {"schema", "seeds"}
-    assert seeds["schema"] == SEEDS_SCHEMA
+    assert seeds["schema"] == SeedsDocument.SCHEMA
     assert seeds["seeds"] == expected
     assert list(seeds["seeds"]) == sorted(expected)
 
@@ -638,7 +634,7 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
     names = sorted([*(path.stem for path in source.glob("*.yaml")), "still"])
 
     assert set(scenarios) == {"schema", "scenarios"}
-    assert scenarios["schema"] == SCENARIOS_SCHEMA
+    assert scenarios["schema"] == ScenariosDocument.SCHEMA
     assert [entry["name"] for entry in scenarios["scenarios"]] == names
     for entry in scenarios["scenarios"]:
         if entry["name"] == "still":
@@ -736,7 +732,7 @@ def test_a_withdrawn_scenario_is_neither_listed_nor_copied(
     withdraw_scenarios(view, ["nominal"])
 
     document = _view(render_dir, SCENARIOS)
-    assert document["schema"] == SCENARIOS_SCHEMA
+    assert document["schema"] == ScenariosDocument.SCHEMA
     assert [entry["name"] for entry in document["scenarios"]] == [
         name for name in listed if name != "nominal"
     ]
@@ -902,7 +898,7 @@ def _physics_monitors(root: Path) -> dict[str, list[str]]:
     view = SimulatorView.open(root / "data" / "simulator")
     monitors: dict[str, list[str]] = {}
     for model in view.models():
-        for binding in view.bindings(model=model.name, engine_role="monitor", served_only=False):
+        for binding in view.wiring(model=model.name, engine_role="monitor", served_only=False):
             if view.channel(binding.address).value_type == "float":
                 monitors.setdefault(model.name, []).append(binding.address)
     return {model: sorted(addresses) for model, addresses in monitors.items()}

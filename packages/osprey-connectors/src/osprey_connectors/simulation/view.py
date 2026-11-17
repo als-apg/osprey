@@ -7,10 +7,11 @@ which refuses a file whose ``schema`` is not the one this OSPREY reads, so a
 render from an older OSPREY is rebuilt rather than misread.
 
 A wiring record of a physics model carries what its engine's ``describe()``
-stated at build time: its ``engine_role`` (one of :data:`ENGINE_ROLES`), the transverse
+stated at build time: its ``engine_role`` (an
+:data:`~osprey_connectors.simulation.records.EngineRole`), the transverse
 ``plane`` it steers or reads (``x``, ``y`` or ``None``), its ``refresh``
 (one of :data:`REFRESH`) and, when it carries any, its ``marks`` (of
-:data:`MARKS`). The words are the facility schema's. A ``readback`` is any read of an element's setting, paired
+:data:`~osprey_connectors.simulation.records.Mark`). The words are the facility schema's. A ``readback`` is any read of an element's setting, paired
 with a setpoint or not; a reader wanting the readback of a setpoint reads that
 setpoint channel's ``pair``.
 
@@ -60,16 +61,11 @@ from osprey_connectors.simulation.records import (
 )
 
 __all__ = [
-    "ADDRESSES_FILE",
-    "ADDRESSES_SCHEMA",
-    "COMMAND_MARK",
     "DECKS_DIR",
     "ENGINEER",
-    "ENGINE_ROLES",
     "HEARTBEAT",
     "IOC_HEALTH_SIGNALS",
     "IocHealthSignal",
-    "MARKS",
     "MONITOR",
     "OUTPUT",
     "PERIODIC",
@@ -78,19 +74,10 @@ __all__ = [
     "READBACK",
     "REFRESH",
     "SCENARIOS_DIR",
-    "SCENARIOS_FILE",
-    "SCENARIOS_SCHEMA",
     "SERVED_SIGNAL_PROPERTY",
-    "SCHEMAS",
-    "SEEDS_FILE",
-    "SEEDS_SCHEMA",
-    "SERVED_MODELS_FILE",
-    "SERVED_MODELS_SCHEMA",
     "SETPOINT",
     "STATUS_SIGNAL",
     "UPTIME",
-    "VARIABLES_FILE",
-    "VARIABLES_SCHEMA",
     "VIEW_RELPATH",
     "NoSimulatorViewError",
     "SimulatorViewError",
@@ -104,27 +91,11 @@ __all__ = [
 #: The view's directory under a render.
 VIEW_RELPATH = PurePosixPath("data/simulator")
 
-#: Each view file's name and the schema it carries, as its document names them.
-SERVED_MODELS_FILE = ServedModelsDocument.FILE
-SERVED_MODELS_SCHEMA = ServedModelsDocument.SCHEMA
-ADDRESSES_FILE = AddressesDocument.FILE
-ADDRESSES_SCHEMA = AddressesDocument.SCHEMA
-VARIABLES_FILE = VariablesDocument.FILE
-VARIABLES_SCHEMA = VariablesDocument.SCHEMA
-SEEDS_FILE = SeedsDocument.FILE
-SEEDS_SCHEMA = SeedsDocument.SCHEMA
-SCENARIOS_FILE = ScenariosDocument.FILE
-SCENARIOS_SCHEMA = ScenariosDocument.SCHEMA
 #: The directory holding a byte copy of each deck-bearing model's deck.
 DECKS_DIR = "decks"
 #: The directory holding each scenario's attached files, ``scenarios/<name>/``,
 #: under the facility tree and under the view alike.
 SCENARIOS_DIR = "scenarios"
-
-#: Each view file and the schema it carries, from :data:`~osprey_connectors.simulation.records.VIEW_DOCUMENTS`.
-SCHEMAS: Mapping[str, str] = MappingProxyType(
-    {document.FILE: document.SCHEMA for document in VIEW_DOCUMENTS}
-)
 
 SETPOINT: Final = "setpoint"
 READBACK: Final = "readback"
@@ -133,7 +104,7 @@ OUTPUT: Final = "output"
 #: The engine roles a wiring record's description names, every
 #: :data:`~osprey_connectors.simulation.records.EngineRole`. A channel's
 #: facility role is a :data:`~osprey_connectors.simulation.records.ChannelRole`.
-ENGINE_ROLES: tuple[EngineRole, ...] = get_args(EngineRole)
+_ENGINE_ROLES: tuple[EngineRole, ...] = get_args(EngineRole)
 #: The planes a wiring record's description names; ``None`` is no plane.
 PLANES: tuple[Plane, ...] = get_args(Plane)
 PERIODIC: Final = "periodic"
@@ -142,9 +113,9 @@ PERIODIC: Final = "periodic"
 REFRESH: tuple[Refresh, ...] = get_args(Refresh)
 #: The mark of a record whose write is a command; only a ``write`` record
 #: carries it.
-COMMAND_MARK: Final = "command"
+_COMMAND_MARK: Final = "command"
 #: The marks a wiring record's description may set.
-MARKS: tuple[Mark, ...] = get_args(Mark)
+_MARKS: tuple[Mark, ...] = get_args(Mark)
 
 #: The signal of a physics model's status address, ``<code>:SIM:<model>:STATUS``.
 STATUS_SIGNAL: Final = "STATUS"
@@ -321,12 +292,12 @@ class SimulatorView:
         Raises:
             NoSimulatorViewError: ``view_dir`` has no ``addresses.json``.
             ViewSchemaError: its ``addresses.json`` is not schema
-                :data:`ADDRESSES_SCHEMA`, or its shape breaks the document.
+                ``AddressesDocument.SCHEMA``, or its shape breaks the document.
         """
         view = cls(Path(view_dir))
-        if not (view.path / ADDRESSES_FILE).is_file():
+        if not (view.path / AddressesDocument.FILE).is_file():
             raise NoSimulatorViewError(
-                _NO_VIEW_MESSAGE.format(path=view.path), path=view.path / ADDRESSES_FILE
+                _NO_VIEW_MESSAGE.format(path=view.path), path=view.path / AddressesDocument.FILE
             )
         view.document(AddressesDocument)
         return view
@@ -335,11 +306,6 @@ class SimulatorView:
     def of_render(cls, render_root: Path | str) -> SimulatorView:
         """Open the view of the render rooted at ``render_root``."""
         return cls.open(Path(render_root) / VIEW_RELPATH)
-
-    @classmethod
-    def path_for_project(cls, project_dir: Path | str) -> Path:
-        """Where the view of ``project_dir``'s render is, read or not (:func:`view_path`)."""
-        return view_path(project_dir)
 
     @classmethod
     def of_project(cls, project_dir: Path | str) -> SimulatorView:
@@ -471,7 +437,7 @@ class SimulatorView:
 
         An address is :func:`sim_address` of a model and one of
         :data:`IOC_HEALTH_SIGNALS`; each model's signals keep the list's order.
-        ``ioc_health`` is optional under :data:`ADDRESSES_SCHEMA`: a view from
+        ``ioc_health`` is optional under ``AddressesDocument.SCHEMA``: a view from
         a build without it yields an empty mapping. Unlike the status
         addresses, it lists the ``texture`` model too.
 
@@ -488,10 +454,10 @@ class SimulatorView:
             if parsed is None:
                 prefix = f"{code}:{_SIM}:"
                 raise ViewSchemaError(
-                    f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
+                    f"{self.path / AddressesDocument.FILE} lists {address!r} under ioc_health, "
                     f"which is not {prefix}<model>:<signal> with <signal> one of "
                     f"{', '.join(IOC_HEALTH_SIGNALS)}: rebuild with osprey build",
-                    path=self.path / ADDRESSES_FILE,
+                    path=self.path / AddressesDocument.FILE,
                     key="ioc_health",
                     found=address,
                     expected=f"{prefix}<model>:<signal>",
@@ -517,7 +483,7 @@ class SimulatorView:
         """
         return self._channels()[address]
 
-    def bindings(
+    def wiring(
         self,
         *,
         model: str | None = None,
@@ -554,7 +520,7 @@ class SimulatorView:
                 continue
             yield model
 
-    def binding(self, address: str) -> WiringRecord | None:
+    def wiring_of(self, address: str) -> WiringRecord | None:
         """The served physics model's wiring record of ``address``, or ``None``."""
         for model in self._wired(served_only=True):
             for record in model.wiring:

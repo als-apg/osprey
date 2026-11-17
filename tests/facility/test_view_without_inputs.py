@@ -32,7 +32,7 @@ import pytest
 
 from osprey.facility.build import build_facility
 from osprey.facility.render import render_facility_outputs
-from osprey.facility.views.simulator import VARIABLES_SCHEMA
+from osprey_connectors.simulation.records import VariablesDocument
 from tests.facility._mml_built import BUILT, build_tree
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
@@ -73,7 +73,7 @@ def _as_before_inputs(relative: str, data: bytes) -> bytes:
     if relative != "variables.json":
         return data
     old = json.dumps({"schema": PRE_INPUTS_SCHEMA})[1:-1].encode()
-    new = json.dumps({"schema": VARIABLES_SCHEMA})[1:-1].encode()
+    new = json.dumps({"schema": VariablesDocument.SCHEMA})[1:-1].encode()
     assert data.count(new) == 1, "variables.json names its schema once"
     return data.replace(new, old)
 

@@ -401,7 +401,7 @@ class TestMachineSeed:
             SIMULATOR_VIEW_SETTING,
             VAInProcessConnector,
         )
-        from osprey_connectors.simulation.view import VARIABLES_FILE
+        from osprey_connectors.simulation.records import VariablesDocument
 
         repo = tmp_path / "repo"
         shutil.copytree(FIXTURES / "agent-profile", repo)
@@ -410,7 +410,9 @@ class TestMachineSeed:
         build = repo / "build"
         config = yaml.safe_load((build / "config.yml").read_text(encoding="utf-8"))
         view = build / "data" / "simulator"
-        channels = json.loads((view / VARIABLES_FILE).read_text(encoding="utf-8"))["channels"]
+        channels = json.loads((view / VariablesDocument.FILE).read_text(encoding="utf-8"))[
+            "channels"
+        ]
         target = next(
             c for c in channels if c.get("role") == "setpoint" and c.get("writable") is True
         )

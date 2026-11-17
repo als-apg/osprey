@@ -17,7 +17,14 @@ from pathlib import Path
 from typing import Any
 
 from osprey.services.virtual_accelerator.serving.model_surface import served_addresses
-from osprey_connectors.simulation.view import SCHEMAS, SimulatorView
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
+from osprey_connectors.simulation.view import SimulatorView
 from tests._simulator_view import view_channel
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -53,9 +60,9 @@ def _view(path: Path, *, health: bool = True) -> SimulatorView:
     if health:
         addresses["ioc_health"] = list(HEALTH)
     documents = {
-        "served_models.json": {"models": ["M", "texture"]},
-        "addresses.json": addresses,
-        "variables.json": {
+        ServedModelsDocument: {"models": ["M", "texture"]},
+        AddressesDocument: addresses,
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -70,14 +77,14 @@ def _view(path: Path, *, health: bool = True) -> SimulatorView:
             ],
             "channels": [view_channel(SETPOINT, role="setpoint", writable=True)],
         },
-        "seeds.json": {"seeds": {SETPOINT: {"nominal": 5.0}}},
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        SeedsDocument: {"seeds": {SETPOINT: {"nominal": 5.0}}},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     directory = path / "simulator"
     directory.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (directory / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (directory / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return SimulatorView.open(directory)
 

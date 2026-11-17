@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.facility.views.simulator import ADDRESSES_FILE
+from osprey_connectors.simulation.records import AddressesDocument
 from tests._preset_data import copy_bundle_data
 
 #: What a hand-written profile has to state to build at all.
@@ -122,7 +122,7 @@ def detected_provider_key(monkeypatch):
 
 
 def _served_addresses(project_dir: Path) -> set[str]:
-    document = json.loads((project_dir / "data" / "simulator" / ADDRESSES_FILE).read_text())
+    document = json.loads((project_dir / "data" / "simulator" / AddressesDocument.FILE).read_text())
     return set(document["channels"])
 
 
@@ -146,8 +146,8 @@ class TestGeneratedFromProfileData:
         ).read_text()
         mount = next(line.strip() for line in compose.splitlines() if ":/data:" in line)
         source = mount.removeprefix("- ").split(":/data:")[0]
-        served = (repo_dir / source / "simulator" / ADDRESSES_FILE).resolve()
-        assert served == (project_dir / "data" / "simulator" / ADDRESSES_FILE).resolve()
+        served = (repo_dir / source / "simulator" / AddressesDocument.FILE).resolve()
+        assert served == (project_dir / "data" / "simulator" / AddressesDocument.FILE).resolve()
         assert served.is_file()
 
     def test_facility_data_edit_reaches_the_served_channel_set(self, tmp_path):

@@ -69,7 +69,7 @@ from lume.variables import (
 from typing_extensions import override
 
 from osprey_connectors.simulation import TEXTURE, pulse, series, topoff, values
-from osprey_connectors.simulation.envelope import declares_motion
+from osprey_connectors.simulation.envelope import _declares_motion
 from osprey_connectors.simulation.records import AbsoluteNoise, RelativeNoise
 from osprey_connectors.simulation.view import SETPOINT
 
@@ -88,7 +88,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "TextureModel",
-    "channel_variable",
 ]
 
 _MS_PER_S = 1000.0
@@ -112,7 +111,7 @@ def _float_range(channel: ChannelRecord) -> tuple[float, float] | None:
     return None if bounds is None else (float(bounds[0]), float(bounds[1]))
 
 
-def channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Variable:
+def _channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Variable:
     """The LUME variable of one channel of the view's ``variables.json``.
 
     A setpoint the view marks writable is settable; every other channel is
@@ -231,7 +230,7 @@ class TextureModel(LUMEModel):
             self._nominals[readback] = self._coerce(readback, self._nominals[setpoint])
         start = {address: self._derived(address, self._nominals) for address in owned}
         self._variables: dict[str, Variable] = {
-            address: channel_variable(self._channels[address], start[address]) for address in owned
+            address: _channel_variable(self._channels[address], start[address]) for address in owned
         }
         self._held: dict[str, values.StoredValue] = {}
         self._couple: dict[str, list[ResolvedCoupling]] = {}
@@ -448,13 +447,13 @@ class TextureModel(LUMEModel):
         key = series.channel_key_bytes(address)
         drift = None if seed is None else seed.drift
         if drift is not None:
-            total = total + series.wander(key, flat, float(drift.amplitude), float(drift.period_s))
+            total = total + series._wander(key, flat, float(drift.amplitude), float(drift.period_s))
         for coupling in self._couple.get(address, ()):
             total = total + self._coupling(address, coupling, flat)
         record = topoff.topoff_record(seed)
         if record is not None:
-            tau, period = topoff.tau_period(record)
-            total = total + self._tooth(tau, period, topoff.period_mean(record), flat, base)
+            tau, period = topoff._tau_period(record)
+            total = total + self._tooth(tau, period, topoff._period_mean(record), flat, base)
         term, value, subkey = self._noise_term(address)
         if value:
             normals = series.keyed_normals(key + subkey, np.rint(flat * _MS_PER_S).astype(np.int64))
@@ -482,7 +481,7 @@ class TextureModel(LUMEModel):
         if self._couple.get(address) or topoff.topoff_record(seed) is not None:
             return True
         if address not in self._noise:
-            return declares_motion(seed)
+            return _declares_motion(seed)
         return bool((seed is not None and seed.drift is not None) or self._noise_term(address)[1])
 
     def _noise_term(self, address: str) -> tuple[str, float, bytes]:
@@ -522,8 +521,8 @@ class TextureModel(LUMEModel):
         """``gain * (1 + gain_wander(t)) * driver(t)`` of one coupling."""
         driver = coupling.driver
         drive = coupling.drive
-        signal = series.wander(
-            series.driver_key_bytes(driver),
+        signal = series._wander(
+            series._driver_key_bytes(driver),
             times,
             float(drive.amplitude),
             float(drive.period_s),
@@ -533,7 +532,7 @@ class TextureModel(LUMEModel):
         if envelope is not None:
             gain = gain * (
                 1.0
-                + series.wander(
+                + series._wander(
                     series.channel_key_bytes(address) + _GAIN_WANDER_SUBKEY + driver.encode(),
                     times,
                     float(envelope.amplitude),

@@ -101,7 +101,7 @@ def test_after_the_recovery_the_stored_current_carries_the_sawtooth(
     field = field_name(DCCT)
     stored = np.array([document[field] for document in _synthesize_documents(archive, epoch)])
     # A full tooth: from a refill to just before the next.
-    tau, period = topoff.tau_period(TopoffRecord.model_validate(record))
+    tau, period = topoff._tau_period(TopoffRecord.model_validate(record))
     full_tooth = record["ceiling"] * (1.0 - np.exp(-(period - 1e-6) / tau))
     assert np.ptp(stored) >= full_tooth, (float(np.ptp(stored)), full_tooth)
     assert np.ptp(stored) <= full_tooth + 2 * NOISE_SIGMAS * _noise(seed)

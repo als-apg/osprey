@@ -90,7 +90,7 @@ assert T0 % PERIOD_S == 0.0
 
 @pytest.mark.parametrize("offset", [0.0, 1.0, 7.5, 15.0, 29.0])
 def test_tau_and_period_give_the_shape_at_chosen_instants(offset):
-    tau, period = topoff.tau_period(RECORD)
+    tau, period = topoff._tau_period(RECORD)
     assert (tau, period) == (TAU, PERIOD_S)
     shape = math.exp(-((T0 + offset) % period) / tau)
     assert shape == pytest.approx(math.exp(-offset / TAU), rel=1e-12)
@@ -116,7 +116,7 @@ def test_refill_at_each_period_boundary(period):
 
 def test_tooth_depth_is_the_larger_swing_from_the_held_level():
     floor = CEILING * math.exp(-PERIOD_S / TAU)
-    depth = topoff.tooth_depth(RECORD)
+    depth = topoff._tooth_depth(RECORD)
     assert depth == pytest.approx(max(CEILING - LEVEL, LEVEL - floor), rel=1e-12)
     # The full tooth near these numbers is about 0.52 mA peak to peak.
     assert CEILING - floor == pytest.approx(0.52, abs=0.01)
@@ -128,7 +128,7 @@ def test_tooth_depth_is_the_larger_swing_from_the_held_level():
 
 
 def test_held_level_equals_the_period_mean():
-    assert topoff.period_mean(RECORD) == pytest.approx(MEAN, rel=1e-12)
+    assert topoff._period_mean(RECORD) == pytest.approx(MEAN, rel=1e-12)
     assert topoff.held_value(SEEDS[CURRENT]) == pytest.approx(LEVEL, rel=1e-12)
     model = _model()
     assert model.held([CURRENT])[CURRENT] == pytest.approx(LEVEL, rel=1e-12)
@@ -177,13 +177,13 @@ def test_a_stilled_channel_has_no_motion():
 def test_an_unstilled_channel_moves_and_has_an_envelope():
     model = _model()
     assert model.has_motion(CURRENT)
-    assert envelope.declares_motion(SEEDS[CURRENT])
+    assert envelope._declares_motion(SEEDS[CURRENT])
     assert envelope.motion_envelope(SEEDS[CURRENT]) == pytest.approx(
-        topoff.tooth_depth(RECORD), rel=1e-12
+        topoff._tooth_depth(RECORD), rel=1e-12
     )
     assert envelope.active_envelopes(SEEDS, compose({}, ActiveState(names=[])))[
         CURRENT
-    ] == pytest.approx(topoff.tooth_depth(RECORD), rel=1e-12)
+    ] == pytest.approx(topoff._tooth_depth(RECORD), rel=1e-12)
     # A scenario noise replacement keeps the tooth moving.
     model.set_motion({}, {CURRENT: AbsoluteNoise(absolute=0.0)})
     assert model.has_motion(CURRENT)
@@ -191,7 +191,7 @@ def test_an_unstilled_channel_moves_and_has_an_envelope():
 
 def test_the_envelope_adds_noise_taken_of_the_held_level():
     seed = {"topoff": _RECORD, "noise": {"relative": 0.001}}
-    expected = topoff.tooth_depth(RECORD) + envelope._MOTION_SIGMAS * 0.001 * LEVEL
+    expected = topoff._tooth_depth(RECORD) + envelope._MOTION_SIGMAS * 0.001 * LEVEL
     assert envelope.motion_envelope(SeedRecord.model_validate(seed)) == pytest.approx(
         expected, rel=1e-12
     )
@@ -229,7 +229,7 @@ def test_lifetime_is_a_held_constant():
     model = _model()
     assert model.held([LIFETIME])[LIFETIME] == LIFETIME_H
     assert not model.has_motion(LIFETIME)
-    assert not envelope.declares_motion(SEEDS[LIFETIME])
+    assert not envelope._declares_motion(SEEDS[LIFETIME])
     assert envelope.motion_envelope(SEEDS[LIFETIME]) == 0.0
     for offset in (0.0, 10.0, 29.9, 300.0):
         assert _read(model, LIFETIME, T0 + offset) == LIFETIME_H

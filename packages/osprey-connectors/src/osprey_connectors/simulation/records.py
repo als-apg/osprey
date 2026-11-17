@@ -82,6 +82,7 @@ __all__ = [
     "AbsoluteNoise",
     "AddressesDocument",
     "AnchorOffset",
+    "ArchiverEntry",
     "ArchiverEvent",
     "BurstEvent",
     "CalendarDay",
@@ -99,6 +100,7 @@ __all__ = [
     "LogEntryRecord",
     "LossEvent",
     "Mark",
+    "ModelFaultRecord",
     "ModelRecord",
     "Noise",
     "PictureRef",
@@ -116,10 +118,12 @@ __all__ = [
     "ServedModelsDocument",
     "SpikeEvent",
     "StepEvent",
+    "TopoffLifetimeRecord",
     "TopoffRecord",
     "VIEW_DOCUMENTS",
     "VariablesDocument",
     "ViewDocument",
+    "WanderRecord",
     "WindowFraction",
     "WiringRecord",
 ]
@@ -229,7 +233,7 @@ Noise: TypeAlias = Annotated[
 ]
 
 
-class _WanderRecord(_Record):
+class WanderRecord(_Record):
     """A seed's ``drift`` or a coupling's ``gain_wander``: a bounded slow wander."""
 
     amplitude: _Real
@@ -249,7 +253,7 @@ class CouplingTerm(_Record):
 
     driver: str
     gain: _Real
-    gain_wander: _WanderRecord | None = None
+    gain_wander: WanderRecord | None = None
 
 
 class ResolvedCoupling(CouplingTerm):
@@ -266,7 +270,7 @@ class TopoffRecord(_Record):
     period_s: _Real
 
 
-class _LifetimeRecord(_Record):
+class TopoffLifetimeRecord(_Record):
     """A ``topoff_lifetime`` seed: the channel whose ``topoff`` lifetime it holds."""
 
     of: str
@@ -324,13 +328,13 @@ class SeedRecord(_Record):
 
     nominal: _Verbatim = None
     noise: Noise | None = None
-    drift: _WanderRecord | None = None
+    drift: WanderRecord | None = None
     clamp: FrozenTuple[_Real | None] | None = None
     linear: ReadOnlyMapping[str, _Real | LinearTerm] | None = None
     gate: GateRecord | None = None
     pulse: PulseRecord | None = None
     topoff: TopoffRecord | None = None
-    topoff_lifetime: _LifetimeRecord | None = None
+    topoff_lifetime: TopoffLifetimeRecord | None = None
 
     def linear_terms(self) -> tuple[tuple[str, float], ...]:
         """``(input address, coefficient)`` of every ``linear`` input, sorted; empty without any."""
@@ -951,14 +955,14 @@ ArchiverEvent: TypeAlias = Annotated[
 ]
 
 
-class _ArchiverEntry(_Record):
+class ArchiverEntry(_Record):
     """One entry of a scenario's ``archiver`` block: a channel and its events."""
 
     channel: str
     events: FrozenTuple[ArchiverEvent] = ()
 
 
-class _FaultRecord(_Record):
+class ModelFaultRecord(_Record):
     """One model's fault in a scenario's ``faults`` block; ``inactive`` is ``None`` when active."""
 
     writes: ReadOnlyMapping[str, _Verbatim]
@@ -1069,7 +1073,7 @@ class ScenarioRecord(_Record):
     name: str
     description: str | None = None
     overrides: ReadOnlyMapping[str, _Verbatim] = Field(default_factory=empty_mapping)
-    archiver: FrozenTuple[_ArchiverEntry] = ()
+    archiver: FrozenTuple[ArchiverEntry] = ()
     logbook: FrozenTuple[LogEntryRecord] = ()
     sessions: _Verbatim = None
     drivers: ReadOnlyMapping[str, DriveRecord] = Field(default_factory=empty_mapping)
@@ -1077,7 +1081,7 @@ class ScenarioRecord(_Record):
     noise: ReadOnlyMapping[str, Noise] = Field(default_factory=empty_mapping)
     channel_faults: ReadOnlyMapping[str, ChannelFaultKind] = Field(default_factory=empty_mapping)
     still: tuple[str, ...] = ()
-    faults: ReadOnlyMapping[str, _FaultRecord] = Field(default_factory=empty_mapping)
+    faults: ReadOnlyMapping[str, ModelFaultRecord] = Field(default_factory=empty_mapping)
 
     @field_validator("still", mode="before")
     @classmethod

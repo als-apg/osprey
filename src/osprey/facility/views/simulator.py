@@ -90,21 +90,11 @@ from osprey_connectors.simulation.records import (
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
 from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    ADDRESSES_SCHEMA,
     DECKS_DIR,
     IOC_HEALTH_SIGNALS,
     SCENARIOS_DIR,
-    SCENARIOS_FILE,
-    SCENARIOS_SCHEMA,
-    SEEDS_FILE,
-    SEEDS_SCHEMA,
-    SERVED_MODELS_FILE,
-    SERVED_MODELS_SCHEMA,
     SETPOINT,
     STATUS_SIGNAL,
-    VARIABLES_FILE,
-    VARIABLES_SCHEMA,
     SimulatorView,
     document_bytes,
     sim_address,
@@ -113,19 +103,7 @@ from osprey_connectors.simulation.view import (
 _Document = TypeVar("_Document", bound=ViewDocument)
 
 __all__ = [
-    "ADDRESSES_FILE",
-    "ADDRESSES_SCHEMA",
-    "DECKS_DIR",
     "INACTIVE_UNSERVED",
-    "SCENARIOS_DIR",
-    "SCENARIOS_FILE",
-    "SCENARIOS_SCHEMA",
-    "SEEDS_FILE",
-    "SEEDS_SCHEMA",
-    "SERVED_MODELS_FILE",
-    "SERVED_MODELS_SCHEMA",
-    "VARIABLES_FILE",
-    "VARIABLES_SCHEMA",
     "ioc_health_addresses",
     "resolved_still",
     "served_deck_path",
@@ -358,7 +336,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
         channels.append(channel)
 
     return {
-        "schema": VARIABLES_SCHEMA,
+        "schema": VariablesDocument.SCHEMA,
         "code": str(doc["identity"]["code"]),
         "models": [_model_entry(inputs, model) for model in models],
         "channels": channels,
@@ -385,7 +363,7 @@ def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         for channel in doc.get("channels", [])
         if channel.get("simulation") is not None
     }
-    return {"schema": SEEDS_SCHEMA, "seeds": seeds}
+    return {"schema": SeedsDocument.SCHEMA, "seeds": seeds}
 
 
 def _float_addresses(channels: Iterable[Mapping[str, Any]]) -> set[str]:
@@ -482,7 +460,7 @@ def _scenarios_document(inputs: ViewInputs) -> ScenariosDocument:
         )
         scenarios.sort(key=lambda scenario: scenario.name)
     return _view_document(
-        ScenariosDocument, {"schema": SCENARIOS_SCHEMA, "scenarios": tuple(scenarios)}
+        ScenariosDocument, {"schema": ScenariosDocument.SCHEMA, "scenarios": tuple(scenarios)}
     )
 
 
@@ -527,12 +505,13 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
     physics = [name for name in inputs.served if name != TEXTURE]
     documents: list[ViewDocument] = [
         _view_document(
-            ServedModelsDocument, {"schema": SERVED_MODELS_SCHEMA, "models": list(inputs.served)}
+            ServedModelsDocument,
+            {"schema": ServedModelsDocument.SCHEMA, "models": list(inputs.served)},
         ),
         _view_document(
             AddressesDocument,
             {
-                "schema": ADDRESSES_SCHEMA,
+                "schema": AddressesDocument.SCHEMA,
                 "channels": sorted(str(channel["id"]) for channel in doc.get("channels", [])),
                 "status": [status_address(code, name) for name in physics],
                 "ioc_health": [
@@ -593,6 +572,6 @@ def withdraw_scenarios(root: Path, names: Iterable[str]) -> None:
             scenario for scenario in document.scenarios if scenario.name not in withdrawn
         ),
     )
-    (root / SCENARIOS_FILE).write_bytes(document_bytes(kept))
+    (root / ScenariosDocument.FILE).write_bytes(document_bytes(kept))
     for name in withdrawn:
         shutil.rmtree(root / SCENARIOS_DIR / name, ignore_errors=True)

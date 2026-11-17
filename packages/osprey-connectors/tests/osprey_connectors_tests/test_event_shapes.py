@@ -41,8 +41,8 @@ SHOT = 0.75
 
 
 def apply_events(values, events, n, times_s, anchor_s, topoff=None):
-    """:func:`series.apply_events` of events and a top-off record stated as mappings."""
-    return series.apply_events(
+    """:func:`series._apply_events` of events and a top-off record stated as mappings."""
+    return series._apply_events(
         values,
         [EVENT.validate_python(event) for event in events],
         n,

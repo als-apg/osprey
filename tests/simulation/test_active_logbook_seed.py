@@ -493,9 +493,9 @@ def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeyp
     drawn at the seeded row's timestamp, handed over in the entry's own order."""
 
     from osprey.facility.scenarios import scenario_logbook
-    from osprey.facility.views.simulator import SCENARIOS_DIR
     from osprey.simulation.plots import render_plot_spec
     from osprey_connectors.simulation.records import ScenarioRecord
+    from osprey_connectors.simulation.view import SCENARIOS_DIR
 
     config, project = _plot_spec_project(tmp_path, monkeypatch)
     seen = _stub_ariel(monkeypatch, existing=0)

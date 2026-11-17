@@ -25,8 +25,8 @@ from tests._archiver_events import events as _events
 
 
 def apply_events(values, scripted, n, times_s, anchor_s, tz):
-    """:func:`series.apply_events` of events stated as mappings."""
-    return series.apply_events(values, _events(scripted), n, times_s, anchor_s=anchor_s, tz=tz)
+    """:func:`series._apply_events` of events stated as mappings."""
+    return series._apply_events(values, _events(scripted), n, times_s, anchor_s=anchor_s, tz=tz)
 
 
 def step_end(event, anchor_s, tz):

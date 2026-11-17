@@ -80,7 +80,7 @@ from osprey_connectors.simulation.archive import (
     tier_expiry,
 )
 from osprey_connectors.simulation.records import ArchiverEvent
-from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.series import _epoch_seconds_array
 from osprey_connectors.simulation.state import ActiveState
 from tests._archiver_events import events as view_events
 from tests._container_support import is_docker_available
@@ -374,7 +374,7 @@ class World:
         alone — so "clean" here means what the base seed wrote, not what this
         test thinks it wrote.
         """
-        epochs = epoch_seconds_array(stamps)
+        epochs = _epoch_seconds_array(stamps)
         assert epochs is not None
         archive = build(
             self.root / "data" / "simulator",

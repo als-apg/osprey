@@ -118,11 +118,11 @@ def test_every_simulator_path_the_agent_names_resolves_in_the_executor_frame(
     file under that root.
     """
     from osprey.mcp_server.python_executor.executor import _resolve_project_root
-    from osprey_connectors.simulation.view import VARIABLES_FILE
+    from osprey_connectors.simulation.records import VariablesDocument
 
     text = (built_demo.build_dir / AGENT).read_text(encoding="utf-8")
     paths = sorted(set(_SIMULATOR_PATH.findall(text)))
-    assert any(path.endswith(f"/{VARIABLES_FILE}") for path in paths), paths
+    assert any(path.endswith(f"/{VariablesDocument.FILE}") for path in paths), paths
     assert any("/decks/" in path for path in paths), paths
 
     monkeypatch.chdir(built_demo.repo)

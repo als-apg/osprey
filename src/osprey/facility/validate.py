@@ -54,8 +54,7 @@ from osprey.facility.relations import shape_problems
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey.facility.sources import Sources, group_families, load_sources
 from osprey_connectors.settle import declared_tolerance
-from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
-from osprey_connectors.simulation.values import is_waveform
+from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES, is_waveform
 
 if TYPE_CHECKING:
     from osprey_connectors.simulation.records import ScenarioRecord

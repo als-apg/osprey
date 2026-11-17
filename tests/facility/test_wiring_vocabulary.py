@@ -8,11 +8,11 @@ states the same four slots as enums. The two are one vocabulary.
 from __future__ import annotations
 
 from osprey.facility.schema import core
-from osprey_connectors.simulation.view import ENGINE_ROLES, MARKS, PLANES, REFRESH
+from osprey_connectors.simulation.view import _ENGINE_ROLES, _MARKS, PLANES, REFRESH
 
 
 def test_the_engine_roles_are_the_schemas_engine_roles() -> None:
-    assert set(ENGINE_ROLES) == {member.value for member in core.EngineRoleEnum}
+    assert set(_ENGINE_ROLES) == {member.value for member in core.EngineRoleEnum}
 
 
 def test_the_planes_are_the_schemas_planes() -> None:
@@ -24,4 +24,4 @@ def test_the_refreshes_are_the_schemas_refreshes() -> None:
 
 
 def test_the_marks_are_the_schemas_wiring_marks() -> None:
-    assert set(MARKS) == {member.value for member in core.WiringMarkEnum}
+    assert set(_MARKS) == {member.value for member in core.WiringMarkEnum}

@@ -73,9 +73,9 @@ from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
 from osprey_connectors.simulation.records import SeedsDocument, StepEvent, VariablesDocument
 from osprey_connectors.simulation.series import (
-    apply_events,
-    epoch_seconds_array,
-    event_positions,
+    _apply_events,
+    _epoch_seconds_array,
+    _event_positions,
 )
 from osprey_connectors.simulation.view import SimulatorView
 
@@ -581,7 +581,7 @@ class ArchiveComposite:
         count = len(times)
         start = np.full(count, channel_values._real(self._held[address]), dtype=np.float64)
         events = self._events.get(address, [])
-        return apply_events(
+        return _apply_events(
             start,
             events,
             count,
@@ -605,7 +605,7 @@ class ArchiveComposite:
             if not isinstance(event, StepEvent):
                 continue
             target = channel.coerce(event.to)
-            for axis, at in event_positions(
+            for axis, at in _event_positions(
                 event, fractions, times, anchor_s=self._anchor_s, tz=self._tz
             ):
                 for index in np.flatnonzero(axis >= at):
@@ -817,7 +817,7 @@ def _synthesize_documents(
     # their stored dates, not at the ones the grid was built from. Datetimes
     # carry microseconds, so a grid time with finer resolution than that would
     # otherwise be stored as one instant and valued as another.
-    reader_times_s = epoch_seconds_array(stamps)
+    reader_times_s = _epoch_seconds_array(stamps)
     assert reader_times_s is not None  # datetimes always convert
 
     addresses = archive.scalar_addresses
@@ -1161,7 +1161,7 @@ def _waveform_documents(
     if not stamps:
         return []
     expiry = _as_utc_datetimes(expire_times_s)
-    reader_times_s = epoch_seconds_array(stamps)
+    reader_times_s = _epoch_seconds_array(stamps)
     assert reader_times_s is not None  # datetimes always convert
     documents: list[dict[str, object]] = []
     for address in archive.waveform_addresses:

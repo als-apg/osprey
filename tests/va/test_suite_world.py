@@ -57,7 +57,7 @@ def _kinds(name: str) -> list[str]:
 
 
 def test_lane_selection_is_the_lane_model_s_bounded_corrector(limits: dict[str, Any]) -> None:
-    binding = VIEW.binding(LANE.setpoint)
+    binding = VIEW.wiring_of(LANE.setpoint)
     record = limits[LANE.setpoint]
 
     assert binding is not None and VIEW.channel(LANE.setpoint).owner == LANE.model
@@ -83,14 +83,14 @@ def test_lane_selection_is_the_lane_model_s_bounded_corrector(limits: dict[str, 
 def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) -> None:
     lane = e2e_conftest.LANE_MODEL
 
-    kick = VIEW.binding(e2e_conftest.KICK_CORRECTOR)
+    kick = VIEW.wiring_of(e2e_conftest.KICK_CORRECTOR)
     assert kick is not None
     owner = VIEW.channel(e2e_conftest.KICK_CORRECTOR).owner
     assert (owner, kick.engine_role, kick.plane) == (lane, "setpoint", "y")
     assert e2e_conftest.KICK_MONITOR in monitor_addresses(VIEW, plane="y", model=lane)
     assert e2e_conftest.SEEDED_READOUT_BPM in monitor_addresses(VIEW, plane="x", model=lane)
 
-    quadrupole = VIEW.binding(e2e_conftest.UNSTABLE_QUADRUPOLE)
+    quadrupole = VIEW.wiring_of(e2e_conftest.UNSTABLE_QUADRUPOLE)
     assert quadrupole is not None
     owner = VIEW.channel(e2e_conftest.UNSTABLE_QUADRUPOLE).owner
     assert (owner, quadrupole.engine_role, quadrupole.plane) == (lane, "setpoint", None)
@@ -101,7 +101,7 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
 
     burst = VIEW.channel(e2e_conftest.BURST_CHANNEL)
     burst_seed = VIEW.seed(e2e_conftest.BURST_CHANNEL)
-    assert burst.role != "setpoint" and VIEW.binding(e2e_conftest.BURST_CHANNEL) is None
+    assert burst.role != "setpoint" and VIEW.wiring_of(e2e_conftest.BURST_CHANNEL) is None
     assert burst_seed is not None
     nominal = float(burst_seed.nominal)
     sigma = _noise_sigma(burst_seed.noise, nominal)
@@ -110,7 +110,7 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
 
     echo = VIEW.channel(e2e_conftest.TEXTURE_ECHO_SETPOINT)
     assert echo.role == "setpoint" and echo.writable
-    assert VIEW.binding(e2e_conftest.TEXTURE_ECHO_SETPOINT) is None
+    assert VIEW.wiring_of(e2e_conftest.TEXTURE_ECHO_SETPOINT) is None
     assert echo.pair == e2e_conftest.TEXTURE_ECHO_READBACK != e2e_conftest.TEXTURE_ECHO_SETPOINT
     if echo.value_range is not None:
         low, high = echo.value_range
@@ -120,7 +120,7 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
     wired = {
         address: binding
         for address in e2e_conftest.OPERATING_POINT
-        if (binding := VIEW.binding(address)) is not None
+        if (binding := VIEW.wiring_of(address)) is not None
     }
     assert sorted(
         (VIEW.channel(address).owner, binding.engine_role, binding.plane)
@@ -140,7 +140,7 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
     assert e2e_conftest.OPERATING_POINT[texture] != texture_seed.nominal
 
     for address in e2e_conftest.CHROMATICITY:
-        output = VIEW.binding(address)
+        output = VIEW.wiring_of(address)
         assert output is not None
         assert (VIEW.channel(address).owner, output.engine_role) == (lane, "output")
 
@@ -151,7 +151,7 @@ def test_the_second_model_is_a_served_line_without_dispersion() -> None:
     assert second in VIEW.served()
     assert second != e2e_conftest.LANE_MODEL
     assert "orm" in _kinds(second) and "dispersion" not in _kinds(second)
-    assert all(VIEW.seed(binding.address) is None for binding in VIEW.bindings(model=second))
+    assert all(VIEW.seed(binding.address) is None for binding in VIEW.wiring(model=second))
     assert second_models(VIEW, e2e_conftest.PRESET_DOCUMENT) == (second,)
 
 
@@ -164,7 +164,7 @@ def test_the_bench_world_names_bench_records() -> None:
     assert VIEW.channel(bench.PROBE_CHANNEL).role == "readback"
     assert VIEW.channel(bench.WRITABLE_SP).role == "setpoint"
     assert VIEW.channel(bench.PROTECTED_SP).role == "setpoint"
-    shared = VIEW.binding(bench.SHARED_BPM_X)
+    shared = VIEW.wiring_of(bench.SHARED_BPM_X)
     assert shared is not None and shared.engine_role == "monitor"
     writable = VIEW.channel(bench.WRITABLE_SP)
     assert writable.writable and writable.value_range is not None

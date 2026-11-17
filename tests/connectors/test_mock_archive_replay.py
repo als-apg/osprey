@@ -21,8 +21,15 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
 from osprey_connectors.simulation.state import ActiveState
-from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 from tests._simulator_view import view_channel
 from tests.connectors._view_records import activate
 
@@ -106,12 +113,12 @@ def _view(
         view_channel("T:FLAG", value_type="bool"),
     ]
     documents = {
-        "served_models.json": {"models": ["M", "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": ["M", "texture"]},
+        AddressesDocument: {
             "channels": sorted(channel["address"] for channel in channels),
             "status": ["T:SIM:M:STATUS"],
         },
-        "variables.json": {
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -138,7 +145,7 @@ def _view(
             ],
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
-        "seeds.json": {
+        SeedsDocument: {
             "seeds": {
                 "T:SP": {"nominal": 5.0},
                 "T:NOISY": {"nominal": 10.0, "noise": {"absolute": 0.5}},
@@ -148,13 +155,13 @@ def _view(
                 **(seeds or {}),
             }
         },
-        "scenarios.json": {"scenarios": [{"name": "nominal"}, *(scenarios or [])]},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}, *(scenarios or [])]},
     }
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 
@@ -246,7 +253,7 @@ def test_a_physics_readback_carries_drift_and_keyed_noise_on_its_held_value(
     key = series.channel_key_bytes("M:RB")
     expected = (
         4.0
-        + series.wander(key, HOUR, 0.2, 600.0)
+        + series._wander(key, HOUR, 0.2, 600.0)
         + 0.1 * series.keyed_normals(key, np.rint(HOUR * 1000.0).astype(np.int64))
     )
 
@@ -590,7 +597,7 @@ def test_an_hour_of_a_quiet_monitor_stays_on_its_held_value_inside_its_clamp(
     seeds = json.loads(seeds_path.read_text(encoding="utf-8"))
     record = seeds["seeds"][BPM_X]
     sigma = float(record["noise"]["absolute"])
-    drift = series.wander(
+    drift = series._wander(
         series.channel_key_bytes(BPM_X),
         HOUR,
         float(record["drift"]["amplitude"]),

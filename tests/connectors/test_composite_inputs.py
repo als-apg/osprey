@@ -14,7 +14,14 @@ from lume.variables import ScalarVariable, Variable
 
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import REFRESH, SCHEMAS
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
+from osprey_connectors.simulation.view import REFRESH
 from tests._simulator_view import view_channel
 from tests.connectors._view_records import activate
 
@@ -150,24 +157,24 @@ def _view(path: Path, models: Mapping[str, Sequence[tuple[str, Mapping[str, Any]
     )
     channels.append(view_channel("T:SP", role="setpoint", writable=True))
     documents = {
-        "served_models.json": {"models": [*sorted(models), "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": [*sorted(models), "texture"]},
+        AddressesDocument: {
             "channels": sorted(channel["address"] for channel in channels),
             "status": [f"T:SIM:{name}:STATUS" for name in sorted(models)],
         },
-        "variables.json": {
+        VariablesDocument: {
             "code": "T",
             "models": sorted(entries, key=lambda entry: entry["name"]),
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
-        "seeds.json": {"seeds": {"T:SP": {"nominal": 5.0}}},
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        SeedsDocument: {"seeds": {"T:SP": {"nominal": 5.0}}},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 

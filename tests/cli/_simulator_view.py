@@ -26,7 +26,12 @@ from lume.variables import ScalarVariable, Variable
 
 from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey_connectors.simulation import composite as composite_module
-from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
 from tests._simulator_view import view_channel, write_scenarios_view
 
 #: The rendered config of a deployment serving the view's simulator in process.
@@ -117,12 +122,12 @@ def write_simulator_view(
     """
     channels = [view_channel(_BPM, "SR"), view_channel(_TEXTURE_SP, role="setpoint")]
     documents = {
-        "served_models.json": {"models": ["SR", "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": ["SR", "texture"]},
+        AddressesDocument: {
             "channels": sorted(channel["address"] for channel in channels),
             "status": ["ca:SIM:SR:STATUS"],
         },
-        "variables.json": {
+        VariablesDocument: {
             "code": "ca",
             "models": [
                 {
@@ -153,13 +158,13 @@ def write_simulator_view(
             ],
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
-        "seeds.json": {"seeds": {_TEXTURE_SP: {"nominal": 5.0}}},
+        SeedsDocument: {"seeds": {_TEXTURE_SP: {"nominal": 5.0}}},
     }
     view = build / "data" / "simulator"
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     write_scenarios_view(
         build, {str(s["name"]): {k: v for k, v in s.items() if k != "name"} for s in scenarios}

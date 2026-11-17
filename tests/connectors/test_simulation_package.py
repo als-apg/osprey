@@ -127,7 +127,7 @@ def test_the_package_root_imports_no_lume_and_no_engine():
 
 
 def test_the_model_status_lookup_imports_no_lume_and_no_engine():
-    modules = _modules_after("from osprey_connectors.simulation import model_status")
+    modules = _modules_after("from osprey_connectors.simulation.status import model_status")
 
     assert not {m for m in modules if m == "lume" or m.startswith(("lume.", "lume_"))}
     assert not {
@@ -147,11 +147,14 @@ def test_the_values_module_imports_no_numpy_and_no_lume():
     assert not {m for m in modules if m == "lume" or m.startswith(("lume.", "lume_"))}
 
 
-def test_the_package_root_holds_the_status_lookups_and_no_engine():
+def test_the_status_lookups_have_one_home_and_the_package_root_no_engine():
     import osprey_connectors.simulation as package
 
-    assert package.model_status is status.model_status
-    assert package.read_model_status is status.read_model_status
+    assert {"model_status", "read_model_status"} <= set(status.__all__)
+    assert not {"model_status", "read_model_status", "GATED_TYPES", "LABELLED_TYPES"} & set(
+        package.__all__
+    )
+    assert not hasattr(package, "model_status")
     assert not hasattr(package, "SimulationEngine")
 
 
@@ -203,7 +206,7 @@ def test_a_status_channel_is_read_through_the_connector_and_decoded(value):
     import asyncio
     from types import SimpleNamespace
 
-    from osprey_connectors.simulation import read_model_status
+    from osprey_connectors.simulation.status import read_model_status
 
     read: list[str] = []
 

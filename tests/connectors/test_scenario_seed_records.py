@@ -27,10 +27,11 @@ from osprey_connectors.simulation.records import (
     Noise,
     RelativeNoise,
     ScenarioRecord,
+    ScenariosDocument,
     SeedRecord,
     TopoffRecord,
 )
-from osprey_connectors.simulation.view import SCENARIOS_FILE, SimulatorView, ViewSchemaError
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 from tests._simulator_view import write_scenarios_view
 
 EVENT: TypeAdapter[ArchiverEvent] = TypeAdapter(ArchiverEvent)
@@ -111,7 +112,7 @@ def test_withdrawing_a_scenario_rewrites_an_hh_mm_time_with_seconds(tmp_path: Pa
 
     withdraw_scenarios(path.parent, ["gone"])
 
-    (scenario,) = json.loads((path.parent / SCENARIOS_FILE).read_text(encoding="utf-8"))[
+    (scenario,) = json.loads((path.parent / ScenariosDocument.FILE).read_text(encoding="utf-8"))[
         "scenarios"
     ]
     assert scenario["archiver"][0]["events"] == [{"shape": "step", "at_time": "08:00:00", "to": 1}]

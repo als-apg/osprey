@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.records import (
     VIEW_DOCUMENTS,
+    AddressesDocument,
     ChannelRecord,
     ModelRecord,
     ScenarioRecord,
@@ -29,12 +30,10 @@ from osprey_connectors.simulation.records import (
     WiringRecord,
 )
 from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    ENGINE_ROLES,
+    _ENGINE_ROLES,
     PLANES,
     REFRESH,
     SCENARIOS_DIR,
-    VARIABLES_FILE,
     VIEW_RELPATH,
     NoSimulatorViewError,
     SimulatorView,
@@ -68,8 +67,8 @@ def _raw(view_dir: Path, name: str) -> dict[str, Any]:
 
 def test_every_accessor_answers(demo_view: Path) -> None:
     view = SimulatorView.open(demo_view)
-    variables = _raw(demo_view, VARIABLES_FILE)
-    addresses = _raw(demo_view, ADDRESSES_FILE)
+    variables = _raw(demo_view, VariablesDocument.FILE)
+    addresses = _raw(demo_view, AddressesDocument.FILE)
 
     assert view.path == demo_view
     assert view.render_root is None
@@ -102,15 +101,15 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     with pytest.raises(KeyError):
         view.model("NOPE")
 
-    bindings = view.bindings()
+    bindings = view.wiring()
     assert bindings == tuple(b for model in view.physics_models() for b in model.wiring)
-    assert {binding.engine_role for binding in bindings} == set(ENGINE_ROLES)
+    assert {binding.engine_role for binding in bindings} == set(_ENGINE_ROLES)
     assert {binding.plane for binding in bindings} <= {*PLANES, None}
     assert {binding.refresh for binding in bindings} <= set(REFRESH)
     first = bindings[0]
     owner = view.physics_models()[0].name
     assert isinstance(first, WiringRecord)
-    assert view.binding(first.address) == first
+    assert view.wiring_of(first.address) == first
     assert first.engine_entry() == wiring[owner][0]
     with pytest.raises(ValidationError):
         first.address = "elsewhere"  # type: ignore[misc]
@@ -120,7 +119,7 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert channel.owner == owner
     assert view.channel(line.wiring[0].address).owner == "LINE"
     assert view.channel(sr.wiring[0].address).owner == "SR"
-    textured = next(address for address in view.channels() if view.binding(address) is None)
+    textured = next(address for address in view.channels() if view.wiring_of(address) is None)
     assert view.channel(textured).owner == TEXTURE
 
     seeds = _raw(demo_view, "seeds.json")["seeds"]
@@ -164,7 +163,7 @@ def test_a_channels_motion_envelope_follows_its_seed_and_the_active_scenarios(
 
 def test_monitor_bindings_of_a_plane_are_the_element_reads_on_that_axis(demo_view: Path) -> None:
     view = SimulatorView.open(demo_view)
-    models = sorted(_raw(demo_view, VARIABLES_FILE)["models"], key=lambda m: m["name"])
+    models = sorted(_raw(demo_view, VariablesDocument.FILE)["models"], key=lambda m: m["name"])
     expected = [
         record["address"]
         for model in models
@@ -172,7 +171,7 @@ def test_monitor_bindings_of_a_plane_are_the_element_reads_on_that_axis(demo_vie
         if record["engine_role"] == "monitor" and record["plane"] == "x"
     ]
 
-    found = [binding.address for binding in view.bindings(engine_role="monitor", plane="x")]
+    found = [binding.address for binding in view.wiring(engine_role="monitor", plane="x")]
 
     assert found == expected
     assert found
@@ -181,11 +180,11 @@ def test_monitor_bindings_of_a_plane_are_the_element_reads_on_that_axis(demo_vie
 def test_bindings_filter_by_node(demo_view: Path) -> None:
     view = SimulatorView.open(demo_view)
     bound = next(
-        binding for binding in view.bindings() if view.channel(binding.address).on is not None
+        binding for binding in view.wiring() if view.channel(binding.address).on is not None
     )
     (node,) = view.channel(bound.address).on.values()  # type: ignore[union-attr]
 
-    on_node = view.bindings(node=node)
+    on_node = view.wiring(node=node)
 
     assert bound in on_node
     for binding in on_node:
@@ -196,12 +195,12 @@ def test_bindings_filter_by_node(demo_view: Path) -> None:
 def test_a_variables_file_of_another_schema_asks_for_a_rebuild(
     demo_view: Path, schema: str | None
 ) -> None:
-    variables = _raw(demo_view, VARIABLES_FILE)
+    variables = _raw(demo_view, VariablesDocument.FILE)
     if schema is None:
         del variables["schema"]
     else:
         variables["schema"] = schema
-    (demo_view / VARIABLES_FILE).write_text(json.dumps(variables), encoding="utf-8")
+    (demo_view / VariablesDocument.FILE).write_text(json.dumps(variables), encoding="utf-8")
     view = SimulatorView.open(demo_view)
 
     with pytest.raises(ViewSchemaError, match="rebuild"):
@@ -212,10 +211,10 @@ def test_a_variables_file_of_another_schema_asks_for_a_rebuild(
 def test_a_wiring_record_without_a_key_every_record_states_asks_for_a_rebuild(
     demo_view: Path, key: str
 ) -> None:
-    variables = _raw(demo_view, VARIABLES_FILE)
+    variables = _raw(demo_view, VariablesDocument.FILE)
     sr = next(model for model in variables["models"] if model["name"] == "SR")
     del sr["wiring"][0][key]
-    (demo_view / VARIABLES_FILE).write_text(json.dumps(variables), encoding="utf-8")
+    (demo_view / VariablesDocument.FILE).write_text(json.dumps(variables), encoding="utf-8")
     view = SimulatorView.open(demo_view)
 
     with pytest.raises(ViewSchemaError, match="rebuild") as refused:
@@ -298,7 +297,7 @@ def test_a_missing_view_is_no_view_and_find_says_none(tmp_path: Path) -> None:
 def test_find_still_refuses_a_view_of_another_schema(tmp_path: Path) -> None:
     view_dir = tmp_path / VIEW_RELPATH
     view_dir.mkdir(parents=True)
-    (view_dir / ADDRESSES_FILE).write_text(json.dumps({"schema": "old"}), encoding="utf-8")
+    (view_dir / AddressesDocument.FILE).write_text(json.dumps({"schema": "old"}), encoding="utf-8")
 
     with pytest.raises(ViewSchemaError, match="rebuild"):
         SimulatorView.find(tmp_path)
@@ -313,7 +312,7 @@ def test_a_repo_and_its_render_open_the_same_view(built_demo: BuiltProject) -> N
     assert of_repo.path == of_render.path == repo / "build" / VIEW_RELPATH
     assert of_repo.render_root == repo / "build"
     assert SimulatorView.of_project(repo / "build").path == of_repo.path
-    assert view_path(repo) == SimulatorView.path_for_project(repo) == of_repo.path
+    assert view_path(repo) == of_repo.path
     assert of_repo.channels() == of_render.channels()
 
 

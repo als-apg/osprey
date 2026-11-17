@@ -454,7 +454,7 @@ BURST_VALUE = 3.0e-6
 #: fails: the quadrupole at twice its demo current has no stable orbit.
 UNSTABLE_SCENARIO_NAME = "va-e2e-unstable"
 UNSTABLE_QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
-_unstable_binding = PRESET_VIEW.binding(UNSTABLE_QUADRUPOLE)
+_unstable_binding = PRESET_VIEW.wiring_of(UNSTABLE_QUADRUPOLE)
 assert _unstable_binding is not None, f"no served model wires {UNSTABLE_QUADRUPOLE}"
 UNSTABLE_CURRENT = 2 * float(_unstable_binding.engine_entry()["default"])
 
@@ -1153,7 +1153,7 @@ def corrector_at_slot(slot: int) -> Corrector:
     model = lane_model(view)
     kicks = [
         binding.address
-        for binding in view.bindings(engine_role="setpoint", model=model)
+        for binding in view.wiring(engine_role="setpoint", model=model)
         if binding.plane is not None
     ]
     assert len(kicks) > slot, (

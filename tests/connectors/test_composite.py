@@ -26,7 +26,14 @@ from osprey_connectors.simulation.composite import (
     Composite,
     WriteRefusedError,
 )
-from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 from tests._simulator_view import view_channel
 from tests.connectors._view_records import activate
 
@@ -201,12 +208,12 @@ def _view(
         *(trace if waveform else []),
     ]
     documents = {
-        "served_models.json": {"models": ["M", "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": ["M", "texture"]},
+        AddressesDocument: {
             "channels": sorted(channel["address"] for channel in channels),
             "status": [STATUS],
         },
-        "variables.json": {
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -228,7 +235,7 @@ def _view(
             ],
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
-        "seeds.json": {
+        SeedsDocument: {
             "seeds": {
                 "T:SP": {"nominal": 5.0},
                 "T:NOISY": {"nominal": 10.0, "noise": {"absolute": 0.5}},
@@ -238,13 +245,13 @@ def _view(
                 "T:STEP:SP": {"nominal": 3.0},
             }
         },
-        "scenarios.json": {"scenarios": [{"name": "nominal"}, *(scenarios or [])]},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}, *(scenarios or [])]},
     }
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 
@@ -813,7 +820,7 @@ def test_a_state_directory_and_a_handed_set_are_refused_together(tmp_path: Path)
 
 
 def _driver(t_s: float) -> float:
-    return float(series.wander(series.driver_key_bytes("d"), np.array([t_s]), 1.0, 300.0)[0])
+    return float(series._wander(series._driver_key_bytes("d"), np.array([t_s]), 1.0, 300.0)[0])
 
 
 def test_a_scenarios_drivers_move_the_readbacks_it_couples(tmp_path: Path) -> None:

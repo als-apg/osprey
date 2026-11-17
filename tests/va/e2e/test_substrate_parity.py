@@ -195,7 +195,7 @@ import yaml  # noqa: E402
 
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import TEXTURE, decode_char_waveform, topoff  # noqa: E402
-from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
+from osprey_connectors.simulation.envelope import _declares_motion, _noise_sigma  # noqa: E402
 from osprey_connectors.simulation.records import ChannelRecord, SeedRecord  # noqa: E402
 from osprey_connectors.simulation.values import is_waveform  # noqa: E402
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView  # noqa: E402
@@ -307,7 +307,7 @@ class View:
         return self.reader.seed(address)
 
     def moving(self, address: str) -> bool:
-        return declares_motion(self.seed(address))
+        return _declares_motion(self.seed(address))
 
     def motion_band(self, address: str, z: float) -> float:
         """How far a served read may sit from the held value.
@@ -319,7 +319,7 @@ class View:
         seed = self.seed(address)
         drift = None if seed is None else seed.drift
         shape = topoff.topoff_record(seed)
-        tooth = topoff.tooth_depth(shape) if shape is not None else 0.0
+        tooth = topoff._tooth_depth(shape) if shape is not None else 0.0
         held = topoff.held_value(seed)
         nominal = held if held is not None else (None if seed is None else seed.nominal)
         sigma = _noise_sigma(None if seed is None else seed.noise, nominal)
@@ -337,7 +337,7 @@ class View:
 def _facility_noisy_count() -> int:
     """How many channels of the preset's view carry a seed that declares noise or drift."""
     view = e2e_conftest.PRESET_VIEW
-    count = sum(declares_motion(view.seed(address)) for address in view.channels())
+    count = sum(_declares_motion(view.seed(address)) for address in view.channels())
     assert count > 0, "no seed of the preset's view declares noise or drift"
     return count
 
@@ -771,7 +771,7 @@ def test_the_transfer_line_carries_no_seeds() -> None:
     seeds = yaml.safe_load(DEMO_SEEDS.read_text(encoding="utf-8"))
     wired = {
         binding.address
-        for binding in e2e_conftest.PRESET_VIEW.bindings(model=e2e_conftest.SECOND_MODEL)
+        for binding in e2e_conftest.PRESET_VIEW.wiring(model=e2e_conftest.SECOND_MODEL)
     }
 
     assert seeds

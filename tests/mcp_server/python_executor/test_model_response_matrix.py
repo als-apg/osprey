@@ -38,7 +38,7 @@ from osprey.mcp_server.python_executor.tools import (
 from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG, solve_and_print
-from osprey_connectors.simulation.view import VARIABLES_SCHEMA
+from osprey_connectors.simulation.records import VariablesDocument
 from tests._simulator_view import view_channel
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -157,7 +157,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
         },
         "served_models.json": {"schema": "osprey.facility.served_models/1", "models": [LINE]},
         "variables.json": {
-            "schema": VARIABLES_SCHEMA,
+            "schema": VariablesDocument.SCHEMA,
             "code": "TEST",
             "models": [
                 {

@@ -30,7 +30,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
 )
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.series import _epoch_seconds_array
 from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 
 if TYPE_CHECKING:
@@ -217,7 +217,7 @@ class MockArchiverConnector(ArchiverConnector):
 
         # Every sample is evaluated at the grid's absolute timestamps, so a
         # store seeded from the same archive composite holds the same values.
-        t_abs = epoch_seconds_array(index)
+        t_abs = _epoch_seconds_array(index)
         if t_abs is None:  # pragma: no cover - the index above is always datetimes
             raise ValueError(f"Cannot derive epoch seconds for the {start_utc} to {end_utc} grid")
 

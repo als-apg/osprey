@@ -45,9 +45,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "SHAPE_VERSION",
     "held_value",
-    "period_mean",
-    "tau_period",
-    "tooth_depth",
     "topoff_record",
 ]
 
@@ -80,14 +77,14 @@ def topoff_record(seed: SeedRecord | None) -> TopoffRecord | None:
     return None if seed is None else seed.topoff
 
 
-def tau_period(record: TopoffRecord) -> tuple[float, float]:
+def _tau_period(record: TopoffRecord) -> tuple[float, float]:
     """``(tau, period_s)`` of a ``topoff`` record, both in seconds."""
     return record.lifetime_h * _SECONDS_PER_HOUR, float(record.period_s)
 
 
-def period_mean(record: TopoffRecord) -> float:
+def _period_mean(record: TopoffRecord) -> float:
     """The mean ``m`` of the unit sawtooth over one period."""
-    return _unit_mean(*tau_period(record))
+    return _unit_mean(*_tau_period(record))
 
 
 def _unit_mean(tau: float, period: float) -> float:
@@ -95,15 +92,15 @@ def _unit_mean(tau: float, period: float) -> float:
     return (tau / period) * -math.expm1(-period / tau)
 
 
-def tooth_depth(record: TopoffRecord) -> float:
+def _tooth_depth(record: TopoffRecord) -> float:
     """How far the sawtooth carries a reading from its held level ``ceiling * m``.
 
     Returns:
         ``|ceiling| * max(1 - m, m - exp(-period_s / tau))``: the larger of
         the overshoot at a refill and the undershoot just before one.
     """
-    tau, period = tau_period(record)
-    mean = period_mean(record)
+    tau, period = _tau_period(record)
+    mean = _period_mean(record)
     return abs(float(record.ceiling)) * max(1.0 - mean, mean - math.exp(-period / tau))
 
 

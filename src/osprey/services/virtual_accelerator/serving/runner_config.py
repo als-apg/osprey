@@ -189,9 +189,7 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
 def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
     """The addresses whose binding refreshes ``refresh``, across every model of the view."""
     return frozenset(
-        binding.address
-        for binding in view.bindings(served_only=False)
-        if binding.refresh == refresh
+        binding.address for binding in view.wiring(served_only=False) if binding.refresh == refresh
     )
 
 

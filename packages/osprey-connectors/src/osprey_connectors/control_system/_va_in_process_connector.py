@@ -70,8 +70,8 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.refusals import RefusalReason
 from osprey_connectors.safety_file import atomic_replace
-from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.records import VariablesDocument
+from osprey_connectors.simulation.values import LABELLED_TYPES
 from osprey_connectors.simulation.view import (
     SETPOINT,
     VIEW_RELPATH,

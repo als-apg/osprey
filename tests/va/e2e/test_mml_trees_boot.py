@@ -322,7 +322,7 @@ class BuiltTree:
 
     def bindings(self) -> tuple[WiringRecord, ...]:
         """Every wiring record of the view's physics models, model by name, then in wiring order."""
-        return self.view.bindings(served_only=False)
+        return self.view.wiring(served_only=False)
 
     def wired(self) -> list[str]:
         """Every address a physics model of the view wires, in wiring order."""

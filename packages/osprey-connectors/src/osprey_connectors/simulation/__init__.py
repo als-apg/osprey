@@ -2,30 +2,24 @@
 
 The package root holds only what every reader needs without loading a model:
 the texture model's name, the tick period and the fast period of timed
-passes, char-waveform decoding, the gated and labelled value types and the
-model status lookups. It imports
-neither numpy nor lume; the active-scenario state, value coercion, the
-composite, the texture engine, the archive and the series primitives are
-imported from their own modules.
+passes, and char-waveform decoding. It imports neither numpy nor lume; the
+active-scenario state, the value types and their coercion
+(:mod:`~osprey_connectors.simulation.values`), the model status lookups
+(:mod:`~osprey_connectors.simulation.status`), the composite, the texture
+engine, the archive and the series primitives are imported from their own
+modules.
 """
 
 from collections.abc import Iterable, Mapping
 from typing import Final, SupportsInt, TypeGuard
 
-from osprey_connectors.simulation.status import model_status, read_model_status
-from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES
-
 __all__ = [
     "DEFAULT_FAST_TICK_S",
     "DEFAULT_TICK_S",
     "FAST_TICK_KEY",
-    "GATED_TYPES",
-    "LABELLED_TYPES",
     "TEXTURE",
     "TICK_KEY",
     "decode_char_waveform",
-    "model_status",
-    "read_model_status",
     "resolve_fast_tick_s",
     "resolve_tick_s",
 ]

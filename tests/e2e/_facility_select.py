@@ -72,7 +72,7 @@ def corrector_addresses(
     """
     return frozenset(
         binding.address
-        for binding in view.bindings(engine_role="setpoint", model=model)
+        for binding in view.wiring(engine_role="setpoint", model=model)
         if binding.plane is not None and (plane is None or binding.plane == plane)
     )
 
@@ -83,8 +83,7 @@ def monitor_addresses(
     """Every monitor reading the view's bindings serve, optionally of one plane
     and of one model."""
     return frozenset(
-        binding.address
-        for binding in view.bindings(engine_role="monitor", plane=plane, model=model)
+        binding.address for binding in view.wiring(engine_role="monitor", plane=plane, model=model)
     )
 
 
@@ -131,7 +130,7 @@ def bounded_corrector_of(view: SimulatorView) -> tuple[str, str, str] | None:
         channel = view.channel(address)
         readback = channel.pair
         if channel.value_range is not None and readback is not None and readback != address:
-            assert view.binding(address) is not None, f"corrector {address} has no served binding"
+            assert view.wiring_of(address) is not None, f"corrector {address} has no served binding"
             found.setdefault(channel.owner, []).append((address, readback))
     if not found:
         return None
@@ -209,7 +208,7 @@ def lane_selection(view: SimulatorView) -> LaneSelection:
     setpoint, readback, model = found
     plane = next(
         binding.plane
-        for binding in view.bindings(engine_role="setpoint", model=model)
+        for binding in view.wiring(engine_role="setpoint", model=model)
         if binding.address == setpoint
     )
     if plane is None:
@@ -253,7 +252,7 @@ def second_models(view: SimulatorView, document: dict[str, Any]) -> tuple[str, .
         kinds = (entry.get("measurement") or {}).get("kinds") or ()
         if name not in served or name == lane or "orm" not in kinds or "dispersion" in kinds:
             continue
-        if any(view.seed(binding.address) is not None for binding in view.bindings(model=name)):
+        if any(view.seed(binding.address) is not None for binding in view.wiring(model=name)):
             continue
         found.append(name)
     return tuple(sorted(found))
@@ -296,7 +295,7 @@ def seeded_readback(view: SimulatorView) -> str:
         if (
             view.channel(address).role != "setpoint"
             and view.seed(address) is not None
-            and view.binding(address) is None
+            and view.wiring_of(address) is None
         ):
             return address
     raise AssertionError("the view has no seeded channel that no served model wires")

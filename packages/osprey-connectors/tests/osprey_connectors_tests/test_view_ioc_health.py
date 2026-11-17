@@ -8,19 +8,18 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
 from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    ADDRESSES_SCHEMA,
     ENGINEER,
     HEARTBEAT,
     IOC_HEALTH_SIGNALS,
     PERIODIC_IOC_HEALTH,
-    SERVED_MODELS_FILE,
-    SERVED_MODELS_SCHEMA,
     STATUS_SIGNAL,
     UPTIME,
-    VARIABLES_FILE,
-    VARIABLES_SCHEMA,
     SimulatorView,
     ViewSchemaError,
 )
@@ -30,13 +29,18 @@ def _health(model: str) -> list[str]:
     return [f"T:SIM:{model}:{signal}" for signal in (HEARTBEAT, UPTIME, ENGINEER)]
 
 
-def _view(tmp_path: Path, addresses: dict[str, Any], schema: str = ADDRESSES_SCHEMA) -> Path:
+def _view(
+    tmp_path: Path, addresses: dict[str, Any], schema: str = AddressesDocument.SCHEMA
+) -> Path:
     """Write a view serving the physics model ``SR`` and the texture model."""
     documents = {
-        ADDRESSES_FILE: {"schema": schema, "channels": [], **addresses},
-        SERVED_MODELS_FILE: {"schema": SERVED_MODELS_SCHEMA, "models": ["SR", "texture"]},
-        VARIABLES_FILE: {
-            "schema": VARIABLES_SCHEMA,
+        AddressesDocument.FILE: {"schema": schema, "channels": [], **addresses},
+        ServedModelsDocument.FILE: {
+            "schema": ServedModelsDocument.SCHEMA,
+            "models": ["SR", "texture"],
+        },
+        VariablesDocument.FILE: {
+            "schema": VariablesDocument.SCHEMA,
             "code": "T",
             "models": [
                 {"name": "SR", "engine": "pyat", "served": True},
@@ -57,8 +61,8 @@ def test_a_view_without_the_field_loads_and_yields_nothing(tmp_path: Path) -> No
 
 
 def test_a_view_without_the_field_needs_no_other_file(tmp_path: Path) -> None:
-    (tmp_path / ADDRESSES_FILE).write_text(
-        json.dumps({"schema": ADDRESSES_SCHEMA, "channels": [], "status": []}), "utf-8"
+    (tmp_path / AddressesDocument.FILE).write_text(
+        json.dumps({"schema": AddressesDocument.SCHEMA, "channels": [], "status": []}), "utf-8"
     )
 
     assert SimulatorView.open(tmp_path).ioc_health_by_model() == {}

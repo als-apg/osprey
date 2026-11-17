@@ -168,7 +168,7 @@ def test_noise_is_keyed_on_address_and_epoch_ms():
     expected = (
         0.5
         * series.keyed_normals(series.channel_key_bytes("T:NOISY"), np.array([round(T0 * 1000)]))[0]
-        + series.wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
+        + series._wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
     )
 
     first = _model().get("T:NOISY")
@@ -369,7 +369,7 @@ _DRIVE = {"kind": "wander", "amplitude": 1.0, "period_s": 300.0}
 
 
 def _driver_at(t_s: float) -> float:
-    return float(series.wander(series.driver_key_bytes("d1"), np.array([t_s]), 1.0, 300.0)[0])
+    return float(series._wander(series._driver_key_bytes("d1"), np.array([t_s]), 1.0, 300.0)[0])
 
 
 def test_channels_coupled_to_one_driver_move_by_their_gains():
@@ -393,7 +393,7 @@ def test_a_gain_wander_coupling_differs_from_the_plain_one():
     waxing = _coupled_model(
         {"T:A": [{"driver": "d1", "gain": 0.5, "gain_wander": wander, "drive": _DRIVE}]}
     )
-    envelope = series.wander(
+    envelope = series._wander(
         series.channel_key_bytes("T:A") + b":gain_wander:d1", np.array([T0]), 0.8, 900.0
     )[0]
 
@@ -403,7 +403,7 @@ def test_a_gain_wander_coupling_differs_from_the_plain_one():
 
 def test_a_zero_noise_replacement_silences_a_seeded_channel():
     model = _coupled_model({}, {"T:NOISY": {"absolute": 0.0}})
-    drift = series.wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
+    drift = series._wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
 
     assert model.get("T:NOISY") == pytest.approx(10.0 + drift)
 

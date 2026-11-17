@@ -16,8 +16,8 @@ import pytest
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import build
+from osprey_connectors.simulation.records import SeedsDocument
 from osprey_connectors.simulation.state import ActiveState
-from osprey_connectors.simulation.view import SEEDS_FILE
 from osprey_connectors_tests.test_topoff_shape import _RECORD as RECORD
 from osprey_connectors_tests.test_topoff_shape import _SEEDS as SEEDS
 from osprey_connectors_tests.test_topoff_shape import (
@@ -41,9 +41,9 @@ def topoff_view(tmp_path_factory):
     view = write_texture_view(
         tmp_path_factory.mktemp("topoff"), {CURRENT: {}, LIFETIME: {}, "SR:OTHER": {"nominal": 1.0}}
     )
-    seeds = json.loads((view / SEEDS_FILE).read_text())
+    seeds = json.loads((view / SeedsDocument.FILE).read_text())
     seeds["seeds"].update(SEEDS)
-    (view / SEEDS_FILE).write_text(json.dumps(seeds))
+    (view / SeedsDocument.FILE).write_text(json.dumps(seeds))
     return view
 
 

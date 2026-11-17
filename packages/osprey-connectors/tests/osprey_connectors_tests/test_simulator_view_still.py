@@ -8,22 +8,17 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    ADDRESSES_SCHEMA,
-    SCENARIOS_FILE,
-    SCENARIOS_SCHEMA,
-    SimulatorView,
-    ViewSchemaError,
-)
+from osprey_connectors.simulation.records import AddressesDocument, ScenariosDocument
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 
 
 def _view(tmp_path: Path, scenario: dict[str, Any]) -> SimulatorView:
-    (tmp_path / ADDRESSES_FILE).write_text(
-        json.dumps({"schema": ADDRESSES_SCHEMA, "channels": [], "status": []}), encoding="utf-8"
+    (tmp_path / AddressesDocument.FILE).write_text(
+        json.dumps({"schema": AddressesDocument.SCHEMA, "channels": [], "status": []}),
+        encoding="utf-8",
     )
-    (tmp_path / SCENARIOS_FILE).write_text(
-        json.dumps({"schema": SCENARIOS_SCHEMA, "scenarios": [scenario]}), encoding="utf-8"
+    (tmp_path / ScenariosDocument.FILE).write_text(
+        json.dumps({"schema": ScenariosDocument.SCHEMA, "scenarios": [scenario]}), encoding="utf-8"
     )
     return SimulatorView.open(tmp_path)
 
