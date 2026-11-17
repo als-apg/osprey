@@ -8,7 +8,6 @@ import subprocess
 import sys
 import textwrap
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -26,7 +25,6 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
 )
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
-from tests._archive_composites import held_state_directories
 from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -729,10 +727,8 @@ class TestMockArchiverConnector:
     """Test MockArchiverConnector functionality."""
 
     @pytest.mark.asyncio
-    async def test_a_rebuild_after_an_active_set_change_closes_the_previous_composite(
-        self, tmp_path, monkeypatch
-    ):
-        """The composite a rebuild replaces gives up its state directory."""
+    async def test_an_active_set_change_rebuilds_the_composite(self, tmp_path):
+        """A changed state file is served by a new composite built at the set it names."""
         from osprey_connectors.control_system._va_in_process_connector import (
             simulation_state_dir,
         )
@@ -740,31 +736,27 @@ class TestMockArchiverConnector:
 
         view = _archived_tree(tmp_path, "BEAM:CURRENT")
         connector = MockArchiverConnector()
-        with held_state_directories(monkeypatch) as held:
-            await connector.connect(in_process_config(view))
-            [previous] = held
-            state_file = simulation_state_dir(view) / ACTIVE_SCENARIOS_FILENAME
-            state_file.parent.mkdir(parents=True, exist_ok=True)
-            state_file.write_text("nominal\n", encoding="utf-8")
+        await connector.connect(in_process_config(view))
+        previous = connector._archive
+        state_file = simulation_state_dir(view) / ACTIVE_SCENARIOS_FILENAME
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        state_file.write_text("nominal\n", encoding="utf-8")
 
-            await connector.check_availability(["BEAM:CURRENT"])
+        await connector.check_availability(["BEAM:CURRENT"])
 
-            [_, current] = held
-            assert not Path(previous.name).exists()
-            assert Path(current.name).is_dir()
-            await connector.disconnect()
+        assert connector._archive is not None
+        assert connector._archive is not previous
+        await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_disconnect_closes_the_composite(self, tmp_path, monkeypatch):
-        """Disconnecting removes the served composite's state directory."""
+    async def test_disconnect_drops_the_composite(self, tmp_path):
+        """Disconnecting stops serving the composite."""
         connector = MockArchiverConnector()
-        with held_state_directories(monkeypatch) as held:
-            await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
-            [state] = held
+        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
-            await connector.disconnect()
+        await connector.disconnect()
 
-            assert not Path(state.name).exists()
+        assert connector._archive is None
 
     @pytest.mark.asyncio
     async def test_connect_disconnect(self, tmp_path):

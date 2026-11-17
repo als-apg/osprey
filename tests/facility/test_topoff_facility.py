@@ -16,6 +16,7 @@ import pytest
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import build
+from osprey_connectors.simulation.state import ActiveState
 from osprey_connectors.simulation.view import SEEDS_FILE
 from osprey_connectors_tests.test_topoff_shape import _RECORD as RECORD
 from osprey_connectors_tests.test_topoff_shape import _SEEDS as SEEDS
@@ -49,8 +50,7 @@ def topoff_view(tmp_path_factory):
 def test_live_equals_archive_at_the_same_instant(topoff_view):
     archive = build(
         topoff_view,
-        [],
-        anchor_at=datetime.fromtimestamp(T0 + 3600.0, UTC),
+        ActiveState(names=[], anchor_at=datetime.fromtimestamp(T0 + 3600.0, UTC)),
         tz=get_facility_timezone(),
     )
     instants = [T0 + offset for offset in (0.0, 1.5, 14.0, 29.999, 30.0, 47.25, 1800.0)]

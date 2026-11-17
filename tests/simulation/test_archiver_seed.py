@@ -57,6 +57,7 @@ from osprey_connectors.simulation.archive import (
     waveform_document,
 )
 from osprey_connectors.simulation.series import epoch_seconds_array
+from osprey_connectors.simulation.state import ActiveState
 from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
 from tests._container_support import is_docker_available
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
@@ -89,7 +90,7 @@ ADDRESSES = sorted(CHANNELS)
 def archive(tmp_path_factory):
     """The archive composite of a texture-only view, with nominal active."""
     view = write_texture_view(tmp_path_factory.mktemp("render"), CHANNELS)
-    return build(view, [], anchor_at=T0, tz=get_facility_timezone())
+    return build(view, ActiveState(names=[], anchor_at=T0), tz=get_facility_timezone())
 
 
 #: Samples per pulse trace, as the trace function gives them.
@@ -150,14 +151,16 @@ def write_pulse_view(render, *, pulse_seed=True, scenarios=None, driver=DRIVER):
 def pulse_archive(tmp_path_factory):
     """The archive composite of a view holding a pulsed supply, nominal active."""
     view = write_pulse_view(tmp_path_factory.mktemp("pulse"))
-    return build(view, [], anchor_at=T0, tz=get_facility_timezone())
+    return build(view, ActiveState(names=[], anchor_at=T0), tz=get_facility_timezone())
 
 
 @pytest.fixture(scope="module")
 def stepped_pulse_archive(tmp_path_factory):
     """The pulsed supply lowered, then switched off, before the anchor."""
     view = write_pulse_view(tmp_path_factory.mktemp("stepped"), scenarios=PULSE_SCENARIOS)
-    return build(view, ["lower", "off"], anchor_at=T0, tz=get_facility_timezone())
+    return build(
+        view, ActiveState(names=["lower", "off"], anchor_at=T0), tz=get_facility_timezone()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +445,7 @@ class TestSynthesizeDocuments:
         times, _ = _seed_grid(SMALL, T0)
 
         documents = _synthesize_documents(
-            build(view, [], anchor_at=T0, tz=get_facility_timezone()), times[:4]
+            build(view, ActiveState(names=[], anchor_at=T0), tz=get_facility_timezone()), times[:4]
         )
 
         for document in documents:
@@ -460,7 +463,7 @@ class TestSynthesizeDocuments:
         times, _ = _seed_grid(SMALL, T0)
 
         documents = _synthesize_documents(
-            build(view, [], anchor_at=T0, tz=get_facility_timezone()), times[:4]
+            build(view, ActiveState(names=[], anchor_at=T0), tz=get_facility_timezone()), times[:4]
         )
 
         for document in documents:
@@ -859,8 +862,7 @@ class TestWaveformChannels:
     def test_a_waveform_without_a_pulse_archives_its_held_trace(self, tmp_path):
         archive = build(
             write_pulse_view(tmp_path, pulse_seed=False),
-            [],
-            anchor_at=T0,
+            ActiveState(names=[], anchor_at=T0),
             tz=get_facility_timezone(),
         )
 
@@ -872,7 +874,7 @@ class TestWaveformChannels:
         view = write_pulse_view(tmp_path, driver="SR:SEK:NOT:A:CHANNEL")
 
         with pytest.raises(ValueError, match="SR:SEK:NOT:A:CHANNEL"):
-            build(view, [], anchor_at=T0, tz=get_facility_timezone())
+            build(view, ActiveState(names=[], anchor_at=T0), tz=get_facility_timezone())
 
     def test_scalar_documents_hold_no_waveform_values(self, pulse_archive):
         times, _ = _seed_grid(SMALL, T0)
@@ -1071,7 +1073,7 @@ def test_a_naive_build_anchor_is_refused_by_name(tmp_path):
     view = write_texture_view(tmp_path, CHANNELS)
 
     with pytest.raises(NaiveDatetimeError, match="anchor_at"):
-        build(view, [], anchor_at=NAIVE_T0, tz=get_facility_timezone())
+        build(view, ActiveState(names=[], anchor_at=NAIVE_T0), tz=get_facility_timezone())
 
 
 @pytest.mark.parametrize("naive", ["sampled_at", "expire_at"])

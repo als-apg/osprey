@@ -739,21 +739,22 @@ class SimulatorView:
                 counts, as the composite counts it.
 
         Returns:
-            The channel's envelope under ``active``
-            (:func:`osprey_connectors.simulation.envelope.active_envelopes`);
-            0.0 for a channel that declares no motion.
+            The channel's envelope under the set the composite serves for
+            ``active`` (:func:`osprey_connectors.simulation.state.compose`,
+            :func:`osprey_connectors.simulation.envelope.active_envelopes`):
+            ``nominal``'s alone for a set that does not compose; 0.0 for a
+            channel that declares no motion.
         """
         from osprey_connectors.simulation.envelope import active_envelopes
-        from osprey_connectors.simulation.state import resolve_active_scenarios
+        from osprey_connectors.simulation.state import ActiveState, compose
 
-        key = tuple(resolve_active_scenarios(active))
-        if key not in self._envelopes:
-            self._envelopes[key] = active_envelopes(
-                self.document(SEEDS_FILE).seeds,
-                {scenario.name: scenario for scenario in self.scenarios()},
-                key,
+        requested = ActiveState(names=tuple(active))
+        if requested.names not in self._envelopes:
+            scenarios = {scenario.name: scenario for scenario in self.scenarios()}
+            self._envelopes[requested.names] = active_envelopes(
+                self.document(SEEDS_FILE).seeds, compose(scenarios, requested)
             )
-        return self._envelopes[key].get(address, 0.0)
+        return self._envelopes[requested.names].get(address, 0.0)
 
     def scenario_dir(self, name: str) -> Path:
         """The view's copy of a scenario's attached files, ``scenarios/<name>/``."""

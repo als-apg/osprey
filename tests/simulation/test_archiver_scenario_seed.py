@@ -56,6 +56,7 @@ from osprey_connectors.simulation.archive import (
     seed_base,
 )
 from osprey_connectors.simulation.records import ArchiverEvent
+from osprey_connectors.simulation.state import ActiveState
 from tests._container_support import is_docker_available
 from tests._mongo_container import started_mongo
 from tests._simulator_view import write_scenarios_view, write_texture_view
@@ -337,10 +338,10 @@ def _seeded(root: Path, mongo_store: dict):
     # seeded from any other source would disagree with every later recompute,
     # and the disagreement would look exactly like a scenario that failed to
     # restore.
-    with build(
-        root / "data" / "simulator", [], anchor_at=T0, tz=get_facility_timezone()
-    ) as archive:
-        seed_base(collection, archive, KNOBS, anchor_at=T0, chunk_size=256)
+    archive = build(
+        root / "data" / "simulator", ActiveState(names=[], anchor_at=T0), tz=get_facility_timezone()
+    )
+    seed_base(collection, archive, KNOBS, anchor_at=T0, chunk_size=256)
     try:
         yield root, collection
     finally:

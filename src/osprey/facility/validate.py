@@ -2845,6 +2845,7 @@ def tolerance_warnings(
     """
     from osprey_connectors.simulation.envelope import active_envelopes
     from osprey_connectors.simulation.records import SeedRecord
+    from osprey_connectors.simulation.state import ActiveState, compose
 
     document = records.document
     channels = _by_key(document.get("channels"), "id")
@@ -2865,7 +2866,7 @@ def tolerance_warnings(
     }
     lines: list[str] = []
     for name in sorted(scenarios):
-        envelopes = active_envelopes(seeds, scenarios, [name])
+        envelopes = active_envelopes(seeds, compose(scenarios, ActiveState(names=(name,))))
         for setpoint, bound in toleranced.items():
             channel = channels[setpoint]
             readback = str(channel.get("pair", setpoint))

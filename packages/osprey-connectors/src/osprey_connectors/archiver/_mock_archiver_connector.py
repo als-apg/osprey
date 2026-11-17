@@ -123,8 +123,7 @@ class MockArchiverConnector(ArchiverConnector):
     def _rebuild(self) -> None:
         """Build the archive composite at the active set the state file names.
 
-        The composite it replaces is closed once the new one is built; a failed
-        build keeps the previous composite serving.
+        A failed build keeps the previous composite serving.
         """
         from osprey_connectors.simulation.archive import build
         from osprey_connectors.simulation.state import ActiveState, parse_active_state
@@ -139,12 +138,7 @@ class MockArchiverConnector(ArchiverConnector):
                 active = parse_active_state(self._state_file.read_text(encoding="utf-8"))
             except FileNotFoundError:
                 signature = None
-        archive = build(
-            self._view, active.names, anchor_at=active.anchor_at, tz=get_facility_timezone()
-        )
-        if self._archive is not None:
-            self._archive.close()
-        self._archive = archive
+        self._archive = build(self._view, active, tz=get_facility_timezone())
         self._state_signature = signature
 
     def _current(self) -> "ArchiveComposite":
@@ -166,9 +160,7 @@ class MockArchiverConnector(ArchiverConnector):
 
     @override
     async def disconnect(self) -> None:
-        """Close the archive composite and stop serving."""
-        if self._archive is not None:
-            self._archive.close()
+        """Drop the archive composite and stop serving."""
         self._archive = None
         self._connected = False
         logger.debug("Mock archiver connector disconnected")

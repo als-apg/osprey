@@ -22,6 +22,7 @@ from osprey_connectors.simulation.records import (
     TopoffRecord,
     VariablesDocument,
 )
+from osprey_connectors.simulation.state import ActiveState, compose
 from osprey_connectors.simulation.texture import TextureModel
 
 T0 = 1_760_000_010.0  # a whole multiple of PERIOD_S: a refill instant
@@ -160,7 +161,9 @@ def test_a_stilled_channel_serves_its_held_level():
     assert not model.has_motion(CURRENT)
     assert envelope.motion_envelope(SEEDS[CURRENT], still=True) == 0.0
     quiet = ScenarioRecord(name="quiet", still=(CURRENT,))
-    stilled = envelope.active_envelopes(SEEDS, {"quiet": quiet}, ["quiet"])
+    stilled = envelope.active_envelopes(
+        SEEDS, compose({"quiet": quiet}, ActiveState(names=["quiet"]))
+    )
     assert stilled[CURRENT] == 0.0
 
 
@@ -178,9 +181,9 @@ def test_an_unstilled_channel_moves_and_has_an_envelope():
     assert envelope.motion_envelope(SEEDS[CURRENT]) == pytest.approx(
         topoff.tooth_depth(RECORD), rel=1e-12
     )
-    assert envelope.active_envelopes(SEEDS, {}, [])[CURRENT] == pytest.approx(
-        topoff.tooth_depth(RECORD), rel=1e-12
-    )
+    assert envelope.active_envelopes(SEEDS, compose({}, ActiveState(names=[])))[
+        CURRENT
+    ] == pytest.approx(topoff.tooth_depth(RECORD), rel=1e-12)
     # A scenario noise replacement keeps the tooth moving.
     model.set_motion({}, {CURRENT: NoiseRecord(absolute=0.0)})
     assert model.has_motion(CURRENT)

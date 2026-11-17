@@ -64,8 +64,10 @@ output its last good value or its type's zero, and
 leaves a child as it was. A failed child is rebuilt on :meth:`Composite.reset`
 and on a change of the active scenarios.
 
-**Scenarios.** The active set is the ``active_scenarios`` file of the state
-directory, re-read when its modification time changes. A change rebuilds every
+**Scenarios.** The active set is the one the composite is handed, composed
+once, or else the ``active_scenarios`` file of the state directory, re-read
+when its modification time changes; either is composed by
+:func:`~osprey_connectors.simulation.state.compose`. A change rebuilds every
 physics child with the active scenarios' writes and fault seeds as its start
 state, and hands the texture the active writes it owns and the active drivers,
 couplings and noise replacements; session writes are dropped. The readings
@@ -117,7 +119,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, get_args, overload
+from typing import TYPE_CHECKING, Protocol, get_args, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -131,14 +133,14 @@ from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import TEXTURE, values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
-from osprey_connectors.simulation.records import ResolvedCoupling
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
-    composed_set,
-    overlap_record,
+    ActiveState,
+    ComposedSet,
+    OverlapLogRecord,
+    ServingInstance,
+    compose,
     parse_active_state,
-    resolve_active_scenarios,
-    scenario_targets,
 )
 from osprey_connectors.simulation.status import STATUS_NO_DECK, STATUS_OK
 from osprey_connectors.simulation.texture import (
@@ -166,15 +168,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.records import (
         ChannelFaultKind,
         ChannelRecord,
-        CouplingTerm,
-        DriveRecord,
-        NoiseRecord,
         ScenarioRecord,
     )
 
 __all__ = [
     "Composite",
-    "ServingInstance",
     "WriteRefusedError",
     "log_dir",
 ]
@@ -184,11 +182,7 @@ logger = get_logger("simulation_composite")
 #: The entry-point group every engine plug-in registers under.
 _ENGINE_GROUP = "osprey.simulation.engines"
 
-#: The serving instance a model log record names: the served virtual
-#: accelerator, the served live stand-in, or a composite in process.
-ServingInstance = Literal["virtual_accelerator", "live_standin", "inprocess"]
-
-#: Every :data:`ServingInstance`.
+#: Every :data:`~osprey_connectors.simulation.state.ServingInstance`.
 _INSTANCES: tuple[ServingInstance, ...] = get_args(ServingInstance)
 
 #: The longest status text, in UTF-8 bytes.
@@ -380,10 +374,12 @@ class Composite(LUMEModel):
     Args:
         view: The simulator view, ``<render>/data/simulator``, opened or as
             its directory, which is opened with :meth:`SimulatorView.open`.
-        state_dir: The directory holding the ``active_scenarios`` file; ``None``
-            serves ``nominal`` alone.
+        state_dir: The directory holding the ``active_scenarios`` file, which
+            the composite polls; ``None`` serves ``active``.
+        active: The active set, composed once and never polled; ``None``
+            serves the ``state_dir`` file's, or ``nominal`` alone without one.
         instance: The serving instance the model log names, a
-            :data:`ServingInstance`.
+            :data:`~osprey_connectors.simulation.state.ServingInstance`.
         clock: Returns the current instant in epoch seconds.
         model_log: ``False`` sends the model log records to the process logger
             only, for a composite no instance serves.
@@ -393,7 +389,8 @@ class Composite(LUMEModel):
             never calls it, so every channel holds its start state until written.
 
     Raises:
-        ValueError: ``instance`` is not a :data:`ServingInstance`.
+        ValueError: ``instance`` is not a serving instance, or both
+            ``state_dir`` and ``active`` are given.
         NoSimulatorViewError: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
@@ -403,6 +400,7 @@ class Composite(LUMEModel):
         view: SimulatorView | Path | str,
         *,
         state_dir: Path | str | None = None,
+        active: ActiveState | None = None,
         instance: ServingInstance = "inprocess",
         clock: Callable[[], float] = time.time,
         model_log: bool = True,
@@ -411,6 +409,8 @@ class Composite(LUMEModel):
     ) -> None:
         if instance not in _INSTANCES:
             raise ValueError(f"instance is {instance!r}; use one of {list(_INSTANCES)}")
+        if state_dir is not None and active is not None:
+            raise ValueError("state_dir and active both name the active set; pass one")
         if not isinstance(view, SimulatorView):
             view = SimulatorView.open(view)
         self._instance = instance
@@ -423,7 +423,9 @@ class Composite(LUMEModel):
         self._log_dir = (
             Path(log_dir) if log_dir is not None else (_default_log_dir() if model_log else None)
         )
-        self._active: list[str] = []
+        #: The set handed in, composed once; ``None`` polls ``_state_path``.
+        self._handed: ActiveState | None = active
+        self._composed: ComposedSet | None = None
         self._moving: frozenset[str] = frozenset()
         self._held_writes: frozenset[str] = frozenset()
         self._faulted: dict[str, ChannelFault] = {}
@@ -483,7 +485,10 @@ class Composite(LUMEModel):
             self._variables[address] = _ioc_health_variable(address, signal)
 
         self._signature: tuple[str, int] | None | bool = False
-        self._refresh()
+        if active is not None:
+            self._rebuild(active)
+        else:
+            self._refresh()
 
     # -- construction --------------------------------------------------------
 
@@ -744,77 +749,43 @@ class Composite(LUMEModel):
             return None
 
     def _refresh(self) -> None:
-        """Rebuild when the ``active_scenarios`` file changed since the last look."""
+        """Rebuild when the ``active_scenarios`` file changed since the last look.
+
+        A composite handed its set never looks.
+        """
+        if self._handed is not None:
+            return
         signature = self._state_signature()
         if signature == self._signature:
             return
         self._signature = signature
-        names: list[str] = []
+        active = ActiveState()
         if signature is not None and self._state_path is not None:
             try:
                 text = self._state_path.read_text(encoding="utf-8")
             except FileNotFoundError:
                 text = ""
-            for name in parse_active_state(text).names:
-                if name in self._scenarios:
-                    names.append(name)
-                else:
-                    logger.warning(f"Unknown scenario {name!r} in {self._state_path}; ignoring")
-        self._rebuild(resolve_active_scenarios(names))
+            active = parse_active_state(text)
+        self._rebuild(active)
 
-    def _rebuild(self, active: Sequence[str]) -> None:
-        """Start every child at the composed state of the ``active`` scenarios."""
-        view = {name: scenario_targets(scenario) for name, scenario in self._scenarios.items()}
-        active, overlaps = composed_set(view, list(active))
-        for overlap in overlaps:
+    def _rebuild(self, active: ActiveState) -> None:
+        """Start every child at the composed state of the ``active`` set."""
+        composed = compose(self._scenarios, active)
+        for overlap in composed.overlaps:
             logger.error(str(overlap))
             for name in self._children:
-                self._log(name, overlap_record(overlap, instance=self._instance, pid=os.getpid()))
-        self._active = list(active)
-
-        overrides: dict[str, object] = {}
-        faults: dict[str, dict[str, object]] = {}
-        drivers: dict[str, DriveRecord] = {}
-        couple: dict[str, list[CouplingTerm]] = {}
-        noise: dict[str, NoiseRecord] = {}
-        still: set[str] = set()
-        channel_faults: dict[str, ChannelFaultKind] = {}
-        faulted_by: dict[str, set[str]] = {}
-        overridden_by: dict[str, set[str]] = {}
-        for name in active:
-            scenario = self._scenarios.get(name)
-            if scenario is None:
-                # ``nominal`` when the view does not list it: a scenario that writes nothing.
-                continue
-            overrides.update(scenario.overrides)
-            overridden_by[str(name)] = set(scenario.overrides)
-            for model, fault in scenario.faults.items():
-                if not fault.inactive:
-                    faults.setdefault(model, {}).update(fault.writes)
-                    faulted_by.setdefault(model, set()).add(str(name))
-            drivers.update(scenario.drivers)
-            for address, terms in scenario.couple.items():
-                couple.setdefault(address, []).extend(terms)
-            noise.update(scenario.noise)
-            still.update(scenario.still)
-            channel_faults.update(scenario.channel_faults)
-
-        resolved: dict[str, list[ResolvedCoupling]] = {}
-        for address, merged in couple.items():
-            for term in merged:
-                drive = drivers.get(term.driver)
-                if drive is None:
-                    logger.warning(f"{address} couples to undeclared driver {term.driver!r}")
-                    continue
-                resolved.setdefault(address, []).append(
-                    ResolvedCoupling(
-                        driver=term.driver,
-                        gain=term.gain,
-                        gain_wander=term.gain_wander,
-                        drive=drive,
-                    )
+                record = OverlapLogRecord(
+                    instance=self._instance, pid=os.getpid(), model=name, target=overlap.target
                 )
-        self._texture.set_motion(resolved, noise, still=frozenset(still))
+                self._log(name, record.model_dump(mode="json"))
+        self._composed = composed
+
+        overrides = composed.overrides
+        self._texture.set_motion(
+            {address: terms for address, terms in composed.couplings.items() if terms},
+            composed.noise,
+            still=composed.still,
+        )
         self._moving = frozenset(
             address
             for address in self._owner
@@ -832,16 +803,16 @@ class Composite(LUMEModel):
         )
 
         for child in self._children.values():
-            child.active = self._child_active(child, overrides, faults)
+            child.active = self._child_active(child, overrides, composed.faults)
             child.scenarios = tuple(
-                str(name)
-                for name in active
-                if str(name) in faulted_by.get(child.name, ())
-                or overridden_by.get(str(name), set()) & child.setpoints
+                scenario.name
+                for scenario in composed.served
+                if ((fault := scenario.faults.get(child.name)) is not None and not fault.inactive)
+                or set(scenario.overrides) & child.setpoints
             )
             child.last_good = {}
             self._build(child)
-        self._apply_channel_faults(channel_faults)
+        self._apply_channel_faults(composed.channel_faults)
 
     def _child_active(
         self,
@@ -918,8 +889,14 @@ class Composite(LUMEModel):
     @property
     def active(self) -> list[str]:
         """The scenarios served: the active set, or ``nominal`` alone when its scenarios overlap."""
+        return list(self.composed.names)
+
+    @property
+    def composed(self) -> ComposedSet:
+        """The active set as served: its scenarios and their merged blocks."""
         self._refresh()
-        return list(self._active)
+        assert self._composed is not None
+        return self._composed
 
     def moving(self) -> frozenset[str]:
         """The served channels whose motion can be non-zero under the active scenarios.

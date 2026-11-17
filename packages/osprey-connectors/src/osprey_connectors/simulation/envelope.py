@@ -31,18 +31,14 @@ into its record first.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Final
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, Final
 
 from osprey_connectors.simulation import topoff
-from osprey_connectors.simulation.records import (
-    CouplingTerm,
-    DriveRecord,
-    NoiseRecord,
-    ResolvedCoupling,
-    ScenarioRecord,
-    SeedRecord,
-)
+from osprey_connectors.simulation.records import NoiseRecord, ResolvedCoupling, SeedRecord
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.state import ComposedSet
 
 __all__ = [
     "active_envelopes",
@@ -148,62 +144,29 @@ def motion_envelope(
     return envelope + _MOTION_SIGMAS * _noise_sigma(record, nominal)
 
 
-def active_envelopes(
-    seeds: Mapping[str, SeedRecord],
-    scenarios: Mapping[str, ScenarioRecord],
-    active: Sequence[str],
-) -> dict[str, float]:
-    """Every seeded, coupled or noise-replaced channel's envelope under ``active``.
+def active_envelopes(seeds: Mapping[str, SeedRecord], composed: ComposedSet) -> dict[str, float]:
+    """Every seeded, coupled or noise-replaced channel's envelope under a served set.
 
-    The active scenarios' ``noise`` and ``couple`` blocks merge in order, a
-    later scenario's noise record replacing an earlier one's, and each
-    coupling takes its driver's ``drive`` from the merged ``drivers``; a
-    coupling to an undeclared driver adds nothing, as it serves nothing. A
-    reading any active scenario's ``still`` list names has an envelope of 0.0.
+    The set's ``noise`` and ``couple`` blocks are merged as
+    :func:`~osprey_connectors.simulation.state.compose` merges them for the
+    composite: a later scenario's noise record replaces an earlier one's, and
+    a coupling to an undeclared driver adds nothing, as it serves nothing. A
+    reading the set stills has an envelope of 0.0.
 
     Args:
         seeds: Seeds by address.
-        scenarios: Scenario records by name; only ``still``, ``drivers``,
-            ``couple`` and ``noise`` are read.
-        active: The active scenario names, in order; a name ``scenarios``
-            lacks adds nothing.
+        composed: The served set.
 
     Returns:
         The envelope by address, sorted.
     """
-    drivers: dict[str, DriveRecord] = {}
-    couple: dict[str, list[CouplingTerm]] = {}
-    noise: dict[str, NoiseRecord] = {}
-    still: set[str] = set()
-    for name in active:
-        scenario = scenarios.get(name)
-        if scenario is None:
-            continue
-        still.update(scenario.still)
-        drivers.update(scenario.drivers)
-        for address, terms in scenario.couple.items():
-            couple.setdefault(address, []).extend(terms)
-        noise.update(scenario.noise)
-    resolved: dict[str, list[ResolvedCoupling]] = {}
-    for address, merged in couple.items():
-        for term in merged:
-            drive = drivers.get(term.driver)
-            if drive is not None:
-                resolved.setdefault(address, []).append(
-                    ResolvedCoupling(
-                        driver=term.driver,
-                        gain=term.gain,
-                        gain_wander=term.gain_wander,
-                        drive=drive,
-                    )
-                )
-    addresses = set(seeds) | set(couple) | set(noise)
+    addresses = set(seeds) | set(composed.couplings) | set(composed.noise)
     return {
         address: motion_envelope(
             seeds.get(address),
-            noise=noise.get(address),
-            couplings=resolved.get(address, ()),
-            still=address in still,
+            noise=composed.noise.get(address),
+            couplings=composed.couplings.get(address, ()),
+            still=address in composed.still,
         )
         for address in sorted(addresses)
     }

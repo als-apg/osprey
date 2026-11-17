@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import json
 import math
-import sys
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -34,20 +32,13 @@ from osprey_connectors.simulation.archive import (
     seed_base,
 )
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.state import write_active_state
+from osprey_connectors.simulation.state import ActiveState, write_active_state
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.workspace import resolve_simulation_state_dir
-from tests._archive_composites import archives_closed
 from tests._simulator_view import write_texture_view
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
-
-
-@pytest.fixture(autouse=True)
-def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    with archives_closed(monkeypatch, sys.modules[__name__]):
-        yield
 
 
 T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
@@ -290,9 +281,9 @@ def test_the_archive_composite_places_the_event_from_the_anchor_it_is_given(
     )
     at = [T0.timestamp() + SPIKE_OFFSET_S]
 
-    assert build(view, ["burst"], anchor_at=T0, tz=get_facility_timezone()).series(
-        PRESSURE, at
-    ) == [pytest.approx(6e-9)]
+    assert build(
+        view, ActiveState(names=["burst"], anchor_at=T0), tz=get_facility_timezone()
+    ).series(PRESSURE, at) == [pytest.approx(6e-9)]
 
 
 # -- the rewrite, against a real store -------------------------------------------
@@ -389,7 +380,7 @@ def store(tmp_path: Path, mongo_store: dict[str, Any]):
     collection.drop()
     seed_base(
         collection,
-        build(root / "data" / "simulator", [], tz=get_facility_timezone()),
+        build(root / "data" / "simulator", ActiveState(), tz=get_facility_timezone()),
         KNOBS,
         anchor_at=ANCHOR,
         chunk_size=256,
@@ -420,7 +411,7 @@ def _reseed(root: Path, collection) -> None:
     collection.drop()
     seed_base(
         collection,
-        build(root / "data" / "simulator", [], tz=get_facility_timezone()),
+        build(root / "data" / "simulator", ActiveState(), tz=get_facility_timezone()),
         KNOBS,
         anchor_at=ANCHOR,
         chunk_size=256,
@@ -488,7 +479,9 @@ def test_applying_one_set_then_another_leaves_none_of_the_first_s_events(store) 
 
     stored = _stored(collection)
     archive = build(
-        root / "data" / "simulator", ["warm"], anchor_at=ANCHOR, tz=get_facility_timezone()
+        root / "data" / "simulator",
+        ActiveState(names=["warm"], anchor_at=ANCHOR),
+        tz=get_facility_timezone(),
     )
     moments = sorted(stored)
     expected = archive.samples(

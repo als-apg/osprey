@@ -32,7 +32,6 @@ import logging
 import re
 import subprocess
 from collections.abc import Iterator
-from contextlib import nullcontext
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -684,9 +683,7 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: nullcontext(
-            SimpleNamespace(addresses=["SR:BPM1:X", "SR:BPM2:X"])
-        ),
+        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X", "SR:BPM2:X"]),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)

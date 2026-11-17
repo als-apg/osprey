@@ -68,7 +68,7 @@ from osprey_connectors.simulation.view import (
 )
 
 if TYPE_CHECKING:
-    from osprey_connectors.simulation.composite import ServingInstance
+    from osprey_connectors.simulation.state import ServingInstance
 
 #: The data root the view is read under when ``VA_DATA_DIR`` is unset.
 DEFAULT_DATA_DIR = "/data"
