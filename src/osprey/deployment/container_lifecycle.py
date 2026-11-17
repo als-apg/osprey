@@ -53,7 +53,12 @@ from osprey.deployment.compose_generator import (
     resolve_site_image_axes,
 )
 from osprey.deployment.compose_watch import ContainerState, watched_compose_up
-from osprey.deployment.container_ownership import COMPOSE_SERVICE_LABEL, container_label
+from osprey.deployment.container_ownership import (
+    COMPOSE_PROJECT_LABEL,
+    COMPOSE_SERVICE_LABEL,
+    claims_row,
+    container_label,
+)
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.deployment_record import (
     DeploymentRecord,
@@ -7710,11 +7715,12 @@ def _repo_label_filter(repo_root: Path) -> str:
 
 
 def _checkout_containers(repo_root: Path) -> tuple[str, list[dict[str, Any]]]:
-    """Every container of this checkout, running or not, as the runtime lists it.
+    """Every container of this deployment, running or not, as the runtime lists it.
 
-    Selected by the repo label the render bakes into every container, the same
-    filter :func:`_down_by_label` stops by, so a second project on the host is
-    never listed. Read through ``ps --format json`` and the health probe's
+    The containers of the compose project the deployment record names, minus
+    those another checkout created: :func:`claims_row` decides, so a row whose
+    repo id names another checkout is dropped and a row with no repo id is
+    ours. A second project on the host is never listed. Read through ``ps --format json`` and the health probe's
     parser, so Docker's NDJSON and podman's array are one answer. Asked through
     the runtime the deployment record names, the one the last start drove.
 
@@ -7729,8 +7735,17 @@ def _checkout_containers(repo_root: Path) -> tuple[str, list[dict[str, Any]]]:
     if record is None:
         raise RuntimeError(f"no deployment record in {repo_root}")
     runtime = record.runtime
+    project = record.compose_project
     listing = subprocess.run(
-        [runtime, "ps", "-a", "--filter", _repo_label_filter(repo_root), "--format", "json"],
+        [
+            runtime,
+            "ps",
+            "-a",
+            "--filter",
+            f"label={COMPOSE_PROJECT_LABEL}={project}",
+            "--format",
+            "json",
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -7738,11 +7753,22 @@ def _checkout_containers(repo_root: Path) -> tuple[str, list[dict[str, Any]]]:
     )
     if listing.returncode != 0:
         raise RuntimeError(f"`{runtime} ps` exited {listing.returncode}")
-    return runtime, _parse_ps_json(listing.stdout or "")
+    repo_id = repo_identity(repo_root)
+    rows = [
+        row
+        for row in _parse_ps_json(listing.stdout or "")
+        if claims_row(
+            row_repo_id=container_label(row, REPO_ID_LABEL),
+            row_project=project,
+            project=project,
+            repo_id=repo_id,
+        )
+    ]
+    return runtime, rows
 
 
 def unhealthy_containers(repo_root: Path | str) -> list[str]:
-    """This checkout's containers whose healthcheck reports ``unhealthy``, by name.
+    """This deployment's containers whose healthcheck reports ``unhealthy``, by name.
 
     What the closing line of a detached start reads before it says everything
     is running. ``compose up -d`` returns once every ``depends_on`` edge is
@@ -7750,8 +7776,8 @@ def unhealthy_containers(repo_root: Path | str) -> list[str]:
     healthcheck after that — the verb has already succeeded, and a card that
     says everything is running is then describing a stack that is not.
 
-    Read through :func:`_checkout_containers`, so a second project on the host
-    is never reported here.
+    Read from this deployment's containers, as :func:`_checkout_containers`
+    claims them, so a second project on the host is never reported here.
 
     Advisory by contract: no deployment record, a record that cannot be read, a
     runtime that will not answer, or a listing that will not parse all yield
@@ -7828,8 +7854,9 @@ def services_without_a_running_container(
     container of it that exited 0 satisfies it. A ``restarting`` container is
     not running.
 
-    Containers are listed by :func:`_checkout_containers` and matched to their
-    service by the label compose stamps on every container it creates.
+    This deployment's containers, as :func:`_checkout_containers` claims them,
+    are matched to their service by the label compose stamps on every container
+    it creates.
 
     :param repo_root: The deployment repo that was started.
     :param services: The ``services`` mappings the start handed to compose, merged.
