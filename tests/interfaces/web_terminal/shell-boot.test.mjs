@@ -272,6 +272,18 @@ describe('load failure', () => {
     expect(boot()).toBe('loading');
   });
 
+  test('a vendor bundle of this server does not end the wait: its user has a fallback', () => {
+    stubFetch({});
+    runBoot();
+
+    failToLoad(
+      'script',
+      `${window.location.origin}/static/_v/0123456789abcdef/vendor/dockview-core.min.js`
+    );
+
+    expect(boot()).toBe('loading');
+  });
+
   test('a failure after the reveal leaves the page revealed', () => {
     stubFetch({});
     runBoot();

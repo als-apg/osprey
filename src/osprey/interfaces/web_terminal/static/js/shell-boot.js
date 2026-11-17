@@ -135,10 +135,13 @@
     (event) => {
       const target = event.target;
       if (!(target instanceof HTMLScriptElement || target instanceof HTMLLinkElement)) return;
-      // Only the page's own files: a vendor file from a CDN has its own
-      // report where it is used (terminal.js).
+      // Only the page's own files. A vendor bundle, from a CDN or from this
+      // server's /vendor/, has its own report and fallback where it is used
+      // (terminal.js, dock-workspace.js): the hub runs without dockview.
       const url = target instanceof HTMLScriptElement ? target.src : target.href;
-      if (!url || new URL(url, window.location.href).origin !== window.location.origin) return;
+      if (!url) return;
+      const file = new URL(url, window.location.href);
+      if (file.origin !== window.location.origin || file.pathname.includes('/vendor/')) return;
       if (target instanceof HTMLLinkElement && target.rel !== 'stylesheet') return;
       if (!loading()) return;
       root.setAttribute(BOOT_ATTRIBUTE, 'failed');
