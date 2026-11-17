@@ -1067,7 +1067,7 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
     cls = index.set_class.get(group_id)
     views = [
         Link(
-            _CALIBRATION_CHIP.format(kind.title),
+            kind.tally_title,  # the section's heading says "calibration"
             Target("calibration", "group", group_id, system=kind.kind),
         )
         for kind in (graph.calibration_kinds(cls) if cls is not None else ())
@@ -1077,9 +1077,6 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
         sections += (Section("calibration", tuple(views)),)
     sections += (Section("members", (grid,)),)
     return View(Target("set", "group", group_id), group_id, (), sections)
-
-
-_CALIBRATION_CHIP = "calibration: {}"
 
 
 def _member_rows(

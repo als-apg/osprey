@@ -43,7 +43,7 @@ def test_the_set_overview_and_the_card_link_to_the_calibration_views(panel_graph
     view = set_overview(panel_graph, "XR-QUAD")
     (section,) = [s for s in view.sections if s.title == "calibration"]
     assert section.items[0] == Link(
-        "calibration: Integrated gradient",
+        "Integrated gradient",  # the kind's short name, else its title; no prefix
         Target("calibration", "group", "XR-QUAD", system="integrated_gradient"),
     )
     (block,) = [
@@ -89,9 +89,13 @@ def test_the_set_overview_lists_its_calibration_views_as_chips(panel_graph) -> N
     doc = stub_render(set_overview(panel_graph, "XR-QUAD"), panel_graph)
     chips = [
         n for n in nodes(doc)
-        if n["type"] == "rectangle" and str(n["props"].get("tooltip", "")).startswith("calibration: ")
+        if n["type"] == "rectangle" and n["props"].get("actions")
+        and "/calibration-" in n["props"]["actions"][0]["file"]
     ]  # fmt: skip
-    assert len(chips) == len(panel_graph.calibration_kinds("Quadrupole"))
+    kinds = panel_graph.calibration_kinds("Quadrupole")
+    assert len(chips) == len(kinds)
+    assert [c["props"]["tooltip"] for c in chips] == [k.tally_title for k in kinds]
+    assert len({c["geometry"]["y"] for c in chips}) == 1  # one line
     assert all(c["geometry"]["height"] == layout.CHIP_HEIGHT for c in chips)
 
 
