@@ -1223,7 +1223,10 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
    * - ``pv_directory.alarm_state``
      - Current alarm state. ``type: phoebus_alarm_server`` reads the alarm
        server's Kafka topic and needs ``settings.bootstrap_servers`` and
-       ``settings.topic``.
+       ``settings.topic``. Where the broker is out of reach and only HTTP
+       crosses the network, ``type: osprey_alarm_relay`` with ``settings.url``
+       reads the same state from a relay run beside the broker
+       (``python -m osprey_connectors.alarm_state.relay``).
    * - ``pv_directory.alarm_state.replay_file``
      - The alarm feed on ``va``: ``demo:<name>`` names a feed packaged with
        OSPREY, any other value an ``.ndjson`` file relative to the project.

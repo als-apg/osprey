@@ -197,6 +197,23 @@ class TestRefusals:
 
         assert raised.value.key == f"pv_directory.alarm_state.settings.{missing}"
 
+    def test_relay_without_url(self) -> None:
+        section = {"alarm_state": {"type": "osprey_alarm_relay", "settings": {}}}
+
+        with pytest.raises(SectionError) as raised:
+            resolve_section(_config(section))
+
+        assert raised.value.key == "pv_directory.alarm_state.settings.url"
+
+    def test_relay_with_url_resolves_as_a_live_feed(self) -> None:
+        settings = {"url": "https://front.example/alarm-relay"}
+        section = {"alarm_state": {"type": "osprey_alarm_relay", "settings": settings}}
+
+        resolved = resolve_section(_config(section))
+
+        assert resolved.alarm_state == "osprey_alarm_relay"
+        assert resolved.warnings == ()
+
     @pytest.mark.parametrize("value", ["demo:no-such-replay", "demo:", "demo:../escape"])
     @pytest.mark.usefixtures("demo_dir")
     def test_demo_replay_that_does_not_resolve(self, value: str) -> None:

@@ -2570,14 +2570,16 @@ keys:
     default: no-fallback
     default_note: >-
       absent, no alarm feed and pv_directory_alarm_state is false; `type:
-      phoebus_alarm_server` needs settings.bootstrap_servers and settings.topic
+      phoebus_alarm_server` needs settings.bootstrap_servers and settings.topic,
+      `type: osprey_alarm_relay` needs settings.url
   pv_directory.alarm_state.type:
     rendered: false
     covered-by: pv_directory.alarm_state
     default: no-fallback
     default_note: >-
-      absent, `live` and `standin` have no alarm feed; the built-in type is
-      phoebus_alarm_server, which needs the alarm-state extra
+      absent, `live` and `standin` have no alarm feed; the built-in types are
+      phoebus_alarm_server, which needs the alarm-state extra, and
+      osprey_alarm_relay, which reads a relay over HTTP
   pv_directory.alarm_state.settings: {rendered: false, covered-by: pv_directory.alarm_state, default: {}}
   pv_directory.alarm_state.settings.bootstrap_servers:
     rendered: false
@@ -2589,6 +2591,11 @@ keys:
     evidence: 'settings\.get\("topic"\)'
     default: no-fallback
     default_note: "the build refuses `type: phoebus_alarm_server` without it, naming this key"
+  pv_directory.alarm_state.settings.url:
+    rendered: false
+    covered-by: pv_directory.alarm_state.settings
+    default: no-fallback
+    default_note: "the build refuses `type: osprey_alarm_relay` without it, naming this key"
   pv_directory.alarm_state.replay_file:
     evidence: 'block\.get\("replay_file"\)'
     default: no-fallback
