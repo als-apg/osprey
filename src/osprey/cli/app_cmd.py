@@ -34,6 +34,7 @@ from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, re
 from osprey.apps.manifest import APP_NAME_PATTERN, AppManifest
 from osprey.apps.origin import AppOrigin, origin_of
 from osprey.apps.rules import shadows_installed, taken_package
+from osprey.interfaces.design_system.panels.page_ready import route_problem
 from osprey.interfaces.design_system.panels.validator import (
     PANEL_STYLESHEETS,
     missing_stylesheets,
@@ -417,46 +418,29 @@ def _used_classes(app_dir: Path) -> list[tuple[str, set[str]]]:
     return used
 
 
-#: The line a panel's script adds to set the page-ready mark (design-system/js/page-ready.js).
-READY_IMPORT = "import { markPageReady } from '/design-system/js/page-ready.js';"
-_READY_IMPORT = re.compile(
-    r"\bimport\s*\{[^}]*\bmarkPageReady\b[^}]*\}\s*from\s*"
-    r"""(["'])/design-system/js/page-ready\.js\1"""
-)
-_READY_IN_MARKUP = re.compile(r"""<html\b[^>]*\bdata-page-ready\s*=\s*["']?true\b""", re.IGNORECASE)
-
-
 def _ready_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
-    """Each panel sets the page-ready mark, or whatever waits to drive it hangs.
+    """Each panel takes the late route to the page-ready mark, or whatever waits on it fails.
 
-    A script of the panel imports the writer, or a panel with no script carries the mark
-    in its markup.
+    ``index.html`` declares ``data-page-ready="pending"`` and a script it loads calls
+    ``markPageReady()`` on its success and failure paths; otherwise whatever waits to drive
+    the panel hangs, or drives it before its first state is drawn.
     """
     found: list[Violation] = []
     for checked in apps:
-        app_dir = checked.directory
-        index = app_dir / "panel" / "index.html"
+        index = checked.directory / "panel" / "index.html"
         if not index.is_file():
             continue
-        page = index.read_text(encoding="utf-8")
-        scripts = [page] + [
-            _JS_LINE_COMMENT.sub(
-                "", _BLOCK_COMMENT.sub("", (app_dir / rel).read_text(encoding="utf-8"))
+        problem = route_problem(index.read_text(encoding="utf-8"), index, app_panel=True)
+        if problem is not None:
+            found.append(
+                Violation(
+                    checked.name,
+                    "",
+                    "page_ready",
+                    problem,
+                    source=checked.origin.display("panel/index.html"),
+                )
             )
-            for rel in _panel_js(app_dir)
-        ]
-        if _READY_IN_MARKUP.search(page) or any(_READY_IMPORT.search(s) for s in scripts):
-            continue
-        found.append(
-            Violation(
-                checked.name,
-                "",
-                "page_ready",
-                "never sets the page-ready mark; the panel's script adds "
-                f"`{READY_IMPORT}` and calls markPageReady() once its first state is drawn",
-                source=checked.origin.display("panel/index.html"),
-            )
-        )
     return found
 
 
