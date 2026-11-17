@@ -181,7 +181,7 @@ from osprey_connectors.model import (
     parse_instant,
 )
 from osprey_connectors.posture_store import ArmedPosition, Posture, SwitchPosition
-from osprey_connectors.refusals import VerdictReason, refusal_phrase
+from osprey_connectors.refusals import REASONS, VerdictReason, VerdictReasonField, refusal_phrase
 from osprey_connectors.safety_file import (
     SHARED_FILE_MODE,
     SHARED_LOCK_MODE,
@@ -1779,7 +1779,7 @@ class WritesStatement(FrozenModel):
 
     allowed: bool
     position: ArmedPosition | None
-    reason: str | None
+    reason: VerdictReasonField | None
     kind: MachineKind | None
 
     @model_validator(mode="after")
@@ -2009,8 +2009,9 @@ def _writes_statement(value: object) -> WritesStatement | None | Literal[False]:
     """*value* as the ``writes`` axis; ``False`` when it is not of its shape.
 
     ``None`` is a verdict's terms that disagree with themselves — allowed with a
-    reason, refused without one, or refused at a position — which states the
-    axis as not stated rather than unmaking the statement.
+    reason, refused without one, or refused at a position — or a reason that is
+    no refusal's word, which states the axis as not stated rather than
+    unmaking the statement.
     """
     if not isinstance(value, dict) or not isinstance(value.get("allowed"), bool):
         return False
@@ -2019,6 +2020,8 @@ def _writes_statement(value: object) -> WritesStatement | None | Literal[False]:
     reason = value.get("reason")
     if not (reason is None or isinstance(reason, str)):
         return False
+    if reason is not None and reason not in REASONS:
+        return None
     allowed = value["allowed"]
     if allowed != (reason is None) or (value.get("position") is not None and not allowed):
         return None

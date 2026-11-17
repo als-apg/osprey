@@ -22,6 +22,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.errors import NaiveDatetimeError, StateUnavailableError
 from osprey_connectors.model import evolve
+from osprey_connectors.refusals import VerdictReason
 from osprey_connectors_tests._paths import REPO_ROOT
 
 # --- fixtures --------------------------------------------------------------
@@ -1318,6 +1319,25 @@ def test_a_stored_writes_axis_that_disagrees_with_itself_reads_as_not_stated(wri
     )
     assert report.display_only is True
     assert report.statement.writes is None
+
+
+def test_a_stored_writes_reason_that_is_no_refusal_word_reads_as_not_stated():
+    """An unknown word degrades the axis; the report still parses and stays display-only."""
+    writes = {"allowed": False, "position": None, "reason": "no_such_word", "kind": "real"}
+    report = control_context._parse_report(
+        _display_payload(4321, statement={"reachable": None, "writes": writes})
+    )
+    assert report is not None
+    assert report.display_only is True
+    assert report.statement.writes is None
+
+
+def test_a_writes_statement_holds_its_reason_as_the_refusal_member():
+    writes = {"allowed": False, "position": None, "reason": "switch_off", "kind": "real"}
+    statement = control_context.WritesStatement.model_validate(writes)
+    assert statement.reason is VerdictReason.SWITCH_OFF
+    with pytest.raises(ValueError, match="unknown refusal reason"):
+        control_context.WritesStatement.model_validate({**writes, "reason": "no_such_word"})
 
 
 def test_fleet_readers_leave_out_a_display_only_report(data_root):
