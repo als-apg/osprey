@@ -1,11 +1,12 @@
 """One recipe for a throwaway MongoDB.
 
-Four suites need one — the connector fixtures, the world-contract fixtures and the
-two seeder suites. They differ in the credentials they hand out, the server flags
-they ask for and what they put in the mapping they yield, not in how the store is
-brought up, so the bring-up lives here once. Whether mongod's TTL sweeper runs is
-part of that recipe, not a flag each suite spells: it is off at start, and turned
-on at runtime by the test that wants a sweep.
+Several fixtures need one — the session's shared store in ``tests/conftest.py``, the
+world-contract fixtures and the suites that need a server of their own. They differ
+in the credentials they hand out, the server flags they ask for and what they put
+in the mapping they yield, not in how the store is brought up, so the bring-up
+lives here once. Whether mongod's TTL sweeper runs is part of that recipe, not a
+flag each suite spells: it is off at start, and turned on at runtime by the test
+that wants a sweep.
 
 **Why the wait cannot be left to the container library.** ``mongo`` boots twice
 when it has a root user to create: a throwaway server for the init scripts, then

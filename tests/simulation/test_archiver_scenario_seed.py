@@ -55,9 +55,15 @@ from osprey_connectors.simulation.archive import (
     build,
     seed_base,
 )
-from tests._container_support import is_docker_available
-from tests._mongo_container import started_mongo
 from tests._simulator_view import write_scenarios_view, write_texture_view
+
+# xdist_group("docker"), on the store-backed classes and tests only: they use the
+# session's ``mongodb_container`` (tests/conftest.py), and the docker group puts
+# them on the worker that already runs it, so they share its container instead of
+# starting one of their own. They work in a database of their own, ``rewrite_db``,
+# and drop every collection they create. The store-free tests stay on this file's
+# own worker. A new test that takes ``mongo_store`` goes in a marked class.
+STORE_BACKED = pytest.mark.xdist_group("docker")
 
 PRESSURE = "SR:VAC:IP07:PRESSURE"
 TEMPERATURE = "SR:RF:CAV01:TEMP:BODY"
@@ -168,21 +174,16 @@ def _machine() -> dict:
 
 
 @pytest.fixture(scope="module")
-def mongo_store():
-    """A MongoDB container for this module, waited for until it answers before being yielded."""
-    if not is_docker_available():
-        pytest.skip("Docker not available — needed to rewrite a real store.")
-
-    username, password = "rewriteuser", "rewritepass123"
-    with started_mongo("mongodb-rewrite", username=username, password=password) as (host, port):
-        yield {
-            "host": host,
-            "port": port,
-            "username": username,
-            "password": password,
-            "database": "rewrite_db",
-            "collection": "pv_history",
-        }
+def mongo_store(mongodb_container):
+    """The session's MongoDB, with this module's own database, as connection parameters."""
+    return {
+        "host": mongodb_container["host"],
+        "port": mongodb_container["port"],
+        "username": mongodb_container["username"],
+        "password": mongodb_container["password"],
+        "database": "rewrite_db",
+        "collection": "pv_history",
+    }
 
 
 #: Connection keys for tests that only need a project to *declare* a store.
@@ -760,6 +761,7 @@ class TestComposedEvents:
 # ---------------------------------------------------------------------------
 
 
+@STORE_BACKED
 class TestRewrite:
     def test_applying_an_eventless_set_to_a_fresh_archive_changes_nothing(self, project):
         """ "Restore then nothing" has to be genuinely nothing: the benchmark
@@ -923,6 +925,7 @@ class TestRewrite:
         assert result.archiver.updated == 0, "a re-apply that changed nothing must not claim it"
 
 
+@STORE_BACKED
 class TestOverlappingWindows:
     """Two channels whose event windows overlap without coinciding.
 
@@ -994,6 +997,7 @@ class TestOverlappingWindows:
         assert "uncovered" in result.archiver.describe()
 
 
+@STORE_BACKED
 class TestScenarioSwitch:
     """Switching from one eventful scenario to another, not back to nominal.
 
@@ -1141,6 +1145,7 @@ class TestScenarioSwitch:
         assert ledger[0]["end"] == pytest.approx(_window(LATE_OFFSET_S)[1].timestamp())
 
 
+@STORE_BACKED
 class TestCrashRecovery:
     """Dying part way through a rewrite must leave a recoverable store.
 
@@ -1231,6 +1236,7 @@ class TestCrashRecovery:
         assert _snapshot(collection) == base
 
 
+@STORE_BACKED
 class TestRecurringEvents:
     """A daily event is evidence for minutes a day, not for the whole archive."""
 
@@ -1257,6 +1263,7 @@ class TestRecurringEvents:
         assert 0 < result.archiver.inserted < base / 4
 
 
+@STORE_BACKED
 class TestDottedChannel:
     def test_a_dotted_channel_window_is_rewritten(self, dotted_project):
         """A field-name address is rewritten under its own field, never as a path."""
@@ -1296,6 +1303,7 @@ class TestChannelNamedLikeTheMarker:
         assert document["%6Fsprey_densified"] == 1.0
 
 
+@STORE_BACKED
 class TestStoredTypes:
     def test_dense_inserts_carry_the_type_the_channel_is_stored_as(self, project):
         """A flag channel's history must not change type part way through.
@@ -1329,6 +1337,7 @@ class TestStoredTypes:
 
 
 class TestRefusals:
+    @STORE_BACKED
     def test_an_unseeded_store_is_reported_not_silently_skipped(self, project):
         """ "The scenario is active but its history is not" must never be
         something a caller has to infer from a zero count."""
