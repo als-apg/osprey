@@ -124,3 +124,17 @@ def test_a_value_held_in_the_control_system_is_found_the_same_way(tmp_path) -> N
     graph = graph_with_bpms(tmp_path, tables)
     row = calibration_row(graph, "XR01:BPM1", graph.calibration_kind("gains", "BPM"))
     assert row.channels == ("XR01:BPM1-E:P1:amplitude_a",)
+
+
+def test_check_notes_a_probe_row_whose_signal_no_channel_states(tmp_path) -> None:
+    from osprey.facility.panels.emit import check, write
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / PROBE).open("a") as handle:
+        handle.write("BPM,ghost,readout,ghost,,,,ghost_readback,,,,,,,,,,\n")
+    graph = graph_with_bpms(tmp_path, tables)
+    out = tmp_path / "out"
+    write(graph, out, only=lambda t: t.view == "card" and t.id == "XR01:BPM1")
+    found = [p for p in check(graph, out) if p.kind == "unbound_probe"]
+    assert len(found) == 1 and not found[0].failing
+    assert "ghost_readback" in found[0].detail and "XR01:BPM1" in found[0].detail

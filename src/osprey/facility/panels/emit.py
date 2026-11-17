@@ -135,7 +135,8 @@ class Problem:
             has no live light, and has a child, or a root without children,
             with no screen of the set to open), ``long_formula`` (an expression the formula engine
             would refuse as too long), ``over_budget`` (more rules or bound
-            channels than one screen may have) or ``outside_set``.
+            channels than one screen may have), ``unbound_probe`` (a note: a probe
+            row of a device card names a signal no channel states) or ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
     """
@@ -927,6 +928,7 @@ def check(
                 graph, out, relative, wanted[relative], ids, valid, outside, max_bytes, draw
             )
         )
+        problems.extend(_unbound_probe(graph, relative, wanted[relative]))
         if rolled is not None and wanted[relative].view == "rollup":
             document = json.loads((out / relative).read_bytes())
             rolled.update(_bound_channels(document))
@@ -952,6 +954,23 @@ def check(
             if name not in rolled and _carried(graph, name)
         )
     return problems
+
+
+def _unbound_probe(graph: PanelGraph, relative: str, target: Target) -> list[Problem]:
+    """A note per probe row of a device card whose signal no channel states for the
+    device (:meth:`PanelGraph.signal_channels`): the element is drawn without its value."""
+    if (target.view, target.kind) != ("card", "device"):
+        return []
+    found = []
+    for row in graph.probe(target.id):
+        for signal in (row.signal, row.signal_y):
+            if signal is not None and not graph.signal_channels(target.id, signal):
+                detail = (
+                    f"{target.id}: probe element {row.element!r} names the signal "
+                    f"{signal}, which no channel states; it is drawn without a value"
+                )
+                found.append(Problem("unbound_probe", relative, detail, note=True))
+    return found
 
 
 def _check_file(
