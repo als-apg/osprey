@@ -2,8 +2,9 @@
 
 ``compose up -d`` exiting 0 is not that guarantee: a compose provider can exit
 0 having created nothing. The check reads this checkout's containers through
-the same repo-label listing the closing card reads, matches them to services by
-compose's own service label, and fails the start naming what it found.
+the same listing the closing card reads, which claims containers by the
+deployment's ownership rule, matches them to services by compose's own service
+label, and fails the start naming what it found.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment import container_lifecycle
+from osprey.deployment.compose_generator import repo_identity
 from osprey.deployment.container_lifecycle import services_without_a_running_container
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
 from osprey.deployment.errors import ServicesNotRunningError
@@ -24,6 +26,8 @@ from osprey.deployment.web_terminals.artifacts import web_compose_file
 _REAL_REFUSE_SERVICES_NOT_RUNNING = container_lifecycle._refuse_services_not_running
 
 SERVICE_LABEL = "com.docker.compose.service"
+PROJECT_LABEL = "com.docker.compose.project"
+REPO_ID_LABEL = "com.osprey.repo-id"
 
 
 class _FakePs:
@@ -35,6 +39,24 @@ class _FakePs:
     def __call__(self, cmd, **kwargs):
         self.calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, self.returncode, stdout=self.stdout, stderr="")
+
+
+class _RuntimePs:
+    """A ``ps`` that, like a real runtime, lists only rows matching every label filter."""
+
+    def __init__(self, *rows: dict) -> None:
+        self.rows = rows
+        self.calls: list[list[str]] = []
+
+    def __call__(self, cmd, **kwargs):
+        self.calls.append(list(cmd))
+        wanted = [
+            cmd[i + 1].removeprefix("label=").split("=", 1)
+            for i, arg in enumerate(cmd)
+            if arg == "--filter" and cmd[i + 1].startswith("label=")
+        ]
+        kept = [row for row in self.rows if all(row["Labels"].get(k) == v for k, v in wanted)]
+        return subprocess.CompletedProcess(cmd, 0, stdout=_docker(*kept), stderr="")
 
 
 def _docker(*rows: dict) -> str:
@@ -136,6 +158,49 @@ def test_a_daemon_that_exited_zero_is_not_satisfied(repo, monkeypatch):
     services = {"api": {"depends_on": {"db": {"condition": "service_healthy"}}}}
 
     assert services_without_a_running_container(repo, services) == {"api": "exited (0)"}
+
+
+def _running(labels: dict) -> dict:
+    return {"Names": "demo-qmd-okf-1", "State": "running", "Status": "Up 1 second",
+            "Labels": labels}  # fmt: skip
+
+
+def test_a_running_container_without_the_checkout_label_satisfies_its_service(repo, monkeypatch):
+    ps = _RuntimePs(_running({PROJECT_LABEL: "demo", SERVICE_LABEL: "qmd-okf"}))
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", ps)
+
+    assert services_without_a_running_container(repo, {"qmd-okf": {}}) == {}
+
+
+def test_another_checkouts_container_does_not_satisfy_the_service(repo, monkeypatch):
+    ps = _RuntimePs(
+        _running({PROJECT_LABEL: "demo", SERVICE_LABEL: "qmd-okf", REPO_ID_LABEL: "someone-else"})
+    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", ps)
+
+    assert services_without_a_running_container(repo, {"qmd-okf": {}}) == {
+        "qmd-okf": "no container"
+    }
+
+
+def test_this_checkouts_labelled_container_satisfies_its_service(repo, monkeypatch):
+    ps = _RuntimePs(
+        _running(
+            {PROJECT_LABEL: "demo", SERVICE_LABEL: "qmd-okf", REPO_ID_LABEL: repo_identity(repo)}
+        )
+    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", ps)
+
+    assert services_without_a_running_container(repo, {"qmd-okf": {}}) == {}
+
+
+def test_another_projects_container_does_not_satisfy_the_service(repo, monkeypatch):
+    ps = _RuntimePs(_running({PROJECT_LABEL: "other", SERVICE_LABEL: "qmd-okf"}))
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", ps)
+
+    assert services_without_a_running_container(repo, {"qmd-okf": {}}) == {
+        "qmd-okf": "no container"
+    }
 
 
 def _compose(path: Path, services: str) -> None:
