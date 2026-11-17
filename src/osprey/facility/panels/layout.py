@@ -1755,7 +1755,8 @@ class _Page:
         for section in left:
             self.card_section(section)
         bottom = self.y
-        self.y, self.x0, self.right = start, MARGIN + CARD_LEFT, MARGIN + STRIP_WIDTH
+        right_x = MARGIN + CARD_LEFT if left else MARGIN  # no left column: right moves over
+        self.y, self.x0, self.right = start, right_x, MARGIN + STRIP_WIDTH
         chips: list[tuple[str, Link | None]] = []
         for section in right:
             if section.title == _FED_BY:

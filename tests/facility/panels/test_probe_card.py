@@ -224,3 +224,15 @@ def test_a_card_of_few_rows_keeps_its_two_columns(panel_graph) -> None:
     doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
     texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
     assert texts.count("READBACK") == 1
+
+
+def test_with_every_left_group_in_columns_the_right_column_moves_over(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _many_signals), PANELS_DIR)
+    doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
+    (where,) = [
+        n for n in nodes(doc) if n["type"] == "text-label" and n["props"]["text"] == "WHERE"
+    ]
+    assert where["geometry"]["x"] == layout.MARGIN
