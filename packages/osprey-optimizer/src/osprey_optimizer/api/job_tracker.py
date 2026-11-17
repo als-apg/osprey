@@ -524,7 +524,9 @@ class JobTracker:
         return bool(redis.exists(meta_key(job_id)))
 
     def mark_completed(self, job_id: str) -> None:
-        """Mark a job as completed.
+        """End a job's tracker record: called by the side that ends the job, never by a read.
+
+        The job's keys then expire ``TERMINAL_STATE_TTL_SECONDS`` later.
 
         Args:
             job_id: The job identifier
@@ -539,12 +541,11 @@ class JobTracker:
 
         # Sweep the job's whole job:{id}:* footprint (meta + state + cancel) under
         # the terminal TTL in one pass, so it self-reclaims. Applied on every
-        # terminal pass, not just the first flip: a job cancelled mid-run keeps
-        # writing state keys AFTER the API-side mark_completed, and the worker's
-        # own JobLifecycle.__exit__ -> mark_completed must re-apply the TTL to
-        # those late writes (the set() above also clears the meta key's TTL). Not
-        # gated on job_data: once the meta key has lapsed the rest of the
-        # namespace can still be alive and must be swept too (#107).
+        # ender's call, not just the first flip: a second ender (the shutdown after
+        # the worker's own exit) re-applies the TTL to keys written in between
+        # (the set() above also clears the meta key's TTL). Not gated on
+        # job_data: once the meta key has lapsed the rest of the namespace can
+        # still be alive and must be swept too.
         self.expire_job(job_id, TERMINAL_STATE_TTL_SECONDS)
 
         active = redis.get(ACTIVE_JOB_KEY)

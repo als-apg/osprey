@@ -163,10 +163,7 @@ def get_job_status(
     try:
         if detail is not None:
             return build_optimization_response(job_id, detail, tracker)
-        response = read_job_status(tracker, job_id)
-        if response.status.is_terminal:
-            tracker.mark_completed(job_id)
-        return response
+        return read_job_status(tracker, job_id)
     except HTTPException:
         raise
     except Exception as e:
