@@ -27,6 +27,7 @@ import copy
 import io
 import re
 from collections.abc import Mapping
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,7 @@ from osprey.profiles.providers import compute_providers_hash, packaged_catalog_p
 from osprey.utils.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
+from .build_profile_archiver import VAArchiverConfig
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
 from .build_profile_presets import (
@@ -51,6 +53,7 @@ from .build_profile_presets import (
     preset_apps,
 )
 from .build_profile_resolve import apply_cli_edits
+from .build_profile_schema import DispatchConfig
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
 
 # Every BuildProfile field belongs to exactly one of the three sets below. The
@@ -182,6 +185,40 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "web_panels": "Panels offered by the web terminal.",
     "claude_md_template": "Bundled template rendered as CLAUDE.md, the agent's instructions.",
 }
+
+# Keys of an opt-in block that the emitter writes whenever the block is active,
+# each at the value the block builds with when the key is unstated (its
+# dataclass default) and with a one-fact end-of-line comment. A stated value is
+# never touched, and an absent block gets nothing. Ports, `host` and
+# `freshness_channel` are derived from elsewhere at build time and are never
+# listed.
+_BLOCK_DEFAULTS: dict[str, tuple[type, dict[str, str]]] = {
+    "dispatch": (
+        DispatchConfig,
+        {
+            "timeout_sec": "wall-clock ceiling on one run",
+            "inactivity_sec": "seconds a run may produce nothing before it is cut off",
+            "max_turns": "agent turns one run may take",
+        },
+    ),
+    "va_archiver": (
+        VAArchiverConfig,
+        {
+            "database": "database holding the history",
+            "collection": "collection the samples go to",
+            "username": "user the agent connects as",
+            "auth_database": "database that user authenticates against",
+            "password_env": "variable naming that user's password",
+        },
+    ),
+}
+
+
+def _block_default(block: str, key: str) -> Any:
+    """The value ``block.key`` builds with when the profile leaves it unstated."""
+    cls, _ = _BLOCK_DEFAULTS[block]
+    return next(f.default for f in fields(cls) if f.name == key)
+
 
 # Two keys need more than a one-line rationale: their shape is not obvious from
 # the empty default the emitter writes, and guessing it wrong is a build error
@@ -1539,6 +1576,19 @@ def emit_standalone_profile_yaml(
     resolved = apply_cli_edits(_with_preset_apps(resolved, preset_name), set_pairs)
     for layer in extra_layers:
         resolved = _deep_merge(resolved, dict(layer))
+
+    # An active opt-in block is written with the keys it builds with even when
+    # the preset leaves them unstated, so the run budgets and the archive's
+    # identity are visible where a deployer edits them.
+    block_filled: dict[str, list[str]] = {}
+    for block, (_, comments) in _BLOCK_DEFAULTS.items():
+        value = resolved.get(block)
+        if not isinstance(value, Mapping):
+            continue
+        missing = [key for key in comments if key not in value]
+        if missing:
+            resolved[block] = {**value, **{key: _block_default(block, key) for key in missing}}
+            block_filled[block] = missing
     resolved["name"] = profile_name
     resolved["project_name"] = project_name
 
@@ -1611,6 +1661,22 @@ def emit_standalone_profile_yaml(
         _relocate_trailing(doc, "name", "project_name")
 
     _sync_to_resolved(doc, resolved)
+
+    # Each written default says what it bounds or names, the comments aligned
+    # two columns past the longest written line. The trailing block a key holds
+    # (the next section's header, which the sync moved onto the last appended
+    # key) is lifted off and put back so the end-of-line comment sits before it.
+    for block, keys in block_filled.items():
+        node = doc[block]
+        if not isinstance(node, CommentedMap):
+            node = doc[block] = CommentedMap(node)
+        column = max(len(f"  {key}: {node[key]}") for key in keys) + 2
+        for key in keys:
+            trailing = _take_trailing(node, key)
+            node.yaml_add_eol_comment(_BLOCK_DEFAULTS[block][1][key], key, column=column)
+            if trailing is not None:
+                node.ca.items[key][2].value += "\n"
+                _append_trailing(node, key, trailing)
 
     # Rationale above each synthesized key, so a reader can tell a deliberate
     # default from a value the preset chose. Applied after the sync, which is
