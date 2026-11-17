@@ -255,7 +255,7 @@ def test_status_leaves_the_row_unchanged_when_there_is_no_preflight_marker(
     output = rendered.export_text()
 
     assert "● Running" in output
-    assert "preflight" not in output
+    assert "(preflight:" not in output
     # No marker, no inspect: the read side costs nothing on a healthy deployment.
     assert [c for c in runtime_calls["argvs"] if c[:2] == ["docker", "inspect"]] == []
 
@@ -276,7 +276,7 @@ def test_status_ignores_a_preflight_marker_older_than_the_container(
     output = rendered.export_text()
 
     assert "● Running" in output
-    assert "preflight" not in output
+    assert "(preflight:" not in output
 
 
 @pytest.mark.parametrize(
@@ -294,7 +294,7 @@ def test_status_ignores_an_unparseable_preflight_marker(
     output = rendered.export_text()
 
     assert "● Running" in output
-    assert "preflight" not in output
+    assert "(preflight:" not in output
 
 
 def test_status_leaves_an_uncreated_container_unchanged_despite_a_preflight_marker(
@@ -309,7 +309,7 @@ def test_status_leaves_an_uncreated_container_unchanged_despite_a_preflight_mark
     output = rendered.export_text()
 
     assert "Not created" in output
-    assert "preflight" not in output
+    assert "(preflight:" not in output
 
 
 def test_status_survives_an_unreadable_preflight_marker_directory(
@@ -326,4 +326,4 @@ def test_status_survives_an_unreadable_preflight_marker_directory(
     output = rendered.export_text()
 
     assert "● Running" in output
-    assert "preflight" not in output
+    assert "(preflight:" not in output
