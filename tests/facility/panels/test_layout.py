@@ -218,33 +218,103 @@ def test_the_rule_limit_is_the_formula_engines_expression_limit() -> None:
     assert "max_expression_len" in Path(layout.__file__).read_text()
 
 
-def test_a_roll_up_over_the_limit_is_an_aggregate_over_a_mosaic(panel_graph, monkeypatch):
+def test_a_root_over_the_limit_says_its_summary_needs_a_server_side_aggregate(
+    panel_graph, monkeypatch
+):
     monkeypatch.setattr(
         layout, "RULE_EXPRESSION_LIMIT", _limit_between_one_channel_and_three(panel_graph)
     )
     assert ladder(panel_graph, [light(panel_graph, c) for c in RULED]) == "aggregate state"
     doc, _ = draw(rollup_view(), panel_graph)
-    assert aggregates(doc) == 2  # the root and the three-channel child
-    assert unexpressed(doc) == 0  # an aggregate is not an unknown light
-    assert "aggregate state" in needs(doc)
     texts = _texts(doc)
-    assert texts.count(f"{len(RULED)} channels, open for detail") == 1
+    summary = f"{len(RULED)} channels: a live summary of this level needs a server-side aggregate"
+    assert texts.count(summary) == 1
+    assert "server-side aggregate" in needs(doc)
+    assert aggregates(doc) == 1  # the three-channel child, drawn in parts
+    assert unexpressed(doc) == 0  # an aggregate is not an unknown light
     assert texts.count("3 channels, open for detail") == 1
     shapes = _by_type(doc, "polygon")
-    look = symbols.look("aggregate")
-    aggregate = [
-        n for n in shapes if n["props"]["fillColor"] == look["fillColor"] and "rules" not in n
-    ]
-    # root row, three-child row, and the three-child's tile in the mosaic
-    assert len(aggregate) == 3
     tiles = [n for n in shapes if n["geometry"]["width"] == layout.MOSAIC_LIGHT]
     parts = [n for n in tiles if n["props"]["tooltip"].startswith("part ")]
-    # one per ruled child, none for the child with no rule, and the parts of the
-    # three-channel child, which has no children to show: each part a live rule
-    assert len(tiles) == len(RULED) + 1 + len(parts)
+    assert tiles == parts  # no mosaic: the children's rows carry their lights
     assert len(parts) > 1 and all(n.get("rules") for n in parts)
     assert parts[0]["props"]["tooltip"] == f"part 1 of {len(parts)}"
-    assert symbols.AGGREGATE_MARK in texts
+    live = [n for n in shapes if n.get("rules") and n not in parts]
+    armed = [c for c in RULED if ladder(panel_graph, [light(panel_graph, c)]).arms]
+    assert len(live) == len(armed)  # one light per child that fits one rule (and has an arm)
+
+
+def _subscriptions(doc: dict) -> int:
+    return sum(bool(r["conditions"]) for n in nodes(doc) for r in n.get("rules", ()))
+
+
+def _bound(doc: dict) -> set[str]:
+    return {pv["name"] for n in nodes(doc) for r in n.get("rules", ()) for pv in r["pvs"]}
+
+
+def test_a_roll_up_spends_its_budget_on_single_lights_then_parts_then_opens(tmp_path, monkeypatch):
+    from osprey.facility.panels.describe import health_rollup
+
+    graph = graph_with_wide(tmp_path, 40)
+    view = health_rollup(graph, "XR/XR01")
+    full, _ = draw(view, graph)
+    wide = [n for n in nodes(full) if str(n["props"].get("tooltip", "")).startswith("part ")]
+    assert wide, "the 40-channel device is drawn in parts with the default budget"
+    budget = _subscriptions(full) - 1  # the parts of the wide device no longer fit
+    monkeypatch.setattr(layout, "SCREEN_FORMULA_BUDGET", budget)
+    doc, screens = draw(view, graph)
+    assert _subscriptions(doc) <= budget
+    assert not [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).startswith("part ")]
+    opens = [
+        n for n in _links_drawn(doc) if n["props"]["tooltip"] == "40 channels, open for detail"
+    ]
+    assert len(opens) == 1  # the wide device opens its own screen
+    monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 2)
+    doc, _ = draw(view, graph)
+    assert len(_bound(doc)) <= 2
+
+
+def test_a_row_grows_with_its_wrapped_parts_and_no_two_rows_overlap(tmp_path, monkeypatch):
+    from osprey.facility.panels.describe import health_rollup
+
+    graph = graph_with_wide(tmp_path, 300)
+    one = layout.engine_length(ladder(graph, [light(graph, "XR01-WIDE1:Sig0-Sts")]))
+    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", one)  # one part per channel
+    monkeypatch.setattr(layout, "SCREEN_FORMULA_BUDGET", 10**4)
+    monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 10**4)
+    doc, _ = draw(health_rollup(graph, "XR/XR01"), graph)
+    parts = [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).startswith("part ")]
+    assert len(parts) == 300
+
+    def box(n):
+        g = n["geometry"]
+        return g["x"], g["y"], g["x"] + g["width"], g["y"] + g["height"]
+
+    shapes = {box(n) for n in _by_type(doc, "polygon")}
+    labels = [box(n) for n in _by_type(doc, "text-label") if box(n) not in shapes]  # no marks
+    for tile in (box(n) for n in parts):
+        for label in labels:
+            assert not (
+                tile[0] < label[2]
+                and label[0] < tile[2]
+                and tile[1] < label[3]
+                and label[1] < tile[3]
+            ), (tile, label)
+    bottom = max(box(n)[3] for n in parts)
+    later = [b for b in labels if b[1] > box(parts[0])[1] + layout.ROW]
+    assert later and all(b[1] >= bottom for b in later)  # the next rows start below the parts
+
+
+def test_tile_positions_wrap_at_the_margin_and_give_the_rows_height() -> None:
+    places, height = layout.tile_positions(500, 600, 40, layout.ROW)
+    step = layout.MOSAIC_LIGHT + layout.MOSAIC_GAP
+    assert places[0] == (600, 0)
+    assert all(x + layout.MOSAIC_LIGHT <= layout.MARGIN + layout.STRIP_WIDTH for x, _ in places)
+    lines = sorted({dy for _, dy in places})
+    assert lines[1] == layout.ROW and all(
+        b - a == step for a, b in zip(lines[1:], lines[2:], strict=False)
+    )
+    assert height == lines[-1] + layout.MOSAIC_LIGHT
 
 
 def test_a_roll_up_screen_draws_one_level(panel_graph) -> None:
@@ -852,21 +922,16 @@ def test_each_prop_of_a_light_reads_its_channels_and_writes_only_its_arms(panel_
     assert max(_engine_lengths(doc)) == layout.engine_length(rule)
 
 
-def test_an_aggregate_tile_opens_its_childs_screen(panel_graph, monkeypatch) -> None:
-    monkeypatch.setattr(
-        layout, "RULE_EXPRESSION_LIMIT", _limit_between_one_channel_and_three(panel_graph)
-    )
+def test_a_child_with_no_live_light_opens_its_own_screen(panel_graph, monkeypatch) -> None:
+    monkeypatch.setattr(layout, "SCREEN_FORMULA_BUDGET", 0)
     down = Target("rollup", "place", "XR/XR02", by="place")
     child = Node("XR/XR02", Link("XR/XR02", down), THREE, False)
     root = Node("XR", None, RULED, False, (child,))
     view = View(Target("rollup", "place", "XR", by="place"), "x", (), (Section("r", (root,)),))
     doc, screens = draw(view, panel_graph)
-    opens = [
-        n
-        for n in _by_type(doc, "rectangle")
-        if n["props"].get("actions") and n["geometry"]["width"] == layout.MOSAIC_LIGHT
-    ]
+    opens = [n for n in _links_drawn(doc) if n["props"]["tooltip"] == "3 channels, open for detail"]
     assert [n["props"]["actions"][0]["file"] for n in opens] == [screens(down)]
+    assert not [n for n in nodes(doc) if n.get("rules")]
 
 
 def test_a_link_is_neutral_text_under_an_outlined_box_that_opens_its_screen(panel_graph) -> None:

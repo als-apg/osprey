@@ -561,18 +561,45 @@ def test_a_rule_channel_no_roll_up_reads_is_unrolled(
     assert all(p.failing for p in unrolled)
 
 
-def test_a_roll_up_with_rule_channels_and_no_live_light_is_static(panel_graph, tmp_path):
-    out = tmp_path / "out"
-    write(panel_graph, out)
-    victim = next(out.glob("rollup/rollup-place-xr.screen.json"))
-    doc = json.loads(victim.read_text())
+def _strip_rules(path: Path) -> None:
+    doc = json.loads(path.read_text())
     for node in _walk(doc):
         node.pop("rules", None)
-    victim.write_text(json.dumps(doc))
-    kinds = {
-        p.kind for p in check(panel_graph, out) if p.file == "rollup/rollup-place-xr.screen.json"
-    }
-    assert "static_rollup" in kinds
+    path.write_text(json.dumps(doc))
+
+
+def test_a_roll_up_with_no_live_row_is_static_only_when_no_row_opens_a_live_screen(
+    panel_graph, tmp_path
+):
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    name = "rollup/rollup-place-xr.screen.json"
+    _strip_rules(out / name)
+
+    def kinds() -> set[str]:
+        return {p.kind for p in check(panel_graph, out) if p.file == name}
+
+    assert "static_rollup" not in kinds()  # its rows open screens with live lights
+    here = json.loads((out / name).read_text())
+    for ref in {
+        n["props"]["actions"][0]["file"] for n in _walk(here) if n.get("props", {}).get("actions")
+    }:
+        _strip_rules((out / name).parent / ref)
+    assert "static_rollup" in kinds()
+
+
+def test_a_screen_over_its_budget_is_a_failing_problem(panel_graph, tmp_path, monkeypatch):
+    from osprey.facility.panels import layout
+
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    assert not [p for p in check(panel_graph, out) if p.kind == "over_budget"]
+    monkeypatch.setattr(layout, "SCREEN_FORMULA_BUDGET", 1)
+    monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 1)
+    over = [p for p in check(panel_graph, out) if p.kind == "over_budget"]
+    assert {p.file.split("/")[0] for p in over} >= {"card", "rollup"}
+    assert any("rules subscribe" in p.detail for p in over)
+    assert any("channels bound" in p.detail for p in over)
 
 
 def test_no_fixture_roll_up_is_static_even_over_the_rule_limit(tmp_path, monkeypatch):

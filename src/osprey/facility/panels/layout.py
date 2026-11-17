@@ -154,6 +154,13 @@ WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
 COMMAND_LABEL = "send"  # what a command's button reads
 COMMAND_VALUE = 1  # what pressing a command's button writes
+# What one screen may bind. The formula engine allows 1,000 subscriptions per
+# client (``max_subscriptions_per_client``, canopy/formula_engine/config.py at
+# 166989aa), and the viewer subscribes once per rule with a condition; a
+# roll-up binding some 28,000 channels on one screen made the Channel Access
+# backend report its virtual circuit unresponsive (seen live, 2026-11-17).
+SCREEN_FORMULA_BUDGET = 800
+SCREEN_CHANNEL_BUDGET = 4000
 INTEGER_RUN = 3  # the fewest successive integer values a rule writes as one range test
 BIT_TESTS = 6  # the most bits a channel's rule writes as a table of their values
 # --- end constants -------------------------------------------------------------
@@ -209,7 +216,13 @@ FORMAT_REQUESTS: tuple[tuple[str, str], ...] = (
         "aggregate state",
         "a roll-up whose rule would be longer than the format's expression limit: the worst "
         "state over many channels, computed by the viewer or a server, drawn as one light; "
-        "today it is an aggregate mark over a mosaic of its children's lights",
+        "today it is an aggregate mark, drawn in parts where the screen's budget allows",
+    ),
+    (
+        "server-side aggregate",
+        "server-side aggregate over more channels than a screen can bind: a roll-up level "
+        "whose summary needs more rules or channels than one screen's budget "
+        "(SCREEN_FORMULA_BUDGET, SCREEN_CHANNEL_BUDGET); today the level says so in a line",
     ),
     (
         "long rule",
@@ -225,6 +238,7 @@ _AGGREGATE_ROW = "aggregate: row"
 _AGGREGATE_TILE = "aggregate: tile"
 _AGGREGATE_SYMBOL = "aggregate: symbol"
 _AGGREGATE_TEXT = "{} channels, open for detail"
+_SUMMARY_TEXT = "{} channels: a live summary of this level needs a server-side aggregate"
 _PART = "part {} of {}"
 _ID_PARTS = re.compile(r"[:/]")
 _NO_OUTLINE = "outline not in the data"
@@ -777,6 +791,59 @@ def compiled_rules(rule: Ladder) -> list[str]:
 def engine_length(rule: Ladder) -> int:
     """The longest expression the engine receives for a light drawn with *rule*."""
     return max(len(text) for text in compiled_rules(rule))
+
+
+def light_cost(rule: Ladder | str | None) -> tuple[int, frozenset[str]]:
+    """What a light drawn with *rule* spends of a screen's budget: its rules that the
+    viewer subscribes (those with a condition), and the channels they bind."""
+    if not isinstance(rule, Ladder) or not rule.arms:
+        return 0, frozenset()
+    looks = {state: symbols.look(state) for state in symbols.STATES}
+    rules = sum(
+        bool(light_rule(rule, {s: looks[s][prop] for s in symbols.STATES})["conditions"])
+        for prop in (*symbols.LIGHT_PROPS, symbols.MARK_PROP)
+    )
+    return rules, frozenset(rule.channels)
+
+
+@dataclass
+class Budget:
+    """What is left of one screen's budget (:data:`SCREEN_FORMULA_BUDGET`,
+    :data:`SCREEN_CHANNEL_BUDGET`)."""
+
+    rules: int = field(default_factory=lambda: SCREEN_FORMULA_BUDGET)
+    channels: set[str] = field(default_factory=set)
+
+    def take(self, costs: Sequence[tuple[int, frozenset[str]]]) -> bool:
+        """Spend *costs* when all of them fit; whether they did."""
+        rules = sum(cost[0] for cost in costs)
+        channels = self.channels.union(*(cost[1] for cost in costs))
+        if rules > self.rules or len(channels) > SCREEN_CHANNEL_BUDGET:
+            return False
+        self.rules -= rules
+        self.channels = channels
+        return True
+
+
+def tile_positions(
+    count: int, first_x: float, line_x: float, line_top: float
+) -> tuple[list[tuple[float, float]], float]:
+    """Where *count* small lights go: ``(x, dy)`` each, and the height they take.
+
+    The first line starts at *first_x*, each further line at *line_x*, the
+    second *line_top* below the first and each next one a tile and a gap
+    lower; a line ends at the page's right margin.
+    """
+    step = MOSAIC_LIGHT + MOSAIC_GAP
+    right = MARGIN + STRIP_WIDTH
+    out: list[tuple[float, float]] = []
+    x, dy = first_x, 0.0
+    for _ in range(count):
+        if x + MOSAIC_LIGHT > right and x != line_x:
+            x, dy = line_x, (line_top if dy == 0 else dy + step)
+        out.append((x, dy))
+        x += step
+    return out, (out[-1][1] + MOSAIC_LIGHT if out else 0.0)
 
 
 def chunks(graph: PanelGraph, lights: Sequence[Light]) -> list[list[Light]]:
@@ -1382,78 +1449,133 @@ class _Page:
         self.text(MARGIN, self.y, text, w=STRIP_WIDTH)
         self.next_row()
 
-    def node(self, node: Node, depth: int = 0) -> None:
+    def node(self, node: Node, depth: int = 0, plan: str | None = None) -> None:
         """A roll-up node's row; the root's direct children follow it, one level only.
 
-        A node whose rule is too long for the format is drawn as an aggregate:
-        its mark and channel count. On the root that has children, a mosaic of
-        its children's lights follows (a child that is itself too long is an
-        aggregate tile that opens the child's screen). A node with no
-        children to show is split into parts each within the limit, drawn as
-        a row of small lights after its label, each a rule of its own.
+        The screen has one :class:`Budget`, spent by the root's row first
+        (:meth:`plan`): a row is ``live`` (one light), drawn in ``parts``
+        (one small light per part, each within the limit), or ``open``: the
+        aggregate mark, its channel count and a link to its own screen. A
+        root that is not live with children shows them instead, under a
+        line that says its summary needs a server-side aggregate.
         """
         x = MARGIN + depth * INDENT
+        lights = [describe_light(self.graph, c) for c in node.channels]
         rule: Ladder | str | None = None
-        lights: list[Light] = []
+        decisions: dict[int, str] = {}
+        if depth == 0:
+            plan, decisions = self.plan(node)
         if node.no_rule:
             x = self.no_rule(x, self.y)
+        elif plan == "summary":
+            tags = (_need("server-side aggregate"),)
+            self.s.widget(
+                "text-label",
+                x,
+                self.y,
+                STRIP_WIDTH - x + MARGIN,
+                ROW,
+                {"text": _SUMMARY_TEXT.format(len(node.channels)), "fontSize": SMALL_SIZE},
+                tags=tags,
+            )
+            self.next_row()
+            for i, child in enumerate(node.children):
+                self.node(child, 1, decisions.get(i))
+            return
         else:
-            lights = [describe_light(self.graph, c) for c in node.channels]
-            rule = ladder(self.graph, lights, node=True)
+            rule = ladder(self.graph, lights, node=True) if plan == "live" else "aggregate state"
             x = self.light(x, self.y, lights, rule=rule)
         if node.link is not None:
             x = self.button(x + GAP, self.y, node.link, label=node.label)
         else:
             x = self.text(x + GAP, self.y, node.label)
-        if rule == "aggregate state":
-            x = self.text(
-                x + GAP, self.y, _AGGREGATE_TEXT.format(len(node.channels)), size=SMALL_SIZE
-            )
-        shown = depth == 0 and bool(node.children)
-        if rule == "aggregate state" and not shown:
-            self.parts(chunks(self.graph, lights), x + GAP)
-        self.next_row()
-        if depth:
-            return
-        if rule == "aggregate state" and shown:
-            self.mosaic(node.children, MARGIN + INDENT)
-        for child in node.children:
-            self.node(child, 1)
+        height = ROW
+        if not node.no_rule and plan != "live":
+            text = _AGGREGATE_TEXT.format(len(node.channels))
+            if plan == "open" and node.link is not None:
+                x = self.button(x + GAP, self.y, Link(text, node.link.target))
+            else:
+                x = self.text(x + GAP, self.y, text, size=SMALL_SIZE)
+        if plan == "parts":
+            height = self.parts(chunks(self.graph, lights), x + GAP, MARGIN + (depth + 1) * INDENT)
+        self.next_row(height)
+        for i, child in enumerate(node.children if depth == 0 else ()):
+            self.node(child, 1, decisions.get(i))
 
-    def parts(self, parts: Sequence[Sequence[Light]], x0: float) -> None:
-        """The parts of a node too long for one rule: a small light each, part i of n."""
-        x = x0
-        for number, part in enumerate(parts, 1):
-            if x + MOSAIC_LIGHT > MARGIN + STRIP_WIDTH:
-                self.y += MOSAIC_LIGHT + MOSAIC_GAP
-                x = MARGIN + INDENT
-            rule = ladder(self.graph, part, node=len(part) > 1)
-            top = self.y - (ROW - MOSAIC_LIGHT) / 2
-            tooltip = _PART.format(number, len(parts))
-            self.light(x, top, part, rule=rule, size=MOSAIC_LIGHT, tile=True, tooltip=tooltip)
-            x += MOSAIC_LIGHT + MOSAIC_GAP
+    def plan(self, root: Node) -> tuple[str, dict[int, str]]:
+        """How a roll-up screen spends its budget: the root's plan and each child's.
 
-    def mosaic(self, children: Sequence[Node], x0: float) -> None:
-        """One small light per child that reads a rule, in rows across the page.
-
-        A child too long for one rule is an aggregate tile; it opens the
-        child's screen, where its parts are drawn.
+        In order: the root's own light when it fits one rule; then each child
+        that fits one rule gets its light; then the children too long for one
+        rule are drawn in parts, the fewest parts first, all of a child's parts
+        or none; every other child is ``open``. A root that is not live is in
+        parts when it has no children and they fit, else a ``summary``.
         """
-        x = x0
-        for child in children:
+        budget = Budget()
+
+        def ladder_of(node: Node) -> Ladder | str:
+            lights = [describe_light(self.graph, c) for c in node.channels]
+            return ladder(self.graph, lights, node=True)
+
+        def part_costs(node: Node) -> list[tuple[int, frozenset[str]]]:
+            lights = [describe_light(self.graph, c) for c in node.channels]
+            return [
+                light_cost(ladder(self.graph, part, node=len(part) > 1))
+                for part in chunks(self.graph, lights)
+            ]
+
+        decisions: dict[int, str] = {}
+        if root.no_rule:
+            plan = "none"
+        else:
+            rule = ladder_of(root)
+            if isinstance(rule, Ladder) and budget.take([light_cost(rule)]):
+                plan = "live"
+            elif isinstance(rule, str) and rule != "aggregate state":
+                plan = "live"  # drawn unknown and counted: it binds nothing
+            elif not root.children and budget.take(part_costs(root)):
+                plan = "parts"
+            else:
+                plan = "summary" if root.children else "open"
+        long: list[tuple[int, int]] = []
+        for i, child in enumerate(root.children):
             if child.no_rule:
                 continue
-            if x + MOSAIC_LIGHT > MARGIN + STRIP_WIDTH:
-                self.y += MOSAIC_LIGHT + MOSAIC_GAP
-                x = x0
-            lights = [describe_light(self.graph, c) for c in child.channels]
-            rule = ladder(self.graph, lights, node=True)
-            top = self.y - (ROW - MOSAIC_LIGHT) / 2
-            self.light(x, top, lights, rule=rule, size=MOSAIC_LIGHT, tile=True)
-            if rule == "aggregate state" and child.link is not None:
-                self.nav(x, top + (ROW - MOSAIC_LIGHT) / 2, MOSAIC_LIGHT, MOSAIC_LIGHT, child.link)
-            x += MOSAIC_LIGHT + MOSAIC_GAP
-        self.y += MOSAIC_LIGHT + ROW_GAP
+            rule = ladder_of(child)
+            if (isinstance(rule, Ladder) and budget.take([light_cost(rule)])) or (
+                isinstance(rule, str) and rule != "aggregate state"
+            ):
+                decisions[i] = "live"  # a rule that cannot be written is drawn unknown
+            elif rule == "aggregate state":
+                long.append(
+                    (
+                        len(
+                            chunks(
+                                self.graph, [describe_light(self.graph, c) for c in child.channels]
+                            )
+                        ),
+                        i,
+                    )
+                )
+            else:
+                decisions[i] = "open"
+        for _count, i in sorted(long):
+            decisions[i] = "parts" if budget.take(part_costs(root.children[i])) else "open"
+        return plan, decisions
+
+    def parts(self, parts: Sequence[Sequence[Light]], x0: float, line_x: float) -> float:
+        """The parts of a node too long for one rule: a small light each, part i of n.
+
+        The first line follows the row's label; the next lines start at
+        *line_x* below it. Returns the row's height.
+        """
+        places, height = tile_positions(len(parts), x0, line_x, ROW)
+        for number, (part, (x, dy)) in enumerate(zip(parts, places, strict=True), 1):
+            rule = ladder(self.graph, part, node=len(part) > 1)
+            top = self.y + dy - (ROW - MOSAIC_LIGHT) / 2 if dy else self.y
+            tooltip = _PART.format(number, len(parts))
+            self.light(x, top, part, rule=rule, size=MOSAIC_LIGHT, tile=True, tooltip=tooltip)
+        return max(ROW, height)
 
     def nav(self, x, y, w, h, link: Link, *, outline: bool = False) -> None:
         """A box over what is drawn there that opens *link*'s screen.

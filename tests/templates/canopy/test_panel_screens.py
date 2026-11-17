@@ -71,7 +71,8 @@ def test_an_aggregate_roll_up_validates(panel_graph, spec_dir: Path, monkeypatch
     ]
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", max(singles))
     doc = stub_render(rollup_view(), panel_graph)
-    assert layout.aggregates(doc) == 2
+    assert layout.aggregates(doc) == 1  # the three-channel child; the root says it needs one
+    assert "server-side aggregate" in layout.needs(doc)
     _check(doc, spec_dir, rollup_view())
 
 

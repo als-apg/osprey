@@ -129,10 +129,11 @@ class Problem:
             ``incomplete`` (an earlier write did not finish), ``unrolled``
             (a channel with a rule the engine can evaluate that no roll-up
             screen reads),
-            ``static_rollup`` (a roll-up that reads a rule the engine can
-            evaluate and draws no live light), ``long_formula`` (an
-            expression the formula engine would refuse as too long) or
-            ``outside_set``.
+            ``static_rollup`` (a roll-up that reads a rule a light can read,
+            where no row has a live light and no row opens a screen that
+            has one), ``long_formula`` (an expression the formula engine
+            would refuse as too long), ``over_budget`` (more rules or bound
+            channels than one screen may have) or ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
     """
@@ -640,6 +641,32 @@ def _live(document: Any) -> bool:
     return False
 
 
+def _live_file(out: Path, relative: str) -> bool:
+    """Whether the written screen *relative* carries a rule (see :func:`_live`)."""
+    try:
+        return _live(json.loads((out / relative).read_bytes()))
+    except (OSError, ValueError):
+        return False
+
+
+def _over_budget(document: Any, relative: str) -> list[Problem]:
+    """An ``over_budget`` problem when the screen subscribes more rules, or binds more
+    channels, than one screen may (:data:`layout.SCREEN_FORMULA_BUDGET`,
+    :data:`layout.SCREEN_CHANNEL_BUDGET`)."""
+    rules = 0
+    for node in _walk_nodes(document.get("root")):
+        rules += sum(bool(rule.get("conditions")) for rule in node.get("rules") or ())
+    channels = len(set(_bound_channels(document)))
+    found = []
+    if rules > layout.SCREEN_FORMULA_BUDGET:
+        detail = f"{rules} rules subscribe, over {layout.SCREEN_FORMULA_BUDGET}"
+        found.append(Problem("over_budget", relative, detail))
+    if channels > layout.SCREEN_CHANNEL_BUDGET:
+        detail = f"{channels} channels bound, over {layout.SCREEN_CHANNEL_BUDGET}"
+        found.append(Problem("over_budget", relative, detail))
+    return found
+
+
 def _links(document: Any) -> Iterator[str]:
     stack = [document]
     while stack:
@@ -833,9 +860,17 @@ def _check_file(
     problems += _long_formulas(document, relative)
     fresh, _title, view = _generate(graph, target, ids, draw)
     if target.view == "rollup" and _reads(graph, view) and not _live(document):
-        problems.append(
-            Problem("static_rollup", relative, "reads rule channels and draws no live light")
-        )
+        here = posixpath.dirname(relative)
+        linked = (posixpath.normpath(posixpath.join(here, ref)) for ref in _links(document))
+        if not any(_live_file(out, path) for path in dict.fromkeys(linked) if path in valid):
+            problems.append(
+                Problem(
+                    "static_rollup",
+                    relative,
+                    "reads rule channels; no row has a live light or opens a screen with one",
+                )
+            )
+    problems += _over_budget(document, relative)
     if fresh != data:
         # The stamp is reported on its own; stale is what differs besides it.
         bare = _STAMP_IN_TEXT.sub('"', data.decode("utf-8", "replace"))
