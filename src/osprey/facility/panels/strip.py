@@ -43,6 +43,7 @@ class Placed:
             appearance; 0 for a beam element.
         link: Its card, or ``None``.
         channels: Its rule-bearing channels, as the element states them.
+        short: Its stated short name, or ``None``.
     """
 
     thing: str
@@ -54,6 +55,7 @@ class Placed:
     level: int
     link: Link | None
     channels: tuple[str, ...] = ()
+    short: str | None = None
 
 
 def arrange(
@@ -140,6 +142,7 @@ def arrange_scaled(
                 level,
                 e.link,
                 e.channels,
+                e.short,
             )
         )
         cursor += width

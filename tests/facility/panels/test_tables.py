@@ -44,7 +44,10 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     assert ",".join(COLUMNS["pictures.csv"]) == (
         "device_class,view,part,kind,x_mm,y_mm,z_mm,document,version,state,locator"
     )
-    assert OPTIONAL_FILES == frozenset({"pictures.csv", "excluded.csv"})
+    assert ",".join(COLUMNS["names.csv"]) == (
+        "thing,short_name,scheme,basis,document,version,state,locator"
+    )
+    assert OPTIONAL_FILES == frozenset({"pictures.csv", "excluded.csv", "names.csv"})
 
 
 def test_the_fixture_tables_read(panel_tables: Path) -> None:
@@ -75,6 +78,7 @@ def test_a_missing_optional_file_is_empty(tmp_path: Path) -> None:
     tables = read_tables(directory)
     assert tables.pictures == ()
     assert tables.excluded == ()
+    assert tables.names == ()
 
 
 @pytest.mark.parametrize("name", ["positions.csv", "record_types.csv", "pairs.csv", "health.csv"])
@@ -160,6 +164,7 @@ def test_the_line_counts_a_quoted_field_spanning_two_lines(tmp_path: Path) -> No
             "positions.csv",
             "XR01:QF1,XR-RING,1,2,3,0,0,0,1,0,0,,,stated,d,v,s,l",
         ),
+        ("names.csv", "XR01:QF1,QF,controls,stated,d,v,s,l"),  # one name per thing
     ],
 )
 def test_a_second_row_for_one_key_is_refused(tmp_path: Path, name: str, row: str) -> None:
@@ -177,3 +182,25 @@ def test_a_picture_part_may_be_of_any_kind_the_facility_names(tmp_path: Path) ->
     with (tables / "pictures.csv").open("a") as rows:
         rows.write("Quadrupole,end,probe 1,a_kind_of_this_facility,1.0,2.0,0.0,,,,\n")
     assert read_tables(tables).pictures[-1].kind == "a_kind_of_this_facility"
+
+
+def test_a_short_name_row_reads_with_its_citation(panel_tables: Path) -> None:
+    (first, *_rest) = read_tables(panel_tables).names
+    assert (first.thing, first.short_name, first.scheme, first.basis) == (
+        "XR01:QF1",
+        "F1",
+        "controls",
+        "stated",
+    )
+    assert (first.document, first.version, first.locator) == (
+        "XR-NAMES-001",
+        "A.1",
+        "sheet 1 row 2",
+    )
+
+
+def test_a_short_name_must_be_stated(tmp_path: Path) -> None:
+    directory = copy_tables(tmp_path / "panels")
+    _edit(directory, "names.csv", [_header("names.csv"), "XR01:QF1,,controls,stated,d,v,s,l"])
+    with pytest.raises(PanelTableError, match="short_name is empty"):
+        read_tables(directory)

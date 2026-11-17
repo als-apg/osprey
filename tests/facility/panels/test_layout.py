@@ -988,7 +988,7 @@ def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(
             assert a["geometry"]["x"] + a["geometry"]["width"] <= b["geometry"]["x"]
     view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
     doc, _ = draw(view, panel_graph)
-    assert {"QF1", "QD1"} <= set(_texts(doc))  # the last component of each id
+    assert {"F1", "D1"} <= set(_texts(doc))  # the stated short names
     assert "IP1" not in _texts(doc)  # a badge carries its letter, not a name
     from osprey.facility.panels.strip import Placed
 
@@ -1290,3 +1290,27 @@ def test_the_scale_caption_stands_above_the_bar_at_its_left_end(panel_graph) -> 
     bar = [n for n in _by_type(doc, "line") if n["geometry"]["width"] >= layout.STRIP_WIDTH][-1]
     assert caption["geometry"]["y"] + caption["geometry"]["height"] <= bar["geometry"]["y"]
     assert caption["geometry"]["x"] == layout.MARGIN
+
+
+def test_a_strip_label_is_the_stated_short_name_and_the_link_keeps_the_id(panel_graph) -> None:
+    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    doc, screens = draw(view, panel_graph)
+    texts = _texts(doc)
+    assert {"F1", "D1"} <= set(texts) and "QF1" not in texts
+    tips = {n["props"]["tooltip"] for n in _links_drawn(doc)}
+    assert "XR01:QF1" in tips  # the symbol's link names the full id
+
+
+def test_a_card_header_shows_the_short_name_as_an_alias(panel_graph) -> None:
+    from osprey.facility.panels.describe import device_card
+
+    view = device_card(panel_graph, "XR01:QF1")
+    assert view.alias == "F1"
+    doc, _ = draw(view, panel_graph)
+    header = [
+        n
+        for n in _by_type(doc, "text-label")
+        if n["geometry"]["y"] + n["geometry"]["height"] <= layout.HEADER_HEIGHT
+    ]
+    texts = [n["props"]["text"] for n in header]
+    assert "XR01:QF1" in texts and "F1" in texts

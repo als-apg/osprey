@@ -125,6 +125,8 @@ class Thing:
         level: A place's ``level`` (the facility's word for its depth of the
             tree, such as ``rack``); ``None`` for a device, a group or a place
             with none.
+        short_name: The short name ``names.csv`` states for it (a strip's
+            label), or ``None``.
     """
 
     id: str
@@ -133,6 +135,7 @@ class Thing:
     place: str | None
     citations: tuple[Citation, ...] = ()
     level: str | None = None
+    short_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -290,6 +293,14 @@ class PanelGraph:
             excluded[row.kind].add(row.id)
         self._excluded_documents = frozenset(excluded["document"])
         self._things = self._read_things(records, excluded["thing"])
+        short = {
+            row.thing: row.short_name
+            for row in tables.names
+            if row.document not in self._excluded_documents
+        }
+        for key, thing in self._things.items():
+            if thing.id in short:
+                self._things[key] = dataclasses.replace(thing, short_name=short[thing.id])
         self._children: dict[str, list[Thing]] = {}
         for thing in self._things.values():
             if thing.kind != "group" and thing.place is not None:

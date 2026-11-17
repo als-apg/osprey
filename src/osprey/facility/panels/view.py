@@ -230,6 +230,8 @@ class StripElement:
         link: Its card, or ``None`` when it has no screen.
         channels: The device's rule-bearing channels, whose worst state the
             symbol shows; none, and the symbol has no state to show.
+        short: The short name the data states for it, its label on the strip;
+            ``None`` with none.
     """
 
     thing: str
@@ -239,6 +241,7 @@ class StripElement:
     lane: str
     link: Link | None
     channels: tuple[str, ...] = ()
+    short: str | None = None
 
 
 @dataclass(frozen=True)
@@ -446,9 +449,12 @@ class View:
         title: What it is titled.
         crumbs: Links from the outermost place in.
         sections: Its sections, each non-empty, in order.
+        alias: The short name the data states for the thing, shown beside
+            its id; ``None`` with none.
     """
 
     id: Target
     title: str
     crumbs: tuple[Link, ...]
     sections: tuple[Section, ...]
+    alias: str | None = None

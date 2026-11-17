@@ -535,3 +535,8 @@ def test_a_part_of_an_excluded_thing_is_withheld_with_its_channels(tmp_path: Pat
     assert not graph.rule("XR02-SAF1-CARD:Fault-Sts")
     assert graph.withheld == 2
     assert "XR02:SAF1:CARD" not in {thing.id for thing in graph.unplaced()}
+
+
+def test_a_thing_carries_the_short_name_the_names_table_states(panel_graph) -> None:
+    assert panel_graph.thing("XR01:QF1", "device").short_name == "F1"
+    assert panel_graph.thing("XR01:BEND1", "device").short_name is None

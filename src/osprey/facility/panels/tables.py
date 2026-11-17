@@ -46,6 +46,7 @@ __all__ = [
     "PanelTableError",
     "PanelTables",
     "PicturePart",
+    "ShortName",
     "Pose",
     "RecordType",
     "read_tables",
@@ -57,8 +58,17 @@ PAIRS = "pairs.csv"
 HEALTH = "health.csv"
 EXCLUDED = "excluded.csv"
 PICTURES = "pictures.csv"
-#: The six rule tables, by file name.
-TABLE_FILES: tuple[str, ...] = (POSITIONS, RECORD_TYPES, PAIRS, HEALTH, EXCLUDED, PICTURES)
+NAMES = "names.csv"
+#: The rule tables, by file name.
+TABLE_FILES: tuple[str, ...] = (
+    POSITIONS,
+    RECORD_TYPES,
+    PAIRS,
+    HEALTH,
+    EXCLUDED,
+    PICTURES,
+    NAMES,
+)
 
 #: Each file's columns, in the order the facility repository writes them.
 COLUMNS: Mapping[str, list[str]] = MappingProxyType(
@@ -108,11 +118,21 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "state",
             "locator",
         ],
+        NAMES: [
+            "thing",
+            "short_name",
+            "scheme",
+            "basis",
+            "document",
+            "version",
+            "state",
+            "locator",
+        ],
     }
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
-OPTIONAL_FILES = frozenset({PICTURES, EXCLUDED})
+OPTIONAL_FILES = frozenset({PICTURES, EXCLUDED, NAMES})
 
 Basis = Literal["stated", "inferred"]
 DrawnAs = Literal["value", "setpoint", "state", "command", "text", "waveform", "untyped"]
@@ -135,6 +155,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         HEALTH: ("channel", "value", "state", "basis"),
         EXCLUDED: ("kind", "id"),
         PICTURES: ("device_class", "view", "part", "kind", "x_mm", "y_mm", "z_mm"),
+        NAMES: ("thing", "short_name", "basis"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -146,6 +167,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         EXCLUDED: {"kind": EXCLUDED_KINDS},
         # a part's kind is the facility's word: any text
         PICTURES: {"view": PICTURE_VIEWS},
+        NAMES: {"basis": BASES},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -165,7 +187,12 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
     }
 )
 _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
-    {POSITIONS: ("thing", "frame"), RECORD_TYPES: ("channel",), PAIRS: ("setpoint",)}
+    {
+        POSITIONS: ("thing", "frame"),
+        RECORD_TYPES: ("channel",),
+        PAIRS: ("setpoint",),
+        NAMES: ("thing",),
+    }
 )
 
 
@@ -292,8 +319,26 @@ class PicturePart:
 
 
 @dataclass(frozen=True)
+class ShortName:
+    """One row of ``names.csv``: the short name a strip shows for a thing.
+
+    ``scheme`` says which stated name it is cut from; the last four columns
+    cite that name's source.
+    """
+
+    thing: str
+    short_name: str
+    scheme: str | None
+    basis: Basis
+    document: str | None
+    version: str | None
+    state: str | None
+    locator: str | None
+
+
+@dataclass(frozen=True)
 class PanelTables:
-    """The six rule tables, each in file order."""
+    """The rule tables, each in file order."""
 
     positions: tuple[Pose, ...]
     record_types: tuple[RecordType, ...]
@@ -301,6 +346,7 @@ class PanelTables:
     health: tuple[HealthRule, ...]
     excluded: tuple[Exclusion, ...]
     pictures: tuple[PicturePart, ...]
+    names: tuple[ShortName, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -311,6 +357,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         HEALTH: HealthRule,
         EXCLUDED: Exclusion,
         PICTURES: PicturePart,
+        NAMES: ShortName,
     }
 )
 
@@ -418,4 +465,5 @@ def read_tables(panels_dir: Path) -> PanelTables:
         health=_read(directory, HEALTH),
         excluded=_read(directory, EXCLUDED),
         pictures=_read(directory, PICTURES),
+        names=_read(directory, NAMES),
     )

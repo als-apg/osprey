@@ -674,7 +674,8 @@ def device_card(
         ]
     )
     crumbs = _crumbs(graph, index, thing.place) if thing.kind != "group" else ()
-    return View(Target("card", thing.kind, thing.id), thing.id, crumbs, sections)
+    target = Target("card", thing.kind, thing.id)
+    return View(target, thing.id, crumbs, sections, alias=thing.short_name)
 
 
 # -- set overview ----------------------------------------------------------------
@@ -833,7 +834,16 @@ def place_view(
             lane = "above" if symbol in above else "beam"
             channels = tuple(rule_channels(graph, thing.id, "device"))
             elements.append(
-                StripElement(thing.id, thing.cls, pose.s_m, symbol, lane, link, channels)  # type: ignore[arg-type]
+                StripElement(
+                    thing.id,
+                    thing.cls,
+                    pose.s_m,
+                    symbol,
+                    lane,
+                    link,
+                    channels,  # type: ignore[arg-type]
+                    short=thing.short_name,
+                )
             )
         elif thing.cls is not None and thing.cls in symbols:
             reason = pose.derived_assumes if pose is not None and pose.derived_assumes else None

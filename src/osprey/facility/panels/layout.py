@@ -1385,7 +1385,11 @@ class _Page:
         for crumb in self.view.crumbs:
             x = self.button(x + GAP, y, crumb)
             x = self.text(x + GAP, y, "›", w=MARK_WIDTH, fg=MUTED_TEXT)
-        self.text(x + GAP, y, self.view.id.id)
+        x = self.text(x + GAP, y, self.view.id.id)
+        if self.view.alias is not None:  # the stated short name, as a chip
+            w = text_width(self.view.alias, SMALL_SIZE)
+            self.box(x + GAP, y, w, ROW, fill=PANEL_BACKGROUND)
+            self.text(x + GAP, y, self.view.alias, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
         stamp = f"model {self.graph.content_hash[:STAMP_DIGITS]}"
         w = text_width(stamp, SMALL_SIZE)
         self.text(PAGE_WIDTH - MARGIN - w, y, stamp, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
@@ -2293,7 +2297,7 @@ def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float
     ends = [-math.inf, -math.inf]
     found: list[tuple[str, float, float, int]] = []
     for p in placed:
-        name = _short(p.thing)
+        name = p.short if p.short is not None else _short(p.thing)
         text = _cut(name, max(p.width, STRIP_LABEL_WIDTH), STRIP_LABEL_SIZE)
         w = text_width(text, STRIP_LABEL_SIZE)
         left = p.x - w / 2
