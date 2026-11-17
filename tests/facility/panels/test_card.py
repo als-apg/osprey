@@ -202,3 +202,49 @@ def test_the_basis_colours_stay_clear_of_the_state_colours_and_read_on_every_gro
                 assert symbols.near_state(shade) is None, (basis, theme)
             for ground in GROUNDS:
                 assert contrast(shade, _resolved(ground, theme)) >= 4.5, (basis, theme)
+
+
+_LONG_TITLE = "Integrated gradient at the nominal current against the design lattice (x; y)"
+_LONG_CONDITIONS = (
+    "serial=XQF-01; current=73.33 A; cycle=5 times to 92.6 A, then to 73.33 A; "
+    "ramp rate 5; hold 10 s; report state=Released; probe=coil B; temperature=22.5 C; "
+    "operator log entry 17 of the second shift, with the rotating coil swapped once"
+)
+
+
+def test_a_parameter_title_wraps_and_is_never_cut_and_long_conditions_wrap(tmp_path):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    kinds = (tables / "calibration_kinds.csv").read_text()
+    (tables / "calibration_kinds.csv").write_text(
+        kinds.replace("Integrated gradient,", f'"{_LONG_TITLE}",', 1)
+    )
+    claims = (tables / "calibrations.csv").read_text()
+    (tables / "calibrations.csv").write_text(
+        claims.replace("at 73.33 A,bench", f'"{_LONG_CONDITIONS}",bench', 1)
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    doc = stub_render(device_card(graph, "XR01:QF1"), graph)
+    block = _calibration(doc)
+    texts = [n for n in block if n["type"] == "text-label"]
+    words = " ".join(n["props"]["text"] for n in texts)
+    assert _LONG_TITLE in " ".join(
+        n["props"]["text"] for n in texts if n["props"]["fontSize"] == layout.TEXT_SIZE
+    )  # every word, in order, over lines of their own
+    assert "…" not in "".join(
+        n["props"]["text"] for n in texts if n["props"]["fontSize"] == layout.TEXT_SIZE
+    )
+    lines = [
+        n for n in texts
+        if n["props"]["fontSize"] == layout.SMALL_SIZE
+        and len(n["props"]["text"]) > 20
+        and n["props"]["text"].rstrip("…") in _LONG_CONDITIONS
+    ]  # fmt: skip
+    assert len(lines) == 2 and lines[-1]["props"]["text"].endswith("…")
+    (hover,) = [n for n in block if n["props"].get("tooltip") == _LONG_CONDITIONS]
+    assert hover["type"] == "rectangle"
+    assert "serial=XQF-01" in words
+    value = next(n for n in texts if n["props"]["text"].startswith("-4.9198"))
+    assert all(n["geometry"]["x"] == value["geometry"]["x"] for n in lines)  # under the value

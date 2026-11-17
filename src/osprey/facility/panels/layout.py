@@ -134,8 +134,10 @@ CELL_WIDTH = 110  # a checkout's column
 NAME_WIDTH = 260  # a checkout's first column
 # a card's calibration table: each column's left edge from the content's, and the
 # basis chip's width
-CAL_COLUMNS = (0, 250, 470, 650, 745, 895)
+CAL_COLUMNS = (0, 320, 560, 740, 830, 970)
 CAL_CHIP_WIDTH = 170
+CAL_CONDITION_LINES = 2  # the most lines a calibration's conditions take
+TITLE_LINE = 18  # each further line of a wrapped title at text size
 CHIP_INSET = 2  # a basis chip stands this far inside its row, above and below
 SET_CELL_WIDTH = 112  # one member of a set overview at the least: its value or name, a light
 SET_CELL_MAX = 220  # the widest a cell grows to when the columns are few
@@ -2280,20 +2282,21 @@ class _Page:
             self.calibration_row(row)
 
     def calibration_row(self, row: CalibrationRow) -> None:
-        """One kind: its title (a link to the kind's view over a set) with its
-        conditions muted under it; the value in force with a note under it, or the
-        live channel; the basis chip; date, source and history."""
+        """One kind: its title (a link to the kind's view over a set), wrapped and
+        never cut; the value in force, or the live channels, with the note and the
+        conditions muted under it (at most :data:`CAL_CONDITION_LINES` lines, the
+        whole text on hover when cut); the basis chip; date, source and history."""
         x = [MARGIN + dx for dx in CAL_COLUMNS]
         widths = [b - a - GAP for a, b in itertools.pairwise([*x, MARGIN + STRIP_WIDTH])]
         top = self.y
-        title = _cut(row.title, widths[0], TEXT_SIZE)
-        self.text(x[0], top, title, w=min(text_width(title, TEXT_SIZE), widths[0]))
+        titles = _wrap(row.title, widths[0], TEXT_SIZE, lines=len(row.title.split()))
+        for n, line in enumerate(titles):
+            w = min(text_width(line, TEXT_SIZE), widths[0])
+            self.text(x[0], top + n * TITLE_LINE, line, w=w)
         if row.link is not None:
-            self.nav(x[0], top, min(text_width(title, TEXT_SIZE), widths[0]), ROW, row.link)
-        second = False
-        if row.conditions:
-            self.small(x[0], top + ROW, _cut(row.conditions, widths[0], SMALL_SIZE), fg=MUTED_TEXT)
-            second = True
+            wide = max(min(text_width(line, TEXT_SIZE), widths[0]) for line in titles)
+            self.nav(x[0], top, wide, ROW + (len(titles) - 1) * TITLE_LINE, row.link)
+        under = top + ROW
         if row.channels:
             self.held(x[1], top, row.channels, min(VALUE_WIDTH, widths[1]))
         elif row.shown is None:
@@ -2302,8 +2305,15 @@ class _Page:
             value = _cut(row.shown, widths[1], TEXT_SIZE)
             self.text(x[1], top, value, w=min(text_width(value, TEXT_SIZE), widths[1]))
         if row.note:
-            self.small(x[1], top + ROW, _cut(row.note, widths[1], SMALL_SIZE), fg=MUTED_TEXT)
-            second = True
+            self.small(x[1], under, _cut(row.note, widths[1], SMALL_SIZE), fg=MUTED_TEXT)
+            under += SMALL_LINE
+        if row.conditions:
+            lines = _wrap(row.conditions, widths[1], SMALL_SIZE, lines=CAL_CONDITION_LINES)
+            for n, line in enumerate(lines):
+                self.small(x[1], under + n * SMALL_LINE, line, fg=MUTED_TEXT)
+            if " ".join(lines) != " ".join(row.conditions.split()):
+                self.hover(x[1], under, widths[1], len(lines) * SMALL_LINE, row.conditions)
+            under += len(lines) * SMALL_LINE
         _name_x, _value_x, chip_x, *rest_x = x
         self.basis_chip(chip_x, top, row)
         _w0, _w1, _w2, *rest_w = widths
@@ -2312,7 +2322,19 @@ class _Page:
         ):
             if text:
                 self.small(left, top + (ROW - SMALL_LINE) / 2, _cut(text, width, SMALL_SIZE))
-        self.y = top + ROW + (SMALL_LINE if second else 0) + ROW_GAP
+        self.y = max(under, top + ROW + (len(titles) - 1) * TITLE_LINE) + ROW_GAP
+
+    def hover(self, x: float, y: float, w: float, h: float, text: str) -> None:
+        """A transparent box that shows *text* while the pointer is on it: the whole
+        of a text drawn cut."""
+        props = {
+            "lineColor": TRANSPARENT,
+            "lineWidth": 0,
+            "fill": False,
+            _TOOLTIP: text,
+            _HOVER_LABEL: text,
+        }
+        self.s.widget("rectangle", x, y, w, h, props)
 
     def held(self, x: float, y: float, channels: tuple[str, ...], w: float) -> None:
         """The channels holding a calibration value live, side by side in *w*, a gap
