@@ -73,6 +73,7 @@ __all__ = [
     "needs",
     "render",
     "rule_length",
+    "strip_labels",
     "text_width",
     "unexpressed",
 ]
@@ -108,9 +109,15 @@ MIN_STRIP_SCALE = 0.5  # below this a strip breaks into rows
 SYMBOL_UNIT = 14  # one shape unit of a symbol, in px, at scale 1
 STRIP_ABOVE = 40  # height of the lane above the beam, from the axis
 STRIP_LEVEL = 16  # second level of the above lane, further up
-STRIP_BELOW = 28  # room under the axis
+STRIP_LABEL_TOP = 20  # a symbol's name, below the axis
+STRIP_LABEL_STEP = 13  # the second level of names, further down
+STRIP_LABEL_SIZE = 10
+STRIP_LABEL_WIDTH = 72  # the most a symbol's name may take along the strip
+STRIP_LABEL_GAP = 3  # between two names on one level
+STRIP_BELOW = STRIP_LABEL_TOP + 2 * STRIP_LABEL_STEP + 4  # room under the axis
 LOCATOR_GAP = 10
 LOCATOR_BAR = 6
+LOCATOR_MARK = 8  # how far a device's mark reaches above the bar
 TICK = 5
 TICK_LABEL_WIDTH = 60
 MAX_TICKS = 12
@@ -212,6 +219,8 @@ _AGGREGATE_TILE = "aggregate: tile"
 _AGGREGATE_SYMBOL = "aggregate: symbol"
 _AGGREGATE_TEXT = "{} channels, open for detail"
 _PART = "part {} of {}"
+_ID_PARTS = re.compile(r"[:/]")
+_ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
 _TOKEN = re.compile(r"\{(\d+)\}")
 _NAVIGATION_TARGET = "tab"
@@ -663,18 +672,30 @@ class _Page:
     def mark(self, x, y, glyph: str) -> float:
         return self.text(x, y, glyph, w=MARK_WIDTH)
 
-    def line(self, points: Sequence[tuple[float, float]], colour, width=LINE_WIDTH) -> None:
+    def line(
+        self, points: Sequence[tuple[float, float]], colour, width=LINE_WIDTH, *, tooltip=None
+    ) -> None:
+        """A line through *points*; its box is never narrower or lower than its stroke.
+
+        A vertical or horizontal line has a box of no width or no height, which
+        the viewer may draw as nothing; the box is widened by the stroke and the
+        points sit in its middle.
+        """
         xs = [p[0] for p in points]
         ys = [p[1] for p in points]
         x0, y0 = min(xs), min(ys)
-        props = {
+        w, h = max(xs) - x0, max(ys) - y0
+        dx, dy = max(width - w, 0) / 2, max(width - h, 0) / 2
+        props: dict[str, Any] = {
             "lineColor": colour,
             "lineWidth": width,
-            "points": [{"x": px - x0, "y": py - y0} for px, py in points],
+            "points": [{"x": px - x0 + dx, "y": py - y0 + dy} for px, py in points],
             "arrowStart": False,
             "arrowEnd": False,
         }
-        self.s.widget("line", x0, y0, max(xs) - x0, max(ys) - y0, props)
+        if tooltip is not None:
+            props[_TOOLTIP] = tooltip
+        self.s.widget("line", x0 - dx, y0 - dy, w + 2 * dx, h + 2 * dy, props)
 
     def box(self, x, y, w, h, *, line=BOX_BORDER, fill=FIELD_BACKGROUND, dashed=False) -> None:
         if dashed:
@@ -1147,8 +1168,11 @@ class _Page:
             self.symbol(p, x, y, p.width / symbols.WIDTH_UNITS[p.symbol])
             if p.link is not None:
                 half = p.width / 2
-                reach = STRIP_LEVEL if p.lane == "above" else STRIP_BELOW
+                reach = STRIP_LEVEL if p.lane == "above" else STRIP_LABEL_TOP
                 self.nav(x - half, y - reach, p.width, 2 * reach, replace(p.link, label=p.thing))
+        for text, left, w, level in strip_labels(placed):
+            top = axis + STRIP_LABEL_TOP + level * STRIP_LABEL_STEP
+            self.text(MARGIN + left, top, text, size=STRIP_LABEL_SIZE, w=w, h=STRIP_LABEL_STEP)
         self.y = axis + STRIP_BELOW + LOCATOR_GAP
         if extent is not None:
             self.locator(row, extent)
@@ -1205,10 +1229,9 @@ class _Page:
         bar = self.y
         self.box(MARGIN, bar, STRIP_WIDTH, LOCATOR_BAR)
         shifted = [replace(e, s_m=e.s_m - lo) for e in row]
-        for _thing, x in strip.locator(shifted, span, STRIP_WIDTH):
-            self.line(
-                [(MARGIN + x, bar - TICK), (MARGIN + x, bar + LOCATOR_BAR)], PAGE_TEXT, AXIS_WIDTH
-            )
+        for thing, x in strip.locator(shifted, span, STRIP_WIDTH):
+            mark = [(MARGIN + x, bar - LOCATOR_MARK), (MARGIN + x, bar + LOCATOR_BAR)]
+            self.line(mark, PAGE_TEXT, AXIS_WIDTH, tooltip=thing)
         for metres, x in _ticks(lo, hi):
             top = bar + LOCATOR_BAR
             self.line([(MARGIN + x, top), (MARGIN + x, top + TICK)], PAGE_TEXT)
@@ -1324,6 +1347,51 @@ def _ticks(lo: float, hi: float) -> list[tuple[float, float]]:
         out.append((metres, (metres - lo) / span * STRIP_WIDTH))
         k += 1
     return out
+
+
+def _short(thing: str) -> str:
+    """A symbol's name: the last component of its id."""
+    parts = [part for part in _ID_PARTS.split(thing) if part]
+    return parts[-1] if parts else thing
+
+
+def _cut(text: str, width: float, size: float) -> str:
+    """*text* cut to fit *width* at *size* by :func:`text_width`, an ellipsis marking the cut."""
+    if text_width(text, size) <= width:
+        return text
+    room = math.floor((width - TEXT_PAD) / (size * CHAR_WIDTH))
+    return text[: room - 1] + _ELLIPSIS if room > 1 else ""
+
+
+def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float, int]]:
+    """Each symbol's name under it: ``(text, left, width, level)``, in beam order.
+
+    The name is the last component of the id, cut to the symbol's budget
+    (:data:`STRIP_LABEL_WIDTH`, or its width when wider) and centred on it. It
+    goes on the first of two levels where it clears the last name there by
+    :data:`STRIP_LABEL_GAP`; when neither is clear, on the level that ends
+    first, cut to the room left of its centre's reach. A name with no room is
+    left out (the symbol's box still shows the id). By :func:`text_width`,
+    so no two names of one level overlap.
+    """
+    ends = [-math.inf, -math.inf]
+    found: list[tuple[str, float, float, int]] = []
+    for p in placed:
+        name = _short(p.thing)
+        text = _cut(name, max(p.width, STRIP_LABEL_WIDTH), STRIP_LABEL_SIZE)
+        w = text_width(text, STRIP_LABEL_SIZE)
+        left = p.x - w / 2
+        level = next((n for n in (0, 1) if left >= ends[n] + STRIP_LABEL_GAP), None)
+        if level is None:
+            level = 0 if ends[0] <= ends[1] else 1
+            left = ends[level] + STRIP_LABEL_GAP
+            text = _cut(name, p.x + w / 2 - left, STRIP_LABEL_SIZE)
+            if not text:
+                continue
+            w = text_width(text, STRIP_LABEL_SIZE)
+        ends[level] = left + w
+        found.append((text, left, w, level))
+    return found
 
 
 def _strip_rows(

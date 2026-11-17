@@ -123,13 +123,27 @@ def _links_drawn(doc: dict) -> list[dict]:
     return [n for n in nodes(doc) if n["props"].get("actions")]
 
 
-def _beam_lines(doc: dict) -> list[dict]:
-    """The beam axis and the locator's device marks: the page's lines at the axis width."""
+def _axes(doc: dict) -> list[dict]:
+    """The beam axes: the page's lines at the axis width that span the strip."""
     return [
         n
         for n in _by_type(doc, "line")
-        if n["props"]["lineWidth"] == layout.AXIS_WIDTH and "tooltip" not in n["props"]
+        if n["props"]["lineWidth"] == layout.AXIS_WIDTH
+        and n["geometry"]["width"] >= layout.STRIP_WIDTH
     ]
+
+
+def _is_mark(n: dict) -> bool:
+    return (
+        n["type"] == "line"
+        and n["geometry"]["width"] == layout.AXIS_WIDTH
+        and n["geometry"]["height"] == layout.LOCATOR_MARK + layout.LOCATOR_BAR
+    )
+
+
+def _marks(doc: dict) -> list[dict]:
+    """The locator's device marks."""
+    return [n for n in nodes(doc) if _is_mark(n)]
 
 
 # --------------------------------------------------------------------------- rules
@@ -304,9 +318,11 @@ def test_an_inferred_item_carries_the_mark_and_a_stated_one_does_not(panel_graph
 
 def test_a_strip_draws_quadrupoles_above_or_below_the_axis_by_polarity(panel_graph) -> None:
     doc, _ = draw(invented_views()[2], panel_graph)
-    (axis,) = [n for n in _beam_lines(doc) if n["geometry"]["height"] == 0]
-    y = axis["geometry"]["y"]
-    shape = {n["props"]["tooltip"]: n["geometry"] for n in nodes(doc) if "tooltip" in n["props"]}
+    (axis,) = _axes(doc)
+    y = axis["geometry"]["y"] + axis["geometry"]["height"] / 2
+    shape = {
+        thing: _symbol(doc, thing)[0][0]["geometry"] for thing in ("QF", "QD", "QX", "IP", "ODD")
+    }
     assert shape["QF"]["y"] + shape["QF"]["height"] == pytest.approx(y, abs=0.1)
     assert shape["QD"]["y"] == pytest.approx(y, abs=0.1)
     assert shape["QX"]["y"] < y < shape["QX"]["y"] + shape["QX"]["height"]
@@ -326,14 +342,14 @@ def test_a_locator_puts_ticks_and_devices_in_proportion_to_s(panel_graph) -> Non
     per_metre = (x1 - x0) / (m1 - m0)
     for m, x in ticks:
         assert x == pytest.approx(x0 + (m - m0) * per_metre, abs=0.2)
-    marks = sorted(n["geometry"]["x"] for n in _beam_lines(doc) if n["geometry"]["width"] == 0)
+    marks = sorted(n["geometry"]["x"] + n["geometry"]["width"] / 2 for n in _marks(doc))
     for s, x in zip((0, 7, 12.5, 30), marks, strict=True):
         assert x == pytest.approx(x0 + s * per_metre, abs=0.2)
 
 
 def test_a_dense_strip_breaks_into_rows_instead_of_shrinking(panel_graph) -> None:
     doc, _ = draw(invented_views()[0], panel_graph)
-    axes = [n for n in _beam_lines(doc) if n["geometry"]["height"] == 0]
+    axes = _axes(doc)
     assert len(axes) > 1
     for n in nodes(doc):
         thing = n["props"].get("tooltip", "")
@@ -429,7 +445,7 @@ def _symbol(doc: dict, thing: str) -> tuple[list[dict], list[dict]]:
     found = [
         n
         for n in nodes(doc)
-        if n["props"].get("tooltip") == thing and not n["props"].get("actions")
+        if n["props"].get("tooltip") == thing and not n["props"].get("actions") and not _is_mark(n)
     ]
     shapes = [n for n in found if n["type"] != "text-label"]
     marks = [n for n in found if n["type"] == "text-label"]
@@ -577,7 +593,7 @@ def test_an_empty_strip_with_only_a_tray_renders(panel_graph) -> None:
 
     doc, _ = draw(strip_view([], (TrayEntry("T", None, "no position", None),)), panel_graph)
     assert "no position" in _texts(doc)
-    assert not _beam_lines(doc)
+    assert not _axes(doc) and not _marks(doc)
 
 
 def test_text_width_grows_with_the_text_and_the_size() -> None:
@@ -860,3 +876,45 @@ def test_a_link_is_neutral_text_under_an_outlined_box_that_opens_its_screen(pane
     assert label["props"]["foregroundColor"] == symbols.PAGE_TEXT
     assert label["props"]["backgroundColor"] == symbols.FIELD_BACKGROUND
     assert "clickable text" in needs(doc)
+
+
+def test_every_locator_mark_and_line_has_extent_and_a_visible_stroke(panel_graph) -> None:
+    for view in invented_views()[:3]:
+        doc, _ = draw(view, panel_graph)
+        assert _marks(doc)
+        for n in _by_type(doc, "line"):
+            assert n["geometry"]["width"] > 0 and n["geometry"]["height"] > 0
+            assert n["props"]["lineWidth"] > 0
+        for n in _marks(doc):
+            assert n["geometry"]["height"] > layout.LOCATOR_BAR  # real length in y
+
+
+def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(panel_graph):
+    from osprey.facility.panels.layout import strip_labels
+
+    doc, _ = draw(invented_views()[0], panel_graph)  # 300 symbols in rows
+    (axis, *_rest) = _axes(doc)
+    below = axis["geometry"]["y"] + layout.STRIP_LABEL_TOP - 1
+    names = [
+        n
+        for n in _by_type(doc, "text-label")
+        if n["props"]["fontSize"] == layout.STRIP_LABEL_SIZE and n["geometry"]["y"] >= below
+    ]
+    assert names
+    by_level: dict[float, list[dict]] = {}
+    for n in names:
+        by_level.setdefault(n["geometry"]["y"], []).append(n)
+    for row in by_level.values():
+        row.sort(key=lambda n: n["geometry"]["x"])
+        for a, b in zip(row, row[1:], strict=False):
+            assert a["geometry"]["x"] + a["geometry"]["width"] <= b["geometry"]["x"]
+    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    doc, _ = draw(view, panel_graph)
+    assert {"QF1", "QD1", "IP1"} <= set(_texts(doc))  # the last component of each id
+    from osprey.facility.panels.strip import Placed
+
+    wide = [
+        Placed(f"X:LONGNAME{i}", "bpm", "beam", float(i), 10.0 * i, 8.0, 0, None) for i in range(4)
+    ]
+    placed = strip_labels(wide)
+    assert {level for *_x, level in placed} == {0, 1}  # neighbours stagger
