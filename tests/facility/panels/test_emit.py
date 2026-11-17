@@ -25,7 +25,7 @@ from osprey.facility.panels.emit import (
 )
 from osprey.facility.panels.model import PanelGraph
 from osprey.facility.panels.view import Target
-from tests.facility.panels._fixture import graph_with_wide, write_fixture_facility
+from tests.facility.panels._fixture import graph_with_part, graph_with_wide, write_fixture_facility
 
 
 def _drop(*device_ids: str):
@@ -588,16 +588,20 @@ def test_a_roll_up_with_no_live_row_is_static_only_when_no_row_opens_a_live_scre
     assert "static_rollup" in kinds()
 
 
-def test_a_screen_over_its_budget_is_a_failing_problem(panel_graph, tmp_path, monkeypatch):
+def test_a_roll_up_or_rack_over_its_budget_fails_and_a_card_over_it_is_noted(tmp_path, monkeypatch):
     from osprey.facility.panels import layout
+
+    panel_graph = graph_with_part(tmp_path / "part")  # the rack has a light
 
     out = tmp_path / "out"
     write(panel_graph, out)
     assert not [p for p in check(panel_graph, out) if p.kind == "over_budget"]
-    monkeypatch.setattr(layout, "SCREEN_FORMULA_BUDGET", 1)
+    monkeypatch.setattr(layout, "SCREEN_RULE_BUDGET", 1)
     monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 1)
     over = [p for p in check(panel_graph, out) if p.kind == "over_budget"]
-    assert {p.file.split("/")[0] for p in over} >= {"card", "rollup"}
+    assert {p.file.split("/")[0] for p in over} >= {"card", "rollup", "rack"}
+    for problem in over:  # roll-ups and racks must keep to it; cards and checkouts are noted
+        assert problem.failing == (problem.file.split("/")[0] not in {"card", "checkout"})
     assert any("rules subscribe" in p.detail for p in over)
     assert any("channels bound" in p.detail for p in over)
 
@@ -653,7 +657,7 @@ def test_a_part_of_an_excluded_thing_has_no_screen_link_or_bound_channel(tmp_pat
 def test_a_channel_a_roll_up_row_opens_is_not_unrolled(panel_graph, tmp_path, monkeypatch):
     from osprey.facility.panels import layout
 
-    monkeypatch.setattr(layout, "SCREEN_FORMULA_BUDGET", 0)  # every row opens its screen
+    monkeypatch.setattr(layout, "SCREEN_RULE_BUDGET", 0)  # every row opens its screen
     out = tmp_path / "out"
     write(panel_graph, out)
     found = check(panel_graph, out)

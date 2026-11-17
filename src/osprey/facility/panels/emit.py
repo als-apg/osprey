@@ -96,6 +96,8 @@ SLUG_MAX = 64
 DIGEST_LEN = 8
 #: Failing problem kinds are all but these.
 NOTE_KINDS = frozenset({"outside_set"})
+#: View kinds whose ``over_budget`` is a note: drawn in full, the excess is reported.
+NOTED_OVER_BUDGET = frozenset({"card", "checkout"})
 
 _STAMP = re.compile(r" Facility ([0-9a-f]{64}), panels format (\d+), draw ([0-9a-f]{16})\.$")
 _STAMP_IN_TEXT = re.compile(r" Facility [0-9a-f]{64}, panels format \d+, draw [0-9a-f]{16}\.\"")
@@ -141,11 +143,13 @@ class Problem:
     kind: str
     file: str
     detail: str
+    note: bool = False
 
     @property
     def failing(self) -> bool:
-        """False for a note (a link to a target outside the written set)."""
-        return self.kind not in NOTE_KINDS
+        """False for a note: a link to a target outside the written set, or a card or
+        checkout over its budget (:data:`NOTED_OVER_BUDGET`)."""
+        return not self.note and self.kind not in NOTE_KINDS
 
 
 @dataclass(frozen=True)
@@ -651,19 +655,20 @@ def _live_file(out: Path, relative: str) -> bool:
 
 def _over_budget(document: Any, relative: str) -> list[Problem]:
     """An ``over_budget`` problem when the screen subscribes more rules, or binds more
-    channels, than one screen may (:data:`layout.SCREEN_FORMULA_BUDGET`,
+    channels, than one screen may (:data:`layout.SCREEN_RULE_BUDGET`,
     :data:`layout.SCREEN_CHANNEL_BUDGET`)."""
     rules = 0
     for node in _walk_nodes(document.get("root")):
         rules += sum(bool(rule.get("conditions")) for rule in node.get("rules") or ())
     channels = len(set(_bound_channels(document)))
+    note = relative.split("/", 1)[0] in NOTED_OVER_BUDGET
     found = []
-    if rules > layout.SCREEN_FORMULA_BUDGET:
-        detail = f"{rules} rules subscribe, over {layout.SCREEN_FORMULA_BUDGET}"
-        found.append(Problem("over_budget", relative, detail))
+    if rules > layout.SCREEN_RULE_BUDGET:
+        detail = f"{rules} rules subscribe, over {layout.SCREEN_RULE_BUDGET}"
+        found.append(Problem("over_budget", relative, detail, note))
     if channels > layout.SCREEN_CHANNEL_BUDGET:
         detail = f"{channels} channels bound, over {layout.SCREEN_CHANNEL_BUDGET}"
-        found.append(Problem("over_budget", relative, detail))
+        found.append(Problem("over_budget", relative, detail, note))
     return found
 
 

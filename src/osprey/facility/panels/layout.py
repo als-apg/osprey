@@ -159,7 +159,7 @@ COMMAND_VALUE = 1  # what pressing a command's button writes
 # 166989aa), and the viewer subscribes once per rule with a condition; a
 # roll-up binding some 28,000 channels on one screen made the Channel Access
 # backend report its virtual circuit unresponsive (seen live, 2026-11-17).
-SCREEN_FORMULA_BUDGET = 800
+SCREEN_RULE_BUDGET = 800
 SCREEN_CHANNEL_BUDGET = 4000
 INTEGER_RUN = 3  # the fewest successive integer values a rule writes as one range test
 BIT_TESTS = 6  # the most bits a channel's rule writes as a table of their values
@@ -222,7 +222,7 @@ FORMAT_REQUESTS: tuple[tuple[str, str], ...] = (
         "server-side aggregate",
         "server-side aggregate over more channels than a screen can bind: a roll-up level "
         "whose summary needs more rules or channels than one screen's budget "
-        "(SCREEN_FORMULA_BUDGET, SCREEN_CHANNEL_BUDGET); today the level says so in a line",
+        "(SCREEN_RULE_BUDGET, SCREEN_CHANNEL_BUDGET); today the level says so in a line",
     ),
     (
         "long rule",
@@ -808,10 +808,10 @@ def light_cost(rule: Ladder | str | None) -> tuple[int, frozenset[str]]:
 
 @dataclass
 class Budget:
-    """What is left of one screen's budget (:data:`SCREEN_FORMULA_BUDGET`,
+    """What is left of one screen's budget (:data:`SCREEN_RULE_BUDGET`,
     :data:`SCREEN_CHANNEL_BUDGET`)."""
 
-    rules: int = field(default_factory=lambda: SCREEN_FORMULA_BUDGET)
+    rules: int = field(default_factory=lambda: SCREEN_RULE_BUDGET)
     channels: set[str] = field(default_factory=set)
 
     def take(self, costs: Sequence[tuple[int, frozenset[str]]]) -> bool:
@@ -1041,6 +1041,7 @@ class _Page:
         self.y: float = MARGIN
         # writable widgets only on a device card's own signals and settings
         self.on_card = view.id.view == "card" and view.id.kind == "device"
+        self.node_form = False  # a rack over its budget: one light per unit (elevation)
 
     # -- primitives -----------------------------------------------------------
 
@@ -1786,6 +1787,12 @@ class _Page:
         self.y = bottom + ROW + ROW_GAP
 
     def elevation(self, elevation: Elevation) -> None:
+        """A rack: a light per channel of each unit when they all fit the screen's
+        budget (:class:`Budget`), else one light per unit over all its channels
+        (node form), never parts; each unit links to its card."""
+        every = [*elevation.units, *elevation.unpositioned]
+        costs = [light_cost(ladder(self.graph, [item])) for unit in every for item in unit.lights]
+        self.node_form = not Budget().take(costs)
         top = self.y
         y = top
         for unit in elevation.units:
@@ -1797,12 +1804,19 @@ class _Page:
             x = self.ref(side, y_side, unit.link)
             if unit.unit_text is not None:
                 x = self.text(x + GAP, y_side, f"unit {unit.unit_text}", size=SMALL_SIZE)
-            for item in unit.lights:
-                x = self.light(x + GAP, y_side, [item])
-            if not unit.lights:
-                self.no_rule(x + GAP, y_side)
+            x = self.unit_lights(x, y_side, unit)
             y_side += ROW + ROW_GAP
         self.y = max(y, y_side) + ROW_GAP
+
+    def unit_lights(self, x: float, y: float, unit: RackUnit) -> float:
+        """A rack unit's lights after *x* (see :meth:`elevation`); their right edge."""
+        if not unit.lights:
+            return self.no_rule(x + GAP, y)
+        if self.node_form:
+            return self.light(x + GAP, y, unit.lights)
+        for item in unit.lights:
+            x = self.light(x + GAP, y, [item])
+        return x
 
     def rack_unit(self, x0: float, y: float, unit: RackUnit) -> float:
         h = (unit.size_u or 1) * RACK_U
@@ -1812,10 +1826,7 @@ class _Page:
         if unit.conflicting:
             x = self.mark(x, y, symbols.CONFLICT_MARK)
         x = self.ref(x + GAP, y, unit.link)
-        for item in unit.lights:
-            x = self.light(x + GAP, y, [item])
-        if not unit.lights:
-            x = self.no_rule(x + GAP, y)
+        x = self.unit_lights(x, y, unit)
         if unit.standing == _CONTESTED:
             self.text(x + GAP, y, _CONTESTED, size=SMALL_SIZE)
         return y + max(h, ROW)

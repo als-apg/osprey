@@ -1351,8 +1351,8 @@ def panels_check(
     opens no screen with one), long_formula (an expression the formula engine
     would refuse as too long) or over_budget (more rules or channels than one
     screen may bind).
-    A link to a screen outside the written set (``outside_set``) is a note and
-    fails only under --strict.
+    A link to a screen outside the written set (``outside_set``), and a card or
+    checkout over its budget, are notes and fail only under --strict.
     Prints the count per kind and the first --limit of each.
     """
     from collections import Counter
