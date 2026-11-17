@@ -47,6 +47,7 @@ __all__ = [
     "PanelTables",
     "PicturePart",
     "ShortName",
+    "Metric",
     "Pose",
     "RecordType",
     "read_tables",
@@ -59,6 +60,7 @@ HEALTH = "health.csv"
 EXCLUDED = "excluded.csv"
 PICTURES = "pictures.csv"
 NAMES = "names.csv"
+METRICS = "metrics.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -68,6 +70,7 @@ TABLE_FILES: tuple[str, ...] = (
     EXCLUDED,
     PICTURES,
     NAMES,
+    METRICS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -128,11 +131,23 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "state",
             "locator",
         ],
+        METRICS: [
+            "view",
+            "level",
+            "order",
+            "title",
+            "measure",
+            "signal",
+            "class",
+            "unit",
+            "caption",
+            "source",
+        ],
     }
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
-OPTIONAL_FILES = frozenset({PICTURES, EXCLUDED, NAMES})
+OPTIONAL_FILES = frozenset({PICTURES, EXCLUDED, NAMES, METRICS})
 
 Basis = Literal["stated", "inferred"]
 DrawnAs = Literal["value", "setpoint", "state", "command", "text", "waveform", "untyped"]
@@ -144,6 +159,17 @@ DRAWN_AS: tuple[str, ...] = ("value", "setpoint", "state", "command", "text", "w
 HEALTH_STATES: tuple[str, ...] = ("normal", "warn", "bad")
 EXCLUDED_KINDS: tuple[str, ...] = ("thing", "channel", "document")
 PICTURE_VIEWS: tuple[str, ...] = ("end", "side")
+METRIC_VIEWS: tuple[str, ...] = ("place", "rollup")
+#: What a key number computes over the channels its row selects.
+MEASURES: tuple[str, ...] = (
+    "value",
+    "count_true",
+    "count_false",
+    "count_in_tolerance",
+    "rms",
+    "max",
+    "min",
+)
 
 # Per file: the columns that must be non-empty, the columns with a vocabulary,
 # the number columns (required or not by the first set) and the unique key.
@@ -156,6 +182,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         EXCLUDED: ("kind", "id"),
         PICTURES: ("device_class", "view", "part", "kind", "x_mm", "y_mm", "z_mm"),
         NAMES: ("thing", "short_name", "basis"),
+        METRICS: ("view", "order", "title", "measure", "signal"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -168,6 +195,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         # a part's kind is the facility's word: any text
         PICTURES: {"view": PICTURE_VIEWS},
         NAMES: {"basis": BASES},
+        METRICS: {"view": METRIC_VIEWS, "measure": MEASURES},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -184,6 +212,7 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "height_mm",
         ),
         PICTURES: ("x_mm", "y_mm", "z_mm"),
+        METRICS: ("order",),
     }
 )
 _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -192,6 +221,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         RECORD_TYPES: ("channel",),
         PAIRS: ("setpoint",),
         NAMES: ("thing",),
+        METRICS: ("view", "level", "order"),
     }
 )
 
@@ -337,6 +367,31 @@ class ShortName:
 
 
 @dataclass(frozen=True)
+class Metric:
+    """One row of ``metrics.csv``: a key number of a place view or a roll-up root.
+
+    It applies to the views of ``view`` whose place has ``level`` (any place
+    when ``None``), in ``order``; it computes ``measure`` over the channels in
+    the place that state ``signal``, on things of class ``cls`` when given.
+    """
+
+    view: str
+    level: str | None
+    order: float
+    title: str
+    measure: str
+    signal: str
+    cls: str | None
+    unit: str | None
+    caption: str | None
+    source: str | None
+
+
+def _metric(**columns: Any) -> Metric:
+    return Metric(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
 class PanelTables:
     """The rule tables, each in file order."""
 
@@ -347,6 +402,7 @@ class PanelTables:
     excluded: tuple[Exclusion, ...]
     pictures: tuple[PicturePart, ...]
     names: tuple[ShortName, ...] = ()
+    metrics: tuple[Metric, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -358,6 +414,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         EXCLUDED: Exclusion,
         PICTURES: PicturePart,
         NAMES: ShortName,
+        METRICS: _metric,
     }
 )
 
@@ -466,4 +523,5 @@ def read_tables(panels_dir: Path) -> PanelTables:
         excluded=_read(directory, EXCLUDED),
         pictures=_read(directory, PICTURES),
         names=_read(directory, NAMES),
+        metrics=_read(directory, METRICS),
     )

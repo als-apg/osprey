@@ -600,7 +600,7 @@ def test_a_place_view_ends_with_its_roll_up_by_system(panel_graph):
     view = place_view(panel_graph, "XR/XR01")
     (group,) = _section(view, "by system").items
     assert group.form == "rows"
-    (section,) = health_rollup(panel_graph, "XR/XR01", "system").sections
+    *_band, section = health_rollup(panel_graph, "XR/XR01", "system").sections
     assert group.nodes == section.items[0].children
 
 

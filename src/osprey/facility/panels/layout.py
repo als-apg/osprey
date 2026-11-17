@@ -48,6 +48,7 @@ from osprey.facility.panels.symbols import (
     TRANSPARENT,
 )
 from osprey.facility.panels.view import (
+    Band,
     CheckRow,
     Elevation,
     Fact,
@@ -64,6 +65,7 @@ from osprey.facility.panels.view import (
     Strip,
     StripElement,
     Target,
+    Tile,
     Totals,
     ValueRow,
     View,
@@ -75,6 +77,7 @@ __all__ = [
     "OUTLINE_KIND",
     "compiled_rules",
     "light_rule",
+    "metric_formula",
     "WIDGETS",
     "Ladder",
     "ladder",
@@ -155,6 +158,11 @@ CHIP_HEIGHT = 26
 CHIP_GAP = 8
 CHIP_LIGHT = 12
 LEGEND_ROW = 52
+BIG_SIZE = 22  # a key number
+TILE_HEIGHT = 104
+NUMBER_SHARE = 2 / 3  # of a tile's width, the number's
+TILE_PAD = 10
+BAND_COLUMNS = 7  # tiles in one row of the band
 RING_PAD = 6  # a state ring's distance from its symbol
 TAG_HEIGHT = 16  # the word above a ring
 VALUE_STEP = 16  # one live value under a symbol's name
@@ -293,6 +301,11 @@ _LOOKS_LEGEND = (
 _LOCATOR_CAPTION = "to scale · position along the beam (m)"
 _NO_RULE_YET = "no health rule yet"
 _TRAY_TITLE = "in our lists, not placed"
+_NO_DATA = "no data yet"
+_NEEDS_SERVER = "needs a server-side aggregate"
+_MANY_VALUES = "{} channels state it: the row names no one"
+_DASH = "—"
+_COUNTS = frozenset({"count_true", "count_false", "count_in_tolerance"})
 _VALUES = "values: "
 _DROPPED = "{} values not shown: the screen's budget is spent"
 _READS = "{} rule channel{}"
@@ -988,6 +1001,7 @@ class _Screen:
     title: str
     nodes: list[dict[str, Any]] = field(default_factory=list)
     unknown: int = 0
+    formulas: list[dict[str, Any]] = field(default_factory=list)
     _widgets: int = 1
     _rules: int = 0
 
@@ -1057,6 +1071,7 @@ class _Screen:
                 "description": description,
             },
             "macros": [],
+            **({"formulas": self.formulas} if self.formulas else {}),
             "root": root,
         }
 
@@ -1413,7 +1428,7 @@ class _Page:
         first = len(self.s.nodes)
         top = self.y
         self.y += PANEL_PAD
-        if not (section.items and isinstance(section.items[0], Strip)):
+        if not (section.items and isinstance(section.items[0], Strip | Band)):
             self.heading(section.title)
         self.items(section)
         self.y += PANEL_PAD - ROW_GAP
@@ -1470,6 +1485,7 @@ class _Page:
             Elevation: self.elevation,
             Node: self.node,
             Group: self.group,
+            Band: self.band,
             CheckRow: self.check_row,
             Totals: self.totals,
         }[type(item)]
@@ -2138,6 +2154,121 @@ class _Page:
         self.box(MARGIN, top, STRIP_WIDTH, self.y - top, line=MUTED_TEXT, dashed=True)
         self.y += GAP
 
+    def band(self, band: Band) -> None:
+        """The key numbers: a row of tiles across the content width, wrapping."""
+        per = min(len(band.tiles), BAND_COLUMNS)
+        w = (STRIP_WIDTH - (per - 1) * GAP) / per
+        for i, item in enumerate(band.tiles):
+            x = MARGIN + (i % per) * (w + GAP)
+            y = self.y + (i // per) * (TILE_HEIGHT + GAP)
+            self.tile(x, y, w, item, f"m{i}")
+        self.y += math.ceil(len(band.tiles) / per) * (TILE_HEIGHT + GAP)
+
+    def tile(self, x: float, y: float, w: float, item: Tile, name: str) -> None:
+        """One key number: its title, the number (a channel, or a screen formula over
+        the channels its row selects), its unit, and one line under it. A count reads
+        "n of N"; a count of losses turns the tile's border bad while it is above zero."""
+        tags = (f"tile: {item.title}",)
+        frame = {
+            "lineColor": BOX_BORDER,
+            "lineWidth": LINE_WIDTH,
+            "fill": True,
+            "fillColor": FIELD_BACKGROUND,
+        }
+        left = x + TILE_PAD
+        top = y + TILE_PAD
+        inner = w - 2 * TILE_PAD
+        number_top = top + ROW
+        caption = item.caption or ""
+        pv: str | None = None
+        total = len(item.pairs) if item.measure == "count_in_tolerance" else len(item.channels)
+        formula = None
+        extra_tags: tuple[str, ...] = ()
+        if not item.channels and not item.pairs:
+            caption = _NO_DATA
+        elif item.measure == "value":
+            if len(item.channels) == 1:
+                pv = item.channels[0]
+                if not self.budget.take([(0, frozenset(item.channels))]):
+                    pv, caption = None, _NEEDS_SERVER
+                    extra_tags = (_need("server-side aggregate"),)
+            else:
+                caption = _MANY_VALUES.format(len(item.channels))
+        else:
+            formula = metric_formula(name, item)
+            reads = frozenset(formula["bindings"].values())
+            fits = len(formula["expression"]) <= RULE_EXPRESSION_LIMIT
+            if fits and self.budget.take([(1, reads)]):
+                self.s.formulas.append(formula)
+                pv = _FORMULA_PREFIX + name
+            else:
+                formula, caption = None, _NEEDS_SERVER
+                extra_tags = (_need("server-side aggregate"),)
+        rules: list[dict] = []
+        if formula is not None and item.measure in ("count_false", "count_in_tolerance"):
+            lost = "{0} > 0" if item.measure == "count_false" else f"{{0}} < {total}"
+            rule = {
+                "pvs": [{"name": pv, "trigger": True}],
+                "conditions": [{"expression": lost, "value": symbols.ALARM_MAJOR}],
+                "default": BOX_BORDER,
+            }
+            if len(engine_expression(rule, {name: formula})) <= RULE_EXPRESSION_LIMIT:
+                self.s._rules += 1
+                rules = [
+                    {
+                        "id": f"r-{self.s._rules:04d}",
+                        "name": f"{item.title} border",
+                        "targetProperty": "lineColor",
+                        **rule,
+                    }
+                ]
+        self.s.widget(
+            "rectangle", x, y, w, TILE_HEIGHT, frame, rules=rules, tags=(*tags, *extra_tags)
+        )
+        self.text(left, top, item.title.upper(), size=SMALL_SIZE, w=inner, fg=MUTED_TEXT, tags=tags)
+        number_w = inner * NUMBER_SHARE
+        if pv is None:
+            right = self.text(
+                left, number_top, _DASH, size=BIG_SIZE, h=ROW + GAP, fg=MUTED_TEXT, tags=tags
+            )
+        else:
+            props = {
+                "pv": pv,
+                "fontSize": BIG_SIZE,
+                "foregroundColor": PAGE_TEXT,
+                "backgroundColor": TRANSPARENT,
+                "showUnits": False,
+                "alarmSensitive": False,
+                "alarmBorder": False,
+            }
+            if item.measure in _COUNTS:
+                props["precision"] = 0
+            self.s.widget("pv-label", left, number_top, number_w, ROW + GAP, props, tags=tags)
+            right = left + number_w
+            if item.measure in _COUNTS:
+                right = self.text(
+                    right,
+                    number_top + GAP,
+                    f"of {total}",
+                    size=SMALL_SIZE,
+                    fg=MUTED_TEXT,
+                    tags=tags,
+                )
+            elif item.unit:
+                right = self.text(
+                    right, number_top + GAP, item.unit, size=SMALL_SIZE, fg=MUTED_TEXT, tags=tags
+                )
+        del right
+        self.text(
+            left,
+            y + TILE_HEIGHT - TILE_PAD - ROW,
+            caption,
+            size=SMALL_SIZE,
+            w=inner,
+            fg=MUTED_TEXT,
+            tags=tags,
+        )
+
     def group(self, group: Group) -> None:
         """Things of one kind: chips that wrap, or summary rows in columns."""
         if group.form == "rows":
@@ -2402,6 +2533,34 @@ def _slots(beam: Sequence[strip.Placed]) -> list[float]:
         near = min(room) if room else VALUE_MAX
         out.append(min(max(near - STRIP_LABEL_GAP, p.width), VALUE_MAX))
     return out
+
+
+def metric_formula(name: str, item: Tile) -> dict[str, Any]:
+    """The screen formula of a key number: its expression over ``{key}`` tokens and the
+    channel each key binds. Counts are sums of ``1 * (test)``, so a true test counts one
+    whatever type the engine gives a comparison."""
+    bindings: dict[str, str] = {}
+    if item.measure == "count_in_tolerance":
+        terms = []
+        for i, (setpoint, readback, term, amount) in enumerate(item.pairs):
+            bindings[f"s{i}"], bindings[f"r{i}"] = setpoint, readback
+            gap = f"abs({{s{i}}} - {{r{i}}})"
+            bound = _number(amount) if term == "absolute" else f"{_number(amount)} * abs({{s{i}}})"
+            terms.append(f"1 * ({gap} <= {bound})")
+        expression = " + ".join(terms)
+    else:
+        keys = [f"c{i}" for i in range(len(item.channels))]
+        bindings = dict(zip(keys, item.channels, strict=True))
+        tokens = [f"{{{key}}}" for key in keys]
+        if item.measure == "count_true":
+            expression = " + ".join(f"1 * ({t} != 0)" for t in tokens)
+        elif item.measure == "count_false":
+            expression = " + ".join(f"1 * ({t} == 0)" for t in tokens)
+        elif item.measure == "rms":
+            expression = f"sqrt(({' + '.join(f'{t} ** 2' for t in tokens)}) / {len(tokens)})"
+        else:  # max, min: a reduction over one tuple
+            expression = f"{item.measure}(({', '.join(tokens)},))"
+    return {"name": name, "kind": "scalar", "expression": expression, "bindings": bindings}
 
 
 def stem_levels(xs: Sequence[float], room: float = BADGE + BADGE_GAP) -> list[int]:

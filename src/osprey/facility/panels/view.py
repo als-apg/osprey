@@ -17,6 +17,8 @@ from osprey.facility.panels.tables import PicturePart
 
 __all__ = [
     "VIEW_KINDS",
+    "Band",
+    "Tile",
     "CheckRow",
     "Elevation",
     "Fact",
@@ -400,6 +402,38 @@ class Totals:
 
 
 @dataclass(frozen=True)
+class Tile:
+    """One key number: a row of ``metrics.csv`` and what it selects in the place.
+
+    Attributes:
+        title: What it is.
+        measure: What it computes (``value``, ``count_true``, ``count_false``,
+            ``count_in_tolerance``, ``rms``, ``max`` or ``min``).
+        unit: The row's unit, or ``None``.
+        caption: The row's one line under the number, or ``None``.
+        channels: The channels in the place stating the row's signal (on a
+            thing of the row's class, when it names one), by name.
+        pairs: For ``count_in_tolerance``: per setpoint stating the signal
+            that has a readback and a tolerance, ``(setpoint, readback,
+            term, amount)``, by setpoint.
+    """
+
+    title: str
+    measure: str
+    unit: str | None
+    caption: str | None
+    channels: tuple[str, ...] = ()
+    pairs: tuple[tuple[str, str, str, float], ...] = ()
+
+
+@dataclass(frozen=True)
+class Band:
+    """The key numbers at the top of a place view or a roll-up root, in order."""
+
+    tiles: tuple[Tile, ...]
+
+
+@dataclass(frozen=True)
 class Group:
     """Things of one kind shown together, each with its health.
 
@@ -430,6 +464,7 @@ Item = (
     | Elevation
     | Node
     | Group
+    | Band
     | CheckRow
     | Totals
 )

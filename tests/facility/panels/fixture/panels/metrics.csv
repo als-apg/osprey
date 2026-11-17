@@ -1,0 +1,11 @@
+view,level,order,title,measure,signal,class,unit,caption,source
+place,sector,1,Magnets,count_in_tolerance,current_setpoint,,,in tolerance,XR-METRICS-001
+place,,2,Currents,rms,current_readback,Quadrupole,A,rms over the quadrupoles,XR-METRICS-001
+place,,3,Vacuum,max,vacuum_readback,,Torr,worst pump,XR-METRICS-001
+place,,4,Vacuum best,min,vacuum_readback,,Torr,best pump,XR-METRICS-001
+place,,5,Pumps,count_true,status,Pump,,running,XR-METRICS-001
+place,,6,Pumps lost,count_false,status,Pump,,stopped,XR-METRICS-001
+place,,7,Bend,value,current_readback,Dipole,A,bend readback,XR-METRICS-001
+place,,8,Temperature,value,temperature,,degC,hottest,XR-METRICS-001
+place,machine,1,Ring only,rms,current_readback,,A,never on a sector,XR-METRICS-001
+rollup,,1,Currents,rms,current_readback,,A,all magnet readbacks,XR-METRICS-001

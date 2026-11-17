@@ -45,6 +45,7 @@ from osprey.facility.panels.model import (
 )
 from osprey.facility.panels.tables import DRAWN_AS, Pose
 from osprey.facility.panels.view import (
+    Band,
     CheckRow,
     Elevation,
     Fact,
@@ -63,6 +64,7 @@ from osprey.facility.panels.view import (
     Strip,
     StripElement,
     Target,
+    Tile,
     Totals,
     TrayEntry,
     ValueRow,
@@ -786,6 +788,35 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
 # -- place view ------------------------------------------------------------------
 
 
+def _band(graph: PanelGraph, place: Thing, view: str) -> Band | None:
+    """The key numbers ``metrics.csv`` states for *view* of *place*: per row, the
+    channels in the place (its own and its contents', :meth:`PanelGraph.contents`)
+    that state the row's signal, on things of the row's class when it names one."""
+    rows = graph.metrics(view, place.level)
+    if not rows:
+        return None
+    things = [place, *graph.contents(place.id)]
+    tiles = []
+    for row in rows:
+        chosen: list[Channel] = []
+        for thing in things:
+            if row.cls is not None and thing.cls != row.cls:
+                continue
+            chosen += [c for c in graph.channels(thing.id, thing.kind) if c.signal == row.signal]
+        chosen = sorted({c.name: c for c in chosen}.values(), key=lambda c: c.name)
+        pairs: list[tuple[str, str, str, float]] = []
+        if row.measure == "count_in_tolerance":
+            for channel in chosen:
+                pair = graph.pair(channel.name)
+                if channel.writable and pair is not None and channel.tolerance is not None:
+                    term, amount = channel.tolerance
+                    pairs.append((channel.name, pair.readback, term, amount))
+            chosen = []
+        names = tuple(c.name for c in chosen)
+        tiles.append(Tile(row.title, row.measure, row.unit, row.caption, names, tuple(pairs)))
+    return Band(tuple(tiles))
+
+
 def _annotations(
     graph: PanelGraph, thing: Thing, signals: Iterable[str]
 ) -> tuple[tuple[str, str | None], ...]:
@@ -893,10 +924,18 @@ def place_view(
         within.append(Group(kind, "chips", tuple(nodes[:MAX_CHIPS]), more))
     systems: list[Item] = []
     if place_id in index.ruled:
-        (section,) = health_rollup(graph, place_id, "system").sections
+        *_band_, section = health_rollup(graph, place_id, "system").sections
         (root,) = section.items
         systems = [Group(_BY_SYSTEM, "rows", root.children)]  # type: ignore[union-attr]
-    sections = _sections([("strip", [strip]), ("places within", within), (_BY_SYSTEM, systems)])
+    band = _band(graph, place, "place")
+    sections = _sections(
+        [
+            ("key numbers", [band] if band is not None else []),
+            ("strip", [strip]),
+            ("places within", within),
+            (_BY_SYSTEM, systems),
+        ]
+    )
     crumbs = _crumbs(graph, index, place.place, "place")
     return View(Target("place", "place", place_id), place_id, crumbs, sections)
 
@@ -1183,8 +1222,13 @@ def health_rollup(
     root = _node(root_id, None, channels, tuple(children))
     crumbs = _crumbs(graph, index, place.place, "rollup", by)
     title = f"{root_id} health by {by}"
+    band = _band(graph, place, "rollup")
+    head = (Section("key numbers", (band,)),) if band is not None else ()
     return View(
-        Target("rollup", "place", root_id, by=by), title, crumbs, (Section("roll-up", (root,)),)
+        Target("rollup", "place", root_id, by=by),
+        title,
+        crumbs,
+        (*head, Section("roll-up", (root,))),
     )
 
 

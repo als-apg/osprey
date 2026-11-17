@@ -642,8 +642,9 @@ def _bound_channels(document: Any) -> Iterator[str]:
         node = stack.pop()
         if isinstance(node, dict):
             for key in ("pv", "y_channel"):
-                if isinstance(node.get(key), str):
-                    yield node[key]
+                value = node.get(key)
+                if isinstance(value, str) and not value.startswith(_FORMULA_PREFIX):
+                    yield value  # a screen formula's channels are its bindings
             pvs = node.get("pvs")
             if isinstance(pvs, list):
                 for item in pvs:

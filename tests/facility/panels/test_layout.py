@@ -467,7 +467,7 @@ def test_a_rack_unit_is_as_tall_as_its_size(panel_graph) -> None:
 
 def test_a_node_without_a_rule_reads_no_rule_not_unknown(panel_graph) -> None:
     view = health_rollup(panel_graph, "XR/XR01")
-    (root,) = view.sections[0].items
+    (root,) = view.sections[-1].items  # after the key numbers
 
     def all_nodes(node):
         yield node
@@ -1320,7 +1320,12 @@ ANNOTATE = {"quadrupole": ("current_readback",), "ion_pump": ("vacuum_readback",
 
 
 def _values(doc: dict) -> dict[str, dict]:
-    return {n["props"]["pv"]: n for n in _by_type(doc, "pv-label")}
+    """The strip's values (small labels; a key number is big)."""
+    return {
+        n["props"]["pv"]: n
+        for n in _by_type(doc, "pv-label")
+        if n["props"]["fontSize"] == layout.SMALL_SIZE
+    }
 
 
 def test_a_strip_shows_the_annotated_values_under_its_symbols_and_beside_its_badges(

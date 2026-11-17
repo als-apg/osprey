@@ -438,7 +438,7 @@ def test_every_channel_a_written_screen_binds_is_a_channel_of_the_facility(panel
     bound = set()
     for path in out.glob("*/*.json"):
         for node in _walk(json.loads(path.read_text())):
-            if isinstance(node.get("pv"), str):
+            if isinstance(node.get("pv"), str) and not node["pv"].startswith("formula://"):
                 bound.add(node["pv"])
             for pv in node.get("pvs") or ():
                 if not pv["name"].startswith("formula://"):

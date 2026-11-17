@@ -61,6 +61,7 @@ from osprey.facility.panels.tables import (
     TABLE_FILES,
     DrawnAs,
     HealthRule,
+    Metric,
     Pair,
     PanelTableError,
     PanelTables,
@@ -783,6 +784,19 @@ class PanelGraph:
     def pictures(self, device_class: str) -> list[PicturePart]:
         """The ``pictures.csv`` rows of a device class, in file order."""
         return list(self._pictures.get(device_class, ()))
+
+    def metrics(self, view: str, level: str | None) -> list[Metric]:
+        """The rows of ``metrics.csv`` for *view* (``place`` or ``rollup``) of a place
+        of *level*: those naming that level or none, by ``order``; a row whose source
+        is an excluded document is left out."""
+        rows = [
+            row
+            for row in self._tables.metrics
+            if row.view == view
+            and row.level in (None, level)
+            and row.source not in self._excluded_documents
+        ]
+        return sorted(rows, key=lambda row: row.order)
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""

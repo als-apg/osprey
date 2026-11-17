@@ -47,7 +47,10 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     assert ",".join(COLUMNS["names.csv"]) == (
         "thing,short_name,scheme,basis,document,version,state,locator"
     )
-    assert OPTIONAL_FILES == frozenset({"pictures.csv", "excluded.csv", "names.csv"})
+    assert ",".join(COLUMNS["metrics.csv"]) == (
+        "view,level,order,title,measure,signal,class,unit,caption,source"
+    )
+    assert OPTIONAL_FILES == frozenset({"pictures.csv", "excluded.csv", "names.csv", "metrics.csv"})
 
 
 def test_the_fixture_tables_read(panel_tables: Path) -> None:
