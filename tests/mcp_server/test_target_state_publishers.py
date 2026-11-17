@@ -414,9 +414,10 @@ class TestReportFileContract:
     """One file per server, named for its PID, in the family the library owns."""
 
     def test_the_family_is_the_librarys_own(self):
-        assert target_state.REPORT_FILE_PREFIX is control_context._REPORT_FILE_PREFIX
-        assert target_state.REPORT_FILE_SUFFIX is control_context._REPORT_FILE_SUFFIX
+        # The glob is the library's own object; the two halves are cut from it.
         assert target_state.REPORT_FILE_GLOB is control_context.REPORT_FILE_GLOB
+        assert target_state.REPORT_FILE_PREFIX == control_context._REPORT_FILE_PREFIX
+        assert target_state.REPORT_FILE_SUFFIX == control_context._REPORT_FILE_SUFFIX
 
     def test_path_is_named_for_the_reporting_server(self, state_root):
         assert target_state.report_file_path(4321) == (
