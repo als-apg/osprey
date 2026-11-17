@@ -14,14 +14,9 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.ipc import (
-    GATEWAYS_MISSING,
-    GATEWAYS_NONE_DECLARED,
-    GATEWAYS_ROWS,
-    declared_gateways,
-    derive_endpoints,
-    verify_host_report,
-)
+from osprey_connectors.gateways import declared_gateways, derive_endpoints
+from osprey_connectors.ipc import verify_host_report
+from osprey_connectors_tests.ipc._host_reports import host_report
 
 _NOTHING_CONFIGURED = {
     "selected_role": None,
@@ -44,14 +39,14 @@ def _config(gateways: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("block", "shape"),
     [
-        ({"gateways": []}, GATEWAYS_NONE_DECLARED),
-        ({}, GATEWAYS_MISSING),
-        ({"gateways": None}, GATEWAYS_MISSING),
-        ({"gateways": {}}, GATEWAYS_MISSING),
-        ({"gateways": [{"address": "gw"}]}, GATEWAYS_MISSING),
-        (None, GATEWAYS_MISSING),
-        ("not a block", GATEWAYS_MISSING),
-        ({"gateways": _ROWS}, GATEWAYS_ROWS),
+        ({"gateways": []}, "none_declared"),
+        ({}, "missing"),
+        ({"gateways": None}, "missing"),
+        ({"gateways": {}}, "missing"),
+        ({"gateways": [{"address": "gw"}]}, "missing"),
+        (None, "missing"),
+        ("not a block", "missing"),
+        ({"gateways": _ROWS}, "rows"),
     ],
 )
 def test_declared_gateways_classifies_the_three_spellings(block: Any, shape: str) -> None:
@@ -60,7 +55,7 @@ def test_declared_gateways_classifies_the_three_spellings(block: Any, shape: str
 
 @pytest.mark.parametrize(
     ("gateways", "shape"),
-    [([], GATEWAYS_NONE_DECLARED), (..., GATEWAYS_MISSING), (_ROWS, GATEWAYS_ROWS)],
+    [([], "none_declared"), (..., "missing"), (_ROWS, "rows")],
 )
 def test_the_derivation_carries_the_classifier_verdict(gateways: Any, shape: str) -> None:
     derivation = derive_endpoints(
@@ -84,7 +79,7 @@ def test_only_an_explicit_empty_list_declares_no_endpoints(gateways: Any, declar
 def test_child_verification_names_a_target_that_declares_no_endpoints() -> None:
     derivation = derive_endpoints(_config([]), "live", writes_enabled=False, readonly_run=True)
 
-    verification = verify_host_report(derivation, _NOTHING_CONFIGURED)
+    verification = verify_host_report(derivation, host_report(**_NOTHING_CONFIGURED))
 
     assert verification.ok is True
     assert "declares no endpoints" in verification.detail
@@ -101,7 +96,7 @@ def test_a_target_that_declares_no_endpoints_still_refuses_a_child_on_a_gateway(
         "_epics_configured": True,
     }
 
-    verification = verify_host_report(derivation, report)
+    verification = verify_host_report(derivation, host_report(**report))
 
     assert verification.ok is False
     assert verification.field == "_epics_configured"
@@ -110,7 +105,7 @@ def test_a_target_that_declares_no_endpoints_still_refuses_a_child_on_a_gateway(
 def test_gateway_rows_are_verified_as_before() -> None:
     derivation = derive_endpoints(_config(_ROWS), "live", writes_enabled=False, readonly_run=True)
 
-    verification = verify_host_report(derivation, _NOTHING_CONFIGURED)
+    verification = verify_host_report(derivation, host_report(**_NOTHING_CONFIGURED))
 
     assert verification.ok is False
     assert verification.field == "_epics_configured"

@@ -1,15 +1,16 @@
 """The gateway role a connector selects, and why a readonly run cannot connect.
 
-The one place the role rule lives. It sits in the control-system layer, the
+The one place the role rule and the gateway words live. It sits in the control-system layer, the
 bottom of the connectors layering, so ``EPICSConnector.connect()`` takes it
-from below and :mod:`osprey_connectors.ipc` (the host report and the pool's
-derivation) imports it from here rather than restating it.
+from below, and :mod:`osprey_connectors.gateways` (the derivation, which
+re-exports these types) and the connector host's report import it from here
+rather than restating it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Final, Literal
+from typing import Literal
 
 #: A gateway role: the key of one endpoint a connector block derives. The two
 #: :data:`SelectedRole` words key the ``gateways`` table; ``pva`` is the
@@ -21,9 +22,15 @@ GatewayRole = Literal["read_only", "write_access", "pva"]
 #: is never the selected role.
 SelectedRole = Literal["read_only", "write_access"]
 
-ROLE_READ_ONLY: Final = "read_only"
-ROLE_WRITE_ACCESS: Final = "write_access"
-ROLE_PVA: Final = "pva"
+#: How a gateway reaches EPICS: ``name_server`` (``use_name_server: true``:
+#: EPICS_CA_NAME_SERVERS / EPICS_PVA_NAME_SERVERS) or ``addr_list``
+#: (``use_name_server: false``: EPICS_CA_ADDR_LIST / EPICS_PVA_ADDR_LIST).
+GatewayMode = Literal["name_server", "addr_list"]
+
+#: How a connector block spells its ``gateways`` table, as
+#: :func:`osprey_connectors.gateways.declared_gateways` reads it: an explicit
+#: ``gateways: []`` (nothing to probe), no table anybody filled in, or rows.
+GatewaysDeclared = Literal["none_declared", "missing", "rows"]
 
 
 def _selected_role(
@@ -51,14 +58,14 @@ def _selected_role(
     about.
     """
     if readonly_run:
-        return ROLE_READ_ONLY
-    write_gateway = gateways.get(ROLE_WRITE_ACCESS)
-    # Spelled out rather than ROLE_READ_ONLY: this is where the connector's
-    # read_only gateway key is consumed, and the config-key manifest cites it.
+        return "read_only"
+    write_gateway = gateways.get("write_access")
+    # This is where the connector's read_only gateway key is consumed, and the
+    # config-key manifest cites this line.
     read_gateway = gateways.get("read_only", {})
     if write_gateway and (writes_enabled or not read_gateway):
-        return ROLE_WRITE_ACCESS
-    return ROLE_READ_ONLY
+        return "write_access"
+    return "read_only"
 
 
 def readonly_gateway_refusal(kind: str | None = None) -> str:

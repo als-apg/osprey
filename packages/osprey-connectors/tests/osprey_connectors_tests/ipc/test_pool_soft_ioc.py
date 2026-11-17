@@ -127,10 +127,10 @@ async def test_two_targets_each_reach_only_their_own_ioc(deployment, ioc_prefix)
     pool = make("both")
     try:
         live, sim = await asyncio.gather(pool.connector("live"), pool.connector("standin"))
-        assert live.report["port"] == machine.port
-        assert live.report["connector_type"] == "epics"
-        assert sim.report["port"] == standin.port
-        assert sim.report["connector_type"] == "live_standin"
+        assert live.report.port == machine.port
+        assert live.report.connector_type == "epics"
+        assert sim.report.port == standin.port
+        assert sim.report.connector_type == "live_standin"
 
         seeds = await asyncio.gather(
             live.read_channel(readback, timeout_s=CA_TIMEOUT_S),
@@ -162,10 +162,10 @@ async def test_only_the_switched_on_target_can_write(deployment, ioc_prefix):
         live = await pool.connector("live")
         live_ro = await pool.connector("live", execution_mode="readonly")
         sim = await pool.connector("standin")
-        assert live.report["selected_role"] == "write_access"
-        assert live_ro.report["selected_role"] == "read_only"
-        assert sim.report["selected_role"] == "read_only"
-        assert sim.report["writes_enabled"] is False
+        assert live.report.selected_role == "write_access"
+        assert live_ro.report.selected_role == "read_only"
+        assert sim.report.selected_role == "read_only"
+        assert sim.report.writes_enabled is False
 
         # A readonly child refuses even on the armed target, before the IOC.
         refused = await live_ro.write_channel(setpoint, 42.0, timeout_s=CA_TIMEOUT_S)
@@ -194,8 +194,8 @@ async def test_a_child_spawned_off_refuses_switching_after_a_turn_on(deployment,
     pool = make("none")
     try:
         live = await pool.connector("live")
-        assert live.report["selected_role"] == "read_only"
-        assert live.report["writes_enabled"] is False
+        assert live.report.selected_role == "read_only"
+        assert live.report.writes_enabled is False
 
         record = control_context.read_record()
         control_context.set_switch(["live"], "asked", epoch=record.switch_epoch)
@@ -209,7 +209,7 @@ async def test_a_child_spawned_off_refuses_switching_after_a_turn_on(deployment,
         # A fresh child for the key selects the write gateway and writes.
         await live.disconnect()
         fresh = await pool.connector("live")
-        assert fresh.report["selected_role"] == "write_access"
+        assert fresh.report.selected_role == "write_access"
         landed = await fresh.write_channel(setpoint, 8.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert landed.outcome is WriteOutcome.CONFIRMED
     finally:

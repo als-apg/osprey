@@ -10,16 +10,20 @@ calling the real constructor on the far side.
 
 This module is that contract, and nothing else: a registry mapping a
 ``class_tag`` to an exception class, the field list each class carries, and the
-two functions that turn a live exception into a frame body and back. It has no
-codec, no pipes and no process management in it, so both halves of the boundary
-can import it cheaply and be tested against it without spawning anything.
+two functions that turn a live exception into a frame body and back:
+:func:`encode_exception`, the one producer of a body, and
+:func:`decode_exception`, the one consumer. It has no codec, no pipes and no
+process management in it, so both halves of the boundary can import it
+cheaply and be tested against it without spawning anything.
 
 The exception frame body
 ------------------------
 :class:`ExceptionFrameBody`, three fields and no more: ``class_tag`` names the
 exception class, ``message`` is the rendered text, and ``fields`` holds the
-structured attributes enumerated below. Decoding maps each
-field back onto a constructor keyword and calls the real class.
+values of the structured attributes enumerated below, by attribute name. An
+error frame and a batch read's error node both carry one, flat, and nothing
+else; decoding maps each field back onto a constructor keyword and calls the
+real class.
 
 The registry is derived from the vocabulary
 -------------------------------------------
@@ -35,16 +39,18 @@ import, never listed by hand, so every public failure crosses as itself with
 no entry here to keep in step. A :class:`~osprey_connectors.errors.ChannelError` spec
 carries ``address`` first, by construction; what else a class carries
 is its wire detail, held here and nowhere in the class itself, because the
-vocabulary says what a failure is and this module says what of it crosses.
+vocabulary says what a failure is and this module says what of it crosses. A
+:class:`~osprey_connectors.errors.ChildLinkError` is never in the registry:
+the link to a child raises it in the parent, so a frame can never claim one.
 
-Fields are *attribute* names, because the attribute is what the parent's
+A spec names *attributes*, because the attribute is what the parent's
 envelope rendering reads: ``ChannelLimitsViolationError`` is constructed with
 ``value=`` but stores it as ``.attempted_value``, so the spec spells it
 ``attempted_value`` and maps that name onto the ``value`` keyword at
 reconstruction time. A :class:`~osprey_connectors.errors.ConnectorUnavailableError`
 carries its text alone: its ``recovery`` is not a wire field, because recovery
-is decided by the parent's supervisor, never by the child. Fields are read off
-a live exception with :func:`getattr` per spec name, never a ``__dict__`` dump,
+is decided by the parent's supervisor, never by the child. Values are read off
+a live exception with :func:`getattr` per attribute name, never a ``__dict__`` dump,
 so an attribute the class happens to grow is ignored rather than silently
 becoming part of the wire format, and an attribute that is absent encodes as
 ``None`` instead of raising.
@@ -53,8 +59,9 @@ Failing closed
 --------------
 Two unknowns are possible and neither may end in a silent drop. An exception
 whose class is a subclass of a registered class crosses as the nearest such
-class in its MRO, with that class's fields: a connector's own subclass of a
-vocabulary class crosses as that vocabulary class, with its channel. Any other
+class in its MRO, with that class's attributes and its own text: a connector's
+own subclass of a vocabulary class crosses as that vocabulary class, with its
+channel. Any other
 class encodes as a
 :class:`~osprey_connectors.errors.ConnectorInternalError` carrying the original
 ``repr`` in its message and the original class name as its ``class_tag``; a
@@ -74,8 +81,6 @@ once, and to the parity tests that read the registry.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from pydantic import Field
 
 from osprey_connectors import errors
@@ -86,20 +91,14 @@ from osprey_connectors.errors import (
     ChannelUnreachableError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    ChildLinkError,
     ConnectorInternalError,
     ConnectorUnavailableError,
     ConnectRefusedError,
 )
 from osprey_connectors.model import FrozenModel, ReadOnlyMapping, empty_mapping
 
-__all__ = [
-    "EXCEPTION_SPECS",
-    "ExceptionSpec",
-    "decode_exception",
-    "encode_exception",
-    "exception_fields",
-    "reconstruct_exception",
-]
+__all__ = ["ExceptionFrameBody", "decode_exception", "encode_exception"]
 
 #: The roots of the failure vocabulary; every public class under one crosses typed.
 _CONTRACT_ROOTS: tuple[type[BaseException], ...] = (
@@ -110,26 +109,31 @@ _CONTRACT_ROOTS: tuple[type[BaseException], ...] = (
 
 
 class ExceptionFrameBody(FrozenModel):
-    """The exception frame body: the three keys described above."""
+    """The exception frame body: the three keys described above.
+
+    ``fields`` holds attribute values by attribute name, in the order of the
+    class's spec.
+    """
 
     class_tag: str
     message: str
-    fields: dict[str, object]
+    fields: ReadOnlyMapping[str, object] = Field(default_factory=empty_mapping)
 
 
 class ExceptionSpec(FrozenModel):
     """How one exception class crosses the boundary.
 
-    ``fields`` are attribute names, in the order the class documents them.
-    ``ctor_kwargs`` renames a spec field to the constructor keyword that
-    actually accepts it, for the one class where the two differ.
-    ``message_kwarg`` names a constructor keyword fed from the frame's
-    ``message``, for a class whose text is not derivable from its fields. An
-    empty ``fields`` marks a class rebuilt from its message alone.
+    ``attributes`` are the attribute names whose values a frame body's
+    ``fields`` carry, in the order the class documents them. ``ctor_kwargs``
+    renames an attribute to the constructor keyword that actually accepts it,
+    for the one class where the two differ. ``message_kwarg`` names a
+    constructor keyword fed from the frame's ``message``, for a class whose
+    text is not derivable from its attributes. An empty ``attributes`` marks a
+    class rebuilt from its message alone.
     """
 
     cls: type[BaseException]
-    fields: tuple[str, ...] = ()
+    attributes: tuple[str, ...] = ()
     ctor_kwargs: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     message_kwarg: str | None = None
 
@@ -137,7 +141,7 @@ class ExceptionSpec(FrozenModel):
 class _Detail(FrozenModel):
     """What of one vocabulary class crosses beyond its channel."""
 
-    fields: tuple[str, ...] = ()
+    attributes: tuple[str, ...] = ()
     ctor_kwargs: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     message_kwarg: str | None = None
 
@@ -147,7 +151,7 @@ class _Detail(FrozenModel):
 _WIRE_DETAIL: dict[type[BaseException], _Detail] = {
     ChannelError: _Detail(message_kwarg="message"),
     ChannelLimitsViolationError: _Detail(
-        fields=(
+        attributes=(
             "attempted_value",
             "violation_type",
             "violation_reason",
@@ -159,23 +163,31 @@ _WIRE_DETAIL: dict[type[BaseException], _Detail] = {
         ctor_kwargs={"attempted_value": "value"},
     ),
     ChannelWriteBlockedError: _Detail(
-        fields=("reason", "verdict_reason", "violation"), message_kwarg="message"
+        attributes=("reason", "verdict_reason", "violation"), message_kwarg="message"
     ),
     ChannelWriteFailedError: _Detail(
-        fields=("outcome", "value_written", "observed_value"), message_kwarg="message"
+        attributes=("outcome", "value_written", "observed_value"), message_kwarg="message"
     ),
     ChannelNotFoundError: _Detail(),
     ChannelUnreachableError: _Detail(message_kwarg="message"),
     ConnectorUnavailableError: _Detail(),
-    ConnectorInternalError: _Detail(fields=("class_tag",), message_kwarg="message"),
+    ConnectorInternalError: _Detail(attributes=("class_tag",), message_kwarg="message"),
 }
 
 
 def _vocabulary() -> list[type[BaseException]]:
-    """Every class ``osprey_connectors.errors`` publishes under a contract root."""
+    """Every class ``osprey_connectors.errors`` publishes under a contract root.
+
+    Never a :class:`~osprey_connectors.errors.ChildLinkError`, whichever root
+    it also lies under: only the parent raises one.
+    """
     published = (getattr(errors, name) for name in errors.__all__)
     return [
-        item for item in published if isinstance(item, type) and issubclass(item, _CONTRACT_ROOTS)
+        item
+        for item in published
+        if isinstance(item, type)
+        and issubclass(item, _CONTRACT_ROOTS)
+        and not issubclass(item, ChildLinkError)
     ]
 
 
@@ -183,7 +195,7 @@ def _spec(cls: type[BaseException], detail: _Detail) -> ExceptionSpec:
     channel = ("address",) if issubclass(cls, ChannelError) else ()
     return ExceptionSpec(
         cls=cls,
-        fields=(*channel, *detail.fields),
+        attributes=(*channel, *detail.attributes),
         ctor_kwargs=dict(detail.ctor_kwargs),
         message_kwarg=detail.message_kwarg,
     )
@@ -206,59 +218,20 @@ def _registered_tag(exc: BaseException) -> str | None:
     return next((by_class[cls] for cls in type(exc).__mro__ if cls in by_class), None)
 
 
-def exception_fields(exc: BaseException) -> dict[str, object]:
-    """Read the spec's fields off a live exception.
-
-    Only the enumerated names are read, and a name the instance does not carry
-    yields ``None``, so an exception raised by an older or newer build of the
-    child still encodes. The spec is that of the nearest registered class in
-    ``exc``'s MRO; an exception with none has no fields.
-    """
-    tag = _registered_tag(exc)
-    if tag is None:
-        return {}
-    return {name: getattr(exc, name, None) for name in EXCEPTION_SPECS[tag].fields}
-
-
-def reconstruct_exception(
-    class_tag: str, message: str, fields: Mapping[str, object]
-) -> BaseException:
-    """Rebuild the real exception, failing closed to ``ConnectorInternalError``.
-
-    A tag outside the registry, or a field set the real constructor refuses,
-    still produces an exception the parent can raise — one that names the tag
-    and repeats the child's message, so nothing is lost by the fallback.
-    """
-    spec = EXCEPTION_SPECS.get(class_tag)
-    if spec is None:
-        return ConnectorInternalError(
-            f"connector host reported an unrecognised error type {class_tag!r}: {message}",
-            class_tag=class_tag,
-        )
-    if not spec.fields:
-        return spec.cls(message)
-
-    kwargs = {spec.ctor_kwargs.get(name, name): value for name, value in fields.items()}
-    if spec.message_kwarg is not None:
-        kwargs[spec.message_kwarg] = message
-    try:
-        return spec.cls(**kwargs)
-    except (TypeError, ValueError) as exc:  # malformed field set — still never dropped
-        return ConnectorInternalError(
-            f"connector host reported {class_tag!r} with unusable fields ({exc}): {message}",
-            class_tag=class_tag,
-        )
-
-
 def encode_exception(exc: BaseException) -> ExceptionFrameBody:
-    """Render ``exc`` as an exception frame body.
+    """Render ``exc`` as an exception frame body: the one way a failure is put on the wire.
 
     An exception class outside the registry is normalised here, at the child's
-    edge. A subclass of a registered class encodes as that class. Anything
-    else encodes as a ``ConnectorInternalError`` whose message carries the
-    original ``repr`` and whose ``class_tag`` field names the original class —
-    the parent learns what actually happened without this module claiming to
-    reconstruct a class it does not know.
+    edge. A subclass of a registered class encodes as that class, with that
+    class's attributes and its own text. Anything else encodes as a
+    ``ConnectorInternalError`` whose message carries the original ``repr`` and
+    whose ``class_tag`` field names the original class — the parent learns
+    what actually happened without this module claiming to reconstruct a class
+    it does not know.
+
+    Only the spec's attributes are read, and an attribute the instance does not
+    carry yields ``None``, so an exception raised by an older or newer build of
+    the child still encodes.
     """
     class_tag = _registered_tag(exc)
     if class_tag is None:
@@ -267,9 +240,39 @@ def encode_exception(exc: BaseException) -> ExceptionFrameBody:
             message=f"connector host reported an unrecognised error: {exc!r}",
             fields={"class_tag": type(exc).__name__},
         )
-    return ExceptionFrameBody(class_tag=class_tag, message=str(exc), fields=exception_fields(exc))
+    attributes = EXCEPTION_SPECS[class_tag].attributes
+    return ExceptionFrameBody(
+        class_tag=class_tag,
+        message=str(exc),
+        fields={name: getattr(exc, name, None) for name in attributes},
+    )
 
 
-def decode_exception(frame: ExceptionFrameBody) -> BaseException:
-    """Rebuild the exception an exception frame body describes."""
-    return reconstruct_exception(frame.class_tag, frame.message, frame.fields)
+def decode_exception(body: ExceptionFrameBody) -> BaseException:
+    """Rebuild the real exception *body* describes, failing closed to ``ConnectorInternalError``.
+
+    A tag outside the registry, or a field set the real constructor refuses,
+    still produces an exception the parent can raise — one that names the tag
+    and repeats the child's message, so nothing is lost by the fallback.
+    """
+    spec = EXCEPTION_SPECS.get(body.class_tag)
+    if spec is None:
+        return ConnectorInternalError(
+            f"connector host reported an unrecognised error type {body.class_tag!r}: "
+            f"{body.message}",
+            class_tag=body.class_tag,
+        )
+    if not spec.attributes:
+        return spec.cls(body.message)
+
+    kwargs = {spec.ctor_kwargs.get(name, name): value for name, value in body.fields.items()}
+    if spec.message_kwarg is not None:
+        kwargs[spec.message_kwarg] = body.message
+    try:
+        return spec.cls(**kwargs)
+    except (TypeError, ValueError) as exc:  # malformed field set — still never dropped
+        return ConnectorInternalError(
+            f"connector host reported {body.class_tag!r} with unusable fields ({exc}): "
+            f"{body.message}",
+            class_tag=body.class_tag,
+        )

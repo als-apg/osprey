@@ -32,17 +32,17 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors import control_context, testing
-from osprey_connectors.ipc._verification import (
-    DEFAULT_CA_PORT,
-    DEFAULT_PVA_PORT,
-    MODE_ADDR_LIST,
-    MODE_NAME_SERVER,
+from osprey_connectors.gateways import (
+    _DEFAULT_CA_PORT,
+    _DEFAULT_PVA_PORT,
     Endpoint,
     TargetDerivation,
     derive_endpoints,
-    verify_child_report,
 )
+from osprey_connectors.ipc._host import HostReport
+from osprey_connectors.ipc._verification import _verify_child_report
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
+from osprey_connectors_tests.ipc._host_reports import host_report
 
 LIVE = "live"
 VA = "va"
@@ -872,7 +872,7 @@ def test_an_unset_epics_port_falls_back_to_the_ca_default() -> None:
         }
     )
 
-    assert _derive(config, LIVE).endpoints["read_only"].port == DEFAULT_CA_PORT
+    assert _derive(config, LIVE).endpoints["read_only"].port == _DEFAULT_CA_PORT
 
 
 def test_unset_va_ports_follow_the_deployed_va_service_port(monkeypatch) -> None:
@@ -956,7 +956,7 @@ def test_a_pva_row_appears_only_with_both_globs_and_a_gateway() -> None:
     derivation = _derive(config, LIVE)
 
     assert derivation.endpoints["pva"] == Endpoint(
-        host="pva.example.org", port=DEFAULT_PVA_PORT, mode="name_server"
+        host="pva.example.org", port=_DEFAULT_PVA_PORT, mode="name_server"
     )
 
 
@@ -1267,7 +1267,7 @@ def test_a_verdict_that_raises_refuses_rather_than_allows(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _report(**overrides: Any) -> dict[str, Any]:
+def _report(**overrides: Any) -> HostReport:
     report = {
         "selected_role": "read_only",
         "mode": "addr_list",
@@ -1276,11 +1276,11 @@ def _report(**overrides: Any) -> dict[str, Any]:
         "_epics_configured": True,
     }
     report.update(overrides)
-    return report
+    return host_report(**report)
 
 
 def test_a_matching_child_report_verifies() -> None:
-    result = verify_child_report(_derive(_config(), LIVE), _report())
+    result = _verify_child_report(_derive(_config(), LIVE), _report())
 
     assert result.ok is True
     assert result.field is None
@@ -1288,7 +1288,7 @@ def test_a_matching_child_report_verifies() -> None:
 
 def test_a_port_reported_as_text_still_verifies() -> None:
     """``connect()`` interpolates the port into a string environment value."""
-    result = verify_child_report(_derive(_config(), LIVE), _report(port="5064"))
+    result = _verify_child_report(_derive(_config(), LIVE), _report(port="5064"))
 
     assert result.ok is True
 
@@ -1305,7 +1305,7 @@ def test_a_port_reported_as_text_still_verifies() -> None:
 def test_each_mismatched_field_fails_and_names_itself(
     field: str, wrong_value: Any, expected: Any
 ) -> None:
-    result = verify_child_report(_derive(_config(), LIVE), _report(**{field: wrong_value}))
+    result = _verify_child_report(_derive(_config(), LIVE), _report(**{field: wrong_value}))
 
     assert result.ok is False
     assert result.field == field
@@ -1314,7 +1314,7 @@ def test_each_mismatched_field_fails_and_names_itself(
 
 
 def test_a_child_that_configured_no_epics_gateway_fails_verification() -> None:
-    result = verify_child_report(_derive(_config(), LIVE), _report(_epics_configured=False))
+    result = _verify_child_report(_derive(_config(), LIVE), _report(_epics_configured=False))
 
     assert result.ok is False
     assert result.field == "_epics_configured"
@@ -1325,7 +1325,7 @@ def test_verification_fails_when_the_derivation_has_no_endpoint_for_the_role() -
     config = _config(connector={EPICS_TYPE: _epics_block()})
     derivation = _derive(config, VA)
 
-    result = verify_child_report(derivation, _report(host="localhost"))
+    result = _verify_child_report(derivation, _report(host="localhost"))
 
     assert result.ok is False
     assert result.field == "endpoints"
@@ -1837,14 +1837,14 @@ def _with_use_name_server(value: Any) -> dict[str, Any]:
 def test_a_resolved_off_placeholder_derives_the_address_list_mode(off: str) -> None:
     derivation = _derive(_with_use_name_server(off), LIVE)
 
-    assert derivation.endpoints["read_only"].mode == MODE_ADDR_LIST
+    assert derivation.endpoints["read_only"].mode == "addr_list"
 
 
 @pytest.mark.parametrize("on", ["true", "True", "1", "yes"])
 def test_a_resolved_on_placeholder_derives_the_name_server_mode(on: str) -> None:
     derivation = _derive(_with_use_name_server(on), LIVE)
 
-    assert derivation.endpoints["read_only"].mode == MODE_NAME_SERVER
+    assert derivation.endpoints["read_only"].mode == "name_server"
 
 
 def test_an_unreadable_use_name_server_is_ineligible_and_names_the_key() -> None:

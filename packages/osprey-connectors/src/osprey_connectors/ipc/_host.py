@@ -31,7 +31,8 @@ the stream. Frames are written to the private descriptor with :func:`os.write`.
 The init frame
 --------------
 The **first frame the parent sends** is a request whose method is ``init`` and
-whose kwargs are::
+whose kwargs are a :class:`HostInit`'s fields, as the plain mapping
+``model_dump(exclude_none=True)`` writes::
 
     {
       "control_system": {...},          # the full control_system config section
@@ -40,7 +41,8 @@ whose kwargs are::
       "execution_mode": "readonly"      # optional: restrict this child to reads
     }
 
-``control_system`` is passed whole rather than re-read from disk, so the child
+The child validates them as a :class:`HostInit` once, before it builds
+anything. ``control_system`` is passed whole rather than re-read from disk, so the child
 builds from exactly the section the parent resolved against. ``target`` is
 resolved to a connector type by :func:`osprey_connectors.targets.resolve_target`
 — the same shared resolver the parent and the executor sandbox use, so no
@@ -88,8 +90,10 @@ The post-connect report
 -----------------------
 The **first frame the child sends** is the result frame answering ``init``. It
 carries what ``connect()`` actually configured, which is what the parent
-asserts its own derivation against. The child builds it as a validated record
-and sends its fields as a plain mapping, keyed as below::
+asserts its own derivation against. The child builds it as a :class:`HostReport`
+and sends its fields as the plain mapping ``model_dump(by_alias=True)`` writes,
+keyed as below (``_epics_configured`` is the alias of the record's
+``epics_configured``); the parent validates it as one once per start::
 
     {
       "selected_role": "read_only" | "write_access" | None,
@@ -209,12 +213,28 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Literal, Protocol, SupportsFloat, TypedDict, get_args
+from typing import TYPE_CHECKING, Literal, Protocol, SupportsFloat, get_args
 
+from pydantic import Field
+
+from osprey_connectors.connector_types import (
+    CONTROL_TARGETS,
+    ControlTarget,
+    Transport,
+    is_control_target,
+)
+from osprey_connectors.control_system._gateway_role import GatewayMode, SelectedRole
+from osprey_connectors.epics_env import EPICS_ENV_PREFIXES, scrub_epics_env
 from osprey_connectors.errors import ConnectorInternalError
-from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR, READONLY_MODE, is_readonly_run
+from osprey_connectors.execution_mode import (
+    EXECUTION_MODE_ENV_VAR,
+    READONLY_MODE,
+    ExecutionMode,
+    is_readonly_run,
+)
 from osprey_connectors.ipc import _frames as frames
-from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
+from osprey_connectors.ipc._exceptions import encode_exception
+from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping
@@ -222,16 +242,15 @@ if TYPE_CHECKING:
     from osprey_connectors.control_system._base import ChannelValue, ControlSystemConnector
 
 __all__ = [
-    "EXIT_INIT_FAILED",
-    "EXIT_OK",
-    "EXIT_ORPHANED",
-    "INIT_METHOD",
-    "PROXY_METHODS",
     "START_MARKS_FD_ENV",
     "START_PHASES",
+    "WRITE_METHODS",
+    "HostInit",
+    "HostMethod",
+    "HostReport",
+    "ProxyMethod",
     "StartPhase",
-    "main",
-    "scrub_epics_env",
+    "SupervisorMethod",
 ]
 
 #: Clean shutdown: pipe EOF, or an acknowledged ``disconnect``.
@@ -244,9 +263,6 @@ EXIT_INIT_FAILED = 2
 #: The watchdog found the process reparented: the parent PID differs from the
 #: one recorded at start (init or a subreaper), so the parent is gone.
 EXIT_ORPHANED = 3
-
-#: Method name of the configuration frame, which must arrive first.
-INIT_METHOD = "init"
 
 #: Names the inherited descriptor a child writes its start marks to.
 START_MARKS_FD_ENV = "OSPREY_CONNECTOR_HOST_START_MARKS_FD"
@@ -290,19 +306,29 @@ class _StartMarks:
             self._fd = None
 
 
-#: Connector methods forwarded verbatim. ``spawn_probe`` is served separately
-#: because it is this module's own method, not the connector's.
-PROXY_METHODS = (
+#: A connector method the child serves for the proxy, forwarded verbatim.
+ProxyMethod = Literal[
     "read_channel",
     "read_multiple_channels",
     "write_channel",
     "write_multiple_channels",
     "validate_channel",
     "disconnect",
-)
+]
 
-#: Every inherited variable with one of these prefixes is dropped at startup.
-EPICS_ENV_PREFIXES = ("EPICS_CA_", "EPICS_PVA_")
+#: A method of the child's own that a supervisor calls: ``init`` (the
+#: configuration frame, which must arrive first), ``ping`` and ``spawn_probe``.
+SupervisorMethod = Literal["init", "ping", "spawn_probe"]
+
+#: Every method word a request frame may carry.
+HostMethod = ProxyMethod | SupervisorMethod
+
+#: The connector methods the child forwards, in the order its refusal lists them.
+PROXY_METHODS: tuple[ProxyMethod, ...] = get_args(ProxyMethod)
+
+#: The connector methods that can move the machine. ``write_channel_checked``
+#: is composed from ``write_channel`` in the parent, so it is that one call.
+WRITE_METHODS: frozenset[ProxyMethod] = frozenset({"write_channel", "write_multiple_channels"})
 
 #: How often the watchdog asks whether it still has a parent.
 WATCHDOG_INTERVAL_S = 1.0
@@ -318,27 +344,8 @@ logger = logging.getLogger("osprey_connectors.ipc.host")
 
 
 # --------------------------------------------------------------------------
-# Startup: environment scrub and stdout protection
+# Startup: stdout protection
 # --------------------------------------------------------------------------
-
-
-def scrub_epics_env(environ: dict[str, str] | None = None) -> dict[str, str]:
-    """Remove every inherited ``EPICS_CA_*``/``EPICS_PVA_*`` variable.
-
-    Args:
-        environ: Mapping to scrub, defaulting to :data:`os.environ`.
-
-    Returns:
-        The removed name/value pairs, for logging. Nothing is put back: an
-        endpoint this child was not configured with must not be reachable from
-        it, and a variable that survived the scrub would silently widen what
-        ``connect()`` decided.
-    """
-    env = os.environ if environ is None else environ
-    removed = {}
-    for name in [name for name in env if name.startswith(EPICS_ENV_PREFIXES)]:
-        removed[name] = env.pop(name)
-    return removed
 
 
 def _claim_frame_channel() -> int:
@@ -431,7 +438,7 @@ def _save_coverage() -> None:
 # --------------------------------------------------------------------------
 
 
-def _installed_endpoint() -> tuple[str | None, str | None, int | str | None]:
+def _installed_endpoint() -> tuple[GatewayMode | None, str | None, int | str | None]:
     """The CA endpoint currently installed in the environment.
 
     Read *after* ``connect()`` and after the startup scrub, so whatever is
@@ -531,7 +538,9 @@ def _named_authorization() -> str | None:
     return _named_authorization()
 
 
-def _rule_role(gateways: dict[str, object], writes_enabled: bool, readonly_run: bool) -> str | None:
+def _rule_role(
+    gateways: dict[str, object], writes_enabled: bool, readonly_run: bool
+) -> SelectedRole | None:
     """The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.
 
     The rule itself is :func:`osprey_connectors.control_system._gateway_role._selected_role`,
@@ -571,7 +580,7 @@ def _installed_role(
     port: object,
     writes_enabled: bool,
     readonly_run: bool,
-) -> str | None:
+) -> SelectedRole | None:
     """Which gateway role the connector actually went through.
 
     Evidence first: the role whose configured endpoint matches the environment
@@ -588,24 +597,72 @@ def _installed_role(
     matched = [
         name for name, gateway in gateways.items() if _endpoint_matches(gateway, mode, host, port)
     ]
-    return matched[0] if len(matched) == 1 else None
+    if len(matched) != 1:
+        return None
+    # A table key that is no role names none: the report says no role was used.
+    return next((role for role in get_args(SelectedRole) if role == matched[0]), None)
 
 
-class _PostConnectReport(TypedDict):
-    """The post-connect report, as this child writes it (see the module docstring)."""
+class HostInit(FrozenModel):
+    """What a connector-host child is started for: its ``init`` frame (see the module docstring).
 
-    selected_role: str | None
-    mode: str | None
+    A supervisor builds one and sends ``model_dump(exclude_none=True)``, the
+    mapping the frame has always carried; the child validates it once.
+
+    Attributes:
+        control_system: The ``control_system`` config section, whole.
+        target: The control target the child serves.
+        config_file: The project config the child reads its write posture
+            and limits from, or ``None`` for whatever ``CONFIG_FILE`` (or
+            ``./config.yml``) its environment leads it to.
+        execution_mode: ``"readonly"`` for a child that refuses every write
+            whatever the config arms, or ``None``. It can only take writes
+            away.
+    """
+
+    control_system: ReadOnlyMapping[str, object]
+    target: ControlTarget
+    config_file: str | None = None
+    execution_mode: ExecutionMode | None = None
+
+
+class HostReport(FrozenModel):
+    """What a child's ``connect()`` configured: its answer to ``init`` (see the module docstring).
+
+    The child builds one and sends ``model_dump(by_alias=True)``; the parent
+    validates the reply as one once per start, so a reply that is not one is
+    refused before anything verifies it. The field order is the order the
+    child has always written the keys in.
+
+    Attributes:
+        selected_role: The gateway role whose endpoint was installed, or ``None``.
+        mode: How the installed endpoint reaches EPICS, or ``None``.
+        host: The installed endpoint's host, or ``None``.
+        port: The installed endpoint's port, or ``None``.
+        epics_configured: Whether ``connect()`` configured an EPICS gateway at
+            all; ``_epics_configured`` on the wire.
+        connector_type: What the target resolved to.
+        transport: The wire the built connector speaks, or ``None``.
+        target: The control target the child serves.
+        writes_enabled: The posture the gateway selection was made on.
+        readonly_run: Whether the child is in a readonly run.
+        authorization: The write authorization the child names, or ``None``.
+        epics_env: The ``EPICS_CA_*``/``EPICS_PVA_*`` variables ``connect()`` set.
+        pid: The child's process id.
+    """
+
+    selected_role: SelectedRole | None
+    mode: GatewayMode | None
     host: str | None
     port: int | str | None
-    _epics_configured: bool
+    epics_configured: bool = Field(alias="_epics_configured")
     connector_type: str
-    transport: str | None
-    target: str
+    transport: Transport | None
+    target: ControlTarget
     writes_enabled: bool
     readonly_run: bool
     authorization: str | None
-    epics_env: dict[str, str]
+    epics_env: ReadOnlyMapping[str, str]
     pid: int
 
 
@@ -627,9 +684,9 @@ def _init_block(value: object, where: str) -> Mapping[str, object]:
 def _post_connect_report(
     connector: ControlSystemConnector,
     connector_type: str,
-    target: str,
+    target: ControlTarget,
     section: Mapping[str, object],
-) -> _PostConnectReport:
+) -> HostReport:
     """Describe what ``connect()`` configured, for the parent to verify.
 
     Raises:
@@ -658,23 +715,23 @@ def _post_connect_report(
         writes_enabled = _selection_writes_enabled(connector)
     mode, host, port = _installed_endpoint()
 
-    return {
-        "selected_role": _installed_role(gateways, mode, host, port, writes_enabled, readonly_run),
-        "mode": mode,
-        "host": host,
-        "port": port,
-        "_epics_configured": bool(getattr(connector, "_epics_configured", False)),
-        "connector_type": connector_type,
-        "transport": getattr(connector, "transport", None),
-        "target": target,
-        "writes_enabled": writes_enabled,
-        "readonly_run": readonly_run,
-        "authorization": _named_authorization(),
-        "epics_env": {
+    return HostReport(
+        selected_role=_installed_role(gateways, mode, host, port, writes_enabled, readonly_run),
+        mode=mode,
+        host=host,
+        port=port,
+        epics_configured=bool(getattr(connector, "_epics_configured", False)),
+        connector_type=connector_type,
+        transport=getattr(connector, "transport", None),
+        target=target,
+        writes_enabled=writes_enabled,
+        readonly_run=readonly_run,
+        authorization=_named_authorization(),
+        epics_env={
             name: value for name, value in os.environ.items() if name.startswith(EPICS_ENV_PREFIXES)
         },
-        "pid": os.getpid(),
-    }
+        pid=os.getpid(),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -682,13 +739,42 @@ def _post_connect_report(
 # --------------------------------------------------------------------------
 
 
+def _host_init(kwargs: object) -> HostInit:
+    """The ``init`` frame's kwargs as a :class:`HostInit`, validated once.
+
+    The section, when it is not a mapping, and the target, when it is not a
+    control target, are refused in their own sentences before the record
+    validates the rest; an unset or empty section is an empty one.
+
+    Raises:
+        TypeError: *kwargs* is not a mapping.
+        ValueError: The section is no mapping, the target is no control
+            target, or another field is not what :class:`HostInit` holds
+            (a ``pydantic.ValidationError``).
+    """
+    if not isinstance(kwargs, dict):
+        raise TypeError(
+            f"connector host 'init' kwargs are a {type(kwargs).__name__}, not a mapping"
+        )
+    section = kwargs.get("control_system") or {}
+    if not isinstance(section, dict):
+        raise ValueError("connector host init: 'control_system' must be the config section dict")
+    target = kwargs.get("target")
+    if not is_control_target(target):
+        raise ValueError(
+            f"Unknown control target {target!r} in the connector host init frame; "
+            f"valid targets are {', '.join(CONTROL_TARGETS)}."
+        )
+    return HostInit.model_validate({**kwargs, "control_system": section})
+
+
 async def _build_connector(
-    payload: dict[str, object], marks: _StartMarks | None = None
-) -> tuple[ControlSystemConnector, _PostConnectReport]:
+    init: HostInit, marks: _StartMarks | None = None
+) -> tuple[ControlSystemConnector, HostReport]:
     """Apply the init payload and bring up the connector it describes.
 
     Args:
-        payload: The ``init`` frame's kwargs, as documented in the module
+        init: The ``init`` frame's payload, as documented in the module
             docstring.
         marks: Where the ``imports`` and ``connected`` start marks are written,
             or ``None`` to write none.
@@ -697,34 +783,26 @@ async def _build_connector(
         The live connector and its post-connect report.
 
     Raises:
-        ValueError: The payload names no usable target, or the target cannot be
-            resolved on this deployment.
+        ValueError: The target cannot be resolved on this deployment.
         Exception: Whatever ``connect()`` raises. The caller turns it into an
             error frame; this child does not start serving on a failed connect.
     """
-    section = payload.get("control_system") or {}
-    target = payload.get("target")
-    if not isinstance(section, dict):
-        raise ValueError("connector host init: 'control_system' must be the config section dict")
+    # A plain dict, as the frame carried it: the factory is handed the section.
+    section = dict(init.control_system)
+    target = init.target
 
-    config_file = payload.get("config_file")
-    if config_file:
+    if init.config_file:
         # The connector reads writes_enabled and the limits database — the home
         # of the per-channel confirm policy — from the project config, so the
         # child must be pointed at the same file the parent resolved against.
-        os.environ["CONFIG_FILE"] = str(config_file)
-    if payload.get("execution_mode") == "readonly":
+        os.environ["CONFIG_FILE"] = init.config_file
+    if init.execution_mode == READONLY_MODE:
         # Restriction only: an inherited readonly claim is never cleared here.
         os.environ[EXECUTION_MODE_ENV_VAR] = READONLY_MODE
 
     from osprey_connectors import connector_types, targets
     from osprey_connectors.factory import ConnectorFactory
 
-    if not connector_types.is_control_target(target):
-        raise ValueError(
-            f"Unknown control target {target!r} in the connector host init frame; "
-            f"valid targets are {', '.join(connector_types.CONTROL_TARGETS)}."
-        )
     connector_type = targets.resolve_target(section, target)
     if marks is not None:
         marks.mark("imports")
@@ -756,10 +834,10 @@ async def _build_connector(
         "connector host: serving target %r as %r (role=%r mode=%r %s:%s)",
         target,
         connector_type,
-        report["selected_role"],
-        report["mode"],
-        report["host"],
-        report["port"],
+        report.selected_role,
+        report.mode,
+        report.host,
+        report.port,
     )
     return connector, report
 
@@ -801,12 +879,12 @@ class _FrameStream:
             chunk = await self._reader.read(_READ_CHUNK_BYTES)
             if not chunk:
                 return None
-            self._ready.extend(self._parser._feed_raw(chunk))
+            self._ready.extend(self._parser.feed_raw(chunk))
         raw = self._ready.popleft()
         try:
             return frames.decode_frame(raw)
         except Exception as exc:
-            return _Undecodable(frames._request_id_of(raw), exc)
+            return _Undecodable(frames.request_id_of(raw), exc)
 
 
 class _FrameWriter:
@@ -830,7 +908,7 @@ class _FrameWriter:
 def _error_frame(request_id: str, exc: BaseException) -> bytes:
     """Encode a failure for one request, normalising unknown classes here.
 
-    :func:`~osprey_connectors.ipc.encode_exception` decides what
+    :func:`~osprey_connectors.ipc._exceptions.encode_exception` decides what
     crosses typed; a class outside its registry is turned, at this edge, into
     the nearest registered class it subclasses or else into a
     ``ConnectorInternalError`` carrying the original ``repr``, so the parent is
@@ -840,16 +918,16 @@ def _error_frame(request_id: str, exc: BaseException) -> bytes:
     failed.
     """
     body = encode_exception(exc)
-    if body.class_tag != type(exc).__name__:
-        exc = decode_exception(body)
     try:
-        return frames.encode_error(request_id, exc)
+        return frames.encode_error(request_id, body)
     except Exception as encode_failure:  # pragma: no cover - defensive
         return frames.encode_error(
             request_id,
-            ConnectorInternalError(
-                f"connector host could not encode its error ({encode_failure}): {exc}",
-                class_tag=type(exc).__name__,
+            encode_exception(
+                ConnectorInternalError(
+                    f"connector host could not encode its error ({encode_failure}): {body.message}",
+                    class_tag=body.class_tag,
+                )
             ),
         )
 
@@ -1023,26 +1101,22 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
     if isinstance(init, _Undecodable):
         await _refuse(init, writer)
         return EXIT_INIT_FAILED
-    if not isinstance(init, frames.RequestFrame) or init.method != INIT_METHOD:
+    if not isinstance(init, frames.RequestFrame) or init.method != "init":
         got = init.method if isinstance(init, frames.RequestFrame) else type(init).__name__
+        # A protocol violation is a bug in the sender, not a reachability answer.
         await writer.send(
             _error_frame(
                 init.request_id,
-                ConnectionError(
-                    f"connector host expected a {INIT_METHOD!r} request as its first frame, "
-                    f"got {got!r}"
+                ConnectorInternalError(
+                    f"connector host expected a 'init' request as its first frame, got {got!r}",
+                    class_tag=type(init).__name__,
                 ),
             )
         )
         return EXIT_INIT_FAILED
 
     try:
-        if not isinstance(init.kwargs, dict):
-            raise TypeError(
-                f"connector host {INIT_METHOD!r} kwargs are a {type(init.kwargs).__name__}, "
-                "not a mapping"
-            )
-        connector, report = await _build_connector(init.kwargs, marks)
+        connector, report = await _build_connector(_host_init(init.kwargs), marks)
     except Exception as exc:
         logger.warning("connector host: connect failed: %r", exc)
         await writer.send(_error_frame(init.request_id, exc))
@@ -1052,7 +1126,7 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
         # the supervisor's pipe open.
         marks.close()
 
-    await writer.send(frames.encode_result(init.request_id, report))
+    await writer.send(frames.encode_result(init.request_id, report.model_dump(by_alias=True)))
     return await _serve(connector, stream, writer)
 
 

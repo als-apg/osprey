@@ -154,17 +154,17 @@ async def test_the_holder_writes_its_listed_channels_in_range_and_nothing_else(
         held = await pool.connector("live", authorization=grant.id)
         other = await pool.connector("live")
         assert held.pid != other.pid
-        assert held.authorization == grant.id
-        assert (held.report["selected_role"], held.report["writes_enabled"]) == (
+        assert held.key.authorization == grant.id
+        assert (held.report.selected_role, held.report.writes_enabled) == (
             "write_access",
             True,
         )
-        assert held.report["authorization"] == grant.id
-        assert (other.report["selected_role"], other.report["writes_enabled"]) == (
+        assert held.report.authorization == grant.id
+        assert (other.report.selected_role, other.report.writes_enabled) == (
             "read_only",
             False,
         )
-        assert other.report["authorization"] is None
+        assert other.report.authorization is None
 
         landed = await held.write_channel(sp, 5.0, confirm=True, timeout_s=CA_TIMEOUT_S)
         assert landed.outcome is WriteOutcome.CONFIRMED
@@ -259,7 +259,7 @@ async def test_a_handle_taken_before_the_lease_is_refused_switching_like_any_ref
     grant = grant_for({sp: ChannelRange(min=0.0, max=50.0)}, steps=1, lease=False)
     try:
         early = await pool.connector("live", authorization=grant.id)
-        assert (early.report["selected_role"], early.report["writes_enabled"]) == (
+        assert (early.report.selected_role, early.report.writes_enabled) == (
             "read_only",
             False,
         )

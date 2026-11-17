@@ -25,17 +25,23 @@ lived in the environment.
 from __future__ import annotations
 
 import os
+from typing import Final, Literal
 
-__all__ = ["EXECUTION_MODE_ENV_VAR", "READONLY_MODE", "is_readonly_run"]
+__all__ = ["EXECUTION_MODE_ENV_VAR", "READONLY_MODE", "ExecutionMode", "is_readonly_run"]
 
 #: The variable that carries the run's execution mode into every child process
 #: of a run, MCP servers included.
 EXECUTION_MODE_ENV_VAR = "OSPREY_EXECUTION_MODE"
 
+#: An execution mode that sandboxes a process: the one word a run, the
+#: connector-host child's ``init`` frame and the pool's key spell it with.
+#: Absent (``None`` where a field holds it) is the run's ordinary posture.
+ExecutionMode = Literal["readonly"]
+
 #: The one value of :data:`EXECUTION_MODE_ENV_VAR` that sandboxes a process. A *value*
 #: comparison, never a presence check: the writes mode (``readwrite``) sets
 #: the same variable.
-READONLY_MODE = "readonly"
+READONLY_MODE: Final[ExecutionMode] = "readonly"
 
 
 def is_readonly_run() -> bool:

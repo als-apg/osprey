@@ -419,10 +419,10 @@ async def make_manager(state_root, endpoints, written_config, tmp_path):  # noqa
         manager.spawned = []  # type: ignore[attr-defined]
         original_spawn = manager._spawn
 
-        async def recording_spawn(target):
-            process = await original_spawn(target)
-            manager.spawned.append(process)  # type: ignore[attr-defined]
-            return process
+        async def recording_spawn(target, init):
+            host = await original_spawn(target, init)
+            manager.spawned.append(host)  # type: ignore[attr-defined]
+            return host
 
         manager._spawn = recording_spawn  # type: ignore[method-assign]
         manager.reset_state()
@@ -434,12 +434,10 @@ async def make_manager(state_root, endpoints, written_config, tmp_path):  # noqa
     for manager in created:
         with contextlib.suppress(Exception):
             await manager.shutdown()
-        for process in manager.spawned:  # type: ignore[attr-defined]
-            if process.returncode is None:  # pragma: no cover - teardown safety net
-                with contextlib.suppress(ProcessLookupError, OSError):
-                    process.kill()
+        for host in manager.spawned:  # type: ignore[attr-defined]
+            if host.returncode is None:  # pragma: no cover - teardown safety net
                 with contextlib.suppress(Exception):
-                    await asyncio.wait_for(process.wait(), SETTLE_TIMEOUT_S)
+                    await asyncio.wait_for(host.retire(None), SETTLE_TIMEOUT_S)
 
 
 async def started_on(factory, target: str, **overrides) -> ConnectorHostManager:

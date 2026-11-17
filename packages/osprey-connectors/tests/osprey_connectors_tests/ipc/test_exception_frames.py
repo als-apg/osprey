@@ -31,6 +31,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc import _host
 
 
 def _round_trip(exc: BaseException) -> BaseException:
@@ -98,7 +99,7 @@ def test_the_registry_is_the_builtins_plus_the_vocabulary():
 
 def test_write_blocked_field_list_is_the_published_spec():
     spec = exceptions.EXCEPTION_SPECS["ChannelWriteBlockedError"]
-    assert spec.fields == ("address", "reason", "verdict_reason", "violation")
+    assert spec.attributes == ("address", "reason", "verdict_reason", "violation")
     # Its text is not a field: the frame's own message feeds the ctor keyword.
     assert spec.message_kwarg == "message"
 
@@ -111,8 +112,8 @@ def test_every_vocabulary_class_has_its_wire_detail():
 def test_every_channel_error_carries_its_channel_first():
     for spec in exceptions.EXCEPTION_SPECS.values():
         if issubclass(spec.cls, ChannelError):
-            assert spec.fields[0] == "address", spec.cls.__name__
-            assert spec.fields.count("address") == 1, spec.cls.__name__
+            assert spec.attributes[0] == "address", spec.cls.__name__
+            assert spec.attributes.count("address") == 1, spec.cls.__name__
 
 
 @pytest.mark.parametrize("tag", list(exceptions.EXCEPTION_SPECS))
@@ -125,13 +126,13 @@ def test_every_vocabulary_class_round_trips(tag):
     assert type(original) is spec.cls
 
     in_process = exceptions.decode_exception(exceptions.encode_exception(original))
-    frame = frames.decode_frame(frames.encode_error("req-p", original))
+    frame = frames.decode_frame(frames.encode_error("req-p", exceptions.encode_exception(original)))
     assert isinstance(frame, frames.ErrorFrame)
 
-    for rebuilt in (in_process, frame.exception):
+    for rebuilt in (in_process, exceptions.decode_exception(frame.error)):
         assert type(rebuilt) is spec.cls
         assert str(rebuilt) == str(original)
-        for name in spec.fields:
+        for name in spec.attributes:
             assert getattr(rebuilt, name) == getattr(original, name), name
             assert type(getattr(rebuilt, name)) is type(getattr(original, name)), name
 
@@ -168,7 +169,9 @@ def test_limits_violation_round_trips_every_spec_field():
 
     assert body.class_tag == "ChannelLimitsViolationError"
     # The wire spells the attribute name, not the constructor keyword.
-    assert set(body.fields) == set(exceptions.EXCEPTION_SPECS["ChannelLimitsViolationError"].fields)
+    assert set(body.fields) == set(
+        exceptions.EXCEPTION_SPECS["ChannelLimitsViolationError"].attributes
+    )
     assert body.fields["attempted_value"] == 999.0
 
     rebuilt = exceptions.decode_exception(body)
@@ -373,11 +376,14 @@ def test_missing_attribute_encodes_as_none_without_raising():
     assert rebuilt.attempted_value == 5.0
 
 
-def test_unregistered_exception_has_no_fields():
+def test_an_unregistered_exception_carries_none_of_its_own_attributes():
     class SomeChildOnlyError(Exception):
         pass
 
-    assert exceptions.exception_fields(SomeChildOnlyError("boom")) == {}
+    original = SomeChildOnlyError("boom")
+    original.address = "SR:Q"  # type: ignore[attr-defined]
+
+    assert exceptions.encode_exception(original).fields == {"class_tag": "SomeChildOnlyError"}
 
 
 # ---------------------------------------------------------------- failing closed
@@ -421,6 +427,63 @@ def test_a_subclass_crosses_as_its_nearest_vocabulary_class():
     assert str(refused) == "SR:Q refused the connection"
     assert type(slow) is TimeoutError
     assert str(slow) == "SR:Q did not answer"
+
+
+_LIMITS_KWARGS = {
+    "address": "SR:Q",
+    "value": 999.0,
+    "violation_type": "MAX_EXCEEDED",
+    "violation_reason": "Value 999.0 above maximum 500.0",
+    "max_value": 500.0,
+}
+
+
+@pytest.mark.parametrize(
+    ("cls", "kwargs"),
+    [(ChannelLimitsViolationError, _LIMITS_KWARGS), (ChannelNotFoundError, {"address": "SR:Q"})],
+    ids=["ChannelLimitsViolationError", "ChannelNotFoundError"],
+)
+def test_a_subclass_sends_its_own_text_where_its_base_renders_its_own(cls, kwargs):
+    """The one ``message`` the single encoder changed: never read, so the parent's exception is unchanged.
+
+    A connector's own subclass of a class whose text the parent re-renders
+    from its attributes (no ``message_kwarg``) used to cross with the text
+    its base rendered, because the child rebuilt the base before writing the
+    frame. It now crosses with its own text, which the parent never reads: the
+    exception it raises is the same instance of the base as before.
+    """
+
+    class Worded(cls):  # type: ignore[valid-type,misc]
+        def __str__(self) -> str:
+            return "the connector's own words"
+
+    original = Worded(**kwargs)
+    body = exceptions.encode_exception(original)
+    rebuilt = exceptions.decode_exception(body)
+
+    assert exceptions.EXCEPTION_SPECS[cls.__name__].message_kwarg is None
+    assert (body.class_tag, body.message) == (cls.__name__, "the connector's own words")
+    assert type(rebuilt) is cls
+    assert str(rebuilt) == str(cls(**kwargs)) != str(original)
+    frame = frames.decode_frame(_host._error_frame("req-w", original))
+    assert isinstance(frame, frames.ErrorFrame)
+    assert frame.error == body
+
+
+def test_a_link_class_a_child_raises_crosses_as_its_root():
+    """A link class is never rebuilt from a frame: a child that raised one sends its root."""
+    from osprey_connectors.errors import ChildLinkError
+    from osprey_connectors.ipc._proxy import ChildLostError, ChildUnresponsiveError
+
+    assert not any(
+        issubclass(spec.cls, ChildLinkError) for spec in exceptions.EXCEPTION_SPECS.values()
+    )
+    unresponsive = _round_trip(ChildUnresponsiveError("a grandchild did not answer"))
+    lost = _round_trip(ChildLostError("a grandchild's pipe closed"))
+
+    assert type(unresponsive) is TimeoutError
+    assert type(lost) is ConnectorUnavailableError
+    assert str(lost) == "a grandchild's pipe closed"
 
 
 def test_unknown_class_tag_decodes_fail_closed_to_the_contract_fault():
