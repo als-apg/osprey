@@ -470,16 +470,12 @@ class RunAuthorization:
         grant_id = self._grant_id
         if grant_id is None or self._authority.ended is not None:
             return
-        if wa.renew_lease(grant_id, owner=self._owner):
-            return
-        reason = "auth_lease_lapsed"
         try:
-            wa.approved_grant(grant_id, owner=self._owner)
+            wa.renew_lease(grant_id, owner=self._owner)
         except wa.AuthorizationRefusedError as refused:
-            reason = refused.reason
-        except Exception:  # the lease is what failed; that is the reason given
-            logger.debug("Could not read why %s lapsed", grant_id, exc_info=True)
-        self.end(reason, "The lease could not be renewed; the run makes no further write.")
+            self.end(
+                refused.reason, "The lease could not be renewed; the run makes no further write."
+            )
 
     # -- the end ------------------------------------------------------------
 

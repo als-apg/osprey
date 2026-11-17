@@ -23,7 +23,7 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     WriteOutcome,
 )
-from osprey_connectors.errors import RefusalReason
+from osprey_connectors.refusals import RefusalReason
 
 _TS = datetime(2026, 11, 16, 8, 0, tzinfo=UTC)
 

@@ -36,8 +36,8 @@ from osprey.apps.errors import AppManifestError
 from osprey.mcp_server import approval_record
 from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, APPROVAL_MISSING, Refusal
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
-from osprey_connectors.posture_store import WriteVerdict
-from osprey_connectors.refusals import refusal_text
+from osprey_connectors.posture_store import Refused, WriteVerdict
+from osprey_connectors.refusals import VerdictReason, refusal_text
 from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger(__name__)
@@ -111,9 +111,9 @@ class ApprovalRefused(Exception):
         return cls(refusal.error_type, _with_guidance(refusal.message, guidance))
 
     @classmethod
-    def from_verdict(cls, verdict: WriteVerdict, tool_name: str) -> ApprovalRefused:
+    def from_verdict(cls, verdict: Refused, tool_name: str) -> ApprovalRefused:
         """A refused write *verdict* for the call of *tool_name*."""
-        reason = verdict.reason or "record_unavailable"
+        reason = verdict.reason
         message = refusal_text(
             reason,
             verdict.kind,
@@ -264,7 +264,7 @@ def _verdict(config: Mapping[str, Any]) -> WriteVerdict:
         logger.warning(
             "Execution verdict for an application tool could not be reached", exc_info=True
         )
-        return WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
+        return Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=target, kind=None)
 
 
 def check_approved_call(tool_name: str, arguments: Mapping[str, Any]) -> BoundState:

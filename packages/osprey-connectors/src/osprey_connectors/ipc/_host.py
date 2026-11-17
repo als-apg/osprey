@@ -522,11 +522,13 @@ def _named_authorization() -> str | None:
     """The program's write authorization this child names, for its report; ``None`` for none.
 
     The child's ``writes_enabled`` and its gateway were decided on it
-    (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`).
+    (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`);
+    the connectors' write guard reads it from the environment, and this asks
+    the same reader.
     """
-    from osprey_connectors.write_authorization import named_authorization
+    from osprey_connectors.control_system._base import _named_authorization
 
-    return named_authorization()
+    return _named_authorization()
 
 
 def _rule_role(gateways: dict[str, object], writes_enabled: bool, readonly_run: bool) -> str | None:

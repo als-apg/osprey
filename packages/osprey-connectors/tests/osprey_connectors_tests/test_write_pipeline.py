@@ -38,7 +38,7 @@ from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
-from osprey_connectors.errors import RefusalReason
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors_tests._stall import Stall
 from osprey_connectors_tests._write_fakes import (
     ARMED_TARGET,

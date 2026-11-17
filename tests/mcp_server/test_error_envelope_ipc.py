@@ -52,10 +52,10 @@ from osprey_connectors.errors import (
     ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorUnavailableError,
-    RefusalReason,
 )
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 from tests.mcp_server._raising_connector import (

@@ -113,13 +113,13 @@ def setpoint_channels(env: EnvironmentProtocol, variables: Mapping[str, float]) 
 def _refused(
     reason: str, detail: str | None, code: int = status.HTTP_403_FORBIDDEN
 ) -> HTTPException:
-    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.refusals import VerdictReason, refusal_phrase
 
     if reason in _BELOW_ALLOWED:
         phrase = SET_ALLOWED
     else:
         try:
-            phrase = refusal_phrase(reason)
+            phrase = refusal_phrase(VerdictReason(reason))
         except ValueError:
             phrase = reason
     return HTTPException(

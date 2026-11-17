@@ -44,10 +44,12 @@ def _recorder():
 
 def _set_verdict(monkeypatch, *, allowed: bool) -> None:
     """Answer the connector's write verdict: allowed, or refused as ``switch_off``."""
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.posture_store import Allowed, Refused
 
-    verdict = WriteVerdict(
-        allowed=allowed, reason=None if allowed else "switch_off", target=None, kind=None
+    verdict = (
+        Allowed(target=None, kind=None, position=None)
+        if allowed
+        else Refused(reason="switch_off", target=None, kind=None)
     )
     monkeypatch.setattr(
         "osprey_connectors.control_system._base._monitor_verdict", lambda _target: verdict

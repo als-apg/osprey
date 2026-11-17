@@ -1217,8 +1217,12 @@ class ConnectorHostPool:
         and the same agent-data root. A key's *owner* is the one stamped in the
         child's environment; a key's *authorization* is judged as the child
         judges its gateway
-        (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`).
+        (:func:`~osprey_connectors.write_authorization.authorized_write_verdict`);
+        a key that names none is judged by
+        :func:`~osprey_connectors.posture_store.write_verdict`.
         """
+        if authorization is None:
+            return posture_store.write_verdict(section, target, owner=owner).allowed
         return write_authorization.authorized_write_verdict(
             section, target, authorization=authorization, owner=owner
         ).allowed

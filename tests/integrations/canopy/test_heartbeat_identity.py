@@ -50,7 +50,7 @@ from osprey.runtime.session_outcomes import refusal_message
 from osprey_connectors import connector_types, control_context, posture_store, session_hold
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
-from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.posture_store import Refused, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -81,7 +81,7 @@ ARMED_SECTION = {
 
 def _refused(reason: str) -> WriteVerdict:
     """The execution verdict refusing the bound ``va`` target for *reason*."""
-    return WriteVerdict(allowed=False, reason=reason, target="va", kind="simulator")
+    return Refused(reason=reason, target="va", kind="simulator")
 
 
 #: The installed CANOPY wheel's heartbeat vectors, read through the package.
@@ -296,14 +296,17 @@ def _held(tmp_path: Path, monkeypatch) -> None:
     for key in ("alice-1", "alice-2"):
         session_hold.ensure_session(key, root=root)
     (tmp_path / SESSIONS_FILENAME).write_text('["alice-1", "alice-2"]', encoding="utf-8")
-    assert session_hold.open_flag(
-        "alice-2",
-        flag_id="flag-1",
-        source=HOLD_SOURCE,
-        reason="a limit was refused",
-        prompt_ref="turn-7",
-        prompt_excerpt="set the current to 900",
-        root=root,
+    assert (
+        session_hold.open_flag(
+            "alice-2",
+            flag_id="flag-1",
+            source=HOLD_SOURCE,
+            reason="a limit was refused",
+            prompt_ref="turn-7",
+            prompt_excerpt="set the current to 900",
+            root=root,
+        )
+        == "opened"
     )
 
 

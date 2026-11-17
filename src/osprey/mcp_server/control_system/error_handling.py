@@ -27,9 +27,9 @@ from osprey_connectors.errors import (
     ChannelNotFoundError,
     ChannelUnreachableError,
     ChannelWriteBlockedError,
-    RefusalReason,
 )
 from osprey_connectors.ipc import ChildUnresponsiveError
+from osprey_connectors.refusals import RefusalReason
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 

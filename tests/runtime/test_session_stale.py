@@ -336,8 +336,8 @@ class TestCachedVerdict:
 
         def unreadable(_section, target, **_kwargs):
             # What the verdict answers for a record it cannot read; it never raises.
-            return posture_store.WriteVerdict(
-                allowed=False, reason="record_unavailable", target=target, kind="simulator"
+            return posture_store.Refused(
+                reason="record_unavailable", target=target, kind="simulator"
             )
 
         monkeypatch.setattr(posture_store, "write_verdict", unreadable)
@@ -469,14 +469,17 @@ class TestSessionHold:
 
     @staticmethod
     def _raise(root: Path) -> None:
-        assert session_hold.open_flag(
-            "alice-1",
-            flag_id="flag-1",
-            source="watchdog:limits",
-            reason="a limit was refused",
-            prompt_ref="turn-7",
-            prompt_excerpt="set the current to 900",
-            root=root,
+        assert (
+            session_hold.open_flag(
+                "alice-1",
+                flag_id="flag-1",
+                source="watchdog:limits",
+                reason="a limit was refused",
+                prompt_ref="turn-7",
+                prompt_excerpt="set the current to 900",
+                root=root,
+            )
+            == "opened"
         )
 
     async def test_a_hold_raised_before_open_is_read_at_open(self, armed_va, held_session):
@@ -524,14 +527,17 @@ class TestSessionKeys:
 
     @staticmethod
     def _raise(root: Path, key: str) -> None:
-        assert session_hold.open_flag(
-            key,
-            flag_id="flag-1",
-            source="watchdog:limits",
-            reason="a limit was refused",
-            prompt_ref="turn-7",
-            prompt_excerpt="set the current to 900",
-            root=root,
+        assert (
+            session_hold.open_flag(
+                key,
+                flag_id="flag-1",
+                source="watchdog:limits",
+                reason="a limit was refused",
+                prompt_ref="turn-7",
+                prompt_excerpt="set the current to 900",
+                root=root,
+            )
+            == "opened"
         )
 
     @staticmethod

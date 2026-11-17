@@ -22,7 +22,8 @@ from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
     LimitsValidator,
 )
-from osprey_connectors.errors import ChannelUnreachableError, RefusalReason
+from osprey_connectors.errors import ChannelUnreachableError
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors_tests._epics_fakes import (
     FakeAioca,
     FakeChannel,
@@ -180,9 +181,7 @@ class TestBaseBatch:
     async def test_a_session_held_mid_batch_refuses_every_write_not_yet_sent(
         self, fake, monkeypatch
     ):
-        held = posture_store.WriteVerdict(
-            allowed=False, reason="session_held", target=None, kind=None
-        )
+        held = posture_store.Refused(reason="session_held", target=None, kind=None)
         self._after_the_first_write(
             fake,
             monkeypatch,

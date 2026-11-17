@@ -54,7 +54,9 @@ async def write(pool: ConnectorHostPool, grant: wa.Grant) -> None:
             print(result.address, result.outcome.value, result.verdict_reason)
     # docs: outcome ends
     # docs: renew begins
-    if not wa.renew_lease(grant.id):  # False: the lease has lapsed, stop
+    try:
+        wa.renew_lease(grant.id)
+    except wa.AuthorizationRefusedError:  # the lease lapsed or the grant ended: stop
         return
     # docs: renew ends
 

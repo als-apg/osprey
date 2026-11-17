@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors import control_context, limits_posture, posture_store, targets
-from osprey_connectors.posture_store import NO_OWNER, WriteVerdict, backstop_verdict
+from osprey_connectors.posture_store import NO_OWNER, Allowed, WriteVerdict, backstop_verdict
 from osprey_connectors.refusals import REASONS
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._write_verdict_cases import case_environment
@@ -78,14 +78,14 @@ def test_allowed_tier_allows_with_no_target_and_no_kind():
     verdict = backstop_verdict(LIVE)
 
     # Assert
-    assert verdict == WriteVerdict(allowed=True, reason=None, target=None, kind=None)
+    assert verdict == Allowed(target=None, kind=None, position=None)
 
 
 @pytest.mark.usefixtures("blind")
 def test_asked_tier_allows():
     verdict = backstop_verdict(ASKED)
 
-    assert verdict == WriteVerdict(allowed=True, reason=None, target=None, kind=None)
+    assert verdict == Allowed(target=None, kind=None, position=None)
 
 
 @pytest.mark.parametrize("stored", ["asked", "allowed"])

@@ -763,9 +763,19 @@ def _status_position(staged: Staged) -> Any:
 # -- a program's write authorization -----------------------------------------
 #
 # ``osprey_connectors.write_authorization`` composes the switch verdict with a
-# program's authorization. A process that names none — every row of the table —
-# gets the switch verdict unchanged, from both of its compositions: the one a
-# write executes on (with the hold) and the one a gateway is chosen on.
+# program's authorization, for a process that names one (a process that names
+# none is answered by the switch verdict itself, where the connector reads the
+# name). The switch verdict's refusal stands under an authorization for every
+# reason but ``switch_off``, from both compositions: the one a write executes
+# on (with the hold) and the one a gateway is chosen on. Asked under a
+# well-formed id no grant is issued under, a row the switch allows or refuses
+# ``switch_off`` is the authorization's to decide, and out of this domain.
+
+#: A well-formed authorization id that names no grant.
+_NO_GRANT = "0" * 32
+
+#: The answers a switch verdict gives way to an authorization on.
+_AUTHORIZATION_DECIDES = frozenset({(True, None), (False, "switch_off")})
 
 
 def _pin_honoured_any_owner(case: Case) -> bool:
@@ -773,8 +783,8 @@ def _pin_honoured_any_owner(case: Case) -> bool:
     return not case.ignore_launch_pin or not _pin_env(case)
 
 
-def _authorized_execution(staged: Staged) -> Any:
-    """The execution verdict a process naming no authorization is judged by, batch and all."""
+def _authorized_execution_answer(staged: Staged) -> Any:
+    """The execution composition's answer under :data:`_NO_GRANT`, batch and all."""
     case = staged.case
     if not _pin_honoured_any_owner(case):
         return OUT_OF_DOMAIN
@@ -785,22 +795,38 @@ def _authorized_execution(staged: Staged) -> Any:
         case.section,
         case.target,
         [("SR:CH:1", 1.0)],
-        authorization=None,
+        authorization=_NO_GRANT,
         **owner_argument(case),
     )
-    return (verdict.allowed, verdict.reason), _expected(case)
+    return verdict.allowed, verdict.reason
+
+
+def _authorized_execution(staged: Staged) -> Any:
+    """The execution composition: the switch verdict's refusal stands under an authorization."""
+    answer = _authorized_execution_answer(staged)
+    if answer is OUT_OF_DOMAIN or _expected(staged.case) in _AUTHORIZATION_DECIDES:
+        return OUT_OF_DOMAIN
+    return answer, _expected(staged.case)
+
+
+def _authorized_execution_held(staged: Staged) -> Any:
+    """The execution composition, every row: asked held, the hold stands whatever the switch says."""
+    answer = _authorized_execution_answer(staged)
+    if answer is OUT_OF_DOMAIN:
+        return OUT_OF_DOMAIN
+    return answer, _expected(staged.case)
 
 
 def _authorized_gateway(staged: Staged) -> Any:
-    """The verdict a gateway is chosen on, for a process naming no authorization."""
+    """The gateway composition: the switch verdict's refusal stands under an authorization."""
     case = staged.case
-    if not _pin_honoured_any_owner(case):
+    if not _pin_honoured_any_owner(case) or _expected(case) in _AUTHORIZATION_DECIDES:
         return OUT_OF_DOMAIN
     from osprey_connectors.write_authorization import authorized_write_verdict
     from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
 
     verdict = authorized_write_verdict(
-        case.section, case.target, authorization=None, **owner_argument(case)
+        case.section, case.target, authorization=_NO_GRANT, **owner_argument(case)
     )
     return (verdict.allowed, verdict.reason), _expected(case)
 
@@ -1169,7 +1195,7 @@ SURFACES: tuple[Surface, ...] = (
         "write",
         stage1=False,
         reports_reason=True,
-        project=_held(_authorized_execution),
+        project=_held(_authorized_execution_held),
     ),
     Surface(
         "authorized-gateway",

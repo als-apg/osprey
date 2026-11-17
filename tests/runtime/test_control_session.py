@@ -394,9 +394,7 @@ class TestWriteBudgetAndProcessMark:
         write_record(mock_va)
         monkeypatch.setattr(sys, "argv", ["/tmp/some_server.py"])
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        refused = posture_store.WriteVerdict(
-            allowed=False, reason="readonly_run", target="va", kind="simulator"
-        )
+        refused = posture_store.Refused(reason="readonly_run", target="va", kind="simulator")
         script = connector_base._verdict_refusal("TEST:CHANNEL:SP", 1.0, refused, wording="script")
         assert "readonly execution mode" in script.error_message
         assert "resubmit it with execution_mode='readwrite'" in script.error_message

@@ -275,7 +275,7 @@ def _check_drive_switch() -> None:
     The message is the verdict's phrase, which says who can lift the refusal
     and names no config key; ``details`` carries the reason and the target.
     """
-    from osprey_connectors.refusals import refusal_text
+    from osprey_connectors.refusals import VerdictReason, refusal_text
 
     try:
         config = load_osprey_config()
@@ -284,12 +284,12 @@ def _check_drive_switch() -> None:
         verdict = execution_verdict(section or {}, target)
     except Exception:  # unknown posture must not drive a panel
         logger.warning("Write verdict for phoebus_drive could not be reached", exc_info=True)
-        verdict = posture_store.WriteVerdict(
-            allowed=False, reason="record_unavailable", target=None, kind=None
+        verdict = posture_store.Refused(
+            reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None
         )
     if verdict.allowed:
         return
-    reason = verdict.reason or "record_unavailable"
+    reason = verdict.reason
     make_error(
         "writes_disabled",
         refusal_text(

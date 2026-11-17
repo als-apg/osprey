@@ -10,6 +10,7 @@ import asyncio
 import logging
 import math
 import numbers
+import os
 import sys
 from abc import ABC, abstractmethod
 from collections import Counter
@@ -34,15 +35,11 @@ from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.connector_types import Transport
 from osprey_connectors.control_system.write_door import open_door
-from osprey_connectors.errors import (
-    ChannelError,
-    ChannelReadFailedError,
-    LimitsViolation,
-    RefusalReason,
-)
+from osprey_connectors.errors import ChannelError, ChannelReadFailedError, LimitsViolation
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.posture_store import Allowed, Refused, WriteVerdict
+from osprey_connectors.refusals import RefusalReason, VerdictReason, VerdictReasonField
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system._limits_validator import (
@@ -435,16 +432,16 @@ class ChannelWriteResult(FrozenModel):
     compared"). No consumer reads it, and nothing classifies a write by
     parsing it.
 
-    ``refusal_reason`` is the :class:`~osprey_connectors.errors.RefusalReason`
+    ``refusal_reason`` is the :class:`~osprey_connectors.refusals.RefusalReason`
     that says why, and who, refused; it is set **if and only if** the outcome
     is ``refused``. Construction enforces it too: a refused result with no
     reason or an unknown one, or a reason on any other outcome, raises
     ``ValueError``. ``verdict_reason`` narrows a ``WRITES_DISABLED`` refusal
-    to the reason the write verdict gave, a member of
-    :data:`osprey_connectors.refusals.REASONS` — ``switch_off``,
+    to the reason the write verdict gave, a
+    :class:`~osprey_connectors.refusals.VerdictReason` — ``switch_off``,
     ``auth_exhausted``, ``auth_range`` and the rest — so a program can tell
     them apart without parsing ``error_message``; it is ``None`` on every
-    other result.
+    other result, and construction refuses it on any other.
 
     ``observed`` is the confirming re-read itself, the whole
     :class:`ChannelValue`: its value in the type the channel holds (a number,
@@ -477,7 +474,7 @@ class ChannelWriteResult(FrozenModel):
     observed: ChannelValue | None = None
     notes: str | None = None  # Display-only detail
     # The write verdict's reason, for a WRITES_DISABLED refusal that has one
-    verdict_reason: str | None = None
+    verdict_reason: VerdictReasonField | None = None
     # What the limits refused, set iff the refusal reason is LIMITS
     limits_violation: LimitsViolation | None = None
 
@@ -533,8 +530,9 @@ class ChannelWriteResult(FrozenModel):
             ValueError: ``refusal_reason`` is missing on a ``refused`` result or
                 set on any other, ``error_message`` is missing on a
                 ``refused``, ``failed`` or ``unconfirmed`` result or set on any
-                other, or ``observed`` is set on a result that is neither
-                ``confirmed`` nor ``mismatch``.
+                other, ``verdict_reason`` is set on a result whose refusal
+                reason is not ``WRITES_DISABLED``, or ``observed`` is set on a
+                result that is neither ``confirmed`` nor ``mismatch``.
         """
         refused = self.outcome is WriteOutcome.REFUSED
         if refused != (self.refusal_reason is not None):
@@ -548,6 +546,15 @@ class ChannelWriteResult(FrozenModel):
             raise ValueError(
                 f"Write result for '{self.address}' (outcome {self.outcome}): "
                 f"error_message must be {expected}, got {self.error_message!r}"
+            )
+        if (
+            self.verdict_reason is not None
+            and self.refusal_reason is not RefusalReason.WRITES_DISABLED
+        ):
+            raise ValueError(
+                f"Write result for '{self.address}' (refusal_reason "
+                f"{self.refusal_reason}): verdict_reason must be None, "
+                f"got {self.verdict_reason!r}"
             )
         limits = self.refusal_reason is RefusalReason.LIMITS
         if limits != (self.limits_violation is not None):
@@ -577,7 +584,7 @@ class ChannelWriteResult(FrozenModel):
         reason: RefusalReason,
         message: str,
         *,
-        verdict_reason: str | None = None,
+        verdict_reason: VerdictReason | None = None,
         limits: LimitsViolation | None = None,
     ) -> Self:
         """Nothing was written: *reason* says why, *message* tells the operator."""
@@ -783,6 +790,19 @@ def _monitor_section() -> object:
         return {}
 
 
+def _named_authorization() -> str | None:
+    """The program's write authorization this process names, or ``None`` for none.
+
+    :data:`~osprey_connectors.write_authorization.AUTHORIZATION_ENV_VAR`, the
+    one place it is read: the write guard below and the connector child's
+    report ask here, and every verdict is handed the answer. Blank is unset.
+    A value that is not a well-formed id is returned as it is, so the verdict
+    refuses it rather than treating the process as naming none.
+    """
+    value = (os.environ.get(write_authorization.AUTHORIZATION_ENV_VAR) or "").strip()
+    return value or None
+
+
 def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
     """The verdict the reference monitor decides one write (or batch) by.
 
@@ -795,8 +815,7 @@ def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
     section is then empty, which the tier answers ``never``.
 
     A process that names a program's write authorization
-    (:func:`~osprey_connectors.write_authorization.named_authorization`) is
-    answered by
+    (:func:`_named_authorization`) is answered by
     :func:`~osprey_connectors.write_authorization.authorized_write_verdict`
     instead: whether the authorization would let it write at all, channels
     aside. That is the answer the gateway is chosen on; each write is judged
@@ -804,11 +823,12 @@ def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
 
     Never raises; reads the record at most once.
     """
+    section = _monitor_section()
+    authorization = _named_authorization()
+    if authorization is None:
+        return posture_store.write_verdict(section, control_target, owner=None)
     return write_authorization.authorized_write_verdict(
-        _monitor_section(),
-        control_target,
-        authorization=write_authorization.named_authorization(),
-        owner=None,
+        section, control_target, authorization=authorization, owner=None
     )
 
 
@@ -842,25 +862,26 @@ def _verdict_refusal(
 
     marker = ""
     remedy = None
-    if verdict.reason == "readonly_run":
+    if verdict.reason is VerdictReason.READONLY_RUN:
         marker = f" ({_READONLY_MARKER})"
         if not _readonly_is_deployment_wide(wording):
             # One script submitted readonly, not the deployment: the same
             # refusal, and the one remedy that applies to it alone.
             remedy = _READONLY_SCRIPT_REMEDY
-    if verdict.allowed or verdict.reason is None:
+    if isinstance(verdict, Allowed):
+        # The verdict allowed: the connector's own write check refused, and it
+        # claims no reason of the contract.
         spoken = _OVERRIDE_REFUSAL
+        verdict_reason = None
     else:
-        try:
-            spoken = refusal_text(verdict.reason, verdict.kind, detail=remedy or verdict.detail)
-        except ValueError:
-            spoken = _OVERRIDE_REFUSAL
+        spoken = refusal_text(verdict.reason, verdict.kind, detail=remedy or verdict.detail)
+        verdict_reason = verdict.reason
     return ChannelWriteResult.refused(
         address,
         value,
         RefusalReason.WRITES_DISABLED,
         f"Write to '{address}' blocked{marker}: {spoken}",
-        verdict_reason=None if verdict.allowed else verdict.reason,
+        verdict_reason=verdict_reason,
     )
 
 
@@ -880,7 +901,7 @@ def _authorized_refusal(
     write over the gateway it selected (:meth:`ControlSystemConnector.
     _write_route_open`) refuses ``switching`` when the authorization would
     allow the call, its own reason when not, and spends nothing either way.
-    Otherwise :func:`~osprey_connectors.write_authorization.authorized_execution_verdict`
+    Otherwise :func:`~osprey_connectors.write_authorization.spend_authorized_write`
     judges the whole call and, when it allows, spends its one step before
     anything is put: a write the limits then refuse has still spent it.
     """
@@ -896,15 +917,14 @@ def _authorized_refusal(
         connector._last_verdict = judged
         if not judged.allowed:
             return judged
-        return posture_store.WriteVerdict(
-            allowed=False,
-            reason="switching",
+        return Refused(
+            reason=VerdictReason.SWITCHING,
             target=judged.target,
             kind=judged.kind,
             authorization=authorization,
         )
-    verdict = write_authorization.authorized_execution_verdict(
-        section, target, operations, authorization=authorization, spend=True
+    verdict = write_authorization.spend_authorized_write(
+        section, target, operations, authorization=authorization
     )
     connector._last_verdict = verdict
     return None if verdict.allowed else verdict
@@ -1538,7 +1558,7 @@ class ControlSystemConnector(ABC):
             out of a mechanical refusal, and the approval layer cannot substitute for
             that refusal.
         """
-        authorization = write_authorization.named_authorization()
+        authorization = _named_authorization()
         if authorization is not None:
             refused = _authorized_refusal(self, [(address, value)], authorization)
             if refused is not None:
@@ -1715,7 +1735,7 @@ class ControlSystemConnector(ABC):
             or sent; a batch the limits then refuse has still spent it.
         """
         batch: list[tuple[str, object]] = list(operations)
-        authorization = write_authorization.named_authorization()
+        authorization = _named_authorization()
         refused: WriteVerdict | None
         if authorization is not None:
             refused = _authorized_refusal(self, batch, authorization)
@@ -1859,7 +1879,7 @@ class ControlSystemConnector(ABC):
         without spending; ``auth_exhausted`` alone is no refusal here, since
         the step this batch spent may have been the last.
         """
-        authorization = write_authorization.named_authorization()
+        authorization = _named_authorization()
         self._last_verdict = None
         if authorization is None:
             if not self._writes_enabled:
@@ -1870,7 +1890,9 @@ class ControlSystemConnector(ABC):
         verdict = write_authorization.authorized_execution_verdict(
             _monitor_section(), self._control_target, batch, authorization=authorization
         )
-        return None if verdict.allowed or verdict.reason == "auth_exhausted" else verdict
+        return (
+            None if verdict.allowed or verdict.reason is VerdictReason.AUTH_EXHAUSTED else verdict
+        )
 
     async def _send_batch(
         self,

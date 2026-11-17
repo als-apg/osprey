@@ -12,7 +12,7 @@ a panel's chip, the agent's hook and a refused write say the same thing:
   :func:`refusal_message` — the verdict's phrase, naming the kind of machine,
   with the detail the verdict adds (which hold was raised);
 * a refusal the connector decided names its
-  :class:`~osprey_connectors.errors.RefusalReason` and carries the connector's
+  :class:`~osprey_connectors.refusals.RefusalReason` and carries the connector's
   own words;
 * a write at the ``asked`` position that no person confirmed is refused
   ``approval_missing``, main's word for an approval that left no record;
@@ -49,7 +49,7 @@ OUTCOME_UNKNOWN = "unknown"
 REASON_SWITCHING = "switching"
 REASON_RECORD_UNAVAILABLE = "record_unavailable"
 
-#: The connector's limits refusal, as :class:`~osprey_connectors.errors.RefusalReason`
+#: The connector's limits refusal, as :class:`~osprey_connectors.refusals.RefusalReason`
 #: spells it: the net's own violation and the monitor's are one reason.
 REASON_LIMITS = "LIMITS"
 
@@ -116,9 +116,10 @@ def refusal_message(verdict: WriteVerdict) -> str:
     verdict adds, such as which hold was raised. Raises ``ValueError`` for a
     verdict that refuses nothing.
     """
+    from osprey_connectors.posture_store import Allowed
     from osprey_connectors.refusals import refusal_phrase
 
-    if verdict.allowed or verdict.reason is None:
+    if isinstance(verdict, Allowed):
         raise ValueError("not a refusal")
     phrase = refusal_phrase(verdict.reason, verdict.kind)
     return f"{phrase} {verdict.detail}" if verdict.detail else phrase

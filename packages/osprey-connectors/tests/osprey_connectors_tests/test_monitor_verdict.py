@@ -352,9 +352,7 @@ class TestTheMonitorIsTheVerdict:
     )
     def test_every_monitor_refusal_names_no_key_file_or_variable(self, reason):
         """The monitor's words are the contract's, plus the channel and the marker."""
-        verdict = posture_store.WriteVerdict(
-            allowed=False, reason=reason, target=TARGET_LIVE, kind="real"
-        )
+        verdict = posture_store.Refused(reason=reason, target=TARGET_LIVE, kind="real")
 
         result = connector_base._verdict_refusal("A:SP", 1.0, verdict, wording="script")
 

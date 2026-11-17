@@ -10,6 +10,7 @@ approval-time overlap check and the stop's revocation.
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
 import os
@@ -30,6 +31,7 @@ from osprey_connectors import control_context, posture_store, refusals, session_
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.model import evolve, parse_instant
+from osprey_connectors.posture_store import FixedCause
 from osprey_connectors.write_authorization import (
     Approver,
     AuthorizationRefusedError,
@@ -47,6 +49,7 @@ from osprey_connectors.write_authorization import (
     renew_lease,
     revoke_grants,
     self_issue,
+    spend_authorized_write,
     start_lease,
 )
 from osprey_connectors_tests._harness import (
@@ -698,10 +701,16 @@ class TestFailClosedReads:
 
 
 class TestComposition:
-    def test_a_process_naming_no_authorization_keeps_the_switch_verdict(self):
-        approve()
-        answer = authorized_execution_verdict(SECTION, TARGET, OPS, authorization=None)
-        assert (answer.reason, answer.authorization) == ("switch_off", None)
+    @pytest.mark.parametrize(
+        "composition",
+        [authorized_execution_verdict, spend_authorized_write, wa.authorized_write_verdict],
+    )
+    def test_every_composition_takes_the_authorization_it_judges(self, composition):
+        # A process naming none asks the switch verdict itself; no composition
+        # defaults the name, and none reads it from the environment.
+        parameter = inspect.signature(composition).parameters["authorization"]
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is inspect.Parameter.empty
 
     def test_the_switch_off_is_lifted_for_the_listed_channels_only(self):
         grant = approve()
@@ -758,9 +767,7 @@ class TestComposition:
 
     def test_spending_through_the_composition(self):
         grant = approve()
-        answer = authorized_execution_verdict(
-            SECTION, TARGET, OPS, authorization=grant.id, spend=True
-        )
+        answer = spend_authorized_write(SECTION, TARGET, OPS, authorization=grant.id)
         assert answer.allowed and answer.authorization == grant.id
         assert len(ledger(grant.id).steps) == 1
         assert authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id).allowed
@@ -945,7 +952,10 @@ class TestLease:
         grant = approve(lease_s=10.0)
         at(monkeypatch, now + timedelta(seconds=10))
         assert verdict(grant.id).reason == "auth_lease_lapsed"
-        assert not renew_lease(grant.id)
+        with pytest.raises(AuthorizationRefusedError) as unrenewed:
+            renew_lease(grant.id)
+        assert unrenewed.value.reason == "auth_lease_lapsed"
+        assert unrenewed.value.cause is None
         at(monkeypatch, now + TICK)
         # Even a clock that steps back finds the lease unmoved by the failed renewal.
         assert ledger(grant.id).lease_expires_at == now + timedelta(seconds=10)
@@ -957,19 +967,49 @@ class TestLease:
         payload["pid_ns"] = "pid:[0]"
         ledger_path(grant.id).write_text(json.dumps(payload))
         before = ledger_path(grant.id).read_bytes()
-        assert not renew_lease(grant.id)
+        with pytest.raises(AuthorizationRefusedError) as unrenewed:
+            renew_lease(grant.id)
+        assert unrenewed.value.reason == "auth_lease_lapsed"
+        assert unrenewed.value.cause == FixedCause(kind="lease_held_elsewhere")
         assert ledger_path(grant.id).read_bytes() == before
 
     def test_a_revoked_grant_is_not_renewed(self):
         grant = approve()
         revoke_grants(by="bob")
-        assert not renew_lease(grant.id)
+        with pytest.raises(AuthorizationRefusedError) as unrenewed:
+            renew_lease(grant.id)
+        assert unrenewed.value.reason == "auth_revoked"
+        assert unrenewed.value.cause is None
 
     def test_a_missing_ledger_is_not_renewed(self):
         grant = make_grant()
         _issue_grant(grant)
-        assert not renew_lease(grant.id)
+        with pytest.raises(AuthorizationRefusedError) as unrenewed:
+            renew_lease(grant.id)
+        assert unrenewed.value.reason == "auth_lease_lapsed"
+        assert unrenewed.value.cause == FixedCause(kind="lease_never_started")
         assert not ledger_path(grant.id).exists()
+
+    def test_an_authorization_with_no_grant_is_not_renewed_and_its_lease_lapses(self):
+        approve()
+        with pytest.raises(AuthorizationRefusedError) as unrenewed:
+            renew_lease(uuid.uuid4().hex)
+        assert unrenewed.value.reason == "auth_lease_lapsed"
+        assert unrenewed.value.cause == FixedCause(kind="no_such_authorization")
+
+    def test_a_renewal_that_fails_on_the_way_lapses_the_lease(self, monkeypatch):
+        grant = approve()
+        before = ledger_path(grant.id).read_bytes()
+
+        def unwritable(*_args, **_kwargs):
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(wa, "_write_json", unwritable)
+        with pytest.raises(AuthorizationRefusedError) as unrenewed:
+            renew_lease(grant.id)
+        assert unrenewed.value.reason == "auth_lease_lapsed"
+        assert unrenewed.value.cause == FixedCause(kind="renewal_failed")
+        assert ledger_path(grant.id).read_bytes() == before
 
 
 HOLDER = textwrap.dedent(
@@ -1123,7 +1163,10 @@ class TestStops:
         control_context.invalidate_cache()
         assert verdict(grant.id).reason == "auth_revoked"
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_revoked"
-        assert not renew_lease(grant.id)
+        with pytest.raises(AuthorizationRefusedError) as unrenewed:
+            renew_lease(grant.id)
+        assert unrenewed.value.reason == "auth_revoked"
+        assert unrenewed.value.cause is None
 
     def test_a_named_off_keeps_the_epoch_and_the_revocation_ends_it(self):
         grant = approve()
@@ -1238,16 +1281,13 @@ class TestSelfIssue:
         start_lease(grant.id)
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
         switch(gesture)
-        refused = authorized_execution_verdict(
-            SECTION, TARGET, OPS, authorization=grant.id, spend=True
-        )
+        refused = spend_authorized_write(SECTION, TARGET, OPS, authorization=grant.id)
         assert refused.reason == "auth_revoked"
         switch("allowed")
-        again = authorized_execution_verdict(
-            SECTION, TARGET, OPS, authorization=grant.id, spend=True
-        )
+        again = spend_authorized_write(SECTION, TARGET, OPS, authorization=grant.id)
         assert again.reason == after
-        assert not renew_lease(grant.id)
+        with pytest.raises(AuthorizationRefusedError):
+            renew_lease(grant.id)
         assert len(ledger(grant.id).steps) == 1
 
     def test_a_stop_of_every_machine_ends_it(self):
@@ -1559,9 +1599,7 @@ class TestTree:
         grant = self.issue(tree)
         assert wa.authorizations_dir("alice") == tree / "alice" / wa.AUTHORIZATIONS_DIR_NAME
         assert posture_store.write_verdict(self.SECTION, TARGET).reason == "switch_off"
-        answer = authorized_execution_verdict(
-            self.SECTION, TARGET, OPS, authorization=grant.id, spend=True
-        )
+        answer = spend_authorized_write(self.SECTION, TARGET, OPS, authorization=grant.id)
         assert answer.allowed
         assert len(ledger(grant.id).steps) == 1
 

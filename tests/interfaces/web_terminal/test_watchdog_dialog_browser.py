@@ -99,14 +99,17 @@ def _session_key(page: Page) -> str:
 
 def _open_flag(root: Path, key: str, name: str, *, reason: str = "it moves a magnet") -> str:
     flag_id = f"flag-{name}"
-    assert session_hold.open_flag(
-        key,
-        flag_id=flag_id,
-        source=name,
-        reason=reason,
-        prompt_ref=f"ref-{name}",
-        prompt_excerpt=f"prompt seen by {name}",
-        root=root,
+    assert (
+        session_hold.open_flag(
+            key,
+            flag_id=flag_id,
+            source=name,
+            reason=reason,
+            prompt_ref=f"ref-{name}",
+            prompt_excerpt=f"prompt seen by {name}",
+            root=root,
+        )
+        == "opened"
     )
     return flag_id
 

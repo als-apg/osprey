@@ -26,8 +26,8 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
     LimitsViolation,
-    RefusalReason,
 )
+from osprey_connectors.refusals import RefusalReason
 
 # ---------------------------------------------------------------------------
 # pin_verdict

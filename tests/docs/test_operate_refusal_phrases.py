@@ -26,6 +26,12 @@ import pytest
 from osprey_connectors import refusals
 from tests._by_path import load_module
 
+
+def _package_phrases() -> dict[str, str]:
+    """The package's phrase table: each reason's word and its phrase, in order."""
+    return {reason.value: reason.phrase for reason in refusals.VerdictReason}
+
+
 _REPO = Path(__file__).resolve().parents[2]
 _PAGE = _REPO / "docs" / "source" / "how-to" / "web-terminal" / "operate.rst"
 _HOOK = _REPO / "src/osprey/templates/claude_code/claude/hooks/osprey_target_state.py"
@@ -112,12 +118,12 @@ def _table_phrases() -> list[str]:
 
 @pytest.mark.parametrize("phrase", _table_phrases())
 def test_each_table_phrase_is_part_of_a_contract_phrase(phrase: str, hook: ModuleType) -> None:
-    assert reasons_for(phrase, refusals._PHRASES), f"not in refusals._PHRASES: {phrase!r}"
+    assert reasons_for(phrase, _package_phrases()), f"not in refusals' phrases: {phrase!r}"
     assert reasons_for(phrase, hook._PHRASES), f"not in the hook twin's _PHRASES: {phrase!r}"
 
 
 def test_every_lock_reason_is_in_the_table() -> None:
-    covered = set().union(*(reasons_for(p, refusals._PHRASES) for p in _table_phrases()))
+    covered = set().union(*(reasons_for(p, _package_phrases()) for p in _table_phrases()))
     missing = set(refusals.REASONS) - covered - set(NOT_IN_TABLE)
     assert not missing, f"lock reasons the operate table does not list: {sorted(missing)}"
 
@@ -125,7 +131,7 @@ def test_every_lock_reason_is_in_the_table() -> None:
 def test_exclusions_are_live() -> None:
     stale = set(NOT_IN_TABLE) - set(refusals.REASONS)
     assert not stale, f"NOT_IN_TABLE names reasons the contract no longer has: {sorted(stale)}"
-    listed = set().union(*(reasons_for(p, refusals._PHRASES) for p in _table_phrases()))
+    listed = set().union(*(reasons_for(p, _package_phrases()) for p in _table_phrases()))
     both = listed & set(NOT_IN_TABLE)
     assert not both, f"NOT_IN_TABLE names reasons the table does list: {sorted(both)}"
 
@@ -135,7 +141,7 @@ def test_quoted_refusals_are_whole_phrases_with_a_known_machine() -> None:
     quotes = _QUOTED_REFUSAL.findall(text)
     assert quotes, "the page no longer quotes a whole refusal"
     for quote in quotes:
-        assert exact_reason(quote, refusals._PHRASES, refusals.KIND_WORDS), (
+        assert exact_reason(quote, _package_phrases(), refusals.KIND_WORDS), (
             f"quoted refusal is not a contract phrase with a known machine suffix: {quote!r}"
         )
 
@@ -149,7 +155,7 @@ def test_suffix_examples_name_a_known_machine() -> None:
 
 
 def test_negative_controls() -> None:
-    phrases = refusals._PHRASES
+    phrases = _package_phrases()
     kinds = refusals.KIND_WORDS
     # A reworded table phrase matches no reason.
     assert not reasons_for("the deployment is running read only", phrases)

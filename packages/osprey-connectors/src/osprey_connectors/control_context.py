@@ -172,7 +172,7 @@ from osprey_connectors.model import (
     parse_instant,
 )
 from osprey_connectors.posture_store import ArmedPosition, Posture, SwitchPosition
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import VerdictReason, refusal_phrase
 from osprey_connectors.safety_file import (
     SHARED_FILE_MODE,
     SHARED_LOCK_MODE,
@@ -959,14 +959,14 @@ class StoppedSinceError(ConnectorsError):
             ``None`` when there is no usable record to retry against.
         stamped: ``True`` only when this refusal just stamped an epoch on an
             epoch-less record — nothing was stopped, so a retry is safe.
-        reason: Always ``"stopped_since"``, a member of
-            :data:`osprey_connectors.refusals.REASONS`.
+        reason: Always
+            :attr:`~osprey_connectors.refusals.VerdictReason.STOPPED_SINCE`.
     """
 
     def __init__(self, *, epoch: int | None, stamped: bool = False) -> None:
         self.epoch = epoch
         self.stamped = stamped
-        self.reason = "stopped_since"
+        self.reason: Literal[VerdictReason.STOPPED_SINCE] = VerdictReason.STOPPED_SINCE
         super().__init__(refusal_phrase(self.reason))
 
 
