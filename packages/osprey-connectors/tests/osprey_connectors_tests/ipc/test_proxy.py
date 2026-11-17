@@ -39,16 +39,18 @@ from osprey_connectors.errors import (
     ChannelUnreachableError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    ChildLinkError,
     ConnectorInternalError,
     LimitsViolation,
 )
 from osprey_connectors.ipc import _frames as frames
+from osprey_connectors.ipc._exceptions import encode_exception
 from osprey_connectors.ipc._pool import PooledConnector
 from osprey_connectors.ipc._proxy import (
     CHILD,
+    ChildLostError,
     ChildUnresponsiveError,
     ConnectorHostProxy,
-    raised_by_child,
 )
 from osprey_connectors_tests._paths import PACKAGE_SRC
 
@@ -96,7 +98,7 @@ class _FakeChild:
         self._writer.write(frames.encode_result(request_id, value))
 
     def send_error(self, request_id, exc):
-        self._writer.write(frames.encode_error(request_id, exc))
+        self._writer.write(frames.encode_error(request_id, encode_exception(exc)))
 
     async def die(self):
         """Close the pipe without answering — the child crashing, from outside."""
@@ -175,8 +177,11 @@ async def test_a_reply_of_the_wrong_type_is_refused(teardown):
     proxy, child = await _proxy_with_child(_echo_handler([1.25]))
     teardown.append((proxy, child))
 
-    with pytest.raises(frames.FrameDecodeError, match="'read_channel'"):
+    # A connector bug, as an unrebuildable reply is: one call fails, the proxy stays up.
+    with pytest.raises(ConnectorInternalError, match="'read_channel'") as caught:
         await proxy.read_channel("SR:BEND:1:CUR")
+    assert caught.value.class_tag == "float"
+    assert proxy.dead_reason is None
 
 
 async def test_ndarray_payload_decodes_to_numpy_with_dtype_and_shape(teardown):
@@ -235,7 +240,7 @@ async def test_read_multiple_channels_answered_with_a_mapping_is_a_decode_error(
     proxy, child = await _proxy_with_child(_echo_handler([{"SR:A": _channel_value(1.0)}]))
     teardown.append((proxy, child))
 
-    with pytest.raises(frames.FrameDecodeError):
+    with pytest.raises(ConnectorInternalError, match="'read_multiple_channels'"):
         await proxy.read_multiple_channels(["SR:A"])
 
 
@@ -561,7 +566,7 @@ async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
     # Exactly the child's TimeoutError, not re-wrapped: ChildUnresponsiveError
     # is a TimeoutError too, so the raises() above cannot tell them apart.
     assert type(caught.value) is TimeoutError
-    assert raised_by_child(caught.value)
+    assert not isinstance(caught.value, ChildLinkError)
     assert "SR:GONE did not respond" in str(caught.value)
 
 
@@ -662,7 +667,7 @@ async def test_write_channel_checked_raises_a_limits_refusal_with_its_violation(
     assert caught.value.violation == violation
 
 
-async def test_an_error_the_child_sent_is_marked_as_the_childs(teardown):
+async def test_an_error_the_child_sent_is_no_link_error(teardown):
     async def handler(child, frame):
         child.send_error(frame.request_id, ConnectionError("SR:GONE is unreachable"))
 
@@ -671,7 +676,8 @@ async def test_an_error_the_child_sent_is_marked_as_the_childs(teardown):
 
     with pytest.raises(ConnectionError) as caught:
         await proxy.read_channel("SR:GONE", timeout_s=2.0)
-    assert raised_by_child(caught.value)
+    assert type(caught.value) is ConnectionError
+    assert not isinstance(caught.value, ChildLinkError)
     assert proxy.dead_reason is None
 
 
@@ -701,7 +707,7 @@ async def test_a_dead_pipe_sets_dead_reason_and_is_not_the_childs_error(teardown
     await child.die()
     with pytest.raises(ConnectionError) as caught:
         await proxy.read_channel("SR:DCCT", timeout_s=2.0)
-    assert not raised_by_child(caught.value)
+    assert type(caught.value) is ChildLostError
     assert proxy.dead_reason and CHILD in proxy.dead_reason
 
 
@@ -722,7 +728,7 @@ async def test_a_reset_pipe_is_attributed_to_the_child():
     finally:
         await proxy.disconnect(ack_timeout_s=0.05)
         child_sock.close()
-    assert not raised_by_child(caught.value)
+    assert type(caught.value) is ChildLostError
     assert CHILD in str(caught.value) and "Connection reset by peer" in str(caught.value)
 
 

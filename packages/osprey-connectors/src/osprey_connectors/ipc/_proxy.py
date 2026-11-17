@@ -54,16 +54,23 @@ Failure is fail-closed
 ----------------------
 EOF on the pipe, a stream that will not decode, or the reader task dying for
 any other reason ends the proxy: every outstanding call completes with a
-:class:`ConnectionError` naming the connector-host child as the cause, and
+:class:`ChildLostError` naming the connector-host child as the cause, and
 every later call raises the same. A dead proxy never revives — starting a
 fresh child and a fresh proxy is the supervisor's job, not this object's.
-:attr:`ConnectorHostProxy.dead_reason` says whether that has happened, which
-is how a supervisor tells a dead child from a connection failure the connector
-itself raised and the child relayed.
+:attr:`ConnectorHostProxy.dead_reason` says whether that has happened.
 
-A well-framed reply whose value cannot be rebuilt is not a broken stream: that
-one call fails with a :class:`~osprey_connectors.errors.ConnectorInternalError`
-and the proxy stays up.
+Where a failure came from is its class. :class:`ChildLostError` and
+:class:`ChildUnresponsiveError` are made here, by the link, and are
+:class:`~osprey_connectors.errors.ChildLinkError` s; every other exception a
+call raises is the one the child sent, rebuilt from its error frame. That is
+how a supervisor tells a dead child from a connection failure the connector
+itself raised and the child relayed, without asking the proxy what state it
+is in when the caller happens to resume.
+
+A well-framed reply whose value cannot be rebuilt, or whose type is not the
+call's, is not a broken stream: that one call fails with a
+:class:`~osprey_connectors.errors.ConnectorInternalError` and the proxy stays
+up.
 
 A call the child does not answer in time fails with
 :class:`ChildUnresponsiveError` — a :class:`TimeoutError`, because that is what
@@ -87,7 +94,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system._base import (
@@ -96,11 +103,18 @@ from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     raise_for_write_result,
 )
-from osprey_connectors.errors import ConnectorsError
+from osprey_connectors.errors import (
+    ChildLinkError,
+    ConnectorInternalError,
+    ConnectorUnavailableError,
+)
 from osprey_connectors.ipc import _frames as frames
-from osprey_connectors.recovery import _RAISED_BY_CHILD
+from osprey_connectors.ipc._exceptions import decode_exception
 
-__all__ = ["CHILD", "ChildUnresponsiveError", "ConnectorHostProxy", "raised_by_child"]
+if TYPE_CHECKING:
+    from osprey_connectors.ipc._host import HostMethod, ProxyMethod, SupervisorMethod
+
+__all__ = ["CHILD", "ChildLostError", "ChildUnresponsiveError", "ConnectorHostProxy"]
 
 # Named for the public namespace, not this private module, so a logging config
 # keyed on the name keeps matching whatever the module is called.
@@ -134,30 +148,23 @@ class _Writer(Protocol):
     def close(self) -> object: ...
 
 
-def _unexpected(reply: object, method: str) -> frames.FrameDecodeError:
-    """The decode error for a reply whose type does not match ``method``'s result."""
-    return frames.FrameDecodeError(f"the {CHILD} answered {method!r} with a {type(reply).__name__}")
+def _unexpected(reply: object, method: ProxyMethod) -> ConnectorInternalError:
+    """The failure of a call whose reply is not the type ``method``'s result is.
+
+    The same class as a reply value the codec could not rebuild: the child
+    answered, outside the contract, and nothing about the link is implied.
+    """
+    return ConnectorInternalError(
+        f"the {CHILD} answered {method!r} with a {type(reply).__name__}",
+        class_tag=type(reply).__name__,
+    )
 
 
-def _expect(reply: object, kind: type[_T], method: str) -> _T:
-    """Return ``reply`` when it is a ``kind``; otherwise raise a decode error."""
+def _expect(reply: object, kind: type[_T], method: ProxyMethod) -> _T:
+    """Return ``reply`` when it is a ``kind``; otherwise raise :func:`_unexpected`'s error."""
     if not isinstance(reply, kind):
         raise _unexpected(reply, method)
     return reply
-
-
-def raised_by_child(exc: BaseException) -> bool:
-    """Whether *exc* is an error the child sent, rather than one this proxy made.
-
-    A :class:`ConnectionError` can come from two places: the connector in a
-    child that answered says it lost its own transport, or the child itself is
-    gone. The first arrives in an error frame and is marked here as it is
-    decoded; the second is manufactured by this proxy when the pipe ends. A
-    supervisor classifies by this mark, never by whatever state the proxy is
-    in when the caller happens to resume. A failure about one channel is no
-    :class:`ConnectionError` at all.
-    """
-    return bool(getattr(exc, _RAISED_BY_CHILD, False))
 
 
 def _consume_exception(future: asyncio.Future[object]) -> None:
@@ -173,12 +180,25 @@ def _consume_exception(future: asyncio.Future[object]) -> None:
         future.exception()
 
 
-class ChildUnresponsiveError(ConnectorsError, TimeoutError):
+class ChildUnresponsiveError(ChildLinkError, TimeoutError):
     """The child did not answer a request before the proxy's own deadline.
 
     Distinct from a :class:`TimeoutError` the child reported — that one means
     the control-system call timed out in a child that is still answering. This
-    one means the child itself said nothing in time, so it may be wedged.
+    one means the child itself said nothing in time, so it may be wedged. It is
+    no :class:`ConnectionError`: a slow child is not a lost one.
+    """
+
+
+class ChildLostError(ChildLinkError, ConnectorUnavailableError):
+    """The pipe to the child is gone, or this proxy refuses new calls.
+
+    Raised by this proxy alone, never sent by the child: when the child's
+    output stream ends or will not decode, when a write to it fails, and for
+    every call after that or after :meth:`ConnectorHostProxy.refuse_new_requests`
+    or :meth:`ConnectorHostProxy.disconnect`. A
+    :class:`~osprey_connectors.errors.ConnectorUnavailableError`, and so a
+    :class:`ConnectionError`: the connector behind this proxy is gone.
     """
 
 
@@ -404,7 +424,7 @@ class ConnectorHostProxy:
     # ------------------------------------------------------------------
 
     async def supervisor_request(
-        self, method: str, kwargs: Mapping[str, object], *, timeout_s: float
+        self, method: SupervisorMethod, kwargs: Mapping[str, object], *, timeout_s: float
     ) -> object:
         """Send one supervisor request (``init``, ``ping``) and await its reply.
 
@@ -412,10 +432,9 @@ class ConnectorHostProxy:
         over this proxy's pipes, or asks whether it is still alive, uses this,
         so the reply is demultiplexed and its error decoded by the same
         plumbing every other call uses. A typed error frame is raised as its
-        real class (and :func:`raised_by_child` says so); a child that dies
-        before answering fails the call with a ``ConnectionError`` this proxy
-        made; no answer within ``timeout_s`` plus the grace raises
-        :class:`ChildUnresponsiveError`.
+        real class; a child that dies before answering fails the call with a
+        :class:`ChildLostError`; no answer within ``timeout_s`` plus the grace
+        raises :class:`ChildUnresponsiveError`.
         """
         return await self._call(method, kwargs, timeout_s=timeout_s)
 
@@ -426,7 +445,7 @@ class ConnectorHostProxy:
     def refuse_new_requests(self, reason: str) -> None:
         """Stop accepting new calls; let the in-flight ones finish.
 
-        ``reason`` is what a caller sees in the :class:`ConnectionError` raised
+        ``reason`` is what a caller sees in the :class:`ChildLostError` raised
         by any later call, so it should say what is happening ("target switch
         in progress"), not merely that something is closed. Calling this twice
         keeps the first reason — the first one explains the decision.
@@ -460,7 +479,7 @@ class ConnectorHostProxy:
     # ------------------------------------------------------------------
 
     async def _call(
-        self, method: str, kwargs: Mapping[str, object], timeout_s: float | None
+        self, method: HostMethod, kwargs: Mapping[str, object], timeout_s: float | None
     ) -> object:
         """Send one request and await its reply."""
         self._raise_if_unusable()
@@ -475,7 +494,7 @@ class ConnectorHostProxy:
             self._pending.pop(request_id, None)
 
     async def _await_reply(
-        self, future: asyncio.Future[object], method: str, timeout_s: float | None
+        self, future: asyncio.Future[object], method: HostMethod, timeout_s: float | None
     ) -> object:
         if timeout_s is not None:
             wait_s = timeout_s + max(self._timeout_grace_s, 0.0)
@@ -505,13 +524,13 @@ class ConnectorHostProxy:
         except (OSError, RuntimeError, AttributeError, ConnectionError) as exc:
             reason = f"writing to the {CHILD} failed: {exc}"
             await self._shutdown(reason)
-            raise ConnectionError(reason) from exc
+            raise ChildLostError(reason) from exc
 
     def _raise_if_unusable(self) -> None:
         if self._dead_reason is not None:
-            raise ConnectionError(self._dead_reason)
+            raise ChildLostError(self._dead_reason)
         if self._refusal is not None:
-            raise ConnectionError(self._refusal)
+            raise ChildLostError(self._refusal)
 
     def _ensure_reader_task(self) -> None:
         if self._reader_task is None or self._reader_task.done():
@@ -561,13 +580,10 @@ class ConnectorHostProxy:
             logger.debug("discarding unmatched reply for request %s", frame.request_id)
             return
         if isinstance(frame, frames.ErrorFrame):
-            # decode_frame already ran the typed-exception registry, so this is
-            # the real class with its fields, or a ConnectorInternalError
+            # The real class with its fields, or a ConnectorInternalError
             # standing in for a class this build does not know or a reply value
-            # it could not rebuild.
-            exception = frame.exception
-            setattr(exception, _RAISED_BY_CHILD, True)
-            future.set_exception(exception)
+            # it could not rebuild. Never a ChildLinkError: none is registered.
+            future.set_exception(decode_exception(frame.error))
         else:
             future.set_result(frame.value)
 
@@ -577,7 +593,7 @@ class ConnectorHostProxy:
             self._dead_reason = reason
         for future in list(self._pending.values()):
             if not future.done():
-                future.set_exception(ConnectionError(self._dead_reason))
+                future.set_exception(ChildLostError(self._dead_reason))
 
     async def _shutdown(self, reason: str) -> None:
         await self._fail_all(reason)

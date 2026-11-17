@@ -81,6 +81,7 @@ def test_every_public_exception_has_the_one_base_and_an_error_name():
         ("osprey_connectors.errors.AlreadyApprovedError", FileExistsError),
         ("osprey_connectors.settle.SettleTimeoutError", TimeoutError),
         ("osprey_connectors.ipc._proxy.ChildUnresponsiveError", TimeoutError),
+        ("osprey_connectors.ipc._proxy.ChildLostError", ConnectionError),
         ("osprey_connectors.ipc._pool.ConnectorHostSlowCallError", TimeoutError),
         ("osprey_connectors.ipc._pool.ConnectorHostUnresponsiveError", TimeoutError),
         ("osprey_connectors.ipc._frames.FrameDecodeError", ValueError),
@@ -104,10 +105,16 @@ def test_the_bases_that_must_stay_apart_do():
     assert not issubclass(ConnectorInternalError, OSError)
     # A policy refusal of connect() is not a lost connector.
     assert not issubclass(ConnectRefusedError, ConnectorUnavailableError)
-    # A slow call is never a lost connection.
-    assert not issubclass(
-        exceptions["osprey_connectors.ipc._pool.ConnectorHostSlowCallError"], ConnectionError
-    )
+    # A slow call is never a lost connection, and the link base is neither.
+    link = exceptions["osprey_connectors.errors.ChildLinkError"]
+    for slow in ("ipc._pool.ConnectorHostSlowCallError", "ipc._proxy.ChildUnresponsiveError"):
+        cls = exceptions[f"osprey_connectors.{slow}"]
+        assert issubclass(cls, link)
+        assert not issubclass(cls, (ConnectionError, ConnectorUnavailableError))
+    assert not issubclass(link, (ConnectionError, TimeoutError))
+    lost = exceptions["osprey_connectors.ipc._proxy.ChildLostError"]
+    assert issubclass(lost, link)
+    assert issubclass(lost, ConnectorUnavailableError)
 
 
 def test_the_write_path_errors_carry_their_context(tmp_path):

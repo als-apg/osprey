@@ -96,6 +96,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.ipc.ConnectorHostError": "a caller catches every host failure by its base",
     "osprey_connectors.ipc.ConnectorHostLostError": "a caller tells a lost host from the others",
+    "osprey_connectors.ipc.ConnectorHostSlowCallError": (
+        "a caller tells a slow call on a kept host from a lost host"
+    ),
     "osprey_connectors.ipc.ConnectorHostStartError": (
         "a caller tells a failed start from the others"
     ),
@@ -110,11 +113,12 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.ipc.GATEWAYS_ROWS": (
         "a caller names the verdict that a target declares gateway rows"
     ),
+    "osprey_connectors.ipc.HostKey": "the pool names each of its children by this type",
     "osprey_connectors.ipc.LiveCollision": "a live-collision check answers in this type",
     "osprey_connectors.ipc.PooledConnector": (
         "the pool hands every caller its connector in this type"
     ),
-    "osprey_connectors.ipc.READONLY": "a caller asks the pool for a readonly child by this value",
+    "osprey_connectors.ipc.StartMark": "a failed start reports how far its child got in this type",
     "osprey_connectors.limits_posture.LIMITS_MODE_EXCLUSIVE": (
         "a word of the limits-mode vocabulary a config states"
     ),

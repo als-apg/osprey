@@ -51,6 +51,17 @@ def _round_trip(payload: bytes):
     return decoded[0]
 
 
+def _raised(frame) -> BaseException:
+    """The exception the parent raises for an error frame."""
+    assert isinstance(frame, frames.ErrorFrame)
+    return exceptions.decode_exception(frame.error)
+
+
+def _error(request_id: str, exc: BaseException) -> bytes:
+    """An error frame for *exc*, as the child writes one."""
+    return frames.encode_error(request_id, exceptions.encode_exception(exc))
+
+
 # ---------------------------------------------------------------- requests
 
 
@@ -544,8 +555,9 @@ def test_a_model_reply_its_class_refuses_fails_only_that_call():
 
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.request_id == "req-bad"
-    assert frame.class_tag == "ChannelMetadata"
-    assert type(frame.exception) is ConnectorInternalError
+    assert frame.error.class_tag == "ConnectorInternalError"
+    assert frame.error.fields == {"class_tag": "ChannelMetadata"}
+    assert type(_raised(frame)) is ConnectorInternalError
     assert next_frame == frames.ResultFrame(request_id="req-next", value=2)
 
 
@@ -561,8 +573,8 @@ def test_a_reading_stamped_with_no_zone_fails_only_that_call():
     (frame,) = reader.feed(refused)
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert frame.class_tag == "ChannelValue"
-    assert type(frame.exception) is ConnectorInternalError
+    assert frame.error.fields == {"class_tag": "ChannelValue"}
+    assert type(_raised(frame)) is ConnectorInternalError
 
 
 def test_the_request_an_undecodable_frame_names_is_read_back():
@@ -625,42 +637,50 @@ TYPED_EXCEPTIONS = [
 
 @pytest.mark.parametrize("original", TYPED_EXCEPTIONS)
 def test_a_typed_exception_round_trips_with_every_spec_field(original):
-    frame = _round_trip(frames.encode_error("req-e", original))
+    frame = _round_trip(_error("req-e", original))
 
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.request_id == "req-e"
-    assert frame.class_tag == type(original).__name__
-    assert type(frame.exception) is type(original)
+    assert frame.error.class_tag == type(original).__name__
+    rebuilt = _raised(frame)
+    assert type(rebuilt) is type(original)
     # The operator-facing message is re-rendered (or carried) intact.
-    assert str(frame.exception) == str(original)
-    assert exceptions.exception_fields(frame.exception) == exceptions.exception_fields(original)
+    assert str(rebuilt) == str(original)
+    assert exceptions.encode_exception(rebuilt) == exceptions.encode_exception(original)
 
 
 def test_a_vocabulary_subclass_is_tagged_as_its_registered_ancestor():
-    # No host in between: the codec itself names the class the far side rebuilds.
+    # No host in between: the one encoder names the class the far side rebuilds.
     class _Mine(ChannelUnreachableError):
         pass
 
-    frame = _round_trip(frames.encode_error("req-s", _Mine("SR:Q", "SR:Q went quiet")))
+    frame = _round_trip(_error("req-s", _Mine("SR:Q", "SR:Q went quiet")))
+    rebuilt = _raised(frame)
 
-    assert frame.class_tag == "ChannelUnreachableError"
-    assert type(frame.exception) is ChannelUnreachableError
-    assert frame.exception.address == "SR:Q"
-    assert str(frame.exception) == "SR:Q went quiet"
+    assert frame.error.class_tag == "ChannelUnreachableError"
+    assert type(rebuilt) is ChannelUnreachableError
+    assert rebuilt.address == "SR:Q"
+    assert str(rebuilt) == "SR:Q went quiet"
 
 
 def test_unknown_class_tag_fails_closed_to_the_contract_fault():
-    class SomeChildOnlyError(Exception):
-        pass
+    # A tag this build does not register, as a child of another build could send.
+    body = exceptions.ExceptionFrameBody(class_tag="SomeChildOnlyError", message="libca segfaulted")
 
-    frame = _round_trip(frames.encode_error("req-u", SomeChildOnlyError("libca segfaulted")))
+    frame = _round_trip(frames.encode_error("req-u", body))
+    rebuilt = _raised(frame)
 
-    assert frame.class_tag == "SomeChildOnlyError"
-    assert type(frame.exception) is ConnectorInternalError
-    assert frame.exception.class_tag == "SomeChildOnlyError"
+    assert frame.error == body
+    assert type(rebuilt) is ConnectorInternalError
+    assert rebuilt.class_tag == "SomeChildOnlyError"
     # Fail closed, but never silently: the original tag and message both survive.
-    assert "SomeChildOnlyError" in str(frame.exception)
-    assert "libca segfaulted" in str(frame.exception)
+    assert "SomeChildOnlyError" in str(rebuilt)
+    assert "libca segfaulted" in str(rebuilt)
+
+
+def test_an_error_frame_holds_the_body_it_carried_and_no_live_exception():
+    assert set(frames.ErrorFrame.model_fields) == {"request_id", "error"}
+    assert not frames.ErrorFrame.model_config.get("arbitrary_types_allowed")
 
 
 # ---------------------------------------------------------------- stream reader
@@ -982,10 +1002,12 @@ def test_a_reply_the_parent_cannot_rebuild_fails_only_that_call(value, class_tag
 
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.request_id == "req-bad"
-    assert frame.class_tag == class_tag
-    assert type(frame.exception) is ConnectorInternalError
-    assert frame.exception.class_tag == class_tag
-    assert class_tag in str(frame.exception)
+    assert frame.error.class_tag == "ConnectorInternalError"
+    assert frame.error.fields == {"class_tag": class_tag}
+    rebuilt = _raised(frame)
+    assert type(rebuilt) is ConnectorInternalError
+    assert rebuilt.class_tag == class_tag
+    assert class_tag in str(rebuilt)
     # The stream is intact: the next reply decodes as sent.
     assert next_frame == frames.ResultFrame(request_id="req-next", value=2)
 

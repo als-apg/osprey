@@ -37,6 +37,7 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
 )
 from osprey_connectors.errors import ChannelWriteBlockedError
+from osprey_connectors.ipc import HostKey
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.targets import baseline_target, configured_targets, resolve_target
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
@@ -815,7 +816,7 @@ class TestRealChildren:
 
             assert second_pid is not None and second_pid != first_pid
             assert not pid_alive(first_pid)
-            assert list(pool.pids()) == [("live", None)]
+            assert list(pool.pids()) == [HostKey(target="live")]
         finally:
             asyncio.run(runtime.cleanup_runtime())
 
@@ -842,7 +843,7 @@ class TestRealChildren:
             value = inside_a_running_loop(lambda: runtime.read_channel("SR:DCCT", timeout=10))
             assert value is not None
             pool = runtime._connector_pool
-            assert list(pool.pids()) == [("va", None)]
+            assert list(pool.pids()) == [HostKey(target="va")]
             pid = runtime._runtime_connector.pid
         finally:
             asyncio.run(runtime.cleanup_runtime())

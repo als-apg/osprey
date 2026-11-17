@@ -53,6 +53,7 @@ from osprey_connectors.control_system._va_in_process_connector import VAInProces
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc import _host as host
+from osprey_connectors.ipc._exceptions import decode_exception
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
@@ -345,8 +346,11 @@ def test_a_first_frame_that_is_not_init_fails_the_launch(child):
     frame = child.call("read_channel", address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert isinstance(frame.exception, ConnectionError)
-    assert "init" in frame.message
+    # A protocol violation is a bug in the sender, not a reachability answer.
+    assert isinstance(decode_exception(frame.error), ConnectorInternalError)
+    assert not isinstance(decode_exception(frame.error), ConnectionError)
+    assert frame.error.fields == {"class_tag": "RequestFrame"}
+    assert "init" in frame.error.message
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
 
@@ -356,9 +360,9 @@ def test_an_unresolvable_target_fails_the_launch_with_a_typed_error(child):
     assert isinstance(frame, frames.ErrorFrame)
     # ValueError is outside the typed registry, so it fails closed to the
     # contract fault carrying what the child actually reported.
-    assert isinstance(frame.exception, ConnectorInternalError)
-    assert frame.exception.class_tag == "ValueError"
-    assert "somewhere" in frame.message
+    assert isinstance(decode_exception(frame.error), ConnectorInternalError)
+    assert decode_exception(frame.error).class_tag == "ValueError"
+    assert "somewhere" in frame.error.message
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
 
@@ -366,8 +370,8 @@ def test_an_init_whose_control_system_is_not_a_mapping_fails_the_launch(child):
     frame = child.init(control_system=["type", IN_PROCESS_TYPE])
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert isinstance(frame.exception, ConnectorInternalError)
-    assert "'control_system' must be the config section dict" in frame.message
+    assert isinstance(decode_exception(frame.error), ConnectorInternalError)
+    assert "'control_system' must be the config section dict" in frame.error.message
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
 
@@ -511,13 +515,13 @@ def test_a_probe_that_exceeds_its_bound_fails_typed_and_the_child_keeps_serving(
     frame = ready_child.call("spawn_probe", address="SR:BEAM:CURRENT", timeout_s=0.001)
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert frame.class_tag == "TimeoutError"
-    assert isinstance(frame.exception, TimeoutError)
+    assert frame.error.class_tag == "TimeoutError"
+    assert isinstance(decode_exception(frame.error), TimeoutError)
     # asyncio.wait_for raises a bare TimeoutError, and the switch refusal built
     # from it is only as informative as this message: it has to name the
     # channel that would not answer.
-    assert "SR:BEAM:CURRENT" in frame.message
-    assert "0.001" in frame.message
+    assert "SR:BEAM:CURRENT" in frame.error.message
+    assert "0.001" in frame.error.message
 
     # A failed probe means the switch does not happen; it does not mean this
     # child is finished.
@@ -532,7 +536,7 @@ def test_a_probe_with_a_bound_that_is_not_positive_is_refused_and_the_child_keep
     frame = ready_child.call("spawn_probe", address="SR:BEAM:CURRENT", timeout_s=bound)
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert f"spawn_probe timeout_s must be positive, got {bound!r}" in frame.message
+    assert f"spawn_probe timeout_s must be positive, got {bound!r}" in frame.error.message
 
     follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
@@ -552,8 +556,8 @@ def test_an_unknown_method_is_refused_without_killing_the_child(ready_child):
     frame = ready_child.call("subscribe", address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ErrorFrame)
-    assert isinstance(frame.exception, ConnectorInternalError)
-    assert "subscribe" in frame.message
+    assert isinstance(decode_exception(frame.error), ConnectorInternalError)
+    assert "subscribe" in frame.error.message
 
     follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
@@ -595,7 +599,7 @@ def test_a_request_that_does_not_decode_is_refused_without_killing_the_child(
     frame = ready_child.next_frame()
     assert isinstance(frame, frames.ErrorFrame)
     assert frame.request_id == "req-undecodable"
-    assert isinstance(frame.exception, ConnectorInternalError)
+    assert isinstance(decode_exception(frame.error), ConnectorInternalError)
 
     follow_up = ready_child.call("read_channel", address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
@@ -624,7 +628,7 @@ def test_frames_behind_an_undecodable_one_in_the_same_write_are_served(ready_chi
 
 
 def test_an_init_frame_that_does_not_decode_fails_the_launch(child):
-    _send_raw(child, _raw_request("req-init", host.INIT_METHOD, {frames._TAG: "Bogus"}))
+    _send_raw(child, _raw_request("req-init", "init", {frames._TAG: "Bogus"}))
 
     frame = child.next_frame()
     assert isinstance(frame, frames.ErrorFrame)

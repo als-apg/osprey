@@ -17,6 +17,7 @@ crosses the pipe, not what one helper happens to build.
 
 import asyncio
 from datetime import UTC, datetime
+from typing import get_args
 
 import numpy as np
 import pytest
@@ -304,7 +305,7 @@ def test_every_record_a_frame_carries_has_a_pinned_result():
 
 def test_every_method_the_child_serves_has_a_pinned_request():
     methods = {name.partition("/")[0] for name in _REQUESTS} | {"disconnect"}
-    assert methods == {*_host.PROXY_METHODS, _host.INIT_METHOD, "ping", "spawn_probe"}
+    assert methods == {*get_args(_host.ProxyMethod), *get_args(_host.SupervisorMethod)}
 
 
 @pytest.mark.parametrize("name", list(_REQUESTS))

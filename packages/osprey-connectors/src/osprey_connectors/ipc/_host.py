@@ -214,7 +214,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, SupportsFloat, TypedDict, g
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR, READONLY_MODE, is_readonly_run
 from osprey_connectors.ipc import _frames as frames
-from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
+from osprey_connectors.ipc._exceptions import encode_exception
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping
@@ -225,11 +225,14 @@ __all__ = [
     "EXIT_INIT_FAILED",
     "EXIT_OK",
     "EXIT_ORPHANED",
-    "INIT_METHOD",
     "PROXY_METHODS",
     "START_MARKS_FD_ENV",
     "START_PHASES",
+    "WRITE_METHODS",
+    "HostMethod",
+    "ProxyMethod",
     "StartPhase",
+    "SupervisorMethod",
     "main",
     "scrub_epics_env",
 ]
@@ -244,9 +247,6 @@ EXIT_INIT_FAILED = 2
 #: The watchdog found the process reparented: the parent PID differs from the
 #: one recorded at start (init or a subreaper), so the parent is gone.
 EXIT_ORPHANED = 3
-
-#: Method name of the configuration frame, which must arrive first.
-INIT_METHOD = "init"
 
 #: Names the inherited descriptor a child writes its start marks to.
 START_MARKS_FD_ENV = "OSPREY_CONNECTOR_HOST_START_MARKS_FD"
@@ -290,16 +290,29 @@ class _StartMarks:
             self._fd = None
 
 
-#: Connector methods forwarded verbatim. ``spawn_probe`` is served separately
-#: because it is this module's own method, not the connector's.
-PROXY_METHODS = (
+#: A connector method the child serves for the proxy, forwarded verbatim.
+ProxyMethod = Literal[
     "read_channel",
     "read_multiple_channels",
     "write_channel",
     "write_multiple_channels",
     "validate_channel",
     "disconnect",
-)
+]
+
+#: A method of the child's own that a supervisor calls: ``init`` (the
+#: configuration frame, which must arrive first), ``ping`` and ``spawn_probe``.
+SupervisorMethod = Literal["init", "ping", "spawn_probe"]
+
+#: Every method word a request frame may carry.
+HostMethod = ProxyMethod | SupervisorMethod
+
+#: The connector methods the child forwards, in the order its refusal lists them.
+PROXY_METHODS: tuple[ProxyMethod, ...] = get_args(ProxyMethod)
+
+#: The connector methods that can move the machine. ``write_channel_checked``
+#: is composed from ``write_channel`` in the parent, so it is that one call.
+WRITE_METHODS: frozenset[ProxyMethod] = frozenset({"write_channel", "write_multiple_channels"})
 
 #: Every inherited variable with one of these prefixes is dropped at startup.
 EPICS_ENV_PREFIXES = ("EPICS_CA_", "EPICS_PVA_")
@@ -830,7 +843,7 @@ class _FrameWriter:
 def _error_frame(request_id: str, exc: BaseException) -> bytes:
     """Encode a failure for one request, normalising unknown classes here.
 
-    :func:`~osprey_connectors.ipc.encode_exception` decides what
+    :func:`~osprey_connectors.ipc._exceptions.encode_exception` decides what
     crosses typed; a class outside its registry is turned, at this edge, into
     the nearest registered class it subclasses or else into a
     ``ConnectorInternalError`` carrying the original ``repr``, so the parent is
@@ -840,16 +853,16 @@ def _error_frame(request_id: str, exc: BaseException) -> bytes:
     failed.
     """
     body = encode_exception(exc)
-    if body.class_tag != type(exc).__name__:
-        exc = decode_exception(body)
     try:
-        return frames.encode_error(request_id, exc)
+        return frames.encode_error(request_id, body)
     except Exception as encode_failure:  # pragma: no cover - defensive
         return frames.encode_error(
             request_id,
-            ConnectorInternalError(
-                f"connector host could not encode its error ({encode_failure}): {exc}",
-                class_tag=type(exc).__name__,
+            encode_exception(
+                ConnectorInternalError(
+                    f"connector host could not encode its error ({encode_failure}): {body.message}",
+                    class_tag=body.class_tag,
+                )
             ),
         )
 
@@ -1023,14 +1036,15 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
     if isinstance(init, _Undecodable):
         await _refuse(init, writer)
         return EXIT_INIT_FAILED
-    if not isinstance(init, frames.RequestFrame) or init.method != INIT_METHOD:
+    if not isinstance(init, frames.RequestFrame) or init.method != "init":
         got = init.method if isinstance(init, frames.RequestFrame) else type(init).__name__
+        # A protocol violation is a bug in the sender, not a reachability answer.
         await writer.send(
             _error_frame(
                 init.request_id,
-                ConnectionError(
-                    f"connector host expected a {INIT_METHOD!r} request as its first frame, "
-                    f"got {got!r}"
+                ConnectorInternalError(
+                    f"connector host expected a 'init' request as its first frame, got {got!r}",
+                    class_tag=type(init).__name__,
                 ),
             )
         )
@@ -1039,8 +1053,7 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
     try:
         if not isinstance(init.kwargs, dict):
             raise TypeError(
-                f"connector host {INIT_METHOD!r} kwargs are a {type(init.kwargs).__name__}, "
-                "not a mapping"
+                f"connector host 'init' kwargs are a {type(init.kwargs).__name__}, not a mapping"
             )
         connector, report = await _build_connector(init.kwargs, marks)
     except Exception as exc:

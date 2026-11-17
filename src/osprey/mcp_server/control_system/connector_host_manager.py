@@ -138,17 +138,18 @@ from osprey_connectors.ipc import (
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
     AttributedReader,
+    ChildLostError,
     ChildUnresponsiveError,
     ConnectorHostProxy,
     Endpoint,
     SelectedRole,
+    SupervisorMethod,
     TargetDerivation,
     Verification,
     connector_block,
     derive_endpoints,
     host_env,
     kill_host,
-    raised_by_child,
     spawn_host,
     stop_host,
     verify_host_report,
@@ -320,7 +321,7 @@ async def _launch_request(
     target: str,
     process: Any,
     proxy: ConnectorHostProxy,
-    method: str,
+    method: SupervisorMethod,
     kwargs: dict[str, Any],
     timeout: float,
     stage: str,
@@ -329,10 +330,10 @@ async def _launch_request(
     """One launch-handshake request to a starting child, its failures as :class:`SwitchError`.
 
     The request travels over the proxy's supervisor surface, which adds its own
-    grace to *timeout*. A closed pipe means the child is exiting: its status is
-    reaped, for up to *grace_s*, before anything signals it, so the refusal
-    names the exit code the child chose. Anything the child did not raise and
-    the pipe did not end propagates unchanged.
+    grace to *timeout*. A closed pipe (a :class:`~osprey_connectors.ipc.ChildLostError`)
+    means the child is exiting: its status is reaped, for up to *grace_s*,
+    before anything signals it, so the refusal names the exit code the child
+    chose. Any other failure is the child's own answer to *method*.
     """
     reason = REASON_PROBE_FAILED if stage == STAGE_PROBE else REASON_SPAWN_FAILED
 
@@ -348,16 +349,13 @@ async def _launch_request(
         return await proxy.supervisor_request(method, kwargs, timeout_s=timeout)
     except ChildUnresponsiveError as exc:
         raise failure(f"did not answer {method!r} within {timeout}s") from exc
+    except ChildLostError as exc:
+        returncode = await reap_exit_code(process, grace_s)
+        raise failure(
+            f"closed its output stream while answering {method!r} (exit code {returncode}): {exc}"
+        ) from exc
     except Exception as exc:
-        if isinstance(exc, ConnectionError) and not raised_by_child(exc):
-            returncode = await reap_exit_code(process, grace_s)
-            raise failure(
-                f"closed its output stream while answering {method!r} "
-                f"(exit code {returncode}): {exc}"
-            ) from exc
-        if raised_by_child(exc):
-            raise failure(f"failed {method!r}: {exc}") from exc
-        raise
+        raise failure(f"failed {method!r}: {exc}") from exc
 
 
 @dataclass(frozen=True)

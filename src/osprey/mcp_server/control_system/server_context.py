@@ -94,7 +94,12 @@ from osprey_connectors.config import mapping_or_empty
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.control_system import ControlSystem, ControlSystemConnector
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
-from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
+from osprey_connectors.ipc import (
+    DEFAULT_PING_TIMEOUT_S,
+    ChildLostError,
+    ChildUnresponsiveError,
+    ConnectorHostProxy,
+)
 from osprey_connectors.model import evolve
 from osprey_connectors.targets import configured_targets
 from osprey_connectors.write_tier import tier_allows
@@ -522,10 +527,16 @@ class ControlSystemContext:
             return await getattr(connector, method)(*args, **kwargs)
         except ChildUnresponsiveError as exc:
             if self._served_from_a_child(name):
-                exc.recovery = self._records(  # type: ignore[attr-defined]
+                exc.recovery = self._records(
                     await self._recover(name, connector, self._answer_unresponsive)
                 )
             raise
+        except ChildLostError as exc:
+            # The pipe to the child that served the call is gone. Answered as
+            # the connector's own loss, in that class, as a pipe end always
+            # was: a tool that names a failure's class names this one alike.
+            record = await self._recover(name, connector, self._replace)
+            raise ConnectorUnavailableError(str(exc), recovery=self._records(record)) from exc
         except ConnectorUnavailableError as exc:
             exc.recovery = self._records(await self._recover(name, connector, self._replace))
             raise

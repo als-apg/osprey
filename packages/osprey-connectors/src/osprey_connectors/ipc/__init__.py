@@ -23,6 +23,7 @@ from osprey_connectors.ipc._frames import (
 
 if TYPE_CHECKING:
     from osprey_connectors.ipc._host import (
+        SupervisorMethod,
         scrub_epics_env,
     )
     from osprey_connectors.ipc._launch import (
@@ -35,19 +36,21 @@ if TYPE_CHECKING:
     from osprey_connectors.ipc._pool import (
         DEFAULT_CALL_TIMEOUT_S,
         DEFAULT_PING_TIMEOUT_S,
-        READONLY,
         ConnectorHostError,
         ConnectorHostLostError,
         ConnectorHostPool,
+        ConnectorHostSlowCallError,
         ConnectorHostStartError,
         ConnectorHostUnresponsiveError,
         ConnectorHostWriteTimeoutError,
+        HostKey,
         PooledConnector,
+        StartMark,
     )
     from osprey_connectors.ipc._proxy import (
+        ChildLostError,
         ChildUnresponsiveError,
         ConnectorHostProxy,
-        raised_by_child,
     )
     from osprey_connectors.ipc._verification import (
         GATEWAYS_MISSING,
@@ -71,6 +74,7 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
+    "SupervisorMethod",
     "scrub_epics_env",
     "AttributedReader",
     "host_env",
@@ -79,17 +83,19 @@ __all__ = [
     "stop_host",
     "DEFAULT_CALL_TIMEOUT_S",
     "DEFAULT_PING_TIMEOUT_S",
-    "READONLY",
     "ConnectorHostError",
     "ConnectorHostLostError",
     "ConnectorHostPool",
+    "ConnectorHostSlowCallError",
     "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
+    "HostKey",
     "PooledConnector",
+    "StartMark",
+    "ChildLostError",
     "ChildUnresponsiveError",
     "ConnectorHostProxy",
-    "raised_by_child",
     "GATEWAYS_MISSING",
     "GATEWAYS_NONE_DECLARED",
     "GATEWAYS_ROWS",
@@ -114,6 +120,7 @@ __all__ = [
 
 #: Public name -> the module that defines it, for the names resolved lazily.
 _LAZY_EXPORTS: dict[str, str] = {
+    "SupervisorMethod": "osprey_connectors.ipc._host",
     "scrub_epics_env": "osprey_connectors.ipc._host",
     "AttributedReader": "osprey_connectors.ipc._launch",
     "host_env": "osprey_connectors.ipc._launch",
@@ -122,17 +129,19 @@ _LAZY_EXPORTS: dict[str, str] = {
     "stop_host": "osprey_connectors.ipc._launch",
     "DEFAULT_CALL_TIMEOUT_S": "osprey_connectors.ipc._pool",
     "DEFAULT_PING_TIMEOUT_S": "osprey_connectors.ipc._pool",
-    "READONLY": "osprey_connectors.ipc._pool",
     "ConnectorHostError": "osprey_connectors.ipc._pool",
     "ConnectorHostLostError": "osprey_connectors.ipc._pool",
     "ConnectorHostPool": "osprey_connectors.ipc._pool",
+    "ConnectorHostSlowCallError": "osprey_connectors.ipc._pool",
     "ConnectorHostStartError": "osprey_connectors.ipc._pool",
     "ConnectorHostUnresponsiveError": "osprey_connectors.ipc._pool",
     "ConnectorHostWriteTimeoutError": "osprey_connectors.ipc._pool",
+    "HostKey": "osprey_connectors.ipc._pool",
     "PooledConnector": "osprey_connectors.ipc._pool",
+    "StartMark": "osprey_connectors.ipc._pool",
+    "ChildLostError": "osprey_connectors.ipc._proxy",
     "ChildUnresponsiveError": "osprey_connectors.ipc._proxy",
     "ConnectorHostProxy": "osprey_connectors.ipc._proxy",
-    "raised_by_child": "osprey_connectors.ipc._proxy",
     "GATEWAYS_MISSING": "osprey_connectors.ipc._verification",
     "GATEWAYS_NONE_DECLARED": "osprey_connectors.ipc._verification",
     "GATEWAYS_ROWS": "osprey_connectors.ipc._verification",

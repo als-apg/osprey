@@ -37,10 +37,13 @@ child could be brought up).
 
 Invariants:
 
-* Callers hand over the error; the policy decides where it came from. An error
-  the connector-host child sent is :attr:`_Origin.CHILD`, one the link to the
-  child made (a missed deadline, a closed pipe) is :attr:`_Origin.LINK`, and
-  anything from a connector in this process is :attr:`_Origin.IN_PROCESS`.
+* Callers hand over the error; the policy decides where it came from, by its
+  class and the target alone. For a connector in this process every error is
+  :attr:`_Origin.IN_PROCESS`. For one in a connector-host child, an error the
+  link to the child made (a missed deadline, a closed pipe) is a
+  :class:`~osprey_connectors.errors.ChildLinkError` and :attr:`_Origin.LINK`;
+  any other is one the child sent, :attr:`_Origin.CHILD`. No mark is set on
+  an error, and none is read.
 * Recovery happens at most once per incarnation. Every failure of one
   incarnation awaits the one act the first started, and an incarnation that has
   been replaced or dropped is answered with that record and never acted on
@@ -65,6 +68,7 @@ from typing import Protocol
 from osprey_connectors.errors import (
     ChannelError,
     ChannelReadFailedError,
+    ChildLinkError,
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
@@ -78,16 +82,14 @@ __all__ = [
     "Timing",
 ]
 
-#: The attribute the connector-host proxy sets, true, on an error the child sent.
-_RAISED_BY_CHILD = "_osprey_raised_by_child"
-
 
 class _Origin(StrEnum):
     """Where a failure was raised."""
 
     #: In the connector-host child, which answered with it.
     CHILD = "child"
-    #: On the link to the child: a missed deadline, a closed pipe.
+    #: On the link to the child, a :class:`~osprey_connectors.errors.ChildLinkError`:
+    #: a missed deadline, a closed pipe.
     LINK = "link"
     #: By a connector running in this process.
     IN_PROCESS = "in_process"
@@ -204,7 +206,7 @@ _SENTENCES: dict[tuple[RecoveryAction, Timing, _Failure], str] = {
 def _origin(exc: BaseException, target: Supervised) -> _Origin:
     if not target.in_child:
         return _Origin.IN_PROCESS
-    return _Origin.CHILD if getattr(exc, _RAISED_BY_CHILD, False) else _Origin.LINK
+    return _Origin.LINK if isinstance(exc, ChildLinkError) else _Origin.CHILD
 
 
 def _matches(row: _Row, exc: BaseException, origin: _Origin, *, write_timeout: bool) -> bool:

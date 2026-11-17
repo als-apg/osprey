@@ -23,6 +23,7 @@ _DIES_ON_REQUEST = (
 _REFUSES_ON_REQUEST = (
     "import sys\n"
     "from osprey_connectors.ipc import _frames as frames\n"
+    "from osprey_connectors.ipc._exceptions import encode_exception\n"
     "reader = frames.FrameReader()\n"
     "decoded = []\n"
     "while not decoded:\n"
@@ -31,7 +32,7 @@ _REFUSES_ON_REQUEST = (
     "        sys.exit(3)\n"
     "    decoded = reader.feed(chunk)\n"
     "error = RuntimeError('no connector type configured')\n"
-    "sys.stdout.buffer.write(frames.encode_error(decoded[0].request_id, error))\n"
+    "sys.stdout.buffer.write(frames.encode_error(decoded[0].request_id, encode_exception(error)))\n"
     "sys.stdout.buffer.flush()\n"
 )
 

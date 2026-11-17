@@ -21,7 +21,8 @@ a ``ValueError``. The hierarchy, with each builtin second base::
     │   ├── ChannelNotFoundError              (LookupError)
     │   └── ChannelUnreachableError
     ├── ConnectorUnavailableError             (ConnectionError) the connector is gone
-    │   └── ipc.ConnectorHostError, its Start/Lost/Unresponsive/WriteTimeout kin
+    │   ├── ipc.ConnectorHostError, its Start/Lost/Unresponsive/WriteTimeout kin
+    │   └── ipc.ChildLostError                (also a ChildLinkError) the pipe ended
     ├── ConnectorInternalError                (RuntimeError) a connector bug
     ├── ChannelReadFailedError                several channels; settle.SettleReadError
     ├── ConnectRefusedError                   (ConnectionError) connect refused by policy
@@ -38,8 +39,10 @@ a ``ValueError``. The hierarchy, with each builtin second base::
     │   └── ViewSchemaError                   (ValueError)
     ├── simulation.composite.WriteRefusedError (ValueError)
     ├── settle.SettleTimeoutError             (TimeoutError)
-    ├── ipc.ChildUnresponsiveError            (TimeoutError)
-    ├── ipc.ConnectorHostSlowCallError        (TimeoutError)
+    ├── ChildLinkError                        made by the parent's link to a child
+    │   ├── ipc.ChildUnresponsiveError        (TimeoutError)
+    │   ├── ipc.ConnectorHostSlowCallError    (TimeoutError)
+    │   └── ipc.ChildLostError                (ConnectorUnavailableError)
     ├── ipc.FrameDecodeError                  (ValueError)
     └── ipc.FrameEncodeError                  (TypeError)
 
@@ -59,6 +62,11 @@ alone and a root would change what a supervisor does about it:
 deadline) and ``ipc.ConnectorHostSlowCallError`` (it missed a call's deadline
 and still answers a ping, so it was kept; under
 :class:`ConnectorUnavailableError` it would read as a lost connection).
+The last two share :class:`ChildLinkError`, the base of what the parent's
+link to a connector-host child raises on its own, which is no root either:
+it names where a failure was made, never what a supervisor does about it.
+Its third class, ``ipc.ChildLostError``, is a lost pipe, and so a
+:class:`ConnectorUnavailableError` as well.
 :class:`ConnectRefusedError` is a policy refusal of ``connect()``, not a lost
 connector, and is read by its ``ConnectionError`` base as a bare one was.
 
@@ -101,6 +109,7 @@ __all__ = [
     "ChannelUnreachableError",
     "ChannelWriteBlockedError",
     "ChannelWriteFailedError",
+    "ChildLinkError",
     "ClientLibraryRefusedError",
     "ConfigurationError",
     "ConnectRefusedError",
@@ -555,6 +564,32 @@ class ConnectorInternalError(ConnectorsError, RuntimeError):
     def __init__(self, message: str, class_tag: str | None = None):
         self.class_tag = class_tag
         super().__init__(message)
+
+
+class ChildLinkError(ConnectorsError):
+    """Raised in the parent by the link to a connector-host child; never sent by the child.
+
+    The base of every failure the parent's end of the pipe makes on its own: a
+    child that missed the proxy's deadline, a pipe that ended, a call the pool
+    kept waiting on a child that still answers a ping. Its class is how a
+    supervisor tells the link's failure from the same builtin the child
+    reported: an exception from a child call that is a ``ChildLinkError`` came
+    from the link, and any other came from the child. No such class is in the
+    IPC registry, so none can be rebuilt from a frame.
+
+    It is no contract root: each subclass keeps the builtin or root its
+    meaning names (a ``TimeoutError`` for a missed deadline, a
+    :class:`ConnectorUnavailableError` for a lost pipe), and is classified by
+    that. ``recovery`` is what the supervisor did, as on
+    :class:`ConnectorUnavailableError`; it is empty until a supervisor has
+    acted.
+    """
+
+    def __init__(self, message: str, recovery: "Sequence[RecoveryRecord]" = ()):
+        super().__init__(message)
+        # Set after the other bases ran, so a ConnectorUnavailableError base
+        # cannot reset it.
+        self.recovery: tuple[RecoveryRecord, ...] = tuple(recovery)
 
 
 class ConnectRefusedError(ConnectorsError, ConnectionError):

@@ -26,9 +26,10 @@ Three frame kinds exist, each carrying a ``request_id`` so a parent may have
 several requests outstanding and match replies arriving in any order:
 
 ``request``
-    ``{request_id, method, kwargs}``. The codec is deliberately
-    *method-agnostic* — it neither enumerates nor validates method names, so
-    the child and proxy can grow their call surface without a codec change.
+    ``{request_id, method, kwargs}``. The codec writes the method word it is
+    handed (:data:`~osprey_connectors.ipc._host.HostMethod` names every word
+    a sender may write) and validates neither it nor the kwargs on decode: the
+    child refuses a request it does not serve in that request's error frame.
 ``result``
     ``{request_id, value}``, where the value is any supported Python value
     (see below), including the ``ChannelReadBatch`` a batched multi-channel
@@ -37,15 +38,18 @@ several requests outstanding and match replies arriving in any order:
     a :class:`~osprey_connectors.errors.ConnectorInternalError`; the stream
     goes on.
 ``error``
-    ``{request_id, class_tag, message, fields}``. Exceptions cross the
-    boundary *typed*: ``fields`` are the structured attributes enumerated by
-    :mod:`osprey_connectors.ipc._exceptions`, and decoding calls the real
-    constructor, so ``.attempted_value``, ``.reason`` and the min/max/step
-    bounds survive and the parent's error rendering is unchanged. That module
-    owns the registry — which classes cross typed, which fields each carries,
-    and how an unrecognised ``class_tag`` fails closed to a
-    :class:`~osprey_connectors.errors.ConnectorInternalError` naming the
-    original tag and message.
+    ``{request_id, class_tag, message, fields}``: an
+    :class:`~osprey_connectors.ipc._exceptions.ExceptionFrameBody`, written
+    flat. Exceptions cross the boundary *typed*: ``fields`` are the structured
+    attributes enumerated by :mod:`osprey_connectors.ipc._exceptions`, and
+    the receiver's ``decode_exception`` calls the real constructor, so
+    ``.attempted_value``, ``.reason`` and the min/max/step bounds survive and
+    the parent's error rendering is unchanged. That module owns the registry —
+    which classes cross typed, which attributes each carries, how a live
+    exception becomes a body, and how an unrecognised ``class_tag`` fails
+    closed to a :class:`~osprey_connectors.errors.ConnectorInternalError`
+    naming the original tag and message. The codec decodes the body and
+    nothing more: an :class:`ErrorFrame` holds no live exception.
 
 No pickle, ever
 ---------------
@@ -72,8 +76,8 @@ shape preserved), and the package's records:
   refused: only the class the far side rebuilds crosses.
 * a :class:`~osprey_connectors.errors.ChannelError`, the one exception a value
   may hold (a batch read's failure for one channel), as an ``error`` node
-  carrying the same ``class_tag``, ``message`` and ``fields`` an error frame
-  does. It decodes through the same registry, so an unknown tag or a refused
+  carrying the same body an error frame does, written by the same
+  ``encode_exception``. It decodes through the same registry, so an unknown tag or a refused
   field set fails closed to a ``ConnectorInternalError``, which no record
   field typed for a ``ChannelError`` accepts.
 
@@ -100,10 +104,10 @@ import uuid
 from collections.abc import Mapping
 from datetime import datetime
 from io import BytesIO
-from typing import TypeAlias, TypeGuard
+from typing import TYPE_CHECKING, TypeAlias, TypeGuard
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 from osprey_connectors.control_system._base import (
     Alarm,
@@ -119,11 +123,14 @@ from osprey_connectors.errors import (
     LimitsViolation,
 )
 from osprey_connectors.ipc._exceptions import (
-    _registered_tag,
-    exception_fields,
-    reconstruct_exception,
+    ExceptionFrameBody,
+    decode_exception,
+    encode_exception,
 )
 from osprey_connectors.model import FrozenModel
+
+if TYPE_CHECKING:
+    from osprey_connectors.ipc._host import HostMethod
 
 __all__ = [
     "MAGIC",
@@ -174,6 +181,9 @@ def _length_at(buffer: bytes | bytearray, offset: int) -> int:
 #: Marker key identifying a tagged (non-scalar) value node in the JSON header.
 _TAG = "__osprey_ipc__"
 
+#: The ``fields`` node of an error body that names none: an empty dict.
+_NO_FIELDS = {_TAG: "dict", "items": []}
+
 #: A node of a frame's JSON header, as ``json`` writes it.
 _Json: TypeAlias = None | bool | int | float | str | list["_Json"] | dict[str, "_Json"]
 
@@ -214,22 +224,19 @@ class ResultFrame(FrozenModel):
 
 
 class ErrorFrame(FrozenModel):
-    """A decoded failure reply.
+    """A decoded failure reply: the body the child sent, for the receiver to rebuild.
 
-    ``exception`` is a real, reconstructed exception instance ready to be
-    raised by the parent; ``class_tag`` and ``message`` are kept alongside it
-    so a caller can still see what the child actually sent — which matters for
-    the fail-closed cases, where ``exception`` is a ``ConnectorInternalError``
-    standing in for a class this codec does not know, or for a reply value it
-    could not rebuild (``class_tag`` then names the value's class).
+    ``error`` is exactly what the frame carried, so a caller sees what the
+    child reported before anything is rebuilt from it;
+    :func:`~osprey_connectors.ipc._exceptions.decode_exception` turns it into
+    the exception to raise. A well-framed result whose value this codec could
+    not rebuild decodes as an error frame too, its body a
+    ``ConnectorInternalError`` whose ``class_tag`` field names the value's
+    class.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     request_id: str
-    class_tag: str
-    message: str
-    exception: BaseException
+    error: ExceptionFrameBody
 
 
 #: The records a frame may carry, by the class name that tags them. A frame can
@@ -315,12 +322,7 @@ def _encode_value(value: object, blobs: list[bytes]) -> _Json:
             "items": [[str(key), _encode_value(item, blobs)] for key, item in value.items()],
         }
     if isinstance(value, ChannelError):
-        return {
-            _TAG: "error",
-            "class_tag": _registered_tag(value) or type(value).__name__,
-            "message": str(value),
-            "fields": _encode_value(exception_fields(value), blobs),
-        }
+        return {_TAG: "error", **_body_node(encode_exception(value), blobs)}
     tag = type(value).__name__
     record = _RECORDS.get(tag)
     if record is None or type(value) is not record:
@@ -378,10 +380,27 @@ def _decode_error(node: dict[str, object], blobs: list[bytes]) -> BaseException:
     class_tag, message = node.get("class_tag"), node.get("message")
     if not isinstance(class_tag, str) or not isinstance(message, str):
         raise FrameDecodeError("error node does not name its class and message as strings")
-    fields = _decode_value(node.get("fields", {_TAG: "dict", "items": []}), blobs)
-    if not isinstance(fields, dict):
-        raise FrameDecodeError("error node fields are not a mapping")
-    return reconstruct_exception(class_tag, message, fields)
+    fields = node.get("fields", _NO_FIELDS)
+    return decode_exception(_body(class_tag, message, fields, blobs, "error node"))
+
+
+def _body_node(body: ExceptionFrameBody, blobs: list[bytes]) -> dict[str, _Json]:
+    """An exception frame body as the three keys an error frame and an error node write."""
+    return {
+        "class_tag": body.class_tag,
+        "message": body.message,
+        "fields": _encode_value(body.fields, blobs),
+    }
+
+
+def _body(
+    class_tag: str, message: str, fields_node: object, blobs: list[bytes], where: str
+) -> ExceptionFrameBody:
+    """The exception frame body an error frame or error node carries."""
+    fields = _decode_value(fields_node, blobs)
+    if not _is_json_object(fields):
+        raise FrameDecodeError(f"{where} fields are not a mapping keyed by attribute names")
+    return ExceptionFrameBody(class_tag=class_tag, message=message, fields=fields)
 
 
 def _decode_items(items: object, blobs: list[bytes]) -> dict[object, object]:
@@ -418,8 +437,8 @@ def _pack(header: dict[str, _Json], blobs: list[bytes]) -> bytes:
     return MAGIC + _HEADER_STRUCT.pack(len(body)) + body
 
 
-def encode_request(request_id: str, method: str, kwargs: Mapping[str, object]) -> bytes:
-    """Encode a call request. ``method`` is passed through unexamined."""
+def encode_request(request_id: str, method: HostMethod, kwargs: Mapping[str, object]) -> bytes:
+    """Encode a call request: *method* is written as the word it is."""
     blobs: list[bytes] = []
     header: dict[str, _Json] = {
         "kind": "request",
@@ -441,23 +460,18 @@ def encode_result(request_id: str, value: object) -> bytes:
     return _pack(header, blobs)
 
 
-def encode_error(request_id: str, exc: BaseException) -> bytes:
-    """Encode a failure reply, keeping the exception's structured fields.
+def encode_error(request_id: str, error: ExceptionFrameBody) -> bytes:
+    """Encode a failure reply carrying *error*, its keys written flat beside the request id.
 
-    The class tag is that of the nearest registered class in the exception's
-    MRO, the class its fields are read by, so a subclass of a vocabulary class
-    decodes as that class. An exception with no registered class in its MRO is
-    still encoded under its own class name with an empty field set, so the far
-    side can report what it was rather than pretending the call succeeded: it
-    decodes as a ``ConnectorInternalError`` naming that class.
+    The body is what
+    :func:`~osprey_connectors.ipc._exceptions.encode_exception` made of the
+    exception, which has already normalised a class outside the registry.
     """
     blobs: list[bytes] = []
     header: dict[str, _Json] = {
         "kind": "error",
         "request_id": request_id,
-        "class_tag": _registered_tag(exc) or type(exc).__name__,
-        "message": str(exc),
-        "fields": _encode_value(exception_fields(exc), blobs),
+        **_body_node(error, blobs),
     }
     return _pack(header, blobs)
 
@@ -532,25 +546,26 @@ def decode_frame(frame: bytes) -> RequestFrame | ResultFrame | ErrorFrame:
         try:
             value = _decode_value(header["value"], blobs)
         except _UnrebuildableValueError as exc:
+            # One call fails, the stream goes on: the parent raises a
+            # ConnectorInternalError naming the value's class.
             return ErrorFrame(
                 request_id=request_id,
-                class_tag=exc.class_tag,
-                message=str(exc),
-                exception=ConnectorInternalError(str(exc), class_tag=exc.class_tag),
+                error=ExceptionFrameBody(
+                    class_tag=ConnectorInternalError.__name__,
+                    message=str(exc),
+                    fields={"class_tag": exc.class_tag},
+                ),
             )
         return ResultFrame(request_id=request_id, value=value)
     if kind == "error":
-        class_tag = str(header.get("class_tag", ""))
-        message = str(header.get("message", ""))
-        fields = _decode_value(header.get("fields", {_TAG: "dict", "items": []}), blobs)
-        if not isinstance(fields, dict):
-            raise FrameDecodeError("error frame fields are not a mapping")
-        return ErrorFrame(
-            request_id=request_id,
-            class_tag=class_tag,
-            message=message,
-            exception=reconstruct_exception(class_tag, message, fields),
+        error = _body(
+            str(header.get("class_tag", "")),
+            str(header.get("message", "")),
+            header.get("fields", _NO_FIELDS),
+            blobs,
+            "error frame",
         )
+        return ErrorFrame(request_id=request_id, error=error)
     raise FrameDecodeError(f"unknown frame kind {kind!r}")
 
 
