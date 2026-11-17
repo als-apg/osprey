@@ -1882,7 +1882,16 @@ class _Page:
                         for signal, unit in self.shown[kind].items()
                     )
                     parts.append(f"{SYMBOL_WORDS[kind]}: {signals}")
-            self.text(MARGIN, self.y, _VALUES + " · ".join(parts), size=SMALL_SIZE, fg=MUTED_TEXT)
+            line = _VALUES
+            for part in parts:  # one line per what fits, a part never split
+                joined = part if line == _VALUES else f"{line} · {part}"
+                if line != _VALUES and text_width(joined, SMALL_SIZE) > STRIP_WIDTH:
+                    self.text(MARGIN, self.y, line, size=SMALL_SIZE, fg=MUTED_TEXT)
+                    self.y += ROW
+                    line = part
+                else:
+                    line = _VALUES + part if line == _VALUES else joined
+            self.text(MARGIN, self.y, line, size=SMALL_SIZE, fg=MUTED_TEXT)
             self.next_row()
         if self.dropped:
             note = _DROPPED.format(self.dropped)
