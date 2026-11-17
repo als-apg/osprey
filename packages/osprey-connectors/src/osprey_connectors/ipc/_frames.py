@@ -399,7 +399,7 @@ def _body(
     """The exception frame body an error frame or error node carries."""
     fields = _decode_value(fields_node, blobs)
     if not _is_json_object(fields):
-        raise FrameDecodeError(f"{where} fields are not a mapping keyed by attribute names")
+        raise FrameDecodeError(f"{where} fields are not a mapping")
     return ExceptionFrameBody(class_tag=class_tag, message=message, fields=fields)
 
 
