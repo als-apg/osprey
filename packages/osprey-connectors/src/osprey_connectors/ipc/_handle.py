@@ -39,12 +39,12 @@ from pydantic import ValidationError
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
+from osprey_connectors.epics_env import without_epics_env
 from osprey_connectors.errors import (
     ConnectorInternalError,
     ConnectorUnavailableError,
     RecoveryRecord,
 )
-from osprey_connectors.epics_env import without_epics_env
 from osprey_connectors.execution_mode import ExecutionMode
 from osprey_connectors.ipc._host import (
     START_MARKS_FD_ENV,

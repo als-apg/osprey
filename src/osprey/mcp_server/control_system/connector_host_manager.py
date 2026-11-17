@@ -142,23 +142,17 @@ from osprey_connectors.errors import (
     RecoveryRecord,
 )
 from osprey_connectors.execution_mode import READONLY_MODE, is_readonly_run
+from osprey_connectors.gateways import Endpoint, SelectedRole, TargetDerivation, derive_endpoints
 from osprey_connectors.ipc import (
     DEFAULT_CALL_TIMEOUT_S,
-    ROLE_READ_ONLY,
-    ROLE_WRITE_ACCESS,
     ChildLostError,
     ChildUnresponsiveError,
     ConnectorHost,
     ConnectorHostProxy,
     ConnectorHostStartError,
-    Endpoint,
     HostInit,
     HostReport,
-    SelectedRole,
-    TargetDerivation,
     Verification,
-    connector_block,
-    derive_endpoints,
     verify_host_report,
 )
 from osprey_connectors.model import evolve

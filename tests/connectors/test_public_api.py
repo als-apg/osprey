@@ -374,6 +374,16 @@ def test_the_gateway_derivation_loads_no_ipc_module_and_no_codec():
     assert "numpy" not in loaded
 
 
+def test_the_connector_host_child_loads_no_gateway_derivation():
+    # The child reports its gateway mode as a GatewayMode, a word it takes from
+    # the role rule beside the connector; the derivation (and the virtual
+    # accelerator connector it reaches for ports) is its supervisor's question.
+    loaded = _loaded_after("import osprey_connectors.ipc._host")
+
+    assert "osprey_connectors.gateways" not in loaded
+    assert "osprey_connectors.control_system._va_connector" not in loaded
+
+
 def test_the_write_door_does_not_load_the_limits_validator():
     # The raw-put guard reads the door inside executor sandboxes and kernels;
     # the validator would bring its logging and YAML stack into every one.
