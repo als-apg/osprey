@@ -1164,7 +1164,13 @@ def _panel_graph(
                 except (BuildProfileError, ValueError, RuntimeError) as error:
                     fail("The profile does not resolve.", str(error))
                     ctx.exit(1)
-        return load_graph(facility_file, tables), tables
+        graph = load_graph(facility_file, tables)
+        if graph.unread:
+            report(
+                f"{graph.unread} values of the facility's rows cannot be read "
+                "(a rack unit that is no integer, for example); drawn without them"
+            )
+        return graph, tables
     except FileNotFoundError as error:
         fail("The facility cannot be read.", str(error), "Run osprey build, or name --facility.")
     except (FacilityFileError, PanelTableError, OSError) as error:

@@ -297,6 +297,8 @@ class RackUnit:
             in this rack; each unit is drawn, none is picked.
         citations: The documents of every claim for this (device, unit),
             each once, in graph order.
+        unit_text: For an unpositioned device, the unit its claim states
+            when that is no integer (``A5``); ``None`` otherwise.
     """
 
     position: int | None
@@ -306,6 +308,7 @@ class RackUnit:
     standing: str | None = None
     conflicting: bool = False
     citations: tuple[Citation, ...] = ()
+    unit_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -315,7 +318,9 @@ class Elevation:
     Attributes:
         units: The devices whose place relation names a unit, in *order*
             (ties by id).
-        unpositioned: The devices in the rack with no unit, by id.
+        unpositioned: The devices built in the rack that no claim gives a unit,
+            and the devices a claim puts in it with a unit that is no
+            integer (its text on the entry), by id.
         order: ``top-down``: the highest unit number first.
     """
 
@@ -349,7 +354,7 @@ class CheckRow:
 
     Attributes:
         channel: The channel.
-        thing: The device it is on.
+        thing: The device it is on; ``None`` for a channel on no thing.
         on_device: It is on a device.
         typed: ``record_types.csv`` types it as other than ``untyped``.
         has_rule: It has a health row.
@@ -358,7 +363,7 @@ class CheckRow:
     """
 
     channel: str
-    thing: str
+    thing: str | None
     on_device: bool
     typed: bool
     has_rule: bool

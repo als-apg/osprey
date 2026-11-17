@@ -187,3 +187,15 @@ def test_a_tampered_index_entry_is_reported_on_stderr_and_left_alone(facility_fi
     result = _run(facility_file, "write", "--out", str(out))
     assert result.exit_code == 0 and "mine.txt" in result.output
     assert (out / "mine.txt").read_text() == "1"
+
+
+def test_a_value_the_graph_cannot_read_is_counted_and_nothing_stops(tmp_path):
+    def odd_unit(document) -> None:
+        for claim in document["relations"]:
+            if claim["id"] == "xr02-ch5-rack2":
+                claim["object"]["unit"] = "A5"
+
+    facility = write_fixture_facility(tmp_path / "facility.json", odd_unit)
+    result = _run(facility, "write", "--out", str(tmp_path / "out"))
+    assert result.exit_code == 0, result.output
+    assert "1 values of the facility's rows cannot be read" in result.output

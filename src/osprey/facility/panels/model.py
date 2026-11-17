@@ -21,10 +21,21 @@ What the graph leaves out, everywhere:
   and health rules; a pair whose readback is left out is left out;
 - a pair ``pairs.csv`` does not state: the table is the one source of pairs;
 - what a document ``excluded.csv`` lists (``kind`` ``document``) is the
-  source of: a citation, a relation claim, a pose;
+  source of: a citation, a relation claim, a pose, a health row, a pair, a
+  record type;
 - a ``superseded`` relation claim. ``accepted`` and ``contested`` claims are
   edges, their standing on the edge. A relation kind the framework does not
   know is an edge under its own key like any other.
+
+A channel that is ``on`` no thing the file holds, and is no kept device's
+endpoint, is kept as a channel of no thing (:meth:`PanelGraph.unheld`). A
+channel ``on`` a left-out thing, or with no ``on`` and only left-out
+endpoints, is left out with them.
+
+A value of a row the graph cannot read (a rack unit that is no integer, an
+attributes field that is no mapping, members that are no list) never stops
+the graph: the row is kept without it, or with it as text where it is shown
+as text, and :attr:`PanelGraph.unread` counts such values.
 
 The ring frame is the frame of ``positions.csv`` that carries the most rows
 with an empty ``derived_assumes`` (on a
@@ -129,8 +140,9 @@ class Channel:
         writable: Whether the facility file's role is ``setpoint``.
         alias: Another name the facility file states for it (the first of its
             ``names``, sorted), or ``None``.
-        thing: The id of the thing it is ``on``.
-        thing_kind: That thing's kind.
+        thing: The id of the thing it is ``on``; ``None`` when it is on no thing
+            the graph holds.
+        thing_kind: That thing's kind, or ``None``.
         record_type: The record type ``record_types.csv`` states, or ``None``.
         unit: The facility file's unit, or ``None``.
         description: The facility file's description, or ``None``.
@@ -144,8 +156,8 @@ class Channel:
     drawn_as: DrawnAs | None
     writable: bool
     alias: str | None
-    thing: str
-    thing_kind: ThingKind
+    thing: str | None
+    thing_kind: ThingKind | None
     record_type: str | None = None
     unit: str | None = None
     description: str | None = None
@@ -167,7 +179,10 @@ class Edge:
         basis: ``stated`` or ``inferred``.
         port: This end's port, or ``None``.
         other_port: The other end's port, or ``None``.
-        unit: The rack unit either end names, or ``None``.
+        unit: The rack unit either end names, as an integer; ``None`` when it
+            names none or one that is no integer.
+        unit_text: The unit as the end states it, when it is no integer
+            (``A5``); ``None`` otherwise.
         attributes: The claim's attributes, read-only.
         source: The document the claim cites, or ``None``.
     """
@@ -184,6 +199,7 @@ class Edge:
     unit: int | None = None
     attributes: Mapping[str, Any] = field(default_factory=dict, hash=False)
     source: Citation | None = None
+    unit_text: str | None = None
 
 
 def _text(value: Any) -> str | None:
@@ -210,6 +226,19 @@ def _tolerance(record: Any) -> tuple[str, float] | None:
         if isinstance(amount, int | float) and not isinstance(amount, bool):
             return (term, float(amount))
     return None
+
+
+def _unit(value: Any) -> tuple[int | None, str | None]:
+    """A rack unit as ``(number, None)``, or ``(None, text)`` when it is no integer."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value, None
+    if isinstance(value, float) and value.is_integer():
+        return int(value), None
+    text = str(value).strip()
+    try:
+        return int(text), None
+    except ValueError:
+        return None, text
 
 
 def _ring_frame(poses: list[Pose]) -> str | None:
@@ -249,6 +278,8 @@ class PanelGraph:
         self._records = records
         self._tables = tables
         self._content_hash = content_hash
+        self.unread = 0
+        """How many values of rows the graph could not read (see the module docstring)."""
         excluded = {kind: set[str]() for kind in ("thing", "channel", "document")}
         for row in tables.excluded:
             excluded[row.kind].add(row.id)
@@ -258,18 +289,22 @@ class PanelGraph:
         for thing in self._things.values():
             if thing.kind != "group" and thing.place is not None:
                 self._children.setdefault(thing.place, []).append(thing)
-        self._members: dict[str, tuple[str, ...]] = {
-            str(group["id"]): tuple(str(member) for member in group.get("members") or ())
-            for group in records.of_kind("group")
-            if ("group", str(group["id"])) in self._things
-        }
+        self._members: dict[str, tuple[str, ...]] = {}
+        for group in records.of_kind("group"):
+            if ("group", str(group["id"])) not in self._things:
+                continue
+            members = group.get("members") or ()
+            if not isinstance(members, list | tuple):
+                self.unread += 1
+                members = ()
+            self._members[str(group["id"])] = tuple(str(member) for member in members)
         self._read_channels(records, tables, excluded["channel"])
         self._read_edges(records)
         self._read_claims()
         self._read_poses(tables, ring_frame)
         self._rules: dict[str, list[HealthRule]] = {}
         for rule in tables.health:
-            if rule.channel in self._channel:
+            if rule.channel in self._channel and rule.source not in self._excluded_documents:
                 self._rules.setdefault(rule.channel, []).append(rule)
         self._read_pairs(tables)
         self._pictures: dict[str, list[PicturePart]] = {}
@@ -299,12 +334,15 @@ class PanelGraph:
         }
         places = every_place - hidden
         things: dict[_Key, Thing] = {}
+        self._left_out: set[_Key] = set()
         for kind in END_KINDS:
             for record in records.of_kind(kind):  # type: ignore[arg-type]
                 thing_id = str(record["id"])
                 if thing_id in excluded or (kind == "place" and thing_id in hidden):
+                    self._left_out.add((kind, thing_id))
                     continue
                 if kind == "device" and _text(record.get("place")) in hidden:
+                    self._left_out.add((kind, thing_id))
                     continue
                 if kind == "device":
                     place = _text(record.get("place"))
@@ -325,17 +363,27 @@ class PanelGraph:
     def _read_channels(
         self, records: FacilityRecords, tables: PanelTables, excluded: set[str]
     ) -> None:
-        types = {row.channel: row for row in tables.record_types}
+        types = {
+            row.channel: row
+            for row in tables.record_types
+            if row.source not in self._excluded_documents
+        }
         self._types: dict[str, RecordType] = {}
         self._channel: dict[str, Channel] = {}
         self._channels: dict[_Key, list[Channel]] = {}
+        self._unheld: list[Channel] = []
         for record in records.of_kind("channel"):
             name = str(record["id"])
             if name in excluded or name.startswith(SIMULATION_PREFIX):
                 continue
             on = record.get("on") or {}
-            holder = end_identity(on) if isinstance(on, Mapping) else None
-            if holder is None or holder not in self._things:
+            holder = end_identity(on) if isinstance(on, Mapping) and on else None
+            if holder is not None and holder not in self._things:
+                if holder in self._left_out:
+                    continue  # on a thing no screen shows
+                holder = None  # on nothing the file holds
+            endpoints = [("device", str(device)) for device in record.get("endpoint_of") or ()]
+            if holder is None and endpoints and all(e in self._left_out for e in endpoints):
                 continue
             row = types.get(name)
             names = sorted(str(alias) for alias in record.get("names") or ())
@@ -344,8 +392,8 @@ class PanelGraph:
                 drawn_as=row.drawn_as if row is not None else None,
                 writable=record.get("role") == "setpoint",
                 alias=names[0] if names else None,
-                thing=holder[1],
-                thing_kind=holder[0],  # type: ignore[arg-type]
+                thing=holder[1] if holder is not None else None,
+                thing_kind=holder[0] if holder is not None else None,  # type: ignore[arg-type]
                 record_type=row.record_type if row is not None else None,
                 unit=_text(record.get("unit")),
                 description=_text(record.get("description")),
@@ -355,12 +403,13 @@ class PanelGraph:
             self._channel[name] = channel
             if row is not None:
                 self._types[name] = row
-            holders = dict.fromkeys(
-                [holder, *(("device", str(device)) for device in record.get("endpoint_of") or ())]
-            )
-            for key in holders:
+            held = False
+            for key in dict.fromkeys([*([holder] if holder is not None else []), *endpoints]):
                 if key in self._things:
                     self._channels.setdefault(key, []).append(channel)
+                    held = True
+            if not held:
+                self._unheld.append(channel)
 
     def _read_edges(self, records: FacilityRecords) -> None:
         self._edges: dict[_Key, dict[str, list[Edge]]] = {}
@@ -377,6 +426,13 @@ class PanelGraph:
             if source is not None and source.document in self._excluded_documents:
                 continue
             units = [end.get("unit") for end in ends if end.get("unit") is not None]
+            unit, unit_text = _unit(units[0]) if units else (None, None)
+            if unit_text is not None:
+                self.unread += 1
+            attributes = claim.get("attributes") or {}
+            if not isinstance(attributes, Mapping):
+                self.unread += 1
+                attributes = {}
             for index in (0, 1):
                 here, there = keys[index], keys[1 - index]
                 assert here is not None and there is not None
@@ -390,9 +446,10 @@ class PanelGraph:
                     basis=str(claim.get("basis") or "stated"),
                     port=_text(ends[index].get("port")),
                     other_port=_text(ends[1 - index].get("port")),
-                    unit=int(units[0]) if units else None,
-                    attributes=MappingProxyType(dict(claim.get("attributes") or {})),
+                    unit=unit,
+                    attributes=MappingProxyType(dict(attributes)),
                     source=source,
+                    unit_text=unit_text,
                 )
                 self._edges.setdefault(here, {}).setdefault(edge.kind, []).append(edge)
 
@@ -432,6 +489,8 @@ class PanelGraph:
     def _read_pairs(self, tables: PanelTables) -> None:
         self._pairs: dict[str, Pair] = {}
         for pair in tables.pairs:
+            if pair.source in self._excluded_documents:
+                continue
             if pair.setpoint in self._channel and pair.readback in self._channel:
                 self._pairs[pair.setpoint] = pair
 
@@ -491,6 +550,10 @@ class PanelGraph:
             KeyError: No such thing, or it is excluded.
         """
         return list(self._channels.get(self._key(thing_id, kind), ()))
+
+    def unheld(self) -> list[Channel]:
+        """The channels on no thing the graph holds, in file order."""
+        return list(self._unheld)
 
     def channel(self, name: str) -> Channel:
         """The channel *name*.

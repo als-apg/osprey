@@ -310,14 +310,15 @@ def rule_channels(graph: PanelGraph, node_id: str, kind: ThingKind | None = None
 
 
 def unplaced_channels(graph: PanelGraph) -> list[str]:
-    """The rule-bearing channels of every device in no place, each once, in graph order."""
+    """The rule-bearing channels in no place, each once: those of every device in no
+    place in graph order, then those on no thing (:meth:`PanelGraph.unheld`)."""
     seen: set[str] = set()
     found: list[str] = []
-    for thing in graph.unplaced():
-        for channel in graph.channels(thing.id, "device"):
-            if channel.name not in seen and graph.rule(channel.name):
-                seen.add(channel.name)
-                found.append(channel.name)
+    held = [graph.channels(thing.id, "device") for thing in graph.unplaced()]
+    for channel in [*(c for channels in held for c in channels), *graph.unheld()]:
+        if channel.name not in seen and graph.rule(channel.name):
+            seen.add(channel.name)
+            found.append(channel.name)
     return found
 
 

@@ -8,7 +8,12 @@ from typing import Any
 import pytest
 
 from osprey.facility.panels import PanelGraph, PanelTableError, load_graph
-from tests.facility.panels._fixture import RING_FRAME, copy_tables, write_fixture_facility
+from tests.facility.panels._fixture import (
+    PANELS_DIR,
+    RING_FRAME,
+    copy_tables,
+    write_fixture_facility,
+)
 
 EXCLUDED_THING = "XR02:SAF1"
 EXCLUDED_PLACE = "XR/XR02/SAFE"
@@ -397,3 +402,38 @@ def test_a_device_in_no_place_is_unplaced(panel_graph: PanelGraph) -> None:
     assert not panel_graph.placed("XR09:LOOSE1")
     every = {thing.id for place in ("XR",) for thing in panel_graph.contents(place)}
     assert "XR09:LOOSE1" not in every
+
+
+def test_an_excluded_document_drops_the_rule_rows_it_sources(tmp_path: Path, panel_facility: Path):
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "excluded.csv").open("a") as rows:
+        rows.write("document,xr-ioc,an invented source left out,,,\n")
+    graph = load_graph(panel_facility, tables)
+    assert {row.source for row in graph.rules()} == {"xr-screens"}
+    assert graph.pair("XR01-QF1:Current-SP") is None  # its pair row cites xr-ioc
+    assert graph.record_type("XR01-QF1:Current-SP") is None
+    assert graph.channel("XR01-QF1:Current-SP").drawn_as is None
+
+
+def test_a_channel_on_no_thing_is_kept_and_one_on_a_left_out_thing_is_not(tmp_path: Path):
+    def orphan(document) -> None:
+        document["channels"].append({"id": "XR-NOWHERE:Beam-Sts"})
+        document["channels"].append({"id": "XR-GONE:Beam-Sts", "on": {"device": "XR-NO-SUCH"}})
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", orphan), PANELS_DIR)
+    assert {c.name for c in graph.unheld()} == {"XR-GONE:Beam-Sts", "XR-NOWHERE:Beam-Sts"}
+    assert graph.channel("XR-NOWHERE:Beam-Sts").thing is None
+    with pytest.raises(KeyError):
+        graph.channel("XR02-SAF1:Trip-Sts")  # on an excluded thing: left out with it
+
+
+def test_a_unit_that_is_no_integer_keeps_its_claim_as_text_and_is_counted(tmp_path: Path):
+    def odd_unit(document) -> None:
+        for claim in document["relations"]:
+            if claim["id"] == "xr01-ch2-rack":
+                claim["object"]["unit"] = "A5"
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", odd_unit), PANELS_DIR)
+    assert graph.unread == 1
+    (edge,) = [e for e in graph.neighbours("XR01:CH2")["located_in"] if e.claim == "xr01-ch2-rack"]
+    assert (edge.unit, edge.unit_text) == (None, "A5")

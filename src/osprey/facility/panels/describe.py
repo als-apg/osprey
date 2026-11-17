@@ -122,6 +122,7 @@ NO_SYSTEM = "no system"
 
 _NO_POSITION = "no position"
 _NOT_IN = "not placed"
+_NO_THING = "on no device"
 _DRAWN_RANK = {drawn: rank for rank, drawn in enumerate(DRAWN_AS)}
 _EMPTY: Mapping[str, str] = MappingProxyType({})
 
@@ -817,7 +818,8 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     Units are listed in :data:`RACK_ORDER` (the highest unit first), ties by
     id, each with the claims' standing and the first ``size_u`` that parses
     as a number. The devices whose built place is the rack and that no unit claim
-    positions are ``unpositioned``, by id. Each entry links to the device's
+    positions are ``unpositioned``, by id, and so are those a claim puts in the
+    rack at a unit that is no integer, with the unit's text. Each entry links to the device's
     card and carries a :class:`Light` per channel the device's roll-up reads.
 
     Raises:
@@ -851,11 +853,23 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
             citations=tuple(citations),
         )
         positioned.append((-position, device, entry))
-    unpositioned = [
-        (thing.id, RackUnit(None, _ref(graph, index, thing), lights(thing)))
+    loose: dict[str, RackUnit] = {
+        thing.id: RackUnit(None, _ref(graph, index, thing), lights(thing))
         for thing in graph.within(rack_id)
         if thing.kind == "device" and thing.id not in units_of
-    ]
+    }
+    texts: dict[str, list[str]] = {}
+    for claim in graph.neighbours(rack_id, "place").get(PLACE_RELATION, ()):
+        text = claim.unit_text
+        if claim.outgoing or claim.other_kind != "device" or claim.other in units_of:
+            continue
+        if text is not None:
+            texts.setdefault(claim.other, []).append(text)
+    for device, stated in texts.items():
+        thing = graph.thing(device, "device")
+        text = ", ".join(dict.fromkeys(stated))
+        loose[device] = RackUnit(None, _ref(graph, index, thing), lights(thing), unit_text=text)
+    unpositioned = list(loose.items())
     elevation = Elevation(
         tuple(entry[-1] for entry in sorted(positioned, key=lambda e: e[:2])),
         tuple(entry[-1] for entry in sorted(unpositioned, key=lambda e: e[0])),
@@ -907,8 +921,11 @@ def _place_children(graph: PanelGraph, index: _Index, root_id: str, by: str) -> 
 
 
 def _unplaced_rollup(graph: PanelGraph, index: _Index) -> View:
-    """The roll-up of every device in no place, one node per device."""
+    """The roll-up of what is in no place: one node per device, then the channels on no thing."""
     children = [_device_node(graph, index, thing) for thing in graph.unplaced()]
+    unheld = [channel.name for channel in graph.unheld() if graph.rule(channel.name)]
+    if unheld:
+        children.append(_node(_NO_THING, None, unheld))
     root = _node(NOT_PLACED, None, unplaced_channels(graph), tuple(children))
     return View(_UNPLACED_ROLLUP, f"{NOT_PLACED} health", (), (Section("roll-up", (root,)),))
 
@@ -996,15 +1013,19 @@ def _check_rows(graph: PanelGraph, things: Iterable[Thing]) -> list[CheckRow]:
         for channel in graph.channels(thing.id, "device"):
             if channel.name in rows:
                 continue
-            rows[channel.name] = CheckRow(
-                channel=channel.name,
-                thing=thing.id,
-                on_device=True,
-                typed=channel.drawn_as is not None and channel.drawn_as != "untyped",
-                has_rule=bool(graph.rule(channel.name)),
-                has_source=_sourced(graph, channel.name),
-            )
+            rows[channel.name] = _check_row(graph, channel, thing.id)
     return list(rows.values())
+
+
+def _check_row(graph: PanelGraph, channel: Channel, thing: str | None) -> CheckRow:
+    return CheckRow(
+        channel=channel.name,
+        thing=thing,
+        on_device=thing is not None,
+        typed=channel.drawn_as is not None and channel.drawn_as != "untyped",
+        has_rule=bool(graph.rule(channel.name)),
+        has_source=_sourced(graph, channel.name),
+    )
 
 
 def _totals(found: list[CheckRow]) -> Totals:
@@ -1038,6 +1059,8 @@ def checkout(graph: PanelGraph, place_id: str) -> View:
         return View(_UNPLACED_CHECKOUT, f"{NOT_PLACED} checkout", (), sections)
     place = graph.thing(place_id, "place")
     found = _check_rows(graph, graph.contents(place_id))
+    if place.place is None:
+        found += [_check_row(graph, channel, None) for channel in graph.unheld()]
     children: list[Item] = [
         _place_link(graph, index, child.id, Target("checkout", "place", child.id))
         for child in graph.within(place_id)

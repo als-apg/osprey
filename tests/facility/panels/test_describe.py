@@ -902,3 +902,37 @@ def test_a_roll_up_reads_a_device_its_claims_place_and_no_built_place_does(tmp_p
         (root,) = _section(health_rollup(graph, place), "roll-up").items
         assert "XR02-CH5:Fault-Sts" in root.channels, place
     assert Target("rollup", "place", "XR/XR02/RK2", by="place") in targets(graph)
+
+
+def test_a_channel_on_no_thing_is_in_the_root_checkout_and_under_not_placed(tmp_path):
+    def orphan(document: dict[str, Any]) -> None:
+        document["channels"].append({"id": "XR-NOWHERE:Beam-Sts"})
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write("XR-NOWHERE:Beam-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,b.db:1\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json", orphan), tables)
+    rows = {row.channel: row for row in _section(checkout(graph, "XR"), "channels").items}
+    assert rows["XR-NOWHERE:Beam-Sts"] == CheckRow(
+        "XR-NOWHERE:Beam-Sts", None, False, False, True, True
+    )
+    assert "XR-NOWHERE:Beam-Sts" not in {
+        row.channel for row in _section(checkout(graph, "XR/XR01"), "channels").items
+    }
+    (root,) = _section(health_rollup(graph, "XR"), "roll-up").items
+    assert "XR-NOWHERE:Beam-Sts" in root.children[-1].channels  # the "not placed" child
+    view = describe(graph, Target("rollup", "place", NOT_PLACED, by="place"))
+    (unplaced,) = _section(view, "roll-up").items
+    assert unplaced.children[-1].channels == ("XR-NOWHERE:Beam-Sts",)
+
+
+def test_a_unit_that_is_no_integer_lists_the_device_unpositioned_with_its_text(tmp_path):
+    def odd_unit(document: dict[str, Any]) -> None:
+        for claim in document["relations"]:
+            if claim["id"] == "xr02-ch5-rack2":
+                claim["object"]["unit"] = "A5"
+
+    graph = _graph(tmp_path, odd_unit)
+    (elevation,) = _section(rack_elevation(graph, "XR/XR02/RK2"), "units").items
+    assert elevation.units == ()
+    assert [(u.link.target.id, u.unit_text) for u in elevation.unpositioned] == [("XR02:CH5", "A5")]

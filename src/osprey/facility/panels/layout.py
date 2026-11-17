@@ -860,7 +860,7 @@ class _Page:
 
     def check_row(self, row: CheckRow) -> None:
         x = self.text(MARGIN, self.y, row.channel, w=NAME_WIDTH)
-        x = self.text(x, self.y, row.thing, w=NAME_WIDTH)
+        x = self.text(x, self.y, row.thing or "", w=NAME_WIDTH)
         for flag in (row.on_device, row.typed, row.has_rule, row.has_source):
             x = self.text(x, self.y, _YES if flag else _NO, w=CELL_WIDTH)
         self.next_row()
@@ -1089,6 +1089,8 @@ class _Page:
         y_side = top + ROW + ROW_GAP
         for unit in elevation.unpositioned:
             x = self.ref(side, y_side, unit.link)
+            if unit.unit_text is not None:
+                x = self.text(x + GAP, y_side, f"unit {unit.unit_text}", size=SMALL_SIZE)
             for item in unit.lights:
                 x = self.light(x + GAP, y_side, [item])
             y_side += ROW + ROW_GAP
