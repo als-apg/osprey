@@ -242,11 +242,20 @@ def test_a_root_over_the_limit_says_its_summary_needs_a_server_side_aggregate(
 
 
 def _subscriptions(doc: dict) -> int:
-    return sum(bool(r["conditions"]) for n in nodes(doc) for r in n.get("rules", ()))
+    """Rules that read a channel: a conditional rule's, and a formula rule's."""
+    rules = [r for n in nodes(doc) for r in n.get("rules", ())]
+    return sum(bool(r.get("conditions")) or "formula" in r for r in rules)
 
 
 def _bound(doc: dict) -> set[str]:
-    return {pv["name"] for n in nodes(doc) for r in n.get("rules", ()) for pv in r["pvs"]}
+    formulas = {f["name"]: f for f in doc.get("formulas", ())}
+    found = set()
+    for n in nodes(doc):
+        for r in n.get("rules", ()):
+            found |= {pv["name"] for pv in r.get("pvs", ())}
+            if "formula" in r:
+                found |= set(formulas[r["formula"].removeprefix("formula://")]["bindings"].values())
+    return found
 
 
 def test_a_roll_up_spends_its_budget_on_single_lights_then_opens(tmp_path, monkeypatch):
@@ -1350,20 +1359,18 @@ def _names_bottom(doc: dict, names: set[str]) -> float:
     )
 
 
-def test_strip_values_are_bare_text_on_fixed_rows_under_the_lowest_name(panel_graph) -> None:
+def test_strip_values_are_bare_text_stacked_under_their_own_name(panel_graph) -> None:
     two = {"quadrupole": ("current_readback", "current_setpoint")}
     view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=two)
     doc, _ = draw(view, panel_graph)
     values = _values(doc)
     first = [values["XR01-QF1:Current-RB"], values["XR01-QD1:Current-RB"]]
     second = [values["XR01-QF1:Current-SP"], values["XR01-QD1:Current-SP"]]
-    # one width for every value of the row, one row per value, below every name
-    assert len({n["geometry"]["width"] for n in first + second}) == 1
-    assert len({n["geometry"]["y"] for n in first}) == 1
-    assert len({n["geometry"]["y"] for n in second}) == 1
-    row1, row2 = first[0]["geometry"]["y"], second[0]["geometry"]["y"]
-    assert row2 == row1 + layout.VALUE_STEP
-    assert row1 >= _names_bottom(doc, {"F1", "D1"})
+    for name, a, b in (("F1", first[0], second[0]), ("D1", first[1], second[1])):
+        (label,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == name]
+        assert a["geometry"]["y"] == label["geometry"]["y"] + layout.VALUE_STEP
+        assert b["geometry"]["y"] == a["geometry"]["y"] + layout.VALUE_STEP
+        assert a["geometry"]["x"] == b["geometry"]["x"] == label["geometry"]["x"]
     for thing, value in (("XR01:QF1", first[0]), ("XR01:QD1", first[1])):
         shapes = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == thing]
         left = min(n["geometry"]["x"] for n in shapes)

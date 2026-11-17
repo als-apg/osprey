@@ -189,10 +189,13 @@ SMALL_LINE = 16  # one line of small text
 TILE_LINES = 2  # the most lines a tile's title or caption takes
 VALUE_DIGITS = 7  # room for a value's number: "2.6e-10"
 COUNT_DIGITS = 3  # the least room for a count's number: what a dash takes
+SIGNIFICANT_DIGITS = 3  # a live float prints with this many significant digits
+PRECISION_FALLBACK = 3  # its decimals until its precision rule delivers, or with none
+FIXED_SMALLEST = 0.001  # below this a value keeps the viewer's own format (an exponent)
+VALUE_SAMPLE = "-0.00123"  # the widest number three significant digits print below 10 000
 RING_PAD = 6  # a state ring's distance from its symbol
 TAG_HEIGHT = 16  # the word above a ring
 VALUE_STEP = 16  # one live value under a symbol's name
-STRIP_VALUE_WIDTH = 44  # every value under a symbol: "-412.0" at the small size
 BADGE_VALUE_WIDTH = 64  # a value beside a badge
 TAG_WIDTH = 64  # room for the longest word a ring carries, at the small size
 CARD_LEFT = 600  # a device card's left column, its signals, with the gap to the right one
@@ -202,6 +205,7 @@ CARD_ROWS = 40  # signal rows a card draws; the rest are counted by how they are
 CARD_SPLIT_ROWS = 12  # a signals or settings group longer than this goes in columns
 CARD_COLUMN_MIN = 360  # the narrowest such column
 CARD_COMPACT_VALUE = 76  # a value's width in such a column: the name keeps the room
+CARD_LABEL_MIN = CARD_COLUMN_MIN - 2 * (CARD_COMPACT_VALUE + GAP) - LIGHT_SIZE - GAP  # a name there
 CHAIN_BOX = 150  # one thing of a card's fed-by chain
 CHAIN_HEIGHT = 44
 CHAIN_ARROW = 40  # the run of an arrow between two boxes of the chain
@@ -341,6 +345,7 @@ _PARTS = "parts"
 OUTLINE_KIND = "outline"
 _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
+_NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
 _TOKEN = re.compile(r"\{(\d+)\}")
 _NAVIGATION_TARGET = "tab"
 _HOVER_LABEL = "hoverLabel"
@@ -1468,14 +1473,8 @@ class _Page:
         values = {state: looks[state][symbols.MARK_PROP] for state in symbols.STATES}
         mark_rules.append(self.s.rule(f"{names} mark", symbols.MARK_PROP, rule, values))
 
-    def field(
-        self, x, y, channel: str, *, drawn_as: str | None = None, writable=False, w=VALUE_WIDTH
-    ) -> float:
-        """A channel's value in the widget :data:`WIDGETS` names for its ``drawn_as``.
-
-        A writable widget only on a device card, and only for a writable
-        channel; anywhere else the value is a label. Returns the right edge.
-        """
+    def widget_for(self, drawn_as: str | None, writable: bool) -> tuple[str, str]:
+        """The widget :data:`WIDGETS` names for *drawn_as*, and the kind it is drawn as."""
         kind = drawn_as if drawn_as not in (None, "untyped") else None
         if kind is None:
             kind = "setpoint" if writable else "untyped"
@@ -1483,6 +1482,53 @@ class _Page:
         widget = on_card if self.on_card else elsewhere
         if widget in _WRITABLE_WIDGETS and not (self.on_card and writable):
             widget = elsewhere
+        return widget, kind
+
+    def precision(self, props: dict[str, Any], value: str, bindings: Mapping[str, str]) -> list:
+        """*props* print *value* (an expression over *bindings*) with
+        :data:`PRECISION_FALLBACK` decimals; the rule that sets them live to
+        :data:`SIGNIFICANT_DIGITS` significant digits, when the budget and the
+        expression limit allow it (else none)."""
+        props["precision"] = PRECISION_FALLBACK
+        expression = precision_expression(value)
+        if len(expression) > RULE_EXPRESSION_LIMIT:
+            return []
+        if not self.budget.take([(1, frozenset(bindings.values()))]):
+            return []
+        name = f"precision-{len(self.s.formulas)}"
+        self.s.formulas.append(
+            {"name": name, "kind": "scalar", "expression": expression, "bindings": dict(bindings)}
+        )
+        self.s._rules += 1
+        return [
+            {
+                "id": f"r-{self.s._rules:04d}",
+                "name": "precision",
+                "targetProperty": "precision",
+                "default": PRECISION_FALLBACK,
+                "formula": _FORMULA_PREFIX + name,
+            }
+        ]
+
+    def field(
+        self,
+        x,
+        y,
+        channel: str,
+        *,
+        drawn_as: str | None = None,
+        writable=False,
+        w=VALUE_WIDTH,
+        units=False,
+    ) -> float:
+        """A channel's value in the widget :data:`WIDGETS` names for its ``drawn_as``.
+
+        A writable widget only on a device card, and only for a writable
+        channel; anywhere else the value is a label, a number printed to
+        :data:`SIGNIFICANT_DIGITS` significant digits, with its unit when *units*.
+        Returns the right edge.
+        """
+        widget, kind = self.widget_for(drawn_as, writable)
         common = {"pv": channel, "fontSize": TEXT_SIZE, "foregroundColor": PAGE_TEXT}
         if widget == "pv-text-input":
             props = {**common, "backgroundColor": FIELD_BACKGROUND, "alarmSensitiveBorder": False}
@@ -1505,13 +1551,26 @@ class _Page:
             props = {
                 **common,
                 "backgroundColor": FIELD_BACKGROUND,
-                "showUnits": False,  # the unit is a label of its own: a tile never cuts it
+                "showUnits": units,  # else the unit stands with the signal's name
                 "alarmSensitive": True,
                 "alarmSensitiveBorder": False,  # the viewer frames it once; the light says state
                 "align": "right",
             }
-            self.s.widget("pv-label", x, y, w, ROW, props)
+            rules = []
+            if kind in _NUMBERS:
+                rules = self.precision(props, "{v}", {"v": channel})
+            self.s.widget("pv-label", x, y, w, ROW, props, rules=rules)
         return x + w
+
+    def unit_field(
+        self, x: float, channel: str, unit: str | None, drawn_as: str | None, writable: bool
+    ) -> float:
+        """:meth:`field` with the unit once: in the label, or beside an input."""
+        if self.widget_for(drawn_as, writable)[0] != "pv-label":
+            x = self.field(x, self.y, channel, drawn_as=drawn_as, writable=writable)
+            return self.unit(x, self.y, unit)
+        w = max(VALUE_WIDTH, value_width(unit, TEXT_SIZE))
+        return self.field(x, self.y, channel, drawn_as=drawn_as, writable=writable, w=w, units=True)
 
     def unit(self, x, y, unit: str | None) -> float:
         """A value's unit, its own label beside the value; the right edge (*x* with none)."""
@@ -1828,13 +1887,18 @@ class _Page:
 
     def wide_group(self, section: Section) -> None:
         """A signals or settings group of more than :data:`CARD_SPLIT_ROWS` rows across the
-        card: as many columns as are at least :data:`CARD_COLUMN_MIN` wide, filled
-        column by column, the group's heading over them all and the table's heads
-        over each; values :data:`CARD_COMPACT_VALUE` wide. The rows past
-        :data:`CARD_ROWS` are counted under them, as in one column."""
+        card, filled column by column, the group's heading over them all and the
+        table's heads over each. Values are :data:`CARD_COMPACT_VALUE` wide, or as
+        wide as :func:`value_width` needs for the widest unit there; the name keeps
+        :data:`CARD_LABEL_MIN`, so a column is at least :data:`CARD_COLUMN_MIN` wide
+        and wider when its values need it, and there are as many as fit. The rows
+        past :data:`CARD_ROWS` are counted under them, as in one column."""
         rows = [i for i in section.items if isinstance(i, ValueRow)]
         shown = rows[:CARD_ROWS]
-        count = max(1, int((STRIP_WIDTH + COLUMN_GAP) // (CARD_COLUMN_MIN + COLUMN_GAP)))
+        units = {u for row in shown for u in (row.unit, row.readback_unit)}
+        value_w = max(CARD_COMPACT_VALUE, *(value_width(u, TEXT_SIZE) for u in units))
+        least = max(CARD_COLUMN_MIN, CARD_LABEL_MIN + 2 * (value_w + GAP) + LIGHT_SIZE + GAP)
+        count = max(1, int((STRIP_WIDTH + COLUMN_GAP) // (least + COLUMN_GAP)))
         count = min(count, len(shown)) or 1
         width = (STRIP_WIDTH - (count - 1) * COLUMN_GAP) / count
         per = math.ceil(len(shown) / count)
@@ -1842,8 +1906,8 @@ class _Page:
         top = self.y
         bottom = top
         saved = (self.label_w, self.value_w)
-        self.value_w = CARD_COMPACT_VALUE
-        self.label_w = width - 2 * (CARD_COMPACT_VALUE + GAP) - LIGHT_SIZE - GAP
+        self.value_w = value_w
+        self.label_w = width - 2 * (self.value_w + GAP) - LIGHT_SIZE - GAP
         for n in range(count):
             self.x0 = MARGIN + n * (width + COLUMN_GAP)
             self.y = top
@@ -2115,12 +2179,12 @@ class _Page:
     # -- rows -----------------------------------------------------------------
 
     def value_row(self, row: ValueRow) -> None:
+        """A value and its readback, each with its unit once: a label prints the
+        channel's own, an input has it beside it."""
         x = self.text(self.x0, self.y, row.label, w=LABEL_WIDTH)
-        x = self.field(x + GAP, self.y, row.channel, drawn_as=row.drawn_as, writable=row.writable)
-        x = self.unit(x, self.y, row.unit)
+        x = self.unit_field(x + GAP, row.channel, row.unit, row.drawn_as, row.writable)
         if row.readback is not None:
-            x = self.field(x + GAP, self.y, row.readback)
-            x = self.unit(x, self.y, row.readback_unit)
+            x = self.unit_field(x + GAP, row.readback, row.readback_unit, None, False)
         deviation = _tolerance_ladder(row)
         if deviation is not None:
             x = self.light(x + GAP, self.y, [Light(row.channel)], rule=deviation)
@@ -2707,27 +2771,58 @@ class _Page:
             centres.append((p, x, cy))
         for p, x, cy in centres:
             self.badge_text(p, x, cy)
+        shown = [self.affordable(p) for p in beam]
         lines = 0
-        for text, left, w, level in strip_labels(beam):
+        bare = [p for p, channels in zip(beam, shown, strict=True) if not channels]
+        for text, left, w, level in strip_labels(bare):
             top = axis + STRIP_LABEL_TOP + level * STRIP_LABEL_STEP
             self.text(MARGIN + left, top, text, size=STRIP_LABEL_SIZE, w=w, h=STRIP_LABEL_STEP)
             lines = max(lines, level + 1)
         names = axis + STRIP_LABEL_TOP + lines * STRIP_LABEL_STEP
-        below = names
-        # one width, centred: bare text, so two close neighbours' boxes may overlap
-        # where their numbers do not
-        w = STRIP_VALUE_WIDTH
-        for p in beam:
-            for i, channel in enumerate(self.affordable(p)):
-                top = names + i * VALUE_STEP  # row i: every symbol's i-th value
-                left = min(max(MARGIN + p.x - w / 2, MARGIN), MARGIN + STRIP_WIDTH - w)
-                self.value(left, top, w, channel)
-                below = max(below, top + VALUE_STEP)
+        below = self.value_blocks(beam, shown, names)
         self.y = max(axis + STRIP_AXIS, below) + LEADER_GAP
         if extent is not None:
             self.locator(beam, extent)
         else:
             self.y += ROW_GAP
+
+    def value_blocks(
+        self, beam: Sequence[strip.Placed], shown: Sequence[list[str]], top: float
+    ) -> float:
+        """Each symbol with values as one block from *top* down: its short name, then
+        its values under it, centred on the symbol and wide enough for
+        :data:`VALUE_SAMPLE` and the unit the viewer prints after it. A block goes in
+        the first lane where it clears the blocks there (:func:`value_lanes`), each
+        lane under the one before, so no two boxes overlap. Returns the bottom."""
+        blocks = []
+        for p, channels in zip(beam, shown, strict=True):
+            if not channels:
+                continue
+            name = p.short if p.short is not None else _short(p.thing)
+            units = dict(p.annotations)
+            w = max(
+                text_width(name, STRIP_LABEL_SIZE),
+                *(value_width(units.get(c), SMALL_SIZE) for c in channels),
+            )
+            left = min(max(MARGIN + p.x - w / 2, MARGIN), MARGIN + STRIP_WIDTH - w)
+            blocks.append((name, channels, left, w))
+        lanes = value_lanes([(left, w) for _name, _channels, left, w in blocks])
+        heights: dict[int, float] = {}
+        for (_name, channels, _left, _w), lane in zip(blocks, lanes, strict=True):
+            heights[lane] = max(heights.get(lane, 0), (1 + len(channels)) * VALUE_STEP)
+        tops = {}
+        y = top
+        for lane in sorted(heights):
+            tops[lane] = y
+            y += heights[lane] + ROW_GAP
+        for (name, channels, left, w), lane in zip(blocks, lanes, strict=True):
+            y0 = tops[lane]
+            self.text(
+                left, y0, name, size=STRIP_LABEL_SIZE, w=w, h=VALUE_STEP, align="center"
+            )  # fmt: skip
+            for i, channel in enumerate(channels, start=1):
+                self.value(left, y0 + i * VALUE_STEP, w, channel)
+        return y - ROW_GAP if heights else top
 
     def affordable(self, element: strip.Placed) -> list[str]:
         """The channels of *element*'s values, when the screen's budget allows them all;
@@ -2747,7 +2842,9 @@ class _Page:
 
     def value(self, x: float, y: float, w: float, channel: str, align: str = "center") -> None:
         """A channel's live value on the strip: small, muted, no ground, no alarm
-        border, no unit (the strip's values line names the units)."""
+        border, to :data:`SIGNIFICANT_DIGITS` significant digits; no unit asked for
+        (the strip's values line names the units), though its box has room for the
+        one the served viewer prints anyway."""
         props = {
             "pv": channel,
             "fontSize": SMALL_SIZE,
@@ -2759,7 +2856,8 @@ class _Page:
             "alarmSensitiveBorder": False,  # the viewer's name for the alarm border
             "align": align,
         }
-        self.s.widget("pv-label", x, y, w, VALUE_STEP, props)
+        rules = self.precision(props, "{v}", {"v": channel})
+        self.s.widget("pv-label", x, y, w, VALUE_STEP, props, rules=rules)
 
     def values_line(self) -> None:
         """What the values on the strip are, and how many the budget left out."""
@@ -2820,11 +2918,14 @@ class _Page:
         if self.free(box):
             self.text(x, cy - VALUE_STEP, name, size=SMALL_SIZE, w=w, h=VALUE_STEP)
             self.taken.append(box)
+        units = dict(element.annotations)
         for i, channel in enumerate(self.affordable(element)):
             top = cy + i * VALUE_STEP
-            box = (x, top, BADGE_VALUE_WIDTH, VALUE_STEP)
+            room = value_width(units.get(channel), SMALL_SIZE)
+            w = max(BADGE_VALUE_WIDTH, room)
+            box = (x, top, w, VALUE_STEP)
             if self.free(box):
-                self.value(x, top, BADGE_VALUE_WIDTH, channel, align="left")
+                self.value(x, top, w, channel, align="left")
                 self.taken.append(box)
 
     def free(self, box: tuple[float, float, float, float]) -> bool:
@@ -3213,7 +3314,8 @@ class _Page:
                 fg=MUTED_TEXT, tags=tags,
             )  # fmt: skip
         counted = item.measure in _COUNTS
-        beside = f"of {total}" if counted else (item.unit or "")
+        own_unit = formula is None and pv is not None  # a channel: the viewer prints its unit
+        beside = f"of {total}" if counted else ("" if own_unit else (item.unit or ""))
         beside_w = text_width(beside, SMALL_SIZE) if beside else 0
         if pv is None:
             dash_w = text_width(_DASH, BIG_SIZE)
@@ -3223,7 +3325,10 @@ class _Page:
             )  # fmt: skip
         else:
             digits = max(len(str(total)), COUNT_DIGITS) if counted else VALUE_DIGITS
-            number_w = min(digits * CHAR_WIDTH * BIG_SIZE + NUMBER_PAD, inner - beside_w - GAP)
+            number_w = digits * CHAR_WIDTH * BIG_SIZE + NUMBER_PAD
+            if not counted:
+                number_w = max(number_w, value_width(item.unit if own_unit else None, BIG_SIZE))
+            number_w = min(number_w, inner - beside_w - GAP)
             props = {
                 "pv": pv,
                 "fontSize": BIG_SIZE,
@@ -3234,9 +3339,20 @@ class _Page:
                 "alarmBorder": False,
                 "alarmSensitiveBorder": False,
             }
+            precision: list[dict] = []
             if counted:
                 props["precision"] = 0
-            self.s.widget("pv-label", left, number_top, number_w, NUMBER_HEIGHT, props, tags=tags)
+            elif item.precision is not None:  # stated by the data
+                props["precision"] = item.precision
+            elif formula is not None:
+                value = f"({formula['expression']})"
+                precision = self.precision(props, value, formula["bindings"])
+            else:
+                precision = self.precision(props, "{v}", {"v": pv})
+            self.s.widget(
+                "pv-label", left, number_top, number_w, NUMBER_HEIGHT, props, tags=tags,
+                rules=precision,
+            )  # fmt: skip
             if beside:  # on the number's baseline: its line's middle below the number's
                 base = number_top + NUMBER_HEIGHT - SMALL_LINE - ROW_GAP
                 self.small(left + number_w + ROW_GAP, base, beside, fg=MUTED_TEXT, tags=tags)
@@ -3531,10 +3647,10 @@ class _Page:
                 values.append((part.element.label or "", part.channel, unit))
         if not values:
             return
-        for name, channel, unit in values:
+        for name, channel, unit in values:  # the label prints the unit: none beside it
             x = self.text(x, self.y, name) + GAP / 2
-            x = self.field(x, self.y, channel, drawn_as="value", w=PROBE_READOUT_WIDTH)
-            x = self.unit(x, self.y, unit) + 2 * GAP
+            w = max(PROBE_READOUT_WIDTH, value_width(unit, TEXT_SIZE))
+            x = self.field(x, self.y, channel, drawn_as="value", w=w, units=True) + 2 * GAP
         self.y += ROW + ROW_GAP
 
     def probe_plot(
@@ -3968,6 +4084,40 @@ def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float
         ends[level] = left + w
         found.append((text, left, w, level))
     return found
+
+
+def precision_expression(value: str) -> str:
+    """The decimals that print *value* (a formula expression) with
+    :data:`SIGNIFICANT_DIGITS` significant digits: that many decimals for zero, and
+    ``-1`` below :data:`FIXED_SMALLEST`, which the viewer ignores, so such a value
+    keeps the viewer's own format."""
+    digits = SIGNIFICANT_DIGITS
+    return (
+        f"{digits} if {value} == 0 else (-1 if abs({value}) < {_number(FIXED_SMALLEST)} "
+        f"else max((0, {digits - 1} - floor(log10(abs({value}))),)))"
+    )  # max over one tuple: the formula engine's max is a reduction
+
+
+def value_width(unit: str | None, size: float) -> float:
+    """The width of a value display that prints :data:`VALUE_SAMPLE` and *unit* at
+    *size*: the characters, and the display's own padding and frame."""
+    text = f"{VALUE_SAMPLE} {unit}" if unit else VALUE_SAMPLE
+    return len(text) * CHAR_WIDTH * size + NUMBER_PAD
+
+
+def value_lanes(spans: Sequence[tuple[float, float]]) -> list[int]:
+    """The lane of each ``(left, width)`` span, in order: the first lane whose last
+    span it clears by :data:`STRIP_LABEL_GAP`, else a new one."""
+    ends: list[float] = []
+    out = []
+    for left, w in spans:
+        lane = next((n for n, end in enumerate(ends) if left >= end + STRIP_LABEL_GAP), len(ends))
+        if lane == len(ends):
+            ends.append(left + w)
+        else:
+            ends[lane] = left + w
+        out.append(lane)
+    return out
 
 
 def metric_formula(name: str, item: Tile) -> dict[str, Any]:

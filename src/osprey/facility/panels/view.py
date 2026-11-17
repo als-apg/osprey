@@ -484,6 +484,7 @@ class Tile:
         pairs: For ``count_in_tolerance``: per setpoint stating the signal
             that has a readback and a tolerance, ``(setpoint, readback,
             term, amount)``, by setpoint.
+        precision: The decimals the row states for the number, or ``None``.
     """
 
     title: str
@@ -492,6 +493,7 @@ class Tile:
     caption: str | None
     channels: tuple[str, ...] = ()
     pairs: tuple[tuple[str, str, str, float], ...] = ()
+    precision: int | None = None
 
 
 @dataclass(frozen=True)

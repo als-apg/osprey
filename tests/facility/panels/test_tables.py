@@ -48,7 +48,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
         "thing,short_name,scheme,basis,document,version,state,locator"
     )
     assert ",".join(COLUMNS["metrics.csv"]) == (
-        "view,level,order,title,measure,signal,class,unit,caption,source"
+        "view,level,order,title,measure,signal,class,unit,caption,source,precision"
     )
     assert ",".join(COLUMNS["calibration_kinds.csv"]) == (
         "kind,title,class,shape,unit,wanted_basis,tolerance,tolerance_source,held_in,order,under,short"
@@ -296,3 +296,17 @@ def test_the_under_column_may_be_left_out_of_the_header(tmp_path: Path) -> None:
     _edit(directory, "calibration_kinds.csv", [line.rsplit(",", 1)[0] for line in lines])
     kinds = read_tables(directory).calibration_kinds
     assert len(kinds) == len(lines) - 1 and all(k.under is None for k in kinds)
+
+
+def test_a_metric_may_state_its_decimals_and_nothing_else_there(tmp_path) -> None:
+    from osprey.facility.panels.tables import PanelTableError
+
+    tables = copy_tables(tmp_path / "ok")
+    path = tables / "metrics.csv"
+    lines = path.read_text().splitlines()
+    path.write_text("\n".join([lines[0] + ",precision", lines[1] + ",2"]) + "\n")
+    (metric,) = read_tables(tables).metrics
+    assert metric.precision == 2
+    path.write_text("\n".join([lines[0] + ",precision", lines[1] + ",1.5"]) + "\n")
+    with pytest.raises(PanelTableError, match="precision"):
+        read_tables(tables)

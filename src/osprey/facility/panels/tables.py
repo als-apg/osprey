@@ -169,6 +169,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "unit",
             "caption",
             "source",
+            "precision",
         ],
         CALIBRATION_KINDS: [
             "kind",
@@ -226,7 +227,11 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
 
 #: The columns a file's header may leave out; an absent one reads as empty.
 OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
-    {CALIBRATION_KINDS: frozenset({"under", "short"}), PROBE_PICTURES: frozenset({"under"})}
+    {
+        CALIBRATION_KINDS: frozenset({"under", "short"}),
+        PROBE_PICTURES: frozenset({"under"}),
+        METRICS: frozenset({"precision"}),
+    }
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
@@ -500,7 +505,8 @@ class Metric:
 
     It applies to the views of ``view`` whose place has ``level`` (any place
     when ``None``), in ``order``; it computes ``measure`` over the channels in
-    the place that state ``signal``, on things of class ``cls`` when given.
+    the place that state ``signal``, on things of class ``cls`` when given;
+    ``precision`` (optional) is the decimals its number prints with.
     """
 
     view: str
@@ -513,6 +519,7 @@ class Metric:
     unit: str | None
     caption: str | None
     source: str | None
+    precision: int | None = None
 
 
 def _metric(**columns: Any) -> Metric:
@@ -692,6 +699,15 @@ def _header(name: str, record: list[str]) -> list[str]:
     return record
 
 
+#: The most decimals a metric's ``precision`` may state.
+MOST_DECIMALS = 10
+
+
+def _decimals(text: str) -> int | None:
+    """``0`` to :data:`MOST_DECIMALS` as an int; ``None`` when it is not one."""
+    return int(text) if text.isdigit() and int(text) <= MOST_DECIMALS else None
+
+
 #: The terms a calibration kind's ``tolerance`` is stated in.
 TOLERANCE_TERMS: tuple[str, ...] = ("rel", "abs")
 
@@ -711,7 +727,10 @@ def _tolerance_term(text: str) -> tuple[str, float] | None:
 #: Per file, the columns read by a parser of their own: it gives ``None`` for text
 #: that does not hold, and the message says what does.
 _PARSED: Mapping[str, Mapping[str, tuple[Callable[[str], Any], str]]] = MappingProxyType(
-    {CALIBRATION_KINDS: {"tolerance": (_tolerance_term, "rel:<fraction> or abs:<number>")}}
+    {
+        CALIBRATION_KINDS: {"tolerance": (_tolerance_term, "rel:<fraction> or abs:<number>")},
+        METRICS: {"precision": (_decimals, f"a whole number of decimals 0 to {MOST_DECIMALS}")},
+    }
 )
 
 

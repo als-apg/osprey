@@ -1135,7 +1135,9 @@ def _band(graph: PanelGraph, place: Thing, view: str) -> Band | None:
                     pairs.append((channel.name, pair.readback, term, amount))
             chosen = []
         names = tuple(c.name for c in chosen)
-        tiles.append(Tile(row.title, row.measure, row.unit, row.caption, names, tuple(pairs)))
+        tiles.append(
+            Tile(row.title, row.measure, row.unit, row.caption, names, tuple(pairs), row.precision)
+        )
     return Band(tuple(tiles))
 
 

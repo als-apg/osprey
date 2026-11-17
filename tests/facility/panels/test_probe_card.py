@@ -203,9 +203,12 @@ def test_a_group_of_more_than_twelve_rows_fills_columns_across_the_card(tmp_path
         if n["type"].startswith("pv-") and str(n["props"].get("pv", "")).startswith("XR01:BPM1:knob")
     ]  # fmt: skip
     xs = sorted({n["geometry"]["x"] for n in values})
-    columns = int(
-        (layout.STRIP_WIDTH + layout.COLUMN_GAP) // (layout.CARD_COLUMN_MIN + layout.COLUMN_GAP)
+    value_w = layout.value_width("mm", layout.TEXT_SIZE)  # the pickup's positions are in mm
+    least = max(
+        layout.CARD_COLUMN_MIN,
+        layout.CARD_LABEL_MIN + 2 * (value_w + layout.GAP) + layout.LIGHT_SIZE + layout.GAP,
     )
+    columns = int((layout.STRIP_WIDTH + layout.COLUMN_GAP) // (least + layout.COLUMN_GAP))
     assert len(xs) == columns >= 2
     first = sorted(
         (n for n in values if n["geometry"]["x"] == xs[0]), key=lambda n: n["geometry"]["y"]
@@ -246,7 +249,7 @@ def _long_signals(document) -> None:
         document["channels"].append(
             {
                 "id": f"XR01:BPM1:long{n}",
-                "signal": f"button_{n}_amplitude_reference_average",
+                "signal": f"button_{n}_amplitude_reference_average_over_the_last_turns",
                 "on": {"device": "XR01:BPM1"},
             }
         )
@@ -286,7 +289,7 @@ def _raw_channels(document) -> None:
     for n in range(14):
         document["channels"].append(
             {
-                "id": f"XR01:BPM1:LONGER:PART{n:02d}:segment:tail{n:02d}",
+                "id": f"XR01:BPM1:LONGER:PART{n:02d}:segment:of:a:much:longer:name:tail{n:02d}",
                 "on": {"device": "XR01:BPM1"},
             }
         )
@@ -308,7 +311,7 @@ def test_a_channel_name_under_its_row_breaks_after_a_colon_instead_of_being_cut(
         key=lambda n: (n["geometry"]["x"], n["geometry"]["y"]),
     )  # fmt: skip
     for n in range(14):
-        name = f"XR01:BPM1:LONGER:PART{n:02d}:segment:tail{n:02d}"
+        name = f"XR01:BPM1:LONGER:PART{n:02d}:segment:of:a:much:longer:name:tail{n:02d}"
         (i,) = [k for k, m in enumerate(small) if f"PART{n:02d}" in m["props"]["text"]]
         first, second = small[i], small[i + 1]
         assert second["geometry"]["y"] == first["geometry"]["y"] + layout.SMALL_LINE
