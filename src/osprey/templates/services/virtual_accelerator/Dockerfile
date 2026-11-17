@@ -31,8 +31,9 @@
 #
 # No install layer pins a native-dependency version — the extra + core deps
 # resolve them, so they can't drift from pyproject.toml's declared constraints.
-# The one exception is the arm64 native-wheels stage below, which builds pcaspy
-# from its sdist at a pinned version inside the range pyproject.toml admits.
+# The one exception is the native-wheels stage below, on aarch64, which builds
+# pcaspy from its sdist at a pinned version inside the range pyproject.toml
+# admits.
 #
 # ARCHITECTURE: native, linux/amd64 or linux/arm64 — whichever the build
 # targets. On amd64 every framework dependency resolves to a prebuilt manylinux
@@ -40,23 +41,20 @@
 # image runs. p4p, the EPICS libraries under it and accelerator-toolbox (PyAT)
 # build from source with the deps layer's own toolchain, exactly as they do in
 # the other service images that share that layer. pcaspy, the Channel Access
-# server behind the serving stack, is built by the `native-wheels-arm64` stage
-# from its pinned sdist against EPICS Base and the PCAS module, which that
-# stage compiles first, statically, so the wheel carries them — and handed to
-# the final stage in a find-links directory, where the virtual-accelerator
+# server behind the serving stack, is built by the native-wheels stage, on
+# aarch64, from its pinned sdist against EPICS Base and the PCAS module, which
+# that stage compiles first, statically, so the wheel carries them — and handed
+# to the final stage in a find-links directory, where the virtual-accelerator
 # layer installs it like any other wheel. On amd64 that directory is empty and
 # the resolve is exactly what it is without it.
 # The stage depends on nothing but its pins, so BuildKit builds it once per
 # host and serves it from cache after; the install layers, which rebuild with
-# every new framework version, never recompile EPICS. An architecture with no
-# native-wheels stage fails at the FROM that selects one.
+# every new framework version, never recompile EPICS. On any other architecture
+# that stage fails, naming it.
 #
 # This image is built locally by `osprey up`; override with
 # OSPREY_VA_IMAGE to use a prebuilt/published image.
 
-# The build's target architecture, set by BuildKit and by buildah; it selects
-# the native-wheels stage.
-ARG TARGETARCH
 # Registry standing in for docker.io; images.base_registry points it at a site mirror of Docker Hub.
 ARG OSPREY_BASE_REGISTRY="docker.io"
 
@@ -119,15 +117,14 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
  && rm -f /etc/apt/apt.conf.d/docker-clean
 
 # ── native wheels ────────────────────────────────────────────────────────────
-# One stage per architecture, each leaving its wheels in /wheels. amd64 needs
+# One stage leaves the build's native wheels in /wheels. It reads the build
+# container's own architecture, so it needs no platform build arg. x86_64 needs
 # none: PyPI has a wheel for every dependency there.
-FROM va-base AS native-wheels-amd64
-RUN mkdir -p /wheels
-
-# arm64: pcaspy from its sdist. Every download is pinned by version and checked
-# against its sha256, the sdist through pip's hash mode. PyAT is not built here:
-# it is a core dependency, so the shared deps layer has already installed it by
-# the time this stage's wheels are in reach.
+#
+# aarch64: pcaspy from its sdist. Every download is pinned by version and
+# checked against its sha256, the sdist through pip's hash mode. PyAT is not
+# built here: it is a core dependency, so the shared deps layer has already
+# installed it by the time this stage's wheels are in reach.
 #
 # pcaspy links EPICS Base and the PCAS module, which Base 7 no longer bundles.
 # Both build here as position-independent static libraries, and PCAS's headers
@@ -138,8 +135,9 @@ RUN mkdir -p /wheels
 # the server on any asynchronous write. swig generates pcaspy's bindings.
 #
 # The stage is a builder only — nothing but /wheels leaves it — so its
-# toolchain is never shipped and needs no purge.
-FROM va-base AS native-wheels-arm64
+# toolchain is never shipped and needs no purge. Any other architecture fails
+# here, naming it.
+FROM va-base AS native-wheels
 ARG EPICS_BASE_VERSION=7.0.10
 ARG EPICS_BASE_SHA256=44193e962793de514ead442e9b5096a13109f1ee275f131995826468aa89b839
 ARG PCAS_VERSION=4.13.3
@@ -155,35 +153,42 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     set -e; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends build-essential perl swig curl; \
-    base=/tmp/native/epics; pcas=/tmp/native/pcas; \
-    mkdir -p "$base" "$pcas" /wheels; \
-    curl -fsSL --retry 5 -o /tmp/native/base.tar.gz \
-        "https://github.com/epics-base/epics-base/releases/download/R${EPICS_BASE_VERSION}/base-${EPICS_BASE_VERSION}.tar.gz"; \
-    echo "${EPICS_BASE_SHA256}  /tmp/native/base.tar.gz" | sha256sum -c -; \
-    curl -fsSL --retry 5 -o /tmp/native/pcas.tar.gz \
-        "https://github.com/epics-modules/pcas/archive/refs/tags/v${PCAS_VERSION}.tar.gz"; \
-    echo "${PCAS_SHA256}  /tmp/native/pcas.tar.gz" | sha256sum -c -; \
-    tar -xzf /tmp/native/base.tar.gz --strip-components=1 -C "$base"; \
-    tar -xzf /tmp/native/pcas.tar.gz --strip-components=1 -C "$pcas"; \
-    printf 'STATIC_BUILD = YES\nSHARED_LIBRARIES = NO\nUSR_CFLAGS += -fPIC\nUSR_CXXFLAGS += -fPIC\n' \
-        > "$base/configure/CONFIG_SITE.local"; \
-    printf 'EPICS_BASE = %s\n' "$base" > "$pcas/configure/RELEASE.local"; \
-    cp "$base/configure/CONFIG_SITE.local" "$pcas/configure/CONFIG_SITE.local"; \
-    make -C "$base" -j"$(nproc)"; \
-    make -C "$pcas" -j"$(nproc)"; \
-    export EPICS_BASE="$base" EPICS_HOST_ARCH="$(perl "$base/src/tools/EpicsHostArch.pl")"; \
-    cp "$pcas/lib/$EPICS_HOST_ARCH"/*.a "$base/lib/$EPICS_HOST_ARCH/"; \
-    cp -R "$pcas/include/." "$base/include/"; \
-    printf 'pcaspy==%s --hash=sha256:%s\n' \
-        "$PCASPY_VERSION" "$PCASPY_SHA256" > /tmp/native/requirements.txt; \
-    pip wheel --no-deps --no-binary pcaspy --require-hashes \
-        -r /tmp/native/requirements.txt -w /wheels; \
-    ls /wheels/pcaspy-*_aarch64.whl; \
-    rm -rf /tmp/native
-
-FROM native-wheels-${TARGETARCH} AS native-wheels
+    arch="$(uname -m)"; \
+    case "$arch" in \
+    x86_64) \
+        mkdir -p /wheels ;; \
+    aarch64) \
+        apt-get update; \
+        apt-get install -y --no-install-recommends build-essential perl swig curl; \
+        base=/tmp/native/epics; pcas=/tmp/native/pcas; \
+        mkdir -p "$base" "$pcas" /wheels; \
+        curl -fsSL --retry 5 -o /tmp/native/base.tar.gz \
+            "https://github.com/epics-base/epics-base/releases/download/R${EPICS_BASE_VERSION}/base-${EPICS_BASE_VERSION}.tar.gz"; \
+        echo "${EPICS_BASE_SHA256}  /tmp/native/base.tar.gz" | sha256sum -c -; \
+        curl -fsSL --retry 5 -o /tmp/native/pcas.tar.gz \
+            "https://github.com/epics-modules/pcas/archive/refs/tags/v${PCAS_VERSION}.tar.gz"; \
+        echo "${PCAS_SHA256}  /tmp/native/pcas.tar.gz" | sha256sum -c -; \
+        tar -xzf /tmp/native/base.tar.gz --strip-components=1 -C "$base"; \
+        tar -xzf /tmp/native/pcas.tar.gz --strip-components=1 -C "$pcas"; \
+        printf 'STATIC_BUILD = YES\nSHARED_LIBRARIES = NO\nUSR_CFLAGS += -fPIC\nUSR_CXXFLAGS += -fPIC\n' \
+            > "$base/configure/CONFIG_SITE.local"; \
+        printf 'EPICS_BASE = %s\n' "$base" > "$pcas/configure/RELEASE.local"; \
+        cp "$base/configure/CONFIG_SITE.local" "$pcas/configure/CONFIG_SITE.local"; \
+        make -C "$base" -j"$(nproc)"; \
+        make -C "$pcas" -j"$(nproc)"; \
+        export EPICS_BASE="$base" EPICS_HOST_ARCH="$(perl "$base/src/tools/EpicsHostArch.pl")"; \
+        cp "$pcas/lib/$EPICS_HOST_ARCH"/*.a "$base/lib/$EPICS_HOST_ARCH/"; \
+        cp -R "$pcas/include/." "$base/include/"; \
+        printf 'pcaspy==%s --hash=sha256:%s\n' \
+            "$PCASPY_VERSION" "$PCASPY_SHA256" > /tmp/native/requirements.txt; \
+        pip wheel --no-deps --no-binary pcaspy --require-hashes \
+            -r /tmp/native/requirements.txt -w /wheels; \
+        ls /wheels/pcaspy-*_aarch64.whl; \
+        rm -rf /tmp/native ;; \
+    *) \
+        echo "ERROR: the virtual accelerator image builds on x86_64 and aarch64, not on $arch." >&2; \
+        exit 1 ;; \
+    esac
 
 # ── final image ──────────────────────────────────────────────────────────────
 # The final image starts again from the Python base and repeats va-base's steps
@@ -194,7 +199,7 @@ FROM native-wheels-${TARGETARCH} AS native-wheels
 # variables), so a `FROM va-base` final stage would install the framework a
 # second time however identical its instructions are. The steps below are the
 # bluesky recipe's, and the shared-deps test holds them to it; va-base keeps them
-# for the native-wheels builder stages, where nothing is shared.
+# for the native-wheels builder stage, where nothing is shared.
 FROM ${OSPREY_BASE_REGISTRY}/library/python:3.11-slim
 WORKDIR /app
 ARG OSPREY_SITE_CA=""
