@@ -40,7 +40,8 @@ def _cells(doc: dict) -> dict[str, dict]:
 def test_the_set_is_an_equal_grid_under_column_heads_beside_row_heads(panel_graph) -> None:
     doc = stub_render(set_overview(panel_graph, "XR-QUAD"), panel_graph)
     texts = _texts(doc)
-    (h1,), (h2,) = texts["#1"], texts["#2"]
+    (h2,) = texts["#2"]
+    h1 = min(texts["F1"], key=lambda n: n["geometry"]["y"])  # column 1: every member states F1
     assert h1["geometry"]["y"] == h2["geometry"]["y"]
     cells = _cells(doc)
     widths = {g["width"] for g in cells.values()}

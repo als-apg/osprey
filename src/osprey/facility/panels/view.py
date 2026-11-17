@@ -197,12 +197,14 @@ class GridCell:
             readback and tolerance; ``None`` when the member has none.
         calibration: In a calibration view, what the member's records say of
             the view's kind; ``None`` in a set overview.
+        short_name: The member's stated short name (``names.csv``), or ``None``.
     """
 
     member: Link | Fact
     channels: tuple[str, ...]
     pair: ValueRow | None = None
     calibration: CalibrationCell | None = None
+    short_name: str | None = None
 
 
 @dataclass(frozen=True)

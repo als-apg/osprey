@@ -184,3 +184,24 @@ def test_a_cut_cell_shows_its_whole_text_on_hover(panel_graph, monkeypatch) -> N
     )
     tips = [str(n["props"].get("tooltip")) for n in nodes(doc) if n["type"] == "rectangle"]
     assert any(t.endswith("+0.01 % / +1.24 %") and "XR02" in t for t in tips)
+
+
+def test_a_column_is_headed_by_the_short_name_its_members_share(panel_graph) -> None:
+    doc = stub_render(
+        calibration_overview(panel_graph, "XR-QUAD", "integrated_gradient"), panel_graph
+    )
+    texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
+    assert "F1" in texts  # XR01:QF1 and XR02:QF1 both state F1
+    assert "#2" in texts and "#1" not in texts  # XR02:QD1 states none: the number stays
+
+
+def test_the_count_line_names_the_states_in_the_legends_order(panel_graph) -> None:
+    doc = stub_render(
+        calibration_overview(panel_graph, "XR-QUAD", "integrated_gradient"), panel_graph
+    )
+    texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
+    (line,) = [t for t in texts if t.startswith("4 MEMBERS")]
+    words = ["DESIGN", "BENCH", "DISAGREE", "NO VALUE"]
+    legend = ["design only", "measured on the bench", "two sources disagree", "no value yet"]
+    assert [line.index(w) for w in words] == sorted(line.index(w) for w in words)
+    assert [texts.index(w) for w in legend] == sorted(texts.index(w) for w in legend)

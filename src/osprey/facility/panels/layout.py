@@ -2134,7 +2134,7 @@ class _Page:
                 self.y += SET_BLOCK_GAP - ROW_GAP
             for column in range(first, min(first + fit, width)):
                 x = self.set_x(column - first)
-                head = f"#{column + 1}"
+                head = _column_head(gridded, column)
                 w = text_width(head, SMALL_SIZE)
                 x_head = x + (self.cell_w - w) / 2
                 self.text(x_head, self.y, head, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
@@ -3717,6 +3717,20 @@ def _short(thing: str) -> str:
     """A symbol's name: the last component of its id."""
     parts = [part for part in _ID_PARTS.split(thing) if part]
     return parts[-1] if parts else thing
+
+
+def _column_head(groups: Sequence[tuple[str, Sequence[GridRow]]], column: int) -> str:
+    """A set grid's column head: the short name every member in the column states
+    when they all state one and the same, else the column's number."""
+    names = {
+        row.cells[column].short_name
+        for _title, rows in groups
+        for row in rows
+        if column < len(row.cells)
+    }
+    if len(names) == 1 and None not in names:
+        return str(next(iter(names)))
+    return f"#{column + 1}"
 
 
 def _cut(text: str, width: float, size: float) -> str:

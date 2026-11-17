@@ -930,7 +930,7 @@ def calibration_overview(graph: PanelGraph, group_id: str, kind_id: str) -> View
 
     def cell(member: Thing) -> GridCell:
         found = calibration_cell(graph, member.id, kind)
-        return GridCell(_ref(graph, index, member), (), None, found)
+        return GridCell(_ref(graph, index, member), (), None, found, member.short_name)
 
     grid = Grid(None, _member_rows(graph, members, cell), kind.title)
     group_link = Link(group_id, Target("set", "group", group_id))
@@ -1019,7 +1019,7 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
                     pair = _value_row(graph, channel)
                     break
         channels = tuple(rule_channels(graph, member.id, "device"))
-        return GridCell(_ref(graph, index, member), channels, pair)
+        return GridCell(_ref(graph, index, member), channels, pair, short_name=member.short_name)
 
     grid = Grid(signal, _member_rows(graph, members, cell))
     group_link = Link(group_id, Target("card", "group", group_id))
