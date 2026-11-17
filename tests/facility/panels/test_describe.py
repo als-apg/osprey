@@ -537,11 +537,10 @@ def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
     view = place_view(panel_graph, "XR/XR02", symbols=BEAMLINE)
     (strip,) = _section(view, "strip").items
     assert isinstance(strip, Strip)
-    assert [(element.thing, element.s_m) for element in strip.elements] == [
-        ("XR02:QF1", 11.0),
-        ("XR02:SHIELD1", 12.5),
-    ]
-    assert strip.extent_m == (11.0, 12.5)
+    # only a class with a symbol is drawn: XR02:SHIELD1 (Infrastructure) has a
+    # ring position but no symbol, so it is counted, not drawn
+    assert [(element.thing, element.s_m) for element in strip.elements] == [("XR02:QF1", 11.0)]
+    assert strip.extent_m == (11.0, 11.0)
     # only classes with a symbol belong on the beamline: the tray, with each reason
     tray = {entry.thing: entry.reason for entry in strip.tray}
     assert tray == {
@@ -550,13 +549,16 @@ def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
         "XR02:IP1": "no position",  # a ring-frame row with no s
         "XR02:IP2": "no position",
     }
-    # the rest is one line to the place's card: XR02:BLOCK1 and XR02:CH5 (by its claim)
-    assert strip.others == Link("2 other things in this place", Target("card", "place", "XR/XR02"))
+    # the rest is one line to the place's card: XR02:SHIELD1, XR02:BLOCK1 and
+    # XR02:CH5 (by its claim)
+    assert strip.others == Link("3 other things in this place", Target("card", "place", "XR/XR02"))
     assert not _ids(view) & set(EXCLUDED)
 
 
 def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
-    view = place_view(panel_graph, "XR/XR01", symbols={"Pump": "pump"}, above=frozenset({"pump"}))
+    # a class meant to show without a picture of its own is mapped to generic on purpose
+    symbols = {"Pump": "pump", "Quadrupole": "generic"}
+    view = place_view(panel_graph, "XR/XR01", symbols=symbols, above=frozenset({"pump"}))
     (strip,) = _section(view, "strip").items
     assert [(e.thing, e.cls, e.s_m, e.symbol, e.lane) for e in strip.elements] == [
         ("XR01:IP1", "Pump", 1.25, "pump", "above"),
@@ -570,6 +572,25 @@ def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
     tray = {entry.thing: entry.reason for entry in strip.tray}
     assert tray["XR01:BEND1"] == "fixture: frame treated as the ring frame"
     assert tray["XR01:CH1"] == "no position"  # within the rack, any depth
+
+
+def test_a_ring_position_without_a_symbol_is_counted_not_drawn(panel_graph):
+    drawn = place_view(panel_graph, "XR/XR02", symbols={**BEAMLINE, "Infrastructure": "generic"})
+    (strip,) = _section(drawn, "strip").items
+    assert [(e.thing, e.symbol) for e in strip.elements] == [
+        ("XR02:QF1", "quadrupole"),
+        ("XR02:SHIELD1", "generic"),
+    ]
+    # mapped, XR02:BLOCK1 (no position) joins the tray; only XR02:CH5 is counted
+    assert "XR02:BLOCK1" in {entry.thing for entry in strip.tray}
+    assert strip.others.label == "1 other things in this place"
+    (strip,) = _section(place_view(panel_graph, "XR/XR02", symbols=BEAMLINE), "strip").items
+    assert "XR02:SHIELD1" not in {e.thing for e in strip.elements}
+    assert strip.others.label == "3 other things in this place"
+    # no symbols at all: nothing is drawn and every device is counted
+    (strip,) = _section(place_view(panel_graph, "XR/XR02"), "strip").items
+    assert strip.elements == () and strip.extent_m is None and strip.tray == ()
+    assert strip.others.target == Target("card", "place", "XR/XR02")
 
 
 def test_place_view_links_child_places_and_the_parent(panel_graph):
@@ -1110,7 +1131,9 @@ def test_a_class_the_draw_settings_lift_is_drawn_on_the_upper_lane(panel_graph, 
     from osprey.facility.panels.emit import load_draw
 
     path = tmp_path / "draw.json"
-    path.write_text(json.dumps({"symbols": {"Pump": "pump"}, "above": ["Pump"]}))
+    path.write_text(
+        json.dumps({"symbols": {"Pump": "pump", "Quadrupole": "generic"}, "above": ["Pump"]})
+    )
     draw = load_draw(path)
     view = place_view(panel_graph, "XR/XR01", symbols=draw.symbols, above=draw.above)
     (strip,) = _section(view, "strip").items

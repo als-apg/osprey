@@ -586,7 +586,8 @@ def test_a_strip_symbols_state_is_a_live_ring_and_word_never_its_fill(tmp_path) 
 
 
 def test_a_strip_symbol_with_no_rule_has_a_dashed_outline_and_no_ring(panel_graph) -> None:
-    view = place_view(panel_graph, "XR/XR02", symbols=SYMBOLS, above=ABOVE)
+    shown = {**SYMBOLS, "Infrastructure": "generic"}  # mapped on purpose: drawn, no rule
+    view = place_view(panel_graph, "XR/XR02", symbols=shown, above=ABOVE)
     doc, _ = draw(view, panel_graph)
     shapes = _shapes(doc, "XR02:SHIELD1")
     assert shapes and _ring(doc, "XR02:SHIELD1") == (None, None)
@@ -1002,7 +1003,7 @@ def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(
 def test_the_devices_off_the_beamline_are_one_line_that_opens_the_place_card(panel_graph):
     view = place_view(panel_graph, "XR/XR02", symbols=SYMBOLS, above=ABOVE)
     doc, screens = draw(view, panel_graph)
-    assert "2 other things in this place" in _texts(doc)
+    assert "3 other things in this place" in _texts(doc)  # XR02:SHIELD1 has no symbol
     files = [a["file"] for n in _links_drawn(doc) for a in n["props"]["actions"]]
     assert screens(Target("card", "place", "XR/XR02")) in files
     assert "XR02:BLOCK1" not in _texts(doc)  # listed on the place card, not in the tray

@@ -840,11 +840,13 @@ def place_view(
 ) -> View:
     """The devices of a place's contents in beam order, the rest in a tray or counted.
 
-    A device with a true ring position (:attr:`Pose.is_ring_position`) is a
-    strip element. A device with none whose class has a symbol (it belongs
-    on the beamline) is in the tray with ``no position`` or what its position
-    assumes. Every other device is counted on one line, ``<n> other things in
-    this place``, that opens the place's card (which lists them). Sections:
+    Only a device whose class has a symbol belongs on the beamline (a class
+    meant to show without a picture of its own is mapped to ``generic`` in
+    the data). Such a device with a true ring position
+    (:attr:`Pose.is_ring_position`) is a strip element; with none it is in
+    the tray with ``no position`` or what its position assumes. Every other
+    device, a ring position or not, is counted on one line, ``<n> other
+    things in this place``, that opens the place's card (which lists them). Sections:
     ``strip``; ``places within``: the direct child places grouped by what the
     data states of them (``racks``: some claim names a unit in it; else its
     level; else ``other``), racks first and ``other`` last, each group at
@@ -855,7 +857,7 @@ def place_view(
     Args:
         graph: The panel graph.
         place_id: The place.
-        symbols: Device class -> symbol; a class not named is ``generic``.
+        symbols: Device class -> symbol; a class not named is not drawn.
         annotate: Symbol -> the stated signals whose values its elements
             show: per signal, the device's first channel (by name) that
             states it, with its unit.
@@ -877,8 +879,9 @@ def place_view(
         link = _ref(graph, index, thing)
         link = link if isinstance(link, Link) else None
         pose = graph.pose(thing.id)
-        if pose is not None and pose.is_ring_position:
-            symbol = symbols.get(thing.cls or "", GENERIC_SYMBOL)
+        drawn = thing.cls is not None and thing.cls in symbols
+        if drawn and pose is not None and pose.is_ring_position:
+            symbol = symbols[thing.cls]  # type: ignore[index]
             lane = "above" if symbol in above else "beam"
             channels = tuple(rule_channels(graph, thing.id, "device"))
             elements.append(
@@ -894,7 +897,7 @@ def place_view(
                     annotations=_annotations(graph, thing, annotate.get(symbol, ())),
                 )
             )
-        elif thing.cls is not None and thing.cls in symbols:
+        elif drawn:
             reason = pose.derived_assumes if pose is not None and pose.derived_assumes else None
             tray.append(TrayEntry(thing.id, thing.cls, reason or NO_POSITION, link))
         else:
