@@ -562,7 +562,8 @@ osprey reset
 Wipe this deployment back to a fresh state. It stops the stack, removes the
 containers, volumes and images of this deployment, destroys the
 agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
-out of ``.env``, and deletes ``build/`` and ``var/deployment.json``.
+out of ``.env``, and deletes ``build/``, ``var/deployment.json`` and
+``var/host-network-ports.json``.
 
 What survives, the plan lists before you confirm:
 
