@@ -86,6 +86,16 @@ def test_max_turns_defaults_when_unstated() -> None:
     assert profile.dispatch.max_turns == DispatchConfig.max_turns
 
 
+def test_unstated_limits_take_the_dataclass_defaults() -> None:
+    """The run budgets an unstated key builds with are the ones `osprey init` writes."""
+    profile = _parse_profile({"name": "x", "dispatch": {}})
+
+    assert profile.dispatch is not None
+    assert profile.dispatch.timeout_sec == DispatchConfig.timeout_sec
+    assert profile.dispatch.inactivity_sec == DispatchConfig.inactivity_sec
+    assert profile.dispatch.max_turns == DispatchConfig.max_turns
+
+
 def test_max_turns_is_read_from_the_block() -> None:
     """An authored ceiling survives parsing."""
     profile = _parse_profile({"name": "x", "dispatch": {"max_turns": 60}})
