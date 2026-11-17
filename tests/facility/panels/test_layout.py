@@ -883,6 +883,20 @@ def test_nothing_writable_is_drawn_outside_a_device_cards_own_rows(panel_graph) 
             assert not found, view.id
 
 
+def test_a_command_shown_as_a_value_prints_whole_and_its_input_keeps_its_precision(
+    panel_graph,
+) -> None:
+    row = ValueRow("cmd", "X:CMD", None, None, True, drawn_as="command")
+    elsewhere = View(Target("place", "place", "X"), "x", (), (Section("s", (row,)),))
+    doc, _ = draw(elsewhere, panel_graph)
+    (label,) = [n for n in nodes(doc) if n["type"] == "pv-label"]
+    assert label["props"]["precision"] == 0
+    assert not [r for r in label.get("rules", ()) if r["targetProperty"] == "precision"]
+    doc, _ = draw(card("one", row), panel_graph)
+    (button,) = [n for n in nodes(doc) if n["type"] == "pv-button"]
+    assert "precision" not in button["props"]
+
+
 @pytest.mark.parametrize("channel", RULED)
 def test_a_lights_screen_formula_gives_the_ladders_state_for_every_value(panel_graph, channel):
     item = light(panel_graph, channel)

@@ -354,7 +354,8 @@ OUTLINE_KIND = "outline"
 _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
-_PRINTED = _NUMBERS | {"state"}  # the kinds a formula can print: numbers
+_WHOLE_KINDS = frozenset({"state", "command"})  # an enum, a two-valued output: printed whole
+_PRINTED = _NUMBERS | _WHOLE_KINDS  # the kinds a formula can print: numbers
 _WHOLE = re.compile(r"(?:==|!=)?\s*-?\d+")  # a health rule's value naming one state, or not it
 _TOKEN = re.compile(r"\{(\d+)\}")
 _NAVIGATION_TARGET = "tab"
@@ -1598,7 +1599,7 @@ class _Page:
                     )  # fmt: skip
                     self.text(x + number_w + UNIT_GAP, y, unit, w=unit_w)
                     return x + w
-            if kind == "state" or self.prints_whole(channel):
+            if kind in _WHOLE_KINDS or self.prints_whole(channel):
                 props["precision"] = 0
             elif kind in _NUMBERS:
                 rules = self.precision(props, "{v}", {"v": channel})
@@ -1629,9 +1630,9 @@ class _Page:
 
     def number_expression(self, channel: str, kind: str | None, decimals: int | None = None):
         """The formula that prints *channel* as a static label's text: as it is for a
-        state, to *decimals* when the data states them, else to
+        state or a command, to *decimals* when the data states them, else to
         :data:`SIGNIFICANT_DIGITS` significant digits."""
-        if kind == "state" or self.prints_whole(channel):
+        if kind in _WHOLE_KINDS or self.prints_whole(channel):
             return "{v}"
         if decimals is not None:
             return fixed_expression("{v}", decimals)
