@@ -1225,6 +1225,30 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
        It may be set beside ``type``.
    * - ``pv_directory.put_log``
      - Put history: ``type: caputlog`` with ``settings.url``.
+   * - ``pv_directory.fleet``
+     - The IOCs view: present (``fleet: {}`` is enough), the view, the fleet
+       tool and the fleet service are on. Absent or ``null``, none of them
+       exists and nothing is read periodically.
+   * - ``pv_directory.fleet.targets``
+     - The control targets refreshed, a list of ``live``, ``va`` and
+       ``standin``; each must be configured. Default: the deployment's own
+       target. A virtual accelerator served in process is never refreshed.
+   * - ``pv_directory.fleet.period_s``
+     - Seconds between refreshes. At least ``5`` and at least twice the
+       longest ``timeout_s`` of a refreshed target's connector, or the build
+       fails. Default ``30``.
+   * - ``pv_directory.fleet.retention_days``
+     - Days an IOC no longer listed is remembered after it goes quiet.
+       Default ``7``.
+   * - ``pv_directory.fleet.listing_deadline_s``
+     - Seconds one listing of the directory may take. Default ``60``.
+   * - ``pv_directory.fleet.group_by``
+     - ``host``, ``class_name`` or ``group``. Default ``host``.
+   * - ``pv_directory.fleet.classes``
+     - Named IOC classes, applied on ``live`` only (below). Default none.
+   * - ``pv_directory.fleet.roster_sources``
+     - ``module:attribute`` references to roster sources, read on ``live``
+       only. Default none.
 
 ``pv_directory.caveats`` and each sub-block's ``caveats`` are lines shown with
 every answer from that source. A sub-block takes the same ``settings`` keys as
@@ -1232,6 +1256,37 @@ the directory. The Kafka client is the ``alarm-state`` extra
 (``osprey-framework[alarm-state]``); without it the build warns and the feed
 is unavailable. A container gets it by setting ``OSPREY_PIP_SPEC`` to that
 requirement (:doc:`/how-to/deploy-project/project-image`).
+
+**IOC classes.** An IOC no roster source assigns a class has the default
+class: its liveness PV is the ``heartbeat`` of
+``pv_directory.display.ioc_health_suffixes``, judged as a counter, and it has
+no health PV, so it is never degraded. A named class gives ``liveness`` with
+a ``kind`` (``counter``: alive when it moves; ``status``: alive when it
+answers) and a list of ``health`` PVs, each with a ``good`` range
+``[low, high]`` where one side may be ``null``. Each PV is named by
+``suffix``, looked up among the IOC's PVs in the directory, or by
+``pattern``, the PV name with ``{ioc}`` standing for the IOC's name. The name
+``default`` is taken. Every invalid value fails the build naming its key.
+The states, findings and load per refresh are in
+:ref:`channel-finder-ioc-fleet`.
+
+.. code-block:: yaml
+
+   # build/config.yml
+   pv_directory:
+     type: channelfinder
+     settings:
+       url: https://channelfinder.example.org/ChannelFinder
+     fleet:
+       targets: [live]
+       period_s: 30
+       group_by: class_name
+       classes:
+         vxworks:
+           liveness: {suffix: ":IOC_STS", kind: status}
+           health:
+             - {suffix: ":CPU_LOAD", good: [0, 80]}
+             - {pattern: "{ioc}:MEM_FREE", good: [1000000, null]}
 
 **Simulator-only form.** A section without ``type`` lists the simulator's channels
 and IOC health PVs on ``va``. A build with no simulator has nothing to list:
@@ -1374,6 +1429,10 @@ default. One row per image:
    * - history
      - ``OSPREY_WORKER_IMAGE``
      - ``services.history.image``
+     - ``<project>``
+   * - ioc_fleet
+     - ``OSPREY_WORKER_IMAGE``
+     - ``services.ioc_fleet.image``
      - ``<project>``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``

@@ -218,7 +218,7 @@ transformer); the second resolves to the ``SR:MAG:HCM:*:CURRENT:SP`` family.
 
 **How it works.** The preset runs the ``graph`` channel finder. It answers
 from the facility knowledge graph that ``osprey build`` writes from the
-facility file. The channel-finder agent works with twelve tools:
+facility file. The channel-finder agent works with thirteen tools:
 
 - **Keyword lookup.** ``search_channels`` reads the search index that
   ``osprey build`` derives from the graph. It matches your words against each
@@ -232,13 +232,33 @@ facility file. The channel-finder agent works with twelve tools:
 - **The rules.** ``capabilities`` tells the agent how addresses are spelled and
   which tool fits which question.
 - **All PVs.** When the graph has no answer, ``directory_search``,
-  ``directory_properties``, ``pv_record``, ``ioc_record``, ``active_alarms``,
-  ``alarm_state`` and ``alarm_config`` read the simulator's own directory and its
-  replayed alarms.
+  ``directory_properties``, ``pv_record``, ``ioc_record``, ``ioc_fleet``,
+  ``active_alarms``, ``alarm_state`` and ``alarm_config`` read the simulator's own
+  directory, its IOC fleet and its replayed alarms.
 
 The agent **never fabricates PV names**: every address it returns is one the
 graph or the directory holds. For the other search strategies, see
 :doc:`../how-to/use-channel-finder`.
+
+**Stop an IOC.** The preset runs the IOC fleet service with a 10 s refresh
+period; the panel's **IOCs** view lists every simulated IOC as ``alive``. The
+``line-ioc-stopped`` scenario stops the transfer-line IOC ``sim-LINE``. Add it
+to the active set:
+
+.. code-block:: bash
+
+   osprey sim apply rf-thermal demo-history line-ioc-stopped
+
+Within two refresh periods ``sim-LINE`` turns ``silent`` and moves to the top
+of the IOCs view; ask the agent *"which IOCs are down?"* and ``ioc_fleet``
+names it. Everything the IOC serves goes quiet with it: every channel starting
+``LINE:`` (BPMs, correctors, quadrupoles) and the IOC's own status and health
+PVs give no answer, so a LINE scan or orbit read fails. The storage ring and
+the BTS and LTB lines keep answering. ``osprey sim apply rf-thermal
+demo-history`` starts it again, and it returns to ``alive`` within two refresh
+periods. Both
+commands reseed the logbook and the archive windows of the active set (see
+:doc:`/how-to/control-systems/use-virtual-accelerator`).
 
 Step 4: Search the Electronic Logbook
 --------------------------------------

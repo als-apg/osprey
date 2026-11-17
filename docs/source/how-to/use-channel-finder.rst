@@ -305,6 +305,183 @@ target reads ``Not available for this target``.
 :doc:`/reference/connectors-api/services` has the table of sources per target.
 
 
+.. _channel-finder-ioc-fleet:
+
+IOCs: the Fleet View
+====================
+
+With ``pv_directory.fleet`` set (``fleet: {}`` is enough) the deployment runs
+the IOC fleet service. It reads every IOC's liveness PV once per refresh period
+and keeps one snapshot per refreshed target. The **IOCs** view of the panel and
+the agent's ``ioc_fleet`` tool both answer from that snapshot; neither reads a
+channel. The ``demo`` preset turns it on with a 10 s period; ``fleet: null``
+turns it off. Without the section there is no view, no tool, no service and no
+periodic read. :ref:`config-pv-directory` has the keys.
+
+**The view.** The header names the time the snapshot was taken and its age,
+the state of the read path and the outcome of each roster source. Below it,
+one tile per state and per finding with its count, the grouping choice and a
+refresh button. The table has one row per IOC: IOC, Host, State, In state
+(how long), Findings, Directory and Sources. Rows come worst first: stalled,
+silent, unreached with a finding, alive with a finding, unknown, unreached,
+alive. A tile or the text filter only removes rows; grouping by host, class or
+group only gathers them under headings.
+
+States, one per IOC:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 85
+
+   * - State
+     - Meaning
+   * - ``alive``
+     - The liveness PV answered and, where it is a counter, moved since the
+       previous reading.
+   * - ``stalled``
+     - It answered and the counter has not moved.
+   * - ``silent``
+     - It gave no answer now and has answered before through this read path.
+   * - ``unreached``
+     - It has never answered through this read path.
+   * - ``unknown``
+     - The read failed, the read path is down, the IOC has no liveness PV, a
+       counter has only one reading so far, or the read path is unverified and
+       every IOC that answered last cycle went quiet at once.
+
+How a liveness read ends decides between them:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 35 20 20 25
+
+   * - The read
+     - Outcome
+     - Answered before
+     - Never answered
+   * - returns a value
+     - answered
+     - ``alive``
+     - ``alive``
+   * - ``ChannelUnreachableError`` or a timeout
+     - no answer
+     - ``silent``
+     - ``unreached``
+   * - ``ConnectorUnavailableError``
+     - connector loss
+     - ``unknown``
+     - ``unknown``
+   * - any other exception
+     - read failed
+     - ``unknown``
+     - ``unknown``
+
+Two counter readings less than 2.5 s apart are not judged: the row keeps its
+previous state.
+
+Findings, beside the state:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Finding
+     - Meaning
+   * - ``degraded``
+     - Alive, and a health reading is outside its good range. An unread
+       health PV is not one.
+   * - ``expected_running_not_alive``
+     - A roster source expects it to run; it is stalled, silent or unreached.
+   * - ``expected_stopped_alive``
+     - A roster source expects it stopped; it is alive.
+   * - ``alive_unexpected``
+     - Alive, and no roster source expects it to run or to stop.
+
+The three expectation findings exist only with a roster source configured.
+``unknown`` never carries a finding.
+
+**When there is no state to show**, the view says why instead of listing IOCs,
+and every such statement ends "This says nothing about whether any IOC runs.":
+
+- *No snapshot yet*: the first refresh of the target has not completed.
+- *Target not refreshed*: the target is not in ``fleet.targets``, or it is a
+  virtual accelerator served in process.
+- *Cannot list the IOCs*: no listing of the target's directory has ever
+  succeeded, or the directory cannot list its IOCs.
+- *Snapshot stale*: the service stopped refreshing; the snapshot is older than
+  three refresh periods (or three cycle durations, when a cycle overruns).
+- *IOC fleet unavailable*: the service gave no usable answer.
+
+The ``ioc_fleet`` tool returns the same statements, the counts, the rows
+filtered by state, finding, group, host or text (100 by default), the meaning
+of each state, and links to the view and to each IOC page.
+
+**One listing rule.** Every target lists the IOCs its own PV directory lists,
+including IOCs whose every PV is inactive, and reads their liveness from that
+target. On the stand-in that is the facility's directory, so an IOC whose
+liveness PV the stand-in does not serve shows ``unreached``. Roster sources
+and named classes apply on ``live`` only: on the virtual accelerator and the
+stand-in every IOC has the default class (its directory heartbeat, read as a
+counter), is never ``degraded`` and carries no expectation finding. An IOC
+that left the directory and every roster source is kept, labelled no longer
+listed, while it is alive and for ``retention_days`` after it goes quiet.
+
+**The read path.** Each refresh first reads the target's probe channel, one PV
+the target always serves. Unanswered, every IOC is ``unknown`` and the header
+says the read path is down. A target without one is *unverified*.
+
+**The IOC page.** With the fleet on, an IOC page's state chip shows the
+snapshot's row: its state, findings and the time the liveness PV was read. The
+page no longer reads the heartbeat itself, so the answer can be up to one
+refresh period old. Without a fresh row the chip says why and that no state is
+known for the IOC. ``ioc_record`` answers the same way. With the fleet off,
+both are unchanged.
+
+Load per refresh
+----------------
+
+Per refreshed target and refresh period:
+
+- **Channel reads**: one probe read, then one read of every liveness and health
+  PV, all concurrent, each on the connector's own timeout. No read when the
+  probe is unanswered.
+- **Audit records**: one, surface ``ioc_fleet``, naming the target, the PV
+  count and the cycle number.
+- **Directory queries**: one listing of the IOCs and one paged search per
+  liveness and health selector, every ten refreshes, on the first refresh of
+  the service and after a failed attempt, each bounded by
+  ``listing_deadline_s``.
+
+Views, tool calls and IOC pages add none: they read the snapshot. A light source with
+about 1,600 liveness and health channels through one gateway, at the default
+30 s, sees
+about 53 reads per second, 2,880 audit records per day, and a directory
+listing every five minutes.
+
+Roster sources
+--------------
+
+A roster source states what the facility expects of its IOCs. It is any object
+with a ``name`` and a ``read(deadline)`` method returning a list of
+``RosterRow(name, host, class_name, expected, group=None)``, where
+``expected`` is ``"running"``, ``"stopped"`` or ``None``; ``read`` raises to
+report a failure. Both live in ``osprey.services.pv_directory.roster``. The
+contract is public and not yet declared stable.
+
+``pv_directory.fleet.roster_sources`` lists ``module:attribute`` references to
+a source or to a zero-argument factory. Rows from every source merge into one
+per IOC naming each source; a failing source is shown unavailable with its
+reason and the others still count.
+
+The example source ``StaticRoster`` reads a YAML list of IOCs; it is in
+``docs/source/how-to/control-systems/examples/roster/``, with
+``roster_static.yml`` beside it. With that directory importable,
+``roster_sources: ["roster_static:roster"]`` uses it. To check a source of your
+own, call ``check_roster_source(source)`` from the same module: an empty list
+means it conforms, otherwise each entry names one problem (no name, a read
+that does not return ``RosterRow`` objects in time, an IOC named twice).
+
+
 Web Interface
 =============
 
@@ -321,7 +498,7 @@ channels that match all of them. Each word is matched against the address, the
 description, the device or signal name, and the name or synonyms of the
 device's class or any class above it. The view switch is at the toolbar's
 left: Explore, or Curated and All PVs when ``config.yml`` has a
-``pv_directory`` section, with Alarms and Archive when their service is
+``pv_directory`` section, with IOCs, Alarms and Archive when their service is
 configured. There is no Feedback view: the graph keeps no saved hints, and
 its answers are not captured for review. The result count and the search box are at its right.
 
@@ -422,9 +599,13 @@ A **PV page** has one card per answer: Value, Alarm, Put history, Directory,
 Archive and Logbook. A card whose service is not configured is one dashed
 line. Clicking an IOC opens its **IOC page**: its PVs, the alarms on it, its
 health PVs, and an alive chip that reads the heartbeat PV twice, 2 s apart.
+With ``pv_directory.fleet`` set the chip shows the IOC fleet's state instead
+(`IOCs: the Fleet View`_).
 
-Two more views appear when their service is configured. Neither writes:
+Three more views appear when their service is configured. None writes:
 
+- **IOCs** lists every IOC of the control target with its liveness state and
+  findings (`IOCs: the Fleet View`_).
 - **Alarms** lists what is in alarm now on the control target, worst first.
   Acknowledge in the alarm server's own client.
 - **Archive** says what the control target's archive records: how many of the

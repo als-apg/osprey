@@ -105,6 +105,12 @@ refusal never share one.
        one allowed entry per batch: ``subject`` ``channel_values_read``,
        ``reason`` ``batch_read``, ``detail`` ``target=<target> pv_count=<n>``,
        ``session`` ``channels:<pid>``
+   * - ``ioc_fleet``
+     - Each refresh cycle of the IOC fleet service, one allowed entry per
+       cycle under the service's identity ``ioc-fleet``: ``subject``
+       ``fleet_cycle``, ``reason`` ``fleet_read``, ``detail``
+       ``target=<target> pv_count=<n> cycle=<n>``, ``session``
+       ``ioc_fleet:<target>:<pid>``
    * - ``preflight`` (written as ``queueserver`` and as each lane's
        ``<lane>-queueserver``)
      - Whether a queued plan's declared channels answered before it moved, per

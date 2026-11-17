@@ -186,7 +186,8 @@ The ``channel-finder`` shared login carries the server; the ``logbook`` and
   archive facts.
 - ``ioc_record`` -- Look up one IOC: its host, ports, channel counts, engineer, the
   addresses of its health channels and, with an alarm feed configured, its channels
-  in alarm.
+  in alarm. With ``pv_directory.fleet`` configured it adds the IOC's state from the
+  IOC fleet snapshot, with its read time.
 - ``active_alarms`` -- List every channel in alarm now, with the counts per severity,
   from the alarm feed.
 - ``alarm_state`` -- Read the current alarm of each channel address from the alarm
@@ -196,6 +197,9 @@ The ``channel-finder`` shared login carries the server; the ``logbook`` and
 - ``alarm_config`` -- Look up one channel address in the alarm configuration: its
   path, guidance, displays, and whether its alarm is enabled and latching.
 - ``put_history`` -- List the writes the put log recorded for one channel address.
+- ``ioc_fleet`` -- List the IOCs of the current target with their liveness state
+  and findings from the IOC fleet snapshot, filtered by state, finding, group, host
+  or text; present only with ``pv_directory.fleet`` configured.
 
 Workspace
 ---------
