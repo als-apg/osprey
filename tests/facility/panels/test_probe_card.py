@@ -161,3 +161,66 @@ def test_the_probe_block_keeps_the_looks_rules(bpm_graph) -> None:
             for (kind, prop), roles in ALLOWED.items():
                 if n["type"] == kind and isinstance(n["props"].get(prop), dict):
                     assert n["props"][prop]["$role"] in roles, (kind, prop)
+
+
+def test_on_a_pickup_card_the_picture_and_calibration_come_first(tmp_path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "calibration_kinds.csv").open("a") as handle:
+        handle.write("gains,Gains,BPM,scalar,1,beam,,,amplitude_a,1,\n")
+    graph = graph_with_bpms(tmp_path, tables)
+    doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
+    heads = {
+        n["props"]["text"]: n["geometry"]["y"]
+        for n in nodes(doc)
+        if n["type"] == "text-label"
+        and n["props"]["text"] in (TITLE.upper(), "CALIBRATION", "SIGNALS")
+    }
+    assert heads[TITLE.upper()] < heads["CALIBRATION"] < heads["SIGNALS"]
+
+
+def _many_signals(document) -> None:
+    from tests.facility.panels._fixture import add_bpm
+
+    add_bpm(document, "XR01:BPM1", "XR/XR01")
+    for n in range(30):
+        document["channels"].append(
+            {
+                "id": f"XR01:BPM1:knob{n:02d}",
+                "signal": f"knob_{n:02d}",
+                "on": {"device": "XR01:BPM1"},
+            }
+        )
+
+
+def test_a_group_of_more_than_twelve_rows_fills_columns_across_the_card(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _many_signals), PANELS_DIR)
+    doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
+    values = [
+        n for n in nodes(doc)
+        if n["type"].startswith("pv-") and str(n["props"].get("pv", "")).startswith("XR01:BPM1:knob")
+    ]  # fmt: skip
+    xs = sorted({n["geometry"]["x"] for n in values})
+    columns = int(
+        (layout.STRIP_WIDTH + layout.COLUMN_GAP) // (layout.CARD_COLUMN_MIN + layout.COLUMN_GAP)
+    )
+    assert len(xs) == columns >= 2
+    first = sorted(
+        (n for n in values if n["geometry"]["x"] == xs[0]), key=lambda n: n["geometry"]["y"]
+    )
+    assert first[0]["props"]["pv"].endswith("knob00")  # filled column by column
+    assert first[1]["props"]["pv"].endswith("knob01")
+    right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in values)
+    assert right <= layout.MARGIN + layout.STRIP_WIDTH
+    heads = [n for n in nodes(doc) if n["type"] == "text-label" and n["props"]["text"] == "SIGNALS"]
+    assert len(heads) == 1 and heads[0]["geometry"]["y"] < min(n["geometry"]["y"] for n in values)
+    texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
+    assert texts.count("READBACK") == columns  # each column has its heads
+
+
+def test_a_card_of_few_rows_keeps_its_two_columns(panel_graph) -> None:
+    doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
+    texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
+    assert texts.count("READBACK") == 1

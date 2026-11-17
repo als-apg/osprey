@@ -36,7 +36,7 @@ from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import health, strip, symbols
-from osprey.facility.panels.describe import NO_POSITION, RELATION_TITLES
+from osprey.facility.panels.describe import NO_POSITION, PROBE_SECTION, RELATION_TITLES
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
 from osprey.facility.panels.model import Citation, PanelGraph
@@ -198,6 +198,9 @@ CARD_LEFT = 600  # a device card's left column, its signals, with the gap to the
 COLUMN_GAP = 24
 CARD_LABEL_WIDTH = 240  # a signal's name with its unit, in the card's table
 CARD_ROWS = 40  # signal rows a card draws; the rest are counted by how they are drawn
+CARD_SPLIT_ROWS = 12  # a signals or settings group longer than this goes in columns
+CARD_COLUMN_MIN = 360  # the narrowest such column
+CARD_COMPACT_VALUE = 76  # a value's width in such a column: the name keeps the room
 CHAIN_BOX = 150  # one thing of a card's fed-by chain
 CHAIN_HEIGHT = 44
 CHAIN_ARROW = 40  # the run of an arrow between two boxes of the chain
@@ -372,6 +375,8 @@ _SET_READBACK = "each cell: readback of {}"
 _CAL_HEADS = ("parameter", "value in force", "basis", "date", "source", "history")
 _NO_VALUE_YET = "no value yet"
 _CALIBRATION_SECTION = "calibration"
+#: On a card with a probe picture, the sections drawn before the card's columns.
+_PICTURE_FIRST = (PROBE_SECTION, _CALIBRATION_SECTION)
 _NOT_STARTED = "{} kinds not started"
 _MORE_CHIPS = "+{} more"
 #: A tally's state as the look of a calibration cell's; at wanted: the wanted basis's.
@@ -1225,6 +1230,13 @@ def _citation_text(citation: Citation | None) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _long_group(section: Section) -> bool:
+    """A card's signals or settings group of more than :data:`CARD_SPLIT_ROWS` rows."""
+    if section.title not in ("signals", "settings"):
+        return False
+    return sum(isinstance(i, ValueRow) for i in section.items) > CARD_SPLIT_ROWS
+
+
 class _Page:
     """The drawing of one view: a cursor that moves down the page."""
 
@@ -1243,6 +1255,8 @@ class _Page:
         self.y: float = MARGIN
         # writable widgets only on a device card's own signals and settings
         self.on_card = view.id.view == "card" and view.id.kind == "device"
+        self.label_w: float = CARD_LABEL_WIDTH  # a signal row's name, in the card's table
+        self.value_w: float = VALUE_WIDTH
         self.budget = Budget()  # spent by the strip's symbols, chips and summary rows
         self.colours: Mapping[str, str] = colours  # a symbol's type colour, by symbol name
         self.shown: dict[
@@ -1518,6 +1532,11 @@ class _Page:
             self.y += ROW + GAP
         sections = list(self.view.sections)
         if self.on_card:
+            if any(s.title == PROBE_SECTION for s in sections):  # the picture is the point
+                first = [s for s in sections if s.title in _PICTURE_FIRST]
+                for section in first:
+                    self.section(section)
+                sections = [s for s in sections if s not in first]
             sections = self.card(sections)
         beside: Group | None = None
         arcs: Group | None = None
@@ -1723,9 +1742,11 @@ class _Page:
         sections (a picture), drawn full width under it."""
         relations = {title for pair in RELATION_TITLES.values() for title in pair}
         left = [s for s in sections if s.title in _CARD_LEFT]
+        wide = [s for s in left if _long_group(s)]
         right = [s for s in sections if s.title in relations | _CARD_RIGHT]
         below = [s for s in sections if s not in left and s not in right]
-        if not left and not right:
+        left = [s for s in left if s not in wide]
+        if not left and not right and not wide:
             return below
         first = len(self.s.nodes)
         top = self.y
@@ -1748,6 +1769,11 @@ class _Page:
         if chips:
             self.also(chips)
         bottom = max(bottom, self.y)
+        self.x0, self.right = MARGIN, MARGIN + STRIP_WIDTH
+        self.y = bottom
+        for section in wide:
+            self.wide_group(section)
+        bottom = self.y
         self.x0, self.right = MARGIN, PAGE_WIDTH - MARGIN + PANEL_PAD
         self.y = bottom + PANEL_PAD - ROW_GAP
         self.s.widget(
@@ -1798,6 +1824,45 @@ class _Page:
                 self.next_row()
         self.y += ROW_GAP
 
+    def wide_group(self, section: Section) -> None:
+        """A signals or settings group of more than :data:`CARD_SPLIT_ROWS` rows across the
+        card: as many columns as are at least :data:`CARD_COLUMN_MIN` wide, filled
+        column by column, the group's heading over them all and the table's heads
+        over each; values :data:`CARD_COMPACT_VALUE` wide. The rows past
+        :data:`CARD_ROWS` are counted under them, as in one column."""
+        rows = [i for i in section.items if isinstance(i, ValueRow)]
+        shown = rows[:CARD_ROWS]
+        count = max(1, int((STRIP_WIDTH + COLUMN_GAP) // (CARD_COLUMN_MIN + COLUMN_GAP)))
+        count = min(count, len(shown)) or 1
+        width = (STRIP_WIDTH - (count - 1) * COLUMN_GAP) / count
+        per = math.ceil(len(shown) / count)
+        self.heading(section.title)
+        top = self.y
+        bottom = top
+        saved = (self.label_w, self.value_w)
+        self.value_w = CARD_COMPACT_VALUE
+        self.label_w = width - 2 * (CARD_COMPACT_VALUE + GAP) - LIGHT_SIZE - GAP
+        for n in range(count):
+            self.x0 = MARGIN + n * (width + COLUMN_GAP)
+            self.y = top
+            if section.title == "signals":
+                self.signal_heads()
+            for row in shown[n * per : (n + 1) * per]:
+                self.signal_row(row)
+            bottom = max(bottom, self.y)
+        self.label_w, self.value_w = saved
+        self.x0, self.y = MARGIN, bottom
+        rest = Counter(row.drawn_as or "untyped" for row in rows[CARD_ROWS:])
+        for kind, number in sorted(rest.items()):
+            self.text(
+                self.x0, self.y, _MORE_CHANNELS.format(number, kind), size=SMALL_SIZE, fg=MUTED_TEXT
+            )
+            self.next_row()
+        for item in section.items:
+            if not isinstance(item, ValueRow):
+                self.item(item)
+        self.y += ROW_GAP
+
     def signal_heads(self) -> None:
         """The table's column heads, over the name, the setpoint and the readback."""
         for word, x in zip(_SIGNAL_HEADS, self.signal_columns(), strict=True):
@@ -1806,8 +1871,8 @@ class _Page:
 
     def signal_columns(self) -> tuple[float, float, float]:
         name = self.x0
-        setpoint = name + CARD_LABEL_WIDTH + GAP
-        return name, setpoint, setpoint + VALUE_WIDTH + GAP
+        setpoint = name + self.label_w + GAP
+        return name, setpoint, setpoint + self.value_w + GAP
 
     def signal_row(self, row: ValueRow) -> None:
         """A row of the signals table: the name with its unit, the setpoint under its
@@ -1818,21 +1883,25 @@ class _Page:
         raw = row.label in (row.channel, row.readback)  # no signal name: the channel's own
         word = _short(row.label) if raw else row.label
         label = f"{word} ({units})" if units else word
-        label = _cut(label, CARD_LABEL_WIDTH, TEXT_SIZE)
-        self.text(name, self.y, label, w=min(text_width(label, TEXT_SIZE), CARD_LABEL_WIDTH))
+        label = _cut(label, self.label_w, TEXT_SIZE)
+        self.text(name, self.y, label, w=min(text_width(label, TEXT_SIZE), self.label_w))
         if raw:  # the full name, muted, under the short one
-            full = _cut(row.label, CARD_LABEL_WIDTH, SMALL_SIZE)
+            full = _cut(row.label, self.label_w, SMALL_SIZE)
             self.small(name, self.y + ROW, full, fg=MUTED_TEXT)
         shown = row.readback
         if row.readback is not None:
-            self.field(setpoint, self.y, row.channel, drawn_as=row.drawn_as, writable=True)
-            self.field(readback, self.y, row.readback)
+            self.field(
+                setpoint, self.y, row.channel, drawn_as=row.drawn_as, writable=True, w=self.value_w
+            )
+            self.field(readback, self.y, row.readback, w=self.value_w)
         elif row.writable:
-            self.field(setpoint, self.y, row.channel, drawn_as=row.drawn_as, writable=True)
+            self.field(
+                setpoint, self.y, row.channel, drawn_as=row.drawn_as, writable=True, w=self.value_w
+            )
         else:
             shown = row.channel
-            self.field(readback, self.y, row.channel, drawn_as=row.drawn_as)
-        x = readback + VALUE_WIDTH + GAP
+            self.field(readback, self.y, row.channel, drawn_as=row.drawn_as, w=self.value_w)
+        x = readback + self.value_w + GAP
         deviation = _tolerance_ladder(row)
         if deviation is not None:
             x = self.light(x, self.y, [Light(row.channel)], rule=deviation)
