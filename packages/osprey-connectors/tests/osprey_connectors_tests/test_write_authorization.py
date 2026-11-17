@@ -883,7 +883,7 @@ class TestSteps:
         assert [a.allowed for a in answers] == [True, True, False, False]
         assert answers[-1].reason == "auth_exhausted"
         assert [entry.n for entry in ledger(grant.id).spent] == [1, 2]
-        assert renew_lease(grant.id)
+        assert [entry.n for entry in renew_lease(grant.id).spent] == [1, 2]
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_exhausted"
 
     def test_a_one_shot_batch_is_judged_and_recorded_whole(self):
@@ -1034,7 +1034,7 @@ class TestLease:
         at(monkeypatch, now)
         grant = approve(lease_s=10.0)
         at(monkeypatch, now + timedelta(seconds=9))
-        assert renew_lease(grant.id)
+        assert renew_lease(grant.id).lease_expires_at == now + timedelta(seconds=19)
         at(monkeypatch, now + timedelta(seconds=15))
         assert verdict(grant.id).allowed
         assert ledger(grant.id).lease_expires_at == now + timedelta(seconds=19)

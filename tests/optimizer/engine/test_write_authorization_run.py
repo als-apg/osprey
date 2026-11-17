@@ -28,6 +28,7 @@ import yaml
 
 from osprey_connectors import control_context, posture_store
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.refusals import VerdictReason
 from osprey_connectors_tests._harness import write_payload
 from osprey_optimizer.api.owner import stamp_owner
 from osprey_optimizer.environments import interface as iface_module
@@ -559,9 +560,12 @@ def test_a_lease_that_cannot_be_renewed_ends_the_run_with_no_further_write(
     monkeypatch.setattr(run_auth, "LEASE_S", 3.0)
     bus = EventBus()
 
+    def refuse_the_renewal(*_args: Any, **_kwargs: Any) -> wa.Ledger:
+        raise wa.AuthorizationRefusedError(VerdictReason.AUTH_LEASE_LAPSED)
+
     def lose_the_lease_after_the_first(event: Any) -> None:
         if event.type == EventType.ITERATION_COMPLETED and event.data.iteration == 1:
-            monkeypatch.setattr(wa, "renew_lease", lambda *_args, **_kwargs: False)
+            monkeypatch.setattr(wa, "renew_lease", refuse_the_renewal)
             assert deployment.authority is not None
             deadline = time.monotonic() + 10
             while deployment.authority.ended is None:
@@ -589,7 +593,7 @@ def test_a_lapsed_lease_is_refused_by_the_child_itself(
     def outlive_the_lease(event: Any) -> None:
         if event.type == EventType.ITERATION_COMPLETED and event.data.iteration == 1:
             # The worker believes its renewals land; none does.
-            monkeypatch.setattr(wa, "renew_lease", lambda *_args, **_kwargs: True)
+            monkeypatch.setattr(wa, "renew_lease", lambda *_args, **_kwargs: None)
             time.sleep(2.5)
 
     bus.subscribe_all(outlive_the_lease)
