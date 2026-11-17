@@ -6,6 +6,10 @@
  * The title and body mark each quoted id the way `renderEntryText` does; the
  * title only when it is raw_text's first line. The sidebar list names each
  * target once with one line per record, or the reason it has none.
+ *
+ * An entry that does not declare `metadata.body_format: markdown` renders the
+ * HTML it rendered before entries could declare a format, byte for byte; the
+ * Markdown path itself is entry-markdown.test.mjs.
  */
 
 import { test, expect, describe } from 'vitest';
@@ -13,6 +17,7 @@ import {
   renderEntryTextHtml,
   renderFacilityReferencesList,
 } from '../../../src/osprey/interfaces/ariel/static/js/reader-facility.js';
+import { renderEntryDetail } from '../../../src/osprey/interfaces/ariel/static/js/reader.js';
 
 const RECORD = { kind: 'channel', unit: 'A', description: 'Main current' };
 
@@ -63,6 +68,79 @@ describe('renderEntryTextHtml', () => {
 
   test('empty text titles Untitled', () => {
     expect(renderEntryTextHtml({ raw_text: '' }).titleHtml).toBe('Untitled');
+  });
+});
+
+describe('an entry that declares no Markdown renders as before', () => {
+  // Markup characters, indentation and a facility id: what a stored plain
+  // entry holds and a Markdown renderer would change.
+  const rawText =
+    '# Shift <b>log</b>\n\n- reset SR:DEV\n  * twice\n| a | b |\n[x](javascript:1) & done';
+  const start = rawText.indexOf('SR:DEV');
+  const references = [{ start, end: start + 6, target: 'SR:DEV', records: [RECORD] }];
+  /** The body's HTML as the reader produced it before `body_format` was read. */
+  const BODY =
+    '- reset <span class="entry-facility-link" title="channel · A · Main current">SR:DEV</span>\n' +
+    '  * twice\n| a | b |\n[x](javascript:1) &amp; done';
+
+  /** @param {object|null} [metadata] */
+  const entry = (metadata) => ({
+    entry_id: 'e-1',
+    timestamp: '2026-01-01T00:00:00Z',
+    author: 'author',
+    source_system: 'sys',
+    raw_text: rawText,
+    facility_references: references,
+    ...(metadata === undefined ? {} : { metadata }),
+  });
+
+  /** @param {any} e */
+  function detail(e) {
+    const container = document.createElement('div');
+    renderEntryDetail(container, e);
+    return container.innerHTML;
+  }
+
+  const NOT_MARKDOWN = [
+    undefined,
+    null,
+    {},
+    { body_format: null },
+    { body_format: '' },
+    { body_format: 'html' },
+    { body_format: 'plain' },
+    { body_format: 'text/markdown' },
+    { body_format: ' markdown' },
+    { body_format: 7 },
+    { body_format: ['markdown'] },
+    { logbook: 'Operations' },
+  ];
+
+  test.each(NOT_MARKDOWN)('metadata %j: the body is the stored text, escaped', (metadata) => {
+    const { titleHtml, bodyHtml, rendered } = renderEntryTextHtml(
+      /** @type {any} */ (entry(metadata))
+    );
+    expect(bodyHtml).toBe(BODY);
+    expect(titleHtml).toBe('# Shift &lt;b&gt;log&lt;/b&gt;');
+    expect(rendered).toBe(false);
+  });
+
+  test.each(NOT_MARKDOWN.filter((m) => !m || !('logbook' in m)))(
+    'metadata %j: the whole reader is the same HTML as with no metadata',
+    (metadata) => {
+      const html = detail(entry(metadata));
+      expect(html).toBe(detail(entry()));
+      expect(html).toContain(`<div class="entry-detail-text">${BODY}</div>`);
+      expect(html).not.toContain('entry-detail-text--rendered');
+    }
+  );
+
+  test('a Markdown entry is the same HTML too when the page has no renderer', () => {
+    // This suite loads neither marked nor DOMPurify, as a page whose vendored
+    // scripts failed to load.
+    expect(/** @type {any} */ (globalThis).marked).toBeUndefined();
+    expect(/** @type {any} */ (globalThis).DOMPurify).toBeUndefined();
+    expect(detail(entry({ body_format: 'markdown' }))).toBe(detail(entry()));
   });
 });
 

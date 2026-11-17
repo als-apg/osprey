@@ -244,6 +244,127 @@
   overflow-y: auto;
 }
 
+/* A body whose entry declares Markdown (entry-markdown.js): the text is
+   elements, not lines, so the stored line breaks no longer lay it out. */
+.entry-detail-text--rendered {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.entry-detail-text--rendered > :first-child {
+  margin-top: 0;
+}
+
+.entry-detail-text--rendered > :last-child {
+  margin-bottom: 0;
+}
+
+.entry-detail-text--rendered p,
+.entry-detail-text--rendered ul,
+.entry-detail-text--rendered ol,
+.entry-detail-text--rendered pre,
+.entry-detail-text--rendered table,
+.entry-detail-text--rendered blockquote {
+  margin: 0 0 var(--space-3);
+}
+
+/* Outranks `.entry-detail-content h3`, the card's own caption style. */
+.entry-detail-text--rendered h1,
+.entry-detail-text--rendered h2,
+.entry-detail-text--rendered h3,
+.entry-detail-text--rendered h4,
+.entry-detail-text--rendered h5,
+.entry-detail-text--rendered h6 {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--text-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.entry-detail-text--rendered h1 {
+  font-size: var(--text-2xl);
+}
+
+.entry-detail-text--rendered h2 {
+  font-size: var(--text-lg);
+}
+
+.entry-detail-text--rendered ul,
+.entry-detail-text--rendered ol {
+  padding-left: var(--space-5);
+}
+
+.entry-detail-text--rendered li > ul,
+.entry-detail-text--rendered li > ol {
+  margin-bottom: 0;
+}
+
+.entry-detail-text--rendered a {
+  color: var(--color-accent);
+}
+
+.entry-detail-text--rendered code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.entry-detail-text--rendered pre {
+  padding: var(--space-3);
+  background: var(--surface-well);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.entry-detail-text--rendered blockquote {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+/* A wide table scrolls sideways inside the body instead of widening it. */
+.entry-detail-text--rendered table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.entry-detail-text--rendered th,
+.entry-detail-text--rendered td {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-default);
+  vertical-align: top;
+}
+
+.entry-detail-text--rendered th {
+  font-weight: var(--weight-semibold);
+}
+
+/* A column the table aligns keeps its `align`; the rest read from the left. */
+.entry-detail-text--rendered th:not([align]) {
+  text-align: left;
+}
+
+.entry-detail-text--rendered hr {
+  margin: var(--space-4) 0;
+  border: 0;
+  border-top: 1px solid var(--surface-hairline);
+}
+
+/* A picture of the entry, shown where the text places it; a click opens the
+   lightbox, as on its card below. */
+.entry-inline-image {
+  display: block;
+  max-width: 100%;
+  max-height: 50vh;
+  margin: 0 0 var(--space-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
 .entry-facility-link {
   font-family: var(--font-mono);
   cursor: help;
