@@ -184,17 +184,21 @@ class TestConnectorHostChild:
         monkeypatch.delenv("CONFIG_FILE", raising=False)
         view = served_tree(tmp_path / "served")
         connector, report = await host._build_connector(
-            {
-                "control_system": {
-                    "type": IN_PROCESS_TYPE,
-                    "connector": {IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=0)},
-                },
-                "target": "live",
-            }
+            host._host_init(
+                {
+                    "control_system": {
+                        "type": IN_PROCESS_TYPE,
+                        "connector": {
+                            IN_PROCESS_TYPE: in_process_config(view, response_delay_ms=0)
+                        },
+                    },
+                    "target": "live",
+                }
+            )
         )
         try:
             assert connector._control_target == "live"
-            assert report["target"] == "live"
+            assert report.target == "live"
         finally:
             await connector.disconnect()
 
@@ -207,13 +211,15 @@ class TestConnectorHostChild:
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("CONFIG_FILE", raising=False)
         connector, _ = await host._build_connector(
-            {
-                "control_system": {
-                    "type": IN_PROCESS_TYPE,
-                    "connector": {"virtual_accelerator": {"channel_prefix": "VA:"}},
-                },
-                "target": "va",
-            }
+            host._host_init(
+                {
+                    "control_system": {
+                        "type": IN_PROCESS_TYPE,
+                        "connector": {"virtual_accelerator": {"channel_prefix": "VA:"}},
+                    },
+                    "target": "va",
+                }
+            )
         )
         try:
             assert connector._control_target == "va"

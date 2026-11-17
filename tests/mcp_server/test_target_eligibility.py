@@ -32,6 +32,7 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors import control_context, testing
+from osprey_connectors.ipc._host import HostReport
 from osprey_connectors.ipc._verification import (
     DEFAULT_CA_PORT,
     DEFAULT_PVA_PORT,
@@ -43,6 +44,7 @@ from osprey_connectors.ipc._verification import (
     verify_child_report,
 )
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
+from osprey_connectors_tests.ipc._host_reports import host_report
 
 LIVE = "live"
 VA = "va"
@@ -1267,7 +1269,7 @@ def test_a_verdict_that_raises_refuses_rather_than_allows(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _report(**overrides: Any) -> dict[str, Any]:
+def _report(**overrides: Any) -> HostReport:
     report = {
         "selected_role": "read_only",
         "mode": "addr_list",
@@ -1276,7 +1278,7 @@ def _report(**overrides: Any) -> dict[str, Any]:
         "_epics_configured": True,
     }
     report.update(overrides)
-    return report
+    return host_report(**report)
 
 
 def test_a_matching_child_report_verifies() -> None:

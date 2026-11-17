@@ -27,7 +27,7 @@ Nothing here imports a control-system client library.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Final, Literal, SupportsIndex, SupportsInt
+from typing import TYPE_CHECKING, Final, Literal, SupportsIndex, SupportsInt
 
 from osprey_connectors.config import config_flag
 from osprey_connectors.connector_types import (
@@ -52,6 +52,10 @@ from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 from osprey_connectors.targets import resolve_target
 from osprey_connectors.write_tier import tier_allows
+
+if TYPE_CHECKING:
+    # The child defines the report it writes, and imports GatewayMode from here.
+    from osprey_connectors.ipc._host import HostReport
 
 __all__ = [
     "config_section",
@@ -459,7 +463,7 @@ def live_collision(
     return None
 
 
-def verify_child_report(derivation: TargetDerivation, report: Mapping[str, object]) -> Verification:
+def verify_child_report(derivation: TargetDerivation, report: HostReport) -> Verification:
     """Assert a child came up exactly where the derivation said it would.
 
     Positive and role-aware: every field of the selected role's endpoint is
@@ -470,8 +474,8 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, objec
     Args:
         derivation: The derivation for the target being switched to, from
             :func:`derive_endpoints`.
-        report: The child's post-connect report: ``selected_role``, ``mode``,
-            ``host``, ``port`` and ``_epics_configured``.
+        report: The child's post-connect report; its ``selected_role``,
+            ``mode``, ``host``, ``port`` and ``epics_configured`` are compared.
 
     Returns:
         A passing :class:`Verification`, or a failing one naming the field, the
@@ -479,19 +483,19 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, objec
         failure and leaves the previous target active.
     """
 
-    if not report.get("_epics_configured"):
+    if not report.epics_configured:
         return Verification(
             ok=False,
             field="_epics_configured",
             expected=True,
-            got=report.get("_epics_configured"),
+            got=report.epics_configured,
             detail="The child reports it never configured an EPICS gateway, so its "
             "environment is whatever the process already carried rather than this "
             "target's.",
         )
 
     expected_role = derivation.selected_role
-    got_role = report.get("selected_role")
+    got_role = report.selected_role
     if got_role != expected_role:
         return Verification(
             ok=False,
@@ -513,8 +517,10 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, objec
             "to compare the child against; it should never have been switched to.",
         )
 
-    for field_name, expected in (("mode", endpoint.mode), ("host", endpoint.host)):
-        got = report.get(field_name)
+    for field_name, expected, got in (
+        ("mode", endpoint.mode, report.mode),
+        ("host", endpoint.host, report.host),
+    ):
         if got != expected:
             return Verification(
                 ok=False,
@@ -526,13 +532,13 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, objec
                 f"{expected_role!r} gateway.",
             )
 
-    if not _ports_equal(endpoint.port, report.get("port")):
+    if not _ports_equal(endpoint.port, report.port):
         return Verification(
             ok=False,
             field="port",
             expected=endpoint.port,
-            got=report.get("port"),
-            detail=f"The child's port is {report.get('port')!r} where target "
+            got=report.port,
+            detail=f"The child's port is {report.port!r} where target "
             f"{derivation.target!r} derives {endpoint.port!r} for its "
             f"{expected_role!r} gateway.",
         )
@@ -548,7 +554,7 @@ def verify_child_report(derivation: TargetDerivation, report: Mapping[str, objec
 
 def _verify_posture(
     derivation: TargetDerivation,
-    report: Mapping[str, object],
+    report: HostReport,
     *,
     readonly_run: bool,
     writes_enabled: bool | None,
@@ -561,7 +567,7 @@ def _verify_posture(
     through the gateway role, which a connector with no gateways, or with a
     ``read_only`` row alone, never varies.
     """
-    got_type = report.get("connector_type")
+    got_type = report.connector_type
     if got_type != derivation.connector_type:
         return Verification(
             ok=False,
@@ -571,7 +577,7 @@ def _verify_posture(
             detail=f"The child reports connector type {got_type!r} where target "
             f"{derivation.target!r} derives {derivation.connector_type!r}.",
         )
-    got_transport = report.get("transport")
+    got_transport = report.transport
     if got_transport != derivation.transport:
         return Verification(
             ok=False,
@@ -582,8 +588,8 @@ def _verify_posture(
             f"{got_transport!r} where {derivation.transport!r} was derived.",
         )
     if readonly_run:
-        got_readonly = report.get("readonly_run")
-        if got_readonly is not True:
+        got_readonly = report.readonly_run
+        if not got_readonly:
             return Verification(
                 ok=False,
                 field="readonly_run",
@@ -595,15 +601,15 @@ def _verify_posture(
         return None
     if writes_enabled is None:
         return None
-    got_writes = report.get("writes_enabled")
-    if (got_writes is True) != writes_enabled:
+    got_writes = report.writes_enabled
+    if got_writes != writes_enabled:
         return Verification(
             ok=False,
             field="writes_enabled",
             expected=writes_enabled,
             got=got_writes,
             detail=f"The child for target {derivation.target!r} reports writes "
-            f"{'armed' if got_writes is True else 'off'} where this process derives them "
+            f"{'armed' if got_writes else 'off'} where this process derives them "
             f"{'armed' if writes_enabled else 'off'}.",
         )
     return None
@@ -611,7 +617,7 @@ def _verify_posture(
 
 def verify_host_report(
     derivation: TargetDerivation,
-    report: Mapping[str, object],
+    report: HostReport,
     *,
     readonly_run: bool | None = None,
     writes_enabled: bool | None = None,
@@ -664,15 +670,15 @@ def verify_host_report(
     if derivation.endpoints:
         return verify_child_report(derivation, report)
 
-    if report.get("_epics_configured") or report.get("mode") or report.get("host"):
+    if report.epics_configured or report.mode or report.host:
         return Verification(
             ok=False,
             field="_epics_configured",
             expected=False,
-            got=report.get("_epics_configured"),
+            got=report.epics_configured,
             detail=f"Target {derivation.target!r} derives no gateway on this deployment, but the "
-            f"child reports it configured {report.get('mode')!r} routing to "
-            f"{report.get('host')!r} — an endpoint this config never described.",
+            f"child reports it configured {report.mode!r} routing to "
+            f"{report.host!r} — an endpoint this config never described.",
         )
     if derivation.declares_no_endpoints:
         return Verification(

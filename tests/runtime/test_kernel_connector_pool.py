@@ -896,6 +896,6 @@ class TestRealChildrenFollowTheSwitch:
             asyncio.run(runtime.cleanup_runtime())
 
         assert refusal_phrase("switch_off", "simulator") in str(off.value)
-        assert on_report["writes_enabled"] is True
+        assert on_report.writes_enabled is True
         assert len({off_pid, on_pid, again_pid}) == 3
         assert not pid_alive(off_pid) and not pid_alive(on_pid)
