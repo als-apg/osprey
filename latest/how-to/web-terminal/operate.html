@@ -1321,6 +1321,26 @@ the dispatch worker and the terminals without a login as the ones affected.</p><
 </ul>
 <p>The dispatch worker and every other headless path keep the deployment
 provider unconditionally.</p>
+<p>A login covers the agent only. A few features send their own model request,
+outside the agent, and authenticate with the provider’s API key and nothing
+else:</p>
+<ul class="simple">
+<li><p>session naming, which otherwise leaves a session its first-prompt title;</p></li>
+<li><p>logbook compose in the artifact gallery;</p></li>
+<li><p>the in-context channel finder (<a class="reference internal" href="../use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>);</p></li>
+<li><p>the ARIEL semantic processor and image captions, when enabled;</p></li>
+<li><p>the model chat check of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--full</span></code>.</p></li>
+</ul>
+<p>This holds for any deployment that runs without a provider key, with or
+without <code class="docutils literal notranslate"><span class="pre">allow_personal_login</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> each name the enabled features whose key is missing, as
+warnings that do not change the exit status. A line reads
+<code class="docutils literal notranslate"><span class="pre">session</span> <span class="pre">naming</span> <span class="pre">needs</span> <span class="pre">ANTHROPIC_API_KEY</span> <span class="pre">(not</span> <span class="pre">set):</span> <span class="pre">sessions</span> <span class="pre">keep</span> <span class="pre">their</span>
+<span class="pre">first-prompt</span> <span class="pre">title</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> reads the profile and not a build,
+so it misses a channel finder the profile takes from its preset;
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reports it.</p>
+<p>Add the key to the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> to use them. A feature whose
+provider needs no key, such as a local Ollama server, is not listed.</p>
 </section>
 <section id="documentation-and-feedback-settings">
 <h2>Documentation and feedback settings<a class="headerlink" href="#documentation-and-feedback-settings" title="Link to this heading">#</a></h2>

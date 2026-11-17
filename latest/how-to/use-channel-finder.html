@@ -852,6 +852,12 @@ matching.</p>
 <p><strong>How it works:</strong> a single inner-LLM call. The complete channel database is
 embedded in the system prompt. The model returns the most relevant channels in
 one shot, with no query-splitting or iterative-correction stage.</p>
+<p>That call is OSPREY’s own request to the provider, not the agent’s, so it needs
+the provider’s API key: a personal Claude login does not cover it
+(<a class="reference internal" href="web-terminal/operate.html#personal-login"><span class="std std-ref">A user’s own Claude subscription</span></a>). <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>
+warn when the key is missing. The hierarchical, middle layer and graph
+pipelines make no model request of their own. The agent drives their tools, so
+they need no key beyond what the agent uses.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the database from the facility description as
 <code class="docutils literal notranslate"><span class="pre">data/channel_finder/in_context.json</span></code>. It holds one row per channel, or per
 channel of the subset the facility tags <code class="docutils literal notranslate"><span class="pre">in_context</span></code>, with its name, address
