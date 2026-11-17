@@ -183,6 +183,9 @@ CARD_ROWS = 40  # signal rows a card draws; the rest are counted by how they are
 CHAIN_BOX = 150  # one thing of a card's fed-by chain
 CHAIN_HEIGHT = 44
 CHAIN_ARROW = 40  # the run of an arrow between two boxes of the chain
+ROLLUP_LEFT = 700  # a roll-up's tiles, with the gap to its by-system rows
+ROLLUP_TILE_WIDTH = 150  # the least width of a child's tile
+ROLLUP_TILE_HEIGHT = 64
 SUMMARY_ROW = 36  # one row of a by-system summary
 SUMMARY_COLUMNS = 2
 PICTURE_SIZE = 260
@@ -332,6 +335,8 @@ _SOURCES = "sources"
 _RACK_COUNTS = "{} at a stated unit · {} not at a unit"
 _UNITS_FROM = "{} · {} devices"
 _NO_CLASS = "no class stated"
+_BY_SYSTEM_TITLE = "by system"
+_TILE_OPEN = "{} channels · open"
 _SIGNAL_HEADS = ("signal", "setpoint", "readback")
 _CHAIN_CAPTION = "power flows right to left"
 _THIS_DEVICE = "this device"
@@ -1428,9 +1433,159 @@ class _Page:
         sections = list(self.view.sections)
         if self.on_card:
             sections = self.card(sections)
+        beside: Group | None = None
+        if self.view.id.view == "rollup":
+            found = [s for s in sections if s.title == _BY_SYSTEM_TITLE]
+            if found and isinstance(found[0].items[0], Group):
+                beside = found[0].items[0]
+                sections.remove(found[0])
         for section in sections:
-            self.section(section)
+            tree = section.items[0] if section.items else None
+            if self.view.id.view == "rollup" and isinstance(tree, Node):
+                self.rollup(tree, beside)
+            else:
+                self.section(section)
         return self.s.document(self.y + SECTION_GAP)
+
+    # -- the roll-up ----------------------------------------------------------
+
+    def rollup(self, root: Node, beside: Group | None) -> None:
+        """A roll-up in one frame: the root's state, then its children as large tiles
+        and, right of them, the rows *beside* (the place by system).
+
+        A tile is a child's light, its short name and what it reads, opening its
+        screen. The budget is spent as :meth:`plan` says: a child that fits one
+        rule has its light; one too long for a rule whose parts fit carries the
+        aggregate mark and its parts' lights inside the tile, so the roll-up stays
+        live; any other is ``open``, the aggregate mark and a link down.
+        """
+        first = len(self.s.nodes)
+        top = self.y
+        self.y += PANEL_PAD
+        width = ROLLUP_LEFT - COLUMN_GAP if beside is not None else STRIP_WIDTH
+        self.x0, self.right = MARGIN, MARGIN + width
+        self.heading(f"by {self.view.id.by or 'place'}")
+        plan, decisions = self.plan(root)
+        self.rollup_root(root, plan)
+        columns = max(1, int((width + GAP) // (ROLLUP_TILE_WIDTH + GAP)))
+        w = (width - (columns - 1) * GAP) / columns
+        children = list(enumerate(root.children))
+        y = self.y
+        for start in range(0, len(children), columns):
+            row = children[start : start + columns]
+            parts = {
+                i: chunks(self.graph, [describe_light(self.graph, c) for c in child.channels])
+                for i, child in row
+                if decisions.get(i) == "parts"
+            }
+            h = max(
+                [ROLLUP_TILE_HEIGHT] + [_tile_height(len(found), w) for found in parts.values()]
+            )
+            for column, (i, child) in enumerate(row):
+                x = MARGIN + column * (w + GAP)
+                plan_i = "none" if child.no_rule else decisions.get(i, "open")
+                self.rollup_tile(x, y, w, h, child, root.label, plan_i, parts.get(i))
+            y += h + GAP
+        bottom = y
+        if beside is not None:
+            self.x0, self.right = MARGIN + ROLLUP_LEFT, MARGIN + STRIP_WIDTH
+            self.y = top + PANEL_PAD
+            self.heading(beside.title)
+            self.summary(beside, self.x0, self.right - self.x0, 1)
+            bottom = max(bottom, self.y)
+        self.x0, self.right = MARGIN, PAGE_WIDTH - MARGIN + PANEL_PAD
+        self.y = bottom + PANEL_PAD - ROW_GAP
+        self.s.widget(
+            "rectangle",
+            MARGIN - PANEL_PAD,
+            top,
+            STRIP_WIDTH + 2 * PANEL_PAD,
+            self.y - top,
+            {
+                "lineColor": BOX_BORDER,
+                "lineWidth": LINE_WIDTH,
+                "fill": True,
+                "fillColor": PANEL_BACKGROUND,
+            },
+        )
+        self.s.nodes.insert(first, self.s.nodes.pop())
+        self.y += PANEL_GAP
+
+    def rollup_root(self, root: Node, plan: str | None) -> None:
+        """The root's line: its light and what it reads, its parts, or that its summary
+        needs a server-side aggregate."""
+        count = len(root.channels)
+        lights = [describe_light(self.graph, c) for c in root.channels]
+        if plan == "summary":
+            text = _SUMMARY_TEXT.format(count)
+            tags = (_need("server-side aggregate"),)
+            self.text(self.x0, self.y, text, size=SMALL_SIZE, tags=tags)
+            self.next_row()
+            return
+        if root.no_rule:
+            x = self.no_rule(self.x0, self.y)
+            note = _NO_RULE_YET
+        elif plan == "live":
+            x = self.light(self.x0, self.y, lights, rule=ladder(self.graph, lights, node=True))
+            note = _READS.format(count, "" if count == 1 else "s")
+        else:
+            x = self.light(self.x0, self.y, lights, rule="aggregate state")
+            note = _AGGREGATE_TEXT.format(count)
+        x = self.text(x + GAP, self.y, f"{root.label} · {note}", size=SMALL_SIZE, fg=MUTED_TEXT)
+        height = ROW
+        if plan == "parts":
+            height = self.parts(chunks(self.graph, lights), x + GAP, self.x0 + INDENT)
+        self.next_row(height)
+
+    def rollup_tile(
+        self,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        node: Node,
+        parent: str,
+        plan: str,
+        parts: Sequence[Sequence[Light]] | None,
+    ) -> None:
+        """One child: its light top left with its short name, what it reads under it,
+        and the lights of its parts when it is drawn in parts."""
+        self.box(x, y, w, h, fill=FIELD_BACKGROUND)
+        inner = x + TILE_PAD
+        top = y + TILE_PAD / 2
+        lights = [describe_light(self.graph, c) for c in node.channels]
+        count = len(node.channels)
+        if plan == "none":
+            right = self.no_rule(inner, top)
+            note = _NO_RULE_YET
+        elif plan == "live":
+            right = self.light(inner, top, lights, rule=ladder(self.graph, lights, node=True))
+            note = _READS.format(count, "" if count == 1 else "s")
+        else:
+            right = self.light(inner, top, lights, rule="aggregate state")
+            note = _TILE_OPEN.format(count)
+        name = node.label.removeprefix(parent + "/")
+        room = x + w - TILE_PAD - (right + GAP)
+        name = _cut(name, room, TEXT_SIZE)
+        if name:
+            self.text(right + GAP, top, name, w=min(text_width(name, TEXT_SIZE), room))
+        lines = _wrap(note, w - 2 * TILE_PAD, SMALL_SIZE)
+        for i, line in enumerate(lines):
+            self.small(inner, top + ROW + i * SMALL_LINE, line, fg=MUTED_TEXT)
+        if parts:
+            per = _tile_parts_per_row(w)
+            first = top + ROW + len(lines) * SMALL_LINE + ROW_GAP
+            for number, part in enumerate(parts):
+                px = inner + (number % per) * (MOSAIC_LIGHT + MOSAIC_GAP)
+                py = first + (number // per) * (MOSAIC_LIGHT + MOSAIC_GAP)
+                rule = ladder(self.graph, part, node=len(part) > 1)
+                tooltip = _PART.format(number + 1, len(parts))
+                self.light(
+                    px, py - (ROW - MOSAIC_LIGHT) / 2, part, rule=rule, size=MOSAIC_LIGHT,
+                    tile=True, tooltip=tooltip,
+                )  # fmt: skip
+        if node.link is not None:
+            self.nav(x, y, w, h, replace(node.link, label=node.label))
 
     # -- the device card ------------------------------------------------------
 
@@ -1911,7 +2066,7 @@ class _Page:
         or none; every other child is ``open``. A root that is not live is in
         parts when it has no children and they fit, else a ``summary``.
         """
-        budget = Budget()
+        budget = self.budget  # the screen's: what is left goes to the rows beside
 
         def ladder_of(node: Node) -> Ladder | str:
             lights = [describe_light(self.graph, c) for c in node.channels]
@@ -2568,13 +2723,19 @@ class _Page:
             entries.append((group.more.label, group.more, None))
         self.chips(MARGIN, entries)
 
-    def summary(self, group: Group) -> None:
+    def summary(
+        self,
+        group: Group,
+        x0: float = MARGIN,
+        width: float = STRIP_WIDTH,
+        columns: int = SUMMARY_COLUMNS,
+    ) -> None:
         """One row per node: its light, its name, and right-aligned what it reads."""
-        column = (STRIP_WIDTH - (SUMMARY_COLUMNS - 1) * GAP) / SUMMARY_COLUMNS
-        per = math.ceil(len(group.nodes) / SUMMARY_COLUMNS)
+        column = (width - (columns - 1) * GAP) / columns
+        per = max(1, math.ceil(len(group.nodes) / columns))
         top = self.y
         for i, node in enumerate(group.nodes):
-            x = MARGIN + (i // per) * (column + GAP)
+            x = x0 + (i // per) * (column + GAP)
             y = top + (i % per) * SUMMARY_ROW
             h = SUMMARY_ROW - ROW_GAP
             self.s.widget(
@@ -2831,6 +2992,17 @@ def rack_lanes(units: Sequence[RackUnit]) -> list[tuple[int, int]]:
         cluster[i] = len(clusters) - 1
     width = [max(lanes[j] for j in members) + 1 for members in clusters]
     return [(lanes[i], width[cluster[i]]) for i in range(len(units))]
+
+
+def _tile_parts_per_row(width: float) -> int:
+    """How many part lights stand on one line of a roll-up tile *width* wide."""
+    return max(1, int((width - 2 * TILE_PAD + MOSAIC_GAP) // (MOSAIC_LIGHT + MOSAIC_GAP)))
+
+
+def _tile_height(parts: int, width: float) -> float:
+    """A roll-up tile's height holding *parts* part lights under its two lines of text."""
+    lines = math.ceil(parts / _tile_parts_per_row(width))
+    return TILE_PAD + ROW + TILE_LINES * SMALL_LINE + ROW_GAP + lines * (MOSAIC_LIGHT + MOSAIC_GAP)
 
 
 def _unit_top(unit: RackUnit) -> int:

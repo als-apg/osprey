@@ -232,13 +232,12 @@ def test_a_root_over_the_limit_says_its_summary_needs_a_server_side_aggregate(
     summary = f"{len(RULED)} channels: a live summary of this level needs a server-side aggregate"
     assert texts.count(summary) == 1
     assert "server-side aggregate" in needs(doc)
-    assert aggregates(doc) == 1  # the three-channel child, drawn in parts
+    assert aggregates(doc) == 1  # the three-channel child, drawn in parts in its tile
     assert unexpressed(doc) == 0  # an aggregate is not an unknown light
-    assert texts.count("3 channels, open for detail") == 1
     shapes = _by_type(doc, "polygon")
     tiles = [n for n in shapes if n["geometry"]["width"] == layout.MOSAIC_LIGHT]
     parts = [n for n in tiles if n["props"]["tooltip"].startswith("part ")]
-    assert tiles == parts  # no mosaic: the children's rows carry their lights
+    assert tiles == parts  # no mosaic of the children: each has its tile
     assert len(parts) > 1 and all(n.get("rules") for n in parts)
     assert parts[0]["props"]["tooltip"] == f"part 1 of {len(parts)}"
     live = [n for n in shapes if n.get("rules") and n not in parts]
@@ -262,21 +261,26 @@ def test_a_roll_up_spends_its_budget_on_single_lights_then_parts_then_opens(tmp_
     full, _ = draw(view, graph)
     wide = [n for n in nodes(full) if str(n["props"].get("tooltip", "")).startswith("part ")]
     assert wide, "the 40-channel device is drawn in parts with the default budget"
-    budget = _subscriptions(full) - 1  # the parts of the wide device no longer fit
+    beside = sum(  # the rows by system, right of the tiles, spend what the tiles leave
+        bool(r["conditions"])
+        for n in nodes(full)
+        if n["geometry"]["x"] >= layout.MARGIN + layout.ROLLUP_LEFT
+        for r in n.get("rules", ())
+    )
+    budget = _subscriptions(full) - beside - 1  # the parts of the wide device no longer fit
     monkeypatch.setattr(layout, "SCREEN_RULE_BUDGET", budget)
     doc, screens = draw(view, graph)
     assert _subscriptions(doc) <= budget
     assert not [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).startswith("part ")]
-    opens = [
-        n for n in _links_drawn(doc) if n["props"]["tooltip"] == "40 channels, open for detail"
-    ]
-    assert len(opens) == 1  # the wide device opens its own screen
+    assert any(t.startswith("40 channels") for t in _texts(doc))  # its tile: it is open
+    opens = [n for n in _links_drawn(doc) if n["props"]["tooltip"] == "XR01:WIDE1"]
+    assert len(opens) == 1
     monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 2)
     doc, _ = draw(view, graph)
     assert len(_bound(doc)) <= 2
 
 
-def test_a_row_grows_with_its_wrapped_parts_and_no_two_rows_overlap(tmp_path, monkeypatch):
+def test_a_tile_grows_with_its_parts_and_no_part_covers_a_text(tmp_path, monkeypatch):
     from osprey.facility.panels.describe import health_rollup
 
     graph = graph_with_wide(tmp_path, 300)
@@ -302,9 +306,6 @@ def test_a_row_grows_with_its_wrapped_parts_and_no_two_rows_overlap(tmp_path, mo
                 and tile[1] < label[3]
                 and label[1] < tile[3]
             ), (tile, label)
-    bottom = max(box(n)[3] for n in parts)
-    later = [b for b in labels if b[1] > box(parts[0])[1] + layout.ROW]
-    assert later and all(b[1] >= bottom for b in later)  # the next rows start below the parts
 
 
 def test_tile_positions_wrap_at_the_margin_and_give_the_rows_height() -> None:
@@ -478,8 +479,12 @@ def test_a_node_without_a_rule_reads_no_rule_not_unknown(panel_graph) -> None:
     without = [n for n in found if n.no_rule]
     assert without and len(without) < len(found)
     doc, _ = draw(view, panel_graph)
-    polygons = _by_type(doc, "polygon")
-    assert len(polygons) == len(found)  # one light per row, those without a rule in "none"
+    polygons = [  # the tree's: left of the rows by system
+        n
+        for n in _by_type(doc, "polygon")
+        if n["geometry"]["x"] < layout.MARGIN + layout.ROLLUP_LEFT
+    ]
+    assert len(polygons) == len(found)  # one light per node, those without a rule in "none"
     bare = [n for n in polygons if n["props"]["lineColor"] == symbols.look("none")["lineColor"]]
     assert len(bare) == len(without)
     assert all(not n.get("rules") and n["props"]["tooltip"] == "no rule" for n in bare)
@@ -937,8 +942,9 @@ def test_a_child_with_no_live_light_opens_its_own_screen(panel_graph, monkeypatc
     root = Node("XR", None, RULED, False, (child,))
     view = View(Target("rollup", "place", "XR", by="place"), "x", (), (Section("r", (root,)),))
     doc, screens = draw(view, panel_graph)
-    opens = [n for n in _links_drawn(doc) if n["props"]["tooltip"] == "3 channels, open for detail"]
+    opens = [n for n in _links_drawn(doc) if n["props"]["tooltip"] == "XR/XR02"]
     assert [n["props"]["actions"][0]["file"] for n in opens] == [screens(down)]
+    assert any(t.startswith("3 channels") for t in _texts(doc))  # its tile says it is open
     assert not [n for n in nodes(doc) if n.get("rules")]
 
 

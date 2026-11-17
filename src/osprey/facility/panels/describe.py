@@ -1176,7 +1176,9 @@ def health_rollup(
     order; then one row ``<n> without a rule`` for all the others, which opens
     the place's card, where they are listed. The place's own rule-bearing
     channels are a child of their own, ``<place> itself``, so a screen whose
-    root is too long for one rule still shows them live.
+    root is too long for one rule still shows them live. By ``place``, a
+    section ``by system`` before the tree holds the rows of the place's
+    roll-up by system, each opening it.
 
     A root place (one with no parent) has one more child, ``not placed``:
     every device in no place, linked to their own roll-up, whose channels the
@@ -1226,7 +1228,12 @@ def health_rollup(
     crumbs = _crumbs(graph, index, place.place, "rollup", by)
     title = f"{root_id} health by {by}"
     band = _band(graph, place, "rollup")
-    head = (Section("key numbers", (band,)),) if band is not None else ()
+    head: tuple[Section, ...] = (Section("key numbers", (band,)),) if band is not None else ()
+    if by == "place" and root_id in index.ruled:  # beside the places: the same by system
+        *_band_, section = health_rollup(graph, root_id, "system").sections
+        (system_root,) = section.items
+        rows = Group(_BY_SYSTEM, "rows", system_root.children)  # type: ignore[union-attr]
+        head += (Section(_BY_SYSTEM, (rows,)),)
     return View(
         Target("rollup", "place", root_id, by=by),
         title,
