@@ -25,6 +25,7 @@ import yaml
 
 from osprey.models.provider_registry import PROVIDER_API_KEYS
 from osprey.profiles.providers import load_provider_catalog
+from tests._coverage_handoff import without_coverage_handoff
 from tests._nested_pytest import run_nested_pytest, with_harness_path
 from tests.conftest import _e2e_provider_availability
 from tests.e2e import conftest as e2e_conftest
@@ -392,10 +393,16 @@ def test_a_worker_without_a_relay_refuses_itself() -> None:
 
 
 def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
-    """Run pytest from the repo root in a shell that names no provider."""
+    """Run pytest from the repo root in a shell that names no provider.
+
+    Without coverage's hand-off: the run collects ``tests/e2e/`` and runs its
+    conftest's refusal, which is test code coverage omits plus module imports
+    the in-process tests make anyway, in up to three processes (``-n 2``) that
+    would each start coverage and write its data.
+    """
     env = {
         key: value
-        for key, value in os.environ.items()
+        for key, value in without_coverage_handoff().items()
         if key not in (E2E_PROVIDER_ENV, FORCE_PROVIDER_ENV)
     }
     # `-c os.devnull` drops the root pyproject's `pythonpath` as well.
