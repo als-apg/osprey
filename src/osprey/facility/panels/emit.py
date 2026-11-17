@@ -109,6 +109,7 @@ _TEMPORARY = re.compile(r"\.[a-z0-9-]+" + re.escape(SCREEN_SUFFIX) + r"\.tmp")
 #: The drawing settings file, beside the rule tables.
 DRAW_FILE = "draw.json"
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
+_FORMULA_PREFIX = "formula://"
 
 
 class EmitError(Exception):
@@ -566,8 +567,8 @@ def write(
 
 
 def _bound_channels(document: Any) -> Iterator[str]:
-    """Every channel a screen binds: a widget's ``pv``, a curve's ``y_channel`` and each
-    name in a rule's ``pvs``."""
+    """Every channel a screen binds: a widget's ``pv``, a curve's ``y_channel``, each
+    name in a rule's ``pvs`` but a screen formula's, and each binding of a screen formula."""
     stack = [document]
     while stack:
         node = stack.pop()
@@ -578,8 +579,12 @@ def _bound_channels(document: Any) -> Iterator[str]:
             pvs = node.get("pvs")
             if isinstance(pvs, list):
                 for item in pvs:
-                    if isinstance(item, dict) and isinstance(item.get("name"), str):
-                        yield item["name"]
+                    name = item.get("name") if isinstance(item, dict) else None
+                    if isinstance(name, str) and not name.startswith(_FORMULA_PREFIX):
+                        yield name
+            bindings = node.get("bindings")
+            if isinstance(bindings, dict):
+                yield from (name for name in bindings.values() if isinstance(name, str))
             stack.extend(node.values())
         elif isinstance(node, list):
             stack.extend(node)

@@ -5,10 +5,12 @@ This is the only module of the panels with geometry. :func:`render` walks a
 another, and draws every item with the pinned viewer's widgets. Colours are
 the theme roles of :mod:`~osprey.facility.panels.symbols`.
 
-States are the viewer's to compute. A light binds its channels and carries
-the format's rules, written from the channels' health rows (see
-:func:`ladder`): the viewer shows the state the rows give the live value, and
-``unknown`` before a value arrives. Nothing here reads a value.
+States are the viewer's to compute. A light's rule over its channels, written from
+their health rows (see :func:`ladder`), is one screen formula
+(:func:`state_formula`) that gives a state's code; each prop of the light has a
+rule that reads that formula and sets the prop to the state's look. The viewer
+shows the state the rows give the live value, and ``unknown`` before a value
+arrives. Nothing here reads a value.
 
 Where a view needs a widget the format lacks, the nearest one is drawn and the
 node says so in its ``meta.comment`` (``format-request: <name>``); the needs
@@ -21,8 +23,8 @@ Every size, spacing and font size is in the constants block below.
 
 from __future__ import annotations
 
-import json
 import math
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -63,6 +65,7 @@ from osprey.facility.panels.view import (
 __all__ = [
     "FORMAT_REQUESTS",
     "MIN_STRIP_SCALE",
+    "STATE_CODES",
     "WIDGETS",
     "Ladder",
     "ladder",
@@ -122,9 +125,9 @@ RACK_U = 22  # one rack unit
 RACK_WIDTH = 420
 RACK_LABEL_WIDTH = 56
 UNPOSITIONED_GAP = 40
-# The longest expression a light's rule may compile to. The pinned viewer
-# compiles a rule's ladder into one Fox expression (``v0 if (c0) else (...)``);
-# CANOPY's formula engine refuses one longer than ``max_expression_len``
+# The longest expression a light's rule may be. A light's ladder is one screen
+# formula (``4 if (c0) else (...)``) that CANOPY's formula engine evaluates; it
+# refuses one longer than ``max_expression_len``
 # (canopy/formula_engine/config.py at 166989aa: 2048 characters).
 RULE_EXPRESSION_LIMIT = 2048
 TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts them
@@ -135,6 +138,10 @@ WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
 COMMAND_LABEL = "send"  # what a command's button reads
 COMMAND_VALUE = 1  # what pressing a command's button writes
+#: The number a light's screen formula gives each state; ``unknown`` when no arm holds.
+STATE_CODES: Mapping[str, int] = MappingProxyType(
+    {"normal": 0, "unknown": 1, "disagree": 2, "warn": 3, "bad": 4}
+)
 # --- end constants -------------------------------------------------------------
 
 #: The widget a value is drawn as, by its ``drawn_as`` in ``record_types.csv``:
@@ -202,7 +209,8 @@ _AGGREGATE_ROW = "aggregate: row"
 _AGGREGATE_TILE = "aggregate: tile"
 _AGGREGATE_SYMBOL = "aggregate: symbol"
 _AGGREGATE_TEXT = "{} channels, open for detail"
-_IF_ELSE = " if () else ()"  # what the viewer adds around each arm when it compiles a ladder
+_FORMULA_PREFIX = "formula://"
+_TOKEN = re.compile(r"\{(\d+)\}")
 _NAVIGATION_TARGET = "tab"
 _HOVER_LABEL = "hoverLabel"
 _TOOLTIP = "tooltip"
@@ -379,19 +387,24 @@ def ladder(graph: PanelGraph, lights: Sequence[Light], *, node: bool = False) ->
     return too_long if rule_length(rule) > RULE_EXPRESSION_LIMIT else rule
 
 
-def rule_length(rule: Ladder) -> int:
-    """The length of the expression the viewer compiles a light's rule to, at most.
+def state_formula(rule: Ladder) -> str:
+    """The screen formula of a light's ladder: the code (:data:`STATE_CODES`) of its state.
 
-    Each arm is its condition, the value written as a literal (the longest
-    look a light's rules write) and the ``if () else ()`` around it; the
-    default ends the ladder.
+    ``{i}`` of an arm is the formula's variable ``v<i>``, bound to
+    ``rule.channels[i]``; the first arm that holds gives its state's code, and
+    none holding gives ``unknown``'s. Every prop of the light reads this one
+    formula, so the ladder is written once per light, not once per prop.
     """
-    longest = max(
-        len(json.dumps(symbols.look(state)[prop]))
-        for state in symbols.STATES
-        for prop in (*symbols.LIGHT_PROPS, symbols.MARK_PROP)
-    )
-    return sum(len(c) + longest + len(_IF_ELSE) for c, _ in rule.arms) + longest
+    out = str(STATE_CODES["unknown"])
+    for condition, state in reversed(rule.arms):
+        written = _TOKEN.sub(r"v\1", condition)
+        out = f"{STATE_CODES[state]} if ({written}) else ({out})"
+    return out
+
+
+def rule_length(rule: Ladder) -> int:
+    """The length of a light's screen formula, the expression the format's limit bounds."""
+    return len(state_formula(rule))
 
 
 def _tolerance_ladder(row: ValueRow) -> Ladder | None:
@@ -427,6 +440,8 @@ class _Screen:
     title: str
     nodes: list[dict[str, Any]] = field(default_factory=list)
     unknown: int = 0
+    formulas: list[dict[str, Any]] = field(default_factory=list)
+    _formula_names: dict[tuple, str] = field(default_factory=dict)
     _widgets: int = 1
     _rules: int = 0
 
@@ -459,17 +474,36 @@ class _Screen:
     def widget(self, kind: str, x, y, w, h, props: dict[str, Any], **kw: Any) -> dict[str, Any]:
         return self.add({"type": kind, "props": props, "geometry": _geometry(x, y, w, h)}, **kw)
 
+    def formula(self, ladder: Ladder) -> str:
+        """The name of the screen formula of *ladder*, declared once per distinct ladder."""
+        key = (ladder.channels, ladder.arms)
+        name = self._formula_names.get(key)
+        if name is None:
+            name = f"state-{len(self._formula_names) + 1:04d}"
+            self._formula_names[key] = name
+            self.formulas.append(
+                {
+                    "name": name,
+                    "kind": "scalar",
+                    "expression": state_formula(ladder),
+                    "bindings": {f"v{i}": c for i, c in enumerate(ladder.channels)},
+                }
+            )
+        return name
+
     def rule(self, name: str, target: str, ladder: Ladder, values: Mapping[str, Any]) -> dict:
+        """One prop's rule: the value of the state the light's formula gives, else unknown's."""
         self._rules += 1
+        states = dict.fromkeys(state for _, state in ladder.arms)
         return {
             "id": f"r-{self._rules:04d}",
             "name": name,
             "targetProperty": target,
             "default": values["unknown"],
-            "pvs": [{"name": channel, "trigger": True} for channel in ladder.channels],
+            "pvs": [{"name": _FORMULA_PREFIX + self.formula(ladder), "trigger": True}],
             "conditions": [
-                {"expression": expression, "value": values[state]}
-                for expression, state in ladder.arms
+                {"expression": f"{{0}} == {STATE_CODES[state]}", "value": values[state]}
+                for state in states
             ],
         }
 
@@ -498,7 +532,7 @@ class _Screen:
                 "description": description,
             },
             "macros": [],
-            "formulas": [],
+            "formulas": self.formulas,
             "root": root,
         }
 

@@ -438,7 +438,9 @@ def test_every_channel_a_written_screen_binds_is_a_channel_of_the_facility(panel
             if isinstance(node.get("pv"), str):
                 bound.add(node["pv"])
             for pv in node.get("pvs") or ():
-                bound.add(pv["name"])
+                if not pv["name"].startswith("formula://"):
+                    bound.add(pv["name"])
+            bound.update((node.get("bindings") or {}).values())  # a screen formula's
     assert bound
     for name in bound:
         panel_graph.channel(name)

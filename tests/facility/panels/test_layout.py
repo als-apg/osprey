@@ -50,11 +50,13 @@ from tests.facility.panels._views import (
     RULED,
     SYMBOLS,
     Screens,
+    bound,
     card,
     fixture_views,
     invented_views,
     links,
     nodes,
+    resolved,
     rollup_view,
     strip_view,
     stub_render,
@@ -238,11 +240,15 @@ def test_a_lights_rules_carry_the_looks_of_their_states(panel_graph) -> None:
     (shape,) = _by_type(doc, "polygon")
     rule = ladder(panel_graph, [item])
     assert [r["targetProperty"] for r in shape["rules"]] == list(symbols.LIGHT_PROPS)
+    (formula,) = doc["formulas"]  # the ladder, written once for every prop
+    assert formula["bindings"] == {"v0": "XR02-IP1:Pressure-RB"}
+    assert formula["expression"] == layout.state_formula(rule)
     for r in shape["rules"]:
-        assert r["pvs"] == [{"name": "XR02-IP1:Pressure-RB", "trigger": True}]
+        assert r["pvs"] == [{"name": f"formula://{formula['name']}", "trigger": True}]
         assert r["default"] == symbols.look("unknown")[r["targetProperty"]]
-        for condition, (expression, state) in zip(r["conditions"], rule.arms, strict=True):
-            assert condition["expression"] == expression
+        states = list(dict.fromkeys(state for _, state in rule.arms))
+        for condition, state in zip(r["conditions"], states, strict=True):
+            assert condition["expression"] == f"{{0}} == {layout.STATE_CODES[state]}"
             assert condition["value"] == symbols.look(state)[r["targetProperty"]]
     (mark,) = [n for n in _by_type(doc, "text-label") if n.get("rules")]
     assert mark["rules"][0]["targetProperty"] == "text"
@@ -264,13 +270,9 @@ def test_a_value_row_puts_the_readback_beside_the_setpoint(panel_graph) -> None:
 
 def test_a_deviation_light_only_where_the_row_has_a_tolerance(panel_graph) -> None:
     doc, _ = draw(invented_views()[3], panel_graph)
-    bound = [
-        tuple(p["name"] for p in n["rules"][0]["pvs"])
-        for n in _by_type(doc, "polygon")
-        if n.get("rules")
-    ]
-    assert ("A:SP", "A:RB") in bound and ("B:SP", "B:RB") in bound
-    assert not any("C:RB" in names for names in bound)
+    read = [bound(doc, n) for n in _by_type(doc, "polygon") if n.get("rules")]
+    assert ("A:SP", "A:RB") in read and ("B:SP", "B:RB") in read
+    assert not any("C:RB" in names for names in read)
     absolute = layout._tolerance_ladder(invented_views()[3].sections[0].items[0])
     assert evaluate(absolute, [10.0, 10.04]) == "normal"
     assert evaluate(absolute, [10.0, 10.06]) == "warn"
@@ -407,7 +409,7 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
     named = replace(picture, parts=(replace(picture.parts[1], channel="XR01-QF1:Current-RB"),))
     doc, _ = draw(View(view.id, view.title, (), (Section("picture", (named,)),)), graph)
     (shape,) = _by_type(doc, "polygon")
-    assert shape["rules"][0]["pvs"] == [{"name": "XR01-QF1:Current-RB", "trigger": True}]
+    assert bound(doc, shape) == ("XR01-QF1:Current-RB",)
     assert not _by_type(doc, "ellipse")
 
 
@@ -419,8 +421,9 @@ def _symbol(doc: dict, thing: str) -> tuple[list[dict], list[dict]]:
     return shapes, marks
 
 
-def _live(node: dict, values: dict[str, object]) -> dict:
+def _live(doc: dict, node: dict, values: dict[str, object]) -> dict:
     """The props a node's own rules give it for *values*, for the props they target."""
+    values = resolved(doc, values)
     out = {}
     for rule in node.get("rules", ()):
         v = [values[p["name"]] for p in rule["pvs"]]
@@ -454,13 +457,12 @@ def test_a_strip_symbol_shows_its_devices_state_live(tmp_path) -> None:
     shapes, (mark,) = _symbol(doc, "XR01:QF1")
     for node in [*shapes, mark]:
         assert node.get("rules"), node["type"]
-        for rule in node["rules"]:
-            assert rule["pvs"] == [{"name": channel, "trigger": True}]
+        assert bound(doc, node) == (channel,)
     for value, state in ((9, "bad"), (0.5, "warn"), (2, "normal")):
         for node in shapes:
             props = symbols.styled(node["type"])
-            assert _live(node, {channel: value}) == {p: symbols.look(state)[p] for p in props}
-        assert _live(mark, {channel: value}) == {"text": symbols.look(state)["text"]}
+            assert _live(doc, node, {channel: value}) == {p: symbols.look(state)[p] for p in props}
+        assert _live(doc, mark, {channel: value}) == {"text": symbols.look(state)["text"]}
     for node in shapes:  # drawn unknown until the channel answers
         for prop in symbols.styled(node["type"]):
             assert node["props"][prop] == symbols.look("unknown")[prop]
@@ -592,7 +594,7 @@ def test_a_node_light_reads_its_channels(panel_graph) -> None:
     node = Node("n", None, ("XR01-PS1:On-Sts", "XR02-IP1:Pressure-RB"), False)
     doc, _ = draw(card("n", node), panel_graph)
     (shape,) = _by_type(doc, "polygon")
-    assert [p["name"] for p in shape["rules"][0]["pvs"]] == list(node.channels)
+    assert list(bound(doc, shape)) == list(node.channels)
 
 
 def test_a_long_table_is_cut_and_its_remaining_rows_counted(panel_graph) -> None:
@@ -660,10 +662,11 @@ def test_an_unwritable_channel_leaves_its_siblings_arms_and_never_normal(tmp_pat
     assert "label condition" in needs(doc)
 
 
-def drawn(shape: dict, values: dict[str, object]) -> dict:
+def drawn(doc: dict, shape: dict, values: dict[str, object]) -> dict:
     """The props a drawn light's own rules give it for *values* by channel, as the viewer reads
     them: per rule, the first condition that holds sets the prop, else the rule's default;
     a prop no rule sets keeps its static value."""
+    values = resolved(doc, values)
     out = {prop: shape["props"][prop] for prop in symbols.LIGHT_PROPS}
     for rule in shape.get("rules", ()):
         v = [values[p["name"]] for p in rule["pvs"]]
@@ -688,15 +691,17 @@ def test_a_drawn_node_with_an_unwritable_channel_shows_its_siblings_states(tmp_p
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
     a, b = "XR02-IP1:Pressure-RB", "XR01-PS1:On-Sts"  # A: >=5 bad, <1 warn, 3 normal; B: a label
     alone, _ = draw(card("a", Light(a)), graph)
-    assert drawn(_by_type(alone, "polygon")[0], {a: 3}) == shown("normal")  # A alone reads normal
+    assert drawn(alone, _by_type(alone, "polygon")[0], {a: 3}) == shown(
+        "normal"
+    )  # A alone reads normal
     doc, _ = draw(card("node", Node("n", None, (a, b), False)), graph)
     (shape,) = _by_type(doc, "polygon")
     assert shape.get("rules"), "the writable channel's rules are drawn"
     static = {prop: shape["props"][prop] for prop in symbols.LIGHT_PROPS}
     assert static == shown("unknown")
-    assert drawn(shape, {a: 7, b: 1}) == shown("bad")
-    assert drawn(shape, {a: 0.5, b: 1}) == shown("warn")
-    assert drawn(shape, {a: 3, b: 1}) == shown("unknown")  # A normal: never normal
+    assert drawn(doc, shape, {a: 7, b: 1}) == shown("bad")
+    assert drawn(doc, shape, {a: 0.5, b: 1}) == shown("warn")
+    assert drawn(doc, shape, {a: 3, b: 1}) == shown("unknown")  # A normal: never normal
     assert "label condition" in needs(doc) and unexpressed(doc) == 0
 
 
@@ -705,11 +710,11 @@ def test_a_device_in_no_place_turns_the_root_roll_up_bad(panel_graph) -> None:
     for by in ("place", "system"):
         doc, _ = draw(health_rollup(panel_graph, "XR", by), panel_graph)
         root = _by_type(doc, "polygon")[0]  # the root's row is drawn first
-        names = {p["name"] for rule in root["rules"] for p in rule["pvs"]}
+        names = set(bound(doc, root))
         assert loose in names
         quiet = dict.fromkeys(names, 1) | {loose: 0}
-        assert drawn(root, quiet)["fillColor"] != symbols.look("bad")["fillColor"]
-        assert drawn(root, quiet | {loose: 1}) == shown("bad"), by
+        assert drawn(doc, root, quiet)["fillColor"] != symbols.look("bad")["fillColor"]
+        assert drawn(doc, root, quiet | {loose: 1}) == shown("bad"), by
 
 
 def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_graph) -> None:
@@ -721,13 +726,9 @@ def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_gra
     for member in ("XR01:QF1", "XR01:QD1", "XR02:QF1", "XR02:QD1"):
         assert labels.count(member) == 1
     assert [n["props"]["pv"] for n in _by_type(doc, "pv-label")] == ["XR01-QF1:Current-RB"]
-    bound = [
-        tuple(p["name"] for p in n["rules"][0]["pvs"])
-        for n in _by_type(doc, "polygon")
-        if n.get("rules")
-    ]
-    assert ("XR01-QF1:Current-SP", "XR01-QF1:Current-RB") in bound  # the deviation light
-    assert ("XR02-QD1:Current-RB",) in bound  # the member's own light
+    read = [bound(doc, n) for n in _by_type(doc, "polygon") if n.get("rules")]
+    assert ("XR01-QF1:Current-SP", "XR01-QF1:Current-RB") in read  # the deviation light
+    assert ("XR02-QD1:Current-RB",) in read  # the member's own light
 
 
 def test_a_rack_unit_and_a_grid_cell_with_no_rule_are_in_the_none_look(panel_graph) -> None:
@@ -783,3 +784,31 @@ def test_nothing_writable_is_drawn_outside_a_device_cards_own_rows(panel_graph) 
         found = {n["type"] for n in nodes(draw(view, panel_graph)[0])} & WRITABLE
         if not (view.id.view == "card" and view.id.kind == "device"):
             assert not found, view.id
+
+
+@pytest.mark.parametrize("channel", RULED)
+def test_a_lights_screen_formula_gives_the_ladders_state_for_every_value(panel_graph, channel):
+    item = light(panel_graph, channel)
+    rule = ladder(panel_graph, [item])
+    doc, _ = draw(card("one", item), panel_graph)
+    if not rule.arms:  # rows the engine skips write no arm: no rule, no formula
+        assert doc["formulas"] == []
+        return
+    (formula,) = doc["formulas"]
+    for value in VALUES:
+        code = resolved(doc, {channel: value})[f"formula://{formula['name']}"]
+        expected = evaluate(rule, [value])
+        assert code == layout.STATE_CODES[expected] or (code is None and expected == "unknown")
+
+
+def test_a_ladder_is_written_once_per_light_not_once_per_prop(panel_graph) -> None:
+    items = [light(panel_graph, c) for c in RULED]
+    doc, _ = draw(card("node", Node("n", None, RULED, False)), panel_graph)
+    (formula,) = doc["formulas"]  # the shape's props and the mark read one formula
+    assert formula["expression"] == layout.state_formula(ladder(panel_graph, items, node=True))
+    ruled = [n for n in nodes(doc) if n.get("rules")]
+    assert len(ruled) == 2  # the shape and its mark
+    for node in ruled:
+        for rule in node["rules"]:
+            assert rule["pvs"] == [{"name": f"formula://{formula['name']}", "trigger": True}]
+            assert all(len(c["expression"]) <= len("{0} == 4") for c in rule["conditions"])

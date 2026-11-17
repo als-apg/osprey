@@ -155,3 +155,36 @@ def walk(node: dict) -> Iterator[dict]:
 
 def nodes(doc: dict) -> list[dict]:
     return list(walk(doc["root"]))[1:]
+
+
+FORMULA = "formula://"
+
+
+def formulas(doc: dict) -> dict[str, dict]:
+    """The document's screen formulas by the name a rule's pv reads them under."""
+    return {FORMULA + f["name"]: f for f in doc.get("formulas", ())}
+
+
+def bound(doc: dict, node: dict) -> tuple[str, ...]:
+    """The channels a node's first rule reads, through the screen formula it names."""
+    names = []
+    for pv in node["rules"][0]["pvs"]:
+        found = formulas(doc).get(pv["name"])
+        names += list(found["bindings"].values()) if found else [pv["name"]]
+    return tuple(names)
+
+
+def resolved(doc: dict, values: dict) -> dict:
+    """*values* by channel, with each screen formula's value under its pv name, as the
+    formula engine gives it: no value while any of its channels has none."""
+    out = dict(values)
+    for name, found in formulas(doc).items():
+        inputs = {var: values.get(channel) for var, channel in found["bindings"].items()}
+        if any(value is None for value in inputs.values()):
+            out[name] = None
+            continue
+        try:
+            out[name] = eval(found["expression"], {"__builtins__": {}}, inputs)
+        except TypeError:
+            out[name] = None
+    return out
