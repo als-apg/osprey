@@ -65,8 +65,8 @@ class _TrackedFake(FakeConnector):
 
     connected = 0
 
-    async def connect(self, config):
-        await super().connect(config)
+    async def _open(self, config):
+        await super()._open(config)
         type(self).connected += 1
 
     async def disconnect(self):
@@ -84,7 +84,7 @@ class _BrokenStaleFake(_TrackedFake):
 class _RefusingConnector(FakeConnector):
     """A connector whose control system is not there: the session is unservable."""
 
-    async def connect(self, config):  # noqa: ARG002 - the connector connect signature
+    async def _open(self, config):  # noqa: ARG002 - the connector connect signature
         raise ConnectionError("no gateway answers")
 
 

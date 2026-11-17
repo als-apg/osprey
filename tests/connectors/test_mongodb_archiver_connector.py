@@ -502,15 +502,15 @@ class TestFactoryIntegration:
     def setup_factory(self):
         """Ensure built-in archivers (including mongodb_archiver) are registered.
 
-        Idempotent: ``register_builtin_connectors`` no-ops only when all five
+        Idempotent: ``ConnectorFactory._ensure_builtins()`` no-ops only when all five
         required built-ins are already present, and otherwise re-registers the
         missing ones, so this is safe regardless of prior test state. No
         teardown — we leave built-ins in place so subsequent tests can rely on
         them.
         """
-        from osprey_connectors.factory import register_builtin_connectors
+        from osprey_connectors.factory import ConnectorFactory
 
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
         yield
 
     @pytest.mark.asyncio

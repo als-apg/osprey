@@ -260,7 +260,6 @@ def built(scaffold: ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[dict[st
 
     monkeypatch.setattr(backend, "_ca_target", None)
     monkeypatch.setattr(backend, "_section", lambda: copy.deepcopy(SWITCHABLE_SECTION))
-    monkeypatch.setattr(backend, "register_builtin_connectors", lambda: None)
     monkeypatch.setattr(
         backend.ConnectorFactory, "create_control_system_connector", staticmethod(create)
     )

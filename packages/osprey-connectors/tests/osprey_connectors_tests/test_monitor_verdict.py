@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory
@@ -82,8 +83,7 @@ def _switch(root: Path, *targets: str, posture: dict[str, str] | None = None) ->
 def _built(target: str | None, connector_type: str | None = "epics") -> RecordingConnector:
     """A connector stamped the way ``ConnectorFactory`` stamps one."""
     connector = RecordingConnector()
-    connector._connector_type = connector_type
-    connector._control_target = target
+    connector._context = ConnectorContext(connector_type=connector_type, control_target=target)
     return connector
 
 
@@ -351,7 +351,7 @@ class TestTheMonitorIsTheVerdict:
             allowed=False, reason=reason, target=TARGET_LIVE, kind="real"
         )
 
-        result = connector_base._verdict_refusal("A:SP", 1.0, verdict)
+        result = connector_base._verdict_refusal("A:SP", 1.0, verdict, wording="script")
 
         assert refusal_phrase(reason, "real") in result.error_message
         assert REFUSAL_BAN_LIST.search(result.error_message) is None
@@ -471,7 +471,7 @@ class TestAnOverriddenMonitor:
     async def test_an_override_that_arms_writes_is_honoured(self, tier):
         tier(NEVER)
         connector = _OverridingConnector()
-        connector._control_target = TARGET_LIVE
+        connector._context = ConnectorContext(control_target=TARGET_LIVE)
 
         result = await connector.write_channel("A:SP", 0.5)
 
@@ -484,7 +484,7 @@ class TestAnOverriddenMonitor:
         tier(ALLOWED)
         connector = _OverridingConnector()
         connector.armed = False
-        connector._control_target = TARGET_LIVE
+        connector._context = ConnectorContext(control_target=TARGET_LIVE)
 
         result = await connector.write_channel("A:SP", 0.5)
 
@@ -499,7 +499,7 @@ class TestAnOverriddenMonitor:
         _switch(root, TARGET_LIVE)
         connector = _OverridingConnector()
         connector.armed = False
-        connector._control_target = TARGET_LIVE
+        connector._context = ConnectorContext(control_target=TARGET_LIVE)
 
         result = await connector.write_channel("A:SP", 0.5)
 

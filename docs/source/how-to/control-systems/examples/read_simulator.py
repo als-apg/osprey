@@ -2,7 +2,7 @@
 
 import asyncio
 
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.factory import ConnectorFactory
 
 # The simulator in process: serves the addresses of the built facility file.
 CONFIG = {
@@ -17,7 +17,6 @@ CONFIG = {
 
 
 async def main() -> None:
-    register_builtin_connectors()  # registers the built-in type names; idempotent
     connector = await ConnectorFactory.create_control_system_connector(CONFIG)
     try:
         channel_value = await connector.read_channel("SR:DIAG:DCCT:01:CURRENT:RB")

@@ -9,14 +9,14 @@ Date: 2026-07-01
 
 import asyncio
 import secrets
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
+from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -25,11 +25,9 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.control_system._limits_validator import (
     CurrentValueReader,
-    LimitsValidator,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import DOOCS
 
 logger = get_logger("doocs_connector")
 
@@ -80,12 +78,12 @@ class DOOCSConnector(ControlSystemConnector):
         self._doocs4py: _Doocs4py | None = None
 
     @override
-    async def connect(self, config: dict[str, ContractAny]) -> None:
+    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
         """
         Configure DOOCS environment and test connection.
 
         Args:
-            config: The doocs block. Its one connector-specific key is
+            settings: The doocs block. Its one connector-specific key is
                 ``timeout_s``: the seconds an ENS lookup, a property read or a
                 property set is given (default 5.0). The ENS itself still comes
                 from the DOOCS environment.
@@ -105,12 +103,7 @@ class DOOCSConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
-        self._timeout_s = call_timeout_s(config, DOOCS)
-
-        # Initialize limits validator for automatic validation and confirm policy
-        self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
-        if self._limits_validator:
-            logger.debug("DOOCS connector: limits validator initialized")
+        self._timeout_s = self._call_timeout_s
 
         # Test connection using a doocs4py.names call, listing all FACILITYs,
         # off the event loop and within the bound.

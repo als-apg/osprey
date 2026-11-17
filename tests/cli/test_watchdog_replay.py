@@ -23,7 +23,7 @@ from osprey.services.watchdog.engines.decision import QUESTION_ID, DecisionEngin
 from osprey.services.watchdog.history import build_session_view_from_nodes, rough_tokens
 from osprey.services.watchdog.runner import WatchdogRunner
 from osprey.services.watchdog.verdict import Verdict
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests._preset_data import copy_bundle_data
 from tests.cli._lifecycle_build import invoke_build
 from tests.models.jev._jev_fake_transport import FakeJev
@@ -418,7 +418,7 @@ class TestMachineSeed:
 
         async def read_through_a_second_connector() -> float:
             other = VAInProcessConnector()
-            await other.connect({SIMULATOR_VIEW_SETTING: str(view)})
+            await other.connect(armed_context(settings={SIMULATOR_VIEW_SETTING: str(view)}))
             try:
                 return float((await other.read_channel(address)).value)
             finally:

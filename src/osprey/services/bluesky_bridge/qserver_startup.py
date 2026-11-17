@@ -215,7 +215,8 @@ async def create_connector() -> Any:
         resolve_lane_identity,
     )
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory
+    from osprey_connectors.model import evolve
 
     control_system_type, lane_degraded = resolve_lane_connector_type()
     if lane_degraded:
@@ -224,12 +225,11 @@ async def create_connector() -> Any:
         section = get_config_value("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         section = {}
-    register_builtin_connectors()  # idempotent; must run before create
     # Built in two steps rather than through `create_control_system_connector`
-    # so the TYPE stamp can be cleared BEFORE `connect()`: a connector loads its
-    # limits validator inside connect(), keyed on the stamp, so a clear that
-    # came afterwards would leave the validator built against the wrong block.
-    connector, type_config = ConnectorFactory.build_control_system_connector(
+    # so the context's TYPE can be cleared BEFORE `connect()`: connect() builds
+    # the limits validator keyed on that type, so the clear has to be in the
+    # context it is handed.
+    connector, context = ConnectorFactory.build_control_system_connector(
         build_connector_config(control_system_type, section),
         # This lane's OWN target, not the deployment baseline: a two-lane
         # deployment is exactly where the two differ, and the machine this
@@ -237,24 +237,24 @@ async def create_connector() -> Any:
         control_target=resolve_lane_identity()[1],
     )
     if lane_degraded:
-        # The factory stamps the type it built, and the limits validator keys
-        # this deployment's per-type limits posture on that stamp. A degraded
-        # lane was built as the baseline type while addressing a machine this
-        # config never tied to that type, so the type's block does not describe
-        # it: clearing the stamp is what makes the validator read the
-        # deployment-wide `limits_checking` block — the only limits posture the
-        # config has ever stated about this lane. EPICS gateway selection inside
-        # connect() is the stamp's other reader, so clearing it first moves that
-        # to the deployment-wide answer too; a no-op for this worker, whose
-        # type_config is gateway-less by construction.
+        # The context names the type the factory built, and the limits
+        # validator keys this deployment's per-type limits posture on it. A
+        # degraded lane was built as the baseline type while addressing a
+        # machine this config never tied to that type, so the type's block does
+        # not describe it: clearing the type is what makes the validator read
+        # the deployment-wide `limits_checking` block — the only limits posture
+        # the config has ever stated about this lane. EPICS gateway selection
+        # inside connect() is the type's other reader, so clearing it first
+        # moves that to the deployment-wide answer too; a no-op for this
+        # worker, whose block is gateway-less by construction.
         #
-        # The TARGET stamp is left alone, and it is what refuses this lane's
-        # writes: rung 3 is reached precisely because the lane declared a
-        # target this deployment cannot resolve, so the connector's verdict
-        # answers each write `target_unknown`, which is also what
-        # `worker_writes_enabled` reports.
-        connector._connector_type = None
-    await connector.connect(type_config)
+        # The TARGET is left alone, and it is what refuses this lane's writes:
+        # rung 3 is reached precisely because the lane declared a target this
+        # deployment cannot resolve, so the connector's verdict answers each
+        # write `target_unknown`, which is also what `worker_writes_enabled`
+        # reports.
+        context = evolve(context, connector_type=None)
+    await connector.connect(context)
     logger.info(
         "qserver_startup: connected the worker's OSPREY connector (type=%s, %s, %s)",
         control_system_type,

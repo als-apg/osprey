@@ -104,8 +104,8 @@ class _Machine(FakeConnector):
     def active(cls) -> int:
         return sum(len(machine._subscriptions) for machine in cls.live)
 
-    async def connect(self, config):
-        await super().connect(config)
+    async def _open(self, config):
+        await super()._open(config)
         type(self).live.append(self)
 
     async def disconnect(self):
@@ -155,7 +155,7 @@ class _Machine(FakeConnector):
 class _RefusingConnector(FakeConnector):
     """A connector whose control system is not there."""
 
-    async def connect(self, config):  # noqa: ARG002 - the connector connect signature
+    async def _open(self, config):  # noqa: ARG002 - the connector connect signature
         raise ConnectionError("no gateway answers")
 
 

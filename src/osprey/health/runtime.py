@@ -160,12 +160,8 @@ class HealthRuntime:
             )
         async with self._lock:
             if self._connector is None:
-                from osprey_connectors.factory import (
-                    ConnectorFactory,
-                    register_builtin_connectors,
-                )
+                from osprey_connectors.factory import ConnectorFactory
 
-                register_builtin_connectors()  # idempotent; must run before create
                 # A health run is not a session and never switches: the target
                 # it probes is the one its own configured section describes.
                 connector = await ConnectorFactory.create_control_system_connector(
@@ -218,12 +214,8 @@ class HealthRuntime:
             )
         async with self._lock:
             if self._archiver is None:
-                from osprey_connectors.factory import (
-                    ConnectorFactory,
-                    register_builtin_connectors,
-                )
+                from osprey_connectors.factory import ConnectorFactory
 
-                register_builtin_connectors()  # idempotent; must run before create
                 archiver = await ConnectorFactory.create_archiver_connector(archiver_config)
                 if self._closed:
                     # Same window as get_connector: closed mid-construction.

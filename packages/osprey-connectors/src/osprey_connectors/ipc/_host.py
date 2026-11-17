@@ -714,7 +714,7 @@ async def _build_connector(
         os.environ[POSTURE_ENV_VAR] = SANDBOX_MODE
 
     from osprey_connectors import types
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory
 
     if not types.is_control_target(target):
         raise ValueError(
@@ -722,7 +722,6 @@ async def _build_connector(
             f"valid targets are {', '.join(types.CONTROL_TARGETS)}."
         )
     connector_type = types.resolve_target(section, target)
-    register_builtin_connectors()
     if marks is not None:
         marks.mark("imports")
 

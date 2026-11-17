@@ -29,6 +29,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ChannelMetadata
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.errors import ChannelUnreachableError
@@ -321,15 +322,17 @@ def live_connector(live_pvs):
         connector = EPICSConnector()
         asyncio.run(
             connector.connect(
-                {
-                    "timeout_s": LIVE_TIMEOUT_S,
-                    "pva_channels": [f"{LIVE_PREFIX}*"],
-                    "pva_gateway": {
-                        "address": "127.0.0.1",
-                        "port": int(conf["EPICS_PVAS_SERVER_PORT"]),
-                        "use_name_server": True,
-                    },
-                }
+                ConnectorContext(
+                    settings={
+                        "timeout_s": LIVE_TIMEOUT_S,
+                        "pva_channels": [f"{LIVE_PREFIX}*"],
+                        "pva_gateway": {
+                            "address": "127.0.0.1",
+                            "port": int(conf["EPICS_PVAS_SERVER_PORT"]),
+                            "use_name_server": True,
+                        },
+                    }
+                )
             )
         )
         try:

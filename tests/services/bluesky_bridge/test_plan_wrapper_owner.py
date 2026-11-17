@@ -107,6 +107,7 @@ def refuse_a_switched_off_write() -> None:
             WriteVerdict(
                 allowed=False, reason="switch_off", target=_REFUSAL_TARGET, kind=_REFUSAL_KIND
             ),
+            wording="script",
         )
     )
     raise AssertionError("a refused write result must raise")

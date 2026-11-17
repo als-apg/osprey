@@ -28,7 +28,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]
@@ -70,7 +70,7 @@ def _rebuild(view: Path) -> Path:
 
 async def _connected(view: Path) -> VAInProcessConnector:
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(armed_context(settings=in_process_config(view, response_delay_ms=0)))
     return connector
 
 
@@ -277,12 +277,17 @@ _WRITER = """
     config.get_config_value = lambda key, default=None, config_path=None: (
         {"writes": "allowed"} if key == "control_system" else real(key, default, config_path)
     )
+    from osprey_connectors.control_system import ConnectorContext
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
     async def main():
         connector = VAInProcessConnector()
-        connector._control_target = "va"
-        await connector.connect({"simulator_view": sys.argv[1], "response_delay_ms": 0})
+        await connector.connect(
+            ConnectorContext(
+                control_target="va",
+                settings={"simulator_view": sys.argv[1], "response_delay_ms": 0},
+            )
+        )
         for value in range(50):
             result = await connector.write_channel(sys.argv[2], float(value), confirm=False)
             assert result.outcome.value == "unrequested", result
@@ -321,11 +326,14 @@ async def test_a_composite_written_directly_changes_nothing_another_process_read
     direct = _subprocess(
         """
         import asyncio, sys
+        from osprey_connectors.control_system import ConnectorContext
         from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
         async def main():
             connector = VAInProcessConnector()
-            await connector.connect({"simulator_view": sys.argv[1], "response_delay_ms": 0})
+            await connector.connect(
+                ConnectorContext(settings={"simulator_view": sys.argv[1], "response_delay_ms": 0})
+            )
             connector._composite.set({"A:SP": 9.0})
             await connector.disconnect()
 

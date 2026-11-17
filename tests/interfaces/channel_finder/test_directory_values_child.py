@@ -41,7 +41,6 @@ from osprey.runtime import session as session_module
 from osprey.runtime.session import EXIT_BINDING_MOVED, EXIT_START_REFUSED, EXIT_TRANSPORT_STALE
 from osprey.services.python_executor.write_surface import _ARMED_CHECKED
 from osprey_connectors import control_context, posture_store, types
-from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.factory import ConnectorFactory
@@ -295,7 +294,6 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
     # The block and the watcher are process-wide; each has its own test below.
     monkeypatch.setattr(child_module, "_arm_raw_put_block", lambda: None)
     monkeypatch.setattr(child_module, "_start_parent_watcher", lambda *_: None)

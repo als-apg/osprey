@@ -19,12 +19,12 @@ wrong target's posture rather than raising.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from osprey_connectors import factory as factory_module
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -43,51 +43,73 @@ def registered_in_process():
         yield
 
 
+class _RecordedConnector:
+    """The instance the recording factory hands out: its stamps read its context."""
+
+    def __init__(self, context: ConnectorContext) -> None:
+        self.context = context
+
+    @property
+    def _connector_type(self) -> str | None:
+        return self.context.connector_type
+
+    @property
+    def _control_target(self) -> str | None:
+        return self.context.control_target
+
+    async def connect(self, context: ConnectorContext) -> None:
+        self.context = context
+
+    async def disconnect(self) -> None:
+        return None
+
+
 class _RecordingFactory:
     """Stands in for the factory, recording the target each site names.
 
-    Stamps the instance the way the real factory does, so a site that clears or
-    rewrites a stamp afterwards (the degraded bridge lane) is observed doing it.
+    Builds the context the way the real factory does, so a site that connects
+    with a changed context (the degraded bridge lane) is observed doing it.
     Both entry points are recorded: the one-call ``create`` and the two-step
-    ``build`` a site uses when it has to reach the instance before ``connect()``.
+    ``build`` a site uses when it changes the context before ``connect()``.
     """
 
     def __init__(self) -> None:
         self.calls: list[tuple[Any, str | None]] = []
 
-    def _stamped(self, config: Any, control_target: str | None) -> Any:
-        return SimpleNamespace(
-            _connector_type=(config or {}).get("type"),
-            _control_target=control_target,
-            connect=_noop_connect,
-            disconnect=_noop_disconnect,
+    @staticmethod
+    def _context(config: Any, control_target: str | None) -> ConnectorContext:
+        connector_type = (config or {}).get("type")
+        settings = (config or {}).get("connector", {}).get(connector_type, {})
+        return ConnectorContext(
+            connector_type=connector_type, control_target=control_target, settings=settings
         )
 
-    async def __call__(self, config: Any = None, *, control_target: str | None = None) -> Any:
+    async def __call__(
+        self,
+        config: Any = None,
+        *,
+        control_target: str | None = None,
+        readonly_wording: str = "script",  # noqa: ARG002 - the factory's signature
+    ) -> Any:
         self.calls.append((config, control_target))
-        return self._stamped(config, control_target)
+        return _RecordedConnector(self._context(config, control_target))
 
     def build(
-        self, config: Any = None, *, control_target: str | None = None
-    ) -> tuple[Any, dict[str, Any]]:
+        self,
+        config: Any = None,
+        *,
+        control_target: str | None = None,
+        readonly_wording: str = "script",  # noqa: ARG002 - the factory's signature
+    ) -> tuple[Any, ConnectorContext]:
         self.calls.append((config, control_target))
-        connector = self._stamped(config, control_target)
-        type_config = (config or {}).get("connector", {}).get((config or {}).get("type"), {})
-        return connector, type_config
+        context = self._context(config, control_target)
+        return _RecordedConnector(ConnectorContext()), context
 
     @property
     def target(self) -> str | None:
         """The target named by the one call this factory was asked to make."""
         assert len(self.calls) == 1, f"expected exactly one construction, got {self.calls}"
         return self.calls[0][1]
-
-
-async def _noop_connect(type_config: Any = None) -> None:  # noqa: ARG001 - the control-system connector interface fixes this signature
-    return None
-
-
-async def _noop_disconnect() -> None:
-    return None
 
 
 @pytest.fixture
@@ -100,7 +122,6 @@ def recording_factory(monkeypatch: pytest.MonkeyPatch) -> _RecordingFactory:
     monkeypatch.setattr(
         factory_module.ConnectorFactory, "build_control_system_connector", spy.build, raising=True
     )
-    monkeypatch.setattr(factory_module, "register_builtin_connectors", lambda: None)
     return spy
 
 

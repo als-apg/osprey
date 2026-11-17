@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -24,6 +25,7 @@ from osprey_connectors.types import TARGET_LIVE, TARGET_VA
 from osprey_connectors_tests._write_fakes import (
     RecordingConnector,
     arm_switch,
+    armed_context,
     config_reader,
     writes_enabled_config,
 )
@@ -47,7 +49,7 @@ def armed(switch_on, monkeypatch):
 class _StubConnector(ControlSystemConnector):
     """Minimal concrete subclass for testing base-class properties."""
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def _open(self, config: dict[str, Any]) -> None:
         pass
 
     async def disconnect(self) -> None:
@@ -144,7 +146,9 @@ class TestWritesEnabledProperty:
     def test_a_tier_that_allows_with_the_switch_off_refuses(self, monkeypatch, tmp_path):
         """No record at all is every switch off."""
         arm_switch(monkeypatch, tmp_path / "data", None)
-        monkeypatch.setattr(ControlSystemConnector, "_control_target", TARGET_VA)
+        monkeypatch.setattr(
+            ControlSystemConnector, "_context", ConnectorContext(control_target=TARGET_VA)
+        )
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         assert _StubConnector()._writes_enabled is False
 
@@ -179,7 +183,9 @@ class TestMockWritesDisabledViaBaseClass:
         view = served_tree(tmp_path, ["BEAM:CURRENT"])
         connector = VAInProcessConnector()
         with patch("osprey_connectors.config.get_config_value", return_value=False):
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
@@ -203,7 +209,9 @@ class TestMockWritesDisabledViaBaseClass:
             "osprey_connectors.config.get_config_value",
             side_effect=writes_enabled_config,
         ):
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
@@ -240,7 +248,7 @@ class _TypeSeenConnector(RecordingConnector):
         super().__init__()
         self.type_seen_in_connect: Any = "not connected"
 
-    async def connect(self, config):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def _open(self, config):  # noqa: ARG002 - the control-system connector interface fixes this signature
         self.type_seen_in_connect = self._connector_type
 
 
@@ -278,8 +286,7 @@ class TestTheTierIsTargetBlind:
 
     def _stub(self, connector_type: str, target: str | None) -> _StubConnector:
         connector = _StubConnector()
-        connector._connector_type = connector_type
-        connector._control_target = target
+        connector._context = ConnectorContext(connector_type=connector_type, control_target=target)
         return connector
 
     def test_an_allowed_tier_allows_the_switched_machine(self, monkeypatch, tmp_path):

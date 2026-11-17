@@ -21,8 +21,9 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.types import DOOCS
 from osprey_connectors_tests._stall import STALL_CEILING_S, Stall
-from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
 # --------------------------------------------------------------------------------------
@@ -33,7 +34,7 @@ _EPOCH_S = 1_700_000_000  # arbitrary fixed timestamp
 _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
-_LIMITS_PATCH = "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
+_LIMITS_PATCH = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
 _TZ_PATCH = "osprey_connectors.config.get_facility_timezone"
 
 # How long an offload test waits on a threading.Event before giving up. It only
@@ -119,7 +120,7 @@ async def connector():
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         yield conn, mock_d4py
         await conn.disconnect()
 
@@ -142,7 +143,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             assert conn._connected is False
-            await conn.connect({})
+            await conn.connect(armed_context())
             assert conn._connected is True
             await conn.disconnect()
 
@@ -152,7 +153,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             with pytest.raises(ImportError, match="doocs4py"):
-                await conn.connect({})
+                await conn.connect(armed_context())
 
     async def test_connect_raises_on_ens_failure(self):
         mock_d4py = _make_doocs4py()
@@ -166,7 +167,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             with pytest.raises(ConnectorUnavailableError, match="ENS") as raised:
-                await conn.connect({})
+                await conn.connect(armed_context())
 
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -183,7 +184,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             with pytest.raises(ConnectorUnavailableError, match=r"within 0\.2s") as raised:
-                await conn.connect({"timeout_s": 0.2})
+                await conn.connect(armed_context(settings={"timeout_s": 0.2}))
             answered_first = not names.returned
 
         assert "ENS" in str(raised.value)
@@ -203,7 +204,7 @@ class TestConnect:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            connect_task = asyncio.create_task(conn.connect({}))
+            connect_task = asyncio.create_task(conn.connect(armed_context()))
             began = await asyncio.to_thread(names.entered.wait, STALL_CEILING_S)
             still_parked = not names.returned
             names.release()
@@ -229,7 +230,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             with pytest.raises(ValueError, match="control_system.connector.doocs.timeout_s"):
-                await conn.connect({"timeout_s": bad})
+                await conn.connect(armed_context(connector_type=DOOCS, settings={"timeout_s": bad}))
 
         assert conn._connected is False
 
@@ -325,7 +326,7 @@ async def _write_with_validator(validator, value=10.0, readback=10.0, **kwargs):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         result = await conn.write_channel("FAC/DEV/LOC/PROP", value, **kwargs)
         await conn.disconnect()
 
@@ -418,7 +419,7 @@ class TestWriteChannel:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
             result = await conn.write_channel("FAC/DEV/LOC/PROP", 1.0)
             await conn.disconnect()
 
@@ -525,7 +526,7 @@ class TestNonBlockingOffload:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
 
             write_task = asyncio.create_task(
                 conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
@@ -578,7 +579,7 @@ class TestNonBlockingOffload:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
 
             result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
 
@@ -594,7 +595,7 @@ async def _bounded_connector(timeout_s):
     from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
     conn = DOOCSConnector()
-    await conn.connect({"timeout_s": timeout_s})
+    await conn.connect(armed_context(settings={"timeout_s": timeout_s}))
     return conn
 
 

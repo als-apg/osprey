@@ -155,9 +155,7 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     out-of-process read/write drives a REAL production connector -- isolated in
     its own process only for CA-teardown safety, never a mocked or bypassed path.
     """
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
-
-    register_builtin_connectors()
+    from osprey_connectors.factory import ConnectorFactory
 
     overrides = spec["config_overrides"]
 

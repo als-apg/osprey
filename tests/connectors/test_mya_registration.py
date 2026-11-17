@@ -15,7 +15,6 @@ from unittest.mock import patch
 from osprey_connectors import types
 from osprey_connectors.factory import (
     ConnectorFactory,
-    register_builtin_connectors,
 )
 from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -28,14 +27,14 @@ class TestTypeConstants:
 
 
 class TestBuiltinRegistration:
-    """``register_builtin_connectors()`` mints the name."""
+    """``ConnectorFactory._ensure_builtins()`` mints the name."""
 
     def test_mya_archiver_registers_as_builtin_archiver(self):
         """`archiver.type: mya_archiver` must resolve without a dotted path."""
         from osprey_connectors.archiver._mya_archiver_connector import MYAArchiverConnector
 
         with isolated_connector_registries(clear=True):
-            register_builtin_connectors()
+            ConnectorFactory._ensure_builtins()
 
             assert types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
             registered = ConnectorFactory._archiver_connectors[types.MYA_ARCHIVER]
@@ -67,7 +66,7 @@ class TestBuiltinRegistration:
         ):
             sys.modules.pop(canonical, None)
 
-            register_builtin_connectors()
+            ConnectorFactory._ensure_builtins()
 
             assert sys.modules[canonical] is not cached, "the connector was not re-imported"
             assert types.MYA_ARCHIVER in ConnectorFactory.list_archivers()

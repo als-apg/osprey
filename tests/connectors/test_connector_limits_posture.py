@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from tests.facility.served_tree import in_process_config, served_tree
@@ -98,9 +99,11 @@ async def _connected_mock(monkeypatch, tmp_path, section, db_path, connector_typ
 
     _patch_config(monkeypatch, section, db_path)
     connector = VAInProcessConnector()
-    connector._connector_type = connector_type
     await connector.connect(
-        in_process_config(served_tree(tmp_path / "served"), response_delay_ms=0)
+        ConnectorContext(
+            connector_type=connector_type,
+            settings=in_process_config(served_tree(tmp_path / "served"), response_delay_ms=0),
+        )
     )
     return connector
 
@@ -202,8 +205,9 @@ class TestEPICSConnectorPosture:
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
-        connector._connector_type = LIVE_STANDIN
-        await connector.connect({"gateways": _gateways()})
+        await connector.connect(
+            ConnectorContext(connector_type=LIVE_STANDIN, settings={"gateways": _gateways()})
+        )
 
         assert _posture(connector) == ("optional", _type_mode_key(LIVE_STANDIN))
 
@@ -214,8 +218,9 @@ class TestEPICSConnectorPosture:
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
-        connector._connector_type = EPICS
-        await connector.connect({"gateways": _gateways()})
+        await connector.connect(
+            ConnectorContext(connector_type=EPICS, settings={"gateways": _gateways()})
+        )
 
         assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
 
@@ -226,7 +231,7 @@ class TestEPICSConnectorPosture:
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
-        await connector.connect({"gateways": _gateways()})
+        await connector.connect(ConnectorContext(settings={"gateways": _gateways()}))
 
         assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
 
@@ -240,8 +245,9 @@ class TestEPICSConnectorPosture:
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
         connector = VirtualAcceleratorConnector()
-        connector._connector_type = VIRTUAL_ACCELERATOR
-        await connector.connect({"gateways": _gateways()})
+        await connector.connect(
+            ConnectorContext(connector_type=VIRTUAL_ACCELERATOR, settings={"gateways": _gateways()})
+        )
 
         assert _posture(connector) == ("optional", _type_mode_key(VIRTUAL_ACCELERATOR))
 
@@ -265,8 +271,7 @@ async def _connected_doocs(monkeypatch, section, db_path, connector_type):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         connector = DOOCSConnector()
-        connector._connector_type = connector_type
-        await connector.connect({})
+        await connector.connect(ConnectorContext(connector_type=connector_type))
     return connector
 
 

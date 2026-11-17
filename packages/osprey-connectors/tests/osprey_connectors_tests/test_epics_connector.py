@@ -25,6 +25,7 @@ import aioca
 import numpy
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -77,7 +78,9 @@ class TestTimeoutKey:
         _patch_writes_enabled(monkeypatch, False)
 
         connector = EPICSConnector()
-        await connector.connect({"timeout_s": 7.5, "gateways": _GATEWAYS})
+        await connector.connect(
+            ConnectorContext(settings={"timeout_s": 7.5, "gateways": _GATEWAYS})
+        )
 
         assert connector._timeout == 7.5
 
@@ -87,7 +90,7 @@ class TestTimeoutKey:
         _patch_writes_enabled(monkeypatch, False)
 
         connector = EPICSConnector()
-        await connector.connect({"gateways": _GATEWAYS})
+        await connector.connect(ConnectorContext(settings={"gateways": _GATEWAYS}))
 
         assert connector._timeout == 5.0
 
@@ -97,9 +100,12 @@ class TestTimeoutKey:
         _patch_writes_enabled(monkeypatch, False)
 
         connector = EPICSConnector()
-        connector._connector_type = "epics"
         with pytest.raises(ValueError, match="renamed to timeout_s"):
-            await connector.connect({"timeout": 7.5, "gateways": _GATEWAYS})
+            await connector.connect(
+                ConnectorContext(
+                    connector_type="epics", settings={"timeout": 7.5, "gateways": _GATEWAYS}
+                )
+            )
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env", "fake_aioca")
@@ -108,9 +114,12 @@ class TestTimeoutKey:
         _patch_writes_enabled(monkeypatch, False)
 
         connector = EPICSConnector()
-        connector._connector_type = "epics"
         with pytest.raises(ValueError, match="control_system.connector.epics.timeout_s"):
-            await connector.connect({"timeout_s": bad, "gateways": _GATEWAYS})
+            await connector.connect(
+                ConnectorContext(
+                    connector_type="epics", settings={"timeout_s": bad, "gateways": _GATEWAYS}
+                )
+            )
 
         assert connector._connected is False
         assert connector._epics_configured is False
@@ -131,7 +140,7 @@ class TestConnect:
 
         connector = EPICSConnector()
         with pytest.raises(ImportError, match="pip install aioca"):
-            await connector.connect({"gateways": {}})
+            await connector.connect(ConnectorContext(settings={"gateways": {}}))
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
@@ -141,7 +150,9 @@ class TestConnect:
         install_fake_aioca(monkeypatch)
 
         connector = EPICSConnector()
-        await connector.connect({"gateways": {"read_only": {"address": "gw", "port": 5070}}})
+        await connector.connect(
+            ConnectorContext(settings={"gateways": {"read_only": {"address": "gw", "port": 5070}}})
+        )
 
         assert connector._ca.pointed_at == [
             {
@@ -160,15 +171,17 @@ class TestConnect:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "gateways": {
-                    "read_only": {
-                        "address": "tunnel.example.com",
-                        "port": 5074,
-                        "use_name_server": True,
+            ConnectorContext(
+                settings={
+                    "gateways": {
+                        "read_only": {
+                            "address": "tunnel.example.com",
+                            "port": 5074,
+                            "use_name_server": True,
+                        }
                     }
                 }
-            }
+            )
         )
 
         assert os.environ["EPICS_CA_NAME_SERVERS"] == "tunnel.example.com:5074"
@@ -184,7 +197,13 @@ class TestConnect:
 
         connector = EPICSConnector()
         await connector.connect(
-            {"gateways": {"read_only": {"address": "gw", "port": 5064, "use_name_server": off}}}
+            ConnectorContext(
+                settings={
+                    "gateways": {
+                        "read_only": {"address": "gw", "port": 5064, "use_name_server": off}
+                    }
+                }
+            )
         )
 
         assert os.environ["EPICS_CA_ADDR_LIST"] == "gw"
@@ -198,7 +217,13 @@ class TestConnect:
 
         connector = EPICSConnector()
         await connector.connect(
-            {"gateways": {"read_only": {"address": "gw", "port": 5064, "use_name_server": on}}}
+            ConnectorContext(
+                settings={
+                    "gateways": {
+                        "read_only": {"address": "gw", "port": 5064, "use_name_server": on}
+                    }
+                }
+            )
         )
 
         assert os.environ["EPICS_CA_NAME_SERVERS"] == "gw:5064"
@@ -212,11 +237,13 @@ class TestConnect:
         connector = EPICSConnector()
         with pytest.raises(ValueError, match="use_name_server"):
             await connector.connect(
-                {
-                    "gateways": {
-                        "read_only": {"address": "gw", "port": 5064, "use_name_server": "maybe"}
+                ConnectorContext(
+                    settings={
+                        "gateways": {
+                            "read_only": {"address": "gw", "port": 5064, "use_name_server": "maybe"}
+                        }
                     }
-                }
+                )
             )
 
         assert "EPICS_CA_ADDR_LIST" not in os.environ
@@ -234,7 +261,9 @@ class TestConnect:
         )
 
         connector = EPICSConnector()
-        await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+        await connector.connect(
+            ConnectorContext(settings={"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+        )
 
         assert connector._limits_validator is sentinel
         assert connector._connected is True
@@ -764,7 +793,9 @@ class TestConfirmingRead:
         """``${VAR:-false}`` resolves to the string ``"false"``; the key still loads."""
         _patch_writes_enabled(monkeypatch, False)
         connector = EPICSConnector()
-        await connector.connect({"fresh_reads": value, "gateways": _GATEWAYS})
+        await connector.connect(
+            ConnectorContext(settings={"fresh_reads": value, "gateways": _GATEWAYS})
+        )
 
         assert connector._fresh_reads is expected
 
@@ -774,11 +805,16 @@ class TestConfirmingRead:
         """A typo is refused rather than read as off, though the key now changes nothing."""
         _patch_writes_enabled(monkeypatch, False)
         connector = EPICSConnector()
-        connector._connector_type = "epics"
 
         with pytest.raises(ValueError, match=r"control_system\.connector\.epics\.fresh_reads"):
             await connector.connect(
-                {"fresh_reads": "ture", "gateways": {"read_only": {"address": "ro", "port": 5064}}}
+                ConnectorContext(
+                    connector_type="epics",
+                    settings={
+                        "fresh_reads": "ture",
+                        "gateways": {"read_only": {"address": "ro", "port": 5064}},
+                    },
+                )
             )
 
     @pytest.mark.asyncio

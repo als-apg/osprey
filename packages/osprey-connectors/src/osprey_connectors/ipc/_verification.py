@@ -290,7 +290,7 @@ def derive_endpoints(
         readonly_run = is_readonly_run()
 
     raw_block = connector_block(config, connector_type)
-    block = raw_block if isinstance(raw_block, dict) else {}
+    block: Mapping[str, object] = raw_block if isinstance(raw_block, dict) else {}
     # The virtual accelerator served from its container is a service this
     # project deploys, so an unset gateway port follows
     # services.virtual_accelerator.port. Filled through the

@@ -14,7 +14,6 @@ from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
-    register_builtin_connectors,
 )
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from osprey_connectors_tests._epics_fakes import fake_aioca  # noqa: F401 - fixture, used by name
@@ -25,7 +24,7 @@ from osprey_connectors_tests._harness import isolated_connector_registries
 def clean_connector_factory():
     """Isolate ConnectorFactory global state across tests.
 
-    The registries start empty so ``register_builtin_connectors()`` is
+    The registries start empty so ``ConnectorFactory._ensure_builtins()`` is
     observed doing the registration; snapshot/restore brackets the clear so
     registrations made elsewhere in the process survive teardown.
     """
@@ -34,10 +33,10 @@ def clean_connector_factory():
 
 
 class TestFactoryResolution:
-    """The ConnectorFactory (used by register_builtin_connectors) resolves the type."""
+    """The ConnectorFactory (which registers the built-ins) resolves the type."""
 
-    def test_register_builtin_connectors_registers_virtual_accelerator(self):
-        register_builtin_connectors()
+    def test_the_builtins_register_virtual_accelerator(self):
+        ConnectorFactory._ensure_builtins()
 
         assert VIRTUAL_ACCELERATOR in ConnectorFactory.list_control_systems()
         assert (
@@ -48,7 +47,7 @@ class TestFactoryResolution:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("fake_aioca")
     async def test_factory_creates_virtual_accelerator_connector(self):
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         config = {"type": VIRTUAL_ACCELERATOR, "connector": {"virtual_accelerator": {}}}
         connector = await ConnectorFactory.create_control_system_connector(config)
@@ -102,15 +101,15 @@ class TestConfigBlockRouting:
 
     @pytest.mark.asyncio
     async def test_virtual_accelerator_config_block_passed_to_connect(self, monkeypatch):
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         captured: dict = {}
 
-        async def fake_connect(self, config):
+        async def fake_open(self, config):
             captured["config"] = config
             self._connected = True
 
-        monkeypatch.setattr(VirtualAcceleratorConnector, "connect", fake_connect)
+        monkeypatch.setattr(VirtualAcceleratorConnector, "_open", fake_open)
 
         va_only_config = {"timeout_s": 1.23}
         epics_config = {"timeout_s": 9.99}

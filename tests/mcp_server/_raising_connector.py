@@ -113,7 +113,7 @@ def make_write_blocked() -> ChannelWriteBlockedError:
 class RaisingConnector(ControlSystemConnector):
     """A connector that reads normally and refuses writes on named channels."""
 
-    async def connect(self, config: dict[str, Any] | None = None) -> None:  # noqa: ARG002 - the connector interface fixes the signature
+    async def _open(self, config: dict[str, Any] | None = None) -> None:  # noqa: ARG002 - the connector interface fixes the signature
         return None
 
     async def disconnect(self) -> None:

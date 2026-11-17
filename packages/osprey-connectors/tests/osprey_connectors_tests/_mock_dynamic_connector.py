@@ -15,7 +15,7 @@ class MockDynamicConnector(ControlSystemConnector):
         self.sends: list[tuple[str, object, bool]] = []
         self._held: dict[str, object] = {}
 
-    async def connect(self, config=None):
+    async def _open(self, config=None):
         pass
 
     async def disconnect(self):

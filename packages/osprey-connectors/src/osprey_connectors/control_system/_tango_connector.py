@@ -15,14 +15,14 @@ the connector contract — the same reason the EPICS connector refuses PVA RPC.
 
 import asyncio
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Protocol
 
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
+from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -32,12 +32,10 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.control_system._limits_validator import (
     CurrentValueReader,
-    LimitsValidator,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import evolve
-from osprey_connectors.types import TANGO
 
 logger = get_logger("tango_connector")
 
@@ -195,12 +193,12 @@ class TangoConnector(ControlSystemConnector):
         self._tango_host: str | None = None
 
     @override
-    async def connect(self, config: dict[str, ContractAny]) -> None:
+    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
         """
         Import PyTango and verify the TANGO database is reachable.
 
         Args:
-            config: Optional keys — ``tango_host`` (overrides the ``TANGO_HOST``
+            settings: Optional keys — ``tango_host`` (overrides the ``TANGO_HOST``
                 environment for this connector's proxies, spelled ``host:port``)
                 and ``timeout_s`` (seconds per device call; default 5.0).
 
@@ -223,14 +221,9 @@ class TangoConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError("PyTango (the 'pytango' package) is required.") from None
 
-        tango_host: str | None = config.get("tango_host") or None
+        tango_host: str | None = settings.get("tango_host") or None
         self._tango_host = tango_host
-        self._timeout_s = call_timeout_s(config, TANGO)
-
-        # Initialize limits validator for automatic validation and confirm policy
-        self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
-        if self._limits_validator:
-            logger.debug("TANGO connector: limits validator initialized")
+        self._timeout_s = self._call_timeout_s
 
         # Test the database connection now, so a bad TANGO_HOST fails the
         # deployment's startup instead of its first tool call.

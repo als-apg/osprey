@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import json
 import os
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -821,12 +823,12 @@ class TestExecuteViaLocalStamping:
 class _FakeConnector:
     """Records the config block the factory handed ``connect()``, and its end."""
 
-    last_config: dict[str, Any] | None = None
+    last_config: Mapping[str, Any] | None = None
     #: Every instance that was disconnected, in the order it happened.
     disconnected: list["_FakeConnector"] = []
 
-    async def connect(self, config: dict[str, Any]) -> None:
-        type(self).last_config = config
+    async def connect(self, context: ConnectorContext) -> None:
+        type(self).last_config = context.settings
 
     async def disconnect(self) -> None:
         type(self).disconnected.append(self)

@@ -30,9 +30,9 @@ from osprey.runtime.session import (
     SessionUnservableError,
 )
 from osprey_connectors import control_context, posture_store, types
+from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.control_system._limits_validator import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.refusals import refusal_phrase
@@ -72,16 +72,16 @@ class _CountingFake(FakeConnector):
     connects = 0
     configs: list = []
 
-    async def connect(self, config):
+    async def _open(self, config):
         type(self).connects += 1
         type(self).configs.append(dict(config))
-        await super().connect(config)
+        await super()._open(config)
 
 
 class _RefusingConnector(FakeConnector):
     """A connector whose control system is not there."""
 
-    async def connect(self, config):  # noqa: ARG002 - the connector connect signature
+    async def _open(self, config):  # noqa: ARG002 - the connector connect signature
         raise ConnectionError("no gateway answers")
 
 
@@ -135,9 +135,7 @@ def state_dir(tmp_path, monkeypatch):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
     # Every record a session files lands in the test's spool zone (the root
-    # conftest), never in a real project, and the long-lived mark open() sets
-    # is undone after the test.
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
+    # conftest), never in a real project.
     control_context.invalidate_cache()
     yield directory
     control_context.invalidate_cache()
@@ -290,9 +288,10 @@ class TestOpen:
         assert not [name for name in os.environ if name.startswith("EPICS_")]
         await session.close()
 
-    async def test_builtin_connectors_are_registered(self, state_dir, monkeypatch):
+    async def test_the_factory_registers_the_builtins_it_builds_from(self, state_dir, monkeypatch):
+        """The session registers nothing itself: its first build registers the built-ins."""
         _serve(monkeypatch, VA_SECTION)
-        write_record(state_dir, target="live")
+        write_record(state_dir, target="va")
         with isolated_connector_registries(clear=True):
             session = await _opened()
             assert types.VIRTUAL_ACCELERATOR in ConnectorFactory._control_system_connectors
@@ -375,23 +374,37 @@ class TestWriteBudgetAndProcessMark:
             assert session._write_bound_s == 5.0
             await session.close()
 
-    async def test_open_marks_the_process_long_lived(self, mock_va, monkeypatch):
+    async def test_the_session_connector_words_a_readonly_refusal_as_the_deployments(
+        self, mock_va, monkeypatch
+    ):
         write_record(mock_va)
         monkeypatch.setattr(sys, "argv", ["/tmp/some_server.py"])
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         refused = posture_store.WriteVerdict(
             allowed=False, reason="readonly_run", target="va", kind="simulator"
         )
-        before = connector_base._verdict_refusal("TEST:CHANNEL:SP", 1.0, refused)
-        assert "readonly execution mode" in before.error_message
-        assert "resubmit it with execution_mode='readwrite'" in before.error_message
+        script = connector_base._verdict_refusal("TEST:CHANNEL:SP", 1.0, refused, wording="script")
+        assert "readonly execution mode" in script.error_message
+        assert "resubmit it with execution_mode='readwrite'" in script.error_message
 
         session = await _opened()
-        after = connector_base._verdict_refusal("TEST:CHANNEL:SP", 1.0, refused)
+        wording = session._connector.context.readonly_wording
+        after = connector_base._verdict_refusal("TEST:CHANNEL:SP", 1.0, refused, wording=wording)
 
         # A long-lived session is the deployment's: no script to resubmit.
+        assert wording == "deployment"
         assert "readonly execution mode" in after.error_message
         assert "resubmit" not in after.error_message
+        await session.close()
+
+    async def test_another_connector_in_the_process_keeps_the_script_wording(self, mock_va):
+        write_record(mock_va)
+
+        session = await _opened()
+        other = await ConnectorFactory.create_control_system_connector(VA_SECTION)
+
+        assert other.context.readonly_wording == "script"
+        await other.disconnect()
         await session.close()
 
 
@@ -483,9 +496,7 @@ class TestUnservable:
         _serve(monkeypatch, VA_SECTION)
         write_record(state_dir, target="va")
         with isolated_connector_registries(clear=True):
-            monkeypatch.setattr(
-                "osprey_connectors.factory.register_builtin_connectors", lambda: None
-            )
+            monkeypatch.setattr(ConnectorFactory, "_ensure_builtins", classmethod(lambda cls: None))
             session = await _opened()
 
         assert session.binding.state == "unservable"

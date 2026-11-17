@@ -33,7 +33,6 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     agent_data_never_the_checkout,
     control_context_root,
     earlier_garbage_frozen,
-    long_lived_session_mark_per_test,
     no_agent_data_in_the_repo,
     no_spool_in_the_repo,
     pytest_collection_finish,

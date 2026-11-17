@@ -46,6 +46,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.control_system.SendReport": (
         "a connector's _send answers in this type; the base class builds every write result"
     ),
+    "osprey_connectors.control_system.ConnectorContext": (
+        "a connector built without the factory is connected with this type"
+    ),
     "osprey_connectors.control_system.raise_for_write_result": (
         "a caller holding one write result raises for a write that did not go through"
     ),

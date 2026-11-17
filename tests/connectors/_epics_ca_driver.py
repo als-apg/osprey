@@ -27,6 +27,7 @@ from typing import Any
 from unittest.mock import patch
 
 from osprey_connectors import control_context
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._ca_loop import get_ca_loop
 from osprey_connectors.control_system._epics_connector import EPICSConnector
@@ -65,7 +66,7 @@ async def _connect() -> EPICSConnector:
     connector = EPICSConnector()
     # Room for a slow host's first connect; every case that expects a miss
     # passes a timeout of its own.
-    await connector.connect({"timeout_s": 5})
+    await connector.connect(_armed_context(settings={"timeout_s": 5}))
     return connector
 
 
@@ -216,10 +217,14 @@ async def unreachable_name_server(prefix: str) -> dict[str, Any]:
     """A read through a name-server gateway nobody answers, then exit."""
     connector = EPICSConnector()
     await connector.connect(
-        {
-            "timeout_s": 1,
-            "gateways": {"read_only": {"address": "127.0.0.1", "port": 1, "use_name_server": True}},
-        }
+        _armed_context(
+            settings={
+                "timeout_s": 1,
+                "gateways": {
+                    "read_only": {"address": "127.0.0.1", "port": 1, "use_name_server": True}
+                },
+            }
+        )
     )
     try:
         await connector.read_channel(f"{prefix}:AO", timeout_s=1)
@@ -248,7 +253,7 @@ async def repoint(prefix: str) -> dict[str, Any]:
 
     ioc_port = os.environ["EPICS_CA_SERVER_PORT"]
     first = EPICSConnector()
-    await first.connect(at(ioc_port))
+    await first.connect(_armed_context(settings=at(ioc_port)))
     before = (await first.read_channel(f"{prefix}:AO")).value
     updates: list[float] = []
     await first.subscribe(f"{prefix}:AO", lambda value: updates.append(value.value))
@@ -256,7 +261,7 @@ async def repoint(prefix: str) -> dict[str, Any]:
     seen_before_repoint = len(updates)
 
     nowhere = EPICSConnector()
-    await nowhere.connect(at(1))
+    await nowhere.connect(_armed_context(settings=at(1)))
     try:
         await nowhere.read_channel(f"{prefix}:AO", timeout_s=1)
         moved = "answered"
@@ -264,7 +269,7 @@ async def repoint(prefix: str) -> dict[str, Any]:
         moved = type(exc).__name__
 
     back = EPICSConnector()
-    await back.connect(at(ioc_port))
+    await back.connect(_armed_context(settings=at(ioc_port)))
     await asyncio.sleep(0.3)
     write = await back.write_channel(f"{prefix}:AO", 4.0)
     after = (await back.read_channel(f"{prefix}:AO")).value
@@ -304,7 +309,12 @@ async def dispatch_repoint(prefix: str) -> dict[str, Any]:
     ioc_port = os.environ["EPICS_CA_SERVER_PORT"]
     for port in (1, ioc_port):
         await EPICSConnector().connect(
-            {"timeout_s": 1, "gateways": {"read_only": {"address": "127.0.0.1", "port": port}}}
+            _armed_context(
+                settings={
+                    "timeout_s": 1,
+                    "gateways": {"read_only": {"address": "127.0.0.1", "port": port}},
+                }
+            )
         )
     writer = await _connect()
     writes = [(await writer.write_channel(f"{prefix}:AO", 1.0)).outcome.name]
@@ -386,6 +396,15 @@ def _armed_config(key: str, default: Any = None) -> Any:
     return default
 
 
+def _armed_context(**fields: Any) -> ConnectorContext:
+    """A context naming the machine the class default names (:func:`_writes_armed`'s stamp).
+
+    The harness's ``armed_context``, restated: this module runs as a script and
+    does not import the test harness.
+    """
+    return ConnectorContext(control_target=ControlSystemConnector._context.control_target, **fields)
+
+
 @contextlib.contextmanager
 def _writes_armed() -> Iterator[None]:
     """Arm this process's writes the way the reference monitor's verdict reads them.
@@ -420,7 +439,9 @@ def _writes_armed() -> Iterator[None]:
         control_context.invalidate_cache()
         with (
             patch("osprey_connectors.config.get_config_value", _armed_config),
-            patch.object(ControlSystemConnector, "_control_target", _ARMED_TARGET),
+            patch.object(
+                ControlSystemConnector, "_context", ConnectorContext(control_target=_ARMED_TARGET)
+            ),
         ):
             yield
 

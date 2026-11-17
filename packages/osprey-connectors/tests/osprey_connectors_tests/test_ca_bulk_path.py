@@ -40,7 +40,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osprey_connectors.control_system import _epics_bulk
+from osprey_connectors.control_system import ConnectorContext, _epics_bulk
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.errors import ChannelUnreachableError
@@ -1255,7 +1255,7 @@ async def _connected(args: dict[str, Any], *, name_server: bool = True) -> EPICS
             }
         }
     connector = EPICSConnector()
-    await connector.connect(config)
+    await connector.connect(ConnectorContext(settings=config))
     return connector
 
 

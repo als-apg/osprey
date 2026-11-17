@@ -16,6 +16,7 @@ import pytest
 
 import osprey_connectors.control_system._base as connector_base
 import osprey_connectors.control_system._epics_connector as epics_connector_module
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.ipc._verification import derive_endpoints
@@ -28,7 +29,12 @@ from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, use
     install_fake_aioca,
 )
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
-from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch, config_reader
+from osprey_connectors_tests._write_fakes import (
+    ARMED_TARGET,
+    arm_switch,
+    armed_context,
+    config_reader,
+)
 
 READ = {"address": "ro.example.com", "port": 5064}
 WRITE = {"address": "wr.example.com", "port": 5084}
@@ -100,7 +106,7 @@ def test_a_never_render_refusal_speaks_the_tier_phrase(monkeypatch, record_root)
     verdict = connector_base._monitor_verdict(ARMED_TARGET)
 
     # Act
-    result = connector_base._verdict_refusal(SP, 1.0, verdict)
+    result = connector_base._verdict_refusal(SP, 1.0, verdict, wording="script")
 
     # Assert
     assert result.outcome is WriteOutcome.REFUSED
@@ -118,7 +124,7 @@ def test_an_allowed_render_names_no_tier_reason(monkeypatch, record_root):
     verdict = connector_base._monitor_verdict(ARMED_TARGET)
 
     # Act
-    result = connector_base._verdict_refusal(SP, 1.0, verdict)
+    result = connector_base._verdict_refusal(SP, 1.0, verdict, wording="script")
 
     # Assert
     assert result.outcome is WriteOutcome.REFUSED
@@ -163,7 +169,9 @@ def _armed(monkeypatch, root, *, on: bool) -> None:
     """Serve a normalized allowed section and stamp the simulator target."""
     _serve(monkeypatch, _normalized("allowed"))
     arm_switch(monkeypatch, root, ARMED_TARGET if on else None)
-    monkeypatch.setattr(ControlSystemConnector, "_control_target", ARMED_TARGET)
+    monkeypatch.setattr(
+        ControlSystemConnector, "_context", ConnectorContext(control_target=ARMED_TARGET)
+    )
     if not on:
         write_control_context(root, target=ARMED_TARGET, owned_by=None)
 
@@ -178,7 +186,9 @@ async def test_an_allowed_render_with_the_switch_on_selects_the_write_gateway_an
     connector = EPICSConnector()
 
     # Act
-    await connector.connect({"gateways": {"read_only": dict(READ), "write_access": dict(WRITE)}})
+    await connector.connect(
+        armed_context(settings={"gateways": {"read_only": dict(READ), "write_access": dict(WRITE)}})
+    )
     result = await connector.write_channel(SP, 2.0, confirm=False)
 
     # Assert
@@ -200,7 +210,7 @@ async def test_a_readonly_run_on_a_write_gateway_only_block_still_refuses(monkey
 
     # Act / Assert
     with pytest.raises(ConnectionError) as caught:
-        await connector.connect({"gateways": {"write_access": dict(WRITE)}})
+        await connector.connect(armed_context(settings={"gateways": {"write_access": dict(WRITE)}}))
 
     assert "no read-only gateway" in str(caught.value)
     assert loop.pointed_at == []

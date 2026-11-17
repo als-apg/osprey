@@ -610,10 +610,9 @@ async def connect_va(**config_overrides: Any):
     The connector is registered for automatic disconnect after the test (see
     ``_disconnect_va_connectors``); callers need no try/finally of their own.
     """
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors.types import TARGET_VA
 
-    register_builtin_connectors()
     # Stamped with the machine it writes to, as a controls server's factory call
     # stamps it: the write verdict is per target, and an unstamped connector
     # names no machine and is refused before its tier is read.

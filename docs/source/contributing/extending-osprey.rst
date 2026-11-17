@@ -42,7 +42,11 @@ write methods are final: implement ``_send``, which puts one checked value and
 answers with a ``SendReport`` saying whether it went out, and the base class
 runs the write guard, the limits, the confirming read and the ``values_match``
 comparison, and builds every ``ChannelWriteResult``. That way your connector
-words every outcome exactly as every other one does. The optional protected
+words every outcome exactly as every other one does. ``connect()`` is final
+too: implement ``_open(settings)``, which receives your connector's own block
+(``control_system.connector.<type>``). ``connect()`` takes the
+``ConnectorContext`` the factory builds, and it builds the limits validator from
+the deployment's loaded config before it calls ``_open``. The optional protected
 hooks (``_precheck``, ``_confirming_read``, ``_run_check`` and the rest) are
 listed in :ref:`connectors-api-contracts`. Register it with
 ``ConnectorFactory.register_control_system``, or ship it as an

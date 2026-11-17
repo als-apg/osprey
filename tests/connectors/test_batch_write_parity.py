@@ -17,7 +17,7 @@ from osprey_connectors.control_system._limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
 
 A, B, STEPPED = "SIM:A:SP", "SIM:B:SP", "SIM:STEPPED:SP"
@@ -44,7 +44,9 @@ async def simulator(monkeypatch, tmp_path):
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
-        in_process_config(served_tree(tmp_path, [A, B, STEPPED]), response_delay_ms=0)
+        armed_context(
+            settings=in_process_config(served_tree(tmp_path, [A, B, STEPPED]), response_delay_ms=0)
+        )
     )
     connector._composite.set({A: 0.0, B: 0.0, STEPPED: 1.0})
     connector._limits_validator = _validator()
@@ -122,7 +124,7 @@ class TestTangoBatch:
         with (
             patch.dict(sys.modules, {"tango": tango}),
             patch(
-                "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config",
+                "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
                 return_value=None,
             ),
             patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config),
@@ -130,7 +132,7 @@ class TestTangoBatch:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             connector = TangoConnector()
-            await connector.connect({})
+            await connector.connect(armed_context())
             results = await connector.write_multiple_channels(
                 [("sys/tg_test/1/ampli", 1.0), ("not-an-address", 2.0)]
             )

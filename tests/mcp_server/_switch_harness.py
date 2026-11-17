@@ -6,7 +6,7 @@ simulator's dotted path gives a real, servable ``live``. ``va`` always resolves 
 ``virtual_accelerator`` type, which is a registry name rather than a path — so
 the children are launched with a scratch directory on their ``PYTHONPATH``
 holding a ``sitecustomize`` that registers a fixture variant under that name
-before the child's own ``register_builtin_connectors()`` runs (which never
+before the child's own ``ConnectorFactory._ensure_builtins()`` runs (which never
 replaces an existing registration). The result is two genuinely different
 targets, each with its own connector block and probe channel, neither of which
 touches Channel Access.
@@ -136,8 +136,8 @@ class FixtureConnector(VAInProcessConnector):
     #: gateway at all.
     _gateway_role = None
 
-    async def connect(self, config):
-        await super().connect(config)
+    async def _open(self, config):
+        await super()._open(config)
         gateways = config.get("gateways") or {}
         try:
             armed = self._writes_enabled
@@ -182,16 +182,16 @@ class VirtualAcceleratorFixtureConnector(FixtureConnector):
     the port the parent's derivation expects.
     """
 
-    async def connect(self, config):
+    async def _open(self, config):
         from osprey_connectors.control_system._va_connector import fill_gateway_ports
 
-        await super().connect(fill_gateway_ports(config))
+        await super()._open(fill_gateway_ports(config))
 '''
 
 SITECUSTOMIZE = '''\
 """Register the fixture connector as this deployment's virtual accelerator.
 
-``register_builtin_connectors()`` never replaces an existing registration, so a
+``ConnectorFactory._ensure_builtins()`` never replaces an existing registration, so a
 child started with this directory on its PYTHONPATH builds the fixture
 connector for target 'va' and runs the whole real path — resolver, factory,
 connect() — with no EPICS anywhere.

@@ -121,11 +121,9 @@ def test_retired_message_names_the_new_spelling():
 
 @pytest.fixture
 def builtin_connectors():
-    from osprey_connectors.factory import register_builtin_connectors
     from osprey_connectors_tests._harness import isolated_connector_registries
 
     with isolated_connector_registries(clear=True):
-        register_builtin_connectors()
         yield
 
 
@@ -152,11 +150,11 @@ def builtin_connectors():
 def test_factory_builds_the_venue_the_leaf_names(config, class_name, transport):
     from osprey_connectors.factory import ConnectorFactory
 
-    connector, _type_config = ConnectorFactory.build_control_system_connector(config)
+    connector, context = ConnectorFactory.build_control_system_connector(config)
 
     assert type(connector).__name__ == class_name
-    assert connector.transport == transport
-    assert connector._connector_type == VIRTUAL_ACCELERATOR
+    assert context.transport == transport
+    assert context.connector_type == VIRTUAL_ACCELERATOR
 
 
 @pytest.mark.usefixtures("builtin_connectors")

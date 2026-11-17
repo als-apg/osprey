@@ -9,7 +9,7 @@ the whole job of this module.
 returns ``control_system.type`` verbatim, so naming the class there makes it a
 real, servable live target — and ``va`` reaches :class:`VaConnector` through the
 registry name ``virtual_accelerator``, which a scratch ``sitecustomize`` on the
-child's ``PYTHONPATH`` registers before ``register_builtin_connectors()`` runs
+child's ``PYTHONPATH`` registers before ``ConnectorFactory._ensure_builtins()`` runs
 (that function never replaces an existing registration). Neither class imports a
 control-system client library, so a child running either one touches no gateway.
 
@@ -134,7 +134,7 @@ class _PairConnector(ControlSystemConnector):
     #: The probe channel this target — and only this target — serves.
     probe_channel: str = ""
 
-    async def connect(self, config: dict[str, Any] | None = None) -> None:
+    async def _open(self, config: dict[str, Any] | None = None) -> None:
         self.connected_config = dict(config or {})
 
     async def disconnect(self) -> None:

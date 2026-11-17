@@ -20,10 +20,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-from osprey_connectors.control_system import (
+from osprey_connectors.call_timeout import (
     DEFAULT_STEP_READ_TIMEOUT_S,
+    DEFAULT_TIMEOUT_S,
     STEP_READ_TIMEOUT_KEY,
+    call_timeout_s,
     step_read_timeout_s,
 )
 from osprey_connectors.logger import get_logger

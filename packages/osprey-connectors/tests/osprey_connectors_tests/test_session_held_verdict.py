@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 from osprey_connectors import posture_store, session_hold
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.ipc._pool import ConnectorHostPool
 from osprey_connectors.posture_store import (
@@ -435,7 +436,7 @@ async def test_the_hold_never_changes_what_writes_enabled_reports():
 @pytest.mark.usefixtures("armed_held")
 async def test_the_monitor_answers_first_when_it_refuses():
     connector = RecordingConnector()
-    connector._control_target = None
+    connector._context = ConnectorContext(control_target=None)
     _flag()
     refused = await connector.write_channel("PV:A", 1.0)
     assert refused.error_message.endswith("[osprey-refusal: target_unknown]")

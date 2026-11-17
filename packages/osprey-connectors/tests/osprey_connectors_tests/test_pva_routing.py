@@ -23,6 +23,7 @@ import sys
 
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors_tests._epics_fakes import (
@@ -117,7 +118,9 @@ class TestConnectPvaContext:
         p4p_mod, context_cls = install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
-        await connector.connect({"pva_channels": ["SR:CAM*:IMAGE", "BL*:DET:*"]})
+        await connector.connect(
+            ConnectorContext(settings={"pva_channels": ["SR:CAM*:IMAGE", "BL*:DET:*"]})
+        )
 
         assert connector._pva_channel_globs == ["SR:CAM*:IMAGE", "BL*:DET:*"]
         assert connector._p4p is p4p_mod
@@ -137,7 +140,7 @@ class TestConnectPvaContext:
 
         connector = EPICSConnector()
         with pytest.raises(ConnectorUnavailableError, match="no network interface") as raised:
-            await connector.connect({"pva_channels": ["SR:CAM*:IMAGE"]})
+            await connector.connect(ConnectorContext(settings={"pva_channels": ["SR:CAM*:IMAGE"]}))
 
         assert isinstance(raised.value.__cause__, RuntimeError)
         context_cls.assert_called_once_with("pva")
@@ -150,7 +153,7 @@ class TestConnectPvaContext:
         install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
-        await connector.connect({"pva_channels": "SR:CAM1:IMAGE"})
+        await connector.connect(ConnectorContext(settings={"pva_channels": "SR:CAM1:IMAGE"}))
 
         assert connector._pva_channel_globs == ["SR:CAM1:IMAGE"]
         assert connector._is_pva_channel("SR:CAM1:IMAGE") is True
@@ -163,7 +166,9 @@ class TestConnectPvaContext:
         install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
-        await connector.connect({"pva_channels": ["  SR:CAM1:IMAGE  ", "", "   "]})
+        await connector.connect(
+            ConnectorContext(settings={"pva_channels": ["  SR:CAM1:IMAGE  ", "", "   "]})
+        )
 
         assert connector._pva_channel_globs == ["SR:CAM1:IMAGE"]
 
@@ -178,7 +183,7 @@ class TestConnectPvaContext:
 
         connector = EPICSConnector()
         with pytest.raises(ImportError) as excinfo:
-            await connector.connect({"pva_channels": ["SR:CAM1:IMAGE"]})
+            await connector.connect(ConnectorContext(settings={"pva_channels": ["SR:CAM1:IMAGE"]}))
 
         message = str(excinfo.value)
         assert "p4p is required" in message
@@ -204,7 +209,9 @@ class TestNoPvaConfigured:
         monkeypatch.setitem(sys.modules, "p4p", None)
 
         connector = EPICSConnector()
-        await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+        await connector.connect(
+            ConnectorContext(settings={"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+        )
 
         assert connector._connected is True
         assert connector._pva_channel_globs == []
@@ -219,7 +226,7 @@ class TestNoPvaConfigured:
         monkeypatch.setitem(sys.modules, "p4p", None)
 
         connector = EPICSConnector()
-        await connector.connect({"pva_channels": []})
+        await connector.connect(ConnectorContext(settings={"pva_channels": []}))
 
         assert connector._p4p is None
         assert connector._pva_context is None
@@ -237,10 +244,12 @@ class TestNoPvaConfigured:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "pva_channels": [],
-                "pva_gateway": {"address": "pvagw.example.com", "port": 5075},
-            }
+            ConnectorContext(
+                settings={
+                    "pva_channels": [],
+                    "pva_gateway": {"address": "pvagw.example.com", "port": 5075},
+                }
+            )
         )
 
         for var in PVA_VARS:
@@ -255,11 +264,13 @@ class TestNoPvaConfigured:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "gateways": {"read_only": {"address": "cagw.example.com", "port": 5064}},
-                "pva_channels": ["SR:CAM1:IMAGE"],
-                "pva_gateway": {"address": "pvagw.example.com", "port": 5075},
-            }
+            ConnectorContext(
+                settings={
+                    "gateways": {"read_only": {"address": "cagw.example.com", "port": 5064}},
+                    "pva_channels": ["SR:CAM1:IMAGE"],
+                    "pva_gateway": {"address": "pvagw.example.com", "port": 5075},
+                }
+            )
         )
 
         assert os.environ["EPICS_CA_ADDR_LIST"] == "cagw.example.com"
@@ -283,10 +294,12 @@ class TestPvaGatewayEnv:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "pva_channels": ["SR:CAM1:IMAGE"],
-                "pva_gateway": {"address": "pvagw.example.com", "port": 5085},
-            }
+            ConnectorContext(
+                settings={
+                    "pva_channels": ["SR:CAM1:IMAGE"],
+                    "pva_gateway": {"address": "pvagw.example.com", "port": 5085},
+                }
+            )
         )
 
         assert os.environ["EPICS_PVA_ADDR_LIST"] == "pvagw.example.com:5085"
@@ -318,10 +331,12 @@ class TestPvaGatewayEnv:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "pva_channels": channels,
-                "pva_gateway": {"address": address},
-            }
+            ConnectorContext(
+                settings={
+                    "pva_channels": channels,
+                    "pva_gateway": {"address": address},
+                }
+            )
         )
 
         assert os.environ["EPICS_PVA_ADDR_LIST"] == address
@@ -335,10 +350,12 @@ class TestPvaGatewayEnv:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "pva_channels": ["*:image"],
-                "pva_gateway": {"address": "10.0.0.1 cam2.example.com", "port": 5086},
-            }
+            ConnectorContext(
+                settings={
+                    "pva_channels": ["*:image"],
+                    "pva_gateway": {"address": "10.0.0.1 cam2.example.com", "port": 5086},
+                }
+            )
         )
 
         assert os.environ["EPICS_PVA_ADDR_LIST"] == "10.0.0.1:5086 cam2.example.com:5086"
@@ -352,10 +369,12 @@ class TestPvaGatewayEnv:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "pva_channels": ["SR:CAM1:IMAGE"],
-                "pva_gateway": {"address": "pvagw.example.com", "use_name_server": True},
-            }
+            ConnectorContext(
+                settings={
+                    "pva_channels": ["SR:CAM1:IMAGE"],
+                    "pva_gateway": {"address": "pvagw.example.com", "use_name_server": True},
+                }
+            )
         )
 
         assert os.environ["EPICS_PVA_NAME_SERVERS"] == "pvagw.example.com:5075"
@@ -370,14 +389,16 @@ class TestPvaGatewayEnv:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "pva_channels": ["SR:CAM1:IMAGE"],
-                "pva_gateway": {
-                    "address": "localhost",
-                    "port": 5085,
-                    "use_name_server": True,
-                },
-            }
+            ConnectorContext(
+                settings={
+                    "pva_channels": ["SR:CAM1:IMAGE"],
+                    "pva_gateway": {
+                        "address": "localhost",
+                        "port": 5085,
+                        "use_name_server": True,
+                    },
+                }
+            )
         )
 
         assert os.environ["EPICS_PVA_NAME_SERVERS"] == "localhost:5085"
@@ -393,10 +414,12 @@ class TestPvaGatewayEnv:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "pva_channels": ["SR:CAM1:IMAGE"],
-                "pva_gateway": {"address": "pvagw", "port": 5086, "use_name_server": off},
-            }
+            ConnectorContext(
+                settings={
+                    "pva_channels": ["SR:CAM1:IMAGE"],
+                    "pva_gateway": {"address": "pvagw", "port": 5086, "use_name_server": off},
+                }
+            )
         )
 
         assert os.environ["EPICS_PVA_ADDR_LIST"] == "pvagw:5086"
@@ -415,14 +438,16 @@ class TestPvaGatewayEnv:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "pva_channels": ["SR:CAM1:IMAGE"],
-                "pva_gateway": {
-                    "address": "localhost",
-                    "port": 5085,
-                    "use_name_server": True,
-                },
-            }
+            ConnectorContext(
+                settings={
+                    "pva_channels": ["SR:CAM1:IMAGE"],
+                    "pva_gateway": {
+                        "address": "localhost",
+                        "port": 5085,
+                        "use_name_server": True,
+                    },
+                }
+            )
         )
 
         assert os.environ["EPICS_PVA_AUTO_ADDR_LIST"] == "NO"
@@ -435,7 +460,7 @@ class TestPvaGatewayEnv:
         _, context_cls = install_fake_p4p(monkeypatch)
 
         connector = EPICSConnector()
-        await connector.connect({"pva_channels": ["SR:CAM1:IMAGE"]})
+        await connector.connect(ConnectorContext(settings={"pva_channels": ["SR:CAM1:IMAGE"]}))
 
         for var in PVA_VARS:
             assert var not in os.environ

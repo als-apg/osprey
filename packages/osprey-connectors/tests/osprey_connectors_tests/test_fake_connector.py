@@ -13,6 +13,7 @@ import asyncio
 
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors_tests._fake_connector import FakeConnector
@@ -24,7 +25,7 @@ OTHER = "SR:FAKE:OTHER"
 @pytest.fixture
 async def connector():
     conn = FakeConnector()
-    await conn.connect({"never_connects": ["SR:FAKE:DEAD"]})
+    await conn.connect(ConnectorContext(settings={"never_connects": ["SR:FAKE:DEAD"]}))
     yield conn
     await conn.disconnect()
 
@@ -87,7 +88,7 @@ class TestNeverConnects:
 
     async def test_without_config_every_name_connects(self):
         conn = FakeConnector()
-        await conn.connect({})
+        await conn.connect(ConnectorContext())
         events, on_value, on_connection = _recorder()
 
         await conn.subscribe("SR:FAKE:DEAD", on_value, on_connection=on_connection)

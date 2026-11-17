@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from osprey_connectors import control_context
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ControlSystemConnector,
@@ -66,6 +67,16 @@ def config_reader(section: dict[str, Any]) -> Callable[..., Any]:
     return _get
 
 
+def armed_context(**fields: Any) -> ConnectorContext:
+    """The context a test connects a connector with, naming the stamped machine.
+
+    The target is the one the class default context names: the machine
+    :func:`arm_switch` (or a test's own patch of that default) stamped, or
+    ``None`` when nothing is stamped. *fields* are the context's other fields.
+    """
+    return ConnectorContext(control_target=ControlSystemConnector._context.control_target, **fields)
+
+
 def arm_switch(
     monkeypatch: Any,
     root: Path,
@@ -81,10 +92,10 @@ def arm_switch(
     ownerless record whose switch is ``{target: "asked"}`` through the person's
     gesture. ``None`` writes no record at all: every switch off.
 
-    *stamp* sets the class default of ``_control_target`` to *target*, so a
-    connector built directly rather than through the factory writes to that
-    machine. A test about the unstamped connector passes ``stamp=False`` or
-    sets ``connector._control_target = None`` itself.
+    *stamp* sets the class default context to one naming *target*, so a
+    connector that was never connected writes to that machine, and one a test
+    connects with :func:`armed_context` does too. A test about the unstamped
+    connector passes ``stamp=False``.
 
     The tier is not set here: serve a section that allows writes
     (:data:`ARMED_SECTION`, :func:`writes_enabled_config`) through
@@ -95,7 +106,9 @@ def arm_switch(
     """
     isolate_verdict_environment(monkeypatch, root)
     if stamp:
-        monkeypatch.setattr(ControlSystemConnector, "_control_target", target)
+        monkeypatch.setattr(
+            ControlSystemConnector, "_context", ConnectorContext(control_target=target)
+        )
     if target is None:
         return None
     return write_control_context(root, target=target, owned_by=None, switch={target: "asked"})
@@ -132,7 +145,7 @@ class RecordingConnector(ControlSystemConnector):
         self.writes: list[tuple[str, Any]] = []
         self._held: dict[str, Any] = {}
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def _open(self, config: dict[str, Any]) -> None:
         pass
 
     async def disconnect(self) -> None:

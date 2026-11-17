@@ -112,7 +112,7 @@ def _expected_claim(row: dict, verdict: WriteVerdict) -> dict:
 class _RefusingConnector(FakeConnector):
     """A connector whose control system is not there."""
 
-    async def connect(self, config):  # noqa: ARG002 - the connector connect signature
+    async def _open(self, config):  # noqa: ARG002 - the connector connect signature
         raise ConnectionError("no gateway answers")
 
 
