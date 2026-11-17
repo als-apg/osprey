@@ -1,7 +1,8 @@
 """The Python reader of the page-ready contract ``design-system/js/page-ready.js`` states.
 
 The mark is ``data-page-ready="true"`` on a page's ``<html>``, written by one module,
-``page-ready.js``. A page reaches it by one of three routes, read here from its source
+``page-ready.js``. The writer also sets ``failed`` on a pending page that threw before it
+marked itself, a value a page never declares. A page reaches it by one of three routes, read here from its source
 without a browser:
 
 * **the shared start-up** -- the page says nothing about readiness, and a script it loads
@@ -23,10 +24,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__all__ = ["READY_IMPORT", "route_problem"]
+__all__ = ["FAILED", "MARKUP_VALUES", "READY_IMPORT", "route_problem"]
 
 #: The line a panel's script adds to set the page-ready mark.
 READY_IMPORT = "import { markPageReady } from '/design-system/js/page-ready.js';"
+
+#: The values a page's markup may declare.
+MARKUP_VALUES = ("true", "pending")
+
+#: The writer's value for a pending page that threw; never markup.
+FAILED = "failed"
 
 #: The osprey package: the one tree a ``/static/`` or ``/design-system/`` address names.
 _PACKAGE = Path(__file__).resolve().parents[3]
@@ -169,6 +176,11 @@ def _ready_value(page: str) -> str | None:
 
 
 def _undeclared(value: str) -> str:
+    if value == FAILED:
+        return (
+            f'data-page-ready="{FAILED}" is the writer\'s value for a page that threw while '
+            "pending; markup declares true or pending"
+        )
     return f"data-page-ready={value!r} is not a declared value (true or pending)"
 
 
@@ -210,7 +222,7 @@ def route_problem(page: str, where: Path, *, app_panel: bool = False) -> str | N
     """
     value = _ready_value(page)
     if app_panel:
-        if value is not None and value not in ("true", "pending"):
+        if value is not None and value not in MARKUP_VALUES:
             return _undeclared(value)
         return _app_panel_problem(page, where, value)
     if value == "true" or _LITERAL_BY_SCRIPT.search(page):

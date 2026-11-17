@@ -135,3 +135,4 @@ def test_each_route_is_read_from_the_markup_and_the_scripts_it_loads() -> None:
     assert route_problem(f'<html data-page-ready="pending">{inline_mark}</html>', where) is None
     assert route_problem(f"<html>{inline_theme}{inline_mark}</html>", where) is not None
     assert route_problem('<html data-page-ready="yes"></html>', where) is not None
+    assert route_problem('<html data-page-ready="failed"></html>', where) is not None
