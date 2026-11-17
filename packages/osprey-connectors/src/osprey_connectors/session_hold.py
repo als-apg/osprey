@@ -30,10 +30,10 @@ operator and the time.
 
 **Reads** follow no symbolic link: the session directory is checked with
 :func:`os.lstat` and the record is opened ``O_NOFOLLOW`` and bounded, the same
-reader the posture store uses for its tree.
+reader the record uses for the read-only tree.
 
 This module imports only :mod:`~osprey_connectors.safety_file` and the
-model bases from the package, so the posture store can import it.
+model bases from the package, so the write switch can import it.
 """
 
 from __future__ import annotations

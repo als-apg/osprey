@@ -734,7 +734,7 @@ def _in_mcp_server_process() -> bool:
 
     Neither story is the narrowing an operator makes from the
     control-target chip in the header: that never lived in the environment at
-    all, and is read from the posture store further down this function's
+    all, and is read by the write switch further down this function's
     caller.
     """
     argv: object = getattr(sys, "argv", None)

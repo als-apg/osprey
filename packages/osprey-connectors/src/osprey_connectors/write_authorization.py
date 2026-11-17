@@ -33,7 +33,7 @@ bound tree with no ledger directory there is none, and every write refuses.
 The control-context record is not touched: ``control_context.json`` keeps its
 schema and its seven fields.
 
-**2. Reads fail closed.** Both files are read the way the posture store reads
+**2. Reads fail closed.** Both files are read the way the write switch reads
 the tree (:func:`~osprey_connectors.control_context.read_tree_context`): no
 symbolic link is followed at any directory below the root or at the file (the
 file is opened ``O_NOFOLLOW``), the read is bounded, the file must be a regular
@@ -122,7 +122,7 @@ group. A listing removes grants that ended more than :data:`_PRUNE_AFTER_S` ago
 (:func:`prune_grants`).
 
 This module imports nothing from ``osprey`` and sits above the record and the
-posture store, which it reads.
+write switch, which it reads.
 """
 
 from __future__ import annotations

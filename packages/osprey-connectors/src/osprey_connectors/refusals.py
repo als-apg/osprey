@@ -13,7 +13,7 @@ to do; a ``WRITES_DISABLED`` refusal narrows to the verdict's reason.
 
 No phrase names a config key, a file, an environment variable or a build command:
 the reader of a refusal is an operator or an agent, not the person who edits the
-deployment. :data:`STORE_PATH_MARKERS` holds the path spellings of the posture store
+deployment. :data:`STORE_PATH_MARKERS` holds the path spellings of the control state
 (the directory part and the record's file name) so that a text meant for an agent can
 be scanned for them.
 
@@ -227,7 +227,7 @@ KIND_WORDS: Final[dict[str, str]] = {
     "simulator": "the simulator",
 }
 
-#: Path spellings of the posture store: the state directory part and the record file.
+#: Path spellings of the control state: the state directory part and the record file.
 STORE_PATH_MARKERS: Final[tuple[str, ...]] = ("control_target", "control_context.json")
 
 
