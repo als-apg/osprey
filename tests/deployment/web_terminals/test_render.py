@@ -5125,6 +5125,52 @@ def test_archiver_grant_for_one_variable_renders_unchanged() -> None:
     assert text.count("      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-}\n    volumes:\n") == 1
 
 
+def test_pv_directory_grant_emits_one_line_per_named_variable() -> None:
+    """A render whose PV directory services authenticate is handed their variables."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_render_config(),
+            pv_directory_credential_renders={"readwrite": ("CF_PW", "ALARM_FEED_PW")},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    first = alice_env.index("CF_PW=${CF_PW:-}")
+    assert alice_env.index("ALARM_FEED_PW=${ALARM_FEED_PW:-}") == first + 1
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("CF_PW" in line or "ALARM_FEED_PW" in line for line in bob_env)
+
+
+def test_pv_directory_grant_does_not_repeat_a_variable_the_archiver_names() -> None:
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_render_config(),
+            archiver_credential_renders={"readwrite": ("SITE_PW",)},
+            pv_directory_credential_renders={"readwrite": ("SITE_PW", "ALARM_FEED_PW")},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    assert alice_env.count("SITE_PW=${SITE_PW:-}") == 1
+    assert "ALARM_FEED_PW=${ALARM_FEED_PW:-}" in alice_env
+
+
+def test_pv_directory_grant_for_one_variable_renders_in_place() -> None:
+    """One named variable renders as one line, with no blank line added."""
+    # Act
+    text = render_web_terminals(
+        _events_render_config(),
+        pv_directory_credential_renders={"readwrite": ("ALARM_FEED_PW",)},
+    )["docker-compose.web.yml"]
+
+    # Assert
+    assert text.count("      - ALARM_FEED_PW=${ALARM_FEED_PW:-}\n    volumes:\n") == 1
+
+
 # ---------------------------------------------------------------------------
 # Archiver connector -> the CA file its block names, mounted per user
 #
@@ -5154,6 +5200,24 @@ def test_archiver_ca_bundle_is_mounted_read_only_at_the_same_path() -> None:
     assert _ca_mounts(services["web-alice"]) == [
         {"type": "bind", "source": _SITE_CA, "target": _SITE_CA, "read_only": True}
     ]
+    assert _ca_mounts(services["web-bob"]) == []
+
+
+def test_pv_directory_ca_bundle_is_mounted_once_beside_the_archivers() -> None:
+    other = "/etc/ssl/certs/alarm-ca.pem"
+
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_render_config(),
+            archiver_ca_bundle_renders={"readwrite": (_SITE_CA,)},
+            pv_directory_ca_bundle_renders={"readwrite": (_SITE_CA, other)},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    services = compose["services"]
+    assert [m["source"] for m in _ca_mounts(services["web-alice"])] == [_SITE_CA, other]
     assert _ca_mounts(services["web-bob"]) == []
 
 

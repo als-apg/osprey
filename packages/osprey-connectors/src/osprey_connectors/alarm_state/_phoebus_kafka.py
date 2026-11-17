@@ -3,6 +3,12 @@
 The topic is read from the beginning with no consumer group, so the service sees
 no member and no committed offset, and nothing is ever produced. ``aiokafka`` is
 an optional extra, imported only when a consumer is about to be built.
+
+A broker that asks for a login is named one under ``settings.auth``: ``username``
+with ``password_env``, sent as SASL (``auth.mechanism``, ``PLAIN`` unless set).
+``settings.tls.ca_bundle`` turns TLS on and trusts that CA. Reading needs one
+right on the broker, ``Read`` on the topic: with no consumer group there is no
+group to authorize.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ from osprey_connectors.alarm_state._fold import (
     state_record,
     state_rows,
 )
+from osprey_connectors.connection import ConnectionSettings, read_connection_settings
 from osprey_connectors.logger import get_logger
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
@@ -40,6 +47,11 @@ logger = get_logger("phoebus_alarm_state")
 
 KAFKA_CLIENT_MISSING = "Kafka client not installed (install osprey-connectors[alarm-state])"
 SETTINGS_MISSING = "alarm_state.settings needs bootstrap_servers and topic"
+
+_WHERE = "pv_directory.alarm_state.settings"
+_BEARER_REFUSED = "a Kafka broker takes `auth.username` and `auth.password_env`, sent as SASL"
+#: The SASL mechanisms a password login can be sent with; the first is the default.
+SASL_MECHANISMS = ("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512")
 
 #: Seconds after which a feed that has been silent reads as stale.
 _STALE_WINDOW_S = 60.0
@@ -195,6 +207,11 @@ class PhoebusAlarmState(AlarmState):
             settings = self.spec.settings
             if not (settings.get("bootstrap_servers") and settings.get("topic")):
                 self._cannot_start = Unavailable(SETTINGS_MISSING)
+                return self._cannot_start
+            try:
+                _read_login(settings)
+            except ValueError as exc:
+                self._cannot_start = Unavailable(str(exc))
             else:
                 try:
                     importlib.import_module("aiokafka")
@@ -279,6 +296,56 @@ async def _reached(consumer: _Consumer, targets: Mapping[object, int]) -> bool:
     return True
 
 
+def _read_login(settings: Mapping[str, object]) -> tuple[ConnectionSettings, str]:
+    """The block's login and CA, and the SASL mechanism a login is sent with.
+
+    Raises:
+        ValueError: ``auth`` or ``tls`` breaks the connection shape, names a
+            bearer token, or names a mechanism this backend does not send.
+    """
+    connection = read_connection_settings(
+        settings,
+        where=_WHERE,
+        logins=frozenset({"password"}),
+        unsupported_because=_BEARER_REFUSED,
+        extra_auth_keys=frozenset({"mechanism"}),
+    )
+    auth = settings.get("auth")
+    mechanism = auth.get("mechanism") if isinstance(auth, Mapping) else None
+    if mechanism is None:
+        return connection, SASL_MECHANISMS[0]
+    if mechanism not in SASL_MECHANISMS:
+        raise ValueError(f"`{_WHERE}.auth.mechanism` must be one of {', '.join(SASL_MECHANISMS)}")
+    if connection.login is None:
+        raise ValueError(f"`{_WHERE}.auth.mechanism` needs `username` and `password_env`")
+    return connection, str(mechanism)
+
+
+def _login_options(settings: Mapping[str, object]) -> dict[str, object]:
+    """The consumer options a login and a CA add; none for an open plaintext broker.
+
+    The password is read from the environment here, when the consumer is built.
+
+    Raises:
+        ValueError: As :func:`_read_login`, or the CA file cannot be used.
+        ConnectionError: The variable ``auth.password_env`` names is unset.
+    """
+    connection, mechanism = _read_login(settings)
+    credential = connection.resolve_credential()
+    encrypted = connection.ca_bundle is not None
+    options: dict[str, object] = {}
+    if encrypted:
+        options["ssl_context"] = connection.ssl_context()
+    if credential is not None:
+        options["security_protocol"] = "SASL_SSL" if encrypted else "SASL_PLAINTEXT"
+        options["sasl_mechanism"] = mechanism
+        options["sasl_plain_username"] = credential.username
+        options["sasl_plain_password"] = credential.secret
+    elif encrypted:
+        options["security_protocol"] = "SSL"
+    return options
+
+
 def _aiokafka_consumer(settings: Mapping[str, object]) -> _Consumer:
     aiokafka = importlib.import_module("aiokafka")
     consumer: _Consumer = aiokafka.AIOKafkaConsumer(
@@ -287,5 +354,6 @@ def _aiokafka_consumer(settings: Mapping[str, object]) -> _Consumer:
         group_id=None,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
+        **_login_options(settings),
     )
     return consumer
