@@ -323,3 +323,30 @@ def test_load_project_dotenv_skips_and_does_not_record_shell_only(chain, monkeyp
     assert os.environ["OSPREY_ORDINARY"] == "shared"
     recorded = dotenv_shell_overrides()
     assert recorded == {"OSPREY_BOTH": "shell"}
+
+
+def test_load_project_dotenv_records_against_the_values_it_applied(tmp_path, monkeypatch):
+    """The shell's value is judged against what the chain applied: an inline
+    ``# comment`` is not part of the value, and a ``${VAR}`` is interpolated."""
+    (tmp_path / ".env").write_text(
+        "OSPREY_AGREES=value # note\n"
+        "OSPREY_DIFFERS=file # note\n"
+        "OSPREY_HASHED=file # note\n"
+        "OSPREY_REF=${OSPREY_BASE}/x\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(ENV_CHAIN_APPLIED_ENV, raising=False)
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.setenv("OSPREY_AGREES", "value")
+    monkeypatch.setenv("OSPREY_DIFFERS", "shell")
+    monkeypatch.setenv("OSPREY_HASHED", "file # note")
+    monkeypatch.setenv("OSPREY_BASE", "/base")
+    monkeypatch.setenv("OSPREY_REF", "/base/x")
+
+    load_project_dotenv()
+
+    assert os.environ["OSPREY_AGREES"] == "value"
+    assert os.environ["OSPREY_HASHED"] == "file"
+    assert os.environ["OSPREY_REF"] == "/base/x"
+    assert dotenv_shell_overrides() == {"OSPREY_DIFFERS": "shell", "OSPREY_HASHED": "file # note"}
