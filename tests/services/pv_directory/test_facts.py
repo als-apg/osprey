@@ -1128,6 +1128,71 @@ async def test_on_va_a_health_name_without_the_mark_is_not_a_health_pv(
     assert ioc["health_pvs"] == [{"name": "ca:SIM:SR:ALIVE_COUNTER", "role": "heartbeat"}]
 
 
+async def test_on_va_a_custom_suffix_does_not_blank_the_simulated_health_pvs(
+    tmp_path: Path, record: _Record, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    record.move("va", 1)
+    FakeDirectory.records = _records(
+        _record("ca:SIM:SR:HEARTBEAT", ioc="sim-SR", **{SIGNAL: HEARTBEAT}),
+        _record("ca:SIM:SR:UPTIME", ioc="sim-SR", **{SIGNAL: UPTIME}),
+        _record("ca:SIM:SR:ENGINEER", ioc="sim-SR", **{SIGNAL: ENGINEER}),
+    )
+    asked: list[tuple[Any, ...]] = []
+    searched = FakeDirectory.search
+
+    async def spy(self: FakeDirectory, query: Any, deadline: float) -> Any:
+        asked.append((query.server, query.name, tuple(query.properties.items()), query.page_size))
+        return await searched(self, query, deadline)
+
+    monkeypatch.setattr(FakeDirectory, "search", spy)
+    display = {"ioc_health_suffixes": {"heartbeat": ":ALIVE"}}
+    page = _facts(_config(tmp_path, VA_BUILD, {"display": display}), tmp_path)
+
+    ioc = await page.ioc_facts("sim-SR")
+
+    assert ioc["health_pvs"] == [
+        {"name": "ca:SIM:SR:ENGINEER", "role": "engineer"},
+        {"name": "ca:SIM:SR:HEARTBEAT", "role": "heartbeat"},
+        {"name": "ca:SIM:SR:UPTIME", "role": "uptime"},
+    ]
+    assert ioc["engineer"] == "ca:SIM:SR:ENGINEER"
+    # The health searches are the ones on a served signal; the service's own
+    # whole-set fetches of the same query differ only in their page size.
+    health = {entry for entry in asked if entry[2] and entry[3] == 50}
+    assert health == {
+        (("sim-SR",), None, ((SIGNAL, signal),), 50) for signal in (HEARTBEAT, UPTIME, ENGINEER)
+    }
+
+
+async def test_off_va_each_health_suffix_is_one_name_search_for_the_ioc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    FakeDirectory.records = _records(
+        _record("SR:IOC-A:HEARTBEAT"), _record("SR:IOC-A:UPTIME"), _record("SR:IOC-A:X")
+    )
+    asked: list[tuple[Any, ...]] = []
+    searched = FakeDirectory.search
+
+    async def spy(self: FakeDirectory, query: Any, deadline: float) -> Any:
+        asked.append((query.server, query.name, tuple(query.properties.items()), query.page_size))
+        return await searched(self, query, deadline)
+
+    monkeypatch.setattr(FakeDirectory, "search", spy)
+    page = _facts(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    ioc = await page.ioc_facts("ioc-a")
+
+    assert ioc["health_pvs"] == [
+        {"name": "SR:IOC-A:HEARTBEAT", "role": "heartbeat"},
+        {"name": "SR:IOC-A:UPTIME", "role": "uptime"},
+    ]
+    named = {entry for entry in asked if entry[1] and entry[3] == 50}
+    assert named == {
+        (("ioc-a",), "*HEARTBEAT", (), 50),
+        (("ioc-a",), "*UPTIME", (), 50),
+    }
+
+
 async def test_on_va_the_engineer_is_the_row_marked_engineer(
     tmp_path: Path, record: _Record
 ) -> None:

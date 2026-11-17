@@ -20,6 +20,12 @@
  * `yes`, an equal value or a read without an answer is `no`, and a page with
  * no second read yet or no heartbeat PV is `unknown`.
  *
+ * With the IOC fleet on, the facts carry a `fleet` entry and the page shows
+ * it in place of that check: the row's state, findings and read time, or the
+ * entry's outcome as a statement (the words of the `ioc_fleet` tool). The
+ * heartbeat PV is then never read here; the other health PVs are. Without the
+ * `fleet` field (the fleet is off) the page reads the heartbeat as above.
+ *
  * The page is part of All PVs: the toolbar search opens All PVs
  * (panel-toolbar.js).
  */
@@ -37,6 +43,17 @@ import { severityMark, severityOf } from './severity.js';
 /** @typedef {import('./directory-api.js').ValueRow} ValueRow */
 /** @typedef {import('./directory-api.js').IocAlarms} IocAlarms */
 /** @typedef {'yes'|'no'|'unknown'} Alive */
+/**
+ * One IOC's row in a fleet snapshot, as far as this page reads it.
+ * @typedef {{ state: string, reason?: string|null, findings?: string[],
+ *   liveness?: { pv?: string|null, read_at?: number|null }|null }} FleetRow
+ */
+/**
+ * The `fleet` field of IOC facts: the row on a fresh snapshot, else an outcome
+ * with a reason. Times are epoch seconds.
+ * @typedef {{ outcome: string, target: string, reason?: string|null,
+ *   generated_at?: number|null, row?: FleetRow|null }} FleetEntry
+ */
 
 /** The time between the two heartbeat reads. */
 export const HEARTBEAT_INTERVAL_MS = 2000;
@@ -55,6 +72,36 @@ const HEARTBEAT_WORDS = Object.freeze({
 
 /** The chip tone of each aliveness answer. */
 const ALIVE_TONE = Object.freeze({ yes: 'ok', no: 'err', unknown: 'info' });
+
+/** The chip tone of each fleet state; unknown and unreached are not established, never down. */
+const STATE_TONE = Object.freeze({
+  alive: 'ok',
+  stalled: 'err',
+  silent: 'err',
+  unreached: 'info',
+  unknown: 'info',
+});
+
+/** Each fleet finding in words. */
+const FINDING_WORDS = Object.freeze({
+  degraded: 'degraded',
+  expected_running_not_alive: 'expected running, not alive',
+  expected_stopped_alive: 'expected stopped, alive',
+  alive_unexpected: 'alive, not expected',
+});
+
+/** The State tile's word for each fleet outcome without a row. */
+const OUTCOME_WORDS = Object.freeze({
+  no_snapshot: 'no snapshot',
+  not_refreshed: 'not refreshed',
+  cannot_list: 'cannot list',
+  unavailable: 'unavailable',
+  stale: 'stale',
+  not_in_snapshot: 'not in snapshot',
+});
+
+/** What the health table says for the heartbeat PV it does not read. */
+export const FLEET_READS = 'read by the IOC fleet service';
 
 const NOT_RECORDED = 'not recorded';
 const NO_ANSWER = 'no answer';
@@ -111,6 +158,77 @@ export function aliveness(name, first, second) {
     return { alive: 'no', reason: `${name} unchanged at ${after} over ${seconds} s` };
   }
   return { alive: 'yes', reason: `${name} advanced from ${before} to ${after} in ${seconds} s` };
+}
+
+/**
+ * An epoch-seconds time as the panel writes times.
+ * @param {number|null|undefined} epoch
+ * @returns {string}
+ */
+function epochText(epoch) {
+  if (typeof epoch !== 'number' || !Number.isFinite(epoch)) return '';
+  return timeText(new Date(epoch * 1000).toISOString());
+}
+
+/**
+ * What a fleet entry without a row says, as a statement about the snapshot and
+ * never about the IOC (the words of the `ioc_fleet` tool).
+ * @param {FleetEntry} fleet
+ * @param {string} ioc
+ * @returns {string}
+ */
+export function fleetStatement(fleet, ioc) {
+  const target = fleet.target;
+  const taken = epochText(fleet.generated_at);
+  /** @type {Record<string, string>} */
+  const says = {
+    no_snapshot: `The IOC fleet service has no snapshot of target ${target} yet.`,
+    not_refreshed: `The IOC fleet service does not refresh target ${target}.`,
+    cannot_list: `The IOC fleet service cannot list the IOCs of target ${target}.`,
+    unavailable: `The IOC fleet service gave no usable answer for target ${target}.`,
+    stale:
+      `The snapshot of target ${target} is stale: the IOC fleet service stopped refreshing it.` +
+      (taken ? ` Last snapshot ${taken}.` : ''),
+    not_in_snapshot: `IOC ${ioc} is not in the snapshot of target ${target}.`,
+  };
+  const head = says[fleet.outcome] ?? `The IOC fleet answered ${fleet.outcome}.`;
+  return `${head} No state is known for this IOC. This says nothing about whether this IOC runs.`;
+}
+
+/**
+ * The fleet's answer for this IOC as the chip and the State tile show it.
+ * @param {FleetEntry} fleet
+ * @param {string} ioc
+ * @returns {{ tone: string, label: string, value: string, sub: string, reason: string,
+ *   state: string|null }}
+ */
+export function fleetView(fleet, ioc) {
+  const row = fleet.row;
+  if (fleet.outcome === 'ok' && row) {
+    const findings = (row.findings ?? []).map(
+      (f) => FINDING_WORDS[/** @type {keyof typeof FINDING_WORDS} */ (f)] ?? f
+    );
+    const time = epochText(row.liveness?.read_at ?? fleet.generated_at);
+    const sub = [...findings, time ? `read ${time}` : ''].filter(Boolean).join(' · ');
+    return {
+      tone: STATE_TONE[/** @type {keyof typeof STATE_TONE} */ (row.state)] ?? 'info',
+      label: `state: ${row.state}`,
+      value: row.state,
+      sub,
+      reason: [row.reason, sub].filter(Boolean).join(' · '),
+      state: row.state,
+    };
+  }
+  const statement = fleetStatement(fleet, ioc);
+  return {
+    tone: 'info',
+    label: 'state: not known',
+    value:
+      OUTCOME_WORDS[/** @type {keyof typeof OUTCOME_WORDS} */ (fleet.outcome)] ?? fleet.outcome,
+    sub: statement,
+    reason: [statement, fleet.reason].filter(Boolean).join(' '),
+    state: null,
+  };
 }
 
 /**
@@ -301,7 +419,9 @@ function renderPage(container, facts, mounted) {
     uptime.value.textContent = READING;
     tiles.append(uptime.tile);
   }
-  const beat = tile('heartbeat', 'Heartbeat');
+  /** @type {FleetEntry|undefined} */
+  const fleet = /** @type {{ fleet?: FleetEntry }} */ (facts).fleet ?? undefined;
+  const beat = fleet ? tile('state', 'State') : tile('heartbeat', 'Heartbeat');
   tiles.append(beat.tile);
   page.append(tiles);
 
@@ -347,8 +467,15 @@ function renderPage(container, facts, mounted) {
 
   container.replaceChildren(page);
 
-  const heartbeat = facts.health_pvs.find((pv) => pv.role === HEARTBEAT)?.name ?? null;
-  const names = facts.health_pvs.map((pv) => pv.name);
+  const heartbeatPv = facts.health_pvs.find((pv) => pv.role === HEARTBEAT)?.name ?? null;
+  // With the fleet on, the fleet service reads the heartbeat; this page does not.
+  const heartbeat = fleet ? null : heartbeatPv;
+  const names = facts.health_pvs.map((pv) => pv.name).filter((n) => !fleet || n !== heartbeatPv);
+  const fleetCell = fleet && heartbeatPv ? cells.get(heartbeatPv) : undefined;
+  if (fleetCell) {
+    cells.delete(/** @type {string} */ (heartbeatPv));
+    fleetCell.textContent = FLEET_READS;
+  }
   if (engineerPv && !names.includes(engineerPv)) names.push(engineerPv);
 
   /**
@@ -368,6 +495,18 @@ function renderPage(container, facts, mounted) {
         ? `${valueText(first)} → ${valueText(second)} in ${HEARTBEAT_INTERVAL_MS / 1000} s`
         : reason;
   };
+
+  if (fleet) {
+    const shown = fleetView(fleet, facts.ioc);
+    chip.className = `osprey-chip osprey-chip--${shown.tone}`;
+    if (shown.state) chip.dataset.state = shown.state;
+    else chip.dataset.outcome = fleet.outcome;
+    chipLabel.textContent = shown.label;
+    aliveReason = shown.reason;
+    beat.value.textContent = shown.value;
+    beat.sub.textContent = shown.sub;
+    beat.tile.dataset.outcome = fleet.outcome;
+  }
 
   /** @param {Map<string, ValueRow>|null} rows */
   const showValues = (rows) => {
@@ -391,7 +530,7 @@ function renderPage(container, facts, mounted) {
     const stale = () => mounted !== generation || token !== reads;
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
-    showAlive(aliveness(heartbeat, undefined, undefined));
+    if (!fleet) showAlive(aliveness(heartbeat, undefined, undefined));
     if (!names.length) return;
     const rows = await readRows(names);
     if (stale()) return;

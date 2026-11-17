@@ -494,3 +494,134 @@ test('facts that could not be read show a state whose Retry reads them again', a
     'Refresh'
   );
 });
+
+describe('fleet', () => {
+  const SNAPSHOT = FIXTURE.fleet.snapshot;
+  const VA_ROWS = [
+    found('ca:SIM:SR:ENGINEER', 'operator on shift'),
+    { ...found('ca:SIM:SR:UPTIME', 3600), units: 's' },
+  ];
+  /** The VA facts' IOC row in the fixture snapshot, as the facts carry it. */
+  const ROW = { ...SNAPSHOT.iocs[1], name: 'sim-SR' };
+
+  /**
+   * The `fleet` field of IOC facts.
+   * @param {Record<string, any>} fields
+   */
+  const entry = (fields) => ({
+    outcome: 'ok',
+    target: 'va',
+    reason: null,
+    generated_at: SNAPSHOT.generated_at,
+    row: null,
+    ...fields,
+  });
+
+  /** @param {number} epoch */
+  const at = async (epoch) => {
+    const { timeText } = await import(`${JS}/pv-page-sections.js`);
+    return timeText(new Date(epoch * 1000).toISOString());
+  };
+
+  test('a row shows its state, findings and read time, and the heartbeat is not read', async () => {
+    await mount({ ...VA, fleet: entry({ row: ROW }) }, [VA_ROWS]);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(readValues).toHaveBeenCalledTimes(1);
+    expect(readValues).toHaveBeenCalledWith(['ca:SIM:SR:ENGINEER', 'ca:SIM:SR:UPTIME']);
+    expect(tiles().heartbeat).toBeUndefined();
+    expect(tiles().state).toEqual(['alive', `read ${await at(ROW.liveness.read_at)}`]);
+    expect(chip().textContent).toBe('state: alive');
+    expect(chip().dataset.state).toBe('alive');
+    expect(chip().classList).toContain('osprey-chip--ok');
+    expect(tiles().uptime).toEqual(['1 h', '3600 s']);
+    expect(engineer()).toBe('operator on shift');
+    expect(healthTable()['ca:SIM:SR:HEARTBEAT']).toBe('read by the IOC fleet service');
+
+    chip().click();
+    const popover = document.querySelector('.osprey-info-popover');
+    expect(popover?.textContent).toContain('counter moved');
+  });
+
+  test('a row with findings names them, and a quiet state is not ok', async () => {
+    const row = { ...SNAPSHOT.iocs[0], name: 'sim-SR' };
+    await mount({ ...VA, fleet: entry({ row }) }, [VA_ROWS]);
+    expect(tiles().state).toEqual([
+      'silent',
+      `expected running, not alive · read ${await at(row.liveness.read_at)}`,
+    ]);
+    expect(chip().classList).toContain('osprey-chip--err');
+  });
+
+  test('a row without a liveness read gives the snapshot time', async () => {
+    const row = { ...ROW, state: 'unknown', reason: 'no liveness PV', liveness: null };
+    await mount({ ...VA, fleet: entry({ row }) }, [VA_ROWS]);
+    expect(tiles().state).toEqual(['unknown', `read ${await at(SNAPSHOT.generated_at)}`]);
+    expect(chip().classList).toContain('osprey-chip--info');
+  });
+
+  const OUTCOMES = /** @type {[string, string, string][]} */ ([
+    ['no_snapshot', 'no snapshot', 'has no snapshot of target va yet'],
+    ['not_refreshed', 'not refreshed', 'does not refresh target va'],
+    ['cannot_list', 'cannot list', 'cannot list the IOCs of target va'],
+    ['unavailable', 'unavailable', 'gave no usable answer for target va'],
+    ['stale', 'stale', 'The snapshot of target va is stale'],
+    ['not_in_snapshot', 'not in snapshot', 'sim-SR is not in the snapshot of target va'],
+  ]);
+
+  test.each(OUTCOMES)(
+    'the %s outcome is a statement, never a state',
+    async (outcome, word, says) => {
+      const reason = `reason for ${outcome}`;
+      await mount({ ...VA, fleet: entry({ outcome, reason }) }, [VA_ROWS]);
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(readValues).toHaveBeenCalledTimes(1);
+      expect(readValues).toHaveBeenCalledWith(['ca:SIM:SR:ENGINEER', 'ca:SIM:SR:UPTIME']);
+      const [value, sub] = tiles().state;
+      expect(value).toBe(word);
+      expect(sub).toContain(says);
+      expect(sub).toContain('This says nothing about whether this IOC runs.');
+      expect(chip().textContent).toBe('state: not known');
+      expect(chip().dataset.outcome).toBe(outcome);
+      expect(chip().classList).toContain('osprey-chip--info');
+      chip().click();
+      expect(document.querySelector('.osprey-info-popover')?.textContent).toContain(reason);
+      expect(tiles().uptime[0]).toBe('1 h');
+    }
+  );
+
+  test('a stale outcome gives the time of the last snapshot', async () => {
+    await mount({ ...VA, fleet: entry({ outcome: 'stale', reason: 'old' }) }, [VA_ROWS]);
+    expect(tiles().state[1]).toContain(`Last snapshot ${await at(SNAPSHOT.generated_at)}.`);
+  });
+
+  test('Refresh reads the other values again and never the heartbeat', async () => {
+    await mount({ ...VA, fleet: entry({ row: ROW }) }, [VA_ROWS]);
+    readValues.mockResolvedValueOnce(VA_ROWS);
+    /** @type {HTMLButtonElement} */ (container.querySelector('button.cf-ioc-refresh')).click();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(readValues).toHaveBeenCalledTimes(2);
+    for (const [names] of readValues.mock.calls) {
+      expect(names).not.toContain('ca:SIM:SR:HEARTBEAT');
+    }
+    expect(chip().dataset.state).toBe('alive');
+  });
+
+  test('without the fleet field the page reads the heartbeat twice as before', async () => {
+    expect('fleet' in VA).toBe(false);
+    await mount(VA, [
+      [
+        found('ca:SIM:SR:ENGINEER', 'x'),
+        found('ca:SIM:SR:HEARTBEAT', 1),
+        found('ca:SIM:SR:UPTIME', 1),
+      ],
+      [found('ca:SIM:SR:HEARTBEAT', 2)],
+    ]);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(readValues).toHaveBeenCalledTimes(2);
+    expect(tiles().state).toBeUndefined();
+    expect(tiles().heartbeat).toEqual(['advancing', '1 → 2 in 2 s']);
+    expect(chip().textContent).toBe('alive: yes');
+  });
+});

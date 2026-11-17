@@ -16,8 +16,10 @@
   how many of the directory's PVs it records, per IOC, its newest and oldest
   sample, and its configuration as rendered.
 * :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer, its
-  IOC health PVs (each a name and its role: heartbeat, uptime or engineer) and,
-  with an alarm feed configured, its PVs in alarm now.
+  IOC health PVs (each a name and its role: heartbeat, uptime or engineer),
+  with an alarm feed configured its PVs in alarm now, and with the IOC fleet
+  configured its ``fleet`` entry for the session's target: its row, or the
+  outcome (``not_in_snapshot``, ``stale``, ``not_refreshed`` ...) and reason.
 
 Both return plain dicts on every connectors release. Names are carried, never
 values: the IOC page reads the health PVs (and, on the virtual accelerator, the
@@ -34,12 +36,11 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
+from osprey import ioc_fleet_connection
 from osprey.channel_roster import registered_channels
 from osprey.services.pv_directory._connectors import (
     ENGINEER,
-    IOC_HEALTH_SIGNALS,
     NO_SOURCE_REASON,
-    SERVED_SIGNAL_PROPERTY,
     Unavailable,
     as_payload,
     severity_rank,
@@ -50,6 +51,13 @@ from osprey.services.pv_directory.archive import (
     freshness_bound_s,
     own_store,
     served_targets,
+)
+from osprey.services.pv_directory.health_selectors import (
+    SIMULATED_SIGNALS,
+    SIMULATOR_DIRECTORY,
+    health_selectors,
+    match_rows,
+    role_of,
 )
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
@@ -82,6 +90,8 @@ _REPLAY_BACKEND = "alarm_replay"
 #: How long past its deadline a backend call may run before the section gives up on it.
 _GRACE_S = 0.5
 _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
+#: The directory kind the IOC page names off ``va``: any directory that selects by suffix.
+_SUFFIX_DIRECTORY = "facility"
 _FEED_LOADING = "alarm feed still loading"
 _LIVE_CONFIGURATION = CONFIG_LABELS["alarm_state"]
 _LOGGED_CONFIGURATION = CONFIG_LABELS["alarm_log"]
@@ -401,7 +411,13 @@ class Facts:
     # -- the IOC page ----------------------------------------------------
 
     async def ioc_facts(self, ioc: str) -> dict[str, Any]:
-        """The IOC called *ioc*, as the ``IocFacts`` payload."""
+        """The IOC called *ioc*, as the ``IocFacts`` payload.
+
+        With the ``pv_directory_fleet`` predicate true, every answer carries
+        ``fleet``: :func:`~osprey.ioc_fleet_connection.entry_for`'s entry for the
+        target the directory answered for, asked of the fleet service alone (no
+        directory query, no control-system read). With it false, ``fleet`` is absent.
+        """
         links = panel_link("ioc", ioc)
         empty: dict[str, Any] = {
             "ioc": ioc,
@@ -416,12 +432,18 @@ class Facts:
             "links": links,
         }
         total = await self._service.count(ioc=[ioc])
-        if total["outcome"] == "unavailable":
-            return {**empty, **{key: total[key] for key in ("outcome", "source", "reason")}}
         source = total["source"]
+        fleet = self._fleet_entry(ioc, str(source["target"])) if self._fleet_on() else _absent()
+        if total["outcome"] == "unavailable":
+            return {
+                **empty,
+                **{key: total[key] for key in ("outcome", "source", "reason")},
+                **_fleet_field(await fleet),
+            }
         if not total["total"]:
             return {
                 **empty,
+                **_fleet_field(await fleet),
                 "outcome": "not_listed",
                 "source": source,
                 "pv_count": 0,
@@ -432,12 +454,13 @@ class Facts:
 
         on_va = source.get("target") == "va"
         with_alarms = "alarm_state" in (self._configured() or [])
-        inactive, curated, sample, health, alarms = await asyncio.gather(
+        inactive, curated, sample, health, alarms, fleet_entry = await asyncio.gather(
             self._service.count(ioc=[ioc], status="Inactive"),
             self._curated_count(ioc),
             self._service.search(ioc=[ioc], page_size=1),
             self._health_pvs(ioc, on_va),
             self._ioc_alarms(ioc) if with_alarms else _absent(),
+            fleet,
         )
         row = (sample.get("rows") or [None])[0]
         properties: Mapping[str, Any] = {}
@@ -457,6 +480,7 @@ class Facts:
             "health_pvs": health_pvs,
             **({"health_pvs_reason": health_reason} if not health_pvs else {}),
             **({"alarms": alarms} if alarms is not None else {}),
+            **_fleet_field(fleet_entry),
         }
         if on_va:
             if engineer is not None:
@@ -468,6 +492,11 @@ class Facts:
         all_inactive = facts["inactive_count"] == total["total"]
         facts["outcome"] = "inactive" if all_inactive else "found"
         return facts
+
+    async def _fleet_entry(self, ioc: str, target: str) -> dict[str, Any]:
+        """The IOC's fleet entry on *target*, as JSON; the fetch never raises."""
+        answer = await ioc_fleet_connection.fetch_snapshot(self._config, target)
+        return ioc_fleet_connection.entry_for(answer, ioc).to_json()
 
     async def _ioc_alarms(self, ioc: str) -> dict[str, Any]:
         """The IOC's PVs in alarm now: ``{outcome, total, rows, counts?}``, or ``unavailable``.
@@ -523,37 +552,23 @@ class Facts:
         ends the name.
         """
         if on_va:
-            asked = {
-                _role(signal): {SERVED_SIGNAL_PROPERTY: signal} for signal in IOC_HEALTH_SIGNALS
-            }
-            pages = await asyncio.gather(
-                *(
-                    self._service.search(ioc=[ioc], properties=match, page_size=_HEALTH_PAGE_SIZE)
-                    for match in asked.values()
-                )
-            )
-            found = {
-                (row["name"], role)
-                for role, page in zip(asked, pages, strict=True)
-                for row in page.get("rows") or ()
-            }
+            selectors = health_selectors(SIMULATOR_DIRECTORY, SIMULATED_SIGNALS)
         else:
-            suffixes = self._health_suffixes()
-            pages = await asyncio.gather(
-                *(
-                    self._service.search(ioc=[ioc], name=f"*{suffix}", page_size=_HEALTH_PAGE_SIZE)
-                    for suffix in suffixes.values()
-                )
+            selectors = health_selectors(_SUFFIX_DIRECTORY, self._health_suffixes())
+        pages = await asyncio.gather(
+            *(
+                self._service.search(ioc=[ioc], **selector.query(), page_size=_HEALTH_PAGE_SIZE)
+                for selector in selectors
             )
-            found = {
-                (row["name"], role)
-                for (role, suffix), page in zip(suffixes.items(), pages, strict=True)
-                for row in page.get("rows") or ()
-                if row["name"].endswith(suffix)
-            }
+        )
+        found = {
+            (match.name, match.role)
+            for selector, page in zip(selectors, pages, strict=True)
+            for match in match_rows(selector, page.get("rows") or ())
+        }
         health = [{"name": name, "role": role} for name, role in sorted(found)]
         engineer = (
-            next((pv["name"] for pv in health if pv["role"] == _role(ENGINEER)), None)
+            next((pv["name"] for pv in health if pv["role"] == role_of(ENGINEER)), None)
             if on_va
             else None
         )
@@ -568,16 +583,15 @@ class Facts:
         by its signal's own word.
         """
         value = self._display.get("ioc_health_suffixes")
-        signals = {_role(signal): signal for signal in IOC_HEALTH_SIGNALS}
         if isinstance(value, Mapping):
             listed = {
                 role: suffix
                 for role, suffix in value.items()
-                if role in signals and isinstance(suffix, str) and suffix
+                if role in SIMULATED_SIGNALS and isinstance(suffix, str) and suffix
             }
             if listed:
                 return listed
-        return {role: signal for role, signal in signals.items() if signal != ENGINEER}
+        return {role: signal for role, signal in SIMULATED_SIGNALS.items() if signal != ENGINEER}
 
     # -- small helpers ---------------------------------------------------
 
@@ -591,6 +605,14 @@ class Facts:
             return None
         keys = predicates(resolved)
         return [section for section, key in _SECTIONS if keys[key]]
+
+    def _fleet_on(self) -> bool:
+        """The ``pv_directory_fleet`` predicate; a malformed section reads as off."""
+        try:
+            resolved = resolve_section(self._config)
+        except SectionError:
+            return False
+        return resolved is not None and predicates(resolved)["pv_directory_fleet"]
 
     async def _target(self) -> str:
         """The current target, as the service's count names it in its source."""
@@ -634,6 +656,11 @@ async def _archive_metadata(connector: Any, name: str) -> Any:
     except Exception as failure:
         logger.warning("the archive's metadata could not be read", exc_info=True)
         return _Reason(service_failed(failure))
+
+
+def _fleet_field(entry: dict[str, Any] | None) -> dict[str, Any]:
+    """``{"fleet": entry}``, or nothing when the fleet is off."""
+    return {"fleet": entry} if entry is not None else {}
 
 
 async def _absent() -> None:
@@ -796,8 +823,3 @@ def _ports(properties: Mapping[str, Any]) -> list[int] | None:
         except (KeyError, ValueError):
             continue
     return ports or None
-
-
-def _role(signal: str) -> str:
-    """The IOC health role a simulator health signal serves: its word, lower case."""
-    return signal.lower()
