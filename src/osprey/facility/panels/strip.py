@@ -24,6 +24,8 @@ ABOVE_FRACTION = 0.55
 GAP_MIN = 4.0
 GAP_PER_M = 14.0
 GAP_MAX = 26.0
+#: The narrowest a gap gets, in parts of its natural width, before symbols shrink.
+GAP_FLOOR = 0.25
 
 
 @dataclass(frozen=True)
@@ -70,60 +72,77 @@ def arrange_scaled(
     elements: Sequence[StripElement],
     widths: Mapping[str, float] | None = None,
     strip_width: float = 1000.0,
+    *,
+    fill: bool = False,
 ) -> tuple[list[Placed], float]:
     """Place the elements along a strip of ``strip_width`` units.
 
     Sorts by ``s_m`` (equal positions keep their input order) and walks in
-    order: a gap, then the symbol. Symbols are never enlarged: a strip shorter
-    than ``strip_width`` keeps its natural widths and is centred as a block; a
-    longer one is compressed to fit.
+    order: a gap, then the symbol. Symbols are never enlarged. A strip too
+    long for ``strip_width`` first narrows its gaps, down to
+    :data:`GAP_FLOOR` of their natural width; only then are the symbols
+    compressed too. A shorter strip is centred as a block; with *fill* its
+    gaps widen, each in proportion to its natural width, so that it spans
+    the strip.
 
     Args:
         elements: The devices; any order.
         widths: Symbol name to width in units; others get :data:`DEFAULT_WIDTH`.
         strip_width: The width of the strip.
+        fill: Widen the gaps of a short strip to span the width.
 
     Returns:
         One :class:`Placed` per element, in beam order, and the scale applied
-        (at most 1; below 1 the strip was compressed, so a renderer may choose
-        to break it into rows).
+        to the symbols (at most 1; below 1 the strip was compressed, so a
+        renderer may choose to break it into rows).
     """
     widths = widths or {}
     ordered = sorted(elements, key=lambda e: e.s_m)
-    raw: list[tuple[StripElement, float, float]] = []
-    cursor = 0.0
+    sizes: list[float] = []
+    gaps: list[float] = []
     previous: float | None = None
     for e in ordered:
         if previous is not None:
-            cursor += min(GAP_MAX, GAP_MIN + GAP_PER_M * (e.s_m - previous))
+            gaps.append(min(GAP_MAX, GAP_MIN + GAP_PER_M * (e.s_m - previous)))
         w = float(widths.get(e.symbol, DEFAULT_WIDTH))
-        if e.lane == "above":
-            w *= ABOVE_FRACTION
-        raw.append((e, cursor + w / 2, w))
-        cursor += w
+        sizes.append(w * ABOVE_FRACTION if e.lane == "above" else w)
         previous = e.s_m
-    scale = min(1.0, strip_width / cursor) if cursor > 0 else 1.0
-    offset = (strip_width - cursor * scale) / 2
+    drawn, spaces = sum(sizes), sum(gaps)
+    scale, stretch = 1.0, 1.0
+    if drawn + spaces > strip_width:
+        if spaces and drawn + spaces * GAP_FLOOR <= strip_width:
+            stretch = (strip_width - drawn) / spaces
+        else:
+            stretch = GAP_FLOOR
+            scale = strip_width / (drawn + spaces * GAP_FLOOR)
+    elif fill and spaces:
+        stretch = (strip_width - drawn) / spaces
+    total = (drawn + spaces * stretch) * scale
+    cursor = (strip_width - total) / 2
     out: list[Placed] = []
     above = 0
-    for e, x, w in raw:
+    for i, (e, w) in enumerate(zip(ordered, sizes, strict=True)):
+        if i:
+            cursor += gaps[i - 1] * stretch * scale
         level = 0
         if e.lane == "above":
             level = above % 2
             above += 1
+        width = w * scale
         out.append(
             Placed(
                 e.thing,
                 e.symbol,
                 e.lane,
                 e.s_m,
-                offset + x * scale,
-                w * scale,
+                cursor + width / 2,
+                width,
                 level,
                 e.link,
                 e.channels,
             )
         )
+        cursor += width
     return out, scale
 
 

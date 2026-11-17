@@ -140,10 +140,12 @@ def _axes(doc: dict) -> list[dict]:
 
 
 def _is_mark(n: dict) -> bool:
+    """A locator's device mark: a short upright line that names its device."""
     return (
         n["type"] == "line"
-        and n["geometry"]["width"] == layout.AXIS_WIDTH
-        and n["geometry"]["height"] == layout.LOCATOR_MARK + layout.LOCATOR_BAR
+        and "tooltip" in n["props"]
+        and n["geometry"]["width"] <= layout.AXIS_WIDTH
+        and n["geometry"]["height"] in (layout.LOCATOR_MARK, layout.LOCATOR_BIG)
     )
 
 
@@ -406,11 +408,12 @@ def test_a_strip_draws_quadrupoles_above_or_below_the_axis_by_polarity(panel_gra
 def test_a_locator_puts_ticks_and_devices_in_proportion_to_s(panel_graph) -> None:
     doc, _ = draw(invented_views()[1], panel_graph)
     ticks = [
-        (float(n["props"]["text"][: -len(" m")]), n["geometry"]["x"] + n["geometry"]["width"] / 2)
+        (float(n["props"]["text"]), n["geometry"]["x"] + n["geometry"]["width"] / 2)
         for n in _by_type(doc, "text-label")
-        if n["props"]["text"].endswith(" m")
+        if re.fullmatch(r"\d+(\.\d+)?", n["props"]["text"])
     ]
-    assert [m for m, _ in ticks] == [0, 5, 10, 15, 20, 25, 30]
+    assert "to scale · position along the beam (m)" in _texts(doc)
+    assert [m for m, _ in ticks] == list(range(0, 31, 2))
     (m0, x0), (m1, x1) = ticks[0], ticks[-1]
     per_metre = (x1 - x0) / (m1 - m0)
     for m, x in ticks:
@@ -441,9 +444,9 @@ def test_the_tray_is_a_dashed_box_of_its_entries_with_their_reason(panel_graph) 
     dashed = [n for n in _by_type(doc, "polygon") if n["props"].get("lineStyle") == "dashed"]
     assert dashed
     texts = _texts(doc)
-    assert "not placed" in texts
+    assert "IN OUR LISTS, NOT PLACED" in texts
     for entry in item.tray:
-        assert entry.reason in texts
+        assert f"{entry.thing} · {entry.reason}" in texts
 
 
 def test_a_conflicting_rack_unit_is_marked(panel_graph) -> None:
@@ -665,7 +668,7 @@ def test_an_empty_strip_with_only_a_tray_renders(panel_graph) -> None:
     from osprey.facility.panels.view import TrayEntry
 
     doc, _ = draw(strip_view([], (TrayEntry("T", None, "no position", None),)), panel_graph)
-    assert "no position" in _texts(doc)
+    assert "T · no position" in _texts(doc)
     assert not _axes(doc) and not _marks(doc)
 
 
@@ -713,7 +716,7 @@ def test_a_long_table_is_cut_and_its_remaining_rows_counted(panel_graph) -> None
         View(Target("checkout", "place", "X"), "x", (), (Section("c", rows),)), panel_graph
     )
     texts = _texts(doc)
-    assert texts.count("X") == layout.MAX_TABLE_ROWS
+    assert texts.count("X") == layout.MAX_TABLE_ROWS + 1  # and the header's
     (note,) = [t for t in texts if t.startswith(f"{extra} more ")]
     assert "rows not drawn" in note
 
@@ -981,7 +984,8 @@ def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(
             assert a["geometry"]["x"] + a["geometry"]["width"] <= b["geometry"]["x"]
     view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
     doc, _ = draw(view, panel_graph)
-    assert {"QF1", "QD1", "IP1"} <= set(_texts(doc))  # the last component of each id
+    assert {"QF1", "QD1"} <= set(_texts(doc))  # the last component of each id
+    assert "IP1" not in _texts(doc)  # a badge carries its letter, not a name
     from osprey.facility.panels.strip import Placed
 
     wide = [
@@ -1047,7 +1051,7 @@ def test_no_two_picture_labels_overlap_and_each_has_a_leader(panel_graph) -> Non
         leaders = [
             n
             for n in _by_type(doc, "line")
-            if n["props"]["lineColor"] == symbols.BOX_BORDER and len(n["props"]["points"]) == 2
+            if n["props"]["lineColor"] == symbols.MUTED_TEXT and len(n["props"]["points"]) == 2
         ]
         assert len(leaders) >= len(names), view.id
         for a, b in [(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1 :]]:

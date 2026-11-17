@@ -40,8 +40,10 @@ from osprey.facility.panels.model import Citation, PanelGraph
 from osprey.facility.panels.symbols import (
     BOX_BORDER,
     FIELD_BACKGROUND,
+    MUTED_TEXT,
     PAGE_BACKGROUND,
     PAGE_TEXT,
+    PANEL_BACKGROUND,
     TRANSPARENT,
 )
 from osprey.facility.panels.view import (
@@ -50,6 +52,7 @@ from osprey.facility.panels.view import (
     Fact,
     Grid,
     GridCell,
+    Group,
     Light,
     Link,
     Node,
@@ -80,6 +83,7 @@ __all__ = [
     "picture_labels",
     "engine_expression",
     "engine_length",
+    "stem_levels",
     "strip_labels",
     "text_width",
     "unexpressed",
@@ -87,17 +91,23 @@ __all__ = [
 
 # --- constants: every size, spacing and font size of a panel screen -----------
 PAGE_WIDTH = 1200
-MARGIN = 16
+MARGIN = 32  # the left edge of every section's content
+# type: body 13, small 11 and nothing smaller anywhere (a text-label below
+# SMALL_SIZE is raised to it), headings small and muted, the page title 20
 TITLE_SIZE = 20
-HEADING_SIZE = 16
+HEADING_SIZE = 11
 TEXT_SIZE = 13
 SMALL_SIZE = 11
 CHAR_WIDTH = 0.6  # estimated width of one character, in parts of the font size
-TEXT_PAD = 6  # added to an estimated text width
+TEXT_PAD = 10  # added to an estimated text width: the label's own padding and a margin
+HEADER_HEIGHT = 40  # the bar at the top of every screen
+HEADER_PAD = 8  # the bar's widgets from its top
+PANEL_PAD = 16  # a section's frame around its content: the frame stands in the margin
+PANEL_GAP = 12  # between two section frames
 ROW = 24  # height of one row of text, a field or a button
 ROW_GAP = 4
 SECTION_GAP = 16
-RULE_GAP = 6  # between a heading and the line under it
+STAMP_DIGITS = 8  # of the model's content hash, in the header
 GAP = 8  # between two widgets on one row
 INDENT = 20  # one level of a roll-up tree
 LABEL_WIDTH = 200
@@ -107,32 +117,44 @@ UNIT_GAP = 2
 BUTTON_PAD = 16
 MAX_BUTTON_WIDTH = 420
 LIGHT_SIZE = 14
-MARK_WIDTH = 14
+MARK_WIDTH = 16
 LINE_WIDTH = 1
 AXIS_WIDTH = 2
 CELL_WIDTH = 110  # a checkout's column
 NAME_WIDTH = 260  # a checkout's first column
 GRID_CELL_WIDTH = 240  # one member of a set overview
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
-MIN_STRIP_SCALE = 0.5  # below this a strip breaks into rows
-SYMBOL_UNIT = 14  # one shape unit of a symbol, in px, at scale 1
-STRIP_ABOVE = 40  # height of the lane above the beam, from the axis
-STRIP_LEVEL = 16  # second level of the above lane, further up
-STRIP_LABEL_TOP = 20  # a symbol's name, below the axis
-STRIP_LABEL_STEP = 13  # the second level of names, further down
-STRIP_LABEL_SIZE = 10
-STRIP_LABEL_WIDTH = 72  # the most a symbol's name may take along the strip
-STRIP_LABEL_GAP = 3  # between two names on one level
-STRIP_BELOW = STRIP_LABEL_TOP + 2 * STRIP_LABEL_STEP + 4  # room under the axis
-LOCATOR_GAP = 10
-LOCATOR_BAR = 6
+MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 36 px tall
+SYMBOL_UNIT = 16  # one shape unit of a symbol, in px, at scale 1: a bend is 60 px tall
+STRIP_AXIS = 30  # the axis's room each side: half the tallest symbol, a bend
+BADGE = 18  # a device off the axis: its circle
+STEM_LOW = 44  # from the axis to the centre of a badge, first level
+STEM_HIGH = 74  # second level, for a badge that would touch its neighbour
+BADGE_GAP = 2  # between two badges of one level
+STRIP_LABEL_TOP = STRIP_AXIS + 4  # a symbol's name, below the axis
+STRIP_LABEL_STEP = 18  # the second line of names, further down
+STRIP_LABEL_SIZE = SMALL_SIZE
+STRIP_LABEL_WIDTH = 96  # the most a symbol's name may take along the strip
+STRIP_LABEL_GAP = 6  # between two names on one line
+STRIP_BELOW = STRIP_LABEL_TOP + 2 * STRIP_LABEL_STEP  # room under the axis
+LEADER_DROP = 22  # from the names to the locator: the leaders' run
+LOCATOR_BAR = 1  # the to-scale bar: a line
 LOCATOR_MARK = 8  # how far a device's mark reaches above the bar
+LOCATOR_BIG = 12  # the mark of a magnet
 TICK = 5
-TICK_LABEL_WIDTH = 60
-MAX_TICKS = 12
+TICK_LABEL_WIDTH = 48
+MAX_TICKS = 16
 TICK_STEPS = (1, 2, 5)
 TICK_BASE = 10
-TRAY_PAD = 8
+LEGEND_SYMBOL = 6  # one shape unit of a symbol in the legend
+LEGEND_GAP = 20  # between two entries of the legend
+TRAY_PAD = 10
+CHIP_HEIGHT = 26
+CHIP_GAP = 8
+CHIP_LIGHT = 12
+LEGEND_ROW = 28
+SUMMARY_ROW = 36  # one row of a by-system summary
+SUMMARY_COLUMNS = 2
 PICTURE_SIZE = 260
 PICTURE_PAD = 24
 PART_MARKER = 8
@@ -256,6 +278,38 @@ _NOT_PLACED = "not placed"
 _NO_UNIT = "no unit"
 _ROWS_NOT_DRAWN = "rows not drawn: the screen holds a table of at most this many rows"
 _CONTESTED = "contested"
+_STRIP_TITLE = "{} · IN BEAM ORDER → · schematic, not to scale"
+_LOOKS_LEGEND = (
+    "grey = normal · amber = warning · red = fault · dashed = unknown · outline = no rule"
+)
+_LOCATOR_CAPTION = "to scale · position along the beam (m)"
+_NO_RULE_YET = "no health rule yet"
+_TRAY_TITLE = "in our lists, not placed"
+_READS = "{} rule channel{}"
+_MAGNETS = frozenset(
+    {"bend", "quadrupole", "quadrupole_f", "quadrupole_d", "sextupole", "skew_quadrupole"}
+)
+#: The word for each symbol in a strip's legend.
+SYMBOL_WORDS: Mapping[str, str] = MappingProxyType(
+    {
+        "bend": "bend",
+        "quadrupole_f": "focusing quadrupole",
+        "quadrupole_d": "defocusing quadrupole",
+        "quadrupole": "quadrupole",
+        "sextupole": "sextupole",
+        "skew_quadrupole": "skew quadrupole",
+        "corrector": "corrector",
+        "bpm": "BPM",
+        "neg_pump": "NEG pump",
+        "ion_pump": "ion pump",
+        "gauge": "gauge",
+        "gate_valve": "gate valve",
+        "bellows": "bellows",
+        "kicker": "kicker",
+        "scraper": "scraper",
+        "generic": "other device",
+    }
+)
 _STATE_ORDER: tuple[State, ...] = ("bad", "warn", "disagree")
 
 
@@ -922,6 +976,8 @@ class _Screen:
     ) -> dict[str, Any]:
         self._widgets += 1
         g = node["geometry"]
+        if node["type"] == "text-label" and node["props"].get("fontSize", SMALL_SIZE) < SMALL_SIZE:
+            node["props"]["fontSize"] = SMALL_SIZE  # the floor: nothing smaller anywhere
         out: dict[str, Any] = {
             "id": f"w-{self._widgets:04d}",
             "type": node["type"],
@@ -1042,6 +1098,7 @@ class _Page:
         # writable widgets only on a device card's own signals and settings
         self.on_card = view.id.view == "card" and view.id.kind == "device"
         self.node_form = False  # a rack over its budget: one light per unit (elevation)
+        self.budget = Budget()  # spent by the strip's symbols, chips and summary rows
 
     # -- primitives -----------------------------------------------------------
 
@@ -1059,8 +1116,13 @@ class _Page:
         align="left",
         tags=(),
     ) -> float:
-        """A text label; returns its right edge."""
+        """A text label; returns its right edge. Text that would run past the right
+        margin is cut there, an ellipsis marking the cut."""
         w = text_width(text, size) if w is None else w
+        right = PAGE_WIDTH - MARGIN + PANEL_PAD  # the inner edge of a section's frame
+        if x + w > right:
+            w = max(right - x, 0)
+            text = _cut(text, w, size)
         props = {
             "text": text,
             "fontSize": size,
@@ -1262,25 +1324,71 @@ class _Page:
     # -- the view -------------------------------------------------------------
 
     def draw(self) -> dict[str, Any]:
-        x = MARGIN
-        if self.view.crumbs:
-            for i, crumb in enumerate(self.view.crumbs):
-                if i:
-                    x = self.text(x, self.y, "›", w=MARK_WIDTH) + GAP
-                x = self.button(x, self.y, crumb) + GAP
-            self.next_row()
-        self.text(MARGIN, self.y, self.view.title, size=TITLE_SIZE, w=STRIP_WIDTH)
-        self.next_row()
+        self.header()
+        self.y = HEADER_HEIGHT + SECTION_GAP
+        self.text(MARGIN, self.y, self.view.title, size=TITLE_SIZE, w=STRIP_WIDTH, h=ROW + GAP)
+        self.y += ROW + GAP
         for section in self.view.sections:
             self.section(section)
-        return self.s.document(self.y + MARGIN)
+        return self.s.document(self.y + SECTION_GAP)
+
+    def header(self) -> None:
+        """The bar at the top: the screen's thing, the way out to the places around it,
+        and the model the screen was made from, right-aligned."""
+        self.s.widget(
+            "rectangle",
+            0,
+            0,
+            PAGE_WIDTH,
+            HEADER_HEIGHT,
+            {
+                "lineColor": BOX_BORDER,
+                "lineWidth": LINE_WIDTH,
+                "fill": True,
+                "fillColor": FIELD_BACKGROUND,
+            },
+        )
+        y = HEADER_PAD
+        x = MARGIN - GAP
+        for crumb in self.view.crumbs:
+            x = self.button(x + GAP, y, crumb)
+            x = self.text(x + GAP, y, "›", w=MARK_WIDTH, fg=MUTED_TEXT)
+        self.text(x + GAP, y, self.view.id.id)
+        stamp = f"model {self.graph.content_hash[:STAMP_DIGITS]}"
+        w = text_width(stamp, SMALL_SIZE)
+        self.text(PAGE_WIDTH - MARGIN - w, y, stamp, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
+
+    def heading(self, text: str) -> None:
+        """A section's heading: small capitals in the muted role."""
+        self.text(MARGIN, self.y, text.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+        self.y += ROW + ROW_GAP
 
     def section(self, section: Section) -> None:
-        self.y += SECTION_GAP
-        self.text(MARGIN, self.y, section.title, size=HEADING_SIZE, w=STRIP_WIDTH)
-        self.y += ROW + RULE_GAP
-        self.line([(MARGIN, self.y), (MARGIN + STRIP_WIDTH, self.y)], BOX_BORDER)
-        self.y += RULE_GAP
+        """A section in its frame: the frame stands in the margin around what it holds."""
+        first = len(self.s.nodes)
+        top = self.y
+        self.y += PANEL_PAD
+        if not (section.items and isinstance(section.items[0], Strip)):
+            self.heading(section.title)
+        self.items(section)
+        self.y += PANEL_PAD - ROW_GAP
+        self.s.widget(
+            "rectangle",
+            MARGIN - PANEL_PAD,
+            top,
+            STRIP_WIDTH + 2 * PANEL_PAD,
+            self.y - top,
+            {
+                "lineColor": BOX_BORDER,
+                "lineWidth": LINE_WIDTH,
+                "fill": True,
+                "fillColor": PANEL_BACKGROUND,
+            },
+        )
+        self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
+        self.y += PANEL_GAP
+
+    def items(self, section: Section) -> None:
         previous: object = None
         rows = left_out = 0
         for item in section.items:
@@ -1316,6 +1424,7 @@ class _Page:
             Picture: self.picture,
             Elevation: self.elevation,
             Node: self.node,
+            Group: self.group,
             CheckRow: self.check_row,
             Totals: self.totals,
         }[type(item)]
@@ -1605,15 +1714,28 @@ class _Page:
     # -- the strip ------------------------------------------------------------
 
     def strip(self, item: Strip) -> None:
+        """A place in beam order: the title line, each row of symbols with its locator,
+        the legend of the symbols drawn, the tray, and the count of the rest."""
+        self.strip_title()
         if item.elements:
             widths = {kind: units * SYMBOL_UNIT for kind, units in symbols.WIDTH_UNITS.items()}
             for row in _strip_rows(item.elements, widths):
                 self.strip_row(row, widths, item.extent_m)
+            self.legend(item.elements)
         if item.tray:
             self.tray(item)
         if item.others is not None:
             self.button(MARGIN, self.y, item.others)
             self.next_row()
+
+    def strip_title(self) -> None:
+        """What the strip is, left; what its looks mean, right."""
+        self.text(MARGIN, self.y, _STRIP_TITLE.format(self.view.id.id))
+        w = text_width(_LOOKS_LEGEND, SMALL_SIZE)
+        self.text(
+            MARGIN + STRIP_WIDTH - w, self.y, _LOOKS_LEGEND, size=SMALL_SIZE, w=w, fg=MUTED_TEXT
+        )
+        self.next_row()
 
     def strip_row(
         self,
@@ -1624,56 +1746,93 @@ class _Page:
         drawn = [
             e if e.symbol in symbols.WIDTH_UNITS else replace(e, symbol="generic") for e in row
         ]
-        placed, scale = strip.arrange_scaled(drawn, widths, STRIP_WIDTH)
-        axis = self.y + STRIP_ABOVE + STRIP_LEVEL
+        placed, _scale = strip.arrange_scaled(drawn, widths, STRIP_WIDTH, fill=True)
+        beam = [p for p in placed if p.lane != "above"]
+        badges = [p for p in placed if p.lane == "above"]
+        levels = stem_levels([p.x for p in badges])
+        room = STRIP_AXIS
+        if badges:
+            room = max(room, (STEM_HIGH if any(levels) else STEM_LOW) + BADGE / 2)
+        axis = self.y + room + ROW_GAP
         self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], PAGE_TEXT, AXIS_WIDTH)
-        del scale  # p.width is already scaled; the unit follows from it
-        for p in placed:
+        for p, level in zip(badges, levels, strict=True):
             x = MARGIN + p.x
-            y = axis
-            if p.lane == "above":
-                y = axis - STRIP_ABOVE - p.level * STRIP_LEVEL
-                self.line([(x, y), (x, axis)], BOX_BORDER)
-            self.symbol(p, x, y, p.width / symbols.WIDTH_UNITS[p.symbol])
+            cy = axis - (STEM_HIGH if level else STEM_LOW)
+            self.line([(x, cy + BADGE / 2), (x, axis)], MUTED_TEXT)
+            self.badge(p, x, cy)
+        for p in beam:
+            x = MARGIN + p.x
+            self.symbol(p, x, axis, p.width / symbols.WIDTH_UNITS[p.symbol])
             if p.link is not None:
                 half = p.width / 2
-                reach = STRIP_LEVEL if p.lane == "above" else STRIP_LABEL_TOP
-                self.nav(x - half, y - reach, p.width, 2 * reach, replace(p.link, label=p.thing))
-        for text, left, w, level in strip_labels(placed):
+                link = replace(p.link, label=p.thing)
+                self.nav(x - half, axis - STRIP_AXIS, p.width, 2 * STRIP_AXIS, link)
+        lines = 0
+        for text, left, w, level in strip_labels(beam):
             top = axis + STRIP_LABEL_TOP + level * STRIP_LABEL_STEP
             self.text(MARGIN + left, top, text, size=STRIP_LABEL_SIZE, w=w, h=STRIP_LABEL_STEP)
-        self.y = axis + STRIP_BELOW + LOCATOR_GAP
+            lines = max(lines, level + 1)
+        self.y = axis + STRIP_LABEL_TOP + lines * STRIP_LABEL_STEP
         if extent is not None:
-            self.locator(row, extent)
+            self.locator(beam, extent)
+        else:
+            self.y += ROW_GAP
+
+    def badge(self, element: strip.Placed, cx: float, cy: float) -> None:
+        """A device off the axis: a circle with its kind's letter, in its live look."""
+        circle, letter = symbols.badge(cx, cy, BADGE, element.symbol, SMALL_SIZE)
+        circle["props"][_TOOLTIP] = element.thing
+        live, tags = self.symbol_rule(element)
+        if live is None:
+            look = symbols.NONE if not element.channels else "aggregate" if tags else "unknown"
+            for prop in symbols.LIGHT_PROPS:
+                circle["props"][prop] = symbols.look(look)[prop]
+            self.s.add(circle, tags=tags)
+        else:
+            rules = self.look_rules(element.thing, "polygon", live)
+            self.s.add(circle, rules=rules, tags=tags)
+        self.s.add(letter)
+        if element.link is not None:
+            link = replace(element.link, label=element.thing)
+            self.nav(cx - BADGE / 2, cy - BADGE / 2, BADGE, BADGE, link)
+
+    def symbol_rule(self, element: strip.Placed) -> tuple[Ladder | None, list[str]]:
+        """The live rule of a strip element (the worst of its channels, as a roll-up
+        node reads them) and the needs it hits; ``None`` when it has no live rule."""
+        if not element.channels:
+            return None, []
+        lights = [describe_light(self.graph, c) for c in element.channels]
+        rule = ladder(self.graph, lights, node=True)
+        if isinstance(rule, Ladder) and rule.arms and not self.budget.take([light_cost(rule)]):
+            rule = "aggregate state"
+        tags = [_need("state light")]
+        if rule == "aggregate state":
+            return None, [*tags, _need("aggregate state"), _AGGREGATE_SYMBOL]
+        if isinstance(rule, str):
+            self.s.unknown += 1
+            return None, [*tags, _need(rule), _UNKNOWN_TAG + rule]
+        if rule.unwritten:
+            tags.append(_need("label condition"))
+        return (rule if rule.arms else None), tags
 
     def symbol(self, element: strip.Placed, x: float, y: float, unit: float) -> None:
         """A device's symbol, in the live state of its rule channels.
 
         The symbol reads the ladder a roll-up node of the device would read: the
         worst of its channels. With no rule channel it is in the ``none`` look
-        and carries no mark; over the format's limit it is drawn in the
-        aggregate look.
+        and carries no mark; over the format's limit, or past the screen's
+        budget, it is drawn in the aggregate look.
         """
         if not element.channels:
             for node in symbols.draw(element.symbol, x, y, symbols.NONE, unit=unit):
                 node["props"][_TOOLTIP] = element.thing
                 self.s.add(node)
             return
-        lights = [describe_light(self.graph, c) for c in element.channels]
-        rule = ladder(self.graph, lights, node=True)
-        aggregate = rule == "aggregate state"
+        live, tags = self.symbol_rule(element)
+        aggregate = _AGGREGATE_SYMBOL in tags
         drawn = symbols.draw(
             element.symbol, x, y, "aggregate" if aggregate else "unknown", unit=unit
         )
-        tags = [_need("state light")]
-        if aggregate:
-            tags += [_need("aggregate state"), _AGGREGATE_SYMBOL]
-        elif isinstance(rule, str):
-            tags += [_need(rule), _UNKNOWN_TAG + rule]
-            self.s.unknown += 1
-        elif rule.unwritten:
-            tags.append(_need("label condition"))
-        live = rule if isinstance(rule, Ladder) and rule.arms else None
         *shapes, mark = drawn
         for node in shapes:
             node["props"][_TOOLTIP] = element.thing
@@ -1692,43 +1851,174 @@ class _Page:
             for prop in symbols.styled(node_type)
         ]
 
-    def locator(self, row: Sequence[StripElement], extent: tuple[float, float]) -> None:
+    def locator(self, beam: Sequence[strip.Placed], extent: tuple[float, float]) -> None:
+        """The to-scale bar under a row: its caption, a mark per symbol where the
+        symbol truly is, a leader from each symbol's name down to its mark, and
+        the metres."""
         lo, hi = extent
         span = hi - lo
-        bar = self.y
-        self.box(MARGIN, bar, STRIP_WIDTH, LOCATOR_BAR)
-        shifted = [replace(e, s_m=e.s_m - lo) for e in row]
-        for thing, x in strip.locator(shifted, span, STRIP_WIDTH):
-            mark = [(MARGIN + x, bar - LOCATOR_MARK), (MARGIN + x, bar + LOCATOR_BAR)]
-            self.line(mark, PAGE_TEXT, AXIS_WIDTH, tooltip=thing)
+        leaders_top = self.y
+        bar = self.y + LEADER_DROP + LOCATOR_BIG
+        self.line([(MARGIN, bar), (MARGIN + STRIP_WIDTH, bar)], MUTED_TEXT, LOCATOR_BAR)
+        shifted = [StripElement(p.thing, None, p.s_m - lo, p.symbol, p.lane, None) for p in beam]
+        marks = strip.locator(shifted, span, STRIP_WIDTH)
+        for p, (thing, x) in zip(beam, marks, strict=True):
+            big = p.symbol in _MAGNETS
+            reach = LOCATOR_BIG if big else LOCATOR_MARK
+            colour, width = (PAGE_TEXT, AXIS_WIDTH) if big else (MUTED_TEXT, LINE_WIDTH)
+            self.line([(MARGIN + x, bar - reach), (MARGIN + x, bar)], colour, width, tooltip=thing)
+            self.line([(MARGIN + p.x, leaders_top), (MARGIN + x, bar - reach)], MUTED_TEXT)
+        top = bar + LOCATOR_BAR
         for metres, x in _ticks(lo, hi):
-            top = bar + LOCATOR_BAR
-            self.line([(MARGIN + x, top), (MARGIN + x, top + TICK)], PAGE_TEXT)
-            label = f"{metres:g} m"
-            self.text(
-                MARGIN + x - TICK_LABEL_WIDTH / 2,
-                top + TICK,
-                label,
-                size=SMALL_SIZE,
-                w=TICK_LABEL_WIDTH,
-            )
-        self.y = bar + LOCATOR_BAR + TICK + ROW + ROW_GAP
+            self.line([(MARGIN + x, top), (MARGIN + x, top + TICK)], MUTED_TEXT)
+            label = f"{metres:g}"
+            w = text_width(label, SMALL_SIZE)
+            self.text(MARGIN + x - w / 2, top + TICK, label, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
+        self.y = top + TICK + ROW
+        self.text(MARGIN, self.y, _LOCATOR_CAPTION, size=SMALL_SIZE, fg=MUTED_TEXT)
+        self.y += ROW + ROW_GAP
+
+    def legend(self, elements: Sequence[StripElement]) -> None:
+        """Each symbol the strip draws, as it is drawn, and its name."""
+        present = {e.symbol if e.symbol in symbols.WIDTH_UNITS else "generic" for e in elements}
+        above = {e.symbol for e in elements if e.lane == "above"}
+        x = MARGIN
+        cy = self.y + LEGEND_ROW / 2
+        for kind in symbols.KINDS:
+            if kind not in present:
+                continue
+            word = SYMBOL_WORDS[kind]
+            w = BADGE if kind in above else symbols.WIDTH_UNITS[kind] * LEGEND_SYMBOL
+            room = w + GAP + text_width(word, SMALL_SIZE)
+            if x + room > MARGIN + STRIP_WIDTH:
+                x = MARGIN
+                self.y += LEGEND_ROW
+                cy = self.y + LEGEND_ROW / 2
+            if kind in above:
+                drawn = symbols.badge(x + w / 2, cy, BADGE, kind, SMALL_SIZE)
+            else:
+                drawn = symbols.draw(kind, x + w / 2, cy, "normal", unit=LEGEND_SYMBOL)[:-1]
+                top = min(n["geometry"]["y"] for n in drawn)
+                bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in drawn)
+                for node in drawn:  # a quadrupole sits off its axis: centre it on the row
+                    node["geometry"]["y"] += cy - (top + bottom) / 2
+            for node in drawn:
+                self.s.add(node)
+            right = self.text(x + w + GAP, cy - ROW / 2, word, size=SMALL_SIZE, fg=MUTED_TEXT)
+            x = right + LEGEND_GAP
+        self.y += LEGEND_ROW + ROW_GAP
+
+    def chip(
+        self, x: float, y: float, label: str, link: Link | None, node: Node | None = None
+    ) -> float:
+        """A name in a box, with its node's light when given, opening *link*; its right edge."""
+        lit = node is not None
+        w = text_width(label, SMALL_SIZE) + (CHIP_LIGHT + GAP if lit else 0) + GAP
+        self.s.widget(
+            "rectangle",
+            x,
+            y,
+            w,
+            CHIP_HEIGHT,
+            {
+                "lineColor": BOX_BORDER,
+                "lineWidth": LINE_WIDTH,
+                "fill": True,
+                "fillColor": FIELD_BACKGROUND,
+            },
+        )
+        inner = x + GAP / 2
+        if node is not None:
+            light_y = y + (CHIP_HEIGHT - ROW) / 2
+            if node.no_rule:
+                self.no_rule(inner, light_y, CHIP_LIGHT)
+            else:
+                self.node_light(inner, light_y, node, CHIP_LIGHT)
+            inner += CHIP_LIGHT + GAP / 2
+        self.text(inner, y, label, size=SMALL_SIZE, h=CHIP_HEIGHT)
+        if link is not None:
+            self.nav(x, y, w, CHIP_HEIGHT, replace(link, label=link.label))
+        return x + w
+
+    def node_light(self, x: float, y: float, node: Node, size: float = LIGHT_SIZE) -> float:
+        """One light over a node's channels, as a roll-up reads them; the aggregate look
+        when the rule is too long for the format or past the screen's budget."""
+        lights = [describe_light(self.graph, c) for c in node.channels]
+        rule = ladder(self.graph, lights, node=True)
+        if isinstance(rule, Ladder) and rule.arms and not self.budget.take([light_cost(rule)]):
+            rule = "aggregate state"
+        return self.light(x, y, lights, rule=rule, size=size, tile=True)
+
+    def chips(self, x0: float, entries: Sequence[tuple[str, Link | None, Node | None]]) -> None:
+        """Chips that wrap across the content width, from *x0*."""
+        x = x0
+        for label, link, node in entries:
+            w = text_width(label, SMALL_SIZE) + (CHIP_LIGHT + GAP if node is not None else 0) + GAP
+            if x > x0 and x + w > MARGIN + STRIP_WIDTH:
+                x = x0
+                self.y += CHIP_HEIGHT + CHIP_GAP
+            x = self.chip(x, self.y, label, link, node) + CHIP_GAP
+        self.y += CHIP_HEIGHT + CHIP_GAP
 
     def tray(self, item: Strip) -> None:
+        """What our lists hold and the strip cannot place, in a dashed frame of chips."""
         top = self.y
         self.y += TRAY_PAD
-        self.text(MARGIN + TRAY_PAD, self.y, _NOT_PLACED, size=SMALL_SIZE)
-        self.next_row()
-        for entry in item.tray:
-            x = MARGIN + TRAY_PAD
-            if entry.link is not None:
-                x = self.button(x, self.y, entry.link, label=entry.thing)
+        self.text(MARGIN + TRAY_PAD, self.y, _TRAY_TITLE.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
+        self.y += ROW
+        entries = [(f"{e.thing} · {e.reason}", e.link, None) for e in item.tray]
+        self.chips(MARGIN + TRAY_PAD, entries)
+        self.y += TRAY_PAD - CHIP_GAP
+        self.box(MARGIN, top, STRIP_WIDTH, self.y - top, line=MUTED_TEXT, dashed=True)
+        self.y += GAP
+
+    def group(self, group: Group) -> None:
+        """Things of one kind: chips that wrap, or summary rows in columns."""
+        if group.form == "rows":
+            self.summary(group)
+            return
+        self.text(MARGIN, self.y, group.title.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
+        self.y += ROW
+        entries = [(n.label, n.link, n) for n in group.nodes]
+        if group.more is not None:
+            entries.append((group.more.label, group.more, None))
+        self.chips(MARGIN, entries)
+
+    def summary(self, group: Group) -> None:
+        """One row per node: its light, its name, and right-aligned what it reads."""
+        column = (STRIP_WIDTH - (SUMMARY_COLUMNS - 1) * GAP) / SUMMARY_COLUMNS
+        per = math.ceil(len(group.nodes) / SUMMARY_COLUMNS)
+        top = self.y
+        for i, node in enumerate(group.nodes):
+            x = MARGIN + (i // per) * (column + GAP)
+            y = top + (i % per) * SUMMARY_ROW
+            h = SUMMARY_ROW - ROW_GAP
+            self.s.widget(
+                "rectangle",
+                x,
+                y,
+                column,
+                h,
+                {
+                    "lineColor": BOX_BORDER,
+                    "lineWidth": LINE_WIDTH,
+                    "fill": True,
+                    "fillColor": FIELD_BACKGROUND,
+                },
+            )
+            row_y = y + (h - ROW) / 2
+            if node.no_rule:
+                self.no_rule(x + GAP, row_y)
             else:
-                x = self.text(x, self.y, entry.thing)
-            self.text(x + GAP, self.y, entry.reason, size=SMALL_SIZE)
-            self.next_row()
-        self.box(MARGIN, top, STRIP_WIDTH, self.y - top, dashed=True)
-        self.y += TRAY_PAD
+                self.node_light(x + GAP, row_y, node)
+            self.text(x + GAP + LIGHT_SIZE + GAP, row_y, node.label)
+            count = len(node.channels)
+            note = _NO_RULE_YET if node.no_rule else _READS.format(count, "" if count == 1 else "s")
+            w = text_width(note, SMALL_SIZE)
+            self.text(x + column - GAP - w, row_y, note, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
+            if node.link is not None:
+                self.nav(x, y, column, h, node.link)
+        self.y = top + per * SUMMARY_ROW + ROW_GAP
 
     # -- picture and elevation ------------------------------------------------
 
@@ -1780,7 +2070,7 @@ class _Page:
                 self.s.widget("ellipse", px - half, py - half, PART_MARKER, PART_MARKER, props)
             lx = left_col if side == "left" else right_col
             anchor = lx + PART_LABEL_WIDTH if side == "left" else lx
-            self.line([(px, py), (anchor, label_y + ROW / 2)], BOX_BORDER)
+            self.line([(px, py), (anchor, label_y + ROW / 2)], MUTED_TEXT)
             align = "right" if side == "left" else "left"
             self.text(lx, label_y, name, size=SMALL_SIZE, w=PART_LABEL_WIDTH, align=align)
         bottom = max([top + PICTURE_SIZE, *(y + ROW for _side, y in labels)])
@@ -1935,13 +2225,29 @@ def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float
     return found
 
 
+def stem_levels(xs: Sequence[float]) -> list[int]:
+    """The stem of each badge at *xs* (in order): the low one, unless its circle would
+    touch the last one there, then the high one; when both would, the level whose last
+    badge is further away."""
+    last = [-math.inf, -math.inf]
+    room = BADGE + BADGE_GAP
+    out = []
+    for x in xs:
+        level = next((n for n in (0, 1) if x - last[n] >= room), None)
+        if level is None:
+            level = 0 if last[0] <= last[1] else 1
+        last[level] = x
+        out.append(level)
+    return out
+
+
 def _strip_rows(
     elements: Sequence[StripElement], widths: Mapping[str, float]
 ) -> list[list[StripElement]]:
     """The strip in rows, each as long as fits at no less than :data:`MIN_STRIP_SCALE`."""
 
     def fits(chunk: Sequence[StripElement]) -> bool:
-        return strip.arrange_scaled(chunk, widths, STRIP_WIDTH)[1] >= MIN_STRIP_SCALE
+        return strip.arrange_scaled(chunk, widths, STRIP_WIDTH, fill=True)[1] >= MIN_STRIP_SCALE
 
     rows: list[list[StripElement]] = []
     start = 0

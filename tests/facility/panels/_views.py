@@ -25,7 +25,7 @@ from osprey.facility.panels.view import (
 
 #: Class to symbol for the fixture's place views; a quadrupole class names no polarity.
 SYMBOLS = {"Quadrupole": "quadrupole", "Dipole": "bend", "Pump": "ion_pump"}
-ABOVE = frozenset({"ion_pump"})
+ABOVE = frozenset({"Pump"})
 
 
 class Screens:

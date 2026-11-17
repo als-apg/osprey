@@ -149,3 +149,19 @@ def test_a_long_strip_is_compressed_and_still_does_not_overlap() -> None:
 
 def test_empty_input_scales_by_one() -> None:
     assert arrange_scaled([], WIDTHS) == ([], 1.0)
+
+
+def test_a_long_strip_narrows_its_gaps_before_its_symbols() -> None:
+    items = [el(f"e{i}", i * 2.0) for i in range(30)]  # natural: 30 x 20 + 29 x 26 = 1354
+    out, scale = arrange_scaled(items, WIDTHS, strip_width=1000.0)
+    assert scale == 1.0 and all(p.width == 20.0 for p in out)
+    assert out[-1].x + out[-1].width / 2 - (out[0].x - out[0].width / 2) == pytest.approx(1000.0)
+
+
+def test_a_filling_strip_spans_the_width_and_keeps_the_order_of_its_gaps() -> None:
+    items = [el("a", 0.0), el("b", 0.5), el("c", 3.0)]
+    out, scale = arrange_scaled(items, WIDTHS, strip_width=1000.0, fill=True)
+    assert scale == 1.0
+    assert out[0].x - 10.0 == pytest.approx(0.0) and out[-1].x + 10.0 == pytest.approx(1000.0)
+    near, far = out[1].x - out[0].x, out[2].x - out[1].x
+    assert near < far  # 0.5 m apart stays closer than 2.5 m apart

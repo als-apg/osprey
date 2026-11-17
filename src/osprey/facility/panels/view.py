@@ -23,6 +23,7 @@ __all__ = [
     "Grid",
     "GridCell",
     "GridRow",
+    "Group",
     "Item",
     "Light",
     "Link",
@@ -392,6 +393,25 @@ class Totals:
     has_source: int
 
 
+@dataclass(frozen=True)
+class Group:
+    """Things of one kind shown together, each with its health.
+
+    Attributes:
+        title: What they are (``racks``, a place level, ``other``, ``by system``).
+        form: ``chips`` (names that wrap across the page) or ``rows`` (a
+            summary line each).
+        nodes: One per thing: its name, its screen, the rule-bearing channels
+            its light reads.
+        more: Where the things not listed are, labelled with how many, or ``None``.
+    """
+
+    title: str
+    form: Literal["chips", "rows"]
+    nodes: tuple[Node, ...]
+    more: Link | None = None
+
+
 Item = (
     ValueRow
     | Light
@@ -403,6 +423,7 @@ Item = (
     | Picture
     | Elevation
     | Node
+    | Group
     | CheckRow
     | Totals
 )

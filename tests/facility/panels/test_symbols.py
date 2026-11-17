@@ -107,15 +107,25 @@ THEME_ROLES = {
     "Page_Background",
     "Page_Text",
     "Field_Background",
+    "Tile_Background",
     "Box_Border",
-    "Led_Off",
+    "Text_Muted",
+    "Normal_Fill",
     "Transparent",
     "Disagree",
     "MINOR",
     "MAJOR",
     "DISCONNECTED",
 }
-NEUTRAL_ROLES = {"Page_Background", "Page_Text", "Field_Background", "Box_Border", "Led_Off"}
+NEUTRAL_ROLES = {
+    "Page_Background",
+    "Page_Text",
+    "Field_Background",
+    "Tile_Background",
+    "Box_Border",
+    "Text_Muted",
+    "Normal_Fill",
+}
 
 
 def test_the_theme_table_holds_no_type_colour() -> None:
@@ -213,7 +223,7 @@ def test_the_five_states_the_aggregate_and_none_look_pairwise_different() -> Non
     no_rule = look("none")
     assert (no_rule["fill"], no_rule["lineColor"]["$role"], no_rule["text"]) == (
         False,
-        "Box_Border",
+        "Text_Muted",  # a clear outline, never the border role
         "",
     )
     for a, b in combinations(symbols.APPEARANCES, 2):
@@ -274,7 +284,7 @@ def test_each_look_is_pinned_to_its_role_and_pattern_by_name() -> None:
             x["text"],
         )
 
-    assert shown("normal") == (True, "Led_Off", "Page_Text", "solid", "")
+    assert shown("normal") == (True, "Normal_Fill", "Text_Muted", "solid", "")
     assert shown("warn") == (True, "MINOR", "MINOR", "solid", "")
     assert shown("bad") == (True, "MAJOR", "MAJOR", "solid", "")
     assert shown("unknown") == (False, "Page_Background", "DISCONNECTED", "dashed", "?")
@@ -292,3 +302,55 @@ def test_each_look_is_pinned_to_its_role_and_pattern_by_name() -> None:
 def test_every_closed_symbol_is_a_polygon_so_its_outline_can_be_dashed(kind) -> None:
     for node in draw(kind, 0.0, AXIS, "unknown", unit=UNIT):
         assert node["type"] in ("polygon", "line", "text-label"), (kind, node["type"])
+
+
+# --------------------------------------------------------------------------- contrast
+
+THEME_FILE = Path(symbols.__file__).parents[2] / "templates/apps/demo/data/canopy/theme/osprey.json"
+
+
+def _resolved(colour: dict, theme: str) -> str:
+    """A role's colour in *theme* (``light`` or ``dark``): the shipped theme's when it
+    names the role, else the role's own fallback."""
+    roles = json.loads(THEME_FILE.read_text())["roles"]
+    if colour["$role"] in roles:
+        return roles[colour["$role"]][theme]
+    return colour["fallback" if theme == "light" else "fallbackDark"]
+
+
+def _luminance(hex_colour: str) -> float:
+    def channel(v: int) -> float:
+        c = v / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (int(hex_colour[i : i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+#: The grounds a panel screen draws on: the page, a section's frame, a field or chip.
+GROUNDS = (symbols.PAGE_BACKGROUND, symbols.PANEL_BACKGROUND, symbols.FIELD_BACKGROUND)
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_text_and_outlines_reach_the_contrast_floor_on_every_ground(theme) -> None:
+    for ground in GROUNDS:
+        bg = _resolved(ground, theme)
+        for text in (symbols.PAGE_TEXT, symbols.MUTED_TEXT):
+            assert contrast(_resolved(text, theme), bg) >= 4.5, (text["$role"], ground["$role"])
+        for state in ("normal", "none", "disagree", "aggregate"):
+            stroke = look(state)["lineColor"]
+            assert contrast(_resolved(stroke, theme), bg) >= 3, (state, ground["$role"])
+    # a light's mark is page text on the normal fill
+    fill = _resolved(symbols.NORMAL_FILL, theme)
+    assert contrast(_resolved(symbols.PAGE_TEXT, theme), fill) >= 4.5
+
+
+def test_normal_and_none_differ_at_a_glance() -> None:
+    normal, none = look("normal"), look("none")
+    assert normal["lineColor"] == none["lineColor"] == symbols.MUTED_TEXT
+    assert normal["fill"] is True and none["fill"] is False

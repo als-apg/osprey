@@ -51,6 +51,7 @@ from osprey.facility.panels.view import (
     Grid,
     GridCell,
     GridRow,
+    Group,
     Item,
     Light,
     Link,
@@ -130,6 +131,12 @@ _NO_POSITION = "no position"
 _NOT_IN = "not placed"
 _NO_THING = "on no device"
 _OTHERS = "{} other things in this place"
+_RACKS = "racks"
+_OTHER = "other"
+_MORE = "+{} more"
+_BY_SYSTEM = "by system"
+#: The most chips one group of a place view lists; the rest are counted in a link.
+MAX_CHIPS = 24
 _WITHOUT = "{} without a rule"
 _OWN = "{} itself"
 _DRAWN_RANK = {drawn: rank for rank, drawn in enumerate(DRAWN_AS)}
@@ -790,14 +797,18 @@ def place_view(
     on the beamline) is in the tray with ``no position`` or what its position
     assumes. Every other device is counted on one line, ``<n> other things in
     this place``, that opens the place's card (which lists them). Sections:
-    ``strip``, then ``places within`` (links to the direct child places); the
+    ``strip``; ``places within``: the direct child places grouped by what the
+    data states of them (``racks``: some claim names a unit in it; else its
+    level; else ``other``), racks first and ``other`` last, each group at
+    most :data:`MAX_CHIPS` with the rest counted in a link to the place's
+    card; then ``by system``: the rows of the place's roll-up by system. The
     crumbs lead out to the parent.
 
     Args:
         graph: The panel graph.
         place_id: The place.
         symbols: Device class -> symbol; a class not named is ``generic``.
-        above: The symbols drawn on the lane above the beam.
+        above: The device classes drawn on the lane above the beam.
 
     Raises:
         KeyError: No such place, or it is excluded.
@@ -815,7 +826,7 @@ def place_view(
         pose = graph.pose(thing.id)
         if pose is not None and pose.is_ring_position:
             symbol = symbols.get(thing.cls or "", GENERIC_SYMBOL)
-            lane = "above" if symbol in above else "beam"
+            lane = "above" if thing.cls in above else "beam"
             channels = tuple(rule_channels(graph, thing.id, "device"))
             elements.append(
                 StripElement(thing.id, thing.cls, pose.s_m, symbol, lane, link, channels)  # type: ignore[arg-type]
@@ -827,14 +838,33 @@ def place_view(
             others += 1
     elements.sort(key=lambda element: (element.s_m, element.thing))
     extent = (elements[0].s_m, max(e.s_m for e in elements)) if elements else None
-    rest = Link(_OTHERS.format(others), Target("card", "place", place_id)) if others else None
+    card = Target("card", "place", place_id)
+    rest = Link(_OTHERS.format(others), card) if others else None
     strip = Strip(tuple(elements), tuple(tray), extent, rest)
-    children: list[Item] = [
-        _place_link(graph, index, child.id, Target("place", "place", child.id))
-        for child in graph.within(place_id)
-        if child.kind == "place"
-    ]
-    sections = _sections([("strip", [strip]), ("places within", children)])
+    groups: dict[str, list[Node]] = {}
+    for child in graph.within(place_id):
+        if child.kind != "place":
+            continue
+        kind = _RACKS if child.id in index.racked else child.level or _OTHER
+        link = _place_link(graph, index, child.id, Target("place", "place", child.id))
+        short = child.id.removeprefix(place_id + "/")
+        groups.setdefault(kind, []).append(
+            _node(short, Link(short, link.target), rule_channels(graph, child.id, "place"))
+        )
+    order = sorted(groups, key=lambda kind: (kind != _RACKS, kind == _OTHER, kind))
+    within: list[Item] = []
+    for kind in order:
+        nodes = groups[kind]
+        more = None
+        if len(nodes) > MAX_CHIPS:
+            more = Link(_MORE.format(len(nodes) - MAX_CHIPS), card)
+        within.append(Group(kind, "chips", tuple(nodes[:MAX_CHIPS]), more))
+    systems: list[Item] = []
+    if place_id in index.ruled:
+        (section,) = health_rollup(graph, place_id, "system").sections
+        (root,) = section.items
+        systems = [Group(_BY_SYSTEM, "rows", root.children)]  # type: ignore[union-attr]
+    sections = _sections([("strip", [strip]), ("places within", within), (_BY_SYSTEM, systems)])
     crumbs = _crumbs(graph, index, place.place, "place")
     return View(Target("place", "place", place_id), place_id, crumbs, sections)
 

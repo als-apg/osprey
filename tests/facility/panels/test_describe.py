@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import gc
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -443,7 +444,7 @@ def _every_view(
 
 
 def test_every_link_target_is_a_screen(panel_graph):
-    params = {"symbols": {"Pump": "pump"}, "above": frozenset({"pump"})}
+    params = {"symbols": {"Pump": "pump"}, "above": frozenset({"Pump"})}
     found = set(targets(panel_graph, rack_classes=SECTORS))
     views = _every_view(panel_graph, SECTORS, **params)
     assert [view.id for view in views] == targets(panel_graph, rack_classes=SECTORS)
@@ -555,7 +556,7 @@ def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
 
 
 def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
-    view = place_view(panel_graph, "XR/XR01", symbols={"Pump": "pump"}, above=frozenset({"pump"}))
+    view = place_view(panel_graph, "XR/XR01", symbols={"Pump": "pump"}, above=frozenset({"Pump"}))
     (strip,) = _section(view, "strip").items
     assert [(e.thing, e.cls, e.s_m, e.symbol, e.lane) for e in strip.elements] == [
         ("XR01:IP1", "Pump", 1.25, "pump", "above"),
@@ -573,10 +574,34 @@ def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
 
 def test_place_view_links_child_places_and_the_parent(panel_graph):
     view = place_view(panel_graph, "XR/XR01")
-    assert [item.target for item in _section(view, "places within").items] == [
-        Target("place", "place", "XR/XR01/RK1")
+    (racks,) = _section(view, "places within").items
+    assert (racks.title, racks.form, racks.more) == ("racks", "chips", None)
+    assert [(n.label, n.link.target) for n in racks.nodes] == [
+        ("RK1", Target("place", "place", "XR/XR01/RK1"))
     ]
     assert [crumb.target for crumb in view.crumbs] == [Target("place", "place", "XR")]
+
+
+def test_places_within_are_grouped_by_what_the_data_states_and_counted_past_the_limit(
+    panel_graph, monkeypatch
+):
+    described = sys.modules[place_view.__module__]
+    view = place_view(panel_graph, "XR")
+    groups = _section(view, "places within").items
+    assert [g.title for g in groups] == ["sector"]  # the level the data states
+    assert {n.label for n in groups[0].nodes} == {"XR01", "XR02"}  # short: the parent cut
+    monkeypatch.setattr(described, "MAX_CHIPS", 1)
+    (group,) = _section(place_view(panel_graph, "XR"), "places within").items
+    assert len(group.nodes) == 1
+    assert group.more == Link("+1 more", Target("card", "place", "XR"))
+
+
+def test_a_place_view_ends_with_its_roll_up_by_system(panel_graph):
+    view = place_view(panel_graph, "XR/XR01")
+    (group,) = _section(view, "by system").items
+    assert group.form == "rows"
+    (section,) = health_rollup(panel_graph, "XR/XR01", "system").sections
+    assert group.nodes == section.items[0].children
 
 
 def test_a_place_with_no_ring_position_has_no_extent(panel_graph):

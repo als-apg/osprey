@@ -10,7 +10,7 @@ A light has seven looks: one per health state, an aggregate's, and ``none``
 for a thing with no rule (not a state: it has no rules). ``normal`` is
 neutral, never green: an operator's eye goes to what is not normal.
 ``unknown`` is hollow and dashed, ``disagree`` and ``aggregate`` carry a mark,
-``none`` is a bare outline in the border role, so none of them reads as a
+``none`` is a bare outline in the muted text role, so none of them reads as a
 colour alone and a thing with no rule never looks normal.
 
 An element symbol's shape tells its type. It takes the same look a light
@@ -38,6 +38,7 @@ __all__ = [
     "AGGREGATE_MARK",
     "ALARM_ROLES",
     "APPEARANCES",
+    "BADGE_LETTERS",
     "CONFLICT_MARK",
     "DISAGREE_MARK",
     "INFERRED_MARK",
@@ -48,6 +49,7 @@ __all__ = [
     "STATES",
     "UNKNOWN_MARK",
     "WIDTH_UNITS",
+    "badge",
     "draw",
     "light",
     "look",
@@ -67,8 +69,10 @@ def role(name: str, light: str, dark: str) -> dict[str, str]:
 PAGE_BACKGROUND = role("Page_Background", "#f4f5f5", "#111217")
 PAGE_TEXT = role("Page_Text", "#24292e", "#ccccdc")
 FIELD_BACKGROUND = role("Field_Background", "#fafbfc", "#181b1f")
+PANEL_BACKGROUND = role("Tile_Background", "#ffffff", "#22252b")
 BOX_BORDER = role("Box_Border", "#d8d9da", "#2c3235")
-LED_OFF = role("Led_Off", "#ecedef", "#22252b")
+MUTED_TEXT = role("Text_Muted", "#6e6e77", "#8e8e9a")
+NORMAL_FILL = role("Normal_Fill", "#b0b5bb", "#4a555c")
 DISAGREE = role("Disagree", "#8e44ad", "#c39bd3")
 ALARM_MINOR = role("MINOR", "#e0b400", "#f2cc0c")
 ALARM_MAJOR = role("MAJOR", "#c4162a", "#e05454")
@@ -107,8 +111,8 @@ _LOOKS: Mapping[str, Mapping[str, Any]] = MappingProxyType(
     {
         "normal": {
             "fill": True,
-            "fillColor": LED_OFF,
-            "lineColor": PAGE_TEXT,
+            "fillColor": NORMAL_FILL,
+            "lineColor": MUTED_TEXT,
             "lineStyle": "solid",
             "text": "",
         },
@@ -150,7 +154,7 @@ _LOOKS: Mapping[str, Mapping[str, Any]] = MappingProxyType(
         NONE: {
             "fill": False,
             "fillColor": PAGE_BACKGROUND,
-            "lineColor": BOX_BORDER,
+            "lineColor": MUTED_TEXT,
             "lineStyle": "solid",
             "text": "",
         },
@@ -167,36 +171,37 @@ def look(state: str) -> Mapping[str, Any]:
 # Width of each kind along the beam; the strip reserves this much per symbol.
 WIDTH_UNITS: Mapping[str, float] = MappingProxyType(
     {
-        "bend": 3.0,
-        "quadrupole_f": 1.5,
-        "quadrupole_d": 1.5,
-        "quadrupole": 1.5,
-        "sextupole": 1.2,
-        "skew_quadrupole": 1.2,
-        "corrector": 0.6,
-        "bpm": 0.8,
-        "neg_pump": 1.0,
-        "ion_pump": 1.0,
-        "gauge": 0.6,
+        "bend": 2.6,
+        "quadrupole_f": 1.4,
+        "quadrupole_d": 1.4,
+        "quadrupole": 1.4,
+        "sextupole": 1.4,
+        "skew_quadrupole": 1.6,
+        "corrector": 0.7,
+        "bpm": 0.9,
+        "neg_pump": 1.1,
+        "ion_pump": 1.1,
+        "gauge": 1.1,
         "gate_valve": 1.0,
-        "bellows": 1.0,
-        "kicker": 2.0,
-        "scraper": 0.4,
+        "bellows": 0.7,
+        "kicker": 2.1,
+        "scraper": 1.4,
         "generic": 1.0,
     }
 )
 #: Every symbol kind :func:`draw` knows.
 KINDS: tuple[str, ...] = tuple(WIDTH_UNITS)
 
-_MAGNET_HEIGHT = 1.2  # a quadrupole's height off the axis, a bend's across it
-_SEXTUPOLE_HEIGHT = 1.0
-_CORRECTOR_HEIGHT = 1.6
-_NEG_HEIGHT = 0.3  # a getter strip lies flat along the chamber
-_VALVE_HEIGHT = 1.2
-_BELLOWS_HEIGHT = 1.0
+_BEND_HEIGHT = 3.75  # across the axis
+_QUAD_HEIGHT = 1.9  # off the axis, on the side of its polarity; across it with none
+_SEXTUPOLE_HEIGHT = 2.75
+_CORRECTOR_HEIGHT = 2.0
+_NEG_HEIGHT = 0.4  # a getter strip lies flat along the chamber
+_VALVE_HEIGHT = 1.15
+_BELLOWS_HEIGHT = 0.9
 _BELLOWS_FOLDS = 4
-_KICKER_HEIGHT = 1.0
-_SCRAPER_HEIGHT = 1.4
+_KICKER_HEIGHT = 1.75
+_SCRAPER_HEIGHT = 1.75
 _SKEW_TURN = 45  # degrees
 _LINE = 1  # line width of a drawn outline, in px, whatever the unit
 _THICK = 2  # line width of the bellows and the kicker
@@ -206,8 +211,8 @@ _CIRCLE_SIDES = 16  # a circle is drawn as a polygon of this many sides
 # --- end shape ratios ----------------------------------------------------------
 
 # A symbol with no state is drawn in these: an outline and a neutral fill.
-_OUTLINE = PAGE_TEXT
-_FILL = LED_OFF
+_OUTLINE = MUTED_TEXT
+_FILL = NORMAL_FILL
 
 # The props a look sets on each widget type of a symbol; a closed shape takes
 # all of a light's, a line has no fill, a mark takes its text.
@@ -323,13 +328,13 @@ def _ring(cx: float, cy: float, r: float, sides: int) -> list[tuple[float, float
 
 def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]:
     if kind == "quadrupole_f":
-        h = _MAGNET_HEIGHT * unit
+        h = _QUAD_HEIGHT * unit
         return [_box(left, y - h, w, h, fill=True)]
     if kind == "quadrupole_d":
-        h = _MAGNET_HEIGHT * unit
+        h = _QUAD_HEIGHT * unit
         return [_box(left, y, w, h, fill=True)]
     if kind in ("quadrupole", "bend"):
-        h = _MAGNET_HEIGHT * unit
+        h = (_QUAD_HEIGHT if kind == "quadrupole" else _BEND_HEIGHT) * unit
         return [_box(left, y - h / 2, w, h, fill=True)]
     if kind == "sextupole":
         h = _SEXTUPOLE_HEIGHT * unit
@@ -394,6 +399,35 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]
         return [_box(left, y - h, w, h, fill=True)]
     # generic
     return [_box(left, y - w / 2, w, w, fill=False)]
+
+
+#: The letter in a badge of a kind; any other kind shows its first letter.
+BADGE_LETTERS: Mapping[str, str] = MappingProxyType(
+    {"neg_pump": "N", "ion_pump": "I", "gauge": "G"}
+)
+
+
+def badge(cx: float, cy: float, size: float, kind: str, font: float) -> list[Node]:
+    """A device off the beam axis: a circle of *size* centred on *cx*, *cy*, its kind's letter in it.
+
+    The circle (a many-sided polygon) is neutral, as :func:`draw` leaves a
+    symbol with no state; the caller gives it a look. The letter, at *font*,
+    is the second node and never changes.
+    """
+    circle = _polygon(_ring(cx, cy, size / 2, _CIRCLE_SIDES), fill=True)
+    letter = BADGE_LETTERS.get(kind, kind[:1].upper())
+    mark = {
+        "type": "text-label",
+        "props": {
+            "text": letter,
+            "fontSize": font,
+            "align": "center",
+            "foregroundColor": PAGE_TEXT,
+            "backgroundColor": TRANSPARENT,
+        },
+        "geometry": _geometry(cx - size / 2, cy - size / 2, size, size),
+    }
+    return [circle, mark]
 
 
 def light(x: float, y: float, size: float, state: str) -> list[Node]:
