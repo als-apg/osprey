@@ -253,7 +253,7 @@ class ConnectorSettable(StandardReadable):
         if self._readback_pv == self._setpoint_pv and result.outcome == "confirmed":
             # ``confirmed`` means the connector re-read this very channel and
             # found the value sent — that IS the settle, so return on the word,
-            # never on arithmetic over ``observed_value``: the settle tolerance
+            # never on arithmetic over the ``observed`` reading: the settle tolerance
             # is stricter, by default, than the connector's comparison rule
             # (``isclose(rel_tol=1e-6)``), so re-checking a confirmed write here
             # would poll the setpoint just written for the full settle timeout

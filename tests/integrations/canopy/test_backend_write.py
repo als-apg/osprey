@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -49,7 +50,7 @@ from osprey.runtime.session import SessionWriteResult
 from osprey.services.python_executor.execution.wrapper import armed_contract
 from osprey_connectors import control_context, posture_store, session_hold, types
 from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -134,7 +135,7 @@ class _Machine(FakeConnector):
             address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=value,
+            observed=ChannelValue(address=address, value=value, sampled_at=datetime.now(UTC)),
         )
 
 

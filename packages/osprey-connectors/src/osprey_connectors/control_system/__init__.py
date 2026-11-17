@@ -1,7 +1,7 @@
 """The control-system connector contract.
 
 ``ControlSystemConnector``, the context it is connected with, the value,
-metadata, batch-read and write-result models it returns, the send report a
+alarm, metadata, batch-read and write-result models it returns, the send report a
 connector's ``_send`` answers with, the write-outcome vocabulary, the
 :class:`ControlSystem` protocol a consumer types any connector handle as, and
 the limits validator every connector checks a write against. A new control
@@ -20,6 +20,7 @@ hold-down would load its Channel Access stack.
 from typing import TYPE_CHECKING
 
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
     ChannelReadBatch,
     ChannelValue,
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
 __all__ = [
     "LIMITS_DATABASE_CONFIG_KEY",
     "STALE_HOLD_DOWN_S",
+    "Alarm",
     "ChannelLimitsConfig",
     "ChannelMetadata",
     "ChannelReadBatch",

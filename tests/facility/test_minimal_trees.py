@@ -453,7 +453,7 @@ async def test_als_shaped_namespace_round_trip(
 
         seeded = [await connector.read_channel(a) for a in (SR_READBACK, BTS_READBACK)]
         assert [reading.value for reading in seeded] == [12.5, 0.25]
-        assert [reading.metadata.alarm_severity for reading in seeded] == [None, None]
+        assert [reading.alarm.severity for reading in seeded] == [None, None]
 
         sr_write = await connector.write_channel(SR_SETPOINT, 13.0)
         sr_echo = await connector.read_channel(SR_READBACK)

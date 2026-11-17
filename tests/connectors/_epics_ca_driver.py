@@ -45,9 +45,9 @@ def _metadata(value: Any) -> dict[str, Any]:
         "type": type(value.value).__name__,
         "units": meta.units,
         "precision": meta.precision,
-        "alarm_status": meta.alarm_status,
-        "alarm_severity": meta.alarm_severity,
-        "enum_label": meta.enum_label,
+        "alarm_status": None if value.alarm is None else value.alarm.status,
+        "alarm_severity": None if value.alarm is None else value.alarm.severity,
+        "enum_label": value.enum_label,
         "enum_labels": meta.enum_labels,
     }
 
@@ -55,8 +55,12 @@ def _metadata(value: Any) -> dict[str, Any]:
 def _write(result: Any) -> dict[str, Any]:
     return {
         "outcome": result.outcome.name,
-        "observed": result.observed_value,
-        "alarm_status": result.alarm_status,
+        "observed": None if result.observed is None else result.observed.value,
+        "alarm_status": (
+            None
+            if result.observed is None or result.observed.alarm is None
+            else result.observed.alarm.status
+        ),
         "refusal_reason": result.refusal_reason,
         "error": result.error_message,
     }

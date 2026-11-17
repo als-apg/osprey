@@ -237,7 +237,7 @@ class CABulk:
         aioca: Aioca,
         ca_loop: CaLoop,
         *,
-        value_factory: Callable[[object, object, bool | None], ChannelValue],
+        value_factory: Callable[[str, object, object, bool | None], ChannelValue],
         metadata_factory: Callable[[object, bool | None], ChannelMetadata],
         held_warning_s: float,
     ) -> None:
@@ -528,7 +528,7 @@ class CABulk:
     # -- delivery ----------------------------------------------------------
 
     def _deliver(self, record: _Record, reading: object) -> None:
-        value = self._value_factory(reading, record.ctrl, record.writable)
+        value = self._value_factory(record.name, reading, record.ctrl, record.writable)
         record.last_value = value
         for sub_id, subscriber in list(record.subscribers.items()):
             self._post(record, sub_id, subscriber, subscriber.callback, value)

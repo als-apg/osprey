@@ -32,9 +32,11 @@ from osprey.integrations.canopy import backend as backend_module
 from osprey.integrations.canopy.backend import OspreyPVConnector, PVTargetChanged, PVWriteRefused
 from osprey.runtime import session as session_module
 from osprey_connectors import control_context, posture_store, types
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.model import evolve
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._fake_connector import FakeConnector, FakeSubscription
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -116,6 +118,7 @@ class _Machine(FakeConnector):
     def _read_value(self, address):
         now = datetime.now(UTC)
         return ChannelValue(
+            address=address,
             value=type(self).store[address],
             sampled_at=now,
             metadata=ChannelMetadata(
@@ -356,6 +359,17 @@ class TestGet:
         assert value.severity is AlarmSeverity.NO_ALARM
         assert value.ts_ns > 0
         assert (machine.reads, machine.subscribes) == (1, 0)
+
+    async def test_a_reading_s_alarm_is_the_value_s_severity(self, connector, machine, monkeypatch):
+        """The severity comes from the reading's own alarm, the one place a connector fills it."""
+        plain = machine._read_value
+
+        def alarmed(self, address):
+            return evolve(plain(self, address), alarm=Alarm(status="HIHI", severity=2))
+
+        monkeypatch.setattr(machine, "_read_value", alarmed)
+        value = await connector.get(SCALAR)
+        assert value.severity is AlarmSeverity.MAJOR
 
     async def test_a_subscribed_pv_is_answered_from_its_subscription(self, connector, machine):
         """A monitored PV is read from what its monitor holds, with no read of its own."""

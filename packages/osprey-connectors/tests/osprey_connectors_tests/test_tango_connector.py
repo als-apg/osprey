@@ -15,13 +15,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
 from osprey_connectors.control_system._tango_connector import (
-    _quality_fields,
+    _quality_alarm,
     _split_address,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
@@ -105,13 +106,15 @@ def _make_tango(proxy=None):
 
 def _structured_write_facts(result):
     """The machine-readable half of a write result — the free text left out."""
+    observed = result.observed
+    alarm = None if observed is None else observed.alarm
     return (
         result.outcome,
-        result.observed_value,
+        None if observed is None else observed.value,
         result.refusal_reason,
         result.error_message is not None,
-        result.alarm_status,
-        result.alarm_severity,
+        None if alarm is None else alarm.status,
+        None if alarm is None else alarm.severity,
     )
 
 
@@ -172,26 +175,26 @@ class TestSplitAddress:
             _split_address(address)
 
 
-class TestQualityFields:
+class TestQualityAlarm:
     @pytest.mark.parametrize(
         ("quality", "expected"),
         [
-            ("ATTR_VALID", ("NO_ALARM", 0)),
-            ("ATTR_CHANGING", ("CHANGING", 0)),
-            ("ATTR_WARNING", ("WARNING", 1)),
-            ("ATTR_ALARM", ("ALARM", 2)),
-            ("ATTR_INVALID", ("INVALID", 3)),
+            ("ATTR_VALID", Alarm(status="NO_ALARM", severity=0)),
+            ("ATTR_CHANGING", Alarm(status="CHANGING", severity=0)),
+            ("ATTR_WARNING", Alarm(status="WARNING", severity=1)),
+            ("ATTR_ALARM", Alarm(status="ALARM", severity=2)),
+            ("ATTR_INVALID", Alarm(status="INVALID", severity=3)),
         ],
     )
-    def test_known_qualities_map_to_alarm_fields(self, quality, expected):
-        assert _quality_fields(_Quality(quality)) == expected
+    def test_known_qualities_map_to_an_alarm(self, quality, expected):
+        assert _quality_alarm(_Quality(quality)) == expected
 
     def test_none_is_not_reported(self):
         """``None`` means "not reported" — distinct from a healthy reading."""
-        assert _quality_fields(None) == (None, None)
+        assert _quality_alarm(None) is None
 
     def test_unknown_quality_is_named_unknown_with_no_severity(self):
-        assert _quality_fields(_Quality("ATTR_SOMETHING_NEW")) == ("UNKNOWN", None)
+        assert _quality_alarm(_Quality("ATTR_SOMETHING_NEW")) == Alarm(status="UNKNOWN")
 
 
 # --------------------------------------------------------------------------------------
@@ -373,35 +376,27 @@ class TestReadChannel:
         conn, proxy = connector
         proxy.read_attribute.return_value = _make_attribute(quality="ATTR_ALARM")
         result = await conn.read_channel(_ADDRESS)
-        assert result.metadata.alarm_status == "ALARM"
-        assert result.metadata.raw_metadata["severity"] == 2
+        assert result.address == _ADDRESS
+        assert result.alarm == Alarm(status="ALARM", severity=2)
 
     async def test_healthy_reading_reports_no_alarm_not_nothing(self, connector):
         """A reported healthy reading stays distinct from "not reported"."""
         conn, _ = connector
         result = await conn.read_channel(_ADDRESS)
-        assert result.metadata.alarm_status == "NO_ALARM"
-        assert result.metadata.raw_metadata["severity"] == 0
+        assert result.alarm == Alarm(status="NO_ALARM", severity=0)
 
-    async def test_a_first_class_severity_field_is_populated_when_it_exists(self, connector):
-        """``ChannelMetadata.alarm_severity`` is feature-detected, not assumed.
+    async def test_the_alarm_has_one_source_the_quality(self, connector):
+        """The alarm is the quality's, and raw_metadata keeps only the quality itself.
 
-        The contract may grow the field independently of this connector; a
-        metadata type that carries it gets the severity first-class, and one
-        that does not still carries it in ``raw_metadata``.
+        The severity no longer rides a second time in ``raw_metadata`` for a
+        write path to lift: the reading's ``alarm`` is where every consumer
+        reads it.
         """
-        from osprey_connectors.control_system import _tango_connector as mod
-        from osprey_connectors.control_system._base import ChannelMetadata
-
-        class _MetadataWithSeverity(ChannelMetadata):
-            alarm_severity: int | None = None
-
         conn, proxy = connector
-        proxy.read_attribute.return_value = _make_attribute(quality="ATTR_ALARM")
-        with patch.object(mod, "ChannelMetadata", _MetadataWithSeverity):
-            result = await conn.read_channel(_ADDRESS)
-        assert result.metadata.alarm_severity == 2
-        assert result.metadata.raw_metadata["severity"] == 2
+        proxy.read_attribute.return_value = _make_attribute(quality="ATTR_WARNING")
+        result = await conn.read_channel(_ADDRESS)
+        assert result.alarm == Alarm(status="WARNING", severity=1)
+        assert dict(result.metadata.raw_metadata) == {"quality": "ATTR_WARNING"}
 
     async def test_read_reads_the_named_attribute_on_the_named_device(self, connector):
         conn, proxy = connector
@@ -441,7 +436,7 @@ class TestEnumReadings:
         result = await conn.read_channel(_ADDRESS)
         assert result.value == 1
         assert result.metadata.enum_labels == ("Closed", "Open")
-        assert result.metadata.enum_label == "Open"
+        assert result.enum_label == "Open"
 
     async def test_enum_labels_are_cached_per_attribute(self, connector):
         conn, proxy = connector
@@ -462,7 +457,7 @@ class TestEnumReadings:
         result = await conn.read_channel(_ADDRESS)
         assert result.value == 1
         assert result.metadata.enum_labels is None
-        assert result.metadata.enum_label is None
+        assert result.enum_label is None
 
     async def test_non_enum_reading_carries_no_labels(self, connector):
         conn, proxy = connector
@@ -514,7 +509,7 @@ class TestWriteChannel:
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert isinstance(result, ChannelWriteResult)
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == 10.0
+        assert result.observed.value == 10.0
         proxy.write_attribute.assert_called_once_with("Current", 10.0)
 
     async def test_mismatch_carries_both_values_and_no_message(self, connector):
@@ -523,7 +518,7 @@ class TestWriteChannel:
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert result.outcome is WriteOutcome.MISMATCH
         assert result.value_written == 10.0
-        assert result.observed_value == 9.7
+        assert result.observed.value == 9.7
         assert result.error_message is None
 
     async def test_a_ramping_readback_is_a_mismatch_not_a_softer_word(self, connector):
@@ -538,8 +533,8 @@ class TestWriteChannel:
         proxy.read_attribute.return_value = _make_attribute(value=3.2, quality="ATTR_CHANGING")
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.alarm_status == "CHANGING"
-        assert result.alarm_severity == 0
+        assert result.observed.alarm.status == "CHANGING"
+        assert result.observed.alarm.severity == 0
 
     async def test_confirmed_write_in_alarm_stays_confirmed(self, connector):
         """Alarm state is reported with the write, never raised on."""
@@ -547,8 +542,8 @@ class TestWriteChannel:
         proxy.read_attribute.return_value = _make_attribute(value=10.0, quality="ATTR_ALARM")
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.alarm_status == "ALARM"
-        assert result.alarm_severity == 2
+        assert result.observed.alarm.status == "ALARM"
+        assert result.observed.alarm.severity == 2
 
     async def test_write_refused_when_writes_disabled(self):
         mock_tango = _make_tango()
@@ -799,7 +794,7 @@ class TestBoundedCalls:
         assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "within 0.2s" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         assert proxy.read_attribute.call_count == 0
 
 
@@ -866,7 +861,7 @@ class TestUnreachableDevice:
         assert result.outcome is WriteOutcome.FAILED
         assert "TANGO did not take the value" in result.error_message
         assert _ADDRESS in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         proxy.read_attribute.assert_not_called()
 
     async def test_a_device_unreachable_during_validation_refuses_the_write(self):
@@ -950,8 +945,9 @@ class TestSubscriptions:
         await asyncio.sleep(0)
 
         assert len(received) == 1
+        assert received[0].address == _ADDRESS
         assert received[0].value == 3.14
-        assert received[0].metadata.alarm_status == "WARNING"
+        assert received[0].alarm == Alarm(status="WARNING", severity=1)
 
     async def test_error_events_are_dropped(self, connector):
         conn, proxy = connector
@@ -1007,7 +1003,7 @@ class TestGetMetadata:
         conn, proxy = connector
         proxy.get_attribute_config.side_effect = RuntimeError("config fetch failed")
         metadata = await conn.get_metadata(_ADDRESS)
-        assert metadata.alarm_status == "NO_ALARM"
+        assert metadata.raw_metadata["quality"] == "ATTR_VALID"
 
 
 class TestValidateChannel:

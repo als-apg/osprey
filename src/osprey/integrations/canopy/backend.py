@@ -1233,7 +1233,7 @@ class OspreyPVConnector:
 
     # -- conversion ---------------------------------------------------------
 
-    def _to_value(self, pv: str, reading: Any) -> PVValue:
+    def _to_value(self, pv: str, reading: control_system.ChannelValue) -> PVValue:
         metadata = reading.metadata
         raw = reading.value
         if hasattr(raw, "tolist"):
@@ -1259,7 +1259,8 @@ class OspreyPVConnector:
             kind, value = ValueKind.UNSUPPORTED, None
             error = f"a {type(raw).__name__} value cannot be shown"
 
-        severity = getattr(metadata, "alarm_severity", None)
+        alarm = reading.alarm
+        severity = None if alarm is None else alarm.severity
         return PVValue(
             pv=pv,
             value=value,

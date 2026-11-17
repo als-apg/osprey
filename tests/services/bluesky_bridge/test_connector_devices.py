@@ -378,7 +378,7 @@ async def test_set_returns_on_a_confirmed_write_to_the_readback_channel() -> Non
 async def test_set_returns_on_a_confirmed_write_the_deadband_would_reject(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``confirmed`` is the verdict — no arithmetic on ``observed_value`` here.
+    """``confirmed`` is the verdict — no arithmetic on the ``observed`` reading here.
 
     The connector confirms within ``isclose(rel_tol=1e-6)``; re-checking that
     value against the 1e-9 absolute deadband would poll the setpoint just written

@@ -121,11 +121,12 @@ class RaisingConnector(ControlSystemConnector):
 
     async def read_channel(
         self,
-        address: str,  # noqa: ARG002 - the connector interface fixes the signature
+        address: str,
         *,
         timeout_s: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
     ) -> ChannelValue:
         return ChannelValue(
+            address=address,
             value=READ_VALUE,
             sampled_at=datetime.now(UTC),
             metadata=ChannelMetadata(units="A"),

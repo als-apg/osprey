@@ -37,8 +37,10 @@ A connector is Osprey's single interface to one control system. Subclass
 ``ControlSystemConnector`` from ``osprey_connectors.control_system``
 --- the source lives in
 ``packages/osprey-connectors/src/osprey_connectors/control_system/`` --- and
-return the ``ChannelValue`` and ``ChannelMetadata`` models it defines. The
-write methods are final: implement ``_send``, which puts one checked value and
+return the ``ChannelValue`` and ``ChannelMetadata`` models it defines. A
+reading names the address it was asked for and carries its own ``Alarm`` and
+enum label, filled from your protocol's fields at read time; the metadata holds
+only what describes the channel. The write methods are final: implement ``_send``, which puts one checked value and
 answers with a ``SendReport`` saying whether it went out, and the base class
 runs the write guard, the limits, the confirming read and the ``values_match``
 comparison, and builds every ``ChannelWriteResult``. That way your connector

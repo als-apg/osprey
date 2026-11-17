@@ -331,7 +331,7 @@ class TestWrites:
         result = await connector.write_channel(ADDR, 1.0, confirm=False)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
+        assert result.observed is None
 
     async def test_a_write_to_a_dropped_channel_raises_channel_unreachable(
         self, connector, monkeypatch

@@ -40,6 +40,7 @@ class _SpyConnector:
         if self._raise_exc is not None:
             raise self._raise_exc
         return ChannelValue(
+            address=address,
             value=self._value,
             sampled_at=datetime(2026, 1, 1, tzinfo=UTC),
             metadata=ChannelMetadata(units=self._units),

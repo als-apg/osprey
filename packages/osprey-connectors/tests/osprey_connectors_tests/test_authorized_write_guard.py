@@ -107,7 +107,9 @@ class BaseBatchConnector(ControlSystemConnector):
         return SendReport()
 
     async def _confirming_read(self, address, sent, *, timeout_s):  # noqa: ARG002 - the read-back hook fixes this signature
-        return ChannelValue(value=dict(self.writes)[address], sampled_at=datetime.now(UTC))
+        return ChannelValue(
+            address=address, value=dict(self.writes)[address], sampled_at=datetime.now(UTC)
+        )
 
     async def subscribe(self, address, callback, *, on_connection=None):
         raise NotImplementedError

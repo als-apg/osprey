@@ -98,7 +98,7 @@ def _switch_on(monkeypatch, tmp_path):
 class Scenario:
     """One situation a write can land in, and the result every connector owes.
 
-    ``observed_value_set`` and ``error_message_set`` pin the field rule that
+    ``observed_set`` and ``error_message_set`` pin the field rule that
     travels with the outcome word: a mismatch carries what the channel holds
     and *no* message (both numbers are already on the result), while the two
     outcomes that carry nothing to compare carry the reason instead.
@@ -110,7 +110,7 @@ class Scenario:
 
     name: str
     outcome: WriteOutcome
-    observed_value_set: bool
+    observed_set: bool
     error_message_set: bool
     confirming_reads: int
 
@@ -118,35 +118,35 @@ class Scenario:
 VALUE_EQUAL = Scenario(
     name="put_succeeds_value_equal",
     outcome=WriteOutcome.CONFIRMED,
-    observed_value_set=True,
+    observed_set=True,
     error_message_set=False,
     confirming_reads=1,
 )
 VALUE_DIFFERS = Scenario(
     name="put_succeeds_value_differs",
     outcome=WriteOutcome.MISMATCH,
-    observed_value_set=True,
+    observed_set=True,
     error_message_set=False,
     confirming_reads=1,
 )
 READ_RAISES = Scenario(
     name="confirming_read_raises",
     outcome=WriteOutcome.UNCONFIRMED,
-    observed_value_set=False,
+    observed_set=False,
     error_message_set=True,
     confirming_reads=1,
 )
 PUT_FAILS = Scenario(
     name="put_fails",
     outcome=WriteOutcome.FAILED,
-    observed_value_set=False,
+    observed_set=False,
     error_message_set=True,
     confirming_reads=0,
 )
 CONFIRM_DECLINED = Scenario(
     name="confirm_false",
     outcome=WriteOutcome.UNREQUESTED,
-    observed_value_set=False,
+    observed_set=False,
     error_message_set=False,
     confirming_reads=0,
 )
@@ -372,7 +372,7 @@ class TestWriteOutcomeParity:
         """
         run = await _DRIVERS[connector_name](scenario, monkeypatch, tmp_path)
 
-        assert (run.result.observed_value is not None) is scenario.observed_value_set
+        assert (run.result.observed is not None) is scenario.observed_set
         assert (run.result.error_message is not None) is scenario.error_message_set
         # Whatever happened to the write, it was never a refusal.
         assert run.result.refusal_reason is None

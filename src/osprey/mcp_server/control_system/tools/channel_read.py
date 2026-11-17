@@ -14,6 +14,7 @@ from osprey_connectors.config import get_facility_timezone
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
+    from osprey_connectors.control_system import ChannelValue
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_read")
 
@@ -636,6 +637,30 @@ async def _gather_readings(connector, channels: list[str]) -> tuple[dict, dict]:
     return readings, failures
 
 
+def _metadata_entry(cv: "ChannelValue") -> dict[str, object]:
+    """The metadata keys of one reading's entry, in the order the tool serves them.
+
+    The served keys predate the reading's own ``alarm`` and ``enum_label``: the
+    alarm is ``alarm_status`` and ``alarm_severity``, the reading's label and the
+    channel's labels are ``enum_label`` and ``enum_labels``, each enum key present
+    only when the control system reported it.
+    """
+    metadata = cv.metadata
+    alarm = cv.alarm
+    entry: dict[str, object] = {
+        "units": metadata.units,
+        "precision": metadata.precision,
+        "alarm_status": None if alarm is None else alarm.status,
+        "alarm_severity": None if alarm is None else alarm.severity,
+        "description": metadata.description,
+    }
+    if cv.enum_label is not None:
+        entry["enum_label"] = cv.enum_label
+    if metadata.enum_labels is not None:
+        entry["enum_labels"] = metadata.enum_labels
+    return entry
+
+
 @mcp.tool()
 async def channel_read(
     channels: list[str],
@@ -737,12 +762,7 @@ async def channel_read(
                 withheld.append(addr)
 
             if include_metadata:
-                for field in metadata_fields:
-                    entry[field] = getattr(cv.metadata, field, None)
-                for field in enum_metadata_fields:
-                    enum_value = getattr(cv.metadata, field, None)
-                    if enum_value is not None:
-                        entry[field] = enum_value
+                entry.update(_metadata_entry(cv))
             readings_summary[addr] = entry
 
         summary: dict = {

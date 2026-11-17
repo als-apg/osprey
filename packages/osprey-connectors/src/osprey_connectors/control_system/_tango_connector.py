@@ -24,6 +24,7 @@ from typing_extensions import override
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -131,20 +132,22 @@ def _split_address(address: str) -> tuple[str, str]:
     return prefix + "/".join(parts[:3]), parts[3]
 
 
-def _quality_fields(quality: object) -> tuple[str | None, int | None]:
-    """Alarm name and severity for a TANGO attribute quality, or ``(None, None)``.
+def _quality_alarm(quality: object) -> Alarm | None:
+    """The alarm a TANGO attribute quality reports, or ``None`` when it reports none.
 
     ``None`` means "not reported" — deliberately distinct from a reported
     healthy reading (``NO_ALARM`` / severity ``0``), matching the contract on
-    :class:`~osprey_connectors.control_system.ChannelWriteResult`.
+    :class:`~osprey_connectors.control_system.Alarm`. A quality outside the
+    table is ``UNKNOWN`` with no severity.
     """
     if quality is None:
-        return None, None
+        return None
     name = getattr(quality, "name", None) or str(quality)
     fields = _QUALITY_ALARM_FIELDS.get(str(name))
     if fields is None:
-        return "UNKNOWN", None
-    return fields
+        return Alarm(status="UNKNOWN")
+    status, severity = fields
+    return Alarm(status=status, severity=severity)
 
 
 def _attribute_sampled_at(attr: object) -> datetime:
@@ -336,7 +339,6 @@ class TangoConnector(ControlSystemConnector):
 
         value = attr.value
         quality: object = getattr(attr, "quality", None)
-        alarm_status, severity = _quality_fields(quality)
         sampled_at = _attribute_sampled_at(attr)
 
         enum_labels: tuple[str, ...] | None = None
@@ -349,20 +351,21 @@ class TangoConnector(ControlSystemConnector):
         metadata = ChannelMetadata(
             units="",
             precision=None,
-            alarm_status=alarm_status,
-            alarm_severity=severity,
             enum_labels=enum_labels,
-            enum_label=enum_label,
             raw_metadata={
-                # Severity rides in raw_metadata exactly as on the EPICS read
-                # path; the write path lifts it onto the result.
-                "severity": severity,
                 "quality": str(getattr(quality, "name", None) or quality)
                 if quality is not None
                 else None,
             },
         )
-        return ChannelValue(value=value, sampled_at=sampled_at, metadata=metadata)
+        return ChannelValue(
+            address=address,
+            value=value,
+            sampled_at=sampled_at,
+            alarm=_quality_alarm(quality),
+            enum_label=enum_label,
+            metadata=metadata,
+        )
 
     @override
     async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
@@ -484,14 +487,11 @@ class TangoConnector(ControlSystemConnector):
             attr: _DeviceAttribute | None = getattr(event, "attr_value", None)
             if attr is None:
                 return
-            alarm_status, severity = _quality_fields(getattr(attr, "quality", None))
-            metadata = ChannelMetadata(
-                alarm_status=alarm_status,
-                alarm_severity=severity,
-                raw_metadata={"severity": severity},
-            )
             channel_value = ChannelValue(
-                value=attr.value, sampled_at=_attribute_sampled_at(attr), metadata=metadata
+                address=address,
+                value=attr.value,
+                sampled_at=_attribute_sampled_at(attr),
+                alarm=_quality_alarm(getattr(attr, "quality", None)),
             )
             loop.call_soon_threadsafe(callback, channel_value)
 

@@ -58,7 +58,7 @@ from osprey.mcp_server.control_system.connector_host_manager import ConnectorHos
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     state_dir_under,
@@ -274,7 +274,7 @@ def _write_result(channel="TEST:PV", value=42.0):
         address=channel,
         value_written=value,
         outcome=WriteOutcome.CONFIRMED,
-        observed_value=value,
+        observed=ChannelValue(address=channel, value=value, sampled_at=datetime.now(UTC)),
     )
 
 

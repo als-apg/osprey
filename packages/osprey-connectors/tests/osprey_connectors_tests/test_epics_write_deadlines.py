@@ -513,7 +513,7 @@ class TestConfirmingRead:
         result, elapsed = await _timed_write(clock, connector, "SR:VALVE", 1, confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == 1
+        assert result.observed.value == 1
         assert record.ctrl_fetches == 1
         assert elapsed == pytest.approx(T)
 
@@ -538,7 +538,7 @@ class TestConfirmingRead:
 
         assert record.puts == ["ON"]
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == 1
+        assert result.observed.value == 1
         assert record.ctrl_fetches == 1
 
     @pytest.mark.asyncio
@@ -550,7 +550,7 @@ class TestConfirmingRead:
         result = await connector.write_channel("SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.alarm_severity == 0
+        assert result.observed.alarm.severity == 0
         assert record.ctrl_fetches == 0
         assert ("caget", "SR:CH", aioca.FORMAT_CTRL) not in fake.calls
 

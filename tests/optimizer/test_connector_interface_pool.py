@@ -9,6 +9,7 @@ optimizer.
 import asyncio
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -443,3 +444,31 @@ def test_a_limits_refusal_out_of_the_batch_is_a_refusal():
     with pytest.raises(WriteRefusedError) as caught:
         ConnectorInterface("live", bridge=_KeyedBridge(results=refused)).set_values({"A:SP": 9.0})
     assert caught.value.reason == "LIMITS"
+
+
+def test_a_reading_s_severity_is_its_alarm_and_its_status_the_raw_code():
+    """The severity comes from the reading's alarm, the one place every connector fills.
+
+    A virtual-accelerator channel of a failed model reports ``UDF`` severity 3 on its
+    alarm and nothing in ``raw_metadata``, so it reaches the optimizer too. The status
+    stays the integer code the control system reported, which ``PVReading`` holds.
+    """
+    from osprey_connectors.control_system import Alarm, ChannelMetadata, ChannelValue
+    from osprey_optimizer.environments.interface import _reading
+
+    stamp = datetime(2026, 11, 16, 8, 0, tzinfo=UTC)
+    failed = ChannelValue(
+        address="SR:A", value=1.0, sampled_at=stamp, alarm=Alarm(status="UDF", severity=3)
+    )
+    ca = ChannelValue(
+        address="SR:B",
+        value=2.0,
+        sampled_at=stamp,
+        alarm=Alarm(status="HIHI", severity=2),
+        metadata=ChannelMetadata(raw_metadata={"status": 3, "severity": 2}),
+    )
+    silent = ChannelValue(address="SR:C", value=3.0, sampled_at=stamp)
+
+    assert (_reading(failed).severity, _reading(failed).status) == (3, None)
+    assert (_reading(ca).severity, _reading(ca).status) == (2, 3)
+    assert (_reading(silent).severity, _reading(silent).status) == (None, None)

@@ -289,7 +289,7 @@ class TestEpicsBatch:
         results = await connector.write_multiple_channels([("A", 1.0), ("B", 2.0)])
 
         assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED, WriteOutcome.MISMATCH]
-        assert results[1].observed_value == 5.0
+        assert results[1].observed.value == 5.0
 
     async def test_one_limits_refusal_puts_nothing(self):
         aioca = FakeAioca(_channels(A=1.0, B=1.0, C=1.0))

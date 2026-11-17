@@ -79,7 +79,9 @@ class _Sender(ControlSystemConnector):
         pass
 
     async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - the read signature
-        return ChannelValue(value=dict(self.sent)[address], sampled_at=datetime.now(UTC))
+        return ChannelValue(
+            address=address, value=dict(self.sent)[address], sampled_at=datetime.now(UTC)
+        )
 
     async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool) -> SendReport:  # noqa: ARG002 - the send hook's signature
         self.sent.append((address, value))
@@ -212,7 +214,7 @@ async def test_a_falsy_value_as_sent_is_what_the_read_back_is_compared_with():
     connector._limits_validator = None
 
     async def held_zero(address, sent, *, timeout_s):  # noqa: ARG001 - the read-back hook's signature
-        return ChannelValue(value=0, sampled_at=datetime.now(UTC))
+        return ChannelValue(address=address, value=0, sampled_at=datetime.now(UTC))
 
     connector._confirming_read = held_zero  # type: ignore[method-assign]
     result = await connector.write_channel("SR:SP", "0")

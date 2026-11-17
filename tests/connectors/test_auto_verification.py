@@ -155,7 +155,7 @@ class TestConfirmResolution:
         result = await connector.write_channel("PLAIN:CHANNEL", 50.0)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
+        assert result.observed is None
 
         await connector.disconnect()
 
@@ -253,7 +253,7 @@ class TestExplicitConfirmOverridesTheDatabase:
         result = await connector.write_channel("BLIND:CHANNEL", 50.0, confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value is not None
+        assert result.observed is not None
 
         await connector.disconnect()
 

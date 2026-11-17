@@ -56,7 +56,9 @@ TS = datetime(2026, 8, 22, 14, 30, 5, 123456, tzinfo=UTC)
 
 
 def _channel_value(value, units="A"):
-    return ChannelValue(value=value, sampled_at=TS, metadata=ChannelMetadata(units=units))
+    return ChannelValue(
+        address="SR:CH", value=value, sampled_at=TS, metadata=ChannelMetadata(units=units)
+    )
 
 
 # ---------------------------------------------------------------- fake child
@@ -614,7 +616,7 @@ async def test_write_channel_checked_raises_typed_on_a_mismatch(teardown):
         address="SR:SP",
         value_written=1.0,
         outcome=WriteOutcome.MISMATCH,
-        observed_value=0.5,
+        observed=ChannelValue(address="SR:SP", value=0.5, sampled_at=TS),
     )
     proxy, child = await _proxy_with_child(_echo_handler([mismatch]))
     teardown.append((proxy, child))

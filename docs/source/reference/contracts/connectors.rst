@@ -153,11 +153,13 @@ Every write ends in exactly one of six outcomes:
    * - ``unrequested``
      - Confirmation is switched off for this channel; nothing was checked.
 
-Beside the outcome, the result carries ``observed_value`` (what the re-read
-returned), ``alarm_status`` and ``alarm_severity`` (the channel's alarm state,
-which is reported with the write and is never itself a reason to fail one), and
-``notes`` -- a short display line such as ``observed 2.4, sent 2.5`` that is
-there to be shown, not parsed.
+Beside the outcome, a ``confirmed`` or ``mismatch`` result carries ``observed``,
+the re-read itself: its value, its stamp and its ``alarm`` (the channel's alarm
+state, which is reported with the write and is never itself a reason to fail
+one). Every result may carry ``notes`` -- a short display line such as
+``observed 2.4, sent 2.5`` that is there to be shown, not parsed. The
+``channel_write`` MCP tool serves the re-read as ``observed_value``,
+``alarm_status`` and ``alarm_severity``.
 
 **In Python, anything short of a confirmation raises.**
 ``osprey.runtime.write_channel`` raises ``ChannelWriteBlockedError`` on

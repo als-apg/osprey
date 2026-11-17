@@ -231,7 +231,10 @@ class _Machine:
     async def read_multiple_channels(self, addrs, *, timeout_s=None):  # noqa: ARG002
         now = datetime.now(UTC)
         return ChannelReadBatch(
-            values={a: ChannelValue(value=self.values.get(a, 0.0), sampled_at=now) for a in addrs}
+            values={
+                a: ChannelValue(address=a, value=self.values.get(a, 0.0), sampled_at=now)
+                for a in addrs
+            }
         )
 
     async def disconnect(self) -> None:

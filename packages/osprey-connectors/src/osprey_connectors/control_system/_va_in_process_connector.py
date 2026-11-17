@@ -57,6 +57,7 @@ from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -71,7 +72,7 @@ from osprey_connectors.errors import (
     RefusalReason,
 )
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.model import FrozenModel
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
 from osprey_connectors.simulation.view import (
@@ -620,11 +621,10 @@ class VAInProcessConnector(ControlSystemConnector):
         return value
 
     def _metadata(self, address: str, composite: Composite) -> ChannelMetadata:
-        """Metadata from the channel record, alarm from the composite's severity."""
+        """Metadata from the channel record."""
         record = self._records.get(address)
         variable = composite.supported_variables[address]
         unit = getattr(variable, "unit", None) or (record and record.unit) or ""
-        severity = composite.output_severity([address])
         labels: tuple[str, ...] | None = None
         if record is not None and record.value_type in LABELLED_TYPES:
             from osprey_connectors.simulation import values
@@ -633,20 +633,22 @@ class VAInProcessConnector(ControlSystemConnector):
         return ChannelMetadata(
             units=str(unit),
             description=None if record is None else record.description,
-            alarm_severity=UDF_SEVERITY if address in severity else None,
-            alarm_status=UDF_STATUS if address in severity else None,
             enum_labels=labels,
         )
 
     def _reading(self, address: str, *, held: bool) -> ChannelValue:
+        """One reading, its alarm from the composite's severity: a failed model reads ``UDF``."""
         composite = self._require(address)
         stored: object = composite.held([address])[address] if held else composite.get(address)
         metadata = self._metadata(address, composite)
-        if metadata.enum_labels is not None and stored in metadata.enum_labels:
-            metadata = evolve(metadata, enum_label=str(stored))
+        failed = address in composite.output_severity([address])
+        labelled = metadata.enum_labels is not None and stored in metadata.enum_labels
         return ChannelValue(
+            address=address,
             value=self._wire(address, stored),
             sampled_at=datetime.now(UTC),
+            alarm=Alarm(status=UDF_STATUS, severity=UDF_SEVERITY) if failed else None,
+            enum_label=str(stored) if labelled else None,
             metadata=metadata,
         )
 

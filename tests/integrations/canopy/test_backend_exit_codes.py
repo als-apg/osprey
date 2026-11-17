@@ -29,6 +29,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -60,7 +61,7 @@ from osprey.runtime.session import (
 )
 from osprey_connectors import control_context, posture_store, session_hold, types
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -515,7 +516,7 @@ class _HeldMachine(_TrackedFake):
             address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=value,
+            observed=ChannelValue(address=address, value=value, sampled_at=datetime.now(UTC)),
         )
 
 

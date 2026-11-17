@@ -73,14 +73,16 @@ class ChannelMetadata(FrozenModel):
     a value inside the display range can still be refused, and a connector that
     reports no display range constrains nothing.
 
-    ``enum_labels`` / ``enum_label`` are present only for enum-typed records
-    (EPICS ``mbbi``/``mbbo``/``bi``/``bo``, PVAccess ``NTEnum``, and their
-    equivalents elsewhere) and are ``None`` on every other channel. They are the
-    *readable* half of an enum reading: ``ChannelValue.value`` stays the integer
-    index — one machine-readable type across every protocol — and the label for
-    that index rides here, resolved at read time. Either may be ``None`` even on
-    an enum channel: a control system reports the label list only when it has
-    one, and an index outside it resolves to nothing.
+    The record holds what describes the channel, not one reading of it: the
+    alarm state and the label of the value read ride on the
+    :class:`ChannelValue` itself (:attr:`ChannelValue.alarm`,
+    :attr:`ChannelValue.enum_label`).
+
+    ``enum_labels`` is present only for enum-typed records (EPICS
+    ``mbbi``/``mbbo``/``bi``/``bo``, PVAccess ``NTEnum``, and their equivalents
+    elsewhere) and is ``None`` on every other channel: every state the channel
+    can report, in index order. It may be ``None`` even on an enum channel: a
+    control system reports the label list only when it has one.
 
     ``enum_labels`` is a tuple, and takes a list on input: the connector-host
     IPC (:mod:`osprey_connectors.ipc._frames`) carries it as a JSON array,
@@ -110,19 +112,11 @@ class ChannelMetadata(FrozenModel):
 
     units: str = ""
     precision: int | None = None
-    #: Alarm name reported for the reading, e.g. "NO_ALARM"/"HIHI"; None if not reported.
-    alarm_status: str | None = None
-    #: Alarm severity: 0 healthy, higher is worse; ``None`` means "not reported",
-    #: which stays distinct from a reported healthy value (``alarm_severity=0``) —
-    #: the same convention as :attr:`ChannelWriteResult.alarm_severity`.
-    alarm_severity: int | None = None
     description: str | None = None
     display_low: float | None = None
     display_high: float | None = None
     #: Every state this enum-typed channel can report, in index order; None off enums.
     enum_labels: FrozenTuple[str] | None = None
-    #: The label for the value of THIS reading; None off enums and when unresolvable.
-    enum_label: str | None = None
     raw_metadata: ReadOnlyMapping[str, ContractAny] | None = Field(default_factory=empty_mapping)
     #: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.
     control_low: float | None = None
@@ -216,17 +210,51 @@ def _writable_flag(value: object) -> bool | None:
     return None
 
 
-class ChannelValue(FrozenModel):
-    """Value of a control system channel with metadata.
+class Alarm(FrozenModel):
+    """The alarm state a control system reported with one reading.
 
-    ``sampled_at`` is the instant the control system stamped the reading with
-    (the IOC's or device's own time stamp), or the instant the connector read it
-    when the source reported none. Timezone-aware; every built-in connector
-    stamps it in UTC.
+    Carried protocol-agnostically: the alarm *name* as a string ("NO_ALARM",
+    "HIHI"), the severity as an int, 0 healthy and higher worse. Mapping a
+    protocol's raw codes to those words is the connector's job, so this shared
+    module imports no control-system constants. Either field is ``None`` when
+    the control system did not report it, which stays distinct from a reported
+    healthy reading (``severity=0``).
     """
 
+    #: The alarm name, e.g. "NO_ALARM"/"HIHI"; None if not reported.
+    status: str | None = None
+    #: 0 healthy, higher is worse; None if not reported.
+    severity: int | None = None
+
+
+class ChannelValue(FrozenModel):
+    """One reading of a control system channel.
+
+    ``address`` names the channel read. ``sampled_at`` is the instant the
+    control system stamped the reading with (the IOC's or device's own time
+    stamp), or the instant the connector read it when the source reported
+    none. Timezone-aware; every built-in connector stamps it in UTC.
+
+    ``alarm`` is the alarm state reported with this reading, filled by the
+    connector at read time, and ``None`` when the control system reports no
+    alarm state at all (DOOCS). Alarm state is information, never a reason to
+    raise.
+
+    ``enum_label`` is the *readable* half of an enum reading: ``value`` stays
+    the integer index — one machine-readable type across every protocol — and
+    the label for that index rides here, resolved at read time. It is ``None``
+    off enum channels and on an index outside the reported labels
+    (:attr:`ChannelMetadata.enum_labels`).
+
+    ``metadata`` holds what describes the channel rather than this reading.
+    """
+
+    address: str
     value: ContractAny
     sampled_at: AwareDatetime
+    alarm: Alarm | None = None
+    #: The label for the value of THIS reading; None off enums and when unresolvable.
+    enum_label: str | None = None
     metadata: ChannelMetadata = Field(default_factory=ChannelMetadata)
 
 
@@ -385,6 +413,9 @@ def as_number(value: object) -> float | None:
 #: the operator has to be told.
 _MESSAGE_OUTCOMES = frozenset({WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED})
 
+#: The outcomes a confirming re-read decided, the only ones that carry it.
+_OBSERVED_OUTCOMES = frozenset({WriteOutcome.CONFIRMED, WriteOutcome.MISMATCH})
+
 
 class ChannelWriteResult(FrozenModel):
     """What became of one channel write, and what the channel was seen to hold.
@@ -397,8 +428,8 @@ class ChannelWriteResult(FrozenModel):
     ``refused``, ``failed`` or ``unconfirmed`` — the three words that carry
     something the operator has to be told. A ``mismatch`` needs no message:
     both numbers are on the result already, in ``value_written`` and
-    ``observed_value``. Construction enforces it: a result that breaks it
-    raises ``ValueError``.
+    ``observed``. Construction enforces it: a result that breaks it raises
+    ``ValueError``.
 
     ``notes`` is display-only text ("observed 2.4, sent 2.5", "cannot be
     compared"). No consumer reads it, and nothing classifies a write by
@@ -413,18 +444,16 @@ class ChannelWriteResult(FrozenModel):
     :data:`osprey_connectors.refusals.REASONS` — ``switch_off``,
     ``auth_exhausted``, ``auth_range`` and the rest — so a program can tell
     them apart without parsing ``error_message``; it is ``None`` on every
-    other result. ``observed_value`` is whatever the confirming
-    re-read returned, in the type the channel holds — a number, a string, an
-    enum label, a waveform; :attr:`observed_number` narrows it to a float
-    where that makes sense.
+    other result.
 
-    Alarm state (``alarm_status``, ``alarm_severity``) is carried
-    protocol-agnostically — the alarm *name* as a string, the severity as an
-    int — and is information reported with the write, never a reason to raise.
-    ``None`` means "not reported", which stays distinct from a reported
-    healthy value (``alarm_severity=0``). Mapping a protocol's raw codes to
-    those names is the connector's job, so this shared module imports no
-    control-system constants.
+    ``observed`` is the confirming re-read itself, the whole
+    :class:`ChannelValue`: its value in the type the channel holds (a number,
+    a string, a waveform), its stamp, its :class:`Alarm` and its enum label.
+    It is set only on a ``confirmed`` or ``mismatch`` result, the two outcomes
+    a re-read decided; construction enforces it. :attr:`observed_number`
+    narrows its value to a float where that makes sense. The alarm state
+    (``observed.alarm``) is information reported with the write, never a
+    reason to raise.
 
     ``limits_violation`` is the
     :class:`~osprey_connectors.errors.LimitsViolation` of a refusal whose
@@ -444,11 +473,8 @@ class ChannelWriteResult(FrozenModel):
     refusal_reason: RefusalReason | None = None
     # Set iff refused, failed or unconfirmed, enforced at construction
     error_message: str | None = None
-    observed_value: ContractAny = None  # What the confirming re-read returned
-    # Alarm name reported for the reading, e.g. "NO_ALARM"/"HIHI"; None if not reported
-    alarm_status: str | None = None
-    # Alarm severity: 0 healthy, higher is worse; None if not reported
-    alarm_severity: int | None = None
+    # The confirming re-read, set only on a confirmed or mismatch result
+    observed: ChannelValue | None = None
     notes: str | None = None  # Display-only detail
     # The write verdict's reason, for a WRITES_DISABLED refusal that has one
     verdict_reason: str | None = None
@@ -505,9 +531,10 @@ class ChannelWriteResult(FrozenModel):
 
         Raises:
             ValueError: ``refusal_reason`` is missing on a ``refused`` result or
-                set on any other, or ``error_message`` is missing on a
+                set on any other, ``error_message`` is missing on a
                 ``refused``, ``failed`` or ``unconfirmed`` result or set on any
-                other.
+                other, or ``observed`` is set on a result that is neither
+                ``confirmed`` nor ``mismatch``.
         """
         refused = self.outcome is WriteOutcome.REFUSED
         if refused != (self.refusal_reason is not None):
@@ -530,12 +557,17 @@ class ChannelWriteResult(FrozenModel):
                 f"{self.refusal_reason}): limits_violation must be {expected}, "
                 f"got {self.limits_violation!r}"
             )
+        if self.observed is not None and self.outcome not in _OBSERVED_OUTCOMES:
+            raise ValueError(
+                f"Write result for '{self.address}' (outcome {self.outcome}): "
+                f"observed must be None, got {self.observed!r}"
+            )
         return self
 
     @property
     def observed_number(self) -> float | None:
-        """:attr:`observed_value` as a float, or ``None`` when it is not a number."""
-        return as_number(self.observed_value)
+        """The value :attr:`observed` holds as a float; ``None`` when not a number or not read."""
+        return None if self.observed is None else as_number(self.observed.value)
 
     @classmethod
     def refused(
@@ -589,15 +621,10 @@ class ChannelWriteResult(FrozenModel):
     def confirmed(cls, address: str, value: ContractAny, observed: ChannelValue) -> Self:
         """The confirming read *observed* holds the value sent.
 
-        The reading's alarm state is reported on the result.
+        The reading, with its alarm state, is reported on the result.
         """
         return cls(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED,
-            observed_value=observed.value,
-            alarm_status=observed.metadata.alarm_status,
-            alarm_severity=observed.metadata.alarm_severity,
+            address=address, value_written=value, outcome=WriteOutcome.CONFIRMED, observed=observed
         )
 
     @classmethod
@@ -611,9 +638,7 @@ class ChannelWriteResult(FrozenModel):
             address=address,
             value_written=value,
             outcome=WriteOutcome.MISMATCH,
-            observed_value=observed.value,
-            alarm_status=observed.metadata.alarm_status,
-            alarm_severity=observed.metadata.alarm_severity,
+            observed=observed,
             notes=f"Channel holds {observed.value}, sent {value}",
         )
 
@@ -952,7 +977,7 @@ def raise_for_write_result(result: ChannelWriteResult) -> ChannelWriteResult:
         result.outcome,
         message=result.error_message,
         value_written=result.value_written,
-        observed_value=result.observed_value,
+        observed_value=None if result.observed is None else result.observed.value,
     )
 
 
@@ -1977,7 +2002,7 @@ class ControlSystemConnector(ABC):
                 notes="The value was sent; what the channel holds is unknown",
             )
         sent = value if report.sent is None else report.sent
-        if values_match(sent, observed.value, enum_label=observed.metadata.enum_label):
+        if values_match(sent, observed.value, enum_label=observed.enum_label):
             logger.debug(f"Write confirmed: {address} = {observed.value!r}")
             return ChannelWriteResult.confirmed(address, value, observed)
         logger.warning(
@@ -2121,7 +2146,7 @@ class ControlSystemConnector(ABC):
             address: Address/name of the channel
 
         Returns:
-            ChannelMetadata with units, alarm status, description, and (where the
+            ChannelMetadata with units, precision, description, and (where the
             control system reports one) a display range
 
         Raises:

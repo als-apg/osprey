@@ -43,6 +43,7 @@ import pytest
 
 pytest.importorskip("p4p", reason="p4p is required to serve a live PVAccess fixture")
 
+
 from p4p.nt import NTEnum, NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
@@ -273,7 +274,7 @@ class TestLiveReads:
 
         assert reading.value == ENUM_INDEX
         assert not isinstance(reading.value, str)
-        assert reading.metadata.enum_label == ENUM_CHOICES[ENUM_INDEX]
+        assert reading.enum_label == ENUM_CHOICES[ENUM_INDEX]
         assert reading.metadata.enum_labels == tuple(ENUM_CHOICES)
         raw = reading.metadata.raw_metadata
         assert raw["nt_id"] == "epics:nt/NTEnum:1.0"

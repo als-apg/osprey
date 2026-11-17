@@ -146,6 +146,7 @@ class FakeConnector(ControlSystemConnector):
         """The reading for ``address``: exactly what the store holds."""
         now = datetime.now(UTC)
         return ChannelValue(
+            address=address,
             value=self._state.setdefault(address, 0.0),
             sampled_at=now,
             metadata=ChannelMetadata(units="", description=f"Fake channel: {address}"),

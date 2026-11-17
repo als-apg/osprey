@@ -88,13 +88,15 @@ def _structured_write_facts(result):
     the alarm fields, and whether a message is carried at all — the
     ``error_message`` iff-rule, not its sentence.
     """
+    observed = result.observed
+    alarm = None if observed is None else observed.alarm
     return (
         result.outcome,
-        result.observed_value,
+        None if observed is None else observed.value,
         result.refusal_reason,
         result.error_message is not None,
-        result.alarm_status,
-        result.alarm_severity,
+        None if alarm is None else alarm.status,
+        None if alarm is None else alarm.severity,
     )
 
 
@@ -252,7 +254,16 @@ class TestReadChannel:
         result = await conn.read_channel("FAC/DEV/LOC/PROP")
 
         assert isinstance(result, ChannelValue)
+        assert result.address == "FAC/DEV/LOC/PROP"
         assert result.value == 42.0
+
+    async def test_a_reading_reports_no_alarm_and_no_label(self, connector):
+        """DOOCS reports no alarm state: the reading's alarm is "not reported", never healthy."""
+        conn, _ = connector
+        result = await conn.read_channel("FAC/DEV/LOC/PROP")
+
+        assert result.alarm is None
+        assert result.enum_label is None
 
     async def test_read_sampled_at_is_the_readings_own_in_utc(self, connector):
         conn, _ = connector
@@ -345,7 +356,7 @@ class TestWriteChannel:
         assert isinstance(result, ChannelWriteResult)
         assert result.outcome is WriteOutcome.CONFIRMED
         assert result.value_written == 10.0
-        assert result.observed_value == pytest.approx(10.0)
+        assert result.observed.value == pytest.approx(10.0)
         assert result.error_message is None
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
 
@@ -355,7 +366,7 @@ class TestWriteChannel:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
+        assert result.observed is None
         assert result.error_message is None
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
         mock_d4py.get.assert_not_called()
@@ -369,7 +380,7 @@ class TestWriteChannel:
         assert result.outcome is WriteOutcome.FAILED
         assert "write failed" in result.error_message
         assert "FAC/DEV/LOC/PROP" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         # Nothing was taken, so there is nothing to confirm.
         mock_d4py.get.assert_not_called()
 
@@ -381,7 +392,7 @@ class TestWriteChannel:
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "readback error" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
 
     @pytest.mark.parametrize("readback", [99.0, 10.05], ids=["far", "rounded"])
     async def test_a_readback_that_differs_is_a_mismatch_with_no_message(self, connector, readback):
@@ -664,7 +675,7 @@ class TestBoundedCalls:
         assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "within 0.2s" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         assert mock_d4py.get.call_count == 0
 
     async def test_a_stalled_limits_check_is_refused_and_sends_nothing(self):
@@ -712,7 +723,7 @@ class TestBoundedCalls:
         assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "within 0.2s" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
 
 
@@ -740,7 +751,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", "DESIRED", confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == "DESIRED"
+        assert result.observed.value == "DESIRED"
         assert result.observed_number is None
         assert result.error_message is None
 
@@ -752,7 +763,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", "DESIRED", confirm=True)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == "OTHER"
+        assert result.observed.value == "OTHER"
         assert result.error_message is None
 
     async def test_sequence_readback_confirms_elementwise(self, connector):
@@ -762,7 +773,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", [1, 2, 3], confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == [1, 2, 3]
+        assert result.observed.value == [1, 2, 3]
 
     async def test_sequence_mismatch_is_a_mismatch(self, connector):
         conn, mock_d4py = connector
@@ -771,7 +782,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", [1, 2, 3], confirm=True)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == [1, 2, 4]
+        assert result.observed.value == [1, 2, 4]
         assert result.error_message is None
 
     async def test_array_readback_confirms_elementwise(self, connector):
@@ -792,7 +803,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value is observed
+        assert result.observed.value is observed
         # The read itself worked; only the comparison has no meaning.
         assert result.error_message is None
 
@@ -804,7 +815,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", "ON", confirm=True)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == pytest.approx(1.0)
+        assert result.observed.value == pytest.approx(1.0)
         assert result.error_message is None
 
 
@@ -890,6 +901,8 @@ class TestSubscribe:
         cb.assert_called_once()
         reading = cb.call_args.args[0]
         assert isinstance(reading, ChannelValue)
+        assert reading.address == "FAC/DEV/LOC/PROP"
+        assert reading.alarm is None
         assert reading.metadata.raw_metadata["type"] == "float"
 
     async def test_unsubscribe_removes_subscription(self, connector):

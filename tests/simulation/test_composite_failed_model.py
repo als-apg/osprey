@@ -179,7 +179,7 @@ async def test_a_solve_that_raises_fails_sr_and_leaves_the_texture(
         for address in failed_texture
     )
     assert math.isnan(reading.value)
-    assert reading.metadata.alarm_severity == 3
+    assert reading.alarm.severity == 3
     assert model_status(connector, "SR") == str(error)
     assert failed.get(SR_STATUS) == str(error)
     await connector.disconnect()

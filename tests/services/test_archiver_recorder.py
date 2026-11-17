@@ -614,7 +614,7 @@ class _StallingConnector:
                 raise
         if address.endswith(":BROKEN"):
             raise ConnectionError(f"Failed to connect to PV '{address}'")
-        return ChannelValue(value=2.5, sampled_at=datetime.now(UTC))
+        return ChannelValue(address=address, value=2.5, sampled_at=datetime.now(UTC))
 
 
 async def test_a_channel_that_never_answers_does_not_hold_the_sample(

@@ -41,6 +41,7 @@ from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_STEP_READ_TIMEOUT_S, step_read_timeout_s
 from osprey_connectors.config import config_flag
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -254,7 +255,7 @@ def _alarm_name(code: object) -> str:
     """Map a Channel Access alarm status code onto its EPICS name.
 
     Channel Access reports the alarm status as a small integer; the rest of
-    OSPREY (and ``ChannelMetadata.alarm_status``) speaks names, which is what
+    OSPREY (and ``Alarm.status``) speaks names, which is what
     PVAccess already emits. This is the one place codes become names, so the
     shared connector core stays free of EPICS constants.
 
@@ -1287,7 +1288,9 @@ class EPICSConnector(ControlSystemConnector):
 
         name = normalise_address(address)
         deadline = (time.time() + timeout_s,)
-        return await self._ca_loop.run(self._read_channel_ca(name, deadline, timeout_s))
+        value = await self._ca_loop.run(self._read_channel_ca(name, deadline, timeout_s))
+        # The reading names the channel as the caller did, scheme and all.
+        return value if name == address else evolve(value, address=address)
 
     # ------------------------------------------------------------------
     # Channel Access (aioca). Every coroutine here runs on the CA loop.
@@ -1352,7 +1355,7 @@ class EPICSConnector(ControlSystemConnector):
             # A failed cainfo answers its CANothing: an exception, never a CaInfo.
             if not isinstance(info, Exception):
                 writable = getattr(info, "write", None)
-        return self._ca_channel_value(reading, fields, writable)
+        return self._ca_channel_value(address, reading, fields, writable)
 
     async def _ca_ctrl_fields(self, address: str, deadline: tuple[float]) -> object:
         """The channel's CTRL-form reading (units, precision, labels, limits), or ``None``.
@@ -1377,13 +1380,14 @@ class EPICSConnector(ControlSystemConnector):
         return fields
 
     def _ca_channel_value(
-        self, reading: object, ctrl: object, writable: bool | None = None
+        self, address: str, reading: object, ctrl: object, writable: bool | None = None
     ) -> ChannelValue:
         """Build the connector's ChannelValue from a TIME-form reading and its CTRL fields.
 
-        The alarm status is reported by name; the raw CA code stays in
-        raw_metadata next to the severity so nothing is lost. The read path and
-        the monitor path both come through here, so they cannot drift apart.
+        The alarm comes from the reading's own status and severity, the status
+        reported by name; the raw CA code stays in raw_metadata next to the
+        severity so nothing is lost. The read path and the monitor path both
+        come through here, so they cannot drift apart.
         """
         value = _ca_plain(reading)
         stamp = getattr(reading, "timestamp", None)
@@ -1399,10 +1403,7 @@ class EPICSConnector(ControlSystemConnector):
         metadata = ChannelMetadata(
             units=_ctrl_units(ctrl),
             precision=_ctrl_precision(ctrl),
-            alarm_status=_alarm_name(alarm_code),
-            alarm_severity=_severity_int(severity),
             enum_labels=labels,
-            enum_label=label,
             raw_metadata={
                 "status": alarm_code,
                 "severity": severity,
@@ -1411,7 +1412,14 @@ class EPICSConnector(ControlSystemConnector):
             },
             **_ca_ctrl_limits(ctrl, writable),
         )
-        return ChannelValue(value=value, sampled_at=sampled_at, metadata=metadata)
+        return ChannelValue(
+            address=address,
+            value=value,
+            sampled_at=sampled_at,
+            alarm=Alarm(status=_alarm_name(alarm_code), severity=_severity_int(severity)),
+            enum_label=label,
+            metadata=metadata,
+        )
 
     @staticmethod
     def _ca_ctrl_metadata(ctrl: object, writable: bool | None) -> ChannelMetadata:
@@ -1615,6 +1623,7 @@ class EPICSConnector(ControlSystemConnector):
         sampled_at = self._pva_sampled_at(value)
         raw_metadata: dict[str, object] = {"nt_id": type_id}
         raw_metadata.update(self._pva_alarm_metadata(value))
+        alarm = self._pva_alarm(value)
 
         if type_id.startswith(_NT_NDARRAY_ID):
             payload = self._pva_ndarray_value(address, value)
@@ -1628,14 +1637,16 @@ class EPICSConnector(ControlSystemConnector):
         # Only the enum branch contributes the enum fields; every other payload
         # leaves them at their None default, which is what marks a channel as
         # not enum-typed.
-        metadata = self._pva_metadata(
-            value,
-            raw_metadata,
-            enum_labels=payload.get("enum_labels"),
-            enum_label=payload.get("enum_label"),
-        )
+        metadata = self._pva_metadata(value, raw_metadata, enum_labels=payload.get("enum_labels"))
 
-        return ChannelValue(value=payload["value"], sampled_at=sampled_at, metadata=metadata)
+        return ChannelValue(
+            address=address,
+            value=payload["value"],
+            sampled_at=sampled_at,
+            alarm=alarm,
+            enum_label=payload.get("enum_label"),
+            metadata=metadata,
+        )
 
     def _pva_metadata(
         self,
@@ -1643,9 +1654,8 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata: dict[str, object],
         *,
         enum_labels: tuple[str, ...] | None = None,
-        enum_label: str | None = None,
     ) -> ChannelMetadata:
-        """Map the NT ``display``, ``control``, ``valueAlarm`` and ``alarm`` fields.
+        """Map the NT ``display``, ``control`` and ``valueAlarm`` fields.
 
         Reads nothing but metadata fields, so it maps a full read and a
         metadata-only get (:data:`_PVA_METADATA_REQUEST`) identically — the
@@ -1660,9 +1670,6 @@ class EPICSConnector(ControlSystemConnector):
         units = _pva_field(display, "units", "") or ""
         precision = _pva_field(display, "precision")
         description = _pva_field(display, "description") or None
-        # Only _pva_alarm_metadata writes the message, and always as text.
-        message = raw_metadata.get("alarm_message")
-        alarm_status = message if isinstance(message, str) and message else None
         # Normalised here by the rule ChannelMetadata applies on construction,
         # which is idempotent, so the metadata holds what the fields gave it.
         display_low, display_high = normalise_limit_pair(
@@ -1681,8 +1688,6 @@ class EPICSConnector(ControlSystemConnector):
         return ChannelMetadata(
             units=str(units),
             precision=int(precision) if isinstance(precision, int | float) else None,
-            alarm_status=alarm_status,
-            alarm_severity=_severity_int(raw_metadata.get("severity")),
             description=str(description) if description else None,
             display_low=display_low,
             display_high=display_high,
@@ -1693,7 +1698,6 @@ class EPICSConnector(ControlSystemConnector):
             alarm_low=alarm_low,
             alarm_high=alarm_high,
             enum_labels=enum_labels,
-            enum_label=enum_label,
             raw_metadata=raw_metadata,
         )
 
@@ -1706,6 +1710,21 @@ class EPICSConnector(ControlSystemConnector):
             nanos = nanoseconds if isinstance(nanoseconds, int | float) else 0
             return datetime.fromtimestamp(seconds + nanos * 1e-9, UTC)
         return datetime.now(UTC)
+
+    @staticmethod
+    def _pva_alarm(value: object) -> Alarm | None:
+        """The reading's NT ``alarm`` field as an :class:`Alarm`; None when it has none.
+
+        The status is the alarm message, the name PVAccess reports ("HIHI"),
+        and ``None`` when the message is empty; the severity is the field's own.
+        """
+        alarm = _pva_field(value, "alarm")
+        if alarm is None:
+            return None
+        message = _pva_field(alarm, "message", "") or ""
+        return Alarm(
+            status=str(message) or None, severity=_severity_int(_pva_field(alarm, "severity"))
+        )
 
     def _pva_alarm_metadata(self, value: object) -> dict[str, object]:
         """Alarm fields, recorded raw so nothing about the alarm state is lost."""
@@ -1734,7 +1753,7 @@ class EPICSConnector(ControlSystemConnector):
         Both halves of a state reading reach the operator, and each in the place
         it belongs: ``value`` is the index, so a reading has one machine-readable
         type whichever protocol served it, and the choice string arrives as
-        ``ChannelMetadata.enum_label`` — surfaced in the tool envelope, so
+        ``ChannelValue.enum_label`` — surfaced in the tool envelope, so
         nobody has to know that "2" means ACQUIRING. Channel Access maps enums
         the same way, which is what makes a channel's reading independent of
         whether it was routed over CA or PVA.
@@ -2093,8 +2112,8 @@ class EPICSConnector(ControlSystemConnector):
             self._read_channel_ca(normalise_address(address), deadline, timeout_s, ctrl="enum")
         )
         if isinstance(sent, _TextSent):
-            return evolve(observed, value=_char_text(observed.value))
-        return observed
+            return evolve(observed, address=address, value=_char_text(observed.value))
+        return observed if observed.address == address else evolve(observed, address=address)
 
     @override
     async def subscribe(
@@ -2122,7 +2141,9 @@ class EPICSConnector(ControlSystemConnector):
         monitors per address, every value carrying the control data of the
         connection it arrived on, connection state reported ahead of the
         connection's first value. Either way the subscriber callbacks run on
-        the event loop, never on the transport's own thread.
+        the event loop, never on the transport's own thread. A Channel Access
+        value is shared by every subscriber of its record, so it names the
+        channel without the ``ca://`` scheme, however the subscriber spelled it.
 
         A Channel Access subscription outlives a repoint: when a connect
         elsewhere in the process moves CA to another gateway, the record
