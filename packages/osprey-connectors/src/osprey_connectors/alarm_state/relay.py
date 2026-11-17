@@ -3,7 +3,7 @@
 Run it on a host that reaches the alarm server's Kafka broker::
 
     python -m osprey_connectors.alarm_state.relay \\
-        --bootstrap-servers localhost:9092 --topic Accelerator --host 0.0.0.0
+        --bootstrap-servers <broker>:<port> --topic Accelerator --host 0.0.0.0
 
 A reader that cannot reach the broker, because only HTTP crosses the network
 between them, names the relay's url under ``pv_directory.alarm_state`` with type
