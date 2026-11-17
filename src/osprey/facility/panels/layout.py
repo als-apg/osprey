@@ -103,6 +103,7 @@ HEADING_SIZE = 11
 TEXT_SIZE = 13
 SMALL_SIZE = 11
 CHAR_WIDTH = 0.6  # estimated width of one character, in parts of the font size
+CAPS_WIDTH = 0.72  # the same for capitals: a title in capitals is wider
 TEXT_PAD = 10  # added to an estimated text width: the label's own padding and a margin
 HEADER_HEIGHT = 40  # the bar at the top of every screen
 HEADER_PAD = 8  # the bar's widgets from its top
@@ -159,10 +160,15 @@ CHIP_GAP = 8
 CHIP_LIGHT = 12
 LEGEND_ROW = 52
 BIG_SIZE = 22  # a key number
-TILE_HEIGHT = 104
-NUMBER_SHARE = 2 / 3  # of a tile's width, the number's
 TILE_PAD = 10
-BAND_COLUMNS = 7  # tiles in one row of the band
+MIN_TILE_WIDTH = 150  # the band takes the fewest rows whose tiles are this wide
+LINE_HEIGHT = 1.5  # a line of text, in parts of its size: the viewer shrinks what overflows
+NUMBER_HEIGHT = 36  # a key number's box: one line at the big size, and its border
+NUMBER_PAD = 22  # a value display's own padding and border, across
+SMALL_LINE = 16  # one line of small text
+TILE_LINES = 2  # the most lines a tile's title or caption takes
+VALUE_DIGITS = 7  # room for a value's number: "2.6e-10"
+COUNT_DIGITS = 3  # the least room for a count's number: what a dash takes
 RING_PAD = 6  # a state ring's distance from its symbol
 TAG_HEIGHT = 16  # the word above a ring
 VALUE_STEP = 16  # one live value under a symbol's name
@@ -2194,19 +2200,42 @@ class _Page:
         self.y += GAP
 
     def band(self, band: Band) -> None:
-        """The key numbers: a row of tiles across the content width, wrapping."""
-        per = min(len(band.tiles), BAND_COLUMNS)
-        w = (STRIP_WIDTH - (per - 1) * GAP) / per
-        for i, item in enumerate(band.tiles):
-            x = MARGIN + (i % per) * (w + GAP)
-            y = self.y + (i // per) * (TILE_HEIGHT + GAP)
-            self.tile(x, y, w, item, f"m{i}")
-        self.y += math.ceil(len(band.tiles) / per) * (TILE_HEIGHT + GAP)
+        """The key numbers: an even grid of tiles across the content width, in the fewest
+        rows whose tiles are :data:`MIN_TILE_WIDTH` wide, the earlier rows one tile
+        longer when the count does not divide; each row spans the full width."""
+        n = len(band.tiles)
+        rows = next(
+            r for r in range(1, n + 1) if _tile_width(math.ceil(n / r)) >= MIN_TILE_WIDTH or r == n
+        )
+        base, extra = divmod(n, rows)
+        sizes = [base + 1] * extra + [base] * (rows - extra)
+        widths = [_tile_width(size) for size in sizes]
+        inner = min(widths) - 2 * TILE_PAD
+        titles = max(len(_wrap(t.title.upper(), inner, SMALL_SIZE, caps=True)) for t in band.tiles)
+        captions = max(len(_wrap(self.caption(t), inner, SMALL_SIZE)) for t in band.tiles)
+        height = 2 * TILE_PAD + (titles + captions) * SMALL_LINE + NUMBER_HEIGHT + 2 * ROW_GAP
+        i = 0
+        for size, w in zip(sizes, widths, strict=True):
+            for column in range(size):
+                x = MARGIN + column * (w + GAP)
+                self.tile(x, self.y, w, height, band.tiles[i], f"m{i}", titles)
+                i += 1
+            self.y += height + GAP
 
-    def tile(self, x: float, y: float, w: float, item: Tile, name: str) -> None:
+    @staticmethod
+    def caption(item: Tile) -> str:
+        """The line under a tile's number as the data gives it (:meth:`tile` may replace it)."""
+        if not item.channels and not item.pairs:
+            return _NO_DATA
+        return item.caption or ""
+
+    def tile(
+        self, x: float, y: float, w: float, h: float, item: Tile, name: str, titles: int
+    ) -> None:
         """One key number: its title, the number (a channel, or a screen formula over
-        the channels its row selects), its unit, and one line under it. A count reads
-        "n of N"; a count of losses turns the tile's border bad while it is above zero."""
+        the channels its row selects) with "of N" or its unit on its baseline, and up to
+        two lines under it. A count of losses turns the tile's border bad while it is
+        above zero. Text is wrapped, never left to the viewer to shrink."""
         tags = (f"tile: {item.title}",)
         frame = {
             "lineColor": BOX_BORDER,
@@ -2217,14 +2246,14 @@ class _Page:
         left = x + TILE_PAD
         top = y + TILE_PAD
         inner = w - 2 * TILE_PAD
-        number_top = top + ROW
-        caption = item.caption or ""
+        number_top = top + titles * SMALL_LINE + ROW_GAP
+        caption = self.caption(item)
         pv: str | None = None
         total = len(item.pairs) if item.measure == "count_in_tolerance" else len(item.channels)
         formula = None
         extra_tags: tuple[str, ...] = ()
         if not item.channels and not item.pairs:
-            caption = _NO_DATA
+            pass
         elif item.measure == "value":
             if len(item.channels) == 1:
                 pv = item.channels[0]
@@ -2261,16 +2290,25 @@ class _Page:
                         **rule,
                     }
                 ]
-        self.s.widget(
-            "rectangle", x, y, w, TILE_HEIGHT, frame, rules=rules, tags=(*tags, *extra_tags)
-        )
-        self.text(left, top, item.title.upper(), size=SMALL_SIZE, w=inner, fg=MUTED_TEXT, tags=tags)
-        number_w = inner * NUMBER_SHARE
+        self.s.widget("rectangle", x, y, w, h, frame, rules=rules, tags=(*tags, *extra_tags))
+        for i, line in enumerate(_wrap(item.title.upper(), inner, SMALL_SIZE, caps=True)):
+            w_caps = caps_width(line, SMALL_SIZE)
+            self.text(
+                left, top + i * SMALL_LINE, line, size=SMALL_SIZE, w=w_caps, h=SMALL_LINE,
+                fg=MUTED_TEXT, tags=tags,
+            )  # fmt: skip
+        counted = item.measure in _COUNTS
+        beside = f"of {total}" if counted else (item.unit or "")
+        beside_w = text_width(beside, SMALL_SIZE) if beside else 0
         if pv is None:
-            right = self.text(
-                left, number_top, _DASH, size=BIG_SIZE, h=ROW + GAP, fg=MUTED_TEXT, tags=tags
-            )
+            dash_w = text_width(_DASH, BIG_SIZE)
+            self.text(
+                left, number_top, _DASH, size=BIG_SIZE, w=dash_w, h=NUMBER_HEIGHT, fg=MUTED_TEXT,
+                tags=tags,
+            )  # fmt: skip
         else:
+            digits = max(len(str(total)), COUNT_DIGITS) if counted else VALUE_DIGITS
+            number_w = min(digits * CHAR_WIDTH * BIG_SIZE + NUMBER_PAD, inner - beside_w - GAP)
             props = {
                 "pv": pv,
                 "fontSize": BIG_SIZE,
@@ -2279,34 +2317,22 @@ class _Page:
                 "showUnits": False,
                 "alarmSensitive": False,
                 "alarmBorder": False,
+                "alarmSensitiveBorder": False,
             }
-            if item.measure in _COUNTS:
+            if counted:
                 props["precision"] = 0
-            self.s.widget("pv-label", left, number_top, number_w, ROW + GAP, props, tags=tags)
-            right = left + number_w
-            if item.measure in _COUNTS:
-                right = self.text(
-                    right,
-                    number_top + GAP,
-                    f"of {total}",
-                    size=SMALL_SIZE,
-                    fg=MUTED_TEXT,
-                    tags=tags,
-                )
-            elif item.unit:
-                right = self.text(
-                    right, number_top + GAP, item.unit, size=SMALL_SIZE, fg=MUTED_TEXT, tags=tags
-                )
-        del right
-        self.text(
-            left,
-            y + TILE_HEIGHT - TILE_PAD - ROW,
-            caption,
-            size=SMALL_SIZE,
-            w=inner,
-            fg=MUTED_TEXT,
-            tags=tags,
-        )
+            self.s.widget("pv-label", left, number_top, number_w, NUMBER_HEIGHT, props, tags=tags)
+            if beside:  # on the number's baseline: its line's middle below the number's
+                base = number_top + NUMBER_HEIGHT - SMALL_LINE - ROW_GAP
+                self.small(left + number_w + ROW_GAP, base, beside, fg=MUTED_TEXT, tags=tags)
+        below = number_top + NUMBER_HEIGHT + ROW_GAP
+        for i, line in enumerate(_wrap(caption, inner, SMALL_SIZE)):
+            self.small(left, below + i * SMALL_LINE, line, fg=MUTED_TEXT, tags=tags)
+
+    def small(self, x: float, y: float, text: str, *, fg=PAGE_TEXT, tags=()) -> float:
+        """One line of small text, its box as wide as the text."""
+        w = text_width(text, SMALL_SIZE)
+        return self.text(x, y, text, size=SMALL_SIZE, w=w, h=SMALL_LINE, fg=fg, tags=tags)
 
     def group(self, group: Group) -> None:
         """Things of one kind: chips that wrap, or summary rows in columns."""
@@ -2528,6 +2554,36 @@ def _cut(text: str, width: float, size: float) -> str:
         return text
     room = math.floor((width - TEXT_PAD) / (size * CHAR_WIDTH))
     return text[: room - 1] + _ELLIPSIS if room > 1 else ""
+
+
+def caps_width(text: str, size: float) -> float:
+    """:func:`text_width` of *text* written in capitals."""
+    return text_width(text, size) * CAPS_WIDTH / CHAR_WIDTH
+
+
+def _wrap(
+    text: str, width: float, size: float, lines: int = TILE_LINES, caps: bool = False
+) -> list[str]:
+    """*text* in at most *lines* lines that each fit *width* at *size*, broken at
+    spaces; the last line cut with an ellipsis when the rest does not fit. *caps*:
+    measured as capitals (:func:`caps_width`)."""
+    fit = width * CHAR_WIDTH / CAPS_WIDTH if caps else width  # in text_width's measure
+    out: list[str] = []
+    words = text.split()
+    while words and len(out) < lines:
+        line = words.pop(0)
+        while words and text_width(f"{line} {words[0]}", size) <= fit:
+            line = f"{line} {words.pop(0)}"
+        if len(out) == lines - 1 and words:
+            line = _cut(" ".join([line, *words]), fit, size)
+            words = []
+        out.append(_cut(line, fit, size))
+    return out or [""]
+
+
+def _tile_width(per_row: int) -> float:
+    """The width of each of *per_row* tiles spanning the content width."""
+    return (STRIP_WIDTH - (per_row - 1) * GAP) / per_row
 
 
 def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float, int]]:

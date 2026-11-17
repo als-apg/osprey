@@ -167,3 +167,75 @@ def test_a_roll_up_root_carries_the_rollup_rows_of_the_band(panel_graph) -> None
     view = health_rollup(panel_graph, "XR/XR01")
     assert [t.title for t in _band(view).tiles] == ["Currents"]
     assert len(_band(view).tiles[0].channels) == 3  # every magnet readback in the sector
+
+
+def _band_doc(panel_graph, tiles):
+    from osprey.facility.panels.view import Section, Target, View
+
+    view = View(
+        Target("place", "place", "XR/TEST"),
+        "test band",
+        (),
+        (Section("key numbers", (Band(tiles),)),),
+    )
+    return stub_render(view, panel_graph)
+
+
+def _frames(doc: dict) -> list[dict]:
+    tiles = _tiles(doc)
+    return [g for t in tiles.values() for g in (t["rectangle"][0]["geometry"],)]
+
+
+@pytest.mark.parametrize(("count", "rows"), [(12, [6, 6]), (7, [7]), (9, [5, 4]), (3, [3])])
+def test_the_band_is_an_even_grid_whose_rows_span_the_content_width(panel_graph, count, rows):
+    from osprey.facility.panels.view import Tile
+
+    tiles = tuple(Tile(f"T{i}", "value", None, None) for i in range(count))
+    frames = _frames(_band_doc(panel_graph, tiles))
+    by_row: dict[float, list[dict]] = {}
+    for g in frames:
+        by_row.setdefault(g["y"], []).append(g)
+    assert [len(by_row[y]) for y in sorted(by_row)] == rows
+    for row in by_row.values():
+        row.sort(key=lambda g: g["x"])
+        assert len({g["width"] for g in row}) == 1 and row[0]["width"] >= layout.MIN_TILE_WIDTH
+        assert row[0]["x"] == layout.MARGIN
+        assert abs(row[-1]["x"] + row[-1]["width"] - (layout.MARGIN + layout.STRIP_WIDTH)) < 1
+
+
+def test_the_number_is_the_biggest_text_and_the_count_sits_on_its_baseline(xr01) -> None:
+    _view, doc = xr01
+    tile = _tiles(doc)["Magnets"]
+    (number,) = tile["pv-label"]
+    n = number["geometry"]
+    assert number["props"]["fontSize"] == layout.BIG_SIZE
+    # the viewer shrinks a value whose line overflows its box: room for the line
+    assert n["height"] >= layout.BIG_SIZE * layout.LINE_HEIGHT + 2
+    assert all(t["props"]["fontSize"] < layout.BIG_SIZE for t in tile["text-label"])
+    (count,) = [t for t in tile["text-label"] if t["props"]["text"] == "of 1"]
+    c = count["geometry"]
+    assert n["x"] + n["width"] <= c["x"] <= n["x"] + n["width"] + layout.GAP
+    # the small text's middle sits below the number's middle: on the baseline
+    assert c["y"] + c["height"] / 2 > n["y"] + n["height"] / 2
+    assert c["y"] + c["height"] <= n["y"] + n["height"]
+
+
+def test_a_tile_text_never_needs_shrinking_and_a_long_caption_wraps(panel_graph) -> None:
+    from osprey.facility.panels.view import Tile
+
+    long = "circuits without cooling-water flow and then some more words"
+    tiles = tuple(
+        Tile(f"Hottest thermocouple {i}", "value", "C", long, ("XR01-QF1:Current-RB",))
+        for i in range(12)
+    )
+    doc = _band_doc(panel_graph, tiles)
+    for tile in _tiles(doc).values():
+        for t in tile["text-label"]:
+            size, g = t["props"]["fontSize"], t["geometry"]
+            assert size >= layout.SMALL_SIZE
+            assert layout.text_width(t["props"]["text"], size) <= g["width"] + 0.5, t
+        (number,) = tile["pv-label"]
+        under = number["geometry"]["y"] + number["geometry"]["height"]
+        lines = [t for t in tile["text-label"] if t["geometry"]["y"] >= under]
+        assert len(lines) == 2  # wrapped, the rest cut with an ellipsis
+        assert lines[0]["props"]["text"] + " " in long + " "
