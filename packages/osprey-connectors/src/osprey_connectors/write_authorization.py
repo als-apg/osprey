@@ -493,18 +493,8 @@ class _StoredRecord(FrozenModel):
 class _AuthorizationTerms(_StoredRecord):
     """The terms a request asks for and its grant carries: the same fields, the same rules.
 
-    Attributes:
-        id: ``uuid4().hex``; the file is ``<id>.json``, and a grant approved
-            from a request has the request's id.
-        owner: The login whose switch the run stands in for.
-        holder: The acting identity that may write.
-        target: The control target.
-        channels: ``{address: ChannelRange}``, at least one, each address
-            spelled exactly as the holder will write it.
-        steps: How many write calls it allows, at least one.
-        expires_at: When it ends whatever else happens.
-        lease_s: How long one renewal of the holder's lease lasts.
-        label: The run, free text.
+    A flat base, so each file keeps its keys side by side; :meth:`WriteRequest.grant`
+    copies them by name.
     """
 
     id: str
@@ -543,12 +533,18 @@ class _AuthorizationTerms(_StoredRecord):
 
 
 class Grant(_AuthorizationTerms):
-    """One authorization, as its file states it: the terms, and their approval.
-
-    The terms are :class:`_AuthorizationTerms`'s, as the request asked for
-    them; ``label`` is the run it was approved for.
+    """One authorization, as its file states it.
 
     Attributes:
+        id: ``uuid4().hex``; the file is ``<id>.json``.
+        owner: The login whose switch the grant stands in for.
+        holder: The acting identity that may write under it.
+        target: The control target it covers.
+        channels: ``{address: ChannelRange}``, at least one.
+        steps: How many write calls it allows, at least one.
+        expires_at: When it ends whatever else happens.
+        lease_s: How long one renewal of the holder's lease lasts.
+        label: The run it was approved for, free text.
         switch_epoch: The owner's record's ``switch_epoch`` at issue, a
             token compared only for equality; a record whose epoch has moved
             since (a stop of every machine) ends it.
@@ -2224,11 +2220,19 @@ class WriteRequest(_AuthorizationTerms):
 
     The holder writes it into ``<ledger dir>/requests/<id>.json``; an approval
     issues the grant under the same id, so the holder knows which
-    authorization to wait for and name. The terms are
-    :class:`_AuthorizationTerms`'s: ``owner`` is the login who approves, and
-    ``steps`` counts the run's completion write.
+    authorization to wait for and name.
 
     Attributes:
+        id: ``uuid4().hex``; the grant approved from it has the same id.
+        owner: The login whose switch the run stands in for, who approves.
+        holder: The acting identity that will write.
+        target: The control target.
+        channels: ``{address: ChannelRange}``, each address spelled exactly as
+            the holder will write it.
+        steps: The write calls the run will make, its completion's included.
+        expires_at: When the authorization is to end whatever happens.
+        lease_s: How long one renewal of the holder's lease lasts.
+        label: The run, free text.
         requested_at: When the request was written.
         completion: What the run does once its evaluations are done, each a
             write the budget pays for: nothing, the best point found, or the
