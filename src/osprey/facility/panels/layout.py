@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -69,7 +68,6 @@ __all__ = [
     "needs",
     "render",
     "rule_length",
-    "screen_id",
     "text_width",
     "unexpressed",
 ]
@@ -131,7 +129,6 @@ TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts 
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
 MOSAIC_GAP = 3
 MAX_TABLE_ROWS = 400  # rows of one table drawn; the rest are counted under it
-SCREEN_ID_PREFIX = "panels"
 # --- end constants -------------------------------------------------------------
 
 #: Widgets the format lacks, drawn with the nearest one: (name, why).
@@ -193,19 +190,11 @@ _NO_UNIT = "no unit"
 _ROWS_NOT_DRAWN = "rows not drawn: the screen holds a table of at most this many rows"
 _CONTESTED = "contested"
 _STATE_ORDER: tuple[State, ...] = ("bad", "warn", "disagree")
-_SEGMENT = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 def text_width(text: str, size: float) -> float:
     """A box wide enough for *text* at *size* px: the one text-width estimate."""
     return math.ceil(len(text) * size * CHAR_WIDTH) + TEXT_PAD
-
-
-def screen_id(target: Target) -> str:
-    """The document id of a target's screen when the caller names none."""
-    name = _SEGMENT.sub("_", target.id).strip("_") or "_"
-    view = target.view if target.by is None else f"{target.view}-{target.by}"
-    return f"{SCREEN_ID_PREFIX}/{view}/{target.kind}-{name}"
 
 
 # --------------------------------------------------------------------------- rules
@@ -281,13 +270,17 @@ def _channel_arms(graph: PanelGraph, item: Light, token: str) -> dict[str, str |
     def meets(i: int, j: int) -> bool:
         return not _exclusive(conds[i][1][0], conds[j][1][0])
 
+    mixed = [c for c, (_, states) in conds if health.disagree(states)]
     pairs = [
         f"({a}) and ({b})"
         for i, (a, (_, states_a)) in enumerate(conds)
         for j, (b, (_, states_b)) in enumerate(conds)
-        if i < j and len(states_a) == len(states_b) == 1 and states_a != states_b and meets(i, j)
+        if i < j
+        and a not in mixed
+        and b not in mixed
+        and health.disagree(states_a | states_b)
+        and meets(i, j)
     ]
-    mixed = [c for c, (_, states) in conds if len(states) > 1]
     arms: dict[str, str | None] = {"disagree": _any([*mixed, *pairs])}
     for state in ("bad", "warn", "normal"):
         terms = []
@@ -1171,7 +1164,7 @@ def render(
     *,
     graph: PanelGraph,
     screens: Callable[[Target], str],
-    doc_id: str | None = None,
+    doc_id: str,
 ) -> dict[str, Any]:
     """The view as a Screen-IR 1.1 document.
 
@@ -1180,9 +1173,10 @@ def render(
         graph: The panel graph, for the health rows the lights' rules are written from.
         screens: The screen file a link to a target opens, relative to this
             screen's directory.
-        doc_id: The document's id; :func:`screen_id` of the view's target by default.
+        doc_id: The document's id; the caller names it, as it names the files
+            links open (:func:`osprey.facility.panels.emit.screen_ids`).
 
     Returns:
         The document, as JSON-ready data. Equal inputs give equal documents.
     """
-    return _Page(view, graph, screens, doc_id or screen_id(view.id)).draw()
+    return _Page(view, graph, screens, doc_id).draw()

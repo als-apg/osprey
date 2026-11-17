@@ -360,3 +360,20 @@ def test_form_names_the_grammar_the_engine_evaluates(row_value, expected):
     else:
         assert (found.kind, found.op, found.number, found.bit, found.wanted) == expected
         assert found.text == row_value.strip()
+
+
+def test_disagree_has_one_definition_the_others_call(panel_graph):
+    import importlib
+    from pathlib import Path
+
+    from osprey.facility.panels import health, layout
+
+    describe = importlib.import_module("osprey.facility.panels.describe")
+
+    assert health.disagree({"bad", "normal"}) and not health.disagree(["bad", "bad"])
+    assert health.disagrees(panel_graph, "XR01-IP1:State-Sts")  # value 0: bad and normal
+    assert not health.disagrees(panel_graph, "XR02-IP1:Pressure-RB")
+    for module in (describe, layout):
+        source = Path(module.__file__).read_text()
+        assert "disagree(" in source or "disagrees(" in source
+        assert "len(states" not in source and "states_a != states_b" not in source

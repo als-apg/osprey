@@ -218,6 +218,24 @@ def unsupported(graph: PanelGraph) -> dict[str, int]:
     return counts
 
 
+def disagree(states: Iterable[str]) -> bool:
+    """Whether rows that name one value disagree: they give it more than one state.
+
+    The one definition of ``disagree``: :func:`channel_state` applies it to
+    the rows that match a live value, :func:`disagrees` to the rows of one
+    stated value, and the layout's rules to the conditions they write.
+    """
+    return len(set(states)) > 1
+
+
+def disagrees(graph: PanelGraph, channel: str) -> bool:
+    """Whether some value the channel's rows state is given more than one state by them."""
+    by_value: dict[str, set[str]] = {}
+    for row in graph.rule(channel):
+        by_value.setdefault(row.value, set()).add(row.state)
+    return any(disagree(states) for states in by_value.values())
+
+
 def channel_state(graph: PanelGraph, channel: str, value: Any) -> State:
     """The state of one channel at one value.
 
@@ -237,7 +255,7 @@ def channel_state(graph: PanelGraph, channel: str, value: Any) -> State:
     states = {row.state for row in rows if row_matches(row.value, value)}
     if not states:
         return "unknown"
-    if len(states) > 1:
+    if disagree(states):
         return "disagree"
     return states.pop()  # type: ignore[return-value]
 

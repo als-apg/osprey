@@ -134,7 +134,8 @@ class Light:
     Attributes:
         channel: The channel whose state the light shows.
         inferred: Every health row of the channel is inferred.
-        disagree: Rows from different sources give one value different states.
+        disagree: The channel's rows give one stated value more than one state
+            (:func:`~osprey.facility.panels.health.disagrees`).
         unsupported: Some row of the channel has a form the engine cannot
             evaluate, so the light can read unknown where the rule would not.
     """

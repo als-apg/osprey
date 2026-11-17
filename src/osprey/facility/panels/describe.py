@@ -33,7 +33,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from osprey.facility.panels.health import rule_channels, supported, unplaced_channels
+from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
 from osprey.facility.panels.model import (
     PLACE_RELATION,
     Channel,
@@ -359,19 +359,10 @@ def _value_row(graph: PanelGraph, channel: Channel) -> ValueRow:
 def light(graph: PanelGraph, channel: str) -> Light:
     """The light of a rule-bearing channel, with what its rows say about it."""
     rows = graph.rule(channel)
-    by_value: dict[str, dict[str | None, set[str]]] = {}
-    for row in rows:
-        by_value.setdefault(row.value, {}).setdefault(row.source, set()).add(row.state)
-    disagree = any(
-        a != b and states_a != states_b
-        for sources in by_value.values()
-        for a, states_a in sources.items()
-        for b, states_b in sources.items()
-    )
     return Light(
         channel=channel,
         inferred=bool(rows) and all(row.basis == "inferred" for row in rows),
-        disagree=disagree,
+        disagree=disagrees(graph, channel),
         unsupported=any(not supported(row.value) for row in rows),
     )
 

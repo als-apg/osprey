@@ -36,9 +36,21 @@ class Screens:
 
     def __call__(self, target: Target) -> str:
         self.asked.append(target)
+        return f"{self.doc_id(target)}.screen.json"
+
+    @staticmethod
+    def doc_id(target: Target) -> str:
         name = re.sub(r"[^A-Za-z0-9_-]+", "_", target.id)
         by = f"-{target.by}" if target.by else ""
-        return f"stub/{target.view}{by}-{target.kind}-{name}.screen.json"
+        return f"stub/{target.view}{by}-{target.kind}-{name}"
+
+
+def stub_render(view: View, graph: PanelGraph, screens: Screens | None = None) -> dict:
+    """A view drawn with the stub ``screens``, its document named the stub's way."""
+    from osprey.facility.panels.layout import render
+
+    screens = Screens() if screens is None else screens
+    return render(view, graph=graph, screens=screens, doc_id=Screens.doc_id(view.id))
 
 
 def fixture_views(graph: PanelGraph) -> list[View]:

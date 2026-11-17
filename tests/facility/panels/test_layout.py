@@ -49,6 +49,7 @@ from tests.facility.panels._views import (
     nodes,
     rollup_view,
     strip_view,
+    stub_render,
 )
 
 #: Widget types the pinned viewer's catalog (its ir-map.json) maps.
@@ -69,7 +70,7 @@ TOKEN = re.compile(r"\{(\d+)\}")
 
 def draw(view: View, graph) -> tuple[dict, Screens]:
     screens = Screens()
-    return render(view, graph=graph, screens=screens), screens
+    return stub_render(view, graph, screens), screens
 
 
 def evaluate(rule, values) -> str:
@@ -532,12 +533,8 @@ def test_the_format_requests_are_exactly_the_needs_the_views_hit(panel_graph, mo
 def test_the_document_is_a_screen_of_the_targets_id(panel_graph) -> None:
     doc, _ = draw(card("XR01:QF1"), panel_graph)
     assert doc["schemaVersion"] == "1.1" and doc["kind"] == "screen"
-    assert doc["id"] == layout.screen_id(Target("card", "device", "XR01:QF1"))
-    assert re.fullmatch(r"[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*", doc["id"])
-    rollup = Target("rollup", "place", "XR/XR01", by="system")
-    assert layout.screen_id(rollup) != layout.screen_id(
-        Target("rollup", "place", "XR/XR01", "place")
-    )
+    assert doc["id"] == Screens.doc_id(Target("card", "device", "XR01:QF1"))  # the caller's
+    assert not hasattr(layout, "screen_id")  # one screen id function: emit's
     named = render(card("x"), graph=panel_graph, screens=Screens(), doc_id="a/b")
     assert named["id"] == "a/b"
 
@@ -572,7 +569,7 @@ def test_no_size_is_written_outside_the_constants_block() -> None:
 def test_a_view_kind_not_drawn_is_refused(panel_graph) -> None:
     view = View(Target("card", "device", "x"), "x", (), (Section("s", ("not an item",)),))
     with pytest.raises(KeyError):
-        render(view, graph=panel_graph, screens=Screens())
+        stub_render(view, panel_graph)
 
 
 def test_a_node_light_reads_its_channels(panel_graph) -> None:
