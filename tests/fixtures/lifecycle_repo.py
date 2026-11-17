@@ -356,6 +356,11 @@ va_archiver:
   hot_cadence_sec: 10      # seconds between samples inside the hot span
   tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
   recorder_cadence_sec: 10  # how often the recorder samples the machine
+  database: osprey_archiver          # database holding the history
+  collection: pv_history             # collection the samples go to
+  username: osprey                   # user the agent connects as
+  auth_database: admin               # database that user authenticates against
+  password_env: MONGO_ROOT_PASSWORD  # variable naming that user's password
   # The build derives `freshness_channel`, the channel `osprey health` watches,
   # from the facility file; a stated line is an override checked against it.
 
@@ -1427,6 +1432,9 @@ dispatch:
   # The tier a dispatched job runs at. A job has nobody to approve a write, so
   # the workers run read-only; remove the line to run the deployment's own posture.
   tier: readonly
+  timeout_sec: 300     # wall-clock ceiling on one run
+  inactivity_sec: 120  # seconds a run may produce nothing before it is cut off
+  max_turns: 25        # agent turns one run may take
 
 # ── Environment variables ────────────────────────────────────────────────────
 # Passwords for the webhook service above. They have no defaults on purpose:

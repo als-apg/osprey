@@ -18,13 +18,17 @@ it would have to parse.
 
 from __future__ import annotations
 
+from dataclasses import MISSING, fields
+
 import pytest
 import yaml
 
 from osprey.cli import build_profile_emit
 from osprey.cli.build_profile import list_presets, resolve_build_profile
+from osprey.cli.build_profile_archiver import parse_va_archiver_block
 from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone_profile_yaml
-from osprey.cli.build_profile_merge import compute_preset_hash
+from osprey.cli.build_profile_load import _parse_profile
+from osprey.cli.build_profile_merge import _resolve_extends, compute_preset_hash
 from osprey.cli.build_profile_presets import _load_preset_raw, list_tiers
 from osprey_connectors.errors import BuildProfileError
 from tests.fixtures.lifecycle_repo import lay_preset_applications
@@ -244,3 +248,69 @@ def test_layer_files_carry_their_provenance_block(preset: str) -> None:
 
     assert provenance == {"preset": stem, "preset_hash": compute_preset_hash(preset)}
     assert provenance["preset_hash"].startswith("sha256:")
+
+
+# ---------------------------------------------------------------------------
+# Active opt-in blocks are written with the keys they build with
+# ---------------------------------------------------------------------------
+
+
+def _block_defaults_of(block: str) -> dict[str, object]:
+    cls, comments = build_profile_emit._BLOCK_DEFAULTS[block]
+    defaults = {f.name: f.default for f in fields(cls)}
+    return {key: defaults[key] for key in comments}
+
+
+def test_an_active_block_carries_its_code_defaults() -> None:
+    """The demo preset leaves the run budgets and the archive identity unstated;
+    the emitted profile writes each at the value the block builds with."""
+    emitted = yaml.safe_load(_standalone(HOST_PRESET))
+
+    for block in ("dispatch", "va_archiver"):
+        for key, default in _block_defaults_of(block).items():
+            assert emitted[block][key] == default, f"{block}.{key}"
+
+
+def test_a_stated_value_is_kept_over_the_default() -> None:
+    """A value the operator states is written as stated, with no comment added."""
+    text = emit_standalone_profile_yaml(
+        HOST_PRESET, ("dispatch.max_turns=40",), "Emitted", project_name="emitted"
+    )
+
+    assert yaml.safe_load(text)["dispatch"]["max_turns"] == 40
+    line = next(line for line in text.splitlines() if line.strip().startswith("max_turns:"))
+    assert "#" not in line
+
+
+def test_an_absent_block_gets_no_defaults() -> None:
+    """A preset without the blocks emits neither as an active key."""
+    emitted = yaml.safe_load(_standalone("hello-world"))
+
+    assert "dispatch" not in emitted
+    assert "va_archiver" not in emitted
+
+
+def test_the_written_defaults_build_what_the_unstated_block_builds() -> None:
+    """Writing the defaults out changes nothing the block builds."""
+    emitted = yaml.safe_load(_standalone(HOST_PRESET))
+    raw, anchor = _load_preset_raw(HOST_PRESET)
+    preset = _resolve_extends(raw, anchor, [])
+
+    assert (
+        _parse_profile({"name": "x", "dispatch": emitted["dispatch"]}).dispatch
+        == _parse_profile({"name": "x", "dispatch": preset["dispatch"]}).dispatch
+    )
+    assert parse_va_archiver_block(
+        {"name": "x", "va_archiver": emitted["va_archiver"]}
+    ) == parse_va_archiver_block({"name": "x", "va_archiver": preset["va_archiver"]})
+
+
+def test_every_written_default_is_a_field_of_its_block() -> None:
+    """Each listed key is a defaulted field of its block, and none is derived."""
+    for block, (cls, comments) in build_profile_emit._BLOCK_DEFAULTS.items():
+        by_name = {f.name: f for f in fields(cls)}
+        for key in comments:
+            assert key in by_name, f"{block}.{key}"
+            assert by_name[key].default is not MISSING, f"{block}.{key}"
+            assert "port" not in key, f"{block}.{key}"
+            assert key not in {"host", "freshness_channel"}, f"{block}.{key}"
