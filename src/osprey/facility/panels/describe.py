@@ -69,6 +69,8 @@ from osprey.facility.panels.view import (
     Node,
     Picture,
     Placement,
+    Probe,
+    ProbePart,
     RackUnit,
     Section,
     Strip,
@@ -623,6 +625,28 @@ def _pictures(graph: PanelGraph, thing: Thing) -> list[Item]:
     return [Picture(thing.cls, view, tuple(parts)) for view, parts in views.items()]
 
 
+#: The section a pickup's cross-section is drawn in.
+PROBE_SECTION = "pickup, looking downstream"
+#: The ``state`` of an anchor row whose placement the data infers.
+_INFERRED_STATE = "inferred"
+
+
+def _probe(graph: PanelGraph, thing: Thing) -> list[Item]:
+    """A device's probe picture, each element with the channels of its signals; or nothing."""
+    if thing.kind != "device":
+        return []
+    rows = graph.probe(thing.id)
+    if not rows:
+        return []
+
+    def channel(signal: str | None) -> str | None:
+        return graph.probe_channel(thing.id, signal) if signal is not None else None
+
+    parts = tuple(ProbePart(row, channel(row.signal), channel(row.signal_y)) for row in rows)
+    inferred = any(r.shape == "anchor" and r.state == _INFERRED_STATE for r in rows)
+    return [Probe(thing.cls or "", parts, inferred)]
+
+
 _SCREEN_TITLES = {
     ("place", None): "place view",
     ("rack", None): "rack elevation",
@@ -708,6 +732,7 @@ def device_card(
             ("settings", settings),
             ("health", health),
             *_neighbours(graph, index, thing),
+            (PROBE_SECTION, _probe(graph, thing)),
             ("calibration", _calibration(graph, index, thing)),
             ("picture", _pictures(graph, thing)),
             ("where", _where(graph, index, thing, rack_classes)),

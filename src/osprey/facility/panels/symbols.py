@@ -97,6 +97,10 @@ BENCH_TINT = role("Basis_Bench_Tint", "#e3eefa", "#1f3347")
 SURVEY_TINT = role("Basis_Survey_Tint", "#dff3f1", "#173a38")
 BEAM_TINT = role("Basis_Beam_Tint", "#e1f2e8", "#1a3627")
 DISAGREE_TINT = role("Disagree_Tint", "#efe3f5", "#33263d")
+#: The curves of one plot, in turn: page text first, then two hues that are no state.
+CURVE_2 = role("Curve_2", "#1f6fb8", "#5aa5e6")
+CURVE_3 = role("Curve_3", "#b45309", "#f0a050")
+CURVES: tuple[dict[str, str], ...] = (PAGE_TEXT, CURVE_2, CURVE_3)
 # --- end theme roles -----------------------------------------------------------
 
 #: The colour of each calibration basis, and of a contested value (the disagree role).

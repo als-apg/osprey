@@ -65,6 +65,8 @@ from osprey.facility.panels.view import (
     Node,
     Picture,
     Placement,
+    Probe,
+    ProbePart,
     RackUnit,
     Section,
     Strip,
@@ -229,6 +231,15 @@ TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts 
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
 MOSAIC_GAP = 3
 MAX_TABLE_ROWS = 400  # rows of one table drawn; the rest are counted under it
+PROBE_BORE = 240  # the bore's width across a probe picture, in px
+PROBE_PAD = 32  # round the bore, for the buttons that stand out of it
+PROBE_BOX = 96  # the magnified box the beam dot moves in, at the most
+PROBE_BOX_FILL = 0.6  # of the bore's height, at the most
+PROBE_DOT = 10
+PROBE_LABEL_WIDTH = 184  # a button's letter, bar and value, in a column on its side
+PROBE_BAR = (64, 8)  # a button's bar: width, height
+PROBE_VALUE_WIDTH = 72
+PROBE_READOUT_WIDTH = 96
 WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
 COMMAND_LABEL = "send"  # what a command's button reads
@@ -360,6 +371,8 @@ _SET_READBACK = "each cell: readback of {}"
 _CAL_HEADS = ("parameter", "value in force", "basis", "date", "source", "history")
 _NO_VALUE_YET = "no value yet"
 _CALIBRATION_SECTION = "calibration"
+_INFERRED = "inferred"  # an anchor row's state: its placement is inferred
+_PLACEMENT_INFERRED = "button placement inferred, not stated"
 _CHIPPED = ("set", "place", "rollup")  # views whose calibration section is chips
 _CAL_WHAT = "each cell: {}, deviation from design (the value when no design value)"
 #: The states of a calibration view, in the order its legend and counts give them.
@@ -2002,6 +2015,7 @@ class _Page:
             Grid: self.grid,
             Strip: self.strip,
             Picture: self.picture,
+            Probe: self.probe,
             Elevation: self.elevation,
             Node: self.node,
             Group: self.group,
@@ -3195,6 +3209,209 @@ class _Page:
             self.text(lx, label_y, name, size=SMALL_SIZE, w=PART_LABEL_WIDTH, align=align)
         bottom = max([top + PICTURE_SIZE, *(y + ROW for _side, y in labels)])
         self.y = bottom + ROW + ROW_GAP
+
+    def probe(self, probe: Probe) -> None:
+        """A pickup's cross-section, looking downstream, to scale: the bore, each button
+        at its angle and size, lettered in a column on its side with its signal's
+        bar and value on a leader (no two cross, :func:`picture_labels`); the beam
+        dot in a magnified box (:meth:`beam`); a line of readouts under it; the
+        plots at right. A button whose placement is inferred is drawn muted, and a
+        note says so. Never turned by a roll: roll is a calibration value."""
+        parts = {p.element.shape: p for p in probe.parts}
+        bore = parts.get("bore")
+        top = self.y
+        canvas = PROBE_BORE + 2 * PROBE_PAD
+        left_col = MARGIN
+        x0 = left_col + PROBE_LABEL_WIDTH + PICTURE_PAD
+        right_col = x0 + canvas + PICTURE_PAD
+        cx, cy = x0 + canvas / 2, top + canvas / 2
+        reach = bore.element.radius_mm if bore is not None else None
+        anchors = [p for p in probe.parts if p.element.shape == "anchor"]
+        reach = reach or max((p.element.radius_mm or 0 for p in anchors), default=0) or 1
+        scale = PROBE_BORE / (2 * reach)
+        box = PROBE_BOX
+        if bore is not None:
+            row = bore.element
+            w = 2 * (row.radius_mm or 0) * scale
+            h = row.size_mm * scale if row.size_mm is not None else w
+            box = min(box, PROBE_BOX_FILL * h)
+            props = {"lineColor": PAGE_TEXT, "lineWidth": LINE_WIDTH, "fill": False}
+            props[_TOOLTIP] = row.element
+            self.s.widget("ellipse", cx - w / 2, cy - h / 2, w, h, props)
+        placed = []
+        for part in anchors:
+            row = part.element
+            turn = math.radians(row.angle_deg or 0)
+            px = cx + (row.radius_mm or 0) * scale * math.cos(turn)
+            py = cy - (row.radius_mm or 0) * scale * math.sin(turn)
+            size = (row.size_mm or 0) * scale
+            muted = row.state == _INFERRED
+            props = {
+                "lineColor": MUTED_TEXT if muted else PAGE_TEXT,
+                "lineWidth": LINE_WIDTH,
+                "lineStyle": "dashed" if muted else "solid",
+                "fill": True,
+                "fillColor": FIELD_BACKGROUND,
+                _TOOLTIP: row.element,
+            }
+            self.s.widget("ellipse", px - size / 2, py - size / 2, size, size, props)
+            placed.append((row.element, px, py))
+        ends = (left_col + PROBE_LABEL_WIDTH, right_col)
+        labels = picture_labels(placed, cx, top, top + canvas, ends)
+        for part, (_name, px, py), (side, label_y) in zip(anchors, placed, labels, strict=True):
+            self.anchor_label(part, side, ends, label_y, (px, py))
+        marker = parts.get("marker")
+        if marker is not None:
+            self.beam(marker, cx, cy, box)
+        bottom = max([top + canvas, *(y + ROW for _side, y in labels)])
+        plots: dict[str, list[ProbePart]] = {}
+        for part in probe.parts:
+            if part.element.shape == "plot":
+                plots.setdefault(part.element.element, []).append(part)
+        if plots:
+            px = right_col + PROBE_LABEL_WIDTH + PICTURE_PAD
+            w = MARGIN + STRIP_WIDTH - px
+            h = (canvas - GAP * (len(plots) - 1)) / len(plots)
+            for n, (name, curves) in enumerate(plots.items()):
+                self.probe_plot(px, top + n * (h + GAP), w, h, name, curves)
+        self.y = bottom + GAP
+        self.readouts(probe, marker, x0)
+        if probe.inferred:
+            self.small(x0, self.y, _PLACEMENT_INFERRED, fg=MUTED_TEXT)
+            self.y += SMALL_LINE
+        self.y += ROW_GAP
+
+    def anchor_label(
+        self,
+        part: ProbePart,
+        side: str,
+        ends: tuple[float, float],
+        y: float,
+        at: tuple[float, float],
+    ) -> None:
+        """A button's letter, its signal's bar and value, on its side, on a leader that
+        ends a gap short of them; the letter nearest the button, the value outermost."""
+        row = part.element
+        fg = MUTED_TEXT if row.state == _INFERRED else PAGE_TEXT
+        bar_w, bar_h = PROBE_BAR
+        pieces: list[tuple[str, float]] = []
+        if row.label:
+            pieces.append(("letter", MARK_WIDTH))
+        if part.channel is not None:
+            pieces += [("bar", bar_w), ("value", PROBE_VALUE_WIDTH)]
+        if not pieces:
+            return
+        end = ends[0] if side == "left" else ends[1]
+        self.line([at, (end, y + ROW / 2)], MUTED_TEXT)
+        if side == "left":
+            pieces.reverse()
+        width = sum(w for _name, w in pieces) + GAP * len(pieces)
+        x = end - width if side == "left" else end + GAP
+        for name, w in pieces:
+            if name == "letter":
+                self.text(x, y, row.label or "", w=w, fg=fg, align="center")
+            elif name == "bar":
+                props = {"pv": part.channel, "min": row.min, "max": row.max}
+                props["orientation"] = "horizontal"
+                props = {k: v for k, v in props.items() if v is not None}
+                self.s.widget("pv-progress-bar", x, y + (ROW - bar_h) / 2, w, bar_h, props)
+            else:
+                self.field(x, y, part.channel, drawn_as="value", w=w)  # type: ignore[arg-type]
+            x += w + GAP
+
+    def beam(self, marker: ProbePart, cx: float, cy: float, box: float) -> None:
+        """The magnified box of ± ``range_mm`` at the centre, and the beam dot in it:
+        its x, y, width and height each a screen formula over both position
+        channels, the place clamped to the box. Its own size is 0, so while
+        either channel gives no value the dot is not drawn at all."""
+        row = marker.element
+        reach = row.range_mm or 1
+        half = box / 2
+        self.box(
+            cx - half,
+            cy - half,
+            box,
+            box,
+            line=MUTED_TEXT,
+            fill=TRANSPARENT,
+            dashed=True,
+        )
+        label = f"±{reach:g} mm"
+        w = text_width(label, SMALL_SIZE)
+        self.small(cx + half - w, cy - half - SMALL_LINE, label, fg=MUTED_TEXT)
+        if marker.channel is None or marker.channel_y is None:
+            return
+        k = half / reach
+        bindings = {"x": marker.channel, "y": marker.channel_y}
+        both = "0 * {x} + 0 * {y}"
+
+        def clamp(token: str) -> str:
+            return f"min(max({{{token}}}, {_number(-reach)}), {_number(reach)})"
+
+        place = {
+            "x": f"{_number(cx - PROBE_DOT / 2)} + {_number(k)} * {clamp('x')} + 0 * {{y}}",
+            "y": f"{_number(cy - PROBE_DOT / 2)} - {_number(k)} * {clamp('y')} + 0 * {{x}}",
+            "width": f"{PROBE_DOT} + {both}",
+            "height": f"{PROBE_DOT} + {both}",
+        }
+        if not self.budget.take([(len(place), frozenset(bindings.values()))]):
+            return
+        rules = []
+        for prop, expression in place.items():
+            name = f"beam-{prop}-{len(self.s.formulas)}"
+            self.s.formulas.append(
+                {"name": name, "kind": "scalar", "expression": expression, "bindings": bindings}
+            )
+            self.s._rules += 1
+            rules.append(
+                {
+                    "id": f"r-{self.s._rules:04d}",
+                    "name": f"beam {prop}",
+                    "targetProperty": prop,
+                    "default": 0,
+                    "formula": _FORMULA_PREFIX + name,
+                }
+            )
+        props = {"lineColor": PAGE_TEXT, "lineWidth": LINE_WIDTH, "fill": True}
+        props |= {"fillColor": PAGE_TEXT, _TOOLTIP: row.element}
+        self.s.widget("ellipse", cx, cy, 0, 0, props, rules=rules)
+
+    def readouts(self, probe: Probe, marker: ProbePart | None, x: float) -> None:
+        """One line under the drawing: the beam's x and y, then each readout row's value."""
+        values: list[tuple[str, str, str | None]] = []
+        if marker is not None:
+            for name, channel in (("x", marker.channel), ("y", marker.channel_y)):
+                if channel is not None:
+                    values.append((name, channel, self.graph.channel(channel).unit))
+        for part in probe.parts:
+            if part.element.shape == "readout" and part.channel is not None:
+                unit = self.graph.channel(part.channel).unit
+                values.append((part.element.label or "", part.channel, unit))
+        if not values:
+            return
+        for name, channel, unit in values:
+            x = self.text(x, self.y, name) + GAP / 2
+            x = self.field(x, self.y, channel, drawn_as="value", w=PROBE_READOUT_WIDTH)
+            x = self.unit(x, self.y, unit) + 2 * GAP
+        self.y += ROW + ROW_GAP
+
+    def probe_plot(
+        self, x: float, y: float, w: float, h: float, name: str, curves: list[ProbePart]
+    ) -> None:
+        """One plot of a probe picture: a curve per row, named by its label; the title
+        says how many points the data states one record holds."""
+        counts = {p.element.count for p in curves if p.element.count is not None}
+        title = name if len(counts) != 1 else f"{name} · {next(iter(counts)):,.0f} points"
+        lines = [
+            {
+                "name": part.element.label or part.channel,
+                "y_channel": part.channel,
+                "color": symbols.CURVES[n % len(symbols.CURVES)],
+            }
+            for n, part in enumerate(p for p in curves if p.channel is not None)
+        ]
+        if lines:
+            self.s.widget("waveform-plot", x, y, w, h, {"title": title, "curves": lines})
 
     def part_list(self, picture: Picture) -> None:
         """A class's parts with no outline in the data: chips grouped by the kind the

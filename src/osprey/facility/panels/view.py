@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from osprey.facility.panels.model import Citation, ThingKind
-from osprey.facility.panels.tables import PicturePart
+from osprey.facility.panels.tables import PicturePart, ProbeElement
 
 __all__ = [
     "VIEW_KINDS",
@@ -31,6 +31,8 @@ __all__ = [
     "Link",
     "Node",
     "Picture",
+    "Probe",
+    "ProbePart",
     "Placement",
     "RackUnit",
     "Section",
@@ -333,6 +335,38 @@ class Picture:
 
 
 @dataclass(frozen=True)
+class ProbePart:
+    """One element of a probe picture with the channels it shows.
+
+    Attributes:
+        element: The ``probe_pictures.csv`` row.
+        channel: The channel stating the row's ``signal`` (:meth:`PanelGraph.probe_channel`),
+            or ``None``: none states it, or the row names none.
+        channel_y: The same for ``signal_y`` (the marker's y).
+    """
+
+    element: ProbeElement
+    channel: str | None = None
+    channel_y: str | None = None
+
+
+@dataclass(frozen=True)
+class Probe:
+    """A pickup's cross-section, looking downstream (:meth:`PanelGraph.probe`).
+
+    Attributes:
+        device_class: The device's class.
+        parts: Its elements, in table order.
+        inferred: A button's placement is inferred, not stated (an anchor row's
+            ``state`` says ``inferred``).
+    """
+
+    device_class: str
+    parts: tuple[ProbePart, ...]
+    inferred: bool = False
+
+
+@dataclass(frozen=True)
 class RackUnit:
     """One device placed in a rack.
 
@@ -538,6 +572,7 @@ Item = (
     | Grid
     | Strip
     | Picture
+    | Probe
     | Elevation
     | Node
     | Group

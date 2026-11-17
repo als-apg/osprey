@@ -124,6 +124,8 @@ THEME_ROLES = {
     "Basis_Survey_Tint",
     "Basis_Beam_Tint",
     "Disagree_Tint",
+    "Curve_2",
+    "Curve_3",
     "Page_Background",
     "Page_Text",
     "Field_Background",
