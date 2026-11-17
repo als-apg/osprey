@@ -1007,10 +1007,11 @@
 <span class="sd">    values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can</span>
 <span class="sd">    still see — and warn about — an export that disagrees with the store, and</span>
 <span class="sd">    hand compose an environment with the shell&#39;s precedence intact. The record</span>
-<span class="sd">    is taken once per key against the *merged* chain, before any file is</span>
-<span class="sd">    loaded: the value a key ends up with is the local file&#39;s, so that is the</span>
-<span class="sd">    value the shell&#39;s export is judged against, and a key both files set is</span>
-<span class="sd">    recorded once rather than twice.</span>
+<span class="sd">    is taken once per key against the value the chain *applied*, as</span>
+<span class="sd">    :func:`apply_env_chain` parsed it (an inline ``# comment`` stripped, a</span>
+<span class="sd">    ``${VAR}`` interpolated): the value a key ends up with is the local file&#39;s,</span>
+<span class="sd">    so that is the value the shell&#39;s export is judged against, and a key both</span>
+<span class="sd">    files set is recorded once rather than twice.</span>
 
 <span class="sd">    ``override=True`` and the breadth of the copy are exactly why this must be</span>
 <span class="sd">    called deliberately. Call it from process entry points only; never at</span>
@@ -1029,7 +1030,7 @@
 
     <span class="n">repo_root</span> <span class="o">=</span> <span class="n">Path</span><span class="o">.</span><span class="n">cwd</span><span class="p">()</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.dotenv</span><span class="w"> </span><span class="kn">import</span> <span class="n">chain_files</span><span class="p">,</span> <span class="n">merge_chain</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.dotenv</span><span class="w"> </span><span class="kn">import</span> <span class="n">chain_files</span>
 
         <span class="n">paths</span> <span class="o">=</span> <span class="n">chain_files</span><span class="p">(</span><span class="n">repo_root</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">paths</span><span class="p">:</span>
@@ -1041,17 +1042,15 @@
         <span class="c1"># call sees no difference and must not erase the genuine shell values</span>
         <span class="c1"># the first one recorded. First-seen wins; only the pre-load value is</span>
         <span class="c1"># the shell&#39;s own. A shell-only name is never replaced, so it is never</span>
-        <span class="c1"># recorded.</span>
-        <span class="n">pinned</span> <span class="o">=</span> <span class="n">merge_chain</span><span class="p">(</span><span class="n">repo_root</span><span class="p">)</span>
-        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">pinned</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-            <span class="k">if</span> <span class="p">(</span>
-                <span class="ow">not</span> <span class="n">_is_shell_only_env_var</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
-                <span class="ow">and</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span>
-                <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">!=</span> <span class="n">value</span>
-                <span class="ow">and</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_dotenv_shell_overrides</span>
-            <span class="p">):</span>
-                <span class="n">_dotenv_shell_overrides</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
-        <span class="n">apply_env_chain</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">,</span> <span class="n">paths</span><span class="p">)</span>
+        <span class="c1"># recorded. The record compares against what was applied, so it reads</span>
+        <span class="c1"># the files with the parser that applies them.</span>
+        <span class="n">shell</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">apply_env_chain</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">,</span> <span class="n">paths</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">shell</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="o">!=</span> <span class="n">value</span> <span class="ow">and</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_dotenv_shell_overrides</span><span class="p">:</span>
+                    <span class="n">_dotenv_shell_overrides</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s2">&quot;Loaded the env chain from </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span> <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">paths</span><span class="p">))</span>
     <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="c1"># e.g. a 0600 .env owned by another uid mounted into a non-root</span>
@@ -1473,6 +1472,14 @@
 <span class="n">_default_configurable</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="n">_config_cache</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ConfigBuilder</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
 
+<span class="c1">#: Whether the default singleton was chosen by ``CONFIG_FILE`` or a</span>
+<span class="c1">#: :func:`config_anchored_at` scope, neither of which</span>
+<span class="c1">#: :func:`osprey_connectors.workspace.resolve_config_path` consults.</span>
+<span class="c1">#: :func:`osprey_connectors.workspace.load_osprey_config` then reads the file it</span>
+<span class="c1">#: resolves without making it the default, so the lookups that follow keep</span>
+<span class="c1">#: answering from the file the process was pointed at.</span>
+<span class="n">_default_pinned</span> <span class="o">=</span> <span class="kc">False</span>
+
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_get_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">set_as_default</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConfigBuilder</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Get configuration instance (singleton pattern with optional explicit path).</span>
@@ -1501,12 +1508,13 @@
 <span class="sd">        &gt;&gt;&gt; # Explicit path that becomes the default</span>
 <span class="sd">        &gt;&gt;&gt; config = _get_config(&quot;/path/to/config.yml&quot;, set_as_default=True)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">global</span> <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span>
+    <span class="k">global</span> <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span><span class="p">,</span> <span class="n">_default_pinned</span>
 
     <span class="k">if</span> <span class="n">config_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">_default_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">config_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">)</span>
             <span class="n">_default_config</span> <span class="o">=</span> <span class="n">ConfigBuilder</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span> <span class="k">if</span> <span class="n">config_file</span> <span class="k">else</span> <span class="n">ConfigBuilder</span><span class="p">()</span>
+            <span class="n">_default_pinned</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
 
             <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">_default_config</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
 
@@ -1529,6 +1537,7 @@
     <span class="k">if</span> <span class="n">set_as_default</span><span class="p">:</span>
         <span class="n">_default_config</span> <span class="o">=</span> <span class="n">_config_cache</span><span class="p">[</span><span class="n">resolved_path</span><span class="p">]</span>
         <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">_default_config</span><span class="o">.</span><span class="n">configurable</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">_default_pinned</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Set explicit config as default: </span><span class="si">{</span><span class="n">resolved_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">_config_cache</span><span class="p">[</span><span class="n">resolved_path</span><span class="p">]</span>
@@ -1652,6 +1661,11 @@
 <span class="sd">    verb pointed at one deployment with ``--repo`` cannot leave the next lookup</span>
 <span class="sd">    in this process answering for it.</span>
 
+<span class="sd">    Held for the whole scope: a</span>
+<span class="sd">    :func:`~osprey_connectors.workspace.load_osprey_config` inside it (every</span>
+<span class="sd">    agent-data-root lookup makes one) reads the file ``OSPREY_CONFIG`` or the</span>
+<span class="sd">    working directory names without making it the default.</span>
+
 <span class="sd">    Never raises. A config that will not load leaves the previous default in</span>
 <span class="sd">    place and warns: this makes lookups honest, and an anchor that aborted its</span>
 <span class="sd">    caller would turn a degraded lookup into a failed deploy.</span>
@@ -1661,12 +1675,13 @@
 <span class="sd">            ``&lt;repo&gt;/build/config.yml`` (see</span>
 <span class="sd">            :func:`osprey_connectors.workspace.rendered_config_path`).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">global</span> <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span>
+    <span class="k">global</span> <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span><span class="p">,</span> <span class="n">_default_pinned</span>
 
-    <span class="n">previous</span> <span class="o">=</span> <span class="p">(</span><span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span><span class="p">)</span>
+    <span class="n">previous</span> <span class="o">=</span> <span class="p">(</span><span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span><span class="p">,</span> <span class="n">_default_pinned</span><span class="p">)</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">_get_config</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">),</span> <span class="n">set_as_default</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">_default_pinned</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>  <span class="c1"># an unusable anchor must not fail the caller</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Could not anchor configuration at </span><span class="si">{</span><span class="n">config_path</span><span class="si">}</span><span class="s2"> &quot;</span>
@@ -1675,7 +1690,7 @@
             <span class="p">)</span>
         <span class="k">yield</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span> <span class="o">=</span> <span class="n">previous</span></div>
+        <span class="n">_default_config</span><span class="p">,</span> <span class="n">_default_configurable</span><span class="p">,</span> <span class="n">_default_pinned</span> <span class="o">=</span> <span class="n">previous</span></div>
 
 
 

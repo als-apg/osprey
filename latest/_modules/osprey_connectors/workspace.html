@@ -683,16 +683,23 @@
 <span class="sd">    Delegates to the framework&#39;s ``ConfigBuilder`` so that ``${VAR:-default}``</span>
 <span class="sd">    environment-variable placeholders are resolved consistently.</span>
 
-<span class="sd">    The file is the one :func:`resolve_config_path` names.</span>
+<span class="sd">    The file is the one :func:`resolve_config_path` names. It becomes the</span>
+<span class="sd">    default config unless ``CONFIG_FILE`` or a</span>
+<span class="sd">    :func:`~osprey_connectors.config.config_anchored_at` scope chose that</span>
+<span class="sd">    default, neither of which this resolution consults: the lookups that name</span>
+<span class="sd">    no config keep reading the file the process was pointed at.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">config_path</span> <span class="o">=</span> <span class="n">resolve_config_path</span><span class="p">()</span>
     <span class="k">try</span><span class="p">:</span>
-        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_builder</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors</span><span class="w"> </span><span class="kn">import</span> <span class="n">config</span> <span class="k">as</span> <span class="n">config_module</span>
 
-        <span class="n">builder</span> <span class="o">=</span> <span class="n">get_config_builder</span><span class="p">(</span><span class="n">config_path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">),</span> <span class="n">set_as_default</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">pinned</span> <span class="o">=</span> <span class="n">config_module</span><span class="o">.</span><span class="n">_default_config</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">config_module</span><span class="o">.</span><span class="n">_default_pinned</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">config_module</span><span class="o">.</span><span class="n">get_config_builder</span><span class="p">(</span>
+            <span class="n">config_path</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">),</span> <span class="n">set_as_default</span><span class="o">=</span><span class="ow">not</span> <span class="n">pinned</span>
+        <span class="p">)</span>
         <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">raw_config</span>
     <span class="k">except</span> <span class="p">(</span><span class="ne">FileNotFoundError</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
         <span class="k">return</span> <span class="p">{}</span></div>
@@ -714,6 +721,7 @@
 
     <span class="n">config_module</span><span class="o">.</span><span class="n">_default_config</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">config_module</span><span class="o">.</span><span class="n">_default_configurable</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">config_module</span><span class="o">.</span><span class="n">_default_pinned</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="n">config_module</span><span class="o">.</span><span class="n">_config_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
     <span class="n">config_module</span><span class="o">.</span><span class="n">_tz_fallback_warned</span> <span class="o">=</span> <span class="kc">False</span></div>
 

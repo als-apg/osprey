@@ -647,6 +647,10 @@ anchor has no business outliving the verb that set it.</p>
 <p>Scoped for the same reason — the previous default is restored on exit, so a
 verb pointed at one deployment with <code class="docutils literal notranslate"><span class="pre">--repo</span></code> cannot leave the next lookup
 in this process answering for it.</p>
+<p>Held for the whole scope: a
+<a class="reference internal" href="#osprey_connectors.workspace.load_osprey_config" title="osprey_connectors.workspace.load_osprey_config"><code class="xref py py-func docutils literal notranslate"><span class="pre">load_osprey_config()</span></code></a> inside it (every
+agent-data-root lookup makes one) reads the file <code class="docutils literal notranslate"><span class="pre">OSPREY_CONFIG</span></code> or the
+working directory names without making it the default.</p>
 <p>Never raises. A config that will not load leaves the previous default in
 place and warns: this makes lookups honest, and an anchor that aborted its
 caller would turn a degraded lookup into a failed deploy.</p>
@@ -1042,10 +1046,11 @@ it did when <code class="docutils literal notranslate"><span class="pre">.env</s
 values are recorded (<a class="reference internal" href="#osprey_connectors.config.dotenv_shell_overrides" title="osprey_connectors.config.dotenv_shell_overrides"><code class="xref py py-func docutils literal notranslate"><span class="pre">dotenv_shell_overrides()</span></code></a>) so the deploy path can
 still see — and warn about — an export that disagrees with the store, and
 hand compose an environment with the shell’s precedence intact. The record
-is taken once per key against the <em>merged</em> chain, before any file is
-loaded: the value a key ends up with is the local file’s, so that is the
-value the shell’s export is judged against, and a key both files set is
-recorded once rather than twice.</p>
+is taken once per key against the value the chain <em>applied</em>, as
+<a class="reference internal" href="#osprey_connectors.config.apply_env_chain" title="osprey_connectors.config.apply_env_chain"><code class="xref py py-func docutils literal notranslate"><span class="pre">apply_env_chain()</span></code></a> parsed it (an inline <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">comment</span></code> stripped, a
+<code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolated): the value a key ends up with is the local file’s,
+so that is the value the shell’s export is judged against, and a key both
+files set is recorded once rather than twice.</p>
 <p><code class="docutils literal notranslate"><span class="pre">override=True</span></code> and the breadth of the copy are exactly why this must be
 called deliberately. Call it from process entry points only; never at
 import time, and never from library code that a host application merely
@@ -1274,7 +1279,11 @@ loader.</p>
 <dd><p>Load OSPREY configuration (delegates to ConfigBuilder singleton).</p>
 <p>Delegates to the framework’s <code class="docutils literal notranslate"><span class="pre">ConfigBuilder</span></code> so that <code class="docutils literal notranslate"><span class="pre">${VAR:-default}</span></code>
 environment-variable placeholders are resolved consistently.</p>
-<p>The file is the one <a class="reference internal" href="#osprey_connectors.workspace.resolve_config_path" title="osprey_connectors.workspace.resolve_config_path"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_config_path()</span></code></a> names.</p>
+<p>The file is the one <a class="reference internal" href="#osprey_connectors.workspace.resolve_config_path" title="osprey_connectors.workspace.resolve_config_path"><code class="xref py py-func docutils literal notranslate"><span class="pre">resolve_config_path()</span></code></a> names. It becomes the
+default config unless <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> or a
+<a class="reference internal" href="#osprey_connectors.config.config_anchored_at" title="osprey_connectors.config.config_anchored_at"><code class="xref py py-func docutils literal notranslate"><span class="pre">config_anchored_at()</span></code></a> scope chose that
+default, neither of which this resolution consults: the lookups that name
+no config keep reading the file the process was pointed at.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
 <dd class="field-odd"><p>Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.</p>

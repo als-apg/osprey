@@ -472,7 +472,7 @@
 <span class="kn">from</span><span class="w"> </span><span class="nn">rich.console</span><span class="w"> </span><span class="kn">import</span> <span class="n">Console</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">rich.logging</span><span class="w"> </span><span class="kn">import</span> <span class="n">RichHandler</span>
 
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_config_value</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.config</span><span class="w"> </span><span class="kn">import</span> <span class="n">config_flag</span><span class="p">,</span> <span class="n">get_config_value</span>
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;ComponentLogger&quot;</span><span class="p">,</span>
@@ -960,19 +960,28 @@
 <span class="k">def</span><span class="w"> </span><span class="nf">_read_handler_settings</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">_HandlerSettings</span><span class="p">,</span> <span class="ne">Exception</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Read the handler&#39;s settings from the configuration this process resolves.</span>
 
+<span class="sd">    Each switch is read through :func:`config_flag`, so a ``&quot;false&quot;`` that</span>
+<span class="sd">    reached the config as text (quoted, or a resolved ``${VAR:-false}``) is off.</span>
+<span class="sd">    A switch spelling neither on nor off is a problem like an unavailable</span>
+<span class="sd">    configuration: every setting falls back to the defaults, which hide locals</span>
+<span class="sd">    and shorten paths, rather than failing the process&#39;s start-up over a</span>
+<span class="sd">    logging key.</span>
+
 <span class="sd">    Returns:</span>
 <span class="sd">        The settings, and what kept them from being read: the defaults and the</span>
 <span class="sd">        exception when the configuration is unavailable, else ``None``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">switch</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;logging.</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="n">config_flag</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">default</span><span class="p">),</span> <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">)</span>
+
     <span class="k">try</span><span class="p">:</span>
-        <span class="c1"># Read for their truth, as RichHandler reads them.</span>
         <span class="k">return</span> <span class="p">(</span>
             <span class="n">_HandlerSettings</span><span class="p">(</span>
-                <span class="n">rich_tracebacks</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;logging.rich_tracebacks&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)),</span>
-                <span class="n">show_traceback_locals</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span>
-                    <span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;logging.show_traceback_locals&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
-                <span class="p">),</span>
-                <span class="n">show_full_paths</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">get_config_value</span><span class="p">(</span><span class="s2">&quot;logging.show_full_paths&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)),</span>
+                <span class="n">rich_tracebacks</span><span class="o">=</span><span class="n">switch</span><span class="p">(</span><span class="s2">&quot;rich_tracebacks&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">),</span>
+                <span class="n">show_traceback_locals</span><span class="o">=</span><span class="n">switch</span><span class="p">(</span><span class="s2">&quot;show_traceback_locals&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
+                <span class="n">show_full_paths</span><span class="o">=</span><span class="n">switch</span><span class="p">(</span><span class="s2">&quot;show_full_paths&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">),</span>
             <span class="p">),</span>
             <span class="kc">None</span><span class="p">,</span>
         <span class="p">)</span>

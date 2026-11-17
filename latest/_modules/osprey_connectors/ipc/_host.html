@@ -466,7 +466,7 @@
 <span class="sd">    {</span>
 <span class="sd">      &quot;control_system&quot;: {...},          # the full control_system config section</span>
 <span class="sd">      &quot;target&quot;: &quot;live&quot; | &quot;va&quot;,          # the control target, never defaulted</span>
-<span class="sd">      &quot;config_file&quot;: &quot;/abs/config.yml&quot;, # optional: what CONFIG_FILE to read</span>
+<span class="sd">      &quot;config_file&quot;: &quot;/abs/config.yml&quot;, # optional: the config file to read</span>
 <span class="sd">      &quot;execution_mode&quot;: &quot;readonly&quot;      # optional: restrict this child to reads</span>
 <span class="sd">    }</span>
 
@@ -1131,7 +1131,12 @@
         <span class="c1"># The connector reads writes_enabled and the limits database — the home</span>
         <span class="c1"># of the per-channel confirm policy — from the project config, so the</span>
         <span class="c1"># child must be pointed at the same file the parent resolved against.</span>
+        <span class="c1"># Both names: the default config reads CONFIG_FILE, but</span>
+        <span class="c1"># resolve_config_path (behind every data-root lookup) reads only</span>
+        <span class="c1"># OSPREY_CONFIG, which this child would otherwise inherit from the</span>
+        <span class="c1"># parent&#39;s environment.</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;CONFIG_FILE&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;OSPREY_CONFIG&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">config_file</span><span class="p">)</span>
     <span class="k">if</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;execution_mode&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;readonly&quot;</span><span class="p">:</span>
         <span class="c1"># Restriction only: an inherited readonly claim is never cleared here.</span>
         <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="n">POSTURE_ENV_VAR</span><span class="p">]</span> <span class="o">=</span> <span class="n">SANDBOX_MODE</span>
