@@ -10,14 +10,13 @@ Date: 2026-07-01
 import asyncio
 import secrets
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol
 
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -184,7 +183,7 @@ class DOOCSConnector(ControlSystemConnector):
             timeout_s: Seconds the read is given; the block's ``timeout_s`` when omitted
 
         Returns:
-            ChannelValue with current value, timestamp, and metadata
+            ChannelValue with current value, ``sampled_at``, and metadata
 
         Raises:
             ChannelUnreachableError: If the property cannot be read, or does
@@ -226,21 +225,20 @@ class DOOCSConnector(ControlSystemConnector):
         timestamp_s, timestamp_us = data.timestamp.get_seconds_and_microseconds_since_epoch()
         timestamp_float = timestamp_s + timestamp_us / 1e6
 
-        timestamp = datetime.fromtimestamp(timestamp_float, get_facility_timezone())
+        sampled_at = datetime.fromtimestamp(timestamp_float, UTC)
 
         # Compile metadata
         metadata = ChannelMetadata(
             units="",
             precision=None,
             alarm_status=None,
-            timestamp=timestamp,
             raw_metadata={
                 "macropulse": macropulse,
                 "type": type(value).__name__,
             },
         )
 
-        return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
+        return ChannelValue(value=value, sampled_at=sampled_at, metadata=metadata)
 
     @override
     def current_value_reader(self) -> CurrentValueReader:
@@ -439,21 +437,20 @@ class DOOCSConnector(ControlSystemConnector):
             timestamp_s, timestamp_us = data.timestamp.get_seconds_and_microseconds_since_epoch()
             timestamp_float = timestamp_s + timestamp_us / 1e6
 
-            timestamp = datetime.fromtimestamp(timestamp_float, get_facility_timezone())
+            sampled_at = datetime.fromtimestamp(timestamp_float, UTC)
 
             # Compile metadata
             metadata = ChannelMetadata(
                 units="",
                 precision=None,
                 alarm_status=None,
-                timestamp=timestamp,
                 raw_metadata={
                     "macropulse": macropulse,
                     "type": type(value).__name__,
                 },
             )
 
-            prop_value = ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
+            prop_value = ChannelValue(value=value, sampled_at=sampled_at, metadata=metadata)
             # Schedule callback in event loop
             loop.call_soon_threadsafe(callback, prop_value)
 

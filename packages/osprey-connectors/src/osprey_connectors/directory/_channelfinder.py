@@ -45,7 +45,13 @@ from osprey_connectors.directory._contract import (
     DirectoryStatus,
 )
 from osprey_connectors.model import FrozenModel
-from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable, _Recorded
+from osprey_connectors.service_answers import (
+    BackendSpec,
+    Outcome,
+    Unavailable,
+    _instant,
+    _Recorded,
+)
 
 _CHANNELS = "/resources/channels"
 _COUNT = "/resources/channels/count"
@@ -55,13 +61,16 @@ _MALFORMED = Unavailable(reason="malformed response")
 
 #: The RecSync property that fills each ``DirectoryRow`` field, by field, in field order.
 #: ``description`` is not here: its property is the section's ``description_property``.
+#: ``time`` fills ``announced_at``, or ``recorded_stamp`` when it cannot be placed, so
+#: hiding it clears both.
 _ROW_FIELD_PROPERTIES: Mapping[str, str] = MappingProxyType(
     {
         "status": "pvStatus",
         "channel_type": "recordType",
         "server": "iocName",
         "host": "hostName",
-        "last_announced": "time",
+        "announced_at": "time",
+        "recorded_stamp": "time",
     }
 )
 
@@ -289,7 +298,10 @@ class ChannelFinderDirectory(ChannelDirectory):
         ]
 
     def _record(self, channel: _Channel) -> DirectoryRecord:
+        """*channel* as a record; an announcement time with no zone stays as text."""
         properties = _properties_of(channel)
+        announced = properties.pop(_ROW_FIELD_PROPERTIES["announced_at"], None)
+        announced_at = _instant(announced)
         return DirectoryRecord(
             row=DirectoryRow(
                 address=channel.name,
@@ -298,7 +310,8 @@ class ChannelFinderDirectory(ChannelDirectory):
                 channel_type=properties.pop(_ROW_FIELD_PROPERTIES["channel_type"], None),
                 server=properties.pop(_ROW_FIELD_PROPERTIES["server"], None),
                 host=properties.pop(_ROW_FIELD_PROPERTIES["host"], None),
-                last_announced=properties.pop(_ROW_FIELD_PROPERTIES["last_announced"], None),
+                announced_at=announced_at,
+                recorded_stamp=announced if announced_at is None else None,
             ),
             properties=properties,
             tags=tuple(tag.name for tag in channel.tags or ()),
@@ -427,7 +440,7 @@ class ChannelFinderDirectory(ChannelDirectory):
         if isinstance(channels, Unavailable):
             return f"{answered}; no PVs read: {channels.reason}"
         times = [
-            _properties_of(channel).get(_ROW_FIELD_PROPERTIES["last_announced"])
+            _properties_of(channel).get(_ROW_FIELD_PROPERTIES["announced_at"])
             for channel in channels
         ]
         newest = max((stamp for stamp in times if stamp), default=None)

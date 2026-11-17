@@ -15,7 +15,7 @@ import pytest
 from osprey_connectors.archiver._base import ArchiverMetadata
 from osprey_connectors.archiver._epics_archiver_connector import EPICSArchiverConnector
 from osprey_connectors.archiver._timerange import Processing
-from osprey_connectors.errors import ConnectorUnavailableError
+from osprey_connectors.errors import ConnectorUnavailableError, NaiveDatetimeError
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._loopback_https import Reply, loopback_pair
@@ -129,9 +129,9 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                addresses=["PV:X"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
+                ["PV:X"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
             )
 
             assert isinstance(df, pd.DataFrame)
@@ -155,9 +155,9 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                addresses=["RF:MODE"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
+                ["RF:MODE"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
             )
 
             assert (df["address"] == "RF:MODE").all()
@@ -183,9 +183,9 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                addresses=["PV:1", "PV:2"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 0, 1),
+                ["PV:1", "PV:2"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 1, 0, 1, tzinfo=UTC),
             )
 
             assert isinstance(df, pd.DataFrame)
@@ -211,9 +211,9 @@ class TestGetDataMethod:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                addresses=["BEAM:CURRENT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 1),
+                ["BEAM:CURRENT"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
             )
 
             assert isinstance(df, pd.DataFrame)
@@ -231,9 +231,9 @@ class TestGetDataMethod:
 
         with pytest.raises(RuntimeError, match="Archiver not connected"):
             await connector.get_data(
-                addresses=["BEAM:CURRENT"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 2),
+                ["BEAM:CURRENT"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 2, tzinfo=UTC),
                 timeout_s=60,
             )
 
@@ -241,8 +241,8 @@ class TestGetDataMethod:
     @pytest.mark.parametrize(
         "bound,start,end",
         [
-            ("start_date", "2024-01-01", datetime(2024, 1, 2)),
-            ("end_date", datetime(2024, 1, 1), "2024-01-02"),
+            ("start_at", "2024-01-01", datetime(2024, 1, 2, tzinfo=UTC)),
+            ("end_at", datetime(2024, 1, 1, tzinfo=UTC), "2024-01-02"),
         ],
         ids=["start", "end"],
     )
@@ -253,9 +253,9 @@ class TestGetDataMethod:
 
         with pytest.raises(TypeError, match=f"{bound} must be a datetime object"):
             await connector.get_data(
-                addresses=["BEAM:CURRENT"],
-                start_date=start,
-                end_date=end,
+                ["BEAM:CURRENT"],
+                start_at=start,
+                end_at=end,
             )
 
         await connector.disconnect()
@@ -288,9 +288,9 @@ class TestMultiPVLongFormat:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                addresses=["PV:A", "PV:B"],
-                start_date=datetime(2024, 1, 1),
-                end_date=datetime(2024, 1, 1, 0, 0, 10),
+                ["PV:A", "PV:B"],
+                start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                end_at=datetime(2024, 1, 1, 0, 0, 10, tzinfo=UTC),
                 precision_ms=1000,
             )
 
@@ -328,9 +328,9 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(ConnectorUnavailableError):
                 await connector.get_data(
-                    addresses=["BEAM:CURRENT"],
-                    start_date=datetime(2024, 1, 1),
-                    end_date=datetime(2024, 1, 2),
+                    ["BEAM:CURRENT"],
+                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
                 )
 
             await connector.disconnect()
@@ -359,9 +359,9 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(TimeoutError, match=match):
                 await connector.get_data(
-                    addresses=["BEAM:CURRENT"],
-                    start_date=datetime(2024, 1, 1),
-                    end_date=datetime(2024, 1, 2),
+                    ["BEAM:CURRENT"],
+                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
                     timeout_s=timeout,
                 )
 
@@ -379,9 +379,9 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(ConnectorUnavailableError, match="Cannot connect to the archiver"):
                 await connector.get_data(
-                    addresses=["BEAM:CURRENT"],
-                    start_date=datetime(2024, 1, 1),
-                    end_date=datetime(2024, 1, 2),
+                    ["BEAM:CURRENT"],
+                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
                 )
 
             await connector.disconnect()
@@ -398,9 +398,9 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(ConnectorUnavailableError, match="Network connectivity issue"):
                 await connector.get_data(
-                    addresses=["BEAM:CURRENT"],
-                    start_date=datetime(2024, 1, 1),
-                    end_date=datetime(2024, 1, 2),
+                    ["BEAM:CURRENT"],
+                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
                 )
 
             await connector.disconnect()
@@ -419,9 +419,9 @@ class TestGetDataErrorHandling:
 
             with pytest.raises(ValueError, match="Waveform PVs not supported"):
                 await connector.get_data(
-                    addresses=["CAM:IMAGE"],
-                    start_date=datetime(2024, 1, 1),
-                    end_date=datetime(2024, 1, 2),
+                    ["CAM:IMAGE"],
+                    start_at=datetime(2024, 1, 1, tzinfo=UTC),
+                    end_at=datetime(2024, 1, 2, tzinfo=UTC),
                 )
 
             await connector.disconnect()
@@ -584,45 +584,54 @@ class TestQueryWindowTimezone:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("start", "end", "facility_local"),
+        ("start", "end"),
         [
             # tz-aware, non-UTC: converted, not relabeled.
             (
                 datetime(2026, 7, 30, 10, 0, 0, tzinfo=_LA),
                 datetime(2026, 7, 30, 11, 0, 0, tzinfo=_LA),
-                False,
             ),
             # already UTC: survives untouched.
             (
                 datetime(2026, 7, 30, 17, 0, 0, tzinfo=UTC),
                 datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC),
-                False,
             ),
-            # bare wall-clock: means facility-local, matching the tool layer.
-            (datetime(2026, 7, 30, 10, 0, 0), datetime(2026, 7, 30, 11, 0, 0), True),
         ],
-        ids=["aware_non_utc", "aware_utc", "naive_facility_local"],
+        ids=["aware_non_utc", "aware_utc"],
     )
     async def test_window_reaches_the_archiver_as_the_same_utc_instant(
-        self, monkeypatch, captured_urls, start, end, facility_local
+        self, captured_urls, start, end
     ):
-        if facility_local:
-            monkeypatch.setattr(
-                "osprey_connectors.config.get_facility_timezone",
-                lambda: ZoneInfo("America/Los_Angeles"),
-            )
-
         connector = EPICSArchiverConnector()
         await connector.connect({"url": "https://archiver.example.com"})
 
-        await connector.get_data(
-            addresses=["SR:DCCT"], start_date=start, end_date=end, precision_ms=1000
-        )
+        await connector.get_data(["SR:DCCT"], start_at=start, end_at=end, precision_ms=1000)
 
         # 10:00 PDT is 17:00 UTC; 11:00 PDT is 18:00 UTC.
         assert "from=2026-07-30T17%3A00%3A00.000Z" in captured_urls[0]
         assert "to=2026-07-30T18%3A00%3A00.000Z" in captured_urls[0]
 
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bound", ["start_at", "end_at"])
+    async def test_a_naive_bound_is_refused_before_the_archiver_is_asked(
+        self, captured_urls, bound
+    ):
+        """A bare wall clock names no instant; the package does not guess its zone."""
+        window = {
+            "start_at": datetime(2026, 7, 30, 17, 0, 0, tzinfo=UTC),
+            "end_at": datetime(2026, 7, 30, 18, 0, 0, tzinfo=UTC),
+        }
+        window[bound] = window[bound].replace(tzinfo=None)
+        connector = EPICSArchiverConnector()
+        await connector.connect({"url": "https://archiver.example.com"})
+
+        with pytest.raises(NaiveDatetimeError, match=bound) as refused:
+            await connector.get_data(["SR:DCCT"], **window, precision_ms=1000)
+
+        assert refused.value.parameter == bound
+        assert captured_urls == []
         await connector.disconnect()
 
 
@@ -647,9 +656,9 @@ class TestProcessingModes:
         await connector.connect({"url": "https://archiver.example.com"})
 
         await connector.get_data(
-            addresses=["SR:DCCT"],
-            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            ["SR:DCCT"],
+            start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
             precision_ms=60_000,
             processing=mode,
         )
@@ -665,9 +674,9 @@ class TestProcessingModes:
 
         with pytest.raises(ValueError, match="Unknown processing mode"):
             await connector.get_data(
-                addresses=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                ["SR:DCCT"],
+                start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
                 processing="p99",
             )
@@ -699,9 +708,9 @@ class TestNonNumericAggregation:
 
             with pytest.raises(ValueError, match="SR:MODE"):
                 await connector.get_data(
-                    addresses=["SR:MODE"],
-                    start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                    end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                    ["SR:MODE"],
+                    start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                    end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                     precision_ms=60_000,
                     processing=mode,
                 )
@@ -718,9 +727,9 @@ class TestNonNumericAggregation:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                addresses=["SR:MODE"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                ["SR:MODE"],
+                start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
                 processing="raw",
             )
@@ -737,9 +746,9 @@ class TestNonNumericAggregation:
             await connector.connect({"url": "https://archiver.example.com"})
 
             df = await connector.get_data(
-                addresses=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                ["SR:DCCT"],
+                start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
                 processing="mean",
             )
@@ -764,9 +773,9 @@ class TestSubSecondPrecision:
 
         with pytest.raises(ValueError, match="whole number of seconds"):
             await connector.get_data(
-                addresses=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                ["SR:DCCT"],
+                start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=precision_ms,
                 processing="raw",
             )
@@ -797,9 +806,9 @@ class TestSubSecondPrecision:
 
         with pytest.raises(ValueError, match="whole number of seconds"):
             await connector.get_data(
-                addresses=["SR:DCCT"],
-                start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-                end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+                ["SR:DCCT"],
+                start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+                end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
                 precision_ms=60_000,
                 processing="mean",
             )
@@ -826,9 +835,9 @@ class TestSubSecondPrecision:
         await connector.connect({"url": "https://archiver.example.com"})
 
         await connector.get_data(
-            addresses=["SR:DCCT"],
-            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            ["SR:DCCT"],
+            start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
             precision_ms=precision_ms,
             processing=processing,
         )
@@ -845,9 +854,9 @@ class TestSubSecondPrecision:
         await connector.connect({"url": "https://archiver.example.com"})
 
         await connector.get_data(
-            addresses=["SR:DCCT"],
-            start_date=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-            end_date=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+            ["SR:DCCT"],
+            start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+            end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
             precision_ms=0,
             processing="raw",
         )
@@ -867,8 +876,8 @@ class TestRetrievalPath:
     """
 
     _WINDOW = {
-        "start_date": datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
-        "end_date": datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
+        "start_at": datetime(2026, 7, 30, 10, 0, 0, tzinfo=UTC),
+        "end_at": datetime(2026, 7, 30, 11, 0, 0, tzinfo=UTC),
     }
 
     @pytest.mark.asyncio
@@ -877,7 +886,7 @@ class TestRetrievalPath:
         connector = EPICSArchiverConnector()
         await connector.connect({"url": "https://archiver.example.com"})
 
-        await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+        await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         assert captured_urls[0].startswith(
             "https://archiver.example.com/retrieval/data/getData.json?"
@@ -893,7 +902,7 @@ class TestRetrievalPath:
             {"url": "https://controls-web.example.com", "retrieval_path": "/archappl_retrieve"}
         )
 
-        await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+        await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         assert captured_urls[0].startswith(
             "https://controls-web.example.com/archappl_retrieve/data/getData.json?"
@@ -918,7 +927,7 @@ class TestRetrievalPath:
         connector = EPICSArchiverConnector()
         await connector.connect({"url": url, "retrieval_path": path})
 
-        await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+        await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         assert captured_urls[0].startswith(
             "https://controls-web.example.com/archappl_retrieve/data/getData.json?"
@@ -930,7 +939,10 @@ class TestRetrievalPath:
 class TestLoginAndTrust:
     """A real loopback appliance on a throwaway CA: the login and the trust reach the wire."""
 
-    _WINDOW = {"start_date": datetime(2024, 1, 1), "end_date": datetime(2024, 1, 2)}
+    _WINDOW = {
+        "start_at": datetime(2024, 1, 1, tzinfo=UTC),
+        "end_at": datetime(2024, 1, 2, tzinfo=UTC),
+    }
     _SECRET = "tok-3f9a-not-a-real-secret"
     _DATA = "/retrieval/data/getData.json"
 
@@ -953,7 +965,7 @@ class TestLoginAndTrust:
         connector = EPICSArchiverConnector()
         await connector.connect(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
 
-        frame = await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+        frame = await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         assert appliance.https.authorizations() == [f"Bearer {self._SECRET}"]
         assert len(frame) == 1
@@ -970,7 +982,7 @@ class TestLoginAndTrust:
             )
         )
 
-        await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+        await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         (header,) = appliance.https.authorizations()
         scheme, encoded = header.split(" ", 1)
@@ -983,7 +995,7 @@ class TestLoginAndTrust:
         connector = EPICSArchiverConnector()
         await connector.connect(self._config(appliance))
 
-        await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+        await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         assert appliance.https.seen == [(self._DATA, None)]
         await connector.disconnect()
@@ -994,7 +1006,7 @@ class TestLoginAndTrust:
         with patch.object(urllib.request, "urlopen", side_effect=AssertionError("bypassed")):
             connector = EPICSArchiverConnector()
             await connector.connect(self._config(appliance))
-            await connector.get_data(addresses=["SR:DCCT", "SR:TUNE"], **self._WINDOW)
+            await connector.get_data(["SR:DCCT", "SR:TUNE"], **self._WINDOW)
             await connector.disconnect()
 
         assert len(appliance.https.seen) == 2
@@ -1020,7 +1032,7 @@ class TestLoginAndTrust:
         caplog.set_level(logging.DEBUG, logger="epics_archiver_connector")
         connector = EPICSArchiverConnector()
         await connector.connect(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
-        await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+        await connector.get_data(["SR:DCCT"], **self._WINDOW)
         await connector.disconnect()
 
         assert caplog.records, "the connector logged nothing at DEBUG"
@@ -1037,7 +1049,7 @@ class TestLoginAndTrust:
         await connector.connect(self._config(appliance, auth={"token_env": "ARCHIVER_TEST_TOKEN"}))
 
         with pytest.raises(ConnectorUnavailableError) as exc:
-            await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+            await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         message = str(exc.value)
         assert "`archiver.settings.auth.token_env`" in message
@@ -1055,7 +1067,7 @@ class TestLoginAndTrust:
         await connector.connect(self._config(appliance))
 
         with pytest.raises(ConnectorUnavailableError) as exc:
-            await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+            await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         message = str(exc.value)
         assert "asks for a login (HTTP 401)" in message
@@ -1069,7 +1081,7 @@ class TestLoginAndTrust:
         await connector.connect({"url": appliance.https.url})
 
         with pytest.raises(ConnectorUnavailableError) as exc:
-            await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+            await connector.get_data(["SR:DCCT"], **self._WINDOW)
 
         message = str(exc.value)
         assert "does not trust" in message
@@ -1084,7 +1096,7 @@ class TestLoginAndTrust:
         await connector.connect(self._config(appliance))
 
         with pytest.raises(ConnectorUnavailableError, match="Cannot connect to archiver at"):
-            await connector.get_data(addresses=["SR:DCCT"], **self._WINDOW)
+            await connector.get_data(["SR:DCCT"], **self._WINDOW)
         await connector.disconnect()
 
     @pytest.mark.asyncio

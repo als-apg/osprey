@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import re
-import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
@@ -1624,7 +1623,7 @@ def _switch_mutation(
     facts: _TargetRequestFacts,
     wanted: str,
     request_id: str,
-    requested_at: str,
+    requested_at: datetime,
     requested_by: str,
 ) -> Mutation[_SwitchOutcome]:
     """Judge the switch against *record* and return what to store beside it.
@@ -1870,7 +1869,7 @@ async def request_terminal_target(body: TargetRequest, request: Request):
                 facts=facts,
                 wanted=body.target,
                 request_id=request_id,
-                requested_at=datetime.now(UTC).isoformat(),
+                requested_at=datetime.now(UTC),
                 requested_by=session_id or f"pid:{os.getpid()}",
             )
         )
@@ -2553,6 +2552,16 @@ def _stamp_epoch(stamp: Any) -> float:
     return moment.timestamp()
 
 
+def _report_order(report: Any) -> float:
+    """*report*'s ``updated_at`` as a POSIX timestamp, ``-inf`` when it states none.
+
+    A report whose write time is unknown loses every comparison, as
+    :func:`_stamp_epoch` has an unreadable stamp do.
+    """
+    stamp = report.updated_at
+    return float("-inf") if stamp is None else float(stamp.timestamp())
+
+
 def _owner_row(app: Any, record: Any) -> dict[str, Any] | None:
     """Who may write the control context, and whether that is this terminal.
 
@@ -2615,9 +2624,9 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
             "children": list(report.children),
             "last_switch": _aged(report.last_switch),
             "last_posture_realign": report.last_posture_realign,
-            "updated_at": report.updated_at,
+            "updated_at": None if report.updated_at is None else report.updated_at.isoformat(),
         }
-        for report in sorted(reports, key=lambda r: _stamp_epoch(r.updated_at))
+        for report in sorted(reports, key=_report_order)
     ]
     return rows
 
@@ -2633,7 +2642,7 @@ def _published_targets(reports: Sequence[Any]) -> dict[str, Any]:
     letting its empty block win would blank a row another server has named.
     """
     merged: dict[str, Any] = {}
-    for report in sorted(reports, key=lambda r: _stamp_epoch(r.updated_at)):
+    for report in sorted(reports, key=_report_order):
         merged.update({str(target): row for target, row in report.targets.items()})
     return merged
 
@@ -2857,13 +2866,13 @@ def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
     login = acting_identity()
     own = write_authorization.authorizations_dir()
     ledgers = write_authorization.self_issued_directories()
-    now = time.time_ns()
+    now = datetime.now(UTC)
     holds: dict[str, list[dict[str, Any]]] = {}
     found, _unreadable = write_authorization.listed_grants([] if own is None else [own], ledgers)
     for grant, _directory in found:
         if grant.owner != login:
             continue
-        standing = write_authorization.grant_standing(grant, record, ledgers, now_ns=now)
+        standing = write_authorization.grant_standing(grant, record, ledgers, now=now)
         if not standing.in_force:
             continue
         holds.setdefault(grant.target, []).append(
@@ -2873,7 +2882,7 @@ def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
                 "label": grant.label,
                 "steps": grant.steps,
                 "used": standing.used,
-                "expires_in_s": max(0.0, round((grant.expires_at_ns - now) / 1e9, 1)),
+                "expires_in_s": max(0.0, round((grant.expires_at - now).total_seconds(), 1)),
                 "self_issued": grant.approver.surface == write_authorization.SELF_ISSUE_SURFACE,
             }
         )

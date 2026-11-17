@@ -148,7 +148,7 @@ class _PairConnector(ControlSystemConnector):
             await asyncio.sleep(SLOW_SECONDS)
         return ChannelValue(
             value=self.value_for(address),
-            timestamp=datetime.now(UTC),
+            sampled_at=datetime.now(UTC),
             metadata=ChannelMetadata(units="mA"),
         )
 

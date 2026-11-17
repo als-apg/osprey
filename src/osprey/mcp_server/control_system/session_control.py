@@ -764,7 +764,7 @@ class SessionControlReconciler:
             record,
             request_id=request_id,
             target=wanted,
-            requested_at=body.get("requested_at"),
+            requested_at=target_state.request_stamp(body),
             requested_by=requested_by,
             status=status,
             reason=reason,

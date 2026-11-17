@@ -88,8 +88,8 @@ async def read_extent(connector: Any, deadline: float) -> Extent:
     channels = getattr(answer, "addresses", None)
     return Extent(
         channels=frozenset(channels) if channels is not None else None,
-        oldest=getattr(answer, "oldest", None),
-        newest=getattr(answer, "newest", None),
+        oldest=getattr(answer, "oldest_at", None),
+        newest=getattr(answer, "newest_at", None),
         reason=getattr(answer, "reason", None),
     )
 

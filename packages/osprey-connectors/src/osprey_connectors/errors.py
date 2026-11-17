@@ -27,6 +27,7 @@ a ``ValueError``. The hierarchy, with each builtin second base::
     ├── ConnectRefusedError                   (ConnectionError) connect refused by policy
     ├── ClientLibraryRefusedError             (RuntimeError)
     ├── ConfigurationError                    (ValueError) a config value, by its key
+    ├── NaiveDatetimeError                    (ValueError) an instant with no zone
     ├── StateUnavailableError                 (RuntimeError) no state directory
     ├── StateLockedError                      (RuntimeError) a state lock stayed held
     ├── AlreadyApprovedError                  (FileExistsError)
@@ -72,6 +73,7 @@ with its channel, so a public failure needs no registry entry of its own.
 """
 
 import errno
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -104,12 +106,14 @@ __all__ = [
     "ConnectorUnavailableError",
     "ConnectorsError",
     "LimitsViolationKind",
+    "NaiveDatetimeError",
     "RecoveryAction",
     "RecoveryRecord",
     "RefusalReason",
     "StateLockedError",
     "StateUnavailableError",
     "raw_client_write_message",
+    "require_aware",
 ]
 
 
@@ -625,6 +629,48 @@ class ConfigurationError(ConnectorsError, ValueError):
     def __init__(self, message: str, *, key: str | None = None) -> None:
         self.key = key
         super().__init__(message)
+
+
+class NaiveDatetimeError(ConnectorsError, ValueError):
+    """An instant was handed over without a timezone, so it names no moment.
+
+    Every instant the package takes is a timezone-aware ``datetime``; a naive
+    one is refused rather than read in a zone the package would have to guess.
+    ``parameter`` names the argument or field that carried it, and ``value``
+    is the naive ``datetime`` itself. A ``ValueError``, as a bad argument is.
+    """
+
+    def __init__(self, parameter: str, value: datetime) -> None:
+        self.parameter = parameter
+        self.value = value
+        super().__init__(
+            f"{parameter} must be a timezone-aware datetime, got the naive {value.isoformat()}; "
+            "attach the zone it was read in (tzinfo=...)"
+        )
+
+
+def require_aware(value: object, *, name: str) -> datetime:
+    """``value`` if it is a timezone-aware ``datetime``; otherwise refuse it.
+
+    The one boundary check for an instant a caller hands the package. It
+    neither converts nor guesses: an aware value comes back as given.
+
+    Args:
+        value: The caller's instant, unvalidated.
+        name: The parameter or field it was given as, for the refusal.
+
+    Returns:
+        ``value``, unchanged.
+
+    Raises:
+        TypeError: If ``value`` is not a ``datetime``, naming ``name``.
+        NaiveDatetimeError: If ``value`` is a naive ``datetime``.
+    """
+    if not isinstance(value, datetime):
+        raise TypeError(f"{name} must be a datetime object, got {type(value)}")
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        raise NaiveDatetimeError(name, value)
+    return value
 
 
 class StateUnavailableError(ConnectorsError, RuntimeError):

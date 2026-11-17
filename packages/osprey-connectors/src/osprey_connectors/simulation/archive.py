@@ -65,10 +65,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
-from pydantic import ValidationError, model_validator
+from pydantic import AwareDatetime, ValidationError, model_validator
 
 from osprey_connectors.archiver._field_names import field_name
-from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors.errors import ChannelNotFoundError, require_aware
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.simulation import pulse, topoff
@@ -115,6 +115,7 @@ __all__ = [
     "scenario_events",
     "seed_base",
     "seed_fingerprint",
+    "stored_date_utc",
     "tier_expiry",
     "waveform_collection",
     "waveform_document",
@@ -172,7 +173,7 @@ class FingerprintComparison(FrozenModel):
     state is :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report*
     what changed rather than announcing an unexplained reseed."""
 
-    seeded_at: datetime | None = None
+    seeded_at: AwareDatetime | None = None
     """The instant the stored seed was anchored at, when there is one. Metadata:
     it is never compared (see the module docstring)."""
 
@@ -277,16 +278,18 @@ class SeedReport(FrozenModel):
 
     documents: int = 0
     channels: int = 0
-    start: datetime | None = None
-    end: datetime | None = None
+    start_at: AwareDatetime | None = None
+    """The first seeded instant, in UTC; ``None`` for an empty window."""
+    end_at: AwareDatetime | None = None
+    """The last seeded instant, in UTC; ``None`` for an empty window."""
     elapsed_s: float = 0.0
     chunks: int = 0
 
     def describe(self) -> str:
         """A one-line summary for a deploy-time progress report."""
         span = (
-            f"{self.start:%Y-%m-%d %H:%M} to {self.end:%Y-%m-%d %H:%M} UTC"
-            if self.start and self.end
+            f"{self.start_at:%Y-%m-%d %H:%M} to {self.end_at:%Y-%m-%d %H:%M} UTC"
+            if self.start_at and self.end_at
             else "empty window"
         )
         return (
@@ -320,8 +323,10 @@ class ArchiveComposite:
         events: The active scenarios' archiver events, by address.
         composite: The composite at the start state, whose readings every
             float channel carries.
-        anchor_s: The epoch seconds an ``at_offset`` event is placed from.
-        tz: The zone a daily ``at_time`` event is placed in.
+        anchor_at: The instant an ``at_offset`` or ``at_when`` event is placed
+            from: the activation anchor.
+        tz: The facility zone ``at_when`` calendar days are counted in and a
+            daily ``at_time`` event is placed in.
         state: The directory holding ``composite``'s active set, removed by
             ``close``.
         pulses: Each pulsed waveform channel's ``pulse`` seed, by address: the
@@ -330,6 +335,7 @@ class ArchiveComposite:
             channels whose ``loss`` events top-off refills.
 
     Raises:
+        NaiveDatetimeError: ``anchor_at`` is naive.
         ValueError: A ``pulse`` seed names a driver or enable that is not a
             channel of the view.
     """
@@ -341,8 +347,8 @@ class ArchiveComposite:
         events: Mapping[str, Sequence[ArchiverEvent]],
         composite: Composite,
         *,
-        anchor_s: float,
-        tz: ZoneInfo | None,
+        anchor_at: datetime,
+        tz: ZoneInfo,
         state: tempfile.TemporaryDirectory[str] | None = None,
         pulses: Mapping[str, PulseRecord] | None = None,
         topoffs: Mapping[str, TopoffRecord] | None = None,
@@ -361,7 +367,8 @@ class ArchiveComposite:
         self._events = {address: list(scripts) for address, scripts in events.items()}
         self._composite = composite
         self._state = state
-        self._anchor_s = anchor_s
+        # Epoch seconds from here on: the per-sample arithmetic is float.
+        self._anchor_s = require_aware(anchor_at, name="anchor_at").timestamp()
         self._tz = tz
 
     def topoff_record(self, address: str) -> TopoffRecord | None:
@@ -399,7 +406,7 @@ class ArchiveComposite:
         return [address for address in self.addresses if not self._is_waveform(address)]
 
     def traces(
-        self, address: str, t_s: Sequence[float] | npt.NDArray[np.float64]
+        self, address: str, times_s: Sequence[float] | npt.NDArray[np.float64]
     ) -> list[npt.NDArray[np.float64]]:
         """One waveform channel's traces at absolute epoch seconds.
 
@@ -412,7 +419,7 @@ class ArchiveComposite:
 
         Args:
             address: A ``waveform`` channel address of the view.
-            t_s: Epoch seconds, ascending.
+            times_s: Epoch seconds, ascending.
 
         Returns:
             One flat float64 trace per timestamp.
@@ -425,7 +432,7 @@ class ArchiveComposite:
             raise ChannelNotFoundError(address)
         if not self._is_waveform(address):
             raise ValueError(f"{address} is not a waveform channel")
-        times = np.asarray(t_s, dtype=np.float64).reshape(-1)
+        times = np.asarray(times_s, dtype=np.float64).reshape(-1)
         seed = self._pulses.get(address)
         if seed is None:
             held = np.asarray(self._held[address], dtype=np.float64).reshape(-1)
@@ -446,7 +453,9 @@ class ArchiveComposite:
         self._require(address)
         return self._held[address]
 
-    def series(self, address: str, t_s: Sequence[float] | npt.NDArray[np.float64]) -> list[object]:
+    def series(
+        self, address: str, times_s: Sequence[float] | npt.NDArray[np.float64]
+    ) -> list[object]:
         """One channel's samples at absolute epoch seconds, in the wire representation.
 
         A ``float`` channel holds its start-state value, moved by the active
@@ -459,7 +468,7 @@ class ArchiveComposite:
 
         Args:
             address: A channel address of the view.
-            t_s: Epoch seconds, ascending.
+            times_s: Epoch seconds, ascending.
 
         Returns:
             One sample per timestamp.
@@ -467,10 +476,10 @@ class ArchiveComposite:
         Raises:
             KeyError: ``address`` is not a channel of the view.
         """
-        return self.samples([address], t_s)[address]
+        return self.samples([address], times_s)[address]
 
     def samples(
-        self, addresses: Sequence[str], t_s: Sequence[float] | npt.NDArray[np.float64]
+        self, addresses: Sequence[str], times_s: Sequence[float] | npt.NDArray[np.float64]
     ) -> dict[str, list[object]]:
         """Several channels' samples at absolute epoch seconds, as :meth:`series` gives each.
 
@@ -479,7 +488,7 @@ class ArchiveComposite:
 
         Args:
             addresses: Channel addresses of the view.
-            t_s: Epoch seconds, ascending.
+            times_s: Epoch seconds, ascending.
 
         Returns:
             One sample per timestamp, by address.
@@ -489,7 +498,7 @@ class ArchiveComposite:
         """
         for address in addresses:
             self._require(address)
-        times = np.asarray(t_s, dtype=np.float64).reshape(-1)
+        times = np.asarray(times_s, dtype=np.float64).reshape(-1)
         if len(times) == 0:
             return {address: [] for address in addresses}
         floats = [address for address in addresses if self._is_float(address)]
@@ -546,7 +555,13 @@ class ArchiveComposite:
         start = np.full(count, channel_values._real(self._held[address]), dtype=np.float64)
         events = self._events.get(address, [])
         return apply_events(
-            start, events, count, times, self._anchor_s, self._tz, self._topoffs.get(address)
+            start,
+            events,
+            count,
+            times,
+            anchor_s=self._anchor_s,
+            tz=self._tz,
+            topoff=self._topoffs.get(address),
         )
 
     def _stepped(
@@ -565,7 +580,9 @@ class ArchiveComposite:
             target = channel_values.coerce(
                 event.to, channel.value_type, channel.options, channel.shape
             )
-            for axis, at in event_positions(event, fractions, times, self._anchor_s, self._tz):
+            for axis, at in event_positions(
+                event, fractions, times, anchor_s=self._anchor_s, tz=self._tz
+            ):
                 for index in np.flatnonzero(axis >= at):
                     stored[int(index)] = target
         return stored
@@ -608,7 +625,8 @@ def build(
     view: SimulatorView | Path | str,
     active_set: Sequence[str],
     *,
-    anchor_s: float | None = None,
+    anchor_at: datetime | None = None,
+    tz: ZoneInfo,
 ) -> ArchiveComposite:
     """Build the archive composite of a simulator view at one active set's start state.
 
@@ -621,13 +639,17 @@ def build(
         view: The simulator view, ``<render>/data/simulator``, opened or as
             its directory, which is opened with :meth:`SimulatorView.open`.
         active_set: The active scenario names; ``nominal`` is always active.
-        anchor_s: The epoch seconds the set was applied at, from which an
-            ``at_offset`` event is placed; ``None`` is the time of the build.
+        anchor_at: The instant the set was applied at, from which an
+            ``at_offset`` or ``at_when`` event is placed; ``None`` is the time
+            of the build.
+        tz: The facility zone ``at_when`` calendar days are counted in and a
+            daily ``at_time`` event is placed in.
 
     Returns:
         The archive composite.
 
     Raises:
+        NaiveDatetimeError: ``anchor_at`` is naive.
         RuntimeError: A physics model fails to build or read at the start
             state; the message names it and its engine's error. A model without
             a deck is unbuilt by design (``no deck``) and does not raise.
@@ -635,10 +657,12 @@ def build(
         NoSimulatorViewError: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
-    from osprey_connectors.config import get_facility_timezone
     from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.status import is_error
 
+    if anchor_at is None:
+        anchor_at = datetime.fromtimestamp(time.time(), UTC)
+    require_aware(anchor_at, name="anchor_at")
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
     scenarios: dict[str, ScenarioRecord] = {
@@ -684,8 +708,8 @@ def build(
             held,
             {address: scripts for address, scripts in events.items() if address in records},
             composite,
-            anchor_s=time.time() if anchor_s is None else float(anchor_s),
-            tz=get_facility_timezone(),
+            anchor_at=anchor_at,
+            tz=tz,
             state=state,
             pulses=pulses,
             topoffs={
@@ -706,14 +730,14 @@ def build(
 
 
 def _seed_grid(
-    knobs: SeedKnobs, t0: datetime
+    knobs: SeedKnobs, anchor_at: datetime
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """The timestamps to seed and the instant each one expires.
 
-    The grid is epoch-aligned rather than anchored on ``t0``: both tiers land on
-    whole multiples of their cadence since the epoch, which is the only way the
-    coarse tier can be a subset of the dense one no matter what second ``t0``
-    happens to fall on. The dense tier contributes only the timestamps the
+    The grid is epoch-aligned rather than anchored on ``anchor_at``: both tiers
+    land on whole multiples of their cadence since the epoch, which is the only
+    way the coarse tier can be a subset of the dense one no matter what second
+    ``anchor_at`` happens to fall on. The dense tier contributes only the timestamps the
     coarse tier does not already cover, so every timestamp appears exactly once.
 
     Expiry is stamped by the tier that produced a timestamp: a coarse sample
@@ -725,14 +749,13 @@ def _seed_grid(
 
     Args:
         knobs: The archive's shape.
-        t0: The instant the window ends — the seed anchor. Naive values are read
-            as UTC, matching the store's own convention.
+        anchor_at: The instant the window ends — the seed anchor; aware.
 
     Returns:
-        ``(epoch_seconds, expire_epoch_seconds)``, both float64, ascending by
+        ``(times_s, expire_times_s)``, both float64 epoch seconds, ascending by
         time. Empty only if the window is degenerate.
     """
-    end = _epoch_seconds(t0)
+    end = anchor_at.timestamp()
 
     tail_start = end - knobs.retention_s
     hot_start = end - knobs.hot_span_s
@@ -751,7 +774,7 @@ def _seed_grid(
     return times, tier_expiry(knobs, times)
 
 
-def tier_expiry(knobs: SeedKnobs, epoch_s: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+def tier_expiry(knobs: SeedKnobs, times_s: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """When each of these samples expires, by the tier its timestamp belongs to.
 
     A timestamp on the coarse cadence belongs to the coarse tier and lives out
@@ -761,9 +784,9 @@ def tier_expiry(knobs: SeedKnobs, epoch_s: npt.NDArray[np.float64]) -> npt.NDArr
     rewrite restoring a window it once protected — re-stamp a document correctly
     without knowing how it was originally produced.
     """
-    dense = np.mod(epoch_s, knobs.tail_cadence_sec) != 0
+    dense = np.mod(times_s, knobs.tail_cadence_sec) != 0
     lifetime = np.where(dense, float(knobs.hot_span_s), float(knobs.retention_s))
-    return np.asarray(epoch_s + lifetime)
+    return np.asarray(times_s + lifetime)
 
 
 def _aligned_range(start_s: float, end_s: float, cadence_s: int) -> npt.NDArray[np.float64]:
@@ -776,19 +799,13 @@ def _aligned_range(start_s: float, end_s: float, cadence_s: int) -> npt.NDArray[
     return np.asarray(first + np.arange(count, dtype=np.float64) * cadence_s)
 
 
-def _epoch_seconds(moment: datetime) -> float:
-    """Epoch seconds for one datetime, reading a naive value as UTC."""
-    aware = moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
-    return aware.timestamp()
-
-
-def _as_utc_datetimes(epoch_s: npt.NDArray[np.float64]) -> list[datetime]:
+def _as_utc_datetimes(times_s: npt.NDArray[np.float64]) -> list[datetime]:
     """Epoch seconds back to the timezone-aware datetimes the store stores.
 
     pymongo reads a naive datetime as UTC, so writing aware ones costs nothing
     and removes the question entirely.
     """
-    return [datetime.fromtimestamp(float(value), UTC) for value in epoch_s]
+    return [datetime.fromtimestamp(float(value), UTC) for value in times_s]
 
 
 # ---------------------------------------------------------------------------
@@ -797,7 +814,7 @@ def _as_utc_datetimes(epoch_s: npt.NDArray[np.float64]) -> list[datetime]:
 
 
 def _synthesize_documents(
-    archive: ArchiveComposite, epoch_s: npt.NDArray[np.float64]
+    archive: ArchiveComposite, times_s: npt.NDArray[np.float64]
 ) -> list[dict[str, object]]:
     """One document per timestamp, carrying every archived scalar channel's value at it.
 
@@ -810,14 +827,14 @@ def _synthesize_documents(
 
     Args:
         archive: The archive composite of the active set.
-        epoch_s: Absolute epoch seconds, one per document.
+        times_s: Absolute epoch seconds, one per document.
 
     Returns:
         A list of ``{date: datetime, <field_name(address)>: value}`` documents, ascending in
         time. No ``expireAt`` — stamping is the caller's, because the tier a
         timestamp belongs to is a property of the grid, not of the values.
     """
-    stamps = _as_utc_datetimes(epoch_s)
+    stamps = _as_utc_datetimes(times_s)
     documents: list[dict[str, object]] = [{DATE_FIELD: stamp} for stamp in stamps]
     if not documents:
         return documents
@@ -826,11 +843,11 @@ def _synthesize_documents(
     # their stored dates, not at the ones the grid was built from. Datetimes
     # carry microseconds, so a grid time with finer resolution than that would
     # otherwise be stored as one instant and valued as another.
-    reader_epoch_s = epoch_seconds_array(stamps)
-    assert reader_epoch_s is not None  # datetimes always convert
+    reader_times_s = epoch_seconds_array(stamps)
+    assert reader_times_s is not None  # datetimes always convert
 
     addresses = archive.scalar_addresses
-    for address, values in archive.samples(addresses, reader_epoch_s).items():
+    for address, values in archive.samples(addresses, reader_times_s).items():
         field = field_name(address)
         for document, value in zip(documents, values, strict=True):
             document[field] = value
@@ -914,8 +931,8 @@ def _write_manifest(
         document["coverage"] = {
             "documents": report.documents,
             "channels": report.channels,
-            "start": report.start,
-            "end": report.end,
+            "start": report.start_at,
+            "end": report.end_at,
         }
     collection.replace_one({"_id": MANIFEST_ID}, document, upsert=True)
 
@@ -940,7 +957,7 @@ def compare_fingerprint(
         return FingerprintComparison(state=SeedState.ABSENT)
 
     stamp = stored.get("seeded_at")
-    seeded_at = stamp if isinstance(stamp, datetime) else None
+    seeded_at = stored_date_utc(stamp) if isinstance(stamp, datetime) else None
     held = stored.get("fingerprint") or {}
     if not isinstance(held, Mapping):
         # What reading a field off such a manifest raised before it was checked.
@@ -976,7 +993,7 @@ def waveform_collection(collection: str) -> str:
 
 def waveform_document(
     channel: str,
-    date: datetime,
+    sampled_at: datetime,
     values: Sequence[float] | npt.NDArray[np.float64],
     *,
     expire_at: datetime,
@@ -984,17 +1001,21 @@ def waveform_document(
     """One archived trace: one document per (channel, instant).
 
     The keys mirror a scalar snapshot document, so the same field naming and the
-    same TTL index serve both: ``date`` is the sample instant, the channel's
+    same TTL index serve both: ``date`` holds ``sampled_at``, the channel's
     :func:`~osprey_connectors.archiver.field_name` holds the trace,
-    and ``expireAt`` is the document's own deadline.
+    and ``expireAt`` holds ``expire_at``, the document's own deadline. Both
+    instants are aware.
 
     The trace is stored as plain doubles: a ``list[float]`` with one entry per
     element of the channel's shape, which BSON keeps as an array of doubles and
     every reader gets back unchanged.
 
     Raises:
+        NaiveDatetimeError: ``sampled_at`` or ``expire_at`` is naive.
         ValueError: when ``values`` is not a non-empty one-dimensional array.
     """
+    require_aware(sampled_at, name="sampled_at")
+    require_aware(expire_at, name="expire_at")
     trace = np.asarray(values, dtype=np.float64)
     if trace.ndim != 1 or trace.size == 0:
         raise ValueError(
@@ -1002,7 +1023,7 @@ def waveform_document(
             f"got shape {trace.shape}."
         )
     return {
-        DATE_FIELD: date,
+        DATE_FIELD: sampled_at,
         field_name(channel): trace.tolist(),
         EXPIRE_FIELD: expire_at,
     }
@@ -1042,7 +1063,7 @@ def seed_base(
     archive: ArchiveComposite,
     knobs: SeedKnobs,
     *,
-    t0: datetime,
+    anchor_at: datetime,
     compression: str = "zstd",
     workers: int = _DEFAULT_WORKERS,
     chunk_size: int = _DEFAULT_CHUNK_SIZE,
@@ -1074,7 +1095,8 @@ def seed_base(
         archive: The archive composite of the active set; every one of its
             channels is seeded.
         knobs: The archive's shape.
-        t0: The seed anchor; the window ends here.
+        anchor_at: The seed anchor; the window ends here. Stored in the
+            manifest as ``seeded_at``.
         compression: The collection's block compressor, recorded in the
             manifest because changing it changes the store's size on disk.
         workers: Concurrent insert workers.
@@ -1089,6 +1111,7 @@ def seed_base(
         The completed report; ``documents`` counts the snapshot documents.
 
     Raises:
+        NaiveDatetimeError: ``anchor_at`` is naive.
         ValueError: If ``chunk_size`` or ``workers`` is below one, or the knobs
             are inconsistent.
     """
@@ -1097,14 +1120,15 @@ def seed_base(
     if workers < 1:
         raise ValueError(f"workers must be >= 1 (got {workers})")
 
-    times, expiry = _seed_grid(knobs, t0)
+    require_aware(anchor_at, name="anchor_at")
+    times, expiry = _seed_grid(knobs, anchor_at)
     addresses = archive.addresses
     started = time.monotonic()
 
     report = SeedReport(
         channels=len(addresses),
-        start=datetime.fromtimestamp(float(times[0]), UTC) if len(times) else None,
-        end=datetime.fromtimestamp(float(times[-1]), UTC) if len(times) else None,
+        start_at=datetime.fromtimestamp(float(times[0]), UTC) if len(times) else None,
+        end_at=datetime.fromtimestamp(float(times[-1]), UTC) if len(times) else None,
     )
 
     traced = archive.waveform_addresses
@@ -1141,7 +1165,7 @@ def seed_base(
     _write_manifest(
         collection,
         seed_fingerprint(knobs, addresses, compression=compression),
-        seeded_at=t0,
+        seeded_at=anchor_at,
         report=report,
     )
     logger.debug(report.describe())
@@ -1149,23 +1173,25 @@ def seed_base(
 
 
 def _waveform_documents(
-    archive: ArchiveComposite, epoch_s: npt.NDArray[np.float64], expire_s: npt.NDArray[np.float64]
+    archive: ArchiveComposite,
+    times_s: npt.NDArray[np.float64],
+    expire_times_s: npt.NDArray[np.float64],
 ) -> list[dict[str, object]]:
     """The trace documents of every waveform channel at these instants.
 
     Valued at the epoch seconds a reader derives from the stored dates, as the
     snapshot documents are (:func:`_synthesize_documents`).
     """
-    stamps = _as_utc_datetimes(epoch_s)
+    stamps = _as_utc_datetimes(times_s)
     if not stamps:
         return []
-    expiry = _as_utc_datetimes(expire_s)
-    reader_epoch_s = epoch_seconds_array(stamps)
-    assert reader_epoch_s is not None  # datetimes always convert
+    expiry = _as_utc_datetimes(expire_times_s)
+    reader_times_s = epoch_seconds_array(stamps)
+    assert reader_times_s is not None  # datetimes always convert
     documents: list[dict[str, object]] = []
     for address in archive.waveform_addresses:
         for stamp, expire_at, trace in zip(
-            stamps, expiry, archive.traces(address, reader_epoch_s), strict=True
+            stamps, expiry, archive.traces(address, reader_times_s), strict=True
         ):
             documents.append(waveform_document(address, stamp, trace, expire_at=expire_at))
     return documents
@@ -1228,4 +1254,15 @@ def oldest_sample(collection: Collection[dict[str, object]]) -> datetime | None:
     stamp = document.get(DATE_FIELD)
     if not isinstance(stamp, datetime):
         return None
-    return stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
+    return stored_date_utc(stamp)
+
+
+def stored_date_utc(moment: datetime) -> datetime:
+    """A ``date`` read back from the store, as the aware UTC instant it is.
+
+    BSON keeps every date in UTC, and a client opened without ``tz_aware`` (as
+    ``mongo_client_kwargs`` opens one) hands it back naive, so a naive value
+    read from the store is UTC by the store's own definition, not by a guess.
+    An aware one is moved to UTC.
+    """
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)

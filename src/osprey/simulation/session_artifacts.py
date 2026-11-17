@@ -187,7 +187,7 @@ def render_session_artifacts(
             for artifact in turn.artifacts:
                 if artifact.spec.form == "plot" and archive is None:
                     archive = build(
-                        SimulatorView.of_project(project_dir), names, anchor_s=anchor.timestamp()
+                        SimulatorView.of_project(project_dir), names, anchor_at=anchor, tz=tz
                     )
                 where = f"sessions[{session.session.slug}].artifacts[{artifact.spec.slug}]"
                 payloads[(session.session.slug, artifact.spec.slug)] = render_artifact(
@@ -400,7 +400,7 @@ def _event_instants(
     from osprey_connectors.simulation.series import anchored_instant
 
     return [
-        anchored_instant(event, anchor_s, tz)
+        anchored_instant(event, anchor_s=anchor_s, tz=tz)
         for address in channels
         for event in events.get(address, ())
         if event.at_offset is not None or event.at_when is not None

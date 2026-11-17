@@ -23,7 +23,8 @@ from osprey_connectors.alarm_state._contract import (
     AlarmStateRow,
     severity_rank,
 )
-from osprey_connectors.service_answers import _flag, _text
+from osprey_connectors.errors import require_aware
+from osprey_connectors.service_answers import _flag, _instant, _text
 
 FEED_LOADING = "alarm feed still loading"
 FEED_EMPTY = "no message from the feed yet"
@@ -47,15 +48,17 @@ def fold_message(
     key: str | bytes | None,
     value: str | bytes | Mapping[str, object] | None,
     *,
-    time: str | None = None,
+    event_at: datetime | None = None,
 ) -> FeedSnapshot:
     """Fold one message into *snapshot* and return it.
 
     It touches nothing but *snapshot*, updated in place so that a topic of N
     messages folds in O(N). Every message counts towards ``messages``, including
-    one that says nothing about a PV or cannot be parsed: the feed spoke. *time*,
-    when given, replaces the time the value records.
+    one that says nothing about a PV or cannot be parsed: the feed spoke.
+    *event_at*, an aware instant when given, replaces the time the value records.
     """
+    if event_at is not None:
+        require_aware(event_at, name="event_at")
     snapshot.messages += 1
     kind, path = _split_key(key)
     if kind is None or path is None:
@@ -72,8 +75,8 @@ def fold_message(
             if not paths:
                 del table[pv]
         return snapshot
-    if time is not None:
-        body = {**body, "time": time}
+    if event_at is not None:
+        body = {**body, "time": event_at}
     paths = table.setdefault(pv, {})
     paths.pop(path, None)  # the latest update is the last entry
     paths[path] = body
@@ -118,7 +121,7 @@ def _state_of(body: Mapping[str, object], *, stale: bool) -> AlarmStateRecord:
         and severity_rank(body.get("current_severity")) < severity_rank(severity),
         acknowledged=acknowledged,
         message=_text(body.get("message")),
-        time=_recorded_time(body.get("time")),
+        event_at=_event_at(body.get("time")),
         stale=stale,
     )
 
@@ -187,14 +190,15 @@ def _parse_value(
     return parsed if isinstance(parsed, dict) else _UNPARSEABLE
 
 
-def _recorded_time(recorded: object) -> str | None:
-    """The alarm server's ``{seconds, nano}`` as ISO-8601; a string stays as recorded."""
-    if isinstance(recorded, str):
-        return recorded
+def _event_at(recorded: object) -> datetime | None:
+    """The instant a state's ``time`` names: the alarm server's ``{seconds, nano}``, in UTC.
+
+    An aware ``datetime`` (a replay's rebased time) or ISO-8601 text with a zone
+    is read as it is; anything else, text with no zone included, names no instant.
+    """
     if not isinstance(recorded, Mapping):
-        return None
+        return _instant(recorded)
     try:
-        moment = datetime.fromtimestamp(recorded["seconds"] + recorded.get("nano", 0) / 1e9, UTC)
+        return datetime.fromtimestamp(recorded["seconds"] + recorded.get("nano", 0) / 1e9, UTC)
     except (KeyError, TypeError, ValueError, OverflowError, OSError):
         return None
-    return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")

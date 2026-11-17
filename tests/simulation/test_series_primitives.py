@@ -26,15 +26,20 @@ from osprey_connectors.simulation.series import (
 )
 from tests._archiver_events import event, events
 
+#: The zone the helpers place events in; no event these cases place reads a calendar day.
+UTC_ZONE = ZoneInfo("UTC")
 
-def apply_events(values, scripted, n, t_abs, anchor, tz=None, topoff=None):
+
+def apply_events(values, scripted, n, times_s, anchor_s, tz=UTC_ZONE, topoff=None):
     """:func:`series_module.apply_events` of events stated as mappings."""
-    return series_module.apply_events(values, events(scripted), n, t_abs, anchor, tz, topoff)
+    return series_module.apply_events(
+        values, events(scripted), n, times_s, anchor_s=anchor_s, tz=tz, topoff=topoff
+    )
 
 
-def event_positions(raw, t_frac, t_abs, anchor, tz=None):
+def event_positions(raw, t_frac, times_s, anchor_s, tz=UTC_ZONE):
     """:func:`series_module.event_positions` of an event stated as a mapping."""
-    return series_module.event_positions(event(raw), t_frac, t_abs, anchor, tz)
+    return series_module.event_positions(event(raw), t_frac, times_s, anchor_s=anchor_s, tz=tz)
 
 
 # --------------------------------------------------------------------------

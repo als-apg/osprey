@@ -47,13 +47,15 @@ class _Store:
         self._channels = channels
 
     async def store_extent(self) -> Any:
-        return SimpleNamespace(addresses=self._channels, oldest=None, newest=None, reason=None)
+        return SimpleNamespace(
+            addresses=self._channels, oldest_at=None, newest_at=None, reason=None
+        )
 
     async def get_metadata(self, channel: str) -> Any:
         return SimpleNamespace(
             is_archived=channel in self._channels,
-            archival_start=None,
-            archival_end=None,
+            first_sample_at=None,
+            last_sample_at=None,
             sampling_period=None,
             description=None,
         )

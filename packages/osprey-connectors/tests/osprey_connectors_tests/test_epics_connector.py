@@ -308,37 +308,37 @@ class TestReadChannel:
             await connector.read_channel("SR:CH", timeout_s=0.5)
 
     @pytest.mark.asyncio
-    async def test_read_channel_timestamp_is_facility_tz_aware(self, monkeypatch):
-        """The channel's own timestamp is rendered in the facility zone, not UTC or the box's.
+    async def test_read_channel_sampled_at_is_the_ioc_stamp_in_utc(self, monkeypatch):
+        """The channel's own stamp is the reading's instant, in UTC whatever the facility zone.
 
         A naive ``datetime.fromtimestamp(ts)`` without a zone would fail this.
         """
         monkeypatch.setattr(
-            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
+            "osprey_connectors.config.get_facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),  # UTC+9, no DST
         )
         connector = _channel_connector(ca_reading(1.23, timestamp=1_750_000_000.0))
 
         result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
-        assert result.timestamp.tzinfo is not None
-        assert result.timestamp.utcoffset().total_seconds() == 9 * 3600
-        assert result.metadata.timestamp.utcoffset().total_seconds() == 9 * 3600
+        assert result.sampled_at == datetime.fromtimestamp(1_750_000_000.0, UTC)
+        assert result.sampled_at.utcoffset().total_seconds() == 0
 
     @pytest.mark.asyncio
     async def test_missing_timestamp_falls_back_to_now(self, monkeypatch):
-        """When the reading carries no timestamp, the read stamps a facility-tz 'now'."""
+        """When the reading carries no timestamp, the read stamps a UTC 'now'."""
         monkeypatch.setattr(
-            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
+            "osprey_connectors.config.get_facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),
         )
         connector = _channel_connector(ca_reading(3.14, timestamp=0))
 
+        before = datetime.now(UTC)
         result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
         assert result.value == 3.14
-        assert result.timestamp.tzinfo is not None
-        assert result.timestamp.utcoffset().total_seconds() == 9 * 3600
+        assert result.sampled_at.utcoffset().total_seconds() == 0
+        assert result.sampled_at >= before
 
     @pytest.mark.asyncio
     async def test_the_value_leaves_as_a_plain_python_type(self):
@@ -401,7 +401,7 @@ class TestReadChannel:
     @pytest.mark.asyncio
     async def test_read_multiple_drops_failures(self, monkeypatch):
         """read_multiple_channels returns only the channels that read successfully."""
-        good = ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=ChannelMetadata())
+        good = ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata())
 
         async def fake_read(addr, *, timeout_s=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
             if addr == "BAD":
@@ -983,9 +983,9 @@ class TestSubscribe:
 
     @pytest.mark.asyncio
     async def test_a_time_event_converts_to_channel_value(self, monkeypatch):
-        """A TIME event is adapted into a facility-tz ChannelValue with its connection's CTRL."""
+        """A TIME event is adapted into a UTC-stamped ChannelValue with its connection's CTRL."""
         monkeypatch.setattr(
-            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
+            "osprey_connectors.config.get_facility_timezone",
             lambda: ZoneInfo("Asia/Tokyo"),
         )
         connector = _channel_connector()
@@ -998,7 +998,7 @@ class TestSubscribe:
         assert len(received) == 1
         assert received[0].value == 7.0
         assert received[0].metadata.units == "A"
-        assert received[0].timestamp.utcoffset().total_seconds() == 9 * 3600
+        assert received[0].sampled_at == datetime.fromtimestamp(1_750_000_000.0, UTC)
 
     @pytest.mark.asyncio
     async def test_the_record_asks_for_ctrl_then_time_with_disconnect_notices(self):
@@ -1177,7 +1177,7 @@ class TestValidateChannelAndMetadata:
     @pytest.mark.asyncio
     async def test_get_metadata_returns_read_metadata(self, monkeypatch):
         meta = ChannelMetadata(units="kV")
-        value = ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=meta)
+        value = ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=meta)
         connector = _connector()
         monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=value))
 
@@ -1186,7 +1186,7 @@ class TestValidateChannelAndMetadata:
     @pytest.mark.asyncio
     async def test_validate_channel_probes_with_the_configured_timeout(self, monkeypatch):
         """The probe uses the connector's own ``timeout``, not a literal of its own."""
-        value = ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=ChannelMetadata())
+        value = ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata())
         read = AsyncMock(return_value=value)
         connector = _connector(timeout=17.0)
         monkeypatch.setattr(connector, "read_channel", read)
@@ -1258,12 +1258,8 @@ class TestChannelAccessAlarmNames:
         assert result.metadata.raw_metadata["status"] == 99  # raw code still recorded
 
     @pytest.mark.asyncio
-    async def test_subscribe_callback_reports_alarm_name(self, monkeypatch):
+    async def test_subscribe_callback_reports_alarm_name(self):
         """The monitor path maps codes exactly like the read path."""
-        monkeypatch.setattr(
-            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
-            lambda: ZoneInfo("UTC"),
-        )
         connector = _channel_connector()
         received, ctrl, time_ = await _subscribed(connector)
 
@@ -1411,12 +1407,8 @@ class TestChannelAccessEnumLabels:
         assert result.metadata.enum_label is None
 
     @pytest.mark.asyncio
-    async def test_subscribe_callback_reports_the_label_from_its_ctrl_event(self, monkeypatch):
+    async def test_subscribe_callback_reports_the_label_from_its_ctrl_event(self):
         """The record's CTRL event carries the enum labels; each value resolves its own."""
-        monkeypatch.setattr(
-            "osprey_connectors.control_system._epics_connector.get_facility_timezone",
-            lambda: ZoneInfo("UTC"),
-        )
         connector = _enum_connector()
         received, ctrl, time_ = await _subscribed(connector, "SR:MODE")
 

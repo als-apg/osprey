@@ -59,6 +59,7 @@ import os
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Generic, TypeAlias, TypeVar
 
@@ -390,7 +391,7 @@ class _Answerable:
     target: str
     requested_by_pid: int
     requested_by: str
-    requested_at: Any
+    requested_at: datetime | None
     config: Any
     baseline: str
     reports: list[Any] = field(default_factory=list)
@@ -703,7 +704,7 @@ class ControlContextOwnerTask:
             target=str(body.get("target") or "").strip(),
             requested_by_pid=pid,
             requested_by=requested_by,
-            requested_at=body.get("requested_at"),
+            requested_at=target_state.request_stamp(body),
             config=config,
             baseline=baseline,
             reports=reports,

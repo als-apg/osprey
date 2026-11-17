@@ -1,9 +1,10 @@
 """Shared time-range and processing helpers for archiver connectors.
 
-Private to :mod:`osprey_connectors.archiver`. Normalizes query bounds to UTC,
-resolves processing modes for server-side (EPICS operator) and client-side
-(pandas aggregation) backends, and assembles per-channel series into the
-canonical long frame without ever manufacturing a sample.
+Private to :mod:`osprey_connectors.archiver`. Refuses naive query bounds and
+normalizes aware ones to UTC, resolves processing modes for server-side (EPICS
+operator) and client-side (pandas aggregation) backends, and assembles
+per-channel series into the canonical long frame without ever manufacturing a
+sample.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import pandas as pd
 from pydantic import InstanceOf
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.config import localize_facility
+from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
 
 #: A canonical processing mode: the aggregation ArchiverConnector.get_data
@@ -54,52 +55,26 @@ def _is_processing_mode(value: str) -> TypeGuard[ProcessingMode]:
     return value in PROCESSING_MODES
 
 
-def require_datetime(start_date: object, end_date: object) -> None:
-    """Raise ``TypeError`` unless both query bounds are ``datetime`` objects.
-
-    Args:
-        start_date: The caller's start bound, unvalidated.
-        end_date: The caller's end bound, unvalidated.
-
-    Raises:
-        TypeError: If either bound is not a ``datetime``, naming which one.
-    """
-    for name, value in (("start_date", start_date), ("end_date", end_date)):
-        if not isinstance(value, datetime):
-            raise TypeError(f"{name} must be a datetime object, got {type(value)}")
-
-
-def to_utc(dt: datetime) -> datetime:
-    """Return ``dt`` as a timezone-aware UTC datetime.
-
-    An aware datetime is converted. A naive one means facility wall-clock and is
-    read via :func:`~osprey_connectors.config.localize_facility`, which degrades to
-    UTC when ``system.timezone`` is unset.
-
-    Args:
-        dt: The datetime to normalize.
-
-    Returns:
-        The same instant, timezone-aware in UTC.
-    """
-    return localize_facility(dt).astimezone(UTC)
-
-
-def utc_window(start_date: datetime, end_date: datetime) -> tuple[datetime, datetime]:
+def utc_window(start_at: object, end_at: object) -> tuple[datetime, datetime]:
     """Validate a caller's query bounds and return them as UTC instants.
 
+    Both bounds must be timezone-aware: a naive bound names no instant, and
+    the package does not guess the zone it was meant in.
+
     Args:
-        start_date: The caller's start bound, unvalidated.
-        end_date: The caller's end bound, unvalidated.
+        start_at: The caller's start bound, unvalidated.
+        end_at: The caller's end bound, unvalidated.
 
     Returns:
         ``(start_utc, end_utc)``, both timezone-aware in UTC.
 
     Raises:
         TypeError: If either bound is not a ``datetime``, naming which one.
+        NaiveDatetimeError: If either bound is naive, naming which one.
     """
-    require_datetime(start_date, end_date)
-    return to_utc(start_date), to_utc(end_date)
+    start = require_aware(start_at, name="start_at")
+    end = require_aware(end_at, name="end_at")
+    return start.astimezone(UTC), end.astimezone(UTC)
 
 
 class Processing(FrozenModel):
@@ -133,8 +108,8 @@ def resolve_processing(processing: str, precision_ms: int, window_start: datetim
         precision_ms: Bin width in milliseconds; ``<= 0`` means full resolution.
         window_start: The query window's start. Bins are anchored here, so the
             same window and width always cut the same lattice — see
-            :attr:`Processing.origin`. Naive input is read as UTC, which is
-            what every connector already passes after :func:`utc_window`.
+            :attr:`Processing.origin`. Timezone-aware, as :func:`utc_window`
+            returns it.
 
     Returns:
         The resolved :class:`Processing`.
@@ -142,7 +117,9 @@ def resolve_processing(processing: str, precision_ms: int, window_start: datetim
     Raises:
         ValueError: If ``processing`` is not a known mode, or if a non-raw mode
             is requested with a non-positive ``precision_ms``.
+        NaiveDatetimeError: If ``window_start`` is naive.
     """
+    require_aware(window_start, name="window_start")
     if not _is_processing_mode(processing):
         raise ValueError(
             f"Unknown processing mode {processing!r}. Valid modes: {', '.join(PROCESSING_MODES)}"
@@ -159,8 +136,7 @@ def resolve_processing(processing: str, precision_ms: int, window_start: datetim
         operator = f"{_EPICS_OPERATORS[processing]}_{precision_ms // 1000}"
     else:
         operator = None
-    origin = pd.Timestamp(window_start)
-    origin = origin.tz_localize("UTC") if origin.tz is None else origin.tz_convert("UTC")
+    origin = pd.Timestamp(window_start).tz_convert("UTC")
     return Processing(
         mode=processing,
         precision_ms=precision_ms,

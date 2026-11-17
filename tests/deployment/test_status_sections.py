@@ -1615,8 +1615,8 @@ def test_status_prints_the_writes_section_after_the_endpoints(lifecycle_repo):
 
 def _approve_program(repo: Path, owner: str, *, holder: str = "optimizer", target: str = "standin"):
     """An approval of *holder*'s request by *owner*, as the CLI on the host issues it."""
-    import time
     import uuid
+    from datetime import UTC, datetime, timedelta
 
     from osprey.deployment.compose_generator import control_target_identity_dir
     from osprey_connectors import write_authorization as wa
@@ -1632,8 +1632,8 @@ def _approve_program(repo: Path, owner: str, *, holder: str = "optimizer", targe
                 "target": target,
                 "channels": {"SR:A": {"min": 0.0, "max": 1.0}},
                 "steps": 4,
-                "requested_at_ns": time.time_ns(),
-                "expires_at_ns": time.time_ns() + 3600 * 10**9,
+                "requested_at": datetime.now(UTC).isoformat(),
+                "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
                 "lease_s": 30.0,
                 "label": "run-7",
                 "completion": "apply_best",
@@ -1645,7 +1645,7 @@ def _approve_program(repo: Path, owner: str, *, holder: str = "optimizer", targe
 
 
 def _spend(repo: Path, grant, steps: int, lease_left_s: float, *, directory=None) -> None:
-    import time
+    from datetime import UTC, datetime, timedelta
 
     from osprey_connectors import write_authorization as wa
 
@@ -1654,8 +1654,13 @@ def _spend(repo: Path, grant, steps: int, lease_left_s: float, *, directory=None
         holder_pid=None,
         holder_start=None,
         pid_ns=None,
-        lease_until_ns=time.time_ns() + int(lease_left_s * 1e9),
-        steps=tuple(wa.LedgerStep(n=n, at_ns=n, channels=("SR:A",)) for n in range(1, steps + 1)),
+        lease_expires_at=datetime.now(UTC) + timedelta(seconds=lease_left_s),
+        steps=tuple(
+            wa.LedgerStep(
+                n=n, spent_at=datetime(2026, 1, 1, 0, 0, n, tzinfo=UTC), channels=("SR:A",)
+            )
+            for n in range(1, steps + 1)
+        ),
     )
     directory = repo / "var" / "write_ledger" if directory is None else directory
     directory.mkdir(parents=True, exist_ok=True)

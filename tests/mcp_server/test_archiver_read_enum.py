@@ -260,7 +260,10 @@ class TestLabelledChannelsAreReadRaw:
             )
         )
 
-        calls = {tuple(c.args[0]): c.kwargs for c in connector.get_data.await_args_list}
+        calls = {
+            tuple(c.args[0]): {k: c.kwargs[k] for k in ("precision_ms", "processing")}
+            for c in connector.get_data.await_args_list
+        }
         assert calls == {
             (DCCT,): {"precision_ms": 60_000, "processing": "mean"},
             (MODE,): {"precision_ms": 60_000, "processing": "raw"},

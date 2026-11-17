@@ -194,6 +194,7 @@ from typing import Any, Final
 from osprey.audit.posture import posture_session
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
+from osprey_connectors.model import parse_instant
 from osprey_connectors.types import ControlTarget
 from osprey_connectors.workspace import resolve_shared_data_root
 
@@ -298,6 +299,7 @@ __all__ = [
     "publish_posture_realign",
     "publish_reachability",
     "publish_switch",
+    "request_stamp",
     "publish_targets",
     "read",
     "read_file",
@@ -389,9 +391,24 @@ def request_file_path(requested_by_pid: int | None = None) -> Path:
     return state_dir() / f"{REQUEST_FILE_PREFIX}{pid}{REQUEST_FILE_SUFFIX}"
 
 
+def _now() -> datetime:
+    """The module's one clock: the wall clock, aware, in UTC."""
+    return datetime.now(UTC)
+
+
 def _now_iso() -> str:
-    """Wall clock, ISO-8601, UTC. The stamp every reader ages a block from."""
-    return datetime.now(UTC).isoformat()
+    """Wall clock, ISO-8601, UTC with ``+00:00``. The stamp every reader ages a block from."""
+    return _now().isoformat()
+
+
+def _instant(stamp: Any) -> datetime | None:
+    """*stamp* as the aware instant an ISO-8601 stamp with its offset states, or ``None``."""
+    if not isinstance(stamp, str):
+        return None
+    try:
+        return parse_instant(stamp)
+    except ValueError:
+        return None
 
 
 # -- liveness --------------------------------------------------------------
@@ -709,19 +726,13 @@ def applying_bound_s(
     return float(drain_timeout_s) + 2 * (float(spawn_timeout_s) + float(probe_timeout_s))
 
 
-def _expires_at(stamp: str, expires_in_s: float) -> str:
-    """*stamp* moved forward by *expires_in_s*, ISO-8601, UTC.
+def _expires_at(at: datetime, expires_in_s: float) -> datetime:
+    """*at* moved forward by *expires_in_s*.
 
     Anchored on the block's own ``at`` rather than on ``now`` so the deadline
     and the stamp a reader ages from cannot disagree by the cost of the write.
     """
-    try:
-        base = datetime.fromisoformat(stamp)
-    except ValueError:
-        base = datetime.now(UTC)
-    if base.tzinfo is None:
-        base = base.replace(tzinfo=UTC)
-    return (base + timedelta(seconds=float(expires_in_s))).isoformat()
+    return at + timedelta(seconds=float(expires_in_s))
 
 
 def _normalize_last_switch(outcome: Any, expires_in_s: float | None) -> dict[str, Any] | None:
@@ -753,7 +764,10 @@ def _normalize_last_switch(outcome: Any, expires_in_s: float | None) -> dict[str
                 SWITCH_APPLYING,
             )
         else:
-            block["expires_at"] = _expires_at(str(block["at"]), expires_in_s)
+            # A caller's ``at`` that states no instant anchors nothing: the
+            # bound runs from now, as it does when the block is stamped here.
+            at = _instant(block["at"]) or _now()
+            block["expires_at"] = _expires_at(at, expires_in_s).isoformat()
     return block
 
 
@@ -1009,6 +1023,16 @@ def remove_request(requested_by_pid: int | None = None) -> None:
         path.unlink(missing_ok=True)
     except OSError as exc:  # pragma: no cover - unwritable state dir
         logger.warning("Could not remove switch request %s: %s", path, exc)
+
+
+def request_stamp(record: Any) -> datetime | None:
+    """When the switch request *record* says it was made, or ``None`` when it says nothing that reads.
+
+    Its ``requested_at``, an ISO-8601 instant that states its offset, as the
+    aware ``datetime`` a terminus records
+    (:func:`osprey_connectors.control_context.terminus`).
+    """
+    return _instant(record.get("requested_at")) if isinstance(record, dict) else None
 
 
 def is_request_fresh(

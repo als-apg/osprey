@@ -4,7 +4,7 @@ Tests the runtime utilities for control system operations in generated Python co
 """
 
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -678,7 +678,7 @@ class BatchReadConnector(RecordingConnector):
     ) -> dict[str, ChannelValue]:
         self.batch_calls.append((list(addresses), timeout_s))
         return {
-            address: ChannelValue(value=self.table[address], timestamp=datetime.now())
+            address: ChannelValue(value=self.table[address], sampled_at=datetime.now(UTC))
             for address in addresses
             if address in self.table
         }
@@ -706,7 +706,7 @@ class CausedReadConnector(BatchReadConnector):
         self.read_calls.append((address, kwargs))
         if address in self.raises:
             raise self.raises[address]
-        return ChannelValue(value=self.reread.get(address), timestamp=datetime.now())
+        return ChannelValue(value=self.reread.get(address), sampled_at=datetime.now(UTC))
 
 
 def _patched_factory(connector: ControlSystemConnector):

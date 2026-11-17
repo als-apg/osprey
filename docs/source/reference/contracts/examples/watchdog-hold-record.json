@@ -8,7 +8,7 @@
       "reason": "Asked the agent to edit hooks, settings or configuration to loosen a gate.",
       "prompt_ref": "<record_session_id>:<submission_id>",
       "prompt_excerpt": "<at most 200 characters>",
-      "opened_at": "2026-10-31T00:00:00Z",
+      "opened_at": "2026-10-31T00:00:00+00:00",
       "state": "open",
       "stop_unconfirmed": false,
       "started": []

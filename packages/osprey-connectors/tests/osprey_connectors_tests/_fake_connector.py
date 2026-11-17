@@ -153,10 +153,8 @@ class FakeConnector(ControlSystemConnector):
         now = datetime.now(UTC)
         return ChannelValue(
             value=self._state.setdefault(address, 0.0),
-            timestamp=now,
-            metadata=ChannelMetadata(
-                units="", description=f"Fake channel: {address}", timestamp=now
-            ),
+            sampled_at=now,
+            metadata=ChannelMetadata(units="", description=f"Fake channel: {address}"),
         )
 
     def _put(self, address: str, value: Any) -> None:

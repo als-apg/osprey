@@ -44,13 +44,13 @@ class _SpyArchiver:
     async def get_data(
         self,
         channels: list[str],
-        start_date: Any,
-        end_date: Any,
-        precision_ms: int = 1000,  # noqa: ARG002 - the archiver connector interface fixes this signature
         *,
+        start_at: Any,
+        end_at: Any,
+        precision_ms: int = 1000,  # noqa: ARG002 - the archiver connector interface fixes this signature
         timeout_s: int | None = None,
     ) -> pd.DataFrame:
-        self.get_data_calls.append((channels, start_date, end_date, timeout_s))
+        self.get_data_calls.append((channels, start_at, end_at, timeout_s))
         if self._raise_exc is not None:
             raise self._raise_exc
         return self._frame

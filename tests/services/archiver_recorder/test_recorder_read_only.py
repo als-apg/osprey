@@ -104,7 +104,7 @@ def _write_calls(connector: MagicMock) -> list[str]:
 async def test_sampling_through_the_reader_calls_no_write_method(monkeypatch):
     connector = MagicMock(spec=ControlSystemConnector)
     connector.read_channel = AsyncMock(
-        return_value=ChannelValue(value=1.0, timestamp=datetime.now(tz=UTC))
+        return_value=ChannelValue(value=1.0, sampled_at=datetime.now(tz=UTC))
     )
     monkeypatch.setattr(recorder, "_connect", AsyncMock(return_value=connector))
 

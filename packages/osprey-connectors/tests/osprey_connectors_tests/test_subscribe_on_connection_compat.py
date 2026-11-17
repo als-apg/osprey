@@ -9,7 +9,7 @@ takes it.
 
 import inspect
 import warnings
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -22,7 +22,7 @@ from osprey_connectors_tests._mock_dynamic_connector import MockDynamicConnector
 
 
 def _value(v: float) -> ChannelValue:
-    return ChannelValue(value=v, timestamp=datetime.now())
+    return ChannelValue(value=v, sampled_at=datetime.now(UTC))
 
 
 class _Stub(ControlSystemConnector):

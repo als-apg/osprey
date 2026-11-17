@@ -52,6 +52,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.errors.LimitsViolationKind": (
         "a caller branches on why the limits refused a write by this type"
     ),
+    "osprey_connectors.errors.NaiveDatetimeError": (
+        "a caller tells an instant handed over without a zone from the other refusals"
+    ),
     "osprey_connectors.factory.BuiltinConnector": (
         "the framework reads each built-in's fields in this type"
     ),

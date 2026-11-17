@@ -10,8 +10,8 @@ approval records ``approver.identity`` as this process's acting identity and
 from __future__ import annotations
 
 import json
-import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,9 @@ from osprey_connectors import write_authorization as wa
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 
-FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
+FAR_FUTURE = datetime.now(UTC) + timedelta(hours=12)
+#: A step's stamp: the moment the run spent it, long gone.
+LONG_AGO = datetime(2026, 1, 1, tzinfo=UTC)
 
 LIMITS = {
     "SR:A": {"writable": True, "min_value": 0.0, "max_value": 10.0},
@@ -88,7 +90,7 @@ def run(*args: str) -> Any:
 def ask(**fields: Any) -> wa.WriteRequest:
     values: dict[str, Any] = {
         "steps": 5,
-        "expires_at_ns": FAR_FUTURE_NS,
+        "expires_at": FAR_FUTURE,
         "lease_s": 30.0,
         "label": "run-1",
         "completion": "restore",
@@ -239,8 +241,8 @@ class TestDeployment:
                     "target": target,
                     "channels": channels or {"SR:A": {"min": 1.0, "max": 2.0}},
                     "steps": 3,
-                    "requested_at_ns": time.time_ns(),
-                    "expires_at_ns": FAR_FUTURE_NS,
+                    "requested_at": datetime.now(UTC).isoformat(),
+                    "expires_at": FAR_FUTURE.isoformat(),
                     "lease_s": 30.0,
                     "label": "run-9",
                     "completion": "none",
@@ -287,8 +289,8 @@ class TestDeployment:
             holder_pid=None,
             holder_start=None,
             pid_ns=None,
-            lease_until_ns=FAR_FUTURE_NS,
-            steps=(wa.LedgerStep(n=1, at_ns=1, channels=("SR:A",)),),
+            lease_expires_at=FAR_FUTURE,
+            steps=(wa.LedgerStep(n=1, spent_at=LONG_AGO, channels=("SR:A",)),),
         )
         (self._own(repo, "alice") / f"{request.id}.ledger.json").write_text(
             json.dumps(ledger.model_dump(mode="json"))
@@ -352,8 +354,11 @@ class TestDeployment:
             holder_pid=None,
             holder_start=None,
             pid_ns=None,
-            lease_until_ns=FAR_FUTURE_NS,
-            steps=tuple(wa.LedgerStep(n=n, at_ns=n, channels=("SR:A",)) for n in (1, 2, 3)),
+            lease_expires_at=FAR_FUTURE,
+            steps=tuple(
+                wa.LedgerStep(n=n, spent_at=LONG_AGO + timedelta(seconds=n), channels=("SR:A",))
+                for n in (1, 2, 3)
+            ),
         )
         (repo / "var" / "write_ledger" / f"{request.id}.ledger.json").write_text(
             json.dumps(ledger.model_dump(mode="json"))
@@ -407,7 +412,7 @@ class TestDeployment:
         with control_context.held_epoch(record, "va") as epoch:
             pass
         control_context.set_switch(["va"], "allowed", epoch=epoch, path=record)
-        now = time.time_ns()
+        now = datetime.now(UTC)
         grant = wa.Grant(
             id=uuid.uuid4().hex,
             owner="alice",
@@ -416,10 +421,12 @@ class TestDeployment:
             switch_epoch=epoch,
             channels={"SR:A": wa.ChannelRange(min=0.0, max=1.0)},
             steps=50,
-            issued_at_ns=now,
-            expires_at_ns=FAR_FUTURE_NS,
+            issued_at=now,
+            expires_at=FAR_FUTURE,
             lease_s=30.0,
-            approver=wa.Approver(identity="tuning-scripts", surface="write_switch", at_ns=now),
+            approver=wa.Approver(
+                identity="tuning-scripts", surface="write_switch", approved_at=now
+            ),
             label="scan",
         )
         ledger = repo / "var" / "write_ledger"

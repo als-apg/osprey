@@ -27,6 +27,7 @@ import json
 import time
 import uuid
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -48,7 +49,9 @@ REAL_READ_CURRENT_VALUES = routes.read_current_values
 
 SESSION = "aaaaaaaa-1111-2222-3333-444444444444"
 TARGET = "standin"
-FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
+FAR_FUTURE = datetime.now(UTC) + timedelta(hours=12)
+#: A stamp long gone: just after the epoch.
+LONG_AGO = datetime(1970, 1, 1, 0, 0, 1, tzinfo=UTC)
 
 LIMITS = {
     "SR:A": {"writable": True, "min_value": 0.0, "max_value": 10.0},
@@ -149,8 +152,8 @@ def put_request(directory: Path, **fields: Any) -> wa.WriteRequest:
         "target": TARGET,
         "channels": {"SR:A": {"min": 1.0, "max": 9.0}, "SR:B": {"min": -1.0, "max": 1.0}},
         "steps": 12,
-        "requested_at_ns": time.time_ns(),
-        "expires_at_ns": FAR_FUTURE_NS,
+        "requested_at": datetime.now(UTC).isoformat(),
+        "expires_at": FAR_FUTURE.isoformat(),
         "lease_s": 30.0,
         "label": "run-42",
         "completion": "apply_best",
@@ -186,7 +189,11 @@ class TestTheCard:
     def test_a_pending_request_for_this_login_is_listed(self, client, requests_dir):
         mine = put_request(requests_dir)
         put_request(requests_dir, owner="someone-else")
-        put_request(requests_dir, requested_at_ns=1, expires_at_ns=2)
+        put_request(
+            requests_dir,
+            requested_at=LONG_AGO.isoformat(),
+            expires_at=(LONG_AGO + timedelta(seconds=1)).isoformat(),
+        )
         (requests_dir / f"{uuid.uuid4().hex}.json").write_text("{")
         listing = client.get("/api/terminal/write-authorizations").json()
         assert [r["id"] for r in listing["requests"]] == [mine.id]
@@ -369,7 +376,7 @@ class TestEndedByTheLedger:
     """A grant whose holder's ledger ended it no longer shows as a program writing."""
 
     @staticmethod
-    def _ledger(requests_dir: Path, monkeypatch, grant_id: str, *, steps: int, lease_ns: int):
+    def _ledger(requests_dir: Path, monkeypatch, grant_id: str, *, steps: int, lease: datetime):
         ledgers = requests_dir.parent
         monkeypatch.setenv(wa.LEDGER_VIEW_DIR_ENV_VAR, str(ledgers))
         ledger = wa.Ledger(
@@ -377,9 +384,10 @@ class TestEndedByTheLedger:
             holder_pid=None,
             holder_start=None,
             pid_ns=None,
-            lease_until_ns=lease_ns,
+            lease_expires_at=lease,
             steps=tuple(
-                wa.LedgerStep(n=n, at_ns=n, channels=("SR:A",)) for n in range(1, steps + 1)
+                wa.LedgerStep(n=n, spent_at=LONG_AGO + timedelta(seconds=n), channels=("SR:A",))
+                for n in range(1, steps + 1)
             ),
         )
         (ledgers / f"{grant_id}.ledger.json").write_text(json.dumps(ledger.model_dump(mode="json")))
@@ -387,7 +395,7 @@ class TestEndedByTheLedger:
     def test_a_running_grant_shows_its_steps_used(self, client, requests_dir, monkeypatch):
         request = put_request(requests_dir)
         assert approve(client, request.id).status_code == 200
-        self._ledger(requests_dir, monkeypatch, request.id, steps=5, lease_ns=FAR_FUTURE_NS)
+        self._ledger(requests_dir, monkeypatch, request.id, steps=5, lease=FAR_FUTURE)
         chip = row(client)
         assert chip["program_hold"] is True
         assert [(p["used"], p["steps"]) for p in chip["programs"]] == [(5, 12)]
@@ -395,14 +403,14 @@ class TestEndedByTheLedger:
         assert (entry["in_force"], entry["used"], entry["steps"]) == (True, 5, 12)
 
     @pytest.mark.parametrize(
-        ("steps", "lease_ns"), [(12, FAR_FUTURE_NS), (1, 1)], ids=["steps-spent", "lease-lapsed"]
+        ("steps", "lease"), [(12, FAR_FUTURE), (1, LONG_AGO)], ids=["steps-spent", "lease-lapsed"]
     )
     def test_an_ended_grant_is_not_a_program_hold(
-        self, client, requests_dir, monkeypatch, steps, lease_ns
+        self, client, requests_dir, monkeypatch, steps, lease
     ):
         request = put_request(requests_dir)
         assert approve(client, request.id).status_code == 200
-        self._ledger(requests_dir, monkeypatch, request.id, steps=steps, lease_ns=lease_ns)
+        self._ledger(requests_dir, monkeypatch, request.id, steps=steps, lease=lease)
         chip = row(client)
         assert chip["program_hold"] is False and chip["programs"] == []
         (entry,) = client.get("/api/terminal/write-authorizations").json()["authorizations"]
@@ -425,7 +433,7 @@ class TestSelfIssued:
             epoch = stamped.value.epoch
         control_context.set_switch([TARGET], "allowed", epoch=epoch)
         control_context.invalidate_cache()
-        now = time.time_ns()
+        now = datetime.now(UTC)
         grant = Grant(
             id=uuid.uuid4().hex,
             owner=acting_identity(),
@@ -434,10 +442,10 @@ class TestSelfIssued:
             switch_epoch=epoch,
             channels={"SR:B": ChannelRange(min=0.0, max=1.0)},
             steps=50,
-            issued_at_ns=now,
-            expires_at_ns=FAR_FUTURE_NS,
+            issued_at=now,
+            expires_at=FAR_FUTURE,
             lease_s=30.0,
-            approver=Approver(identity="tuning-scripts", surface="write_switch", at_ns=now),
+            approver=Approver(identity="tuning-scripts", surface="write_switch", approved_at=now),
             label="scan",
         )
         wa._issue_grant(grant, directory=ledgers, peers=())

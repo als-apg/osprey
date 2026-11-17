@@ -18,6 +18,7 @@ import os
 import signal
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -50,7 +51,7 @@ SEED_READ = 1.0
 SEED_WRITE = 100.0
 
 CA_TIMEOUT_S = 5.0
-FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
+FAR_FUTURE = datetime.now(UTC) + timedelta(hours=12)
 
 
 @pytest.fixture
@@ -110,7 +111,7 @@ def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = Tr
     control_context.invalidate_cache()
     record = control_context.read_record()
     assert record is not None and isinstance(record.switch_epoch, int)
-    now = time.time_ns()
+    now = datetime.now(UTC)
     grant = Grant(
         id=uuid.uuid4().hex,
         owner=FIXTURE_IDENTITY,
@@ -119,10 +120,10 @@ def grant_for(channels: dict[str, ChannelRange], *, steps: int, lease: bool = Tr
         switch_epoch=record.switch_epoch,
         channels=channels,
         steps=steps,
-        issued_at_ns=now,
-        expires_at_ns=FAR_FUTURE_NS,
+        issued_at=now,
+        expires_at=FAR_FUTURE,
         lease_s=600.0,
-        approver=Approver(identity="alice", surface="chip", at_ns=now),
+        approver=Approver(identity="alice", surface="chip", approved_at=now),
         label="run-1",
     )
     _issue_grant(grant)
@@ -282,7 +283,7 @@ async def test_an_approved_request_ends_at_the_persons_stop(deployment, ioc_pref
         "live",
         {sp: (0.0, 50.0)},
         steps=5,
-        expires_at_ns=FAR_FUTURE_NS,
+        expires_at=FAR_FUTURE,
         lease_s=600.0,
         label="run-stop",
         completion="none",

@@ -38,7 +38,7 @@ _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
 _LIMITS_PATCH = "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
-_TZ_PATCH = "osprey_connectors.control_system._tango_connector.get_facility_timezone"
+_TZ_PATCH = "osprey_connectors.config.get_facility_timezone"
 
 _ADDRESS = "sr/power_supply/ps01/Current"
 
@@ -361,11 +361,12 @@ class TestReadChannel:
         assert isinstance(result, ChannelValue)
         assert result.value == 42.0
 
-    async def test_read_timestamp_is_the_readings_own(self, connector):
+    async def test_read_sampled_at_is_the_readings_own_in_utc(self, connector):
         conn, _ = connector
         result = await conn.read_channel(_ADDRESS)
         expected = datetime.fromtimestamp(_EPOCH_S + _EPOCH_US / 1e6, UTC)
-        assert result.timestamp == expected
+        assert result.sampled_at == expected
+        assert result.sampled_at.utcoffset().total_seconds() == 0
 
     async def test_read_reports_alarm_state_from_quality(self, connector):
         conn, proxy = connector

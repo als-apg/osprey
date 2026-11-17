@@ -19,8 +19,8 @@ import stat
 import subprocess
 import sys
 import textwrap
-import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ import pytest
 from osprey_connectors import control_context, posture_store, refusals, session_hold
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.errors import AlreadyApprovedError
-from osprey_connectors.model import evolve
+from osprey_connectors.model import evolve, parse_instant
 from osprey_connectors.write_authorization import (
     Approver,
     AuthorizationRefusedError,
@@ -65,11 +65,23 @@ OPS = [("A:SP", 5.0)]
 CHANNELS = {"A:SP": ChannelRange(min=0.0, max=10.0), "B:SP": ChannelRange(min=-1.0, max=1.0)}
 
 #: Far enough ahead that nothing in a test reaches it.
-FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
+FAR_FUTURE = datetime.now(UTC) + timedelta(hours=12)
 
 #: An issue time, and the longest expiry after it, for the ceiling cases.
-ISSUED_NS = time.time_ns()
-DAY_NS = int(wa.MAX_EXPIRES_S * 1e9)
+ISSUED = datetime.now(UTC)
+DAY = timedelta(seconds=wa.MAX_EXPIRES_S)
+
+#: A fixed instant for the cases that pin a stamp's value or its bytes.
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
+
+#: The smallest step an instant takes.
+TICK = timedelta(microseconds=1)
+
+
+def stamp(seconds: float) -> str:
+    """*seconds* after :data:`T0` as a file stores it."""
+    return (T0 + timedelta(seconds=seconds)).isoformat()
+
 
 #: A PID no test host runs.
 ABSENT_PID = 2_147_483_646
@@ -126,7 +138,7 @@ def grants_dir() -> Path:
 
 
 def make_grant(**fields: Any) -> Grant:
-    now = time.time_ns()
+    now = datetime.now(UTC)
     values: dict[str, Any] = {
         "id": uuid.uuid4().hex,
         "owner": ME,
@@ -135,10 +147,10 @@ def make_grant(**fields: Any) -> Grant:
         "switch_epoch": epoch(),
         "channels": CHANNELS,
         "steps": 3,
-        "issued_at_ns": now,
-        "expires_at_ns": FAR_FUTURE_NS,
+        "issued_at": now,
+        "expires_at": FAR_FUTURE,
         "lease_s": 60.0,
-        "approver": Approver(identity="alice", surface="chip", at_ns=now),
+        "approver": Approver(identity="alice", surface="chip", approved_at=now),
         "label": "run-1",
         "revoked": None,
     }
@@ -172,8 +184,8 @@ def grant_path(grant_id: str) -> Path:
     return grants_dir() / f"{grant_id}.json"
 
 
-def at(monkeypatch: pytest.MonkeyPatch, now_ns: int) -> None:
-    monkeypatch.setattr(wa, "_now_ns", lambda: now_ns)
+def at(monkeypatch: pytest.MonkeyPatch, moment: datetime) -> None:
+    monkeypatch.setattr(wa, "_now", lambda: moment)
 
 
 # -- the case table -----------------------------------------------------------
@@ -207,7 +219,7 @@ def test_the_table_covers_every_reason_a_write_can_meet():
 
 def _resolve(value: Any, stale_epoch: int) -> Any:
     if value == "@past":
-        return 1
+        return (wa._EPOCH + TICK).isoformat()
     if value == "@stale_epoch":
         return stale_epoch
     if isinstance(value, dict):
@@ -236,14 +248,14 @@ def _stage(row: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str:
             holder_pid=os.getpid(),
             holder_start=wa._process_start_time(os.getpid()),
             pid_ns=wa._pid_namespace(),
-            lease_until_ns=FAR_FUTURE_NS,
+            lease_expires_at=FAR_FUTURE,
         ).model_dump(mode="json")
         overrides = dict(row.get("ledger", {}))
         steps = overrides.get("steps")
         if isinstance(steps, str) and steps.startswith("@spent:"):
             count = int(steps.split(":")[1])
             overrides["steps"] = [
-                {"n": n, "at_ns": n, "channels": ["A:SP"]} for n in range(1, count + 1)
+                {"n": n, "spent_at": stamp(n), "channels": ["A:SP"]} for n in range(1, count + 1)
             ]
         payload.update(_resolve(overrides, 0))
         grants_dir().mkdir(parents=True, exist_ok=True)
@@ -299,7 +311,7 @@ def test_spending_answers_as_the_verdict_does(row: dict[str, Any], monkeypatch):
 
 class TestFormats:
     def test_a_grant_round_trips(self):
-        grant = make_grant(revoked=Revocation(at_ns=5, by="bob"))
+        grant = make_grant(revoked=Revocation(revoked_at=T0 + timedelta(seconds=5), by="bob"))
         assert _parse_grant(json.dumps(grant.model_dump(mode="json"))) == grant
 
     @pytest.mark.parametrize(
@@ -307,25 +319,32 @@ class TestFormats:
         [
             (
                 _parse_grant,
-                '{"approver": {"at_ns": 100, "identity": "alice", "surface": "chip"}, '
+                '{"approver": {"approved_at": "2026-01-01T00:01:40+00:00", "identity": "alice", '
+                '"surface": "chip"}, '
                 '"channels": {"A:SP": {"max": 10.0, "min": 0.0}, "B:SP": {"max": 1.5, "min": -1.0}}, '
-                '"expires_at_ns": 200, "holder": "optimizer", "id": "' + "ab" * 16 + '", '
-                '"issued_at_ns": 100, "label": "run 7", "lease_s": 30.0, "owner": "alice", '
-                '"revoked": {"at_ns": 150, "by": "bob"}, "schema": 1, "steps": 4, '
-                '"switch_epoch": 5, "target": "va"}',
+                '"expires_at": "2026-01-01T00:03:20+00:00", "holder": "optimizer", '
+                '"id": "' + "ab" * 16 + '", '
+                '"issued_at": "2026-01-01T00:01:40+00:00", "label": "run 7", "lease_s": 30.0, '
+                '"owner": "alice", '
+                '"revoked": {"by": "bob", "revoked_at": "2026-01-01T00:02:30+00:00"}, '
+                '"schema": 1, "steps": 4, "switch_epoch": 5, "target": "va"}',
             ),
             (
                 _parse_ledger,
                 '{"authorization": "' + "ab" * 16 + '", "holder_pid": 42, "holder_start": "917", '
-                '"lease_until_ns": 300, "pid_ns": null, "schema": 1, '
-                '"steps": [{"at_ns": 10, "channels": ["A:SP"], "n": 1}, '
-                '{"at_ns": 11, "channels": ["A:SP", "B:SP"], "n": 2}]}',
+                '"lease_expires_at": "2026-01-01T00:05:00+00:00", "pid_ns": null, "schema": 1, '
+                '"steps": [{"channels": ["A:SP"], "n": 1, '
+                '"spent_at": "2026-01-01T00:00:10+00:00"}, '
+                '{"channels": ["A:SP", "B:SP"], "n": 2, '
+                '"spent_at": "2026-01-01T00:00:11.250000+00:00"}]}',
             ),
             (
                 wa._parse_request,
                 '{"channels": {"A:SP": {"max": 10.0, "min": 0.0}}, "completion": "apply_best", '
-                '"expires_at_ns": 200, "holder": "optimizer", "id": "' + "ab" * 16 + '", '
-                '"label": "", "lease_s": 45.5, "owner": "alice", "requested_at_ns": 100, '
+                '"expires_at": "2026-01-01T00:03:20+00:00", "holder": "optimizer", '
+                '"id": "' + "ab" * 16 + '", '
+                '"label": "", "lease_s": 45.5, "owner": "alice", '
+                '"requested_at": "2026-01-01T00:01:40+00:00", '
                 '"schema": 1, "steps": 41, "target": "va"}',
             ),
         ],
@@ -344,8 +363,8 @@ class TestFormats:
             holder_pid=7,
             holder_start="100",
             pid_ns="pid:[1]",
-            lease_until_ns=9,
-            steps=(LedgerStep(n=1, at_ns=3, channels=("A:SP", "B:SP")),),
+            lease_expires_at=T0 + timedelta(seconds=9),
+            steps=(LedgerStep(n=1, spent_at=T0 + timedelta(seconds=3), channels=("A:SP", "B:SP")),),
         )
         assert _parse_ledger(json.dumps(entry.model_dump(mode="json"))) == entry
 
@@ -373,18 +392,24 @@ class TestFormats:
             {"steps": 0},
             {"steps": 1.0},
             {"steps": True},
-            {"issued_at_ns": None},
-            {"expires_at_ns": 0},
+            {"issued_at": None},
+            {"issued_at": 1},
+            {"issued_at": "2026-01-01T00:00:00"},
+            {"issued_at": "1969-12-31T23:59:59+00:00"},
+            {"issued_at_ns": 1},
+            {"expires_at": wa._EPOCH.isoformat()},
             {"lease_s": 0},
             {"lease_s": -1},
             {"lease_s": "60"},
-            {"approver": {"identity": "a", "surface": "phone", "at_ns": 1}},
+            {"approver": {"identity": "a", "surface": "phone", "approved_at": stamp(1)}},
             {"approver": {"identity": "a", "surface": "chip"}},
             {"approver": "alice"},
             {"label": None},
             {"revoked": True},
-            {"revoked": {"at_ns": 1}},
-            {"revoked": {"at_ns": 1, "by": ""}},
+            {"revoked": {"revoked_at": stamp(1)}},
+            {"revoked": {"revoked_at": stamp(1), "by": ""}},
+            {"revoked": {"revoked_at": "1969-12-31T23:59:59+00:00", "by": "bob"}},
+            {"revoked": {"at_ns": 1, "by": "bob"}},
             {"extra": 1},
         ],
         ids=repr,
@@ -430,10 +455,10 @@ class TestFormats:
         [
             ({}, False),
             ({"steps": wa.MAX_STEPS + 1}, True),
-            ({"expires_at_ns": ISSUED_NS + DAY_NS + 1}, True),
+            ({"expires_at": ISSUED + DAY + TICK}, True),
             ({"lease_s": wa._MAX_LEASE_S + 0.5}, True),
         ],
-        ids=["at-ceilings", "steps", "expires_at_ns", "lease_s"],
+        ids=["at-ceilings", "steps", "expires_at", "lease_s"],
     )
     def test_a_grant_past_any_ceiling_is_read_but_never_written(
         self, change: dict[str, Any], refused: bool
@@ -441,8 +466,8 @@ class TestFormats:
         """The ceilings are the writer's: a file on disk past one is honoured as before."""
         at_ceilings = make_grant(
             steps=wa.MAX_STEPS,
-            issued_at_ns=ISSUED_NS,
-            expires_at_ns=ISSUED_NS + DAY_NS,
+            issued_at=ISSUED,
+            expires_at=ISSUED + DAY,
             lease_s=wa._MAX_LEASE_S,
         )
         grant = evolve(at_ceilings, **change)
@@ -464,17 +489,21 @@ class TestFormats:
             {"holder_pid": True},
             {"holder_start": 5},
             {"pid_ns": ["pid:[1]"]},
-            {"lease_until_ns": -1},
-            {"lease_until_ns": None},
+            {"lease_expires_at": "1969-12-31T23:59:59+00:00"},
+            {"lease_expires_at": None},
+            {"lease_expires_at": 1},
+            {"lease_expires_at": "2026-01-01T00:00:00"},
             {"steps": {}},
-            {"steps": [{"n": 1, "at_ns": 1, "channels": []}]},
-            {"steps": [{"n": 1, "at_ns": 1, "channels": [""]}]},
-            {"steps": [{"n": 1, "at_ns": 1}]},
-            {"steps": [{"n": 1, "at_ns": 1, "channels": ["A"], "extra": 1}]},
+            {"steps": [{"n": 1, "spent_at": stamp(1), "channels": []}]},
+            {"steps": [{"n": 1, "spent_at": stamp(1), "channels": [""]}]},
+            {"steps": [{"n": 1, "spent_at": stamp(1)}]},
+            {"steps": [{"n": 1, "spent_at": stamp(1), "channels": ["A"], "extra": 1}]},
+            {"steps": [{"n": 1, "spent_at": "1969-12-31T23:59:59+00:00", "channels": ["A"]}]},
+            {"steps": [{"n": 1, "at_ns": 1, "channels": ["A"]}]},
             {
                 "steps": [
-                    {"n": 1, "at_ns": 1, "channels": ["A"]},
-                    {"n": 1, "at_ns": 2, "channels": ["A"]},
+                    {"n": 1, "spent_at": stamp(1), "channels": ["A"]},
+                    {"n": 1, "spent_at": stamp(2), "channels": ["A"]},
                 ]
             },
             {"extra": 1},
@@ -483,7 +512,11 @@ class TestFormats:
     )
     def test_a_malformed_ledger_is_refused(self, change: dict[str, Any]):
         payload = Ledger(
-            authorization="a" * 32, holder_pid=1, holder_start=None, pid_ns=None, lease_until_ns=1
+            authorization="a" * 32,
+            holder_pid=1,
+            holder_start=None,
+            pid_ns=None,
+            lease_expires_at=T0,
         ).model_dump(mode="json")
         payload.update(change)
         with pytest.raises(ValueError):
@@ -884,8 +917,8 @@ class TestLease:
         ("fields", "reason"),
         [
             ({"holder": "someone-else"}, "auth_holder"),
-            ({"revoked": Revocation(at_ns=1, by="bob")}, "auth_revoked"),
-            ({"expires_at_ns": 2, "issued_at_ns": 1}, "auth_expired"),
+            ({"revoked": Revocation(revoked_at=T0, by="bob")}, "auth_revoked"),
+            ({"expires_at": T0 + timedelta(seconds=2), "issued_at": T0}, "auth_expired"),
         ],
     )
     def test_a_lease_is_not_started_on_a_grant_out_of_force(self, fields, reason):
@@ -897,25 +930,25 @@ class TestLease:
         assert not ledger_path(grant.id).exists()
 
     def test_renewal_outlives_the_first_lease(self, monkeypatch):
-        now = time.time_ns()
+        now = datetime.now(UTC)
         at(monkeypatch, now)
         grant = approve(lease_s=10.0)
-        at(monkeypatch, now + 9 * 10**9)
+        at(monkeypatch, now + timedelta(seconds=9))
         assert renew_lease(grant.id)
-        at(monkeypatch, now + 15 * 10**9)
+        at(monkeypatch, now + timedelta(seconds=15))
         assert verdict(grant.id).allowed
-        assert ledger(grant.id).lease_until_ns == now + 19 * 10**9
+        assert ledger(grant.id).lease_expires_at == now + timedelta(seconds=19)
 
     def test_a_lapsed_lease_refuses_and_does_not_come_back(self, monkeypatch):
-        now = time.time_ns()
+        now = datetime.now(UTC)
         at(monkeypatch, now)
         grant = approve(lease_s=10.0)
-        at(monkeypatch, now + 10 * 10**9)
+        at(monkeypatch, now + timedelta(seconds=10))
         assert verdict(grant.id).reason == "auth_lease_lapsed"
         assert not renew_lease(grant.id)
-        at(monkeypatch, now + 1)
+        at(monkeypatch, now + TICK)
         # Even a clock that steps back finds the lease unmoved by the failed renewal.
-        assert ledger(grant.id).lease_until_ns == now + 10 * 10**9
+        assert ledger(grant.id).lease_expires_at == now + timedelta(seconds=10)
 
     def test_only_the_holder_process_renews(self):
         grant = approve()
@@ -972,7 +1005,7 @@ class TestHolderProcess:
         finally:
             process.kill()
             process.wait()
-        assert ledger(grant.id).lease_until_ns > time.time_ns()
+        assert ledger(grant.id).lease_expires_at > datetime.now(UTC)
         assert verdict(grant.id).reason == "auth_lease_lapsed"
 
 
@@ -985,7 +1018,7 @@ class TestHolderLiveness:
             "holder_pid": os.getpid(),
             "holder_start": "100",
             "pid_ns": wa._pid_namespace(),
-            "lease_until_ns": FAR_FUTURE_NS,
+            "lease_expires_at": FAR_FUTURE,
         }
         values.update(fields)
         return Ledger(**values)
@@ -995,22 +1028,22 @@ class TestHolderLiveness:
 
     def test_the_same_process(self, monkeypatch):
         self.forge_kernel(monkeypatch, ("R", "100"))
-        assert wa._lease_live(self.ledger(), time.time_ns())
+        assert wa._lease_live(self.ledger(), datetime.now(UTC))
 
     def test_a_reused_pid(self, monkeypatch):
         self.forge_kernel(monkeypatch, ("R", "999"))
-        assert not wa._lease_live(self.ledger(), time.time_ns())
+        assert not wa._lease_live(self.ledger(), datetime.now(UTC))
 
     def test_a_zombie_holder(self, monkeypatch):
         self.forge_kernel(monkeypatch, ("Z", "100"))
-        assert not wa._lease_live(self.ledger(), time.time_ns())
+        assert not wa._lease_live(self.ledger(), datetime.now(UTC))
 
     def test_no_kernel_view_falls_back_on_the_pid_and_the_lease(self, monkeypatch):
         self.forge_kernel(monkeypatch, None)
-        now = time.time_ns()
+        now = datetime.now(UTC)
         assert wa._lease_live(self.ledger(), now)
         assert not wa._lease_live(self.ledger(holder_pid=ABSENT_PID), now)
-        assert not wa._lease_live(self.ledger(lease_until_ns=now), now)
+        assert not wa._lease_live(self.ledger(lease_expires_at=now), now)
 
     def test_a_reused_pid_refuses_the_write(self, monkeypatch):
         grant = approve()
@@ -1051,9 +1084,9 @@ class TestPidNamespaces:
             holder_pid=ABSENT_PID,
             holder_start=None,
             pid_ns=holder,
-            lease_until_ns=FAR_FUTURE_NS,
+            lease_expires_at=FAR_FUTURE,
         )
-        assert wa._lease_live(entry, time.time_ns()) is live
+        assert wa._lease_live(entry, datetime.now(UTC)) is live
 
     def test_another_namespace_is_judged_by_the_lease_time_alone(self, monkeypatch):
         grant = approve()
@@ -1061,7 +1094,7 @@ class TestPidNamespaces:
         payload.update(holder_pid=ABSENT_PID, pid_ns=self.OTHER)
         ledger_path(grant.id).write_text(json.dumps(payload))
         assert verdict(grant.id).allowed
-        at(monkeypatch, payload["lease_until_ns"])
+        at(monkeypatch, parse_instant(payload["lease_expires_at"]))
         assert verdict(grant.id).reason == "auth_lease_lapsed"
 
     def test_the_namespace_is_read_from_the_link(self, monkeypatch):
@@ -1113,7 +1146,7 @@ class TestStops:
         assert revoke_grants(by="bob") == (on_va.id,)
         assert revoke_grants(by="carol") == ()
         assert _parse_grant(grant_path(on_va.id).read_text()).revoked == Revocation(
-            at_ns=_parse_grant(grant_path(on_va.id).read_text()).revoked.at_ns,  # type: ignore[union-attr]
+            revoked_at=_parse_grant(grant_path(on_va.id).read_text()).revoked.revoked_at,  # type: ignore[union-attr]
             by="bob",
         )
 
@@ -1138,7 +1171,7 @@ class TestStops:
 def _self_issue(**fields: Any) -> Grant:
     values: dict[str, Any] = {
         "steps": 3,
-        "expires_at_ns": FAR_FUTURE_NS,
+        "expires_at": FAR_FUTURE,
         "lease_s": 60.0,
         "label": "run-self",
     }
@@ -1233,7 +1266,7 @@ class TestSelfIssue:
                 TARGET,
                 {"A:SP": (5.0, 1.0)},
                 steps=3,
-                expires_at_ns=FAR_FUTURE_NS,
+                expires_at=FAR_FUTURE,
                 lease_s=60.0,
             )
         with pytest.raises(ValueError):
@@ -1252,8 +1285,11 @@ class TestOverlap:
             ({"holder": "other", "channels": {"Z:SP": ChannelRange(min=0, max=1)}}, False),
             ({}, False),  # the same holder
             ({"holder": "other", "target": "live"}, False),
-            ({"holder": "other", "revoked": Revocation(at_ns=1, by="bob")}, False),
-            ({"holder": "other", "expires_at_ns": 2, "issued_at_ns": 1}, False),
+            ({"holder": "other", "revoked": Revocation(revoked_at=T0, by="bob")}, False),
+            (
+                {"holder": "other", "expires_at": T0 + timedelta(seconds=2), "issued_at": T0},
+                False,
+            ),
         ],
         ids=["shared-channel", "disjoint", "same-holder", "other-machine", "revoked", "expired"],
     )
@@ -1278,6 +1314,7 @@ class TestOverlap:
             ((), True),
             (("live",), True),
             (("in-grace",), True),
+            (("at-grace-end",), True),
             (("lapsed",), False),
             (("unreadable",), True),
             (("lapsed", "live"), True),
@@ -1286,6 +1323,7 @@ class TestOverlap:
             "no-ledger-yet",
             "lease-live",
             "within-skew-grace",
+            "exactly-at-grace-end",
             "lease-ran-out",
             "unreadable",
             "one-lapsed-one-live",
@@ -1299,7 +1337,7 @@ class TestOverlap:
         Only when every ledger found agrees: one lapsed in a directory searched
         first does not free a grant whose other ledger is live.
         """
-        now = time.time_ns()
+        now = datetime.now(UTC)
         existing = make_grant(holder="optimizer")
         candidate = make_grant(holder="bluesky", channels={"A:SP": ChannelRange(min=0, max=1)})
         dirs = [tmp_path / "absent"]
@@ -1316,14 +1354,16 @@ class TestOverlap:
                 holder_pid=None,
                 holder_start=None,
                 pid_ns=None,
-                lease_until_ns={
-                    "live": now + 10**9,
-                    "in-grace": now - 1,
-                    "lapsed": now - wa._LEASE_SKEW_GRACE_NS,
+                lease_expires_at={
+                    "live": now + timedelta(seconds=1),
+                    "in-grace": now - TICK,
+                    # Exactly the grace past its end still blocks; a tick more frees it.
+                    "at-grace-end": now - wa._LEASE_SKEW_GRACE,
+                    "lapsed": now - wa._LEASE_SKEW_GRACE - TICK,
                 }[lease],
             )
             path.write_text(json.dumps(entry.model_dump(mode="json")))
-        held = _auth_overlap(candidate, [existing], now_ns=now, ledger_dirs=dirs)
+        held = _auth_overlap(candidate, [existing], now=now, ledger_dirs=dirs)
         assert (held is existing) is blocks
 
     def test_a_dead_holders_grant_blocks_until_its_lease_time_passes(self):
@@ -1335,13 +1375,13 @@ class TestOverlap:
             holder_pid=ABSENT_PID,
             holder_start=None,
             pid_ns=wa._pid_namespace(),
-            lease_until_ns=time.time_ns() + 60 * 10**9,
+            lease_expires_at=datetime.now(UTC) + timedelta(seconds=60),
         )
         ledger_path(held.id).write_text(json.dumps(leased.model_dump(mode="json")))
         candidate = make_grant(holder="bluesky")
         with pytest.raises(AuthorizationRefusedError):
             _issue_grant(candidate)
-        lapsed = evolve(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
+        lapsed = evolve(leased, lease_expires_at=datetime.now(UTC) - wa._LEASE_SKEW_GRACE - TICK)
         ledger_path(held.id).write_text(json.dumps(lapsed.model_dump(mode="json")))
         _issue_grant(candidate)
         assert grant_path(candidate.id).exists()
@@ -1373,7 +1413,7 @@ class TestOverlap:
             holder_pid=None,
             holder_start=None,
             pid_ns=None,
-            lease_until_ns=time.time_ns() + 60 * 10**9,
+            lease_expires_at=datetime.now(UTC) + timedelta(seconds=60),
         )
         (elsewhere / f"{held.id}.ledger.json").write_text(
             json.dumps(leased.model_dump(mode="json"))
@@ -1393,8 +1433,8 @@ class TestOverlap:
                 target=TARGET,
                 channels={"A:SP": ChannelRange(min=0.0, max=1.0)},
                 steps=3,
-                requested_at_ns=time.time_ns(),
-                expires_at_ns=FAR_FUTURE_NS,
+                requested_at=datetime.now(UTC),
+                expires_at=FAR_FUTURE,
                 lease_s=60.0,
                 label="",
                 completion="none",
@@ -1404,7 +1444,7 @@ class TestOverlap:
         with pytest.raises(AuthorizationRefusedError) as refused:
             approve_candidate()
         assert refused.value.reason == "auth_overlap"
-        lapsed = evolve(leased, lease_until_ns=time.time_ns() - wa._LEASE_SKEW_GRACE_NS - 1)
+        lapsed = evolve(leased, lease_expires_at=datetime.now(UTC) - wa._LEASE_SKEW_GRACE - TICK)
         (elsewhere / f"{held.id}.ledger.json").write_text(
             json.dumps(lapsed.model_dump(mode="json"))
         )
@@ -1497,7 +1537,7 @@ class TestTree:
     SECTION = {"type": "epics", "writes": "allowed", "login_tiers": {"alice": "allowed"}}
 
     def issue(self, tree: Path) -> Grant:
-        now = time.time_ns()
+        now = datetime.now(UTC)
         grant = Grant(
             id=uuid.uuid4().hex,
             owner="alice",
@@ -1506,10 +1546,10 @@ class TestTree:
             switch_epoch=1234,
             channels=CHANNELS,
             steps=2,
-            issued_at_ns=now,
-            expires_at_ns=FAR_FUTURE_NS,
+            issued_at=now,
+            expires_at=FAR_FUTURE,
             lease_s=60.0,
-            approver=Approver(identity="alice", surface="chip", at_ns=now),
+            approver=Approver(identity="alice", surface="chip", approved_at=now),
         )
         _issue_grant(grant, directory=tree / "alice" / wa.AUTHORIZATIONS_DIR_NAME)
         start_lease(grant.id)

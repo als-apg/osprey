@@ -477,7 +477,7 @@ class TextureModel(LUMEModel):
         self._noise = dict(noise)
         self._still = frozenset(str(address) for address in still)
 
-    def motion(self, address: str, t_s: object, base: object = 0.0) -> npt.NDArray[np.float64]:
+    def motion(self, address: str, times_s: object, base: object = 0.0) -> npt.NDArray[np.float64]:
         """The motion of a channel at absolute epoch seconds.
 
         Drift, then the held couplings, then a ``topoff`` seed's tooth
@@ -489,15 +489,15 @@ class TextureModel(LUMEModel):
 
         Args:
             address: Any address the view declares.
-            t_s: Epoch seconds; any shape.
+            times_s: Epoch seconds; any shape.
             base: The value the motion is added to, which a relative noise
-                term scales; a scalar or an array shaped like ``t_s``.
+                term scales; a scalar or an array shaped like ``times_s``.
 
         Returns:
-            A float64 array with the shape of ``t_s``; zero for a channel
+            A float64 array with the shape of ``times_s``; zero for a channel
             without motion, stilled, or not of type float.
         """
-        times = np.asarray(t_s, dtype=np.float64)
+        times = np.asarray(times_s, dtype=np.float64)
         flat = times.reshape(-1)
         total = np.zeros(flat.shape, dtype=np.float64)
         channel = self._channels.get(address)

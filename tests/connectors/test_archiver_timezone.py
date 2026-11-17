@@ -46,7 +46,7 @@ async def _sr07_window(view: Path):
         )
         start = center - timedelta(minutes=5)
         end = center + timedelta(minutes=5)
-        df = await connector.get_data([SR07], start, end, precision_ms=1000)
+        df = await connector.get_data([SR07], start_at=start, end_at=end, precision_ms=1000)
     finally:
         await connector.disconnect()
     return df, center

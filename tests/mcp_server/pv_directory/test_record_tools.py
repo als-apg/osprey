@@ -240,8 +240,8 @@ async def test_a_channel_carries_the_archive_section_when_the_deployment_has_an_
         async def get_metadata(self, channel: str) -> Any:
             return SimpleNamespace(
                 is_archived=None,
-                archival_start=None,
-                archival_end=None,
+                first_sample_at=None,
+                last_sample_at=None,
                 sampling_period=None,
                 description=f"cannot say for {channel}",
             )

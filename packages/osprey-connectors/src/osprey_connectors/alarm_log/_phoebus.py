@@ -35,14 +35,15 @@ from typing_extensions import override
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
 from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
     BackendSpec,
     HistoryPage,
     Outcome,
     Unavailable,
+    _instant,
     _Recorded,
-    _text,
 )
 
 _SEARCH_PATH = "/search/alarm"
@@ -62,7 +63,7 @@ class _LoggedRow(FrozenModel):
     """One row of a search answer, of either kind; a field of another type is not recorded.
 
     ``time`` and ``message_time`` stay as recorded: a row's time is whichever of the
-    two is set, and only then read as a string.
+    two is set, read once as the instant it names (:attr:`event_at`).
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -91,6 +92,11 @@ class _LoggedRow(FrozenModel):
     def stamp(self) -> object:
         """The row's time as recorded: ``time``, or ``message_time`` when that is unset."""
         return self.time or self.message_time
+
+    @property
+    def event_at(self) -> datetime | None:
+        """The instant :attr:`stamp` names; ``None`` for one with no zone or not ISO-8601."""
+        return _instant(self.stamp)
 
 
 class _ConfigBody(FrozenModel):
@@ -135,14 +141,16 @@ class PhoebusAlarmLogger(AlarmLog):
 
     @override
     async def history(
-        self, address: str, since: datetime | None, limit: int, *, timeout_s: float
+        self, address: str, start_at: datetime | None, limit: int, *, timeout_s: float
     ) -> HistoryPage[AlarmHistoryRow]:
+        if start_at is not None:
+            require_aware(start_at, name="start_at")
         # One row more than asked for tells a full page from a longer history.
-        answer = await self._search(address, limit + 1, since, timeout_s)
+        answer = await self._search(address, limit + 1, start_at, timeout_s)
         if isinstance(answer, Unavailable):
             return self._page(Outcome.UNAVAILABLE, reason=answer.reason)
         matching = _rows_of(answer, address)
-        rows = [row for row in matching if _in_window(row, since)]
+        rows = [row for row in matching if _in_window(row, start_at)]
         if not rows:
             return self._page(Outcome.NO_MATCH, reason=_NO_LOGGED_EVENTS)
         # A row older than the window means the page already reached the window's end.
@@ -189,11 +197,11 @@ class PhoebusAlarmLogger(AlarmLog):
         return f"root answered ({service or 'unnamed service'}); this does not prove ingestion"
 
     async def _search(
-        self, address: str, size: int, since: datetime | None, timeout_s: float
+        self, address: str, size: int, start_at: datetime | None, timeout_s: float
     ) -> list[object] | Unavailable:
         params: dict[str, str | int] = {"pv": address, "size": size}
-        if since is not None:
-            params.update(start=_days_since(since), end="now")
+        if start_at is not None:
+            params.update(start=_days_since(start_at), end="now")
         answer = await self._transport.request(
             "GET", _SEARCH_PATH, params=params, timeout_s=timeout_s
         )
@@ -268,13 +276,13 @@ def _history_row(row: _LoggedRow) -> AlarmHistoryRow:
     if row.is_config:
         body = _config_body(row) or _ConfigBody()
         return AlarmHistoryRow(
-            time=_text(row.message_time),
+            event_at=_instant(row.message_time),
             message=body.delete if body.deleted else body.description,
             user=row.user,
             kind="config",
         )
     return AlarmHistoryRow(
-        time=_text(row.stamp),
+        event_at=row.event_at,
         severity=row.severity,
         status=row.current_message,
         message=row.message,
@@ -283,24 +291,14 @@ def _history_row(row: _LoggedRow) -> AlarmHistoryRow:
     )
 
 
-def _in_window(row: _LoggedRow, since: datetime | None) -> bool:
-    """A row whose time cannot be read stays: nothing shows it fell outside the window."""
-    if since is None:
+def _in_window(row: _LoggedRow, start_at: datetime | None) -> bool:
+    """A row whose time cannot be placed stays: nothing shows it fell outside the window."""
+    if start_at is None:
         return True
-    stamp = row.stamp
-    if not isinstance(stamp, str):
-        return True
-    try:
-        recorded = datetime.fromisoformat(stamp)
-    except ValueError:
-        return True
-    return _aware(recorded) >= _aware(since)
+    event_at = row.event_at
+    return event_at is None or event_at >= start_at
 
 
-def _days_since(since: datetime) -> str:
-    age = (datetime.now(UTC) - _aware(since)).total_seconds()
+def _days_since(start_at: datetime) -> str:
+    age = (datetime.now(UTC) - start_at).total_seconds()
     return f"{max(1, math.ceil(age / 86400))}days"
-
-
-def _aware(moment: datetime) -> datetime:
-    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)

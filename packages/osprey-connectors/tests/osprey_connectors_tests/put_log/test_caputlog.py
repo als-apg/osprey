@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.errors import NaiveDatetimeError
 from osprey_connectors.put_log import PutLog, PutRow
 from osprey_connectors.put_log._caputlog import CaPutLog
 from osprey_connectors.service_answers import BackendSpec, Outcome, Unavailable
@@ -118,7 +119,7 @@ async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
     assert page.outcome is Outcome.FOUND
     assert page.rows == (
         PutRow(
-            at="2026-10-28T21:03:11.000Z",
+            put_at=datetime(2026, 10, 28, 21, 3, 11, tzinfo=UTC),
             address=f"{PV}.HIHI",
             field=".HIHI",
             old="45",
@@ -148,7 +149,8 @@ async def test_a_missing_ioc_stamp_falls_back_to_the_ingest_stamp() -> None:
 
     page = await backend.history(PV, None, 25, timeout_s=5.0)
 
-    assert page.rows[0].at == "2026-10-28T21:03:12.884Z"
+    assert page.rows[0].put_at == datetime(2026, 10, 28, 21, 3, 12, 884000, tzinfo=UTC)
+    assert page.rows[0].recorded_stamp is None
 
 
 async def test_a_field_absent_from_the_record_reads_none() -> None:
@@ -187,7 +189,7 @@ async def test_rows_come_newest_first_whatever_order_the_service_ranks_them() ->
 
     page = await backend.history(PV, None, 25, timeout_s=5.0)
 
-    assert [row.at[14:16] for row in page.rows] == ["03", "02", "01"]
+    assert [row.put_at.minute for row in page.rows] == [3, 2, 1]
 
 
 async def test_one_row_past_the_limit_truncates_and_keeps_the_newest() -> None:
@@ -195,7 +197,7 @@ async def test_one_row_past_the_limit_truncates_and_keeps_the_newest() -> None:
 
     page = await backend.history(PV, None, 2, timeout_s=5.0)
 
-    assert [row.at[14:16] for row in page.rows] == ["03", "02"]
+    assert [row.put_at.minute for row in page.rows] == [3, 2]
     assert page.truncated is True
 
 
@@ -241,31 +243,54 @@ async def test_since_narrows_the_page_on_this_side_and_is_not_sent() -> None:
 
     page = await backend.history(PV, datetime(2026, 10, 28, 21, 2, tzinfo=UTC), 25, timeout_s=5.0)
 
-    assert [row.at[14:16] for row in page.rows] == ["03"]
+    assert [row.put_at.minute for row in page.rows] == [3]
     assert "@timestamp" not in json.dumps(transport.calls[0]["json_body"])
     assert "filters" not in transport.calls[0]["json_body"]["state"]
 
 
-async def test_since_compares_instants_across_zones_and_reads_a_naive_one_as_utc() -> None:
+async def test_since_compares_instants_across_zones() -> None:
     backend, _ = _backend(_envelope([_hit(minute=1), _hit(minute=3)]))
     pacific = timezone(timedelta(hours=-7))
 
     zoned = await backend.history(
         PV, datetime(2026, 10, 28, 14, 2, tzinfo=pacific), 25, timeout_s=5.0
     )
-    naive = await backend.history(PV, datetime(2026, 10, 28, 21, 2), 25, timeout_s=5.0)
 
-    assert [row.at[14:16] for row in zoned.rows] == ["03"]
-    assert [row.at[14:16] for row in naive.rows] == ["03"]
+    assert [row.put_at.minute for row in zoned.rows] == [3]
 
 
-async def test_a_row_whose_time_cannot_be_read_stays_and_sorts_last() -> None:
-    hits = [_hit(ioctimestamp="28-Oct-26 14:03:11"), _hit(minute=3), _hit(minute=1)]
+async def test_a_naive_start_is_refused_and_nothing_is_sent() -> None:
+    backend, transport = _backend(_envelope([_hit(minute=1), _hit(minute=3)]))
+
+    with pytest.raises(NaiveDatetimeError) as refused:
+        await backend.history(PV, datetime(2026, 10, 28, 21, 2), 25, timeout_s=5.0)
+
+    assert refused.value.parameter == "start_at"
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize("stamp", ["28-Oct-26 14:03:11", "2026-10-28T14:03:11"])
+async def test_a_row_whose_time_cannot_be_placed_keeps_its_text_stays_and_sorts_last(
+    stamp: str,
+) -> None:
+    hits = [_hit(ioctimestamp=stamp), _hit(minute=3), _hit(minute=1)]
     backend, _ = _backend(_envelope(hits))
 
     page = await backend.history(PV, datetime(2026, 10, 28, 21, 2, tzinfo=UTC), 25, timeout_s=5.0)
 
-    assert [row.at for row in page.rows] == ["2026-10-28T21:03:00.000Z", "28-Oct-26 14:03:11"]
+    assert [(row.put_at, row.recorded_stamp) for row in page.rows] == [
+        (datetime(2026, 10, 28, 21, 3, tzinfo=UTC), None),
+        (None, stamp),
+    ]
+
+
+def test_a_row_holds_an_instant_or_the_stamp_it_could_not_place_never_both() -> None:
+    with pytest.raises(ValueError, match="recorded_stamp"):
+        PutRow(
+            put_at=datetime(2026, 10, 28, 21, 3, tzinfo=UTC),
+            recorded_stamp="28-Oct-26 14:03:11",
+            address=PV,
+        )
 
 
 async def test_since_past_every_row_is_no_logged_puts() -> None:

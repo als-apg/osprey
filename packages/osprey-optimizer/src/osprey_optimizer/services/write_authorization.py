@@ -52,6 +52,7 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from osprey_optimizer.environments.write_authority import WriteAuthority
@@ -234,6 +235,11 @@ def retire_self_issued(grant: Any) -> None:
         logger.warning("Could not mark self-issued grant %s ended", grant.id, exc_info=True)
 
 
+def _epoch_ns(moment: datetime) -> int:
+    """*moment* as integer nanoseconds since the epoch: the job status's ``expires_at_ns``."""
+    return (moment - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1) * 1000
+
+
 def _control_system_section() -> object:
     from osprey_connectors.config import get_config_value
 
@@ -343,14 +349,14 @@ class RunAuthorization:
             )
         # Under the ceiling by a margin, so an approver's lagging clock still reads it.
         expires_s = min(EXPIRES_S, wa.MAX_EXPIRES_S - _EXPIRY_MARGIN_S)
-        expires_at_ns = time.time_ns() + int(expires_s * 1e9)
+        expires_at = datetime.now(UTC) + timedelta(seconds=expires_s)
         try:
             grant = wa.self_issue(
                 _control_system_section(),
                 plan.target,
                 plan.channels,
                 steps=plan.steps,
-                expires_at_ns=expires_at_ns,
+                expires_at=expires_at,
                 lease_s=LEASE_S,
                 label=plan.label,
                 owner=self._owner,
@@ -358,12 +364,12 @@ class RunAuthorization:
         except wa.AuthorizationRefusedError as refused:
             if refused.reason not in ASK_INSTEAD:
                 raise self.end(refused.reason, refused.detail) from refused
-            grant = self._ask(plan, expires_at_ns)
+            grant = self._ask(plan, expires_at)
         except Exception as exc:  # a self-issue that could not be made gives nothing
             raise self.end("auth_unreadable", str(exc)) from exc
         self._hold(grant)
 
-    def _ask(self, plan: WritePlan, expires_at_ns: int) -> Any:
+    def _ask(self, plan: WritePlan, expires_at: datetime) -> Any:
         """Write a request and wait for its grant; the grant, or the error the run ends with."""
         from osprey_connectors import write_authorization as wa
 
@@ -372,7 +378,7 @@ class RunAuthorization:
                 plan.target,
                 plan.channels,
                 steps=plan.steps,
-                expires_at_ns=expires_at_ns,
+                expires_at=expires_at,
                 lease_s=LEASE_S,
                 label=plan.label,
                 completion=plan.completion,
@@ -441,7 +447,7 @@ class RunAuthorization:
             id=grant.id,
             owner=grant.owner,
             approver=grant.approver.surface,
-            expires_at_ns=grant.expires_at_ns,
+            expires_at_ns=_epoch_ns(grant.expires_at),
         )
         logger.info(
             "Holding write authorization %s (approved from %s), %d step(s)",

@@ -6,6 +6,7 @@ use-connectors guide shows this file one step at a time.
 
 import asyncio
 import time
+from datetime import UTC, datetime, timedelta
 
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.config import default_config_path, get_config_value
@@ -19,7 +20,7 @@ def ask() -> wa.WriteRequest:
         "standin",
         {"SR:CORRECTOR:H1": (-0.5, 0.5), "SR:CORRECTOR:H2": (-0.5, 0.5)},
         steps=41,  # 40 evaluations + apply_best
-        expires_at_ns=time.time_ns() + 2 * 3600 * 10**9,
+        expires_at=datetime.now(UTC) + timedelta(hours=2),
         lease_s=30.0,
         label="injector tuning 7",
         completion="apply_best",

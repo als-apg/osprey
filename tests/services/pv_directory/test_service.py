@@ -14,6 +14,7 @@ import importlib
 import json
 import sys
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -79,7 +80,8 @@ class FakeBackend:
             "channel_type": "recordType",
             "server": "iocName",
             "host": "hostName",
-            "last_announced": "time",
+            "announced_at": "time",
+            "recorded_stamp": "time",
             "description": description,
         }
 
@@ -160,7 +162,7 @@ class FakeAlarmState(FakeBackend):
             AlarmStateRow(address=channel, path=f"/Demo/{channel}", state=state)
             for channel, state in self.held.items()
         )
-        return AlarmStates(rows=rows, stale=False, last_contact=None)
+        return AlarmStates(rows=rows, stale=False, last_contact_at=None)
 
 
 class FakeLog(FakeBackend):
@@ -507,7 +509,10 @@ _FEED = {
     "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
 }
 _MAJOR = AlarmStateRecord(
-    severity="MAJOR", status="HIHI_ALARM", latched=True, time="2026-03-02T08:12:30Z"
+    severity="MAJOR",
+    status="HIHI_ALARM",
+    latched=True,
+    event_at=datetime(2026, 3, 2, 8, 12, 30, tzinfo=UTC),
 )
 
 
@@ -530,7 +535,7 @@ async def test_search_marks_each_row_with_the_feed_state(tmp_path: Path) -> None
             "status": "HIHI_ALARM",
             "latched": True,
             "acknowledged": False,
-            "time": "2026-03-02T08:12:30Z",
+            "time": "2026-03-02T08:12:30.000Z",
         },
         {"severity": "OK", "status": None, "latched": False, "acknowledged": False, "time": None},
         None,

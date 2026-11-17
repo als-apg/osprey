@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
+
+import pytest
 
 from osprey_connectors.alarm_state import AlarmStates, severity_rank
 from osprey_connectors.alarm_state._fold import (
@@ -12,6 +15,7 @@ from osprey_connectors.alarm_state._fold import (
     state_record,
     state_rows,
 )
+from osprey_connectors.errors import NaiveDatetimeError
 
 PV = "DEMO:RF1:CAV:Temp-I"
 PATH = f"/Demo/RF/Cavity1/{PV}"
@@ -67,9 +71,9 @@ def test_a_recorded_sequence_ends_in_the_latest_state():
     assert snapshot.messages == 4
 
 
-def test_the_recorded_time_becomes_iso():
+def test_the_recorded_time_becomes_an_instant_in_utc():
     record = state_record(_folded((STATE_KEY, _state("MAJOR", "MAJOR"))), PV, stale=False)
-    assert record.time == "2026-10-29T03:14:07.120Z"
+    assert record.event_at == datetime.fromisoformat("2026-10-29T03:14:07.120Z")
 
 
 def test_an_active_alarm_is_not_latched():
@@ -208,13 +212,32 @@ def test_str_keys_and_mapping_values_fold_like_the_bytes():
 
 def test_a_given_time_replaces_the_recorded_one():
     snapshot = FeedSnapshot()
-    fold_message(snapshot, STATE_KEY, _state("MAJOR", "MAJOR"), time="2026-11-06T00:00:00.000Z")
-    assert state_record(snapshot, PV, stale=False).time == "2026-11-06T00:00:00.000Z"
+    given = datetime(2026, 11, 6, tzinfo=UTC)
+    fold_message(snapshot, STATE_KEY, _state("MAJOR", "MAJOR"), event_at=given)
+    assert state_record(snapshot, PV, stale=False).event_at == datetime.fromisoformat(
+        "2026-11-06T00:00:00.000Z"
+    )
 
 
-def test_an_unusable_recorded_time_is_none():
-    value = json.dumps({"severity": "OK", "time": {"seconds": "soon"}}).encode()
-    assert state_record(_folded((STATE_KEY, value)), PV, stale=False).time is None
+@pytest.mark.parametrize(
+    "recorded", [{"seconds": "soon"}, "2026-10-29T03:14:07.120", "soon", 1793243647]
+)
+def test_an_unusable_or_unzoned_recorded_time_is_none(recorded: object):
+    value = json.dumps({"severity": "OK", "time": recorded}).encode()
+    assert state_record(_folded((STATE_KEY, value)), PV, stale=False).event_at is None
+
+
+def test_a_recorded_time_with_a_zone_is_read_as_that_instant():
+    value = json.dumps({"severity": "OK", "time": "2026-10-28T20:14:07-07:00"}).encode()
+    record = state_record(_folded((STATE_KEY, value)), PV, stale=False)
+    assert record.event_at == datetime(2026, 10, 29, 3, 14, 7, tzinfo=UTC)
+
+
+def test_a_naive_given_time_is_refused():
+    with pytest.raises(NaiveDatetimeError):
+        fold_message(
+            FeedSnapshot(), STATE_KEY, _state("MAJOR", "MAJOR"), event_at=datetime(2026, 11, 6)
+        )
 
 
 # -- the list of every channel's state ------------------------------------------
@@ -265,7 +288,7 @@ def test_the_counts_equal_a_hand_count():
         (_key("A:4"), _state("OK", "OK", "NO_ALARM")),
         (b"state:/Demo/RF", json.dumps({"severity": "MAJOR"}).encode()),
     )
-    states = AlarmStates(rows=state_rows(snapshot, stale=False), stale=False, last_contact=None)
+    states = AlarmStates(rows=state_rows(snapshot, stale=False), stale=False, last_contact_at=None)
     assert dict(states.counts) == {"MAJOR": 2, "MINOR": 1, "OK": 1}
 
 
@@ -281,5 +304,5 @@ def test_a_severity_that_is_not_text_reads_as_its_text():
     body["severity"] = 3
     snapshot = _folded((STATE_KEY, json.dumps(body).encode()))
     assert state_record(snapshot, PV, stale=False).severity == "3"
-    states = AlarmStates(rows=state_rows(snapshot, stale=False), stale=False, last_contact=None)
+    states = AlarmStates(rows=state_rows(snapshot, stale=False), stale=False, last_contact_at=None)
     assert dict(states.counts) == {"3": 1}

@@ -19,6 +19,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -304,8 +305,8 @@ def test_an_expiry_set_past_the_ceiling_is_held_under_it(
     monkeypatch.setattr(run_auth, "EXPIRES_S", 7 * 24 * 3600.0)
     deployment.run(deployment.config(on_complete="hold"))
     grant = wa._parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
-    held = (wa.MAX_EXPIRES_S - run_auth._EXPIRY_MARGIN_S) * 1e9
-    assert grant.expires_at_ns - grant.issued_at_ns <= held
+    held = timedelta(seconds=wa.MAX_EXPIRES_S - run_auth._EXPIRY_MARGIN_S)
+    assert grant.expires_at - grant.issued_at <= held
 
 
 def test_a_flaky_objective_read_costs_no_extra_step_and_no_extra_write(

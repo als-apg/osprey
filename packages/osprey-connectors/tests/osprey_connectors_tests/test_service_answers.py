@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import importlib
 import inspect
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -95,7 +96,7 @@ class _Directory(ChannelDirectory):
 
 
 class _Log(PutLog):
-    async def history(self, address, since, limit, *, timeout_s):
+    async def history(self, address, start_at, limit, *, timeout_s):
         raise NotImplementedError
 
     async def probe(self, *, timeout_s):
@@ -121,18 +122,21 @@ def test_outcome_is_the_five_words_and_serialises_as_them():
     [
         (Source, ["kind", "target", "service", "rehearsal"]),
         (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
-        (AlarmHistoryRow, ["time", "severity", "status", "message", "user", "kind"]),
-        (PutRow, ["at", "address", "field", "old", "new", "user", "client"]),
+        (AlarmHistoryRow, ["event_at", "severity", "status", "message", "user", "kind"]),
+        (
+            PutRow,
+            ["put_at", "recorded_stamp", "address", "field", "old", "new", "user", "client"],
+        ),
         (
             HistoryPage,
             ["outcome", "source", "rows", "truncated", "retention_known", "reason"],
         ),
         (
             AlarmStateRecord,
-            ["severity", "status", "latched", "acknowledged", "message", "time", "stale"],
+            ["severity", "status", "latched", "acknowledged", "message", "event_at", "stale"],
         ),
         (AlarmStateRow, ["address", "path", "state"]),
-        (AlarmStates, ["rows", "stale", "last_contact"]),
+        (AlarmStates, ["rows", "stale", "last_contact_at"]),
         (
             AlarmConfigRecord,
             ["in_tree", "path", "guidance", "displays", "enabled", "latching"],
@@ -144,9 +148,9 @@ def test_a_record_has_the_contract_fields_in_order(record, fields):
 
 
 def test_the_alarm_list_dumps_its_counts_after_its_fields():
-    states = AlarmStates(rows=(), stale=False, last_contact=None)
+    states = AlarmStates(rows=(), stale=False, last_contact_at=None)
 
-    assert [*states.model_dump()] == ["rows", "stale", "last_contact", "counts"]
+    assert [*states.model_dump()] == ["rows", "stale", "last_contact_at", "counts"]
 
 
 @pytest.mark.parametrize("record", RECORDS)
@@ -166,19 +170,39 @@ def _row(channel: str, severity: str | None) -> AlarmStateRow:
 
 def test_the_counts_are_derived_from_the_rows_and_cannot_be_passed():
     rows = (_row("A", "MAJOR"), _row("B", "OK"), _row("C", "MAJOR"), _row("D", None))
-    states = AlarmStates(rows=rows, stale=False, last_contact=None)
+    states = AlarmStates(rows=rows, stale=False, last_contact_at=None)
 
     assert dict(states.counts) == {"MAJOR": 2, "OK": 1}
-    assert dict(AlarmStates(rows=(), stale=True, last_contact=None).counts) == {}
+    assert dict(AlarmStates(rows=(), stale=True, last_contact_at=None).counts) == {}
     with pytest.raises(ValidationError, match="counts"):
-        AlarmStates(rows=rows, stale=False, last_contact=None, counts={"OK": 9})  # type: ignore[call-arg]
+        AlarmStates(rows=rows, stale=False, last_contact_at=None, counts={"OK": 9})  # type: ignore[call-arg]
 
 
 def test_the_list_converts_to_the_json_shape_with_its_counts():
-    states = AlarmStates(rows=(_row("A", "MINOR"),), stale=False, last_contact="t")
+    contact = datetime(2026, 11, 6, 12, tzinfo=UTC)
+    states = AlarmStates(rows=(_row("A", "MINOR"),), stale=False, last_contact_at=contact)
 
     assert states.model_dump()["counts"] == {"MINOR": 1}
     assert '"counts":{"MINOR":1}' in states.model_dump_json()
+    assert '"last_contact_at":"2026-11-06T12:00:00Z"' in states.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda moment: AlarmStates(rows=(), stale=False, last_contact_at=moment),
+        lambda moment: AlarmStateRecord(event_at=moment),
+        lambda moment: AlarmHistoryRow(event_at=moment),
+        lambda moment: PutRow(put_at=moment, address="A"),
+        lambda moment: DirectoryRow(address="A", announced_at=moment),
+    ],
+)
+def test_a_record_refuses_an_instant_with_no_zone_or_as_text(build):
+    assert build(datetime(2026, 11, 6, 12, tzinfo=UTC)) is not None
+    with pytest.raises(ValueError, match="timezone"):
+        build(datetime(2026, 11, 6, 12))
+    with pytest.raises(ValueError):
+        build("2026-11-06T12:00:00Z")
 
 
 @pytest.mark.parametrize(

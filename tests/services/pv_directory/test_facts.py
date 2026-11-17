@@ -14,7 +14,7 @@ import importlib
 import json
 import sys
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -122,7 +122,8 @@ class FakeDirectory(FakeBackend):
         "channel_type": "recordType",
         "server": "iocName",
         "host": "hostName",
-        "last_announced": "time",
+        "announced_at": "time",
+        "recorded_stamp": "time",
         "description": "recordDesc",
     }
 
@@ -206,7 +207,13 @@ class FakeAlarmLog(FakeBackend):
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[AlarmHistoryRow(time="t1", severity="MAJOR", user="operator one")],
+            rows=[
+                AlarmHistoryRow(
+                    event_at=datetime(2026, 11, 11, 6, tzinfo=UTC),
+                    severity="MAJOR",
+                    user="operator one",
+                )
+            ],
         )
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
@@ -220,7 +227,9 @@ class FakePutLog(FakeBackend):
         return self.page or HistoryPage(
             outcome=Outcome.FOUND,
             source=self.source,
-            rows=[PutRow(at="t2", address=address, old="1", new="2", user="operator two")],
+            rows=[
+                PutRow(recorded_stamp="t2", address=address, old="1", new="2", user="operator two")
+            ],
         )
 
 
@@ -598,12 +607,13 @@ async def test_alarm_state_on_va_from_the_replay(
 
 
 def _row(channel: str, severity: str | None, time: str, **state: Any) -> Any:
-    record = AlarmStateRecord(severity=severity, time=time, **state)
+    record = AlarmStateRecord(severity=severity, event_at=datetime.fromisoformat(time), **state)
     return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=record)
 
 
 def _listed(*rows: Any, stale: bool = False) -> Any:
-    return AlarmStates(rows=rows, stale=stale, last_contact="2026-11-11T08:00:00.000Z")
+    contact = datetime(2026, 11, 11, 8, tzinfo=UTC)
+    return AlarmStates(rows=rows, stale=stale, last_contact_at=contact)
 
 
 _EVERY_SEVERITY = (
@@ -1249,8 +1259,8 @@ class _Metadata:
 
     def __init__(self, archived: bool | None, **fields: Any) -> None:
         self.is_archived = archived
-        self.archival_start = fields.get("start")
-        self.archival_end = fields.get("end")
+        self.first_sample_at = fields.get("start")
+        self.last_sample_at = fields.get("end")
         self.sampling_period = fields.get("period")
         self.description = fields.get("description")
 
@@ -1260,8 +1270,8 @@ class _Held:
 
     def __init__(self, addresses: Any = None, reason: str | None = None, **times: Any) -> None:
         self.addresses = addresses
-        self.oldest = times.get("oldest")
-        self.newest = times.get("newest")
+        self.oldest_at = times.get("oldest")
+        self.newest_at = times.get("newest")
         self.reason = reason
 
 
@@ -1346,7 +1356,10 @@ async def test_an_archived_pv_answers_its_samples_in_utc(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
     archiver.metadata = _Metadata(
-        True, start=datetime(2026, 11, 1), end=datetime(2026, 11, 12, 8, 0, 4), period=10.0
+        True,
+        start=datetime(2026, 11, 1, tzinfo=UTC),
+        end=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
+        period=10.0,
     )
     page = _facts(_archived(tmp_path), tmp_path)
 
@@ -1461,8 +1474,8 @@ async def test_the_archive_summary_counts_the_directory_per_ioc(
 ) -> None:
     archiver.held = _Held(
         addresses=frozenset({"SR:BPM1", "SR:RF1", "SR:GONE"}),
-        oldest=datetime(2026, 10, 13),
-        newest=datetime(2026, 11, 12, 8, 0, 4),
+        oldest=datetime(2026, 10, 13, tzinfo=UTC),
+        newest=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
     )
     page = _facts(_archived(tmp_path), tmp_path)
 

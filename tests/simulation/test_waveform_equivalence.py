@@ -29,6 +29,7 @@ import numpy as np
 import pytest
 
 from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -106,7 +107,7 @@ def live_trace(texture: TextureModel) -> np.ndarray:
 @pytest.fixture(scope="module")
 def seeded(demo_view: Path):
     """The archive composite of the example facility, nominal active, anchored at T."""
-    return build(demo_view, [], anchor_s=T.timestamp())
+    return build(demo_view, [], anchor_at=T, tz=get_facility_timezone())
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +327,7 @@ def seeded_store(mongodb_container, seeded):
     waveforms = database[waveform_collection(name)]
     collection.drop()
     waveforms.drop()
-    seed_base(collection, seeded, SMALL, t0=T, chunk_size=256, waveforms=waveforms)
+    seed_base(collection, seeded, SMALL, anchor_at=T, chunk_size=256, waveforms=waveforms)
     try:
         yield collection, waveforms
     finally:
@@ -366,9 +367,9 @@ class TestTheSeededArchive:
         texture = live_texture(demo_view, clock=lambda: T.timestamp())
 
         frame = await connector.get_data(
-            addresses=[SEK],
-            start_date=T - timedelta(seconds=30),
-            end_date=T + timedelta(seconds=30),
+            [SEK],
+            start_at=T - timedelta(seconds=30),
+            end_at=T + timedelta(seconds=30),
             precision_ms=0,
         )
 
@@ -453,9 +454,7 @@ async def test_a_live_hour_records_sixty_traces_each_the_pulse_of_its_minute(
     recorded = waveforms.count_documents({DATE_FIELD: {"$gte": T, "$lt": hour_end}})
     assert abs(recorded - 60) <= 1
 
-    frame = await connector.get_data(
-        addresses=[SEK], start_date=T, end_date=hour_end, precision_ms=0
-    )
+    frame = await connector.get_data([SEK], start_at=T, end_at=hour_end, precision_ms=0)
     rows = frame.loc[frame["address"] == SEK]
     assert abs(len(rows) - 60) <= 1
     for stamp, value in zip(rows["timestamp"], rows["value"], strict=True):

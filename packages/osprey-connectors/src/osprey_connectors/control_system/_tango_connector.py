@@ -16,14 +16,13 @@ the connector contract — the same reason the EPICS connector refuses PVA RPC.
 import asyncio
 import secrets
 from collections.abc import Callable
-from datetime import datetime, tzinfo
+from datetime import UTC, datetime
 from typing import Protocol
 
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
-from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -154,14 +153,14 @@ def _quality_fields(quality: object) -> tuple[str | None, int | None]:
     return fields
 
 
-def _attribute_timestamp(attr: object, tz: tzinfo) -> datetime:
-    """The reading's own timestamp, or now when the device reported none."""
+def _attribute_sampled_at(attr: object) -> datetime:
+    """The reading's own instant in UTC, or now when the device reported none."""
     time_val = getattr(attr, "time", None)
     tv_sec = getattr(time_val, "tv_sec", None)
     if tv_sec is None:
-        return datetime.now(tz)
+        return datetime.now(UTC)
     tv_usec = getattr(time_val, "tv_usec", 0) or 0
-    return datetime.fromtimestamp(tv_sec + tv_usec / 1e6, tz)
+    return datetime.fromtimestamp(tv_sec + tv_usec / 1e6, UTC)
 
 
 def _enum_label_for(labels: tuple[str, ...] | None, index: object) -> str | None:
@@ -349,7 +348,7 @@ class TangoConnector(ControlSystemConnector):
         value = attr.value
         quality: object = getattr(attr, "quality", None)
         alarm_status, severity = _quality_fields(quality)
-        timestamp = _attribute_timestamp(attr, get_facility_timezone())
+        sampled_at = _attribute_sampled_at(attr)
 
         enum_labels: tuple[str, ...] | None = None
         enum_label: str | None = None
@@ -363,7 +362,6 @@ class TangoConnector(ControlSystemConnector):
             precision=None,
             alarm_status=alarm_status,
             alarm_severity=severity,
-            timestamp=timestamp,
             enum_labels=enum_labels,
             enum_label=enum_label,
             raw_metadata={
@@ -375,7 +373,7 @@ class TangoConnector(ControlSystemConnector):
                 else None,
             },
         )
-        return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
+        return ChannelValue(value=value, sampled_at=sampled_at, metadata=metadata)
 
     @override
     async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
@@ -388,7 +386,7 @@ class TangoConnector(ControlSystemConnector):
                 omitted, which the device proxy also applies beneath it
 
         Returns:
-            ChannelValue with value, timestamp, alarm state and (on ``DevEnum``
+            ChannelValue with value, ``sampled_at``, alarm state and (on ``DevEnum``
             attributes) the state labels
 
         Raises:
@@ -616,7 +614,6 @@ class TangoConnector(ControlSystemConnector):
         device_name, attribute = _split_address(address)
         proxy = await asyncio.to_thread(self._get_proxy, device_name)
         loop = asyncio.get_event_loop()
-        tz = get_facility_timezone()
 
         def tango_callback(event: object) -> None:
             """Wrapper converting a TANGO change event to OSPREY format."""
@@ -626,14 +623,14 @@ class TangoConnector(ControlSystemConnector):
             if attr is None:
                 return
             alarm_status, severity = _quality_fields(getattr(attr, "quality", None))
-            timestamp = _attribute_timestamp(attr, tz)
             metadata = ChannelMetadata(
                 alarm_status=alarm_status,
                 alarm_severity=severity,
-                timestamp=timestamp,
                 raw_metadata={"severity": severity},
             )
-            channel_value = ChannelValue(value=attr.value, timestamp=timestamp, metadata=metadata)
+            channel_value = ChannelValue(
+                value=attr.value, sampled_at=_attribute_sampled_at(attr), metadata=metadata
+            )
             loop.call_soon_threadsafe(callback, channel_value)
 
         event_id = await asyncio.to_thread(

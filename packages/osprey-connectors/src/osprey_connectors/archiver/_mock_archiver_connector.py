@@ -7,7 +7,7 @@ active scenario set. An address outside the view is refused.
 
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,9 +58,9 @@ class MockArchiverConnector(ArchiverConnector):
         >>> connector = MockArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     addresses=['SR:DIAG:BPM:01:POSITION:X'],
-        >>>     start_date=datetime(2024, 1, 1),
-        >>>     end_date=datetime(2024, 1, 2)
+        >>>     ['SR:DIAG:BPM:01:POSITION:X'],
+        >>>     start_at=datetime(2024, 1, 1, tzinfo=UTC),
+        >>>     end_at=datetime(2024, 1, 2, tzinfo=UTC),
         >>> )
     """
 
@@ -127,20 +127,21 @@ class MockArchiverConnector(ArchiverConnector):
         build keeps the previous composite serving.
         """
         from osprey_connectors.simulation.archive import build
-        from osprey_connectors.simulation.state import parse_active_state
+        from osprey_connectors.simulation.state import ActiveState, parse_active_state
 
         assert self._view is not None
         # The signature is taken before the file is read, so a rewrite between
         # the two shows as a change on the next read.
         signature = self._signature()
-        names: list[str] = []
-        anchor_s: float | None = None
+        active = ActiveState()
         if signature is not None and self._state_file is not None:
             try:
-                names, anchor_s = parse_active_state(self._state_file.read_text(encoding="utf-8"))
+                active = parse_active_state(self._state_file.read_text(encoding="utf-8"))
             except FileNotFoundError:
                 signature = None
-        archive = build(self._view, names, anchor_s=anchor_s)
+        archive = build(
+            self._view, active.names, anchor_at=active.anchor_at, tz=get_facility_timezone()
+        )
         if self._archive is not None:
             self._archive.close()
         self._archive = archive
@@ -176,10 +177,10 @@ class MockArchiverConnector(ArchiverConnector):
     async def get_data(
         self,
         addresses: list[str],
-        start_date: datetime,
-        end_date: datetime,
-        precision_ms: int = 1000,
         *,
+        start_at: datetime,
+        end_at: datetime,
+        precision_ms: int = 1000,
         timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
@@ -188,8 +189,8 @@ class MockArchiverConnector(ArchiverConnector):
 
         Args:
             addresses: Channel addresses of the simulator view
-            start_date: Start of time range
-            end_date: End of time range
+            start_at: Start of the time range, timezone-aware.
+            end_at: End of the time range, timezone-aware.
             precision_ms: Time precision (affects downsampling). ``<= 0`` means
                 full resolution: samples are generated at the connector's own
                 configured ``sample_rate_hz``. Either way the generator is
@@ -209,10 +210,9 @@ class MockArchiverConnector(ArchiverConnector):
         """
         archive = self._require(list(addresses))
 
-        # long_frame requires a UTC-aware index; a naive start/end means
-        # facility wall-clock, as in every other archiver connector.
-        start_date, end_date = utc_window(start_date, end_date)
-        duration = (end_date - start_date).total_seconds()
+        # long_frame requires a UTC-aware index; a naive bound is refused.
+        start_utc, end_utc = utc_window(start_at, end_at)
+        duration = (end_utc - start_utc).total_seconds()
 
         # Limit number of points for performance. precision_ms <= 0 means full
         # resolution, which for the mock (no backing store) means generating at
@@ -221,15 +221,15 @@ class MockArchiverConnector(ArchiverConnector):
         num_points = min(int(duration / (effective_precision_ms / 1000.0)), 10000)
         num_points = max(num_points, 10)  # At least 10 points
 
-        index = pd.date_range(start=start_date, end=end_date, periods=num_points)
+        index = pd.date_range(start=start_utc, end=end_utc, periods=num_points)
 
         # Every sample is evaluated at the grid's absolute timestamps, so a
         # store seeded from the same archive composite holds the same values.
         t_abs = epoch_seconds_array(index)
         if t_abs is None:  # pragma: no cover - the index above is always datetimes
-            raise ValueError(f"Cannot derive epoch seconds for the {start_date} to {end_date} grid")
+            raise ValueError(f"Cannot derive epoch seconds for the {start_utc} to {end_utc} grid")
 
-        resolved = resolve_processing(processing, precision_ms, start_date)
+        resolved = resolve_processing(processing, precision_ms, start_utc)
         series = {
             channel: pd.Series(archive.series(channel, t_abs), index=index, name=channel)
             for channel in addresses
@@ -239,7 +239,7 @@ class MockArchiverConnector(ArchiverConnector):
 
         logger.debug(
             f"Mock archiver generated {len(data)} rows across "
-            f"{len(addresses)} channels from {start_date} to {end_date}"
+            f"{len(addresses)} channels from {start_utc} to {end_utc}"
         )
 
         return data
@@ -255,10 +255,8 @@ class MockArchiverConnector(ArchiverConnector):
         return ArchiverMetadata(
             address=address,
             is_archived=True,
-            # Both bounds tz-aware (facility zone) so a consumer can subtract or
-            # compare them without a naive/aware TypeError.
-            archival_start=datetime(2000, 1, 1, tzinfo=get_facility_timezone()),
-            archival_end=datetime.now(get_facility_timezone()),
+            first_sample_at=datetime(2000, 1, 1, tzinfo=UTC),
+            last_sample_at=datetime.now(UTC),
             sampling_period=1.0 / self._sample_rate_hz,
             description=f"Mock archived channel: {address}",
         )

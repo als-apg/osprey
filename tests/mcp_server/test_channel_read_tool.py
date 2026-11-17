@@ -4,6 +4,7 @@ Covers: single read, multiple reads, metadata on/off, connection errors,
 unknown channels, and error format compliance.
 """
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,13 +29,13 @@ def _make_channel_value(
     units="mA",
     alarm_status="NO_ALARM",
     alarm_severity=0,
-    timestamp="2024-01-15T10:30:00",
+    sampled_at=datetime(2024, 1, 15, 10, 30, tzinfo=UTC),
     enum_label=None,
     enum_labels=None,
 ):
     cv = MagicMock()
     cv.value = value
-    cv.timestamp = timestamp
+    cv.sampled_at = sampled_at
     cv.metadata = MagicMock()
     cv.metadata.units = units
     cv.metadata.alarm_status = alarm_status

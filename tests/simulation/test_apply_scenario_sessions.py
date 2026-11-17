@@ -176,9 +176,9 @@ def test_apply_session_seed_file_carries_the_state_files_anchor(make_project, tm
     project, config = _activate_demo_history(make_project, tmp_path)
 
     seed = json.loads(_seed(project, HOST).read_text())
-    _, epoch = read_active_state(resolve_simulation_state_dir(config, project))
+    anchor_at = read_active_state(resolve_simulation_state_dir(config, project)).anchor_at
     assert seed["version"] == 1
-    assert datetime.fromisoformat(seed["anchor"]).timestamp() == epoch
+    assert datetime.fromisoformat(seed["anchor"]) == anchor_at
     assert seed["sessions"], "a seed file never carries an empty sessions list"
 
 

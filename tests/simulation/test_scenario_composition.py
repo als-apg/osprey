@@ -55,7 +55,7 @@ def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def _active(project: Path) -> list[str]:
-    return read_active_state(resolve_simulation_state_dir({}, project))[0]
+    return list(read_active_state(resolve_simulation_state_dir({}, project)).names)
 
 
 def test_sim_apply_activates_the_built_in_still(project: Path) -> None:

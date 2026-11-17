@@ -225,14 +225,14 @@ class TestGetMetadataOverPva:
         assert metadata.raw_metadata["nt_id"] == "epics:nt/NTScalar:1.0"
 
     @pytest.mark.asyncio
-    async def test_timestamp_comes_from_the_nt_timestamp_field(self):
+    async def test_metadata_carries_no_reading_stamp(self):
+        """The instant belongs to a reading (``ChannelValue.sampled_at``), not to metadata."""
         context = FakeContext(reply=_metadata_value())
         connector = _pva_connector(context=context)
 
         metadata = await connector.get_metadata(PVA_ADDRESS)
 
-        assert metadata.timestamp is not None
-        assert metadata.timestamp.timestamp() == pytest.approx(1_700_000_000.5)
+        assert "timestamp" not in type(metadata).model_fields
 
     @pytest.mark.asyncio
     async def test_the_get_is_field_limited_and_uses_the_connector_timeout(self):
@@ -266,7 +266,6 @@ class TestGetMetadataOverPva:
         assert metadata.units == ""
         assert metadata.precision is None
         assert metadata.alarm_status is None
-        assert metadata.timestamp is not None  # falls back to now()
 
     @pytest.mark.asyncio
     async def test_ca_address_on_a_pva_capable_connector_uses_channel_access(self):

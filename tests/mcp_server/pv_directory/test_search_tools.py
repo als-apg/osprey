@@ -252,7 +252,7 @@ class FakeFeed:
             AlarmStateRow(address=channel, path=None, state=state)
             for channel, state in self.held.items()
         )
-        return AlarmStates(rows=rows, stale=False, last_contact=None)
+        return AlarmStates(rows=rows, stale=False, last_contact_at=None)
 
 
 _FEED = {

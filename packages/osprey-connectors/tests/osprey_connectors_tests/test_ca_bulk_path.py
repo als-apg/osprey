@@ -158,7 +158,7 @@ def count_closes(monitors: list[FakeSubscription]) -> list[str]:
 @pytest.fixture
 def utc(monkeypatch):
     monkeypatch.setattr(
-        "osprey_connectors.control_system._epics_connector.get_facility_timezone",
+        "osprey_connectors.config.get_facility_timezone",
         lambda: zoneinfo.ZoneInfo("UTC"),
     )
 
@@ -222,7 +222,7 @@ class TestMonitors:
 
         [value] = received
         assert value.value == 7.0
-        assert value.timestamp.timestamp() == 1_750_000_000.0
+        assert value.sampled_at.timestamp() == 1_750_000_000.0
         meta = value.metadata
         assert (meta.units, meta.precision) == ("mA", 2)
         assert (meta.display_low, meta.display_high) == (0.0, 500.0)
@@ -611,7 +611,7 @@ class TestFailedReopen:
         connector, aioca = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
         )
         monkeypatch.setattr(connector, "read_channel", read)
         await self._dead(monkeypatch, connector, aioca, [])
@@ -623,7 +623,7 @@ class TestFailedReopen:
         connector, aioca = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
         )
         monkeypatch.setattr(connector, "read_channel", read)
         await connector.subscribe(NAME, lambda v: None)  # down: waiters wait for CTRL
@@ -957,7 +957,7 @@ class TestRepoint:
         connector, _ = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
         )
         monkeypatch.setattr(connector, "read_channel", read)
         await connector.subscribe(NAME, lambda v: None)
@@ -1027,7 +1027,7 @@ class TestMetadata:
         connector, _ = bulk_connector()
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
         )
         monkeypatch.setattr(connector, "read_channel", read)
 
@@ -1040,7 +1040,7 @@ class TestMetadata:
         connector, _ = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, timestamp=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
         )
         monkeypatch.setattr(connector, "read_channel", read)
         sub_id = await connector.subscribe(NAME, lambda v: None)

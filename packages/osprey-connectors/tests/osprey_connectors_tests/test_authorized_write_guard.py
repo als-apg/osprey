@@ -12,8 +12,8 @@ no authorization is judged exactly as before.
 
 from __future__ import annotations
 
-import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +44,7 @@ SECTION = {"type": "epics", "writes": "allowed"}
 TARGET = "va"
 ME = FIXTURE_IDENTITY
 CHANNELS = {"A:SP": ChannelRange(min=0.0, max=10.0), "B:SP": ChannelRange(min=-1.0, max=1.0)}
-FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
+FAR_FUTURE = datetime.now(UTC) + timedelta(hours=12)
 
 
 class BaseBatchConnector(ControlSystemConnector):
@@ -157,7 +157,7 @@ def _epoch() -> int:
 
 def approve(monkeypatch: pytest.MonkeyPatch, *, name: bool = True, **fields: Any) -> Grant:
     """Issue a grant to this login, start this process's lease, and name it in the environment."""
-    now = time.time_ns()
+    now = datetime.now(UTC)
     values: dict[str, Any] = {
         "id": uuid.uuid4().hex,
         "owner": ME,
@@ -166,10 +166,10 @@ def approve(monkeypatch: pytest.MonkeyPatch, *, name: bool = True, **fields: Any
         "switch_epoch": _epoch(),
         "channels": CHANNELS,
         "steps": 3,
-        "issued_at_ns": now,
-        "expires_at_ns": FAR_FUTURE_NS,
+        "issued_at": now,
+        "expires_at": FAR_FUTURE,
         "lease_s": 60.0,
-        "approver": Approver(identity="alice", surface="chip", at_ns=now),
+        "approver": Approver(identity="alice", surface="chip", approved_at=now),
         "label": "run-1",
         "revoked": None,
     }

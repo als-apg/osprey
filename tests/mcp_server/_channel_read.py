@@ -1,14 +1,15 @@
 """Channel-value and config stand-ins shared by the channel_read tool suites."""
 
 from contextlib import nullcontext
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 
-def make_channel_value(value, timestamp="2024-01-15T10:30:00"):
+def make_channel_value(value, sampled_at=datetime(2024, 1, 15, 10, 30, tzinfo=UTC)):
     """A non-enum channel reading of ``value`` with fixed metadata."""
     cv = MagicMock()
     cv.value = value
-    cv.timestamp = timestamp
+    cv.sampled_at = sampled_at
     cv.metadata = MagicMock()
     cv.metadata.units = "counts"
     cv.metadata.precision = 3

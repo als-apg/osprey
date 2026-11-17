@@ -83,9 +83,9 @@ class DOOCSArchiverConnector(ArchiverConnector):
         >>> connector = DOOCSArchiverConnector()
         >>> await connector.connect(config)
         >>> df = await connector.get_data(
-        >>>     addresses=['FACILITY/DEVICE/LOCATION/PROPERTY'],
-        >>>     start_date=datetime(2026, 7, 1),
-        >>>     end_date=datetime(2026, 7, 2)
+        >>>     ['FACILITY/DEVICE/LOCATION/PROPERTY'],
+        >>>     start_at=datetime(2026, 7, 1, tzinfo=UTC),
+        >>>     end_at=datetime(2026, 7, 2, tzinfo=UTC),
         >>> )
     """
 
@@ -158,10 +158,10 @@ class DOOCSArchiverConnector(ArchiverConnector):
     async def get_data(
         self,
         addresses: list[str],
-        start_date: datetime,
-        end_date: datetime,
-        precision_ms: int = 1000,
         *,
+        start_at: datetime,
+        end_at: datetime,
+        precision_ms: int = 1000,
         timeout_s: float | None = None,
         processing: ProcessingMode = "raw",
     ) -> pd.DataFrame:
@@ -170,8 +170,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
         Args:
             addresses: List of DOOCS property addresses
-            start_date: Start of time range
-            end_date: End of time range
+            start_at: Start of the time range, timezone-aware.
+            end_at: End of the time range, timezone-aware.
             precision_ms: Time precision (affects downsampling)
             timeout_s: Timeout in seconds. ``None`` falls back to the connector's
                 configured default rather than waiting indefinitely.
@@ -185,7 +185,8 @@ class DOOCSArchiverConnector(ArchiverConnector):
         Raises:
             RuntimeError: If archiver not connected, or a DOOCS property's
                 history cannot be read
-            TypeError: If start_date or end_date are not datetime objects
+            TypeError: If start_at or end_at is not a datetime
+            NaiveDatetimeError: If start_at or end_at is naive
             TimeoutError: If the request times out
             ValueError: If a non-raw processing mode is requested for a
                 channel that carries non-numeric values
@@ -197,9 +198,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         if not self._connected:
             raise RuntimeError("DOOCS archiver not connected")
 
-        # A naive datetime's .timestamp() resolves against the *host* zone;
-        # convert explicitly so the window means the same thing on every box.
-        start_utc, end_utc = utc_window(start_date, end_date)
+        start_utc, end_utc = utc_window(start_at, end_at)
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
         # Quoted: ``pd.Series`` is not subscriptable at runtime.

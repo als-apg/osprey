@@ -99,7 +99,9 @@ The simulator
    A few facts are deployment-wide and read from ``config.yml`` rather than
    from the dict a connector is built from: the facility's timezone, the write
    tier and the channel limits. A script that has none reads them at their
-   defaults and logs a warning that it fell back to UTC. To set the timezone,
+   defaults, and logs a warning that it fell back to UTC the first time it
+   needs the facility's timezone. A channel read does not: every reading is
+   stamped in UTC (``ChannelValue.sampled_at``). To set the timezone,
    name a ``config.yml`` in ``CONFIG_FILE`` that states ``system.timezone``:
 
    .. literalinclude:: examples/system-timezone.yml

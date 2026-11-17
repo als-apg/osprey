@@ -3847,7 +3847,9 @@ def _active_in_the_view(monkeypatch, names: list[str]) -> None:
     from osprey_connectors.simulation import state as state_mod
 
     monkeypatch.setattr(apply_mod, "view_scenarios", lambda project_dir: {})
-    monkeypatch.setattr(state_mod, "read_active_state", lambda state_dir: (names, None))
+    monkeypatch.setattr(
+        state_mod, "read_active_state", lambda state_dir: state_mod.ActiveState(names=tuple(names))
+    )
 
 
 def test_seed_inputs_are_the_archive_composite_of_the_render_s_simulator_view(tmp_path):

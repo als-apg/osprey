@@ -113,14 +113,14 @@ async def test_every_read_refuses_when_not_connected(method):
     and raise AttributeError from a worker thread.
     """
     connector = MYAArchiverConnector()
-    args = {
-        "get_data": (["TEST:PV"], _START, _END),
-        "get_metadata": ("TEST:PV",),
-        "check_availability": (["TEST:PV"],),
+    args, kwargs = {
+        "get_data": ((["TEST:PV"],), {"start_at": _START, "end_at": _END}),
+        "get_metadata": (("TEST:PV",), {}),
+        "check_availability": ((["TEST:PV"],), {}),
     }[method]
 
     with pytest.raises(RuntimeError, match="not connected"):
-        await getattr(connector, method)(*args)
+        await getattr(connector, method)(*args, **kwargs)
 
 
 # --------------------------------------------------------------------------------------
@@ -271,13 +271,15 @@ async def test_both_endpoints_are_asked_for_epoch_milliseconds():
     client = _fake_client()
     client.interval.Interval.return_value.data = _events([1.0], [0])
     connector = _connected(client)
-    await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
+    await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
     assert client.query.IntervalQuery.call_args[1]["unix_timestamps_ms"] is True
 
     client = _fake_client()
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"])
     connector = _connected(client)
-    await connector.get_data(["TEST:PV"], _START, _END, precision_ms=60_000, processing="mean")
+    await connector.get_data(
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60_000, processing="mean"
+    )
     assert client.query.MyStatsQuery.call_args[1]["unix_timestamps_ms"] is True
 
 
@@ -308,8 +310,8 @@ async def test_the_repeated_fall_back_hour_keeps_its_true_instants():
 
     data = await connector.get_data(
         ["TEST:PV"],
-        datetime(2026, 11, 1, 3, 0, tzinfo=UTC),
-        datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
+        start_at=datetime(2026, 11, 1, 3, 0, tzinfo=UTC),
+        end_at=datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
         precision_ms=0,
     )
 
@@ -335,7 +337,7 @@ async def test_a_client_library_that_ignores_the_flag_is_refused():
     connector = _connected(client)
 
     with pytest.raises(RuntimeError, match=r"4\.0\.1"):
-        await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
+        await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
 
 # --------------------------------------------------------------------------------------
@@ -349,7 +351,7 @@ async def test_raw_uses_the_interval_endpoint_and_returns_a_long_frame():
     client.interval.Interval.return_value.data = _events([1.0, 2.0, 3.0], [0, 20, 40])
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
+    data = await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
     assert client.query.IntervalQuery.called
     # mysampler forward-fills onto a shared grid, which the contract forbids.
@@ -367,7 +369,7 @@ async def test_the_endpoint_url_is_passed_per_call():
     client.interval.Interval.return_value.data = _events([1.0], [0])
     connector = _connected(client)
 
-    await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
+    await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
     assert client.interval.Interval.call_args[1]["url"] == _URLS["interval"]
 
@@ -379,7 +381,9 @@ async def test_raw_decimates_at_the_requested_bin_keeping_true_timestamps():
     client.interval.Interval.return_value.data = _events([1.0, 2.0, 3.0, 4.0], [0, 5, 30, 35])
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV"], _START, _END, precision_ms=30 * 60 * 1000)
+    data = await connector.get_data(
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=30 * 60 * 1000
+    )
 
     # Two 30-minute bins; the last sample of each survives, at its own timestamp.
     assert data["value"].tolist() == [2.0, 4.0]
@@ -400,7 +404,9 @@ async def test_each_channel_contributes_only_its_own_samples():
     client.query.IntervalQuery.side_effect = lambda **kw: MagicMock(channel=kw["channel"])
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV1", "TEST:PV2"], _START, _END, precision_ms=0)
+    data = await connector.get_data(
+        ["TEST:PV1", "TEST:PV2"], start_at=_START, end_at=_END, precision_ms=0
+    )
 
     assert data["address"].tolist() == ["TEST:PV1", "TEST:PV1", "TEST:PV2"]
     assert data["value"].tolist() == [1.0, 2.0, 9.0]
@@ -412,7 +418,7 @@ async def test_channel_with_no_data_contributes_no_rows():
     client.interval.Interval.return_value.data = pd.Series(dtype="float64")
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
+    data = await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
     assert len(data) == 0
     assert list(data.columns) == ["timestamp", "address", "value"]
@@ -440,7 +446,7 @@ async def test_the_prior_point_is_requested_and_kept_at_its_recorded_time():
     )
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
+    data = await connector.get_data(["TEST:PV"], start_at=_START, end_at=_END, precision_ms=0)
 
     assert client.query.IntervalQuery.call_args[1]["prior_point"] is True
     assert data["value"].tolist() == [7.0, 9.0]
@@ -469,7 +475,9 @@ async def test_aggregates_are_computed_server_side(mode, expected):
     )
     connector = _connected(client)
 
-    data = await connector.get_data(["TEST:PV"], _START, _END, precision_ms=60_000, processing=mode)
+    data = await connector.get_data(
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60_000, processing=mode
+    )
 
     assert client.query.MyStatsQuery.called
     assert not client.query.IntervalQuery.called
@@ -483,7 +491,9 @@ async def test_bin_width_becomes_a_bin_count_for_mystats():
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"])
     connector = _connected(client)
 
-    await connector.get_data(["TEST:PV"], _START, _END, precision_ms=60_000, processing="mean")
+    await connector.get_data(
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60_000, processing="mean"
+    )
 
     # A one-hour window in 60-second bins.
     assert client.query.MyStatsQuery.call_args[1]["num_bins"] == 60
@@ -504,7 +514,7 @@ async def test_a_width_that_does_not_divide_the_window_adds_a_partial_bin():
     connector = _connected(client)
 
     await connector.get_data(
-        ["TEST:PV"], _START, _END, precision_ms=25 * 60 * 1000, processing="mean"
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=25 * 60 * 1000, processing="mean"
     )
 
     assert client.mystats.MyStats.call_count == 2
@@ -524,7 +534,7 @@ async def test_a_window_narrower_than_one_bin_is_a_single_partial_bin():
     connector = _connected(client)
 
     await connector.get_data(
-        ["TEST:PV"], _START, _END, precision_ms=90 * 60 * 1000, processing="mean"
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=90 * 60 * 1000, processing="mean"
     )
 
     assert client.mystats.MyStats.call_count == 1
@@ -541,8 +551,8 @@ async def test_the_bin_count_is_computed_across_a_dst_transition():
     # Six real hours spanning the fall-back; the wall clock advances only five.
     await connector.get_data(
         ["TEST:PV"],
-        datetime(2026, 11, 1, 3, 0, tzinfo=UTC),
-        datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
+        start_at=datetime(2026, 11, 1, 3, 0, tzinfo=UTC),
+        end_at=datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
         precision_ms=60 * 60 * 1000,
         processing="mean",
     )
@@ -558,7 +568,9 @@ async def test_aggregate_on_a_non_numeric_channel_is_refused():
     connector = _connected(client)
 
     with pytest.raises(ValueError, match="non-numeric"):
-        await connector.get_data(["TEST:PV"], _START, _END, precision_ms=60_000, processing="mean")
+        await connector.get_data(
+            ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=60_000, processing="mean"
+        )
 
 
 @pytest.mark.asyncio
@@ -569,7 +581,7 @@ async def test_median_falls_back_to_client_side_binning():
     connector = _connected(client)
 
     data = await connector.get_data(
-        ["TEST:PV"], _START, _END, precision_ms=30 * 60 * 1000, processing="median"
+        ["TEST:PV"], start_at=_START, end_at=_END, precision_ms=30 * 60 * 1000, processing="median"
     )
 
     assert client.query.IntervalQuery.called
@@ -595,22 +607,26 @@ async def test_an_unusable_processing_request_is_refused(precision_ms, processin
     connector = _connected(_fake_client())
     with pytest.raises(ValueError, match=match):
         await connector.get_data(
-            ["TEST:PV"], _START, _END, precision_ms=precision_ms, processing=processing
+            ["TEST:PV"],
+            start_at=_START,
+            end_at=_END,
+            precision_ms=precision_ms,
+            processing=processing,
         )
 
 
 @pytest.mark.asyncio
 async def test_reversed_window_is_refused():
     connector = _connected(_fake_client())
-    with pytest.raises(ValueError, match="end_date must be after start_date"):
-        await connector.get_data(["TEST:PV"], _END, _START)
+    with pytest.raises(ValueError, match="end_at must be after start_at"):
+        await connector.get_data(["TEST:PV"], start_at=_END, end_at=_START)
 
 
 @pytest.mark.asyncio
 async def test_non_datetime_bounds_are_refused():
     connector = _connected(_fake_client())
-    with pytest.raises(TypeError, match="start_date must be a datetime"):
-        await connector.get_data(["TEST:PV"], "2026-01-01", _END)
+    with pytest.raises(TypeError, match="start_at must be a datetime"):
+        await connector.get_data(["TEST:PV"], start_at="2026-01-01", end_at=_END)
 
 
 # --------------------------------------------------------------------------------------
@@ -730,7 +746,9 @@ async def test_server_side_and_client_side_bins_share_one_grid():
     client = _fake_client()
     client.mystats.MyStats.return_value.data = _stats_frame({"TEST:PV": [1.5]}, ["mean"], at=start)
     connector = _connected(client)
-    await connector.get_data(["TEST:PV"], start, end, precision_ms=hour_ms, processing="mean")
+    await connector.get_data(
+        ["TEST:PV"], start_at=start, end_at=end, precision_ms=hour_ms, processing="mean"
+    )
 
     # The server is told to cut from the window start.
     assert client.query.MyStatsQuery.call_args_list[0][1]["start"] == datetime(2026, 1, 1, 0, 17)
@@ -746,7 +764,7 @@ async def test_server_side_and_client_side_bins_share_one_grid():
     )
     connector = _connected(client)
     data = await connector.get_data(
-        ["TEST:PV"], start, end, precision_ms=hour_ms, processing="median"
+        ["TEST:PV"], start_at=start, end_at=end, precision_ms=hour_ms, processing="median"
     )
 
     # And the local binning cuts from the same instant, not from midnight.

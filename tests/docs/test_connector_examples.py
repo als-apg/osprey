@@ -285,8 +285,8 @@ def test_read_channels_prints_the_page_output(quickstart_ioc, tmp_path):
     assert _ok(result) == _expected("read_channels")
 
 
-def test_without_a_config_the_script_says_it_fell_back_to_utc(quickstart_ioc, tmp_path):
-    """The page's claim: no ``config.yml`` reads the defaults and warns about UTC."""
+def test_a_channel_read_needs_no_facility_zone(quickstart_ioc, tmp_path):
+    """The page's claim: a reading is stamped in UTC, so no ``config.yml`` costs no warning."""
     module = _load("read_channels")
     result = _run(
         "read_channels",
@@ -294,8 +294,8 @@ def test_without_a_config_the_script_says_it_fell_back_to_utc(quickstart_ioc, tm
         _clean_env(tmp_path),
         {"CONFIG": _pointed_at(module.CONFIG, quickstart_ioc.port)},
     )
-    _ok(result)
-    assert "Falling back to UTC facility timezone" in result.stdout + result.stderr
+    assert _ok(result) == _expected("read_channels")
+    assert "Falling back to UTC" not in result.stdout + result.stderr
 
 
 def test_the_timezone_config_the_page_shows_ends_the_warning(quickstart_ioc, tmp_path):

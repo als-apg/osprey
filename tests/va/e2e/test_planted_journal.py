@@ -126,7 +126,7 @@ def _plant_journal(state_dir: Path, planted: dict[str, float]) -> Path:
     from osprey_connectors.control_system._va_in_process_connector import active_set_sha256
     from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
 
-    active = resolve_active_scenarios(read_active_state(state_dir)[0])
+    active = resolve_active_scenarios(read_active_state(state_dir).names)
     path = state_dir.joinpath(*JOURNAL)
     path.parent.mkdir(parents=True, exist_ok=True)
     writes = [[seq, address, value] for seq, (address, value) in enumerate(planted.items(), 1)]

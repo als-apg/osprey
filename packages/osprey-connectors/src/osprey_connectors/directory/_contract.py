@@ -11,7 +11,7 @@ from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 from typing_extensions import override
 
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
@@ -20,6 +20,7 @@ from osprey_connectors.service_answers import (
     Source,
     Unavailable,
     _Backend,
+    _require_one_time,
     _require_reason,
 )
 
@@ -33,7 +34,12 @@ class DirectoryRow(FrozenModel):
     ``server`` is the process serving the channel and ``channel_type`` its type
     there: EPICS RecSync's ``iocName`` and ``recordType``, a Tango database's
     device-server instance and device class, a DOOCS ENS server name and device
-    type. ``last_announced`` is RecSync's ``time`` or Tango's last export time.
+    type. ``announced_at`` is when the channel was last announced: RecSync's
+    ``time`` or Tango's last export time. RecSync can write its ``time`` as local
+    time with no zone, as the recorded answers do, and such a stamp cannot be
+    placed on the clock: then ``announced_at`` is ``None`` and ``recorded_stamp``
+    holds its text, and no zone is guessed for it. ``recorded_stamp`` is ``None``
+    whenever ``announced_at`` is set.
     """
 
     address: str
@@ -42,7 +48,13 @@ class DirectoryRow(FrozenModel):
     channel_type: str | None = None
     server: str | None = None
     host: str | None = None
-    last_announced: str | None = None
+    announced_at: AwareDatetime | None = None
+    recorded_stamp: str | None = None
+
+    @model_validator(mode="after")
+    def _one_time(self) -> Self:
+        _require_one_time(self.announced_at, self.recorded_stamp)
+        return self
 
 
 class DirectoryRecord(FrozenModel):

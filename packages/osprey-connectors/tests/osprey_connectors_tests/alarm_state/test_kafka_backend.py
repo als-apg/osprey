@@ -550,9 +550,8 @@ def wall(monkeypatch, clock: FakeClock) -> FakeClock:
     return clock
 
 
-def _iso(seconds: float) -> str:
-    moment = datetime.fromtimestamp(seconds, UTC).isoformat(timespec="milliseconds")
-    return moment.replace("+00:00", "Z")
+def _moment(seconds: float) -> datetime:
+    return datetime.fromtimestamp(seconds, UTC)
 
 
 async def test_the_list_before_start_is_still_loading_at_once():
@@ -599,7 +598,7 @@ async def test_a_caught_up_feed_lists_its_rows_and_last_contact(wall):
     assert states.rows[0].state == await _answer(backend)
     assert dict(states.counts) == {"MAJOR": 1}
     assert states.stale is False
-    assert states.last_contact == _iso(wall.now)
+    assert states.last_contact_at == _moment(wall.now)
     await backend.aclose()
 
 
@@ -608,7 +607,7 @@ async def test_the_last_contact_moves_on_an_offset_check(wall):
     backend = _backend(consumer)
     await backend.start()
     await _caught_up(backend)
-    first = (await backend.states(timeout_s=1.0)).last_contact
+    first = (await backend.states(timeout_s=1.0)).last_contact_at
 
     calls = consumer.end_offset_calls
     wall.now += _phoebus_kafka._STALE_WINDOW_S + 1
@@ -616,6 +615,6 @@ async def test_the_last_contact_moves_on_an_offset_check(wall):
     await _until(lambda: backend._last_contact == wall.now)
 
     states = await backend.states(timeout_s=1.0)
-    assert states.last_contact == _iso(wall.now) != first
+    assert states.last_contact_at == _moment(wall.now) != first
     assert states.stale is False
     await backend.aclose()

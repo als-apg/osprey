@@ -614,7 +614,7 @@ class _StallingConnector:
                 raise
         if address.endswith(":BROKEN"):
             raise ConnectionError(f"Failed to connect to PV '{address}'")
-        return ChannelValue(value=2.5, timestamp=datetime.now(UTC))
+        return ChannelValue(value=2.5, sampled_at=datetime.now(UTC))
 
 
 async def test_a_channel_that_never_answers_does_not_hold_the_sample(
@@ -1210,9 +1210,9 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
         frame = await connector.get_data(
-            addresses=list(samples),
-            start_date=timestamp - timedelta(seconds=5),
-            end_date=timestamp + timedelta(seconds=5),
+            list(samples),
+            start_at=timestamp - timedelta(seconds=5),
+            end_at=timestamp + timedelta(seconds=5),
         )
         availability = await connector.check_availability(list(samples))
     finally:
@@ -1269,9 +1269,9 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     connector = await _connected_reader(settings, mongodb_container, password, monkeypatch)
     try:
         frame = await connector.get_data(
-            addresses=list(samples),
-            start_date=timestamp - timedelta(seconds=5),
-            end_date=timestamp + timedelta(seconds=5),
+            list(samples),
+            start_at=timestamp - timedelta(seconds=5),
+            end_at=timestamp + timedelta(seconds=5),
         )
         availability = await connector.check_availability([*samples, "seeded_at"])
         metadata = await connector.get_metadata("fingerprint")
@@ -1282,7 +1282,7 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     assert read == samples
     assert availability == {**dict.fromkeys(samples, True), "seeded_at": False}
     assert metadata.is_archived is True
-    assert metadata.archival_start.replace(tzinfo=UTC) == timestamp
+    assert metadata.first_sample_at == timestamp
 
 
 def test_writing_an_instant_twice_merges_and_never_restamps_expiry(archive_collection) -> None:

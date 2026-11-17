@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from osprey_connectors.errors import NaiveDatetimeError
+
 # --------------------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------------------
@@ -180,17 +182,17 @@ class TestGetDataValidation:
             conn = DOOCSArchiverConnector()
             # Never called connect()
             with pytest.raises(RuntimeError, match="not connected"):
-                await conn.get_data(["ADDR"], _START, _END)
+                await conn.get_data(["ADDR"], start_at=_START, end_at=_END)
 
     @pytest.mark.parametrize(
         ("bound", "start", "end"),
-        [("start_date", "2026-01-01", _END), ("end_date", _START, 1234567890)],
+        [("start_at", "2026-01-01", _END), ("end_at", _START, 1234567890)],
         ids=["start", "end"],
     )
     async def test_non_datetime_bound_is_rejected(self, archiver, bound, start, end):
         conn, _ = archiver
         with pytest.raises(TypeError, match=bound):
-            await conn.get_data(["ADDR"], start, end)
+            await conn.get_data(["ADDR"], start_at=start, end_at=end)
 
 
 # --------------------------------------------------------------------------------------
@@ -203,7 +205,7 @@ class TestGetDataSinglePV:
         """The canonical long frame, carrying exactly the requested channel and
         every one of the fixture chunk's 20 archived samples."""
         conn, _ = archiver
-        df = await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
+        df = await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
 
         assert isinstance(df, pd.DataFrame)
         assert list(df.columns) == ["timestamp", "address", "value"]
@@ -216,7 +218,7 @@ class TestGetDataSinglePV:
         mock_d4py.get.side_effect = RuntimeError("DOOCS error")
 
         with pytest.raises(RuntimeError, match="Cannot read history for FAC/DEV/LOC/PROP"):
-            await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
+            await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
 
 
 class TestGetDataTimeout:
@@ -246,7 +248,7 @@ class TestGetDataTimeout:
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
 
-        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
+        await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
 
         assert seen["timeout"] == 60
 
@@ -256,7 +258,7 @@ class TestGetDataTimeout:
         await conn.connect({"timeout_s": 7})
         seen = self._spy_wait_for(monkeypatch)
 
-        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END)
+        await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END)
 
         assert seen["timeout"] == 7
 
@@ -264,7 +266,7 @@ class TestGetDataTimeout:
         conn, _ = archiver
         seen = self._spy_wait_for(monkeypatch)
 
-        await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END, timeout_s=3)
+        await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END, timeout_s=3)
 
         assert seen["timeout"] == 3
 
@@ -274,7 +276,7 @@ class TestGetDataTimeout:
         seen = self._spy_wait_for(monkeypatch)
 
         with pytest.raises(TimeoutError):
-            await conn.get_data(["FAC/DEV/LOC/PROP"], _START, _END, timeout_s=0)
+            await conn.get_data(["FAC/DEV/LOC/PROP"], start_at=_START, end_at=_END, timeout_s=0)
 
         assert seen["timeout"] == 0
 
@@ -618,14 +620,21 @@ class TestDisconnectedGuard:
 
 
 class TestQueryWindowTimezone:
-    """Naive bounds must resolve against the facility zone, not the host's."""
+    """Aware bounds reach the archive as their own instant; naive ones are refused."""
 
-    async def test_naive_bounds_use_the_facility_zone(self, archiver, monkeypatch, request):
+    async def test_a_naive_bound_is_refused(self, archiver):
+        conn, _ = archiver
+        with pytest.raises(NaiveDatetimeError, match="start_at"):
+            await conn.get_data(["FAC/DEV/LOC/P"], start_at=datetime(2026, 7, 30), end_at=_END)
+
+    async def test_aware_bounds_are_the_same_instant_on_any_host(
+        self, archiver, monkeypatch, request
+    ):
         from zoneinfo import ZoneInfo
 
         # Force the host zone to UTC so a reintroduced host-zone .timestamp()
         # bug fails on every machine, not only where the host zone differs
-        # from the patched facility zone.
+        # from the bounds' own zone.
         monkeypatch.setenv("TZ", "UTC")
         time.tzset()
 
@@ -637,11 +646,8 @@ class TestQueryWindowTimezone:
 
         request.addfinalizer(_restore_tz)
 
-        conn, mock_d4py = archiver
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_facility_timezone",
-            lambda: ZoneInfo("America/Los_Angeles"),
-        )
+        conn, _ = archiver
+        pacific = ZoneInfo("America/Los_Angeles")
 
         captured = {}
         original = conn._read_history
@@ -654,9 +660,9 @@ class TestQueryWindowTimezone:
         conn._read_history = _spy
 
         await conn.get_data(
-            addresses=["FAC/DEV/LOC/P"],
-            start_date=datetime(2026, 7, 30, 10, 0, 0),
-            end_date=datetime(2026, 7, 30, 11, 0, 0),
+            ["FAC/DEV/LOC/P"],
+            start_at=datetime(2026, 7, 30, 10, 0, 0, tzinfo=pacific),
+            end_at=datetime(2026, 7, 30, 11, 0, 0, tzinfo=pacific),
         )
 
         # 10:00 PDT is 17:00 UTC.
@@ -688,9 +694,9 @@ class TestProcessingSparseData:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                addresses=["FAC/DEV/LOC/P"],
-                start_date=start,
-                end_date=end,
+                ["FAC/DEV/LOC/P"],
+                start_at=start,
+                end_at=end,
                 precision_ms=1000,
                 processing="mean",
             )
@@ -759,9 +765,9 @@ class TestProcessingGenuineAggregation:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                addresses=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
+                ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
+                start_at=_START,
+                end_at=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
                 precision_ms=1000,
                 processing=processing,
             )
@@ -784,9 +790,9 @@ class TestProcessingGenuineAggregation:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                addresses=["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
+                ["FAC/DEV/LOC/A", "FAC/DEV/LOC/B"],
+                start_at=_START,
+                end_at=datetime(2026, 1, 1, 0, 0, 3, tzinfo=UTC),
                 precision_ms=1000,
                 # processing defaults to "raw"
             )
@@ -856,9 +862,9 @@ class TestProcessingGenuineAggregation:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                addresses=["FAC/DEV/LOC/FAST", "FAC/DEV/LOC/SLOW"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC),
+                ["FAC/DEV/LOC/FAST", "FAC/DEV/LOC/SLOW"],
+                start_at=_START,
+                end_at=datetime(2026, 1, 1, 0, 0, 10, tzinfo=UTC),
                 precision_ms=1000,
                 processing=processing,
             )
@@ -894,9 +900,9 @@ class TestProcessingGenuineAggregation:
             conn = DOOCSArchiverConnector()
             await conn.connect({})
             df = await conn.get_data(
-                addresses=["FAST", "SLOW"],
-                start_date=_START,
-                end_date=datetime(2026, 1, 1, 0, 0, 5, tzinfo=UTC),
+                ["FAST", "SLOW"],
+                start_at=_START,
+                end_at=datetime(2026, 1, 1, 0, 0, 5, tzinfo=UTC),
                 precision_ms=1000,
                 processing="count",
             )

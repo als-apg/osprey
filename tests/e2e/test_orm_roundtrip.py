@@ -216,7 +216,7 @@ def _deployment_state_dir(repo: Path) -> Path:
 
 def _assert_deployment_starts_still(repo: Path) -> None:
     """Fail when the deployed stack's active set does not name the `still` scenario."""
-    names, _anchor = read_active_state(_deployment_state_dir(repo))
+    names = read_active_state(_deployment_state_dir(repo)).names
     assert STILL_SCENARIO in names, (
         f"the deployment's active scenarios are {names}, not the {STILL_SCENARIO!r} start set"
     )

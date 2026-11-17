@@ -6,6 +6,7 @@ import json
 import time
 import urllib.parse
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -427,7 +428,9 @@ class TestRows:
         assert row.channel_type == "ai"
         assert row.server == "rf1-cav"
         assert row.host == "ioc-rf1.demo.lab"
-        assert row.last_announced == "2026-10-30 08:12:44.501223"
+        # RecSync's time has no zone, so it places nothing and stays as recorded.
+        assert row.announced_at is None
+        assert row.recorded_stamp == "2026-10-30 08:12:44.501223"
 
     async def test_an_inactive_channel_reads_inactive(self):
         directory, _ = backend(always())
@@ -449,6 +452,19 @@ class TestRows:
             None,
             None,
         )
+
+    async def test_an_announcement_time_with_a_zone_is_placed(self):
+        stamped = {
+            "name": "DEMO:ZONED",
+            "properties": [{"name": "time", "value": "2026-10-30 08:12:44.501223-07:00"}],
+        }
+        directory, _ = backend(always(rows=[stamped], total=1))
+
+        page = await directory.search(DirectoryQuery(address_pattern="DEMO*"), timeout_s=DEADLINE)
+
+        row = page.rows[0]
+        assert row.announced_at == datetime(2026, 10, 30, 15, 12, 44, 501223, tzinfo=UTC)
+        assert row.recorded_stamp is None
 
     @pytest.mark.parametrize(
         "body",
@@ -520,7 +536,8 @@ class TestDescribe:
 
         assert isinstance(record, DirectoryRecord)
         for field, prop in directory.field_properties.items():
-            assert getattr(record.row, field) == values[prop]
+            if field != "announced_at":  # the recorded time has no zone: recorded_stamp
+                assert getattr(record.row, field) == values[prop]
             assert prop not in record.properties
         assert record.row.description == values["recordDesc"]
 
@@ -533,7 +550,8 @@ class TestDescribe:
             "channel_type": "recordType",
             "server": "iocName",
             "host": "hostName",
-            "last_announced": "time",
+            "announced_at": "time",
+            "recorded_stamp": "time",
             "description": "recordDesc",
         }
         assert configured.field_properties["description"] == "Comment"

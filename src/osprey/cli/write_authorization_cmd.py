@@ -33,8 +33,8 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -419,7 +419,7 @@ def list_(owner: str | None, as_json: bool, repo: Path | None) -> None:
     from osprey_connectors import write_authorization as wa
 
     scope = _scope(repo, None)
-    now = time.time_ns()
+    now = datetime.now(UTC)
     grants: list[dict[str, Any]] = []
     records: dict[str, Any] = {}
 
@@ -439,7 +439,7 @@ def list_(owner: str | None, as_json: bool, repo: Path | None) -> None:
         if directory is None:
             continue
         try:
-            wa.prune_grants(directory, now_ns=now)
+            wa.prune_grants(directory, now=now)
         except (OSError, RuntimeError) as exc:
             warn(f"{login}'s authorizations cannot be pruned: {exc}")
         owner_dirs.append(directory)
@@ -453,9 +453,9 @@ def list_(owner: str | None, as_json: bool, repo: Path | None) -> None:
         if owner is not None and grant.owner != owner:
             continue
         standing = wa.grant_standing(
-            grant, record_of(grant.owner), scope.ledger_dirs(grant.owner), now_ns=now
+            grant, record_of(grant.owner), scope.ledger_dirs(grant.owner), now=now
         )
-        row = grant_summary(grant, used=standing.used, now_ns=now)
+        row = grant_summary(grant, used=standing.used, now=now)
         row["in_force"] = standing.in_force
         row["self_issued"] = grant.approver.surface == wa.SELF_ISSUE_SURFACE
         grants.append(row)
@@ -467,7 +467,7 @@ def list_(owner: str | None, as_json: bool, repo: Path | None) -> None:
         except OSError:
             requests, _unreadable = (), ()
         for request in requests:
-            if request.id in issued or now >= request.expires_at_ns:
+            if request.id in issued or now >= request.expires_at:
                 continue
             if owner is not None and request.owner != owner:
                 continue

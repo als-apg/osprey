@@ -113,8 +113,8 @@ class PhoebusAlarmState(AlarmState):
         #: Set once a read has its answer: caught up, or the broker found unreachable.
         self._settled = asyncio.Event()
         self._last_contact = 0.0
-        #: The wall-clock time of ``_last_contact``, as ISO-8601 UTC; ``None`` before any.
-        self._last_contact_at: str | None = None
+        #: The wall-clock instant of ``_last_contact``, in UTC; ``None`` before any.
+        self._last_contact_at: datetime | None = None
         self._cannot_start: Unavailable | None = None
 
     @override
@@ -151,7 +151,7 @@ class PhoebusAlarmState(AlarmState):
             return unanswered
         stale = self._stale()
         rows = state_rows(self._snapshot, stale=stale)
-        return AlarmStates(rows=rows, stale=stale, last_contact=self._last_contact_at)
+        return AlarmStates(rows=rows, stale=stale, last_contact_at=self._last_contact_at)
 
     @override
     async def config_for(
@@ -210,8 +210,7 @@ class PhoebusAlarmState(AlarmState):
     def _contact(self) -> float:
         """Record contact with the feed now, on both clocks; returns the monotonic time."""
         self._last_contact = _now()
-        moment = _wall_now().isoformat(timespec="milliseconds")
-        self._last_contact_at = moment.replace("+00:00", "Z")
+        self._last_contact_at = _wall_now()
         return self._last_contact
 
     async def _run(self) -> None:

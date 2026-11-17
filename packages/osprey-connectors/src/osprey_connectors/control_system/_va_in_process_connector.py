@@ -48,7 +48,7 @@ import inspect
 import json
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeAlias
 
@@ -56,7 +56,6 @@ from pydantic import ConfigDict
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -639,7 +638,6 @@ class VAInProcessConnector(ControlSystemConnector):
             labels = tuple(values.channel_labels(record))
         return ChannelMetadata(
             units=str(unit),
-            timestamp=datetime.now(get_facility_timezone()),
             description=None if record is None else record.description,
             alarm_severity=UDF_SEVERITY if address in severity else None,
             alarm_status=UDF_STATUS if address in severity else None,
@@ -654,7 +652,7 @@ class VAInProcessConnector(ControlSystemConnector):
             metadata = evolve(metadata, enum_label=str(stored))
         return ChannelValue(
             value=self._wire(address, stored),
-            timestamp=metadata.timestamp or datetime.now(get_facility_timezone()),
+            sampled_at=datetime.now(UTC),
             metadata=metadata,
         )
 

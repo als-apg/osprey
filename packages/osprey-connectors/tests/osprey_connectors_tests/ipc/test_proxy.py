@@ -50,7 +50,7 @@ TS = datetime(2026, 8, 22, 14, 30, 5, 123456, tzinfo=UTC)
 
 
 def _channel_value(value, units="A"):
-    return ChannelValue(value=value, timestamp=TS, metadata=ChannelMetadata(units=units))
+    return ChannelValue(value=value, sampled_at=TS, metadata=ChannelMetadata(units=units))
 
 
 # ---------------------------------------------------------------- fake child
@@ -156,7 +156,7 @@ async def test_read_channel_round_trips_a_real_channel_value(teardown):
 
     assert isinstance(result, ChannelValue)
     assert result.value == 1.25
-    assert result.timestamp == TS
+    assert result.sampled_at == TS
     assert result.metadata.units == "A"
     assert len(child.requests) == 1
     assert child.requests[0].method == "read_channel"

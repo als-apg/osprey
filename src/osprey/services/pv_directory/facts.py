@@ -42,6 +42,7 @@ from osprey.services.pv_directory._connectors import (
     SERVED_SIGNAL_PROPERTY,
     Unavailable,
     as_payload,
+    served_instant,
     severity_rank,
     unavailable_payload,
 )
@@ -83,6 +84,8 @@ _REPLAY_BACKEND = "alarm_replay"
 _GRACE_S = 0.5
 _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
 _FEED_LOADING = "alarm feed still loading"
+#: Where an alarm with no time sorts among those of its severity: after every timed one.
+_NO_TIME = datetime.min.replace(tzinfo=UTC)
 _LIVE_CONFIGURATION = CONFIG_LABELS["alarm_state"]
 _LOGGED_CONFIGURATION = CONFIG_LABELS["alarm_log"]
 #: The panel that shows directory results; its deep-link routes are ``#/pv/`` and ``#/ioc/``,
@@ -231,8 +234,8 @@ class Facts:
             return {**served, "outcome": "unavailable", "record": None, "reason": answer.reason}
         record = {
             "archived": answer.is_archived,
-            "first_sample": _iso(answer.archival_start),
-            "last_sample": _iso(answer.archival_end),
+            "first_sample": _iso(answer.first_sample_at),
+            "last_sample": _iso(answer.last_sample_at),
             "sampling_period_s": answer.sampling_period,
             "description": answer.description,
         }
@@ -308,7 +311,7 @@ class Facts:
             return _section(backend, "unavailable", reason=answer.reason)
         active = sorted(
             (row for row in answer.rows if row.state.severity not in ("OK", None)),
-            key=lambda row: (severity_rank(row.state.severity), row.state.time or ""),
+            key=_alarm_order,
             reverse=True,
         )
         if severities:
@@ -322,7 +325,7 @@ class Facts:
             rows=[_alarm_row(row) for row in served],
             truncated=len(served) < len(active),
             stale=answer.stale,
-            last_contact=answer.last_contact,
+            last_contact=served_instant(answer.last_contact_at),
             feed=_feed_kind(backend),
         )
 
@@ -671,6 +674,12 @@ def _feed_kind(backend: Any) -> str:
     return "replay" if backend.spec.type == _REPLAY_BACKEND else "live"
 
 
+def _alarm_order(row: Any) -> tuple[int, bool, datetime]:
+    """An active alarm's place, largest first: most severe, then newest, an untimed one last."""
+    event_at = row.state.event_at
+    return severity_rank(row.state.severity), event_at is not None, event_at or _NO_TIME
+
+
 def _alarm_row(row: Any) -> dict[str, Any]:
     """One active alarm as served: ``pv`` and ``path``, then its state's fields."""
     served = as_payload(row)
@@ -736,10 +745,8 @@ def _archive_counts(whole: Mapping[str, Any], stored: Any, unknown: str) -> dict
 
 
 def _iso(moment: datetime | None) -> str | None:
-    """*moment* as ISO 8601 in UTC; a naive time is UTC, as the archive store keeps it."""
-    if moment is None:
-        return None
-    return (moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment).isoformat()
+    """*moment*, an aware archiver instant, as ISO 8601 in UTC."""
+    return None if moment is None else moment.astimezone(UTC).isoformat()
 
 
 def _unavailable(reason: str) -> dict[str, Any]:

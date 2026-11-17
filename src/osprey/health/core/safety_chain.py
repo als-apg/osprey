@@ -404,7 +404,7 @@ _RANK = {"off": 0, "never": 0, "asked": 1, "allowed": 2}
 def _switch_rows(cfg: Mapping[str, Any], repo: Path) -> list[CheckResult]:
     rows: list[CheckResult] = []
     in_force = 0
-    now_ns = time.time_ns()
+    now = datetime.now(UTC)
     for login, tier in _logins(cfg):
         directory = _login_dir(cfg, repo, login)
         rows.append(_switch_row(cfg, repo, login, tier, directory))
@@ -415,7 +415,7 @@ def _switch_rows(cfg: Mapping[str, Any], repo: Path) -> list[CheckResult]:
                 grants, _ = list_grants(directory / "authorizations")
             except OSError:
                 continue
-            in_force += sum(1 for g in grants if g.live_at(now_ns))
+            in_force += sum(1 for g in grants if g.live_at(now))
     rows.append(
         _row(
             "write_authorizations",
