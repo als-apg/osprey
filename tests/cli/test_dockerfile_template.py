@@ -58,6 +58,8 @@ EXPECTED_ARGS = {
     "OSPREY_OFFLINE": "0",
     "OSPREY_SITE_CA": "",
     "OSPREY_BASE_REGISTRY": "docker.io",
+    "PLAYWRIGHT_DOWNLOAD_HOST": "",
+    "OSPREY_SKIP_BROWSER": "",
 }
 
 
@@ -461,6 +463,50 @@ class TestDockerfileContent:
             < text.index("playwright install")
             < text.index("--force-reinstall")
         )
+
+    def test_the_browser_run_skips_only_the_download_when_told_to(self, hello_project, tmp_path):
+        """``OSPREY_SKIP_BROWSER=1`` drops the download and keeps libatomic1.
+
+        Without the switch the install runs once, sees the site's
+        ``PLAYWRIGHT_DOWNLOAD_HOST``, and a failing install fails the layer.
+        """
+        text = (hello_project / "Dockerfile").read_text()
+        (browser,) = [b for b in self._run_command_bodies(text) if "playwright install" in b]
+
+        def probe(name, *, skip, host="", python_exit=0):
+            root = tmp_path / name
+            root.mkdir()
+            apt_log = root / "apt.log"
+            python_log = root / "python.log"
+            apt = f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(apt_log))}\nexit 0\n'
+            python = (
+                f'#!/bin/sh\nprintf "%s|%s\\n" "$*" "$PLAYWRIGHT_DOWNLOAD_HOST" '
+                f">> {shlex.quote(str(python_log))}\nexit {python_exit}\n"
+            )
+            env = stubbed_env(
+                root,
+                {"apt-get": apt, "python": python},
+                OSPREY_SKIP_BROWSER=skip,
+                PLAYWRIGHT_DOWNLOAD_HOST=host,
+            )
+            result = run_body(browser, env)
+            apt_calls = apt_log.read_text().splitlines() if apt_log.exists() else []
+            python_calls = python_log.read_text().splitlines() if python_log.exists() else []
+            return result, apt_calls, python_calls
+
+        result, apt_calls, python_calls = probe("skip", skip="1")
+        assert result.returncode == 0, result.stderr
+        assert python_calls == []
+        assert any("libatomic1" in call for call in apt_calls), apt_calls
+
+        host = "https://mirror.example.org/pw"
+        result, _, python_calls = probe("mirror", skip="", host=host)
+        assert result.returncode == 0, result.stderr
+        assert python_calls == [f"-m playwright install --with-deps --only-shell chromium|{host}"]
+
+        result, _, python_calls = probe("failing", skip="", python_exit=1)
+        assert result.returncode != 0
+        assert len(python_calls) == 1
 
     def test_deps_run_primes_pip_spec_with_dev_fallback(self, hello_project):
         """The deps RUN installs ``$OSPREY_PIP_SPEC`` and carries the dev-gated
@@ -1613,11 +1659,14 @@ class TestBrowserLayerAndImageChecks:
             "RUN",
             "pip freeze --exclude uv --exclude pip --exclude setuptools --exclude wheel > /opt/osprey/constraints.txt",
         )
+        download_host = index(instructions, "ARG", "PLAYWRIGHT_DOWNLOAD_HOST")
+        skip_browser = index(instructions, "ARG", "OSPREY_SKIP_BROWSER")
         browser_env = index(instructions, "ENV", "PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright")
         browser = index(instructions, "RUN", "playwright install")
         wheel_copy = index(instructions, "COPY", "*.wh[l]")
         wheel = index(instructions, "RUN", "--force-reinstall")
-        assert [deps, browser_env, browser, wheel_copy, wheel] == list(range(deps, deps + 5)), (
+        layer = [deps, download_host, skip_browser, browser_env, browser, wheel_copy, wheel]
+        assert layer == list(range(deps, deps + 7)), (
             "the browser layer is not directly between the deps layer and the wheel drop"
         )
 
