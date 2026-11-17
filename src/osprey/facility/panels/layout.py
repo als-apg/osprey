@@ -28,13 +28,14 @@ import itertools
 import json
 import math
 import re
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import health, strip, symbols
-from osprey.facility.panels.describe import NO_POSITION
+from osprey.facility.panels.describe import NO_POSITION, RELATION_TITLES
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
 from osprey.facility.panels.model import Citation, PanelGraph
@@ -175,6 +176,13 @@ VALUE_STEP = 16  # one live value under a symbol's name
 STRIP_VALUE_WIDTH = 44  # every value under a symbol: "-412.0" at the small size
 BADGE_VALUE_WIDTH = 64  # a value beside a badge
 TAG_WIDTH = 64  # room for the longest word a ring carries, at the small size
+CARD_LEFT = 600  # a device card's left column, its signals, with the gap to the right one
+COLUMN_GAP = 24
+CARD_LABEL_WIDTH = 240  # a signal's name with its unit, in the card's table
+CARD_ROWS = 40  # signal rows a card draws; the rest are counted by how they are drawn
+CHAIN_BOX = 150  # one thing of a card's fed-by chain
+CHAIN_HEIGHT = 44
+CHAIN_ARROW = 40  # the run of an arrow between two boxes of the chain
 SUMMARY_ROW = 36  # one row of a by-system summary
 SUMMARY_COLUMNS = 2
 PICTURE_SIZE = 260
@@ -314,6 +322,15 @@ _DASH = "—"
 _COUNTS = frozenset({"count_true", "count_false", "count_in_tolerance"})
 _VALUES = "values: "
 _DROPPED = "{} values not shown: the screen's budget is spent"
+_MORE_CHANNELS = "{} more {} channels not drawn"
+_MORE_ROWS = "{} more not drawn"
+_SIGNAL_HEADS = ("signal", "setpoint", "readback")
+_CHAIN_CAPTION = "power flows right to left"
+_THIS_DEVICE = "this device"
+_FED_BY = "fed by"
+_ALSO = "also"
+_CARD_LEFT = frozenset({"signals", "settings", "health", "sources"})
+_CARD_RIGHT = frozenset({"where"})
 _READS = "{} rule channel{}"
 _MAGNETS = frozenset(
     {"bend", "quadrupole", "quadrupole_f", "quadrupole_d", "sextupole", "skew_quadrupole"}
@@ -1155,6 +1172,9 @@ class _Page:
         ] = {}  # strip values: symbol, signal, unit
         self.dropped = 0  # strip values the budget left out
         self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
+        self.x0: float = MARGIN  # the left edge of the column drawn in
+        self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
+        self.lit: set[str] = set()  # channels whose light a card's table drew
 
     # -- primitives -----------------------------------------------------------
 
@@ -1175,7 +1195,7 @@ class _Page:
         """A text label; returns its right edge. Text that would run past the right
         margin is cut there, an ellipsis marking the cut."""
         w = text_width(text, size) if w is None else w
-        right = PAGE_WIDTH - MARGIN + PANEL_PAD  # the inner edge of a section's frame
+        right = self.right  # the inner edge of a section's frame, or the column's
         if x + w > right:
             w = max(right - x, 0)
             text = _cut(text, w, size)
@@ -1193,7 +1213,13 @@ class _Page:
         return self.text(x, y, glyph, w=MARK_WIDTH)
 
     def line(
-        self, points: Sequence[tuple[float, float]], colour, width=LINE_WIDTH, *, tooltip=None
+        self,
+        points: Sequence[tuple[float, float]],
+        colour,
+        width=LINE_WIDTH,
+        *,
+        tooltip=None,
+        arrow: bool = False,
     ) -> None:
         """A line through *points*; its box is never narrower or lower than its stroke.
 
@@ -1211,7 +1237,7 @@ class _Page:
             "lineWidth": width,
             "points": [{"x": px - x0 + dx, "y": py - y0 + dy} for px, py in points],
             "arrowStart": False,
-            "arrowEnd": False,
+            "arrowEnd": arrow,
         }
         if tooltip is not None:
             props[_TOOLTIP] = tooltip
@@ -1391,9 +1417,197 @@ class _Page:
         if self.view.title != self.view.id.id:  # else the header says it already
             self.text(MARGIN, self.y, self.view.title, size=TITLE_SIZE, w=STRIP_WIDTH, h=ROW + GAP)
             self.y += ROW + GAP
-        for section in self.view.sections:
+        sections = list(self.view.sections)
+        if self.on_card:
+            sections = self.card(sections)
+        for section in sections:
             self.section(section)
         return self.s.document(self.y + SECTION_GAP)
+
+    # -- the device card ------------------------------------------------------
+
+    def card(self, sections: list[Section]) -> list[Section]:
+        """A device card's two columns in one frame: signals, settings, the health
+        not shown in the table and the sources left; the fed-by chain, the other
+        relations as chips under "also", and where it is right. Returns the other
+        sections (a picture), drawn full width under it."""
+        relations = {title for pair in RELATION_TITLES.values() for title in pair}
+        left = [s for s in sections if s.title in _CARD_LEFT]
+        right = [s for s in sections if s.title in relations | _CARD_RIGHT]
+        below = [s for s in sections if s not in left and s not in right]
+        if not left and not right:
+            return below
+        first = len(self.s.nodes)
+        top = self.y
+        start = top + PANEL_PAD
+        self.y, self.x0, self.right = start, MARGIN, MARGIN + CARD_LEFT - COLUMN_GAP
+        for section in left:
+            self.card_section(section)
+        bottom = self.y
+        self.y, self.x0, self.right = start, MARGIN + CARD_LEFT, MARGIN + STRIP_WIDTH
+        chips: list[tuple[str, Link | None]] = []
+        for section in right:
+            if section.title == _FED_BY:
+                self.chain(section)
+            elif section.title in relations:
+                chips += [_chip(section.title, item) for item in section.items]
+            else:
+                self.heading(section.title)
+                self.items(section)
+                self.y += ROW_GAP
+        if chips:
+            self.also(chips)
+        bottom = max(bottom, self.y)
+        self.x0, self.right = MARGIN, PAGE_WIDTH - MARGIN + PANEL_PAD
+        self.y = bottom + PANEL_PAD - ROW_GAP
+        self.s.widget(
+            "rectangle",
+            MARGIN - PANEL_PAD,
+            top,
+            STRIP_WIDTH + 2 * PANEL_PAD,
+            self.y - top,
+            {
+                "lineColor": BOX_BORDER,
+                "lineWidth": LINE_WIDTH,
+                "fill": True,
+                "fillColor": PANEL_BACKGROUND,
+            },
+        )
+        self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
+        self.y += PANEL_GAP
+        return below
+
+    def card_section(self, section: Section) -> None:
+        """One block of a card's left column."""
+        items = list(section.items)
+        if section.title == "health":  # a light the table drew is not repeated
+            items = [i for i in items if not (isinstance(i, Light) and i.channel in self.lit)]
+            if not items:
+                return
+        self.heading(section.title)
+        if section.title in ("signals", "settings"):
+            if section.title == "signals":
+                self.signal_heads()
+            rows = [i for i in items if isinstance(i, ValueRow)]
+            for row in rows[:CARD_ROWS]:
+                self.signal_row(row)
+            rest = Counter(row.drawn_as or "untyped" for row in rows[CARD_ROWS:])
+            for kind, count in sorted(rest.items()):
+                text = _MORE_CHANNELS.format(count, kind)
+                self.text(self.x0, self.y, text, size=SMALL_SIZE, fg=MUTED_TEXT)
+                self.next_row()
+            for item in items:
+                if not isinstance(item, ValueRow):
+                    self.item(item)
+        else:
+            for item in items[:CARD_ROWS]:
+                self.item(item)
+            if len(items) > CARD_ROWS:
+                text = _MORE_ROWS.format(len(items) - CARD_ROWS)
+                self.text(self.x0, self.y, text, size=SMALL_SIZE, fg=MUTED_TEXT)
+                self.next_row()
+        self.y += ROW_GAP
+
+    def signal_heads(self) -> None:
+        """The table's column heads, over the name, the setpoint and the readback."""
+        for word, x in zip(_SIGNAL_HEADS, self.signal_columns(), strict=True):
+            self.text(x, self.y, word.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
+        self.y += ROW
+
+    def signal_columns(self) -> tuple[float, float, float]:
+        name = self.x0
+        setpoint = name + CARD_LABEL_WIDTH + GAP
+        return name, setpoint, setpoint + VALUE_WIDTH + GAP
+
+    def signal_row(self, row: ValueRow) -> None:
+        """A row of the signals table: the name with its unit, the setpoint under its
+        head, the readback (or the readable channel) under its, then the light of the
+        deviation or of the readback's rule."""
+        name, setpoint, readback = self.signal_columns()
+        units = " / ".join(dict.fromkeys(u for u in (row.unit, row.readback_unit) if u))
+        label = f"{row.label} ({units})" if units else row.label
+        label = _cut(label, CARD_LABEL_WIDTH, TEXT_SIZE)
+        self.text(name, self.y, label, w=min(text_width(label, TEXT_SIZE), CARD_LABEL_WIDTH))
+        shown = row.readback
+        if row.readback is not None:
+            self.field(setpoint, self.y, row.channel, drawn_as=row.drawn_as, writable=True)
+            self.field(readback, self.y, row.readback)
+        elif row.writable:
+            self.field(setpoint, self.y, row.channel, drawn_as=row.drawn_as, writable=True)
+        else:
+            shown = row.channel
+            self.field(readback, self.y, row.channel, drawn_as=row.drawn_as)
+        x = readback + VALUE_WIDTH + GAP
+        deviation = _tolerance_ladder(row)
+        if deviation is not None:
+            x = self.light(x, self.y, [Light(row.channel)], rule=deviation)
+        elif shown is not None and self.graph.rule(shown):
+            x = self.light(x, self.y, [describe_light(self.graph, shown)])
+            self.lit.add(shown)
+        if row.inferred:
+            self.mark(x + GAP, self.y, symbols.INFERRED_MARK)
+        self.next_row()
+
+    def chain(self, section: Section) -> None:
+        """The fed-by chain: the device's box, and each feeder's box right of it with an
+        arrow into the device, the way the power flows; the arrows of several feeders
+        join on one bus before the device."""
+        self.heading(section.title)
+        x = self.x0
+        top = self.y
+        name = self.view.alias or self.view.id.id
+        self.chain_box(x, top, _THIS_DEVICE, name, None)
+        feeder_x = x + CHAIN_BOX + CHAIN_ARROW
+        y = top
+        for item in section.items:
+            label = item.label if isinstance(item, Link) else getattr(item, "text", "")
+            link = item if isinstance(item, Link) else None
+            kind = ""
+            if link is not None:
+                try:
+                    kind = self.graph.thing(link.target.id, link.target.kind).cls or ""
+                except KeyError:
+                    kind = ""
+            if getattr(item, "standing", None) == _CONTESTED:
+                kind = f"{kind} · {_CONTESTED}" if kind else _CONTESTED
+            if getattr(item, "basis", None) == "inferred":
+                kind = f"{kind} {symbols.INFERRED_MARK}".strip()
+            self.chain_box(feeder_x, y, kind, label, link)
+            bus = x + CHAIN_BOX + CHAIN_ARROW / 2
+            mid, here = top + CHAIN_HEIGHT / 2, y + CHAIN_HEIGHT / 2
+            points = [(feeder_x, here), (bus, here), (bus, mid), (x + CHAIN_BOX, mid)]
+            self.line(points if here != mid else [points[0], points[-1]], MUTED_TEXT, arrow=True)
+            y += CHAIN_HEIGHT + GAP
+        self.y = max(y, top + CHAIN_HEIGHT + GAP)
+        self.text(self.x0, self.y, _CHAIN_CAPTION, size=SMALL_SIZE, fg=MUTED_TEXT)
+        self.y += ROW + ROW_GAP
+
+    def chain_box(self, x: float, y: float, kind: str, name: str, link: Link | None) -> None:
+        """One box of the chain: what it is, small, over its name; opening its card."""
+        self.box(x, y, CHAIN_BOX, CHAIN_HEIGHT)
+        inner = CHAIN_BOX - GAP
+        if kind:
+            kind = _cut(kind, inner, SMALL_SIZE)
+            self.text(x + GAP / 2, y, kind, size=SMALL_SIZE, w=inner, h=SMALL_LINE, fg=MUTED_TEXT)
+        name = _cut(name, inner, SMALL_SIZE)
+        w = text_width(name, SMALL_SIZE)
+        self.text(x + GAP / 2, y + CHAIN_HEIGHT - ROW, name, size=SMALL_SIZE, w=w)
+        if link is not None:
+            self.nav(x, y, CHAIN_BOX, CHAIN_HEIGHT, link)
+
+    def also(self, chips: Sequence[tuple[str, Link | None]]) -> None:
+        """Every other relation as a chip, "<relation>: <thing>", wrapping in the column."""
+        self.heading(_ALSO)
+        x = self.x0
+        for label, link in chips:
+            room = self.right - self.x0 - GAP
+            label = _cut(label, room, SMALL_SIZE)
+            w = text_width(label, SMALL_SIZE) + GAP
+            if x > self.x0 and x + w > self.right:
+                x = self.x0
+                self.y += CHIP_HEIGHT + CHIP_GAP
+            x = self.chip(x, self.y, label, link) + CHIP_GAP
+        self.y += CHIP_HEIGHT + CHIP_GAP
 
     def header(self) -> None:
         """The bar at the top: the screen's thing, the way out to the places around it,
@@ -1427,7 +1641,7 @@ class _Page:
 
     def heading(self, text: str) -> None:
         """A section's heading: small capitals in the muted role."""
-        self.text(MARGIN, self.y, text.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+        self.text(self.x0, self.y, text.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
         self.y += ROW + ROW_GAP
 
     def section(self, section: Section) -> None:
@@ -1476,7 +1690,7 @@ class _Page:
     def left_out(self, count: int) -> None:
         """The note under a table cut at :data:`MAX_TABLE_ROWS`."""
         text = f"{count} more {_ROWS_NOT_DRAWN}"
-        self.text(MARGIN, self.y, text, w=STRIP_WIDTH, tags=(_need("table"),))
+        self.text(self.x0, self.y, text, w=STRIP_WIDTH, tags=(_need("table"),))
         self.next_row()
 
     def item(self, item: object) -> None:
@@ -1501,7 +1715,7 @@ class _Page:
     # -- rows -----------------------------------------------------------------
 
     def value_row(self, row: ValueRow) -> None:
-        x = self.text(MARGIN, self.y, row.label, w=LABEL_WIDTH)
+        x = self.text(self.x0, self.y, row.label, w=LABEL_WIDTH)
         x = self.field(x + GAP, self.y, row.channel, drawn_as=row.drawn_as, writable=row.writable)
         x = self.unit(x, self.y, row.unit)
         if row.readback is not None:
@@ -1515,16 +1729,16 @@ class _Page:
         self.next_row()
 
     def light_row(self, item: Light) -> None:
-        x = self.light(MARGIN, self.y, [item])
+        x = self.light(self.x0, self.y, [item])
         self.text(x + GAP, self.y, item.channel)
         self.next_row()
 
     def link_row(self, link: Link) -> None:
-        self.button(MARGIN, self.y, link)
+        self.button(self.x0, self.y, link, width=self.right - self.x0)
         self.next_row()
 
     def fact_row(self, fact: Fact) -> None:
-        x = self.text(MARGIN, self.y, fact.label, w=LABEL_WIDTH)
+        x = self.text(self.x0, self.y, fact.label, w=LABEL_WIDTH)
         x = self.text(x + GAP, self.y, fact.text)
         if fact.basis == "inferred":
             x = self.mark(x + GAP, self.y, symbols.INFERRED_MARK)
@@ -1536,7 +1750,7 @@ class _Page:
         self.next_row()
 
     def placement_row(self, item: Placement) -> None:
-        x = self.button(MARGIN, self.y, item.link)
+        x = self.button(self.x0, self.y, item.link, width=self.right - self.x0)
         parts = []
         if item.unit is not None:
             parts.append(f"unit {item.unit}")
@@ -2554,6 +2768,17 @@ def _cut(text: str, width: float, size: float) -> str:
         return text
     room = math.floor((width - TEXT_PAD) / (size * CHAR_WIDTH))
     return text[: room - 1] + _ELLIPSIS if room > 1 else ""
+
+
+def _chip(title: str, item: object) -> tuple[str, Link | None]:
+    """A card's chip for a related thing: "<relation>: <thing>", its card when it has one."""
+    if isinstance(item, Link):
+        return f"{title}: {item.label}", item
+    if isinstance(item, Placement):
+        return f"{title}: {item.link.label}", item.link
+    if isinstance(item, Fact):
+        return f"{title}: {item.text}", None
+    return title, None
 
 
 def caps_width(text: str, size: float) -> float:
