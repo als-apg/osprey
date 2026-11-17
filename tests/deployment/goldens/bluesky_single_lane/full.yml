@@ -364,10 +364,15 @@ services:
     # inside, the health check below fails for ever, and `restart:` never acts
     # on a container that is still running. The supervisor passes stop signals
     # on and exits with the manager's status; after a 60 s start grace it sends
-    # the health check's own ping every 10 s, and after 6 unanswered in a row
-    # it stops the manager and its worker and exits non-zero, which `restart:`
-    # does act on. Upstream's watchdog replacing a manager that hung after it
-    # connected takes 5 to 15 s and stays well inside that.
+    # the health check's own ping every 10 s and, when one goes unanswered,
+    # tries a TCP connect to the control port (read from `--zmq-control-addr`
+    # below). After 6 probes in a row with no answer AND a refused connect it
+    # stops the manager and its worker and exits non-zero, which `restart:`
+    # does act on. Refused means no process holds the port: the manager is
+    # gone. A manager that is alive but not answering still holds it, and is
+    # left running, because the restart ends the worker and whatever plan it
+    # is executing. Upstream's watchdog replacing a manager that hung after it
+    # connected takes 5 to 15 s and stays well inside the 6 probes.
     command:
       - "sh"
       - "-c"
