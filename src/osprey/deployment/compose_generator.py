@@ -1885,15 +1885,17 @@ def _image_axis_block(config):
 #:
 #: These are the knobs a site network needs and the public internet does not: a
 #: TLS-intercepting proxy's CA, the proxy bypass list pip is given, an internal
-#: package index, and the registry that stands in for docker.io, for a site that
-#: mirrors Docker Hub. They are axes in the same sense
+#: package index, the registry that stands in for docker.io, for a site that
+#: mirrors Docker Hub, and the host Playwright downloads the headless browser
+#: from. They are axes in the same sense
 #: ``images.registry`` and ``images.tag`` are — one value per deployment,
 #: carried by every image OSPREY builds — which is why they share the block and
 #: its precedence rules rather than growing a section of their own.
 #:
 #: The ARG name doubles as the environment override, exactly as the two axes
-#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: three of the five
-#: are names pip and the CA layer already read, so a build host that exports
+#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: four of the six
+#: are names their tools already read (pip, the CA layer, Playwright), so a
+#: build host that exports
 #: them for its own tooling does not then have to spell them again for OSPREY.
 SITE_IMAGE_AXES = {
     "OSPREY_SITE_CA": "site_ca",
@@ -1901,6 +1903,7 @@ SITE_IMAGE_AXES = {
     "PIP_INDEX_URL": "pip_index_url",
     "PIP_EXTRA_INDEX_URL": "pip_extra_index_url",
     "OSPREY_BASE_REGISTRY": "base_registry",
+    "PLAYWRIGHT_DOWNLOAD_HOST": "playwright_download_host",
 }
 
 
@@ -1984,25 +1987,62 @@ def resolve_site_build_args(config):
     """Every value the site hands an OSPREY image build, keyed by ARG name.
 
     The :func:`resolve_site_image_axes` values, plus ``OSPREY_OFFLINE`` when the
-    deployment is offline. That flag is read exactly as
+    deployment is offline and ``OSPREY_SKIP_BROWSER`` when the image is to be
+    built without the headless browser. The offline flag is read exactly as
     :func:`osprey.interfaces.vendor.offline_from_config` reads it for the
     serving check, so the mode an image is built for and the mode it serves in
     cannot disagree. Its value is ``"1"``, the one spelling the recipes compare
-    against; an online deployment contributes no entry at all.
+    against; an online deployment contributes no entry at all. The browser
+    switch is read the same way from ``OSPREY_SKIP_BROWSER`` and
+    ``images.skip_browser``, and is likewise absent when off.
 
     :param config: Configuration dictionary.
     :type config: dict
-    :return: ARG name -> value, the site axes in table order and
-        ``OSPREY_OFFLINE`` last.
+    :return: ARG name -> value, the site axes in table order, then
+        ``OSPREY_OFFLINE``, then ``OSPREY_SKIP_BROWSER``.
     :rtype: dict[str, str]
-    :raises ValueError: As :func:`resolve_site_image_axes`.
+    :raises ValueError: As :func:`resolve_site_image_axes`, or if
+        ``images.skip_browser`` is not a bool.
     """
     from osprey.interfaces.vendor import offline_from_config
 
     resolved = resolve_site_image_axes(config)
     if offline_from_config(config):
         resolved["OSPREY_OFFLINE"] = "1"
+    if _skip_browser(config):
+        resolved["OSPREY_SKIP_BROWSER"] = "1"
     return resolved
+
+
+def _skip_browser(config):
+    """Whether images are built without the headless browser.
+
+    Read in the two layers ``offline`` is: ``OSPREY_SKIP_BROWSER`` in the
+    environment when it spells a boolean, else ``images.skip_browser``.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: Whether the browser install is skipped.
+    :rtype: bool
+    :raises ValueError: If ``images.skip_browser`` is present but is not a bool.
+    """
+    from osprey.interfaces.vendor import _FALSY, _TRUTHY
+
+    env = os.environ.get("OSPREY_SKIP_BROWSER", "").strip().lower()
+    if env in _TRUTHY:
+        return True
+    if env in _FALSY:
+        return False
+    images = _image_axis_block(config)
+    configured = images.get("skip_browser")
+    if configured is None:
+        return False
+    if not isinstance(configured, bool):
+        raise ValueError(
+            f"images.skip_browser must be true or false, got "
+            f"{type(configured).__name__} ({configured!r})."
+        )
+    return configured
 
 
 def resolve_image_axes(config):

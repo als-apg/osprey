@@ -94,9 +94,12 @@ execution:
 #   pip_index_url        an internal PyPI mirror.
 #   pip_extra_index_url  a second index, consulted after the first.
 #   base_registry        the registry standing in for docker.io (a Docker Hub mirror) every image is pulled from.
+#   playwright_download_host  a mirror of cdn.playwright.dev (same paths) the headless browser is downloaded from.
+#   skip_browser         true builds the project image without the headless browser.
 # Each is overridden for one shell by the environment variable of the same
 # name as its build arg: OSPREY_SITE_CA, PIP_NO_PROXY, PIP_INDEX_URL,
-# PIP_EXTRA_INDEX_URL, OSPREY_BASE_REGISTRY.
+# PIP_EXTRA_INDEX_URL, OSPREY_BASE_REGISTRY, PLAYWRIGHT_DOWNLOAD_HOST,
+# OSPREY_SKIP_BROWSER.
 # `platform` (linux/amd64, linux/arm64) has none: it is set in profile.yml alone.
 #
 # As they are spelled under `config:` in profile.yml:
@@ -106,6 +109,8 @@ execution:
 #   images.pip_index_url: https://mirror.internal.example.org/pypi/simple
 #   images.pip_extra_index_url: https://wheels.internal.example.org/simple
 #   images.base_registry: mirror.example.org/dockerhub
+#   images.playwright_download_host: https://mirror.example.org/playwright
+#   images.skip_browser: true
 
 # ── Port layout ─────────────────────────────────────────────
 # The artifact gallery's host port, from this deployment's `deployment.port_base`.
