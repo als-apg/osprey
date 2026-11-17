@@ -168,3 +168,12 @@ def test_a_second_row_for_one_key_is_refused(tmp_path: Path, name: str, row: str
     _edit(directory, name, [*lines, row])
     with pytest.raises(PanelTableError, match=rf"line {len(lines) + 1}\b.*line 2\b"):
         read_tables(directory)
+
+
+def test_a_picture_part_may_be_of_any_kind_the_facility_names(tmp_path: Path) -> None:
+    from tests.facility.panels._fixture import copy_tables
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "pictures.csv").open("a") as rows:
+        rows.write("Quadrupole,end,probe 1,a_kind_of_this_facility,1.0,2.0,0.0,,,,\n")
+    assert read_tables(tables).pictures[-1].kind == "a_kind_of_this_facility"

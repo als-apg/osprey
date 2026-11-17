@@ -38,7 +38,6 @@ __all__ = [
     "EXCLUDED_KINDS",
     "HEALTH_STATES",
     "OPTIONAL_FILES",
-    "PICTURE_KINDS",
     "PICTURE_VIEWS",
     "TABLE_FILES",
     "Exclusion",
@@ -125,14 +124,6 @@ DRAWN_AS: tuple[str, ...] = ("value", "setpoint", "state", "command", "text", "w
 HEALTH_STATES: tuple[str, ...] = ("normal", "warn", "bad")
 EXCLUDED_KINDS: tuple[str, ...] = ("thing", "channel", "document")
 PICTURE_VIEWS: tuple[str, ...] = ("end", "side")
-PICTURE_KINDS: tuple[str, ...] = (
-    "pole",
-    "coil",
-    "thermal_switch",
-    "thermocouple",
-    "manifold",
-    "terminal",
-)
 
 # Per file: the columns that must be non-empty, the columns with a vocabulary,
 # the number columns (required or not by the first set) and the unique key.
@@ -153,7 +144,8 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         PAIRS: {"basis": BASES},
         HEALTH: {"state": HEALTH_STATES, "basis": BASES},
         EXCLUDED: {"kind": EXCLUDED_KINDS},
-        PICTURES: {"view": PICTURE_VIEWS, "kind": PICTURE_KINDS},
+        # a part's kind is the facility's word: any text
+        PICTURES: {"view": PICTURE_VIEWS},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(

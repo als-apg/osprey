@@ -65,6 +65,7 @@ from osprey.facility.panels.view import (
 __all__ = [
     "FORMAT_REQUESTS",
     "MIN_STRIP_SCALE",
+    "OUTLINE_KIND",
     "STATE_CODES",
     "WIDGETS",
     "Ladder",
@@ -72,6 +73,7 @@ __all__ = [
     "aggregates",
     "needs",
     "render",
+    "picture_labels",
     "rule_length",
     "strip_labels",
     "text_width",
@@ -222,6 +224,9 @@ _AGGREGATE_SYMBOL = "aggregate: symbol"
 _AGGREGATE_TEXT = "{} channels, open for detail"
 _PART = "part {} of {}"
 _ID_PARTS = re.compile(r"[:/]")
+_NO_OUTLINE = "outline not in the data"
+#: The kind of a pictures row that is a point of the class's outline, not a part.
+OUTLINE_KIND = "outline"
 _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
 _TOKEN = re.compile(r"\{(\d+)\}")
@@ -1278,27 +1283,58 @@ class _Page:
     # -- picture and elevation ------------------------------------------------
 
     def picture(self, picture: Picture) -> None:
-        top = self.y
-        self.box(MARGIN, top, PICTURE_SIZE, PICTURE_SIZE, fill=PAGE_BACKGROUND)
-        self.text(MARGIN + PICTURE_SIZE + GAP, top, f"{picture.view} view", size=SMALL_SIZE)
+        """A device class's picture: its parts where the table puts them, each named.
+
+        The outline is what the table states (rows of kind :data:`OUTLINE_KIND`,
+        joined in file order); with none, the bounding frame of the parts is
+        drawn dashed and captioned, never an invented shape. Every other kind
+        is the generic marker. Names sit in a column on each side, joined to
+        their part by a leader line (:func:`picture_labels`).
+        """
+        top = self.y + ROW
+        self.text(MARGIN, self.y, f"{picture.view} view", size=SMALL_SIZE)
+        left_col = MARGIN
+        x0 = MARGIN + PART_LABEL_WIDTH + PICTURE_PAD
+        right_col = x0 + PICTURE_SIZE + PICTURE_PAD
+        outline = [p for p in picture.parts if p.kind == OUTLINE_KIND]
+        parts = [p for p in picture.parts if p.kind != OUTLINE_KIND]
         coords = [_picture_xy(picture.view, part) for part in picture.parts]
         reach = max([max(abs(a), abs(b)) for a, b in coords] or [0]) or 1
         scale = (PICTURE_SIZE / 2 - PICTURE_PAD) / reach
-        cx, cy = MARGIN + PICTURE_SIZE / 2, top + PICTURE_SIZE / 2
-        for part, (a, b) in zip(picture.parts, coords, strict=True):
-            px, py = cx + a * scale, cy - b * scale
+        cx, cy = x0 + PICTURE_SIZE / 2, top + PICTURE_SIZE / 2
+
+        def at(part) -> tuple[float, float]:
+            a, b = _picture_xy(picture.view, part)
+            return cx + a * scale, cy - b * scale
+
+        if outline:
+            points = [at(part) for part in outline]
+            self.line([*points, points[0]], PAGE_TEXT)
+        elif parts:
+            xs = [at(part)[0] for part in parts]
+            ys = [at(part)[1] for part in parts]
+            fx, fy = min(xs) - PART_MARKER, min(ys) - PART_MARKER
+            fw, fh = max(xs) - min(xs) + 2 * PART_MARKER, max(ys) - min(ys) + 2 * PART_MARKER
+            self.box(fx, fy, fw, fh, dashed=True)
+            self.text(fx, fy + fh + ROW_GAP, _NO_OUTLINE, size=SMALL_SIZE)
+        placed = [(part.part, *at(part)) for part in parts]
+        labels = picture_labels(placed, cx, top, top + PICTURE_SIZE)
+        for part, (name, px, py), (side, label_y) in zip(parts, placed, labels, strict=True):
             channel = part.channel  # stated by the pictures row; no table states one yet
             if channel is not None and self.graph.rule(channel):
                 self.light(px - LIGHT_SIZE / 2, py - ROW / 2, [describe_light(self.graph, channel)])
-                right = px + LIGHT_SIZE / 2
             else:
                 half = PART_MARKER / 2
                 props = {"lineColor": PAGE_TEXT, "lineWidth": LINE_WIDTH, "fill": False}
                 props[_TOOLTIP] = part.part
                 self.s.widget("ellipse", px - half, py - half, PART_MARKER, PART_MARKER, props)
-                right = px + half
-            self.text(right + GAP / 2, py - ROW / 2, part.part, size=SMALL_SIZE, w=PART_LABEL_WIDTH)
-        self.y = top + PICTURE_SIZE + ROW_GAP
+            lx = left_col if side == "left" else right_col
+            anchor = lx + PART_LABEL_WIDTH if side == "left" else lx
+            self.line([(px, py), (anchor, label_y + ROW / 2)], BOX_BORDER)
+            align = "right" if side == "left" else "left"
+            self.text(lx, label_y, name, size=SMALL_SIZE, w=PART_LABEL_WIDTH, align=align)
+        bottom = max([top + PICTURE_SIZE, *(y + ROW for _side, y in labels)])
+        self.y = bottom + ROW + ROW_GAP
 
     def elevation(self, elevation: Elevation) -> None:
         top = self.y
@@ -1334,6 +1370,37 @@ class _Page:
         if unit.standing == _CONTESTED:
             self.text(x + GAP, y, _CONTESTED, size=SMALL_SIZE)
         return y + max(h, ROW)
+
+
+def picture_labels(
+    parts: Sequence[tuple[str, float, float]], centre: float, top: float, bottom: float
+) -> list[tuple[str, float]]:
+    """Where each part's name goes: ``(side, y)`` per ``(name, x, y)`` part, in order.
+
+    A part left of *centre* is named in the left column, any other in the
+    right one. In each column the names go in order of their part's ``y``,
+    each at its part's height or just under the name above it, so no two
+    overlap; a column that runs past *bottom* is pushed back up, never
+    above *top*.
+    """
+    slots: list[tuple[str, float]] = [("", 0.0)] * len(parts)
+    for side in ("left", "right"):
+        mine = [i for i, (_n, x, _y) in enumerate(parts) if (x < centre) == (side == "left")]
+        mine.sort(key=lambda i: (parts[i][2], i))
+        ys: list[float] = []
+        for i in mine:
+            want = parts[i][2] - ROW / 2
+            ys.append(max(want, ys[-1] + ROW + ROW_GAP) if ys else want)
+        for k in range(len(ys) - 1, -1, -1):  # push back up from the bottom
+            limit = bottom - ROW if k == len(ys) - 1 else ys[k + 1] - ROW - ROW_GAP
+            ys[k] = min(ys[k], limit)
+        if ys and ys[0] < top:  # a column taller than the picture runs on downward
+            ys[0] = top
+            for k in range(1, len(ys)):
+                ys[k] = max(ys[k], ys[k - 1] + ROW + ROW_GAP)
+        for i, y in zip(mine, ys, strict=True):
+            slots[i] = (side, y)
+    return slots
 
 
 def _picture_xy(view: str, part) -> tuple[float, float]:
