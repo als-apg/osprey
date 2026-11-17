@@ -13,6 +13,7 @@ import pytest
 
 from osprey.services.pv_directory import _connectors, demo, resolve
 from osprey.services.pv_directory.resolve import (
+    FLEET_CANNOT_LIST,
     KAFKA_CLIENT_MISSING,
     NO_SOURCE_WARNING,
     PREDICATES,
@@ -54,6 +55,7 @@ def _facility_like() -> dict[str, Any]:
         "alarm_log": {"type": "phoebus_alarm_logger", "settings": {"url": "https://al.example"}},
         "alarm_state": {"type": "phoebus_alarm_server", "settings": dict(_KAFKA)},
         "put_log": {"type": "caputlog", "settings": {"url": "https://es.example"}},
+        "fleet": {},
     }
 
 
@@ -83,6 +85,7 @@ class TestValidSections:
             "pv_directory_alarm_state": True,
             "pv_directory_alarm_config": True,
             "pv_directory_put_log": False,
+            "pv_directory_fleet": False,
         }
 
     def test_empty_section_on_the_simulator_baseline(self) -> None:
@@ -166,6 +169,73 @@ class TestValidSections:
 
         assert resolved is not None
         assert resolved.warnings == (f"pv_directory: {_connectors.FLOOR_REASON}",)
+
+
+class TestFleet:
+    """The ``fleet`` sub-block: the predicate, the listing warning, a refusal."""
+
+    def test_absent_sub_block_is_off(self) -> None:
+        resolved = resolve_section(_config({}))
+
+        assert resolved is not None
+        assert resolved.fleet is None
+        assert predicates(resolved)["pv_directory_fleet"] is False
+
+    def test_null_sub_block_is_off(self) -> None:
+        assert predicates(resolve_section(_config({"fleet": None})))["pv_directory_fleet"] is False
+
+    def test_present_sub_block_is_on_with_defaults(self) -> None:
+        resolved = resolve_section(_config({"fleet": {}}))
+
+        assert resolved is not None
+        assert resolved.fleet is not None
+        assert predicates(resolved)["pv_directory_fleet"] is True
+        assert resolved.warnings == ()
+
+    def test_predicate_is_a_function_of_config_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Connectors that cannot list keep the predicate on and only warn."""
+        monkeypatch.setattr(_connectors, "DIRECTORY_LISTING_AVAILABLE", False)
+
+        resolved = resolve_section(_config({"fleet": {}}))
+
+        assert resolved is not None
+        assert predicates(resolved)["pv_directory_fleet"] is True
+        assert resolved.warnings == (f"pv_directory.fleet: {FLEET_CANNOT_LIST}",)
+
+    def test_cannot_list_does_not_warn_without_the_sub_block(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(_connectors, "DIRECTORY_LISTING_AVAILABLE", False)
+
+        resolved = resolve_section(_config({}))
+
+        assert resolved is not None
+        assert resolved.warnings == ()
+
+    def test_floor_warning_alone_on_floor_connectors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(_connectors, "DIRECTORY_CONNECTORS_AVAILABLE", False)
+        monkeypatch.setattr(_connectors, "DIRECTORY_LISTING_AVAILABLE", False)
+
+        resolved = resolve_section(_config({"fleet": {}}))
+
+        assert resolved is not None
+        assert resolved.warnings == (f"pv_directory: {_connectors.FLOOR_REASON}",)
+        assert predicates(resolved)["pv_directory_fleet"] is True
+
+    @pytest.mark.parametrize(
+        ("fleet", "key"),
+        [
+            ("on", "pv_directory.fleet"),
+            ({"period_s": 1}, "pv_directory.fleet.period_s"),
+            ({"group_by": "rack"}, "pv_directory.fleet.group_by"),
+            ({"targets": ["moon"]}, "pv_directory.fleet.targets"),
+        ],
+    )
+    def test_malformed_sub_block_names_the_key(self, fleet: Any, key: str) -> None:
+        with pytest.raises(SectionError) as raised:
+            resolve_section(_config({"fleet": fleet}))
+
+        assert raised.value.key == key
 
 
 class TestRefusals:

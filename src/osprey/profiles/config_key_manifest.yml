@@ -969,6 +969,22 @@ keys:
   services.optimizer_web: {rendered: false, evidence: 'hostenv\.passthrough\(services\.optimizer_web\)', default: null}
   services.optimizer_web.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the optimizer-web injector writes ./services/optimizer_web"}
   services.optimizer_web.port: {rendered: false, evidence: '"optimizer-web": "services\.optimizer_web\.port"', default: derived, default_note: the layout's optimizer_web slot at this deployment's port base}
+  # The IOC fleet service: live in the demo preset's deploying render, whose
+  # `pv_directory.fleet` block makes the IOC fleet injector write it.
+  services.ioc_fleet: {evidence: 'set svc = \(services \| default\(\{\}, true\)\)\.ioc_fleet', default: null, note: "Written by the build exactly when pv_directory.fleet is set; the IOC fleet service"}
+  services.ioc_fleet.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the IOC fleet injector writes ./services/ioc_fleet"}
+  services.ioc_fleet.port: {evidence: 'PortSlot\("ioc_fleet", 84', default: derived, default_note: the layout's ioc_fleet slot at this deployment's port base}
+  services.ioc_fleet.image:
+    rendered: false
+    evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\) \}\}\}\n    container_name: \{\{ osprey_labels\.project_name \}\}-ioc-fleet'
+    note: >-
+      OSPREY-built image, same layering as `services.archive.image`: the IOC
+      fleet service runs the bare project image and shares `OSPREY_WORKER_IMAGE`
+      with it. The evidence anchors on the image line beside the service's own
+      container name.
+    default: derived
+    default_note: osprey_images.worker — the IOC fleet service runs the worker image
+  services.ioc_fleet.network: {rendered: false, evidence: 'set on_host = \(svc\.network \| default\(.bridge., true\)\) == .host.', default: bridge}
   services.virtual_accelerator: {evidence: 'set svc = services\[instance_key\]', default: null}
   services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator"}
   services.virtual_accelerator.port: {evidence: 'dotted_get\(config, "services\.virtual_accelerator\.port"\) or DEFAULT_VA_PORT', default: derived, default_note: the virtual accelerator's Channel Access default port}
@@ -2598,6 +2614,30 @@ keys:
     default: no-fallback
     default_note: the build refuses a `type` without it, naming this key
   pv_directory.put_log.caveats: {rendered: false, covered-by: pv_directory.put_log, default: []}
+  # The IOC fleet: resolved by services/pv_directory/fleet/settings.py into one
+  # settings object; the build refuses a malformed value naming its key. The
+  # demo preset ships `fleet: {period_s: 10}` (and the presets built on it carry
+  # it), so the block and period_s are live; the other keys take their defaults.
+  pv_directory.fleet:
+    evidence: '_FLEET_BLOCK = "fleet"'
+    default: no-fallback
+    default_note: >-
+      absent or null, there is no IOCs view, no fleet tool, no fleet service and
+      no periodic read, and pv_directory_fleet is false; `fleet: {}` turns the
+      view on with every default below
+  pv_directory.fleet.targets:
+    rendered: false
+    evidence: 'fleet\.get\("targets"\)'
+    default: derived
+    default_note: >-
+      the deployment's baseline target; a virtual accelerator served in process
+      is never refreshed
+  pv_directory.fleet.period_s: {evidence: 'fleet\.get\("period_s"\)', default: 30.0}
+  pv_directory.fleet.retention_days: {rendered: false, evidence: 'fleet\.get\("retention_days"\)', default: 7.0}
+  pv_directory.fleet.listing_deadline_s: {rendered: false, evidence: 'fleet\.get\("listing_deadline_s"\)', default: 60.0}
+  pv_directory.fleet.group_by: {rendered: false, evidence: 'fleet\.get\("group_by"\)', default: host}
+  pv_directory.fleet.classes: {rendered: false, data-map: true, evidence: 'fleet\.get\("classes"\)', default: {}}
+  pv_directory.fleet.roster_sources: {rendered: false, evidence: 'fleet\.get\("roster_sources"\)', default: []}
 
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
@@ -4876,7 +4916,7 @@ render_contexts:
       claude_code.servers: <server>
       apps: <app>
       apps.<app>.approval: <tool>
-  expected_union_size: 440
+  expected_union_size: 445
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

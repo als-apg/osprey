@@ -8,7 +8,12 @@ A malformed section raises :class:`SectionError` naming the key, which the build
 turns into a refusal. A section that is valid but cannot serve everything it
 names resolves with :attr:`ResolvedSection.warnings`: no ``type`` on a build
 without a simulator, a Kafka feed without its client, connectors without PV
-directory support. ``None`` means no section: absent, or set to ``null``.
+directory support, a fleet on connectors that cannot list. ``None`` means no
+section: absent, or set to ``null``.
+
+The ``fleet`` sub-block resolves into
+:class:`~osprey.services.pv_directory.fleet.settings.FleetSettings`, held on
+:attr:`ResolvedSection.fleet`.
 
 The connectors are reached through the shim inside functions only, so this
 module imports on every connectors release.
@@ -20,12 +25,16 @@ import importlib.util
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.services.pv_directory.demo import DEMO_PREFIX, resolve_replay_file
 
+if TYPE_CHECKING:
+    from osprey.services.pv_directory.fleet.settings import FleetSettings
+
 __all__ = [
     "ALARM_REPLAY",
+    "FLEET_CANNOT_LIST",
     "INTERNAL_TYPES",
     "KAFKA_ALARM_STATE",
     "KAFKA_CLIENT_MISSING",
@@ -58,6 +67,11 @@ NO_SOURCE_WARNING = (
     "every section answers 'not available for this target'"
 )
 
+FLEET_CANNOT_LIST = (
+    "the installed osprey-connectors cannot list a directory's IOCs: "
+    "the IOCs view answers 'cannot list' on every target"
+)
+
 #: The context keys, in the order every consumer lists them.
 PREDICATES = (
     "pv_directory_configured",
@@ -65,9 +79,13 @@ PREDICATES = (
     "pv_directory_alarm_state",
     "pv_directory_alarm_config",
     "pv_directory_put_log",
+    "pv_directory_fleet",
 )
 
 _SUB_BLOCKS = ("alarm_log", "alarm_state", "put_log")
+
+#: The IOC fleet's sub-block, resolved apart from the source sub-blocks above.
+_FLEET_BLOCK = "fleet"
 
 
 class SectionError(ValueError):
@@ -90,6 +108,7 @@ class ResolvedSection:
         alarm_state: The alarm feed's type, or ``None``.
         replay_file: The ``va`` alarm replay as configured, or ``None``.
         put_log: The put log's type, or ``None``.
+        fleet: The IOC fleet's settings, or ``None`` when the sub-block is absent.
         warnings: What the section names and this build cannot serve, one line each.
     """
 
@@ -99,6 +118,7 @@ class ResolvedSection:
     alarm_state: str | None = None
     replay_file: str | None = None
     put_log: str | None = None
+    fleet: FleetSettings | None = None
     warnings: tuple[str, ...] = ()
 
 
@@ -113,6 +133,7 @@ def predicates(resolved: ResolvedSection | None) -> dict[str, bool]:
         "pv_directory_alarm_state": alarm_state,
         "pv_directory_alarm_config": resolved.alarm_log is not None or alarm_state,
         "pv_directory_put_log": resolved.put_log is not None,
+        "pv_directory_fleet": resolved.fleet is not None,
     }
 
 
@@ -135,7 +156,8 @@ def resolve_section(
         SectionError: The section is malformed: a block that is not a mapping, a
             ``type`` without ``settings.url``, a Kafka alarm feed without
             ``bootstrap_servers`` or ``topic``, a ``replay_file`` that does not
-            resolve, or a ``type`` naming an internal builtin.
+            resolve, a ``type`` naming an internal builtin, or a malformed
+            ``fleet`` sub-block.
     """
     section = config.get(SECTION_KEY)
     if section is None:
@@ -155,6 +177,7 @@ def resolve_section(
     put_log = _http_type(blocks["put_log"], f"{SECTION_KEY}.put_log")
     alarm_state = _alarm_state_type(blocks["alarm_state"])
     replay_file = _replay_file(blocks["alarm_state"], project_dir)
+    fleet = _fleet(config, section.get(_FLEET_BLOCK))
 
     return ResolvedSection(
         section=section,
@@ -163,15 +186,29 @@ def resolve_section(
         alarm_state=alarm_state,
         replay_file=replay_file,
         put_log=put_log,
-        warnings=_warnings(config, directory_type, alarm_state),
+        fleet=fleet,
+        warnings=_warnings(config, directory_type, alarm_state, fleet=fleet is not None),
     )
 
 
+def _fleet(config: Mapping[str, Any], block: Any) -> FleetSettings | None:
+    if block is None:
+        return None
+    from osprey.services.pv_directory.fleet.settings import resolve_fleet
+
+    return resolve_fleet(config, block)
+
+
 def _warnings(
-    config: Mapping[str, Any], directory_type: str | None, alarm_state: str | None
+    config: Mapping[str, Any],
+    directory_type: str | None,
+    alarm_state: str | None,
+    *,
+    fleet: bool = False,
 ) -> tuple[str, ...]:
     from osprey.services.pv_directory._connectors import (
         DIRECTORY_CONNECTORS_AVAILABLE,
+        DIRECTORY_LISTING_AVAILABLE,
         FLOOR_REASON,
         has_simulator,
     )
@@ -179,6 +216,8 @@ def _warnings(
     if not DIRECTORY_CONNECTORS_AVAILABLE:
         return (f"{SECTION_KEY}: {FLOOR_REASON}",)
     warnings: list[str] = []
+    if fleet and not DIRECTORY_LISTING_AVAILABLE:
+        warnings.append(f"{SECTION_KEY}.{_FLEET_BLOCK}: {FLEET_CANNOT_LIST}")
     if directory_type is None and not has_simulator(config):
         warnings.append(NO_SOURCE_WARNING)
     if alarm_state == KAFKA_ALARM_STATE and not _kafka_client_installed():
