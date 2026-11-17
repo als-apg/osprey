@@ -512,11 +512,24 @@ def _placement(graph: PanelGraph, index: _Index, edge: Edge, rack_classes: froze
 def _where(
     graph: PanelGraph, index: _Index, thing: Thing, rack_classes: frozenset[str]
 ) -> list[Item]:
-    """The built place, every ``located_in`` claim of the thing, then its poses."""
+    """The built place, every ``located_in`` claim of the thing, then its poses.
+
+    A device with neither is in the place of its nearest placed whole: that
+    line reads "in <place>, as part of <whole>", is inferred, and links to the
+    whole.
+    """
     items: list[Item] = []
     if thing.place is not None:
         label = "place" if thing.kind == "device" else "parent"
         items.append(Link(label, Target("card", "place", thing.place)))
+    whole = graph.whole_of(thing.id) if thing.kind == "device" else None
+    if whole is not None:
+        text = f"in {', '.join(whole[1])}, as part of {whole[0]}"
+        target = Target("card", "device", whole[0])
+        if _has(graph, index, target, rack_classes):
+            items.append(Link(text, target, basis="inferred"))
+        else:
+            items.append(Fact("where", text, basis="inferred"))
     if thing.kind != "group":
         claims = graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ())
         items += [_placement(graph, index, e, rack_classes) for e in claims if e.outgoing]
@@ -525,7 +538,8 @@ def _where(
 
 
 def _within(graph: PanelGraph, index: _Index, place: Thing) -> list[Item]:
-    """A place's direct contents, then what a ``located_in`` claim puts in it besides."""
+    """A place's direct contents, then what a ``located_in`` claim puts in it besides,
+    then the parts in it only as part of a whole (inferred)."""
     children = graph.within(place.id)
     items: list[Item] = [_ref(graph, index, child) for child in children]
     seen = {(child.kind, child.id) for child in children}
@@ -539,6 +553,12 @@ def _within(graph: PanelGraph, index: _Index, place: Thing) -> list[Item]:
             items.append(Link(ref.label, ref.target, standing=edge.standing, basis=edge.basis))
         else:
             items.append(dataclasses.replace(ref, standing=edge.standing, basis=edge.basis))
+    for part in graph.derived(place.id):
+        if (part.kind, part.id) in seen:
+            continue
+        seen.add((part.kind, part.id))
+        ref = _ref(graph, index, part)
+        items.append(dataclasses.replace(ref, basis="inferred"))
     return items
 
 
@@ -938,12 +958,15 @@ def _unplaced_node(graph: PanelGraph, index: _Index) -> Node | None:
 
 def _place_children(graph: PanelGraph, index: _Index, root_id: str, by: str) -> list[Node]:
     """A by-place roll-up's children: what is built directly in the place, then what a
-    claim puts directly in it and is not built within it."""
+    claim puts directly in it and is not built within it, then the parts placed
+    directly in it by their whole that are not there already."""
     children: list[Node] = []
     direct = graph.within(root_id)
-    built = {(thing.kind, thing.id) for thing in graph.within(root_id, deep=True)}
-    claimed = [t for t in graph.claimed(root_id) if (t.kind, t.id) not in built]
-    for child in [*direct, *claimed]:
+    seen = {(thing.kind, thing.id) for thing in graph.within(root_id, deep=True)}
+    claimed = [t for t in graph.claimed(root_id) if (t.kind, t.id) not in seen]
+    seen |= {(thing.kind, thing.id) for thing in claimed}
+    parts = [t for t in graph.derived(root_id) if (t.kind, t.id) not in seen]
+    for child in [*direct, *claimed, *parts]:
         if child.kind == "place":
             link = _place_link(graph, index, child.id, Target("rollup", "place", child.id, by))
             children.append(_node(child.id, link, rule_channels(graph, child.id, "place")))

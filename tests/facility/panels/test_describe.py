@@ -43,7 +43,12 @@ from osprey.facility.panels.view import (
     View,
 )
 from osprey.facility.records import FacilityRecords
-from tests.facility.panels._fixture import PANELS_DIR, copy_tables, write_fixture_facility
+from tests.facility.panels._fixture import (
+    PANELS_DIR,
+    copy_tables,
+    graph_with_part,
+    write_fixture_facility,
+)
 
 SECTORS = frozenset({"sector"})  # a level marked as a rack by parameter
 EXCLUDED = ("XR02:SAF1", "XR/XR02/SAFE", "XR/XR02/SAFE/CAB1", "XR02:SAF2")
@@ -981,3 +986,31 @@ def test_a_places_own_rule_channels_are_a_child_of_its_roll_ups(tmp_path):
         (root,) = _section(health_rollup(graph, "XR/XR01/RK1", by), "roll-up").items
         (own,) = [node for node in root.children if node.label == "XR/XR01/RK1 itself"]
         assert own.channels == ("XR01:RackTemp-RB",)
+
+
+# -- parts follow their whole ---------------------------------------------------------
+
+
+def test_a_part_card_says_where_it_is_as_part_of_its_whole_inferred(tmp_path) -> None:
+    graph = graph_with_part(tmp_path)
+    where = _section(describe(graph, card("XR01:CARD1")), "where").items
+    assert where[0] == Link(
+        "in XR/XR01/RK1, as part of XR01:CH1", card("XR01:CH1"), basis="inferred"
+    )
+
+
+def test_a_part_is_a_child_of_its_wholes_place_roll_up(tmp_path) -> None:
+    graph = graph_with_part(tmp_path)
+    (rack,) = _section(health_rollup(graph, "XR/XR01/RK1"), "roll-up").items
+    child = next(node for node in rack.children if node.label == "XR01:CARD1")
+    assert child.channels == ("XR01-CARD1:Fault-Sts",)
+    (root,) = _section(health_rollup(graph, "XR"), "roll-up").items
+    assert "XR01-CARD1:Fault-Sts" in root.channels
+    unplaced = next(node for node in root.children if node.label == NOT_PLACED)
+    assert "XR01-CARD1:Fault-Sts" not in unplaced.channels
+
+
+def test_a_place_card_lists_a_part_placed_by_its_whole_as_inferred(tmp_path) -> None:
+    graph = graph_with_part(tmp_path)
+    within = _section(describe(graph, Target("card", "place", "XR/XR01/RK1")), "within").items
+    assert within[-1] == Link("XR01:CARD1", card("XR01:CARD1"), basis="inferred")

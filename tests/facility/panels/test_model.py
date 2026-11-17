@@ -11,7 +11,9 @@ from osprey.facility.panels import PanelGraph, PanelTableError, load_graph
 from tests.facility.panels._fixture import (
     PANELS_DIR,
     RING_FRAME,
+    add_part,
     copy_tables,
+    graph_with_part,
     write_fixture_facility,
 )
 
@@ -437,3 +439,68 @@ def test_a_unit_that_is_no_integer_keeps_its_claim_as_text_and_is_counted(tmp_pa
     assert graph.unread == 1
     (edge,) = [e for e in graph.neighbours("XR01:CH2")["located_in"] if e.claim == "xr01-ch2-rack"]
     assert (edge.unit, edge.unit_text) == (None, "A5")
+
+
+# -- parts follow their whole ---------------------------------------------------------
+
+
+def test_a_part_with_no_place_is_in_the_place_of_its_whole(tmp_path: Path) -> None:
+    graph = graph_with_part(tmp_path)
+    assert graph.whole_of("XR01:CARD1") == ("XR01:CH1", ("XR/XR01/RK1",))
+    assert graph.placed("XR01:CARD1")
+    assert "XR01:CARD1" not in [thing.id for thing in graph.unplaced()]
+    for place in ("XR/XR01/RK1", "XR/XR01", "XR"):
+        found = [thing.id for thing in graph.contents(place)]
+        assert found.count("XR01:CARD1") == 1, place
+    assert graph.derived("XR/XR01/RK1") == [graph.thing("XR01:CARD1")]
+    assert "XR01:CARD1" not in [thing.id for thing in graph.contents("XR/XR02")]
+
+
+def test_a_part_follows_its_whole_up_to_the_nearest_whole_with_a_place(tmp_path: Path):
+    def deeper(document: dict[str, Any]) -> None:
+        add_part(document, "XR01:CHIP1", "XR01:CARD1")
+
+    graph = graph_with_part(tmp_path, deeper)
+    assert graph.whole_of("XR01:CHIP1") == ("XR01:CH1", ("XR/XR01/RK1",))
+    assert "XR01:CHIP1" in [thing.id for thing in graph.contents("XR/XR01/RK1")]
+
+
+def test_a_whole_placed_by_its_claims_lends_the_claimed_places(tmp_path: Path) -> None:
+    def on_contested(document: dict[str, Any]) -> None:
+        add_part(document, "XR02:CARD5", "XR02:CH5")
+
+    graph = graph_with_part(tmp_path, on_contested)
+    assert graph.whole_of("XR02:CARD5") == ("XR02:CH5", ("XR/XR01/RK1", "XR/XR02/RK2"))
+    assert "XR02:CARD5" in [thing.id for thing in graph.contents("XR/XR02/RK2")]
+
+
+def test_a_part_never_overrides_a_stated_place_or_claim(tmp_path: Path) -> None:
+    def placed_parts(document: dict[str, Any]) -> None:
+        for part, whole in (("XR02:CH5", "XR01:CH1"), ("XR01:CH2", "XR02:BLOCK1")):
+            document["relations"].append(
+                {
+                    "id": f"{part.lower()}-part",
+                    "type": "part_of",
+                    "subject": {"device": part},
+                    "object": {"device": whole},
+                    "standing": "accepted",
+                }
+            )
+
+    graph = graph_with_part(tmp_path, placed_parts)
+    assert graph.whole_of("XR02:CH5") is None  # its claims stand
+    assert graph.whole_of("XR01:CH2") is None  # its built place stands
+    assert "XR01:CH2" not in [thing.id for thing in graph.contents("XR/XR02")]
+
+
+def test_a_part_of_cycle_with_no_place_stays_unplaced(tmp_path: Path) -> None:
+    def loop(document: dict[str, Any]) -> None:
+        add_part(document, "XR09:LOOPA", "XR09:LOOPB")
+        add_part(document, "XR09:LOOPB", "XR09:LOOPA")
+        add_part(document, "XR09:LOOPC", "XR09:LOOPA")
+
+    graph = graph_with_part(tmp_path, loop)
+    for part in ("XR09:LOOPA", "XR09:LOOPB", "XR09:LOOPC"):
+        assert graph.whole_of(part) is None
+        assert not graph.placed(part)
+    assert {"XR09:LOOPA", "XR09:LOOPB", "XR09:LOOPC"} <= {t.id for t in graph.unplaced()}

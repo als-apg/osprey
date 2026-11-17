@@ -45,7 +45,7 @@ from osprey.facility.panels.view import (
     ValueRow,
     View,
 )
-from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+from tests.facility.panels._fixture import copy_tables, graph_with_part, write_fixture_facility
 from tests.facility.panels._views import (
     ABOVE,
     RULED,
@@ -1002,3 +1002,16 @@ def test_a_picture_draws_only_the_outline_the_table_states(panel_graph) -> None:
     outline = [n for n in _by_type(doc, "line") if len(n["props"]["points"]) == len(corners) + 1]
     assert len(outline) == 1  # the stated points, closed
     assert "o1" not in _texts(doc)  # an outline point is no part
+
+
+def test_a_bad_part_turns_the_place_of_its_whole_bad(tmp_path) -> None:
+    graph = graph_with_part(tmp_path)
+    card = "XR01-CARD1:Fault-Sts"
+    for place in ("XR/XR01/RK1", "XR/XR01"):
+        doc, _ = draw(health_rollup(graph, place), graph)
+        root = _by_type(doc, "polygon")[0]  # the root's row is drawn first
+        names = set(bound(doc, root))
+        assert card in names, place
+        quiet = dict.fromkeys(names, 1) | {card: 0}
+        assert drawn(doc, root, quiet)["fillColor"] != symbols.look("bad")["fillColor"]
+        assert drawn(doc, root, quiet | {card: 1}) == shown("bad"), place

@@ -73,6 +73,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.relations import END_KINDS, end_identity
 
 __all__ = [
+    "PART_RELATION",
     "PLACE_RELATION",
     "SIMULATION_PREFIX",
     "Channel",
@@ -86,6 +87,10 @@ __all__ = [
 
 #: The relation kind that states a thing's place.
 PLACE_RELATION = "located_in"
+
+#: The relation kind, from the facility vocabulary, that makes a device a component of
+#: another device; a part with no place of its own is in the place of its whole.
+PART_RELATION = "part_of"
 
 #: The prefix of a channel only the simulation serves; no screen shows one.
 SIMULATION_PREFIX = "VA:"
@@ -301,6 +306,7 @@ class PanelGraph:
         self._read_channels(records, tables, excluded["channel"])
         self._read_edges(records)
         self._read_claims()
+        self._read_wholes()
         self._read_poses(tables, ring_frame)
         self._rules: dict[str, list[HealthRule]] = {}
         for rule in tables.health:
@@ -468,6 +474,48 @@ class PanelGraph:
                     places.append(edge.other)
                     self._claimed.setdefault(edge.other, []).append(thing)
 
+    def _own_places(self, key: _Key) -> tuple[str, ...]:
+        """The places a thing has by itself: its built place, else its claims' places."""
+        place = self._things[key].place
+        return (place,) if place is not None else tuple(self._claims_of.get(key, ()))
+
+    def _read_wholes(self) -> None:
+        """Every device with no place of its own, put in the place of its nearest whole.
+
+        The walk follows outgoing ``part_of`` edges to devices, breadth first in
+        file order, and stops at the first whole that has a built place or a
+        claim; a device it reaches twice is not walked again, so a loop ends.
+        """
+        self._whole_of: dict[_Key, tuple[str, tuple[str, ...]]] = {}
+        self._derived: dict[str, list[Thing]] = {}
+        for key, thing in self._things.items():
+            if thing.kind != "device" or self._own_places(key):
+                continue
+            seen = {key}
+            level = [key]
+            found: tuple[_Key, tuple[str, ...]] | None = None
+            while level and found is None:
+                upper: list[_Key] = []
+                for here in level:
+                    for edge in self._edges.get(here, {}).get(PART_RELATION, ()):
+                        whole = (edge.other_kind, edge.other)
+                        if not edge.outgoing or edge.other_kind != "device" or whole in seen:
+                            continue
+                        seen.add(whole)
+                        places = self._own_places(whole)
+                        if places:
+                            found = (whole, places)
+                            break
+                        upper.append(whole)
+                    if found is not None:
+                        break
+                level = upper
+            if found is None:
+                continue
+            self._whole_of[key] = (found[0][1], found[1])
+            for place in found[1]:
+                self._derived.setdefault(place, []).append(thing)
+
     def _read_poses(self, tables: PanelTables, ring_frame: str | None) -> None:
         thing_ids = {thing_id for _kind, thing_id in self._things}
         kept = [
@@ -607,7 +655,9 @@ class PanelGraph:
 
         The devices and places whose built place is *place_id* or a place
         within it (any depth, depth first), then those a ``located_in`` claim
-        puts in it or in a place within it; each thing once.
+        puts in it or in a place within it, then the parts with no place of
+        their own whose nearest placed whole is there (:meth:`whole_of`); each
+        thing once.
 
         Raises:
             KeyError: No such place, or it is excluded.
@@ -615,28 +665,41 @@ class PanelGraph:
         found = self.within(place_id, deep=True)
         seen = {(thing.kind, thing.id) for thing in found}
         places = [place_id, *(thing.id for thing in found if thing.kind == "place")]
-        for place in places:
-            for thing in self._claimed.get(place, ()):
-                if (thing.kind, thing.id) not in seen:
-                    seen.add((thing.kind, thing.id))
-                    found.append(thing)
+        for source in (self._claimed, self._derived):
+            for place in places:
+                for thing in source.get(place, ()):
+                    if (thing.kind, thing.id) not in seen:
+                        seen.add((thing.kind, thing.id))
+                        found.append(thing)
         return found
 
     def claimed(self, place_id: str) -> list[Thing]:
         """The things a ``located_in`` claim puts directly in the place, in graph order."""
         return list(self._claimed.get(place_id, ()))
 
+    def derived(self, place_id: str) -> list[Thing]:
+        """The parts :meth:`whole_of` puts directly in the place, in graph order."""
+        return list(self._derived.get(place_id, ()))
+
+    def whole_of(self, thing_id: str) -> tuple[str, tuple[str, ...]] | None:
+        """``(whole, places)`` for a device placed only as part of a whole, else ``None``.
+
+        The placement is derived: a device with a built place or a
+        ``located_in`` claim of its own keeps it and has none.
+        """
+        return self._whole_of.get(("device", thing_id))
+
     def placed(self, thing_id: str, kind: ThingKind | None = None) -> bool:
-        """Whether the thing is in some place: it has a built place or a claim into one."""
+        """Whether the thing is in some place: built, claimed, or as part of a whole."""
         key = self._key(thing_id, kind)
-        return self._things[key].place is not None or bool(self._claims_of.get(key))
+        return bool(self._own_places(key)) or key in self._whole_of
 
     def unplaced(self) -> list[Thing]:
         """Every device in no place by :meth:`contents`, in graph order."""
         return [
             thing
             for key, thing in self._things.items()
-            if thing.kind == "device" and thing.place is None and not self._claims_of.get(key)
+            if thing.kind == "device" and not self._own_places(key) and key not in self._whole_of
         ]
 
     def pose(self, thing_id: str) -> Pose | None:

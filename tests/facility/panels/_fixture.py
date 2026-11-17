@@ -74,3 +74,42 @@ def copy_tables(target: Path) -> Path:
     """Copy the fixture's rule tables into *target*, for a test that edits them."""
     shutil.copytree(PANELS_DIR, target)
     return target
+
+
+#: The rule row :func:`graph_with_part` adds: ``1`` on the part's channel is bad.
+PART_RULE = "XR01-CARD1:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,card.db:1\n"
+
+
+def add_part(document: dict[str, Any], part: str, whole: str, channel: str | None = None) -> None:
+    """Add the device *part*, with no place, ``part_of`` the device *whole*."""
+    document["devices"].append({"id": part, "class": "ElectronicsModule"})
+    document["relations"].append(
+        {
+            "id": f"{part.lower()}-in-{whole.lower()}",
+            "type": "part_of",
+            "subject": {"device": part},
+            "object": {"device": whole},
+            "standing": "accepted",
+        }
+    )
+    if channel is not None:
+        document["channels"].append({"id": channel, "on": {"device": part}})
+
+
+def graph_with_part(tmp_path: Path, *changes: Callable[[dict[str, Any]], None]):
+    """The fixture graph with ``XR01:CARD1``, no place, ``part_of`` the racked ``XR01:CH1``.
+
+    The card has the rule channel ``XR01-CARD1:Fault-Sts`` (``1`` is bad);
+    *changes* run on the built document after the card is added.
+    """
+    from osprey.facility.panels import load_graph
+
+    def change(document: dict[str, Any]) -> None:
+        add_part(document, "XR01:CARD1", "XR01:CH1", "XR01-CARD1:Fault-Sts")
+        for extra in changes:
+            extra(document)
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write(PART_RULE)
+    return load_graph(write_fixture_facility(tmp_path / "facility.json", change), tables)
