@@ -17,9 +17,9 @@ module gives each plan run its own, the way an optimizer run holds one:
    ``sleep`` messages so the RunEngine still pauses and aborts. At ``off`` it
    asks nobody and the run goes on exactly as before: the connector refuses
    its writes. A plan that writes nothing asks nobody.
-3. **Extend.** Before each ``set`` the grant is asked, without spending, whether
-   it covers that write (:func:`osprey_connectors.write_authorization.authorized_execution_verdict`).
-   When the survey fell short — no step left, a value outside its range, a
+3. **Extend.** Before each ``set`` the worker checks the grant it holds against
+   that write (:func:`_shortfall`), without asking the verdict: the connector
+   still judges every write. When the survey fell short — no step left, a value outside its range, a
    channel it never saw, or the grant expired — the worker files a
    *replacement* request: the steps still unspent plus more, and every range
    widened to the value in hand. A person approves the whole scope going
@@ -47,7 +47,10 @@ import threading
 import time
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from osprey_connectors.write_authorization import Grant
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.write_grant")
 
@@ -199,6 +202,26 @@ def _section() -> Any:
         return connectors_config.get_config_value("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return {}
+
+
+def _shortfall(grant: Grant, spent: int, address: str, value: float) -> str | None:
+    """Which of the grant's own terms *one more write* of *value* to *address* falls short of.
+
+    The terms a replacement can widen (:data:`EXTENDABLE`), judged from the
+    grant the worker holds and the steps it has spent under it. Everything
+    else (a stop, the switch moving, a lapsed lease) is the connector's to
+    refuse.
+    """
+    if time.time_ns() >= grant.expires_at_ns:
+        return "auth_expired"
+    bound = grant.channels.get(address)
+    if bound is None:
+        return "auth_channel"
+    if not bound.holds(value):
+        return "auth_range"
+    if spent >= grant.steps:
+        return "auth_exhausted"
+    return None
 
 
 class PlanAuthorization:
@@ -367,8 +390,6 @@ class PlanAuthorization:
         self, address: str, value: Any, target: str | None
     ) -> Generator[Any, Any, None]:
         """Make sure the grant covers this write, extending it when it falls short."""
-        from osprey_connectors import write_authorization as wa
-
         if self.ungoverned:
             return
         number = _number(address, value)
@@ -382,10 +403,8 @@ class PlanAuthorization:
             )
             if self.ungoverned:
                 return
-        verdict = wa.authorized_execution_verdict(
-            _section(), self.target, [(address, number)], authorization=self.grant.id, spend=False
-        )
-        if not verdict.allowed and verdict.reason in EXTENDABLE:
+        reason = _shortfall(self.grant, self.spent, address, number)
+        if reason is not None:
             if self.extensions >= MAX_EXTENSIONS:
                 logger.warning(
                     "Plan %s: write authorization %s refuses %s (%s) and the run has used its "
@@ -393,11 +412,11 @@ class PlanAuthorization:
                     self.plan_name,
                     self.grant.id,
                     address,
-                    verdict.reason,
+                    reason,
                     MAX_EXTENSIONS,
                 )
             else:
-                yield from self._extend(address, number, verdict.reason)
+                yield from self._extend(address, number, reason)
         self.spent += 1
 
     def _extend(self, address: str, value: float, reason: str) -> Generator[Any, Any, None]:
