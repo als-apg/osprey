@@ -73,6 +73,32 @@ def test_no_stage_pins_a_platform__mutation_pins_amd64(text: str) -> None:
         test_no_stage_pins_a_platform(mutated)
 
 
+#: Automatic platform ARGs some builders (docker 24's embedded BuildKit) leave
+#: empty when they expand a stage name.
+PLATFORM_ARG = re.compile(r"^ARG\s+(TARGET|BUILD)\w*", flags=re.M)
+
+
+def test_no_stage_is_selected_by_a_build_arg(text: str) -> None:
+    """Every FROM that does not pull an image names an earlier stage literally,
+    and no platform ARG is declared, so the build reads no platform build arg."""
+    preamble = text.split("\nFROM ", 1)[0]
+    assert not PLATFORM_ARG.search(preamble), (
+        "a platform ARG is declared before the first FROM; a stage is selected by a build arg"
+    )
+    stages: set[str] = set()
+    for line in text.splitlines():
+        if not line.startswith("FROM "):
+            continue
+        words = [w for w in line.split()[1:] if not w.startswith("--")]
+        base = words[0]
+        if not base.startswith("${OSPREY_BASE_REGISTRY}/"):
+            assert "$" not in base and base in stages, (
+                f"{line!r}: a stage selected by a build arg, or not defined earlier"
+            )
+        if len(words) >= 3 and words[1].upper() == "AS":
+            stages.add(words[2])
+
+
 def test_each_architecture_has_a_native_wheels_stage(text: str) -> None:
     """The final stage's wheels come from the stage its TARGETARCH names."""
     stages = _stages(text)
