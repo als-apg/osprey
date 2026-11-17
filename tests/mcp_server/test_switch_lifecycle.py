@@ -45,14 +45,11 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.gateways import Endpoint, TargetDerivation
 from osprey_connectors.ipc._handle import _host_env
 from osprey_connectors.ipc._pool import DEFAULT_CALL_TIMEOUT_S
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
-from osprey_connectors.ipc._verification import (
-    Endpoint,
-    TargetDerivation,
-    verify_host_report,
-)
+from osprey_connectors.ipc._verification import verify_host_report
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import isolated_connector_registries, state_dir_under
 from osprey_connectors_tests.ipc._host_reports import host_report

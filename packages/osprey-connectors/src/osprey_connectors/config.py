@@ -54,6 +54,8 @@ __all__ = [
     "apply_env_chain",
     "config_anchored_at",
     "config_flag",
+    "config_section",
+    "connector_block",
     "default_config_path",
     "dotenv_shell_overrides",
     "get_agent_dir",
@@ -69,6 +71,7 @@ __all__ = [
     "localize_facility",
     "mapping_or_empty",
     "resolve_env_vars",
+    "subsection",
     "unresolved_placeholders",
 ]
 
@@ -927,6 +930,29 @@ def mapping_or_empty(value: object, path: str, source: object) -> dict[str, obje
     if isinstance(value, dict):
         return value
     raise ValueError(f"'{path}' in {source} must be a mapping, got {type(value).__name__}")
+
+
+def config_section(config: object, name: str) -> dict[str, object]:
+    """One top-level section of a rendered config, or an empty mapping.
+
+    Nested sections only, the way ``MCPServerConfig`` and ``ConfigBuilder`` read
+    this file: a top-level dotted line in ``config.yml`` configures nothing.
+    """
+    if not isinstance(config, dict):
+        return {}
+    value = config.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def subsection(section: Mapping[str, object], name: str) -> dict[str, object]:
+    """One nested section of *section*, or an empty mapping when it is absent or not one."""
+    value = section.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def connector_block(config: object, connector_type: str) -> object:
+    """The ``control_system.connector.<type>`` block, as written."""
+    return subsection(config_section(config, "control_system"), "connector").get(connector_type)
 
 
 # The values are the YAML parse's, which every consumer reads by the shape its

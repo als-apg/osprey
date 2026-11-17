@@ -44,9 +44,9 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
     RecoveryRecord,
 )
+from osprey_connectors.epics_env import without_epics_env
 from osprey_connectors.execution_mode import ExecutionMode
 from osprey_connectors.ipc._host import (
-    EPICS_ENV_PREFIXES,
     START_MARKS_FD_ENV,
     START_PHASES,
     HostInit,
@@ -107,11 +107,8 @@ def _host_env() -> dict[str, str]:
     supervisor that is itself running under one never passes on a descriptor
     number that names something else in its child.
     """
-    env = {
-        name: value
-        for name, value in os.environ.items()
-        if not name.startswith(EPICS_ENV_PREFIXES) and name != START_MARKS_FD_ENV
-    }
+    env = without_epics_env(os.environ)
+    env.pop(START_MARKS_FD_ENV, None)
     env[ENV_CHAIN_APPLIED_ENV] = "1"
     return env
 

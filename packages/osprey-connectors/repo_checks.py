@@ -94,6 +94,26 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.errors.NaiveDatetimeError": (
         "a caller tells an instant handed over without a zone from the other refusals"
     ),
+    "osprey_connectors.gateways.DEFAULT_CA_PORT": (
+        "a caller names the port a Channel Access gateway that names none derives"
+    ),
+    "osprey_connectors.gateways.DEFAULT_PVA_PORT": (
+        "a caller names the port a PVA name server that names none derives"
+    ),
+    "osprey_connectors.gateways.GatewayMode": "a derived endpoint names its EPICS mode in this type",
+    "osprey_connectors.gateways.GatewayRole": (
+        "a derivation keys its endpoints by the gateway role in this type"
+    ),
+    "osprey_connectors.gateways.GatewaysDeclared": (
+        "a derivation says how its block spells the gateways table in this type"
+    ),
+    "osprey_connectors.gateways.LiveCollision": "a live-collision check answers in this type",
+    "osprey_connectors.gateways.NEVER_LIVE_TYPES": (
+        "a caller names the connector types a live-collision check judges"
+    ),
+    "osprey_connectors.gateways.same_endpoint": (
+        "a caller compares two derived endpoints the way a live-collision check does"
+    ),
     "osprey_connectors.ipc.ConnectorHostError": "a caller catches every host failure by its base",
     "osprey_connectors.ipc.ConnectorHostLostError": "a caller tells a lost host from the others",
     "osprey_connectors.ipc.ConnectorHostSlowCallError": (
@@ -108,13 +128,11 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.ipc.ConnectorHostWriteTimeoutError": (
         "a caller tells a timed-out write from the others"
     ),
-    "osprey_connectors.ipc.FrameDecodeError": "a caller tells a bad frame read from the others",
-    "osprey_connectors.ipc.FrameEncodeError": "a caller tells a bad frame write from the others",
-    "osprey_connectors.ipc.GATEWAYS_ROWS": (
-        "a caller names the verdict that a target declares gateway rows"
-    ),
     "osprey_connectors.ipc.HostKey": "the pool names each of its children by this type",
-    "osprey_connectors.ipc.LiveCollision": "a live-collision check answers in this type",
+    "osprey_connectors.ipc.HostLossCause": "a lost host names why it was lost in this type",
+    "osprey_connectors.ipc.HostStartStage": (
+        "a failed start names the stage it failed at in this type"
+    ),
     "osprey_connectors.ipc.PooledConnector": (
         "the pool hands every caller its connector in this type"
     ),

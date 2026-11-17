@@ -20,7 +20,7 @@ from osprey_connectors.connector_types import EPICS, TARGET_LIVE
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.ipc._verification import derive_endpoints
+from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_tier import WRITES_KEY
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name

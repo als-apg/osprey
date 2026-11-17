@@ -91,8 +91,8 @@ Failures
 --------
 A stream that has lost its framing (no magic at the read point, an absurd
 length) cannot be read past. A frame that is delimited but cannot be decoded
-can: :meth:`FrameReader._feed_raw` hands frames over undecoded, and
-:func:`_request_id_of` reads the request such a frame named, so the
+can: :meth:`FrameReader.feed_raw` hands frames over undecoded, and
+:func:`request_id_of` reads the request such a frame named, so the
 connector-host child refuses that request alone and keeps serving.
 """
 
@@ -133,12 +133,8 @@ if TYPE_CHECKING:
     from osprey_connectors.ipc._host import HostMethod
 
 __all__ = [
-    "MAGIC",
-    "MAX_FRAME_BYTES",
-    "PROTOCOL_VERSION",
     "ErrorFrame",
     "FrameDecodeError",
-    "FrameEncodeError",
     "FrameReader",
     "RequestFrame",
     "ResultFrame",
@@ -147,6 +143,7 @@ __all__ = [
     "encode_request",
     "encode_result",
     "new_request_id",
+    "request_id_of",
 ]
 
 #: Frame preamble. A desynchronised stream is detected here instead of being
@@ -496,7 +493,7 @@ def _header(frame: bytes) -> tuple[dict[str, object], bytes, int]:
     return header, body, 4 + header_len
 
 
-def _request_id_of(frame: bytes) -> str | None:
+def request_id_of(frame: bytes) -> str | None:
     """The request a complete frame names, or ``None`` when its header names none it can read.
 
     For answering a frame that would not decode: the header is read as far as
@@ -588,9 +585,9 @@ class FrameReader:
 
     def feed(self, data: bytes) -> list[RequestFrame | ResultFrame | ErrorFrame]:
         """Absorb ``data`` and return the frames it completed."""
-        return [decode_frame(raw) for raw in self._feed_raw(data)]
+        return [decode_frame(raw) for raw in self.feed_raw(data)]
 
-    def _feed_raw(self, data: bytes) -> list[bytes]:
+    def feed_raw(self, data: bytes) -> list[bytes]:
         """Absorb ``data`` and return the frames it completed, still encoded.
 
         For a reader that decodes each frame itself, so that one it cannot

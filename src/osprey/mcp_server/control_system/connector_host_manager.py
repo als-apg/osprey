@@ -125,6 +125,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors import write_switch
+from osprey_connectors.config import connector_block
 from osprey_connectors.connector_types import (
     SIMULATED_TYPES,
     TARGET_LIVE,
@@ -1437,11 +1438,11 @@ class ConnectorHostManager:
                 "retrying through the %r gateway so the session can reach the target. "
                 "A write on this session routes to the read-only gateway, which is "
                 "expected to refuse it, until the write gateway is served again.",
-                ROLE_WRITE_ACCESS,
+                "write_access",
                 target,
                 dead.host,
                 dead.port,
-                ROLE_READ_ONLY,
+                "read_only",
             )
             derivation = read_derivation
             try:
@@ -1465,7 +1466,7 @@ class ConnectorHostManager:
                     retry_error.target,
                     retry_error.stage,
                     retry_error.reason,
-                    f"{retry_error.detail} The {ROLE_WRITE_ACCESS!r} gateway at "
+                    f"{retry_error.detail} The 'write_access' gateway at "
                     f"{dead.host}:{dead.port} was probed first and also failed, so no "
                     f"configured gateway for target {target!r} is answering.",
                     verification=retry_error.verification,
@@ -1476,9 +1477,9 @@ class ConnectorHostManager:
                 "host": dead.host,
                 "port": dead.port,
                 "detail": (
-                    f"The {ROLE_WRITE_ACCESS!r} gateway at {dead.host}:{dead.port} failed "
+                    f"The 'write_access' gateway at {dead.host}:{dead.port} failed "
                     f"its readiness probe, so the session reached target {target!r} through "
-                    f"the {ROLE_READ_ONLY!r} gateway instead. Reads are unaffected; a write "
+                    f"the 'read_only' gateway instead. Reads are unaffected; a write "
                     "routes to the read-only gateway and is expected to be refused there "
                     "until the write gateway is served again."
                 ),
@@ -1698,11 +1699,11 @@ class ConnectorHostManager:
         """
         if error.stage != STAGE_PROBE:
             return None
-        if derivation.selected_role != ROLE_WRITE_ACCESS:
+        if derivation.selected_role != "write_access":
             return None
-        if ROLE_READ_ONLY not in derivation.endpoints:
+        if "read_only" not in derivation.endpoints:
             return None
-        return evolve(derivation, selected_role=ROLE_READ_ONLY)
+        return evolve(derivation, selected_role="read_only")
 
     def _probe_channel(self, target: str, derivation: TargetDerivation) -> str:
         """The channel the destination proves itself with, or a refusal.
@@ -1781,9 +1782,9 @@ class ConnectorHostManager:
                 target,
             )
         rederived = self._derive(target)
-        if without_write_gateway and ROLE_READ_ONLY in rederived.derivation.endpoints:
+        if without_write_gateway and "read_only" in rederived.derivation.endpoints:
             rederived = replace(
-                rederived, derivation=evolve(rederived.derivation, selected_role=ROLE_READ_ONLY)
+                rederived, derivation=evolve(rederived.derivation, selected_role="read_only")
             )
         child = await self._launch_once(
             target,
@@ -2112,5 +2113,5 @@ def _without_write_gateway(section: dict[str, Any], connector_type: str) -> dict
     block = connector.get(connector_type) if isinstance(connector, dict) else None
     gateways = block.get("gateways") if isinstance(block, dict) else None
     if isinstance(gateways, dict):
-        gateways.pop(ROLE_WRITE_ACCESS, None)
+        gateways.pop("write_access", None)
     return stripped

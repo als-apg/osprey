@@ -14,14 +14,8 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.ipc import (
-    GATEWAYS_MISSING,
-    GATEWAYS_NONE_DECLARED,
-    GATEWAYS_ROWS,
-    declared_gateways,
-    derive_endpoints,
-    verify_host_report,
-)
+from osprey_connectors.gateways import declared_gateways, derive_endpoints
+from osprey_connectors.ipc import verify_host_report
 from osprey_connectors_tests.ipc._host_reports import host_report
 
 _NOTHING_CONFIGURED = {
@@ -45,14 +39,14 @@ def _config(gateways: Any) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("block", "shape"),
     [
-        ({"gateways": []}, GATEWAYS_NONE_DECLARED),
-        ({}, GATEWAYS_MISSING),
-        ({"gateways": None}, GATEWAYS_MISSING),
-        ({"gateways": {}}, GATEWAYS_MISSING),
-        ({"gateways": [{"address": "gw"}]}, GATEWAYS_MISSING),
-        (None, GATEWAYS_MISSING),
-        ("not a block", GATEWAYS_MISSING),
-        ({"gateways": _ROWS}, GATEWAYS_ROWS),
+        ({"gateways": []}, "none_declared"),
+        ({}, "missing"),
+        ({"gateways": None}, "missing"),
+        ({"gateways": {}}, "missing"),
+        ({"gateways": [{"address": "gw"}]}, "missing"),
+        (None, "missing"),
+        ("not a block", "missing"),
+        ({"gateways": _ROWS}, "rows"),
     ],
 )
 def test_declared_gateways_classifies_the_three_spellings(block: Any, shape: str) -> None:
@@ -61,7 +55,7 @@ def test_declared_gateways_classifies_the_three_spellings(block: Any, shape: str
 
 @pytest.mark.parametrize(
     ("gateways", "shape"),
-    [([], GATEWAYS_NONE_DECLARED), (..., GATEWAYS_MISSING), (_ROWS, GATEWAYS_ROWS)],
+    [([], "none_declared"), (..., "missing"), (_ROWS, "rows")],
 )
 def test_the_derivation_carries_the_classifier_verdict(gateways: Any, shape: str) -> None:
     derivation = derive_endpoints(

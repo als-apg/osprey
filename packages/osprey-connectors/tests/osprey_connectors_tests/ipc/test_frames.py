@@ -34,7 +34,7 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
     LimitsViolation,
 )
-from osprey_connectors.ipc import Endpoint
+from osprey_connectors.gateways import Endpoint
 from osprey_connectors.ipc import _exceptions as exceptions
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.refusals import RefusalReason
@@ -585,9 +585,9 @@ def test_the_request_an_undecodable_frame_names_is_read_back():
 
     with pytest.raises(frames.FrameDecodeError):
         frames.decode_frame(unknown)
-    assert frames._request_id_of(unknown) == "req-u"
-    assert frames._request_id_of(_repack(b"{not json")) is None
-    assert frames._request_id_of(_doctored(_result(), _set("request_id", 7))) is None
+    assert frames.request_id_of(unknown) == "req-u"
+    assert frames.request_id_of(_repack(b"{not json")) is None
+    assert frames.request_id_of(_doctored(_result(), _set("request_id", 7))) is None
 
 
 # ---------------------------------------------------------------- exceptions

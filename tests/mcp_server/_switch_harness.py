@@ -122,7 +122,7 @@ from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.control_system._base import SendReport
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelUnreachableError
-from osprey_connectors.ipc._verification import _selected_role
+from osprey_connectors.control_system._gateway_role import _selected_role
 
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
 SLOW_CHANNEL = "FIXTURE:SLOW"

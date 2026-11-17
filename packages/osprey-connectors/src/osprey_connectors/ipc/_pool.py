@@ -70,7 +70,7 @@ target switch runs:
 
 The child's post-connect report is then verified against what this process
 derives the child should have done
-(:func:`~osprey_connectors.ipc.derive_endpoints` and
+(:func:`~osprey_connectors.gateways.derive_endpoints` and
 :func:`~osprey_connectors.ipc.verify_host_report`, the same
 check the controls MCP server's target switch runs), and the report must name
 the target and connector type this process resolved. A child that fails any of
@@ -220,7 +220,7 @@ from pathlib import Path
 from typing import TypeVar, get_args
 
 from osprey_connectors import write_authorization, write_switch
-from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
+from osprey_connectors.config import connector_block, resolve_env_vars, unresolved_placeholders
 from osprey_connectors.connector_types import CONTROL_TARGETS, TRANSPORT_CA, ControlTarget
 from osprey_connectors.control_system._base import (
     ChannelReadBatch,
@@ -234,6 +234,12 @@ from osprey_connectors.errors import (
     RecoveryRecord,
 )
 from osprey_connectors.execution_mode import ExecutionMode, is_readonly_run
+from osprey_connectors.gateways import (
+    TargetDerivation,
+    derive_endpoints,
+    live_collision,
+    readonly_gateway_refusal,
+)
 from osprey_connectors.ipc._handle import (
     ConnectorHost,
     ConnectorHostError,
@@ -248,15 +254,7 @@ from osprey_connectors.ipc._proxy import (
     ChildUnresponsiveError,
     ConnectorHostProxy,
 )
-from osprey_connectors.ipc._verification import (
-    ROLE_WRITE_ACCESS,
-    TargetDerivation,
-    connector_block,
-    derive_endpoints,
-    live_collision,
-    readonly_gateway_refusal,
-    verify_host_report,
-)
+from osprey_connectors.ipc._verification import verify_host_report
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S
 from osprey_connectors.recovery import RecoveryPolicy, Timing
@@ -1057,7 +1055,7 @@ class ConnectorHostPool:
         block_key = f"control_system.connector.{connector_type}"
 
         if derivation.transport == TRANSPORT_CA and selected is None:
-            if ROLE_WRITE_ACCESS in derivation.endpoints:
+            if "write_access" in derivation.endpoints:
                 # Only a readonly run selects no endpoint while a write gateway
                 # is configured: it never selects write_access, and this block
                 # has no read gateway for it.

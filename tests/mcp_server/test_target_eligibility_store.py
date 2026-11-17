@@ -41,7 +41,7 @@ from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import testing
 from osprey_connectors.control_system._base import ChannelValue
-from osprey_connectors.ipc._verification import derive_endpoints
+from osprey_connectors.gateways import derive_endpoints
 
 # The live-child half runs on the switch harness's fixture connector: a mock
 # variant whose connect() applies the real gateway-role selection against the

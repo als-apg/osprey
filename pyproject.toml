@@ -929,8 +929,11 @@ name = "The connector package's top-level modules, in layers"
 # import only from the layers below it. The connector-host child builds
 # connectors through the factory, which builds both families; the simulator's
 # archiver reads the simulator view the in-process control-system connector
-# names, so the archivers sit above the control-system connectors. The write
-# switch, the config loader and their kin sit below every connector, and the
+# names, so the archivers sit above the control-system connectors. Beside them,
+# `gateways` derives where a target's connector-host child will connect: it
+# takes the gateway role rule from the control-system layer and fills a virtual
+# accelerator's ports through that connector's own helper, and `ipc` reads it.
+# The write switch, the config loader and their kin sit below every connector, and the
 # leaves at the bottom import nothing from the package but the exception
 # vocabulary and `model`.
 #
@@ -945,6 +948,8 @@ name = "The connector package's top-level modules, in layers"
 #
 # The read-only predicate lives in `execution_mode`, a leaf, so the write
 # switch no longer imports the control-system connectors that consult it.
+# `epics_env`, the inherited EPICS client environment and its scrub, is a leaf
+# of the standard library alone.
 #
 # `write_authorization` reads the record and the write switch and is read by
 # the write guard in the control-system connectors, so it sits between them.
@@ -974,7 +979,7 @@ layers = [
     "osprey_connectors.testing",
     "osprey_connectors.ipc",
     "osprey_connectors.factory",
-    "osprey_connectors.archiver",
+    "osprey_connectors.archiver | osprey_connectors.gateways",
     "osprey_connectors.control_system",
     "osprey_connectors.alarm_log | osprey_connectors.put_log",
     "osprey_connectors.alarm_state",
@@ -995,7 +1000,7 @@ layers = [
     "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.session_hold",
     "osprey_connectors.archiver_selection | osprey_connectors.limits_posture",
     "osprey_connectors.targets | osprey_connectors.write_tier",
-    "osprey_connectors.connection | osprey_connectors.connector_types | osprey_connectors.execution_mode | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.process | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
+    "osprey_connectors.connection | osprey_connectors.connector_types | osprey_connectors.epics_env | osprey_connectors.execution_mode | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.process | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
     "osprey_connectors.errors",
     "osprey_connectors._config_read | osprey_connectors._contract_types | osprey_connectors.model | osprey_connectors.refusals",
 ]
