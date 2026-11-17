@@ -43,24 +43,29 @@ from osprey_connectors.errors import (
     RecoveryAction,
     RecoveryRecord,
 )
+from osprey_connectors.ipc import _handle as handle_module
 from osprey_connectors.ipc import _pool as pool_module
+from osprey_connectors.ipc._handle import (
+    ConnectorHost,
+    ConnectorHostError,
+    ConnectorHostStartError,
+    StartMark,
+)
 from osprey_connectors.ipc._host import START_PHASES, WRITE_METHODS
 from osprey_connectors.ipc._pool import (
-    ConnectorHostError,
     ConnectorHostLostError,
     ConnectorHostPool,
-    ConnectorHostStartError,
     ConnectorHostUnresponsiveError,
     ConnectorHostWriteTimeoutError,
     HostKey,
     PooledConnector,
-    StartMark,
 )
 from osprey_connectors.ipc._proxy import ChildLostError, ChildUnresponsiveError
 from osprey_connectors.recovery import Timing
 from osprey_connectors.refusals import RefusalReason, refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests.ipc._host_reports import host_report
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
 from tests._child_stubs import CHILD_STUBS
 from tests._live import async_wait_until, wait_until
@@ -191,14 +196,14 @@ async def pools():
 def spawns(monkeypatch):
     """Every child the pool spawns, with the loop time it was spawned at."""
     record: list[tuple[float, object]] = []
-    real = pool_module.spawn_host
+    real = handle_module._spawn
 
     async def counting(*args, **kwargs):
         process = await real(*args, **kwargs)
         record.append((asyncio.get_running_loop().time(), process))
         return process
 
-    monkeypatch.setattr(pool_module, "spawn_host", counting)
+    monkeypatch.setattr(handle_module, "_spawn", counting)
     return record
 
 
@@ -264,8 +269,8 @@ async def test_readonly_is_a_separate_child_on_the_same_target(pools):
         HostKey(target="live"),
         HostKey(target="live", execution_mode="readonly"),
     }
-    assert live_ro.report["readonly_run"] is True
-    assert live.report["readonly_run"] is False
+    assert live_ro.report.readonly_run is True
+    assert live.report.readonly_run is False
 
 
 async def test_a_project_env_file_puts_no_epics_variable_back_into_a_child(pools, writable):
@@ -279,8 +284,8 @@ async def test_a_project_env_file_puts_no_epics_variable_back_into_a_child(pools
 
     live = await pool.connector("live")
 
-    assert live.report["epics_env"] == {}
-    assert live.report["mode"] is None
+    assert live.report.epics_env == {}
+    assert live.report.mode is None
 
 
 async def test_a_hung_call_on_one_target_does_not_hold_up_another(pools):
@@ -371,7 +376,7 @@ async def test_writes_follow_the_switch_at_spawn_time(pools, writable):
 
     off = await pool.connector("live")
     refused = await off.write_channel("SR:SP", 1.0)
-    assert off.report["writes_enabled"] is False
+    assert off.report.writes_enabled is False
     assert refused.outcome is WriteOutcome.REFUSED
 
     await off.disconnect()
@@ -379,7 +384,7 @@ async def test_writes_follow_the_switch_at_spawn_time(pools, writable):
     on = await pool.connector("live")
     written = await on.write_channel("SR:SP", 2.0)
 
-    assert on.report["writes_enabled"] is True
+    assert on.report.writes_enabled is True
     assert written.outcome is not WriteOutcome.REFUSED
     assert [line.split() for line in log.read_text().splitlines()] == [["SR:SP", "2.0"]]
 
@@ -417,7 +422,7 @@ async def test_a_switch_turned_between_derive_and_report_respawns_once(
     assert len(spawns) == 2
     first = spawns[0][1]
     assert first.returncode is not None
-    assert live.report["writes_enabled"] is True
+    assert live.report.writes_enabled is True
     assert written.outcome is not WriteOutcome.REFUSED
 
 
@@ -734,6 +739,13 @@ class _ParityReader:
         self.reason = reason
 
 
+def _parity_host(proxy):
+    """A started child whose every call goes to *proxy*; its report configured nothing."""
+    return ConnectorHost(
+        _ParityProcess(), proxy, host_report(), name_stream_end=_ParityReader().retire
+    )
+
+
 class _ParityProxy:
     """A child's proxy whose every call fails with the one error a parity case names."""
 
@@ -748,7 +760,7 @@ class _ParityProxy:
 
     read_channel = write_channel = _fail
 
-    async def supervisor_request(self, *_request, **_keywords):
+    async def _request(self, *_request, **_keywords):
         if not self.answers_ping:
             raise TimeoutError("no pong")
 
@@ -780,16 +792,13 @@ async def test_the_pool_and_the_policy_table_agree(
     pool = ConnectorHostPool(_section(SLOW), kill_on_write_timeout=kill_on_write_timeout)
     child = pool_module._PoolChild(
         key=HostKey(target="live"),
-        process=_ParityProcess(),
-        proxy=_ParityProxy(exc, answers_ping=answers_ping),
-        reader=_ParityReader(),
-        report={},
+        host=_parity_host(_ParityProxy(exc, answers_ping=answers_ping)),
     )
 
     async def ensure(_key):
         return child
 
-    async def kill(_child):
+    async def kill(_child, _reason):
         return None
 
     monkeypatch.setattr(pool, "_ensure", ensure)
@@ -833,18 +842,12 @@ async def _call_by_name(pool, method, *args):
 
 
 def _parity_child(pool, monkeypatch, proxy):
-    child = pool_module._PoolChild(
-        key=HostKey(target="live"),
-        process=_ParityProcess(),
-        proxy=proxy,
-        reader=_ParityReader(),
-        report={},
-    )
+    child = pool_module._PoolChild(key=HostKey(target="live"), host=_parity_host(proxy))
 
     async def ensure(_key):
         return child
 
-    async def kill(_child):
+    async def kill(_child, _reason):
         return None
 
     monkeypatch.setattr(pool, "_ensure", ensure)
@@ -941,11 +944,13 @@ async def test_a_child_that_never_finishes_connecting_hits_the_start_timeout(poo
         await pool.connector("live")
 
     assert caught.value.stage == "init"
+    assert caught.value.cause == "unresponsive"
+    assert caught.value.returncode is None
     await async_wait_until(lambda: not pid_alive(caught.value.pid))
     names = [mark.phase for mark in caught.value.phases]
     assert names == list(START_PHASES[: len(names)])
     assert "connected" not in names
-    assert pool_module._describe_start(caught.value.phases) in str(caught.value)
+    assert handle_module._describe_start(caught.value.phases) in str(caught.value)
 
 
 @pytest.mark.parametrize(
@@ -966,7 +971,7 @@ async def test_a_child_that_never_finishes_connecting_hits_the_start_timeout(poo
 )
 def test_a_start_failure_sentence_names_the_phase_the_child_was_in(phases, words):
     marks = tuple(StartMark(phase=name, after_s=seconds) for name, seconds in phases)
-    sentence = pool_module._describe_start(marks)
+    sentence = handle_module._describe_start(marks)
 
     assert words in sentence
     if phases:
@@ -1096,7 +1101,7 @@ async def test_a_standin_on_a_named_host_apart_from_the_live_machine_passes_the_
     async def no_spawn(*args, **kwargs):
         raise OSError("pool test: spawning is disabled")
 
-    monkeypatch.setattr(pool_module, "spawn_host", no_spawn)
+    monkeypatch.setattr(handle_module, "_spawn", no_spawn)
     section = {
         "type": "epics",
         "connector": {
@@ -1383,7 +1388,7 @@ async def test_a_standin_on_a_deployment_with_no_live_machine_passes_the_config_
     async def no_spawn(*args, **kwargs):
         raise OSError("pool test: spawning is disabled")
 
-    monkeypatch.setattr(pool_module, "spawn_host", no_spawn)
+    monkeypatch.setattr(handle_module, "_spawn", no_spawn)
     section = {
         "type": "live_standin",
         "connector": {"live_standin": {"gateways": _ca_gateways("127.0.0.1", 5064)}},
@@ -1403,6 +1408,8 @@ async def test_a_child_that_exits_before_answering_init_is_refused_at_the_init_s
 
     assert caught.value.stage == "init"
     assert "exited before answering its init frame (exit code 3)" in str(caught.value)
+    assert (caught.value.cause, caught.value.returncode) == ("exited", 3)
+    assert isinstance(caught.value.__cause__, ChildLostError)
     assert [mark.phase for mark in caught.value.phases] == ["main", "init", "imports"]
     assert spawns[0][1].returncode == 3
     assert pool.pids() == {}
@@ -1425,12 +1432,12 @@ def _doctor_init_reports(monkeypatch, doctor):
     changed, so each verify check sees exactly one lie.
     """
 
-    class DoctoringProxy(pool_module.ConnectorHostProxy):
-        async def supervisor_request(self, method, kwargs, *, timeout_s):
-            reply = await super().supervisor_request(method, kwargs, timeout_s=timeout_s)
+    class DoctoringProxy(handle_module.ConnectorHostProxy):
+        async def _request(self, method, kwargs, *, timeout_s):
+            reply = await super()._request(method, kwargs, timeout_s=timeout_s)
             return doctor(reply) if method == "init" else reply
 
-    monkeypatch.setattr(pool_module, "ConnectorHostProxy", DoctoringProxy)
+    monkeypatch.setattr(handle_module, "ConnectorHostProxy", DoctoringProxy)
 
 
 def _with(**changes):
@@ -1463,7 +1470,7 @@ def _with(**changes):
         ),
         pytest.param(
             None,
-            _with(mode="gateway", host="10.9.9.9"),
+            _with(mode="addr_list", host="10.9.9.9"),
             "verify",
             "came up somewhere other than derived",
             id="endpoint-verification-fails",

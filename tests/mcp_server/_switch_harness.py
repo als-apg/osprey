@@ -402,10 +402,10 @@ async def make_manager(state_root, live_type):  # noqa: ARG001 - the managers th
         manager.spawned = []
         original_spawn = manager._spawn
 
-        async def recording_spawn(target):
-            process = await original_spawn(target)
-            manager.spawned.append(process)
-            return process
+        async def recording_spawn(target, init):
+            host = await original_spawn(target, init)
+            manager.spawned.append(host)
+            return host
 
         manager._spawn = recording_spawn
         manager.reset_state()
@@ -417,12 +417,10 @@ async def make_manager(state_root, live_type):  # noqa: ARG001 - the managers th
     for manager in created:
         with contextlib.suppress(Exception):
             await manager.shutdown()
-        for process in manager.spawned:
-            if process.returncode is None:  # pragma: no cover - teardown safety net
-                with contextlib.suppress(ProcessLookupError, OSError):
-                    process.kill()
+        for host in manager.spawned:
+            if host.returncode is None:  # pragma: no cover - teardown safety net
                 with contextlib.suppress(Exception):
-                    await asyncio.wait_for(process.wait(), SETTLE_TIMEOUT_S)
+                    await asyncio.wait_for(host.retire(None), SETTLE_TIMEOUT_S)
 
 
 @pytest.fixture

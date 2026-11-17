@@ -22,6 +22,7 @@ from osprey_connectors.ipc import (
     derive_endpoints,
     verify_host_report,
 )
+from osprey_connectors_tests.ipc._host_reports import host_report
 
 _NOTHING_CONFIGURED = {
     "selected_role": None,
@@ -84,7 +85,7 @@ def test_only_an_explicit_empty_list_declares_no_endpoints(gateways: Any, declar
 def test_child_verification_names_a_target_that_declares_no_endpoints() -> None:
     derivation = derive_endpoints(_config([]), "live", writes_enabled=False, readonly_run=True)
 
-    verification = verify_host_report(derivation, _NOTHING_CONFIGURED)
+    verification = verify_host_report(derivation, host_report(**_NOTHING_CONFIGURED))
 
     assert verification.ok is True
     assert "declares no endpoints" in verification.detail
@@ -101,7 +102,7 @@ def test_a_target_that_declares_no_endpoints_still_refuses_a_child_on_a_gateway(
         "_epics_configured": True,
     }
 
-    verification = verify_host_report(derivation, report)
+    verification = verify_host_report(derivation, host_report(**report))
 
     assert verification.ok is False
     assert verification.field == "_epics_configured"
@@ -110,7 +111,7 @@ def test_a_target_that_declares_no_endpoints_still_refuses_a_child_on_a_gateway(
 def test_gateway_rows_are_verified_as_before() -> None:
     derivation = derive_endpoints(_config(_ROWS), "live", writes_enabled=False, readonly_run=True)
 
-    verification = verify_host_report(derivation, _NOTHING_CONFIGURED)
+    verification = verify_host_report(derivation, host_report(**_NOTHING_CONFIGURED))
 
     assert verification.ok is False
     assert verification.field == "_epics_configured"

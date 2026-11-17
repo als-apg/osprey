@@ -39,6 +39,10 @@ for a start in progress and stops the child it produced.
 
 Bringing a child up
 -------------------
+Each child is a :class:`~osprey_connectors.ipc.ConnectorHost`, started on a
+:class:`~osprey_connectors.ipc.HostInit` for its key; what the pool adds is
+what it checks before the spawn and of the child's report after it.
+
 The ``control_system`` section is resolved against the environment
 (``${VAR}`` placeholders, via :func:`~osprey_connectors.config.resolve_env_vars`)
 **at every spawn**, in this process, so a port chosen after the pool was built
@@ -111,9 +115,11 @@ connector is gone. Its message is the operator-facing sentence, and its
 
 * :class:`ConnectorHostStartError` — the child could not be brought up, and
   nothing was left running: unresolved config, spawn failure, no answer to its
-  init frame within ``start_timeout_s``, exit before answering, or a report that
-  failed verification. ``stage`` says which; an ``init``-stage failure names the
-  last start phase the child reached, with times (``phases``).
+  init frame within ``start_timeout_s``, exit before answering, an answer that is
+  not a post-connect report, or a report that failed verification. ``stage``
+  says which; an ``init``-stage failure names the last start phase the child
+  reached, with times (``phases``), and ``cause`` says whether the child was
+  silent or exited.
 * A child that answers its init frame with an **error of its own** — the
   connector's ``connect()`` failing, say — has that error raised as-is, in the
   class the child raised it as, with a note naming the child and target.
@@ -204,17 +210,14 @@ in it sets an ``EPICS_*`` variable.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import copy
 import logging
-import os
 import sys
-import time
 from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Literal, TypeVar, get_args
+from typing import TypeVar, get_args
 
 from osprey_connectors import write_authorization, write_switch
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
@@ -227,19 +230,19 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.errors import (
     ChildLinkError,
-    ConnectorUnavailableError,
     RecoveryAction,
     RecoveryRecord,
 )
 from osprey_connectors.execution_mode import ExecutionMode, is_readonly_run
-from osprey_connectors.ipc._host import START_PHASES, WRITE_METHODS, ProxyMethod, StartPhase
-from osprey_connectors.ipc._launch import (
-    AttributedReader,
-    host_env,
-    kill_host,
-    spawn_host,
-    stop_host,
+from osprey_connectors.ipc._handle import (
+    ConnectorHost,
+    ConnectorHostError,
+    ConnectorHostStartError,
+    HostLossCause,
+    HostStartStage,
+    _host_env,
 )
+from osprey_connectors.ipc._host import WRITE_METHODS, HostInit, HostReport, ProxyMethod
 from osprey_connectors.ipc._proxy import (
     ChildLostError,
     ChildUnresponsiveError,
@@ -255,25 +258,20 @@ from osprey_connectors.ipc._verification import (
     verify_host_report,
 )
 from osprey_connectors.model import FrozenModel
-from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
+from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S
 from osprey_connectors.recovery import RecoveryPolicy, Timing
 from osprey_connectors.targets import machine_kind, resolve_target
 
 __all__ = [
     "DEFAULT_CALL_TIMEOUT_S",
     "DEFAULT_PING_TIMEOUT_S",
-    "ConnectorHostError",
     "ConnectorHostLostError",
     "ConnectorHostPool",
     "ConnectorHostSlowCallError",
-    "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
     "HostKey",
-    "HostLossCause",
-    "HostStartStage",
     "PooledConnector",
-    "StartMark",
 ]
 
 # Named for the public namespace, not this private module, so a logging config
@@ -293,19 +291,6 @@ DEFAULT_CALL_TIMEOUT_S = 60.0
 #: How long a child that missed a call's deadline gets to answer a ping before
 #: it is judged wedged and killed.
 DEFAULT_PING_TIMEOUT_S = 2.0
-
-#: Where a start failed: the ``stage`` of :class:`ConnectorHostStartError`.
-HostStartStage = Literal["config", "spawn", "init", "verify"]
-
-#: Why a child went away: the ``cause`` of :class:`ConnectorHostLostError`.
-HostLossCause = Literal["exited", "unresponsive", "stopped", "write_timeout", "unavailable"]
-
-
-class StartMark(FrozenModel):
-    """One start mark as a failed start reports it: the phase, and when after the spawn."""
-
-    phase: StartPhase
-    after_s: float
 
 
 class HostKey(FrozenModel):
@@ -343,13 +328,13 @@ def _optional_name(name: str, value: object) -> str | None:
 def _child_env(key: HostKey) -> dict[str, str]:
     """The environment a child for *key* is spawned with.
 
-    :func:`~osprey_connectors.ipc._launch.host_env`, with the key's owner
+    :func:`~osprey_connectors.ipc._handle._host_env`, with the key's owner
     stamped as ``OSPREY_CONTROL_OWNER`` when it names one, and
     ``OSPREY_WRITE_AUTHORIZATION`` set to the key's authorization or removed:
     a child is authorized by its key alone, never by what this process's own
     environment names.
     """
-    env = host_env()
+    env = _host_env()
     if key.owner is not None:
         env[write_switch.CONTROL_OWNER_ENV_VAR] = key.owner
     env.pop(write_authorization.AUTHORIZATION_ENV_VAR, None)
@@ -361,138 +346,6 @@ def _child_env(key: HostKey) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
-
-
-class ConnectorHostError(ConnectorUnavailableError):
-    """A connector-host child could not serve a call (see the module docstring).
-
-    Attributes:
-        target: The control target the child serves. Always a resolved one:
-            :meth:`ConnectorHostPool.connector` refuses a target that does not
-            resolve with a ``ValueError`` before any child is started.
-        execution_mode: ``"readonly"`` or ``None``.
-        pid: The child's process id, or ``None`` when none was started.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        target: ControlTarget,
-        execution_mode: ExecutionMode | None,
-        pid: int | None,
-        recovery: tuple[RecoveryRecord, ...] = (),
-    ) -> None:
-        super().__init__(message, recovery=recovery)
-        self.target = target
-        self.execution_mode = execution_mode
-        self.pid = pid
-
-
-class ConnectorHostStartError(ConnectorHostError):
-    """A child could not be brought up. Nothing was left running.
-
-    Attributes:
-        stage: ``"config"`` (an unresolved placeholder, a Channel Access
-            type with no gateway to pin it to, or a simulated or stand-in
-            target that would dial an endpoint ``live`` derives), ``"spawn"`` (the
-            interpreter could not be started), ``"init"`` (no answer within the
-            start timeout, an exit before answering, or an unusable answer) or
-            ``"verify"`` (the report did not match the derivation).
-        phases: The start marks the child had written when an ``init``-stage
-            failure was raised, as :class:`StartMark` records in the order of
-            :data:`~osprey_connectors.ipc._host.START_PHASES`; empty for every
-            other stage, and for a child that wrote none.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        target: ControlTarget,
-        execution_mode: ExecutionMode | None,
-        pid: int | None,
-        stage: HostStartStage,
-        phases: tuple[StartMark, ...] = (),
-    ) -> None:
-        super().__init__(message, target=target, execution_mode=execution_mode, pid=pid)
-        self.stage = stage
-        self.phases = phases
-
-
-class _StartMarkPipe:
-    """The pipe a starting child writes its start marks to.
-
-    Opened only where a child can inherit a pipe by descriptor; elsewhere there
-    is no descriptor to pass and nothing is ever read.
-    """
-
-    def __init__(self) -> None:
-        self._read_fd: int | None = None
-        self.write_fd: int | None = None
-        self._written = b""
-        if os.name == "posix":
-            self._read_fd, self.write_fd = os.pipe()
-            os.set_blocking(self._read_fd, False)
-
-    def close_write(self) -> None:
-        """Close this process's copy of the write end."""
-        if self.write_fd is not None:
-            with contextlib.suppress(OSError):
-                os.close(self.write_fd)
-            self.write_fd = None
-
-    def close(self) -> None:
-        """Close both ends."""
-        self.close_write()
-        if self._read_fd is not None:
-            with contextlib.suppress(OSError):
-                os.close(self._read_fd)
-            self._read_fd = None
-
-    def read(self, spawned_at: float) -> tuple[StartMark, ...]:
-        """Every whole mark written so far, timed from *spawned_at*."""
-        while self._read_fd is not None:
-            try:
-                chunk = os.read(self._read_fd, 4096)
-            except OSError:
-                # Nothing more is written yet (BlockingIOError), or the pipe is unusable.
-                break
-            if not chunk:
-                break
-            self._written += chunk
-        whole = self._written[: self._written.rfind(b"\n") + 1]
-        marks: list[StartMark] = []
-        for line in whole.decode("ascii", "replace").splitlines():
-            name, _, at = line.partition(" ")
-            phase = next((known for known in START_PHASES if known == name), None)
-            if phase is None:
-                continue
-            try:
-                marks.append(StartMark(phase=phase, after_s=float(at) - spawned_at))
-            except ValueError:
-                continue
-        return tuple(marks)
-
-
-def _describe_start(phases: tuple[StartMark, ...]) -> str:
-    """One sentence on how far a child got in starting, from the marks it wrote."""
-    if not phases:
-        return "It had not finished starting its interpreter and loading the connector host."
-    last, seconds = phases[-1].phase, phases[-1].after_s
-    reached = {
-        "main": f"It was up after {seconds:.1f}s and had not read its init frame.",
-        "init": (
-            f"It read its init frame after {seconds:.1f}s and was importing the connector modules."
-        ),
-        "imports": (
-            f"It had imported the connector modules after {seconds:.1f}s and was building "
-            "its connector (connect())."
-        ),
-        "connected": f"It had built its connector after {seconds:.1f}s and had not answered.",
-    }[last]
-    listed = ", ".join(f"{mark.phase} +{mark.after_s:.1f}s" for mark in phases)
-    return f"{reached} Start marks: {listed}"
 
 
 class ConnectorHostLostError(ConnectorHostError):
@@ -567,10 +420,7 @@ class ConnectorHostWriteTimeoutError(ConnectorHostLostError, TimeoutError):
 @dataclass
 class _PoolChild:
     key: HostKey
-    process: asyncio.subprocess.Process
-    proxy: ConnectorHostProxy
-    reader: AttributedReader
-    report: dict[str, object]
+    host: ConnectorHost
     #: Set once the pool has decided to drop this child, to the cause it named.
     retired: HostLossCause | None = None
     #: The one teardown of this child, shared by everyone who asks for it.
@@ -578,14 +428,14 @@ class _PoolChild:
 
     @property
     def pid(self) -> int:
-        return int(self.process.pid)
+        return self.host.pid
+
+    @property
+    def proxy(self) -> ConnectorHostProxy:
+        return self.host.proxy
 
     def usable(self) -> bool:
-        return (
-            self.retired is None
-            and self.process.returncode is None
-            and self.proxy.dead_reason is None
-        )
+        return self.retired is None and self.host.usable()
 
 
 class _PoolTarget:
@@ -910,11 +760,7 @@ class ConnectorHostPool:
         """Whether a child that missed a deadline is still alive enough to answer."""
         if not child.usable():
             return False
-        try:
-            await child.proxy.supervisor_request("ping", {}, timeout_s=self._ping_timeout_s)
-        except Exception:
-            return False
-        return True
+        return await child.host.ping(timeout_s=self._ping_timeout_s)
 
     def _lost(
         self,
@@ -938,7 +784,7 @@ class ConnectorHostPool:
             execution_mode=child.key.execution_mode,
             pid=child.pid,
             cause=cause,
-            returncode=child.process.returncode,
+            returncode=child.host.returncode,
             recovery=recovery,
         )
 
@@ -1055,91 +901,35 @@ class ConnectorHostPool:
                 stage="config",
             )
 
-        marks = _StartMarkPipe()
-        spawned_at = time.monotonic()
-        process = None
-        try:
-            process = await spawn_host(self._python, _child_env(key), start_marks_fd=marks.write_fd)
-        except OSError as exc:
-            raise ConnectorHostStartError(
-                f"Could not spawn a connector-host child for {_label(key)}: {exc}",
+        host = await ConnectorHost.start(
+            HostInit(
+                control_system=section,
                 target=target,
+                config_file=self._config_file,
                 execution_mode=mode,
-                pid=None,
-                stage="spawn",
-            ) from exc
-        finally:
-            # The child holds the only write end from here on, so the pipe
-            # ends when the child closes it or exits.
-            marks.close_write()
-            if process is None:
-                marks.close()
-
-        # spawn_host attaches both pipes.
-        assert process.stdout is not None and process.stdin is not None
-        reader = AttributedReader(process.stdout)
-        proxy = ConnectorHostProxy(
-            reader,
-            process.stdin,
-            timeout_grace_s=self._timeout_grace_s,
+            ),
+            python=self._python,
+            env=_child_env(key),
+            start_timeout_s=self._start_timeout_s,
             call_timeout_s=self._call_timeout_s,
+            timeout_grace_s=self._timeout_grace_s,
+            terminate_grace_s=self._terminate_grace_s,
+            start_marks=True,
+            label=_label(key),
         )
-        child = _PoolChild(key=key, process=process, proxy=proxy, reader=reader, report={})
-        pid = child.pid
-        init: dict[str, object] = {"control_system": section, "target": target}
-        if self._config_file:
-            init["config_file"] = self._config_file
-        if mode is not None:
-            init["execution_mode"] = mode
+        child = _PoolChild(key=key, host=host)
+        report = host.report
 
         def failure(stage: HostStartStage, detail: str) -> ConnectorHostStartError:
-            phases = marks.read(spawned_at) if stage == "init" else ()
-            reached = f" {_describe_start(phases)}" if stage == "init" else ""
             return ConnectorHostStartError(
-                f"The connector-host child (pid {pid}) for {_label(key)} {detail}{reached}",
+                f"The connector-host child (pid {host.pid}) for {_label(key)} {detail}",
                 target=target,
                 execution_mode=mode,
-                pid=pid,
+                pid=host.pid,
                 stage=stage,
-                phases=phases,
             )
 
-        async def init_report() -> object:
-            """The child's reply to its init frame; a silent or lost child is a start failure."""
-            try:
-                return await proxy.supervisor_request("init", init, timeout_s=self._start_timeout_s)
-            except ChildUnresponsiveError as exc:
-                raise failure(
-                    "init", f"did not answer its init frame within {self._start_timeout_s}s."
-                ) from exc
-            except ChildLostError as exc:
-                # The pipe closed, so the child is exiting: its status is
-                # reaped before anything signals it. A signal sent to an
-                # exited, unreaped child reaps it out from under the event
-                # loop's watcher, which then reports exit code 255. The
-                # pipe is known closed here, so this wait runs the full
-                # grace on purpose, longer than terminate's own window.
-                await reap_exit_code(process, self._terminate_grace_s)
-                await terminate(process, self._terminate_grace_s)
-                raise failure(
-                    "init",
-                    f"exited before answering its init frame (exit code "
-                    f"{process.returncode}): {exc}",
-                ) from exc
-            except Exception as exc:
-                # Anything else is the child's own answer to its init frame.
-                exc.add_note(f"raised by the connector-host child (pid {pid}) for {_label(key)}")
-                raise
-
         try:
-            report = await init_report()
-            if not isinstance(report, dict):
-                raise failure(
-                    "init",
-                    f"answered its init frame with {type(report).__name__}, "
-                    "not the post-connect report.",
-                )
-            child.report = report
             if may_respawn and self._writes_moved(key, section, readonly_run, writes, report):
                 raise _WritesMoved
             self._verify(derivation, readonly_run, writes, report, failure)
@@ -1148,17 +938,15 @@ class ConnectorHostPool:
                 child, f"The connector-host child for {_label(key)} failed to start.", "exited"
             )
             raise
-        finally:
-            marks.close()
 
         logger.info(
             "connector host pool: child pid %s serving %s as %r (role=%r %s:%s)",
-            pid,
+            host.pid,
             _label(key),
             connector_type,
-            report.get("selected_role"),
-            report.get("host"),
-            report.get("port"),
+            report.selected_role,
+            report.host,
+            report.port,
         )
         return child
 
@@ -1219,7 +1007,7 @@ class ConnectorHostPool:
         section: Mapping[str, object],
         readonly_run: bool,
         writes: bool,
-        report: dict[str, object],
+        report: HostReport,
     ) -> bool:
         """Whether a writes mismatch in *report* is a switch that moved, not a disagreement.
 
@@ -1228,7 +1016,7 @@ class ConnectorHostPool:
         explain — ``config_file`` arming what the section does not — is left
         for :meth:`_verify` to refuse.
         """
-        if readonly_run or report.get("writes_enabled") is not (not writes):
+        if readonly_run or report.writes_enabled is not (not writes):
             return False
         return self._key_writes_allowed(section, key) is not writes
 
@@ -1305,7 +1093,7 @@ class ConnectorHostPool:
         derivation: TargetDerivation,
         readonly_run: bool,
         writes: bool,
-        report: dict[str, object],
+        report: HostReport,
         failure: Callable[[HostStartStage, str], ConnectorHostStartError],
     ) -> None:
         """Refuse a child whose report is not what this process derives."""
@@ -1357,8 +1145,7 @@ class ConnectorHostPool:
             del self._children[child.key]
         if child.teardown is None:
             child.retired = cause
-            child.reader.retire(reason)
-            child.teardown = self._track(self._kill(child))
+            child.teardown = self._track(self._kill(child, reason))
         await asyncio.shield(child.teardown)
 
     async def _stop(self, child: _PoolChild) -> None:
@@ -1375,17 +1162,11 @@ class ConnectorHostPool:
         task.add_done_callback(self._teardowns.discard)
         return task
 
-    async def _kill(self, child: _PoolChild) -> None:
-        await kill_host(
-            child.process,
-            child.proxy,
-            child.reader,
-            reason=None,
-            grace_s=self._terminate_grace_s,
-        )
+    async def _kill(self, child: _PoolChild, reason: str) -> None:
+        await child.host.retire(reason)
 
     async def _orderly_stop(self, child: _PoolChild) -> None:
-        await stop_host(child.process, child.proxy, grace_s=self._terminate_grace_s)
+        await child.host.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -1426,10 +1207,10 @@ class PooledConnector:
         return child.pid if child is not None and child.usable() else None
 
     @property
-    def report(self) -> dict[str, object]:
-        """The current child's post-connect report, empty when none is running."""
+    def report(self) -> HostReport | None:
+        """The current child's post-connect report, or ``None`` when none is running."""
         child = self._pool._children.get(self._key)
-        return dict(child.report) if child is not None and child.usable() else {}
+        return child.host.report if child is not None and child.usable() else None
 
     async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         return await self._pool._call(

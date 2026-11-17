@@ -511,8 +511,8 @@ async def test_a_child_spawned_held_connects_for_writes_and_survives_the_release
 
         # ``pool.connector`` raises when the child's report fails verification.
         live = await pool.connector("live")
-        assert live.report["selected_role"] == "write_access"
-        assert live.report["writes_enabled"] is True
+        assert live.report.selected_role == "write_access"
+        assert live.report.writes_enabled is True
         pids = pool.pids()
         assert pids
 
@@ -527,7 +527,7 @@ async def test_a_child_spawned_held_connects_for_writes_and_survives_the_release
         assert (await live.read_channel(setpoint, timeout_s=CA_TIMEOUT_S)).value == 5.0
 
         again = await pool.connector("live")
-        assert again.report["selected_role"] == "write_access"
+        assert again.report.selected_role == "write_access"
         assert pool.pids() == pids
     finally:
         if pool is not None:

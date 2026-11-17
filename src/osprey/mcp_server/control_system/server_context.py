@@ -612,11 +612,12 @@ class ControlSystemContext:
 
         A child that answers the ping is alive and merely slow, so it is kept:
         the call may yet complete in it. The ping goes to the child the call was
-        sent to, not to whichever is active now. Nothing is retried.
+        sent to, not to whichever is active now: a child the manager no longer
+        holds — replaced by a switch, or by another call's recovery — is one
+        that does not answer. Nothing is retried.
         """
-        try:
-            await proxy.supervisor_request("ping", {}, timeout_s=DEFAULT_PING_TIMEOUT_S)
-        except Exception:
+        host = self.connector_hosts.host_for(proxy)
+        if host is None or not await host.ping(timeout_s=DEFAULT_PING_TIMEOUT_S):
             if not await self.invalidate_connector(name, incarnation=proxy):
                 return self._respawn_refused()
             return RecoveryRecord(

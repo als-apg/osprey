@@ -1,9 +1,11 @@
 """Inter-process plumbing for the connector-host child.
 
 The child process owns the control-system client library; the parent talks to
-it over a pipe pair. This namespace holds what a supervisor needs: launching
-and stopping a child, the proxy that drives one and the pool that keeps them,
-the endpoint derivation and verification of what a child reports, and the two
+it over a pipe pair. This namespace holds what a supervisor needs: the handle
+that starts, asks after and stops one child (:class:`ConnectorHost`), the
+records its ``init`` frame and its answer cross the pipe as, the proxy that
+drives a child and the pool that keeps them, the endpoint derivation and
+verification of what a child reports, and the two
 errors the wire format raises when a frame cannot be written or read. The wire
 codec itself and the typed-exception registry that carries a failure across
 the boundary are internal to this package (``_frames``, ``_exceptions``).
@@ -22,30 +24,27 @@ from osprey_connectors.ipc._frames import (
 )
 
 if TYPE_CHECKING:
-    from osprey_connectors.ipc._host import (
-        SupervisorMethod,
-        scrub_epics_env,
+    from osprey_connectors.ipc._handle import (
+        ConnectorHost,
+        ConnectorHostError,
+        ConnectorHostStartError,
+        StartMark,
     )
-    from osprey_connectors.ipc._launch import (
-        AttributedReader,
-        host_env,
-        kill_host,
-        spawn_host,
-        stop_host,
+    from osprey_connectors.ipc._host import (
+        HostInit,
+        HostReport,
+        scrub_epics_env,
     )
     from osprey_connectors.ipc._pool import (
         DEFAULT_CALL_TIMEOUT_S,
         DEFAULT_PING_TIMEOUT_S,
-        ConnectorHostError,
         ConnectorHostLostError,
         ConnectorHostPool,
         ConnectorHostSlowCallError,
-        ConnectorHostStartError,
         ConnectorHostUnresponsiveError,
         ConnectorHostWriteTimeoutError,
         HostKey,
         PooledConnector,
-        StartMark,
     )
     from osprey_connectors.ipc._proxy import (
         ChildLostError,
@@ -74,25 +73,22 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
-    "SupervisorMethod",
+    "ConnectorHost",
+    "ConnectorHostError",
+    "ConnectorHostStartError",
+    "StartMark",
+    "HostInit",
+    "HostReport",
     "scrub_epics_env",
-    "AttributedReader",
-    "host_env",
-    "kill_host",
-    "spawn_host",
-    "stop_host",
     "DEFAULT_CALL_TIMEOUT_S",
     "DEFAULT_PING_TIMEOUT_S",
-    "ConnectorHostError",
     "ConnectorHostLostError",
     "ConnectorHostPool",
     "ConnectorHostSlowCallError",
-    "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
     "HostKey",
     "PooledConnector",
-    "StartMark",
     "ChildLostError",
     "ChildUnresponsiveError",
     "ConnectorHostProxy",
@@ -120,25 +116,22 @@ __all__ = [
 
 #: Public name -> the module that defines it, for the names resolved lazily.
 _LAZY_EXPORTS: dict[str, str] = {
-    "SupervisorMethod": "osprey_connectors.ipc._host",
+    "ConnectorHost": "osprey_connectors.ipc._handle",
+    "ConnectorHostError": "osprey_connectors.ipc._handle",
+    "ConnectorHostStartError": "osprey_connectors.ipc._handle",
+    "StartMark": "osprey_connectors.ipc._handle",
+    "HostInit": "osprey_connectors.ipc._host",
+    "HostReport": "osprey_connectors.ipc._host",
     "scrub_epics_env": "osprey_connectors.ipc._host",
-    "AttributedReader": "osprey_connectors.ipc._launch",
-    "host_env": "osprey_connectors.ipc._launch",
-    "kill_host": "osprey_connectors.ipc._launch",
-    "spawn_host": "osprey_connectors.ipc._launch",
-    "stop_host": "osprey_connectors.ipc._launch",
     "DEFAULT_CALL_TIMEOUT_S": "osprey_connectors.ipc._pool",
     "DEFAULT_PING_TIMEOUT_S": "osprey_connectors.ipc._pool",
-    "ConnectorHostError": "osprey_connectors.ipc._pool",
     "ConnectorHostLostError": "osprey_connectors.ipc._pool",
     "ConnectorHostPool": "osprey_connectors.ipc._pool",
     "ConnectorHostSlowCallError": "osprey_connectors.ipc._pool",
-    "ConnectorHostStartError": "osprey_connectors.ipc._pool",
     "ConnectorHostUnresponsiveError": "osprey_connectors.ipc._pool",
     "ConnectorHostWriteTimeoutError": "osprey_connectors.ipc._pool",
     "HostKey": "osprey_connectors.ipc._pool",
     "PooledConnector": "osprey_connectors.ipc._pool",
-    "StartMark": "osprey_connectors.ipc._pool",
     "ChildLostError": "osprey_connectors.ipc._proxy",
     "ChildUnresponsiveError": "osprey_connectors.ipc._proxy",
     "ConnectorHostProxy": "osprey_connectors.ipc._proxy",

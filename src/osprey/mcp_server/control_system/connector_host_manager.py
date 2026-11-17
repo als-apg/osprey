@@ -82,22 +82,25 @@ target the deployment has moved off.
 
 The launch handshake
 --------------------
-``init`` and ``spawn_probe`` are *supervisor* methods, not connector methods.
-They travel over
-:meth:`~osprey_connectors.ipc.ConnectorHostProxy.supervisor_request`, the
-same supervisor surface :class:`~osprey_connectors.ipc.ConnectorHostPool`
-launches its children through. A child that fails to launch is torn down with
-:func:`~osprey_connectors.ipc.kill_host`, and its proxy never reaches a
-:class:`_Child`, so nothing can call it.
+Each child is a :class:`~osprey_connectors.ipc.ConnectorHost`, the same handle
+:class:`~osprey_connectors.ipc.ConnectorHostPool` holds its children as. Its
+``start`` sends the ``init`` frame (a :class:`~osprey_connectors.ipc.HostInit`)
+and returns once the child has answered with its post-connect report; its
+``probe`` runs the readiness read. Both are *supervisor* methods, not
+connector methods. What the report must say, and the sentences a failed launch
+is refused with, are this module's: a start failure is structured, and mapped
+here to a :class:`SwitchError`. A child that fails to launch is put down with
+the handle's ``retire``, and never reaches a :class:`_Child`, so nothing can
+call it.
 
 Attributing a killed child's outstanding requests
 -------------------------------------------------
 When the drain deadline expires, the requests still in flight on child A have
 to fail, and they have to say *why*. The proxy fails them with whatever ended
-its read stream, so this module hands it a reader wrapper
-(:class:`~osprey_connectors.ipc.AttributedReader`) that can be told the retirement reason before the
-kill; the resulting :class:`ConnectionError` then names the switch rather than
-an anonymous end-of-pipe.
+its read stream, so the handle's ``retire`` names the retirement reason on that
+stream before the kill; the resulting
+:class:`~osprey_connectors.ipc.ChildLostError` then names the switch rather
+than an anonymous end-of-pipe.
 """
 
 from __future__ import annotations
@@ -108,7 +111,7 @@ import copy
 import logging
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -131,31 +134,34 @@ from osprey_connectors.connector_types import (
     MachineKind,
     is_control_target,
 )
-from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
-from osprey_connectors.execution_mode import is_readonly_run
+from osprey_connectors.errors import (
+    ConnectorInternalError,
+    ConnectorUnavailableError,
+    RecoveryAction,
+    RecoveryRecord,
+)
+from osprey_connectors.execution_mode import READONLY_MODE, is_readonly_run
 from osprey_connectors.ipc import (
     DEFAULT_CALL_TIMEOUT_S,
     ROLE_READ_ONLY,
     ROLE_WRITE_ACCESS,
-    AttributedReader,
     ChildLostError,
     ChildUnresponsiveError,
+    ConnectorHost,
     ConnectorHostProxy,
+    ConnectorHostStartError,
     Endpoint,
+    HostInit,
+    HostReport,
     SelectedRole,
-    SupervisorMethod,
     TargetDerivation,
     Verification,
     connector_block,
     derive_endpoints,
-    host_env,
-    kill_host,
-    spawn_host,
-    stop_host,
     verify_host_report,
 )
 from osprey_connectors.model import evolve
-from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
+from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S
 from osprey_connectors.targets import baseline_target as types_baseline_target
 from osprey_connectors.targets import switch_capable as types_switch_capable
 from osprey_connectors.write_target import KIND_BANNERS
@@ -181,10 +187,10 @@ __all__ = [
 
 # -- Facts this module imports rather than restates -------------------------
 #
-# ``host_env`` scrubs the ``EPICS_ENV_PREFIXES`` families from what a child is
-# handed. The child scrubs again on its own first line; this parent-side pass
-# is the defense-in-depth half of that one rule, and a rule spelled in two
-# places is a rule its two halves can come to disagree about.
+# ``ConnectorHost.start`` scrubs the ``EPICS_ENV_PREFIXES`` families from what
+# a child is handed. The child scrubs again on its own first line; this
+# parent-side pass is the defense-in-depth half of that one rule, and a rule
+# spelled in two places is a rule its two halves can come to disagree about.
 #
 # ``SIMULATED_TYPES`` names the connector types that serve a machine nobody
 # has to be careful around. It labels the state file's per-target display
@@ -317,45 +323,33 @@ class NoConnectorHostError(ConnectorUnavailableError):
         }
 
 
-async def _launch_request(
-    target: str,
-    process: Any,
-    proxy: ConnectorHostProxy,
-    method: SupervisorMethod,
-    kwargs: dict[str, Any],
-    timeout: float,
-    stage: str,
-    grace_s: float,
-) -> Any:
-    """One launch-handshake request to a starting child, its failures as :class:`SwitchError`.
+def _start_refusal(target: str, error: ConnectorHostStartError, timeout: float) -> SwitchError:
+    """A failed :meth:`~osprey_connectors.ipc.ConnectorHost.start`, as the switch refuses it.
 
-    The request travels over the proxy's supervisor surface, which adds its own
-    grace to *timeout*. A closed pipe (a :class:`~osprey_connectors.ipc.ChildLostError`)
-    means the child is exiting: its status is reaped, for up to *grace_s*,
-    before anything signals it, so the refusal names the exit code the child
-    chose. Any other failure is the child's own answer to *method*.
+    A closed pipe has been reaped by the handle, for up to the terminate grace,
+    before anything signalled the child, so the refusal names the exit code
+    the child chose.
     """
-    reason = REASON_PROBE_FAILED if stage == STAGE_PROBE else REASON_SPAWN_FAILED
-
-    def failure(what: str) -> SwitchError:
-        return SwitchError(
-            target,
-            stage,
-            reason,
-            f"The connector-host child for target {target!r} {what}.",
+    cause = error.__cause__
+    if error.stage == "spawn":
+        detail = f"Could not spawn a connector-host child for target {target!r}: {cause}"
+    elif error.cause == "unresponsive":
+        detail = (
+            f"The connector-host child for target {target!r} did not answer 'init' "
+            f"within {timeout}s."
         )
-
-    try:
-        return await proxy.supervisor_request(method, kwargs, timeout_s=timeout)
-    except ChildUnresponsiveError as exc:
-        raise failure(f"did not answer {method!r} within {timeout}s") from exc
-    except ChildLostError as exc:
-        returncode = await reap_exit_code(process, grace_s)
-        raise failure(
-            f"closed its output stream while answering {method!r} (exit code {returncode}): {exc}"
-        ) from exc
-    except Exception as exc:
-        raise failure(f"failed {method!r}: {exc}") from exc
+    elif error.cause == "exited":
+        detail = (
+            f"The connector-host child for target {target!r} closed its output stream while "
+            f"answering 'init' (exit code {error.returncode}): {cause}."
+        )
+    else:
+        answered = cause.class_tag if isinstance(cause, ConnectorInternalError) else None
+        detail = (
+            f"The connector-host child for target {target!r} answered its init frame "
+            f"with {answered}, not the post-connect report."
+        )
+    return SwitchError(target, STAGE_SPAWN, REASON_SPAWN_FAILED, detail)
 
 
 @dataclass(frozen=True)
@@ -382,33 +376,31 @@ class _Child:
     target: str
     connector_type: str
     probe_channel: str
-    process: Any
-    proxy: ConnectorHostProxy
-    reader: AttributedReader
-    report: dict[str, Any] = field(default_factory=dict)
+    host: ConnectorHost
 
     @property
     def pid(self) -> int:
-        return int(self.process.pid)
+        return self.host.pid
+
+    @property
+    def proxy(self) -> ConnectorHostProxy:
+        return self.host.proxy
+
+    @property
+    def report(self) -> HostReport:
+        return self.host.report
 
     def is_alive(self) -> bool:
-        return self.process.returncode is None
+        return self.host.returncode is None
 
     def reported_role(self) -> SelectedRole | None:
         """The gateway role the child said it connected on, or ``None``.
 
         A connector with no gateways to select between reports no role, and a
         report is trusted here because it was verified against the parent's
-        derivation before the child was adopted, whose ``selected_role`` is a
-        :data:`~osprey_connectors.ipc.SelectedRole`. Anything but one of those
-        words is "no role", never a role spelled oddly.
+        derivation before the child was adopted.
         """
-        reported = self.report.get("selected_role")
-        if reported == ROLE_READ_ONLY:
-            return ROLE_READ_ONLY
-        if reported == ROLE_WRITE_ACCESS:
-            return ROLE_WRITE_ACCESS
-        return None
+        return self.report.selected_role
 
 
 # ---------------------------------------------------------------------------
@@ -830,6 +822,17 @@ class ConnectorHostManager:
         child = self._live_child()
         return child.proxy if child is not None else None
 
+    def host_for(self, proxy: object) -> ConnectorHost | None:
+        """The child *proxy* belongs to, while it is this manager's child; else ``None``.
+
+        How a call that failed on *proxy* reaches the child it was sent to —
+        to ping it, say — rather than whichever child is active by the time it
+        asks. A child already replaced, by a switch or another call's
+        recovery, is no longer this manager's to reach.
+        """
+        child = self._child
+        return child.host if child is not None and child.proxy is proxy else None
+
     def status(self) -> dict[str, Any]:
         """Everything the roster needs about the running host, in one mapping."""
         child = self._live_child()
@@ -842,7 +845,7 @@ class ConnectorHostManager:
             "child_pid": child.pid if child is not None else None,
             "connector_type": child.connector_type if child is not None else None,
             "probe_channel": child.probe_channel if child is not None else None,
-            "selected_role": child.report.get("selected_role") if child is not None else None,
+            "selected_role": child.report.selected_role if child is not None else None,
             "drain_timeout_s": self._drain_timeout(),
         }
 
@@ -873,7 +876,7 @@ class ConnectorHostManager:
                 "the session has no connector host",
                 child.pid,
                 child.target,
-                child.process.returncode,
+                child.host.returncode,
             )
             self._child = None
             return None
@@ -1792,14 +1795,14 @@ class ConnectorHostManager:
         )
         return child, rederived
 
-    def _writes_moved(self, target: str, derived: _Derived, report: dict[str, Any]) -> bool:
+    def _writes_moved(self, target: str, derived: _Derived, report: HostReport) -> bool:
         """Whether a writes mismatch in *report* is a verdict that moved.
 
         True only when the child reports the other posture *and* the verdict,
         taken again now, has moved to it. A readonly run is never one: its
         report carries the tier, not the verdict.
         """
-        if derived.readonly_run or report.get("writes_enabled") is not (not derived.writes_enabled):
+        if derived.readonly_run or report.writes_enabled is not (not derived.writes_enabled):
             return False
         return _writes_allowed(self._config.control_system, target) is not derived.writes_enabled
 
@@ -1825,42 +1828,16 @@ class ConnectorHostManager:
         which has no session to protect.
         """
         derivation = derived.derivation
-        process = await self._spawn(target)
-        # One reader object, held by both the proxy and this record: retiring it
-        # is how the parent names the reason the proxy's stream ended.
-        reader = AttributedReader(process.stdout)
-        # A call that names no timeout of its own still ends: a child silent
-        # past this deadline raises ChildUnresponsiveError, which the error
-        # handler answers by pinging the child and replacing it if it is wedged.
-        proxy = ConnectorHostProxy(reader, process.stdin, call_timeout_s=DEFAULT_CALL_TIMEOUT_S)
+        host = await self._spawn(
+            target,
+            self._init(derivation, without_write_gateway=without_write_gateway),
+        )
         try:
-            report = await _launch_request(
-                target,
-                process,
-                proxy,
-                "init",
-                self._init_kwargs(
-                    target,
-                    derivation.connector_type,
-                    without_write_gateway=without_write_gateway,
-                ),
-                self._spawn_timeout_s,
-                STAGE_SPAWN,
-                self._terminate_grace_s,
-            )
-            if not isinstance(report, dict):
-                raise SwitchError(
-                    target,
-                    STAGE_SPAWN,
-                    REASON_SPAWN_FAILED,
-                    f"The connector-host child for target {target!r} answered its init frame "
-                    f"with {type(report).__name__}, not the post-connect report.",
-                )
-            if may_rederive and self._writes_moved(target, derived, report):
+            if may_rederive and self._writes_moved(target, derived, host.report):
                 raise _WritesMoved
             verification = verify_host_report(
                 derivation,
-                report,
+                host.report,
                 readonly_run=derived.readonly_run,
                 writes_enabled=derived.writes_enabled,
             )
@@ -1873,18 +1850,8 @@ class ConnectorHostManager:
                     verification=verification,
                 )
             if probe_channel:
-                probe_timeout = self._probe_timeout()
                 try:
-                    await _launch_request(
-                        target,
-                        process,
-                        proxy,
-                        "spawn_probe",
-                        {"address": probe_channel, "timeout_s": probe_timeout},
-                        probe_timeout,
-                        STAGE_PROBE,
-                        self._terminate_grace_s,
-                    )
+                    await self._probe(target, host, probe_channel)
                 except SwitchError as exc:
                     # The probe channel alone does not say which endpoint would
                     # not answer; the derivation this child was launched from
@@ -1916,36 +1883,71 @@ class ConnectorHostManager:
             # Nothing survives a failed launch: the previous child is still the
             # active one, and a spare process on the destination's gateway is
             # exactly the thing this design exists to prevent.
-            await kill_host(
-                process,
-                proxy,
-                reader,
-                reason=f"The connector-host child for target {target!r} failed to start.",
-                grace_s=self._terminate_grace_s,
-            )
+            await host.retire(f"The connector-host child for target {target!r} failed to start.")
             raise
 
         return _Child(
             target=target,
             connector_type=derivation.connector_type,
             probe_channel=probe_channel,
-            process=process,
-            proxy=proxy,
-            reader=reader,
-            report=report,
+            host=host,
         )
 
-    async def _spawn(self, target: str) -> Any:
-        env = host_env()
+    async def _spawn(self, target: str, init: HostInit) -> ConnectorHost:
+        """Start one child on *init* and wait for its report; a failure as :class:`SwitchError`.
+
+        A call that names no timeout of its own still ends: a child silent
+        past :data:`DEFAULT_CALL_TIMEOUT_S` raises ``ChildUnresponsiveError``,
+        which the error handler answers by pinging the child and replacing it
+        if it is wedged.
+        """
         try:
-            return await spawn_host(self._python, env)
-        except OSError as exc:
+            return await ConnectorHost.start(
+                init,
+                python=self._python,
+                start_timeout_s=self._spawn_timeout_s,
+                call_timeout_s=DEFAULT_CALL_TIMEOUT_S,
+                terminate_grace_s=self._terminate_grace_s,
+            )
+        except ConnectorHostStartError as error:
+            raise _start_refusal(target, error, self._spawn_timeout_s) from error
+        except Exception as exc:
+            # The child's own answer to its init frame.
             raise SwitchError(
                 target,
                 STAGE_SPAWN,
                 REASON_SPAWN_FAILED,
-                f"Could not spawn a connector-host child for target {target!r}: {exc}",
+                f"The connector-host child for target {target!r} failed 'init': {exc}.",
             ) from exc
+
+    async def _probe(self, target: str, host: ConnectorHost, channel: str) -> None:
+        """Prove a candidate with one real read of *channel*; a failure as :class:`SwitchError`.
+
+        A closed pipe means the child is exiting: the handle gives it the
+        terminate grace to exit first, so the refusal names the exit code the
+        child chose. Any other failure is the child's own answer to the probe.
+        """
+        timeout = self._probe_timeout()
+
+        def failure(what: str) -> SwitchError:
+            return SwitchError(
+                target,
+                STAGE_PROBE,
+                REASON_PROBE_FAILED,
+                f"The connector-host child for target {target!r} {what}.",
+            )
+
+        try:
+            await host.probe(channel, timeout_s=timeout)
+        except ChildUnresponsiveError as exc:
+            raise failure(f"did not answer 'spawn_probe' within {timeout}s") from exc
+        except ChildLostError as exc:
+            raise failure(
+                f"closed its output stream while answering 'spawn_probe' "
+                f"(exit code {host.returncode}): {exc}"
+            ) from exc
+        except Exception as exc:
+            raise failure(f"failed 'spawn_probe': {exc}") from exc
 
     def _config_file(self) -> str | None:
         """The project config file every child is handed, resolved, or ``None``.
@@ -1958,26 +1960,22 @@ class ConnectorHostManager:
         config_path = getattr(self._config, "config_path", None)
         return str(Path(config_path).resolve()) if config_path else None
 
-    def _init_kwargs(
-        self, target: str, connector_type: str, *, without_write_gateway: bool = False
-    ) -> dict[str, Any]:
+    def _init(
+        self, derivation: TargetDerivation, *, without_write_gateway: bool = False
+    ) -> HostInit:
         """The init payload: the section as resolved here, plus this run's posture."""
         control_system = self._config.control_system
         if without_write_gateway:
-            control_system = _without_write_gateway(control_system, connector_type)
-        kwargs: dict[str, Any] = {
-            "control_system": control_system,
-            "target": target,
-        }
-        config_file = self._config_file()
-        if config_file:
-            kwargs["config_file"] = config_file
-        if is_readonly_run():
+            control_system = _without_write_gateway(control_system, derivation.connector_type)
+        return HostInit(
+            control_system=control_system,
+            target=derivation.target,
+            config_file=self._config_file(),
             # Restriction only. The child cannot be granted writes by launch
             # payload; its own write verdict is the only thing that ever
             # allows them.
-            kwargs["execution_mode"] = "readonly"
-        return kwargs
+            execution_mode=READONLY_MODE if is_readonly_run() else None,
+        )
 
     # -- retirement --------------------------------------------------------
 
@@ -1994,7 +1992,7 @@ class ConnectorHostManager:
             child.proxy.refuse_new_requests(cause)
             drained = await child.proxy.drain(timeout_s=timeout)
             if drained:
-                await stop_host(child.process, child.proxy, grace_s=self._terminate_grace_s)
+                await child.host.stop()
                 return True
 
             logger.warning(
@@ -2005,15 +2003,9 @@ class ConnectorHostManager:
                 child.target,
                 cause,
             )
-            await kill_host(
-                child.process,
-                child.proxy,
-                child.reader,
-                reason=(
-                    f"{cause} killed the connector-host child serving target {child.target!r} "
-                    f"after its {timeout}s drain deadline expired with this request in flight"
-                ),
-                grace_s=self._terminate_grace_s,
+            await child.host.retire(
+                f"{cause} killed the connector-host child serving target {child.target!r} "
+                f"after its {timeout}s drain deadline expired with this request in flight"
             )
             return False
         except Exception:  # pragma: no cover - defensive
@@ -2023,13 +2015,7 @@ class ConnectorHostManager:
             # not a reason to leave a caller waiting on a pipe nobody will
             # answer, nor to leave it guessing at the cause.
             with contextlib.suppress(Exception):
-                await kill_host(
-                    child.process,
-                    child.proxy,
-                    child.reader,
-                    reason=cause,
-                    grace_s=self._terminate_grace_s,
-                )
+                await child.host.retire(cause)
             return False
 
     # -- config ------------------------------------------------------------

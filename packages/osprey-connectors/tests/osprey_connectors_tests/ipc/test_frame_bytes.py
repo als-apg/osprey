@@ -128,20 +128,20 @@ _REQUESTS = {
         [("SR:A", 1), ("SR:B", "on")], timeout_s=4.0, confirm=True
     ),
     "validate_channel": lambda proxy: proxy.validate_channel("SR:Q"),
-    "init": lambda proxy: proxy.supervisor_request("init", _init(), timeout_s=30.0),
-    "init/config_file": lambda proxy: proxy.supervisor_request(
+    "init": lambda proxy: proxy._request("init", _init(), timeout_s=30.0),
+    "init/config_file": lambda proxy: proxy._request(
         "init", _init(config_file="/srv/project/config.yml"), timeout_s=30.0
     ),
-    "init/execution_mode": lambda proxy: proxy.supervisor_request(
+    "init/execution_mode": lambda proxy: proxy._request(
         "init", _init(execution_mode="readonly"), timeout_s=30.0
     ),
-    "init/config_file+execution_mode": lambda proxy: proxy.supervisor_request(
+    "init/config_file+execution_mode": lambda proxy: proxy._request(
         "init",
         _init(config_file="/srv/project/config.yml", execution_mode="readonly"),
         timeout_s=30.0,
     ),
-    "ping": lambda proxy: proxy.supervisor_request("ping", {}, timeout_s=2.0),
-    "spawn_probe": lambda proxy: proxy.supervisor_request(
+    "ping": lambda proxy: proxy._request("ping", {}, timeout_s=2.0),
+    "spawn_probe": lambda proxy: proxy._request(
         "spawn_probe", {"address": "SR:DCCT", "timeout_s": 5.0}, timeout_s=5.0
     ),
 }

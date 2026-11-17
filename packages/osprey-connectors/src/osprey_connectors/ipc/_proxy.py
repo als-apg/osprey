@@ -420,19 +420,20 @@ class ConnectorHostProxy:
         await self._shutdown(f"the {CHILD} was disconnected before this request completed")
 
     # ------------------------------------------------------------------
-    # Supervisor surface
+    # Supervisor requests
     # ------------------------------------------------------------------
 
-    async def supervisor_request(
+    async def _request(
         self, method: SupervisorMethod, kwargs: Mapping[str, object], *, timeout_s: float
     ) -> object:
-        """Send one supervisor request (``init``, ``ping``) and await its reply.
+        """Send one supervisor request (``init``, ``ping``, ``spawn_probe``) and await its reply.
 
-        Not part of the connector surface: a supervisor that brings a child up
-        over this proxy's pipes, or asks whether it is still alive, uses this,
-        so the reply is demultiplexed and its error decoded by the same
-        plumbing every other call uses. A typed error frame is raised as its
-        real class; a child that dies before answering fails the call with a
+        Not part of the connector surface: the
+        :class:`~osprey_connectors.ipc.ConnectorHost` that owns this proxy's
+        child brings it up and asks after it through this, so the reply is
+        demultiplexed and its error decoded by the same plumbing every other
+        call uses. A typed error frame is raised as its real class; a child
+        that dies before answering fails the call with a
         :class:`ChildLostError`; no answer within ``timeout_s`` plus the grace
         raises :class:`ChildUnresponsiveError`.
         """

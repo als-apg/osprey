@@ -375,6 +375,21 @@ def test_an_init_whose_control_system_is_not_a_mapping_fails_the_launch(child):
     assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [{"execution_mode": "readwrite"}, {"config_file": 7}, {"surprise": True}],
+    ids=["execution_mode", "config_file", "extra-key"],
+)
+def test_an_init_that_is_no_host_init_fails_the_launch(child, payload):
+    """The payload is validated as a ``HostInit`` once, before anything is built."""
+    frame = child.init(**payload)
+
+    assert isinstance(frame, frames.ErrorFrame)
+    assert isinstance(decode_exception(frame.error), ConnectorInternalError)
+    assert decode_exception(frame.error).class_tag == "ValidationError"
+    assert child.proc.wait(timeout=REPLY_TIMEOUT_S) == host.EXIT_INIT_FAILED
+
+
 def test_inherited_epics_variables_do_not_survive_into_the_child(tmp_path):
     junk = {
         "EPICS_CA_ADDR_LIST": "junk.example.org",
@@ -944,7 +959,7 @@ def test_a_gateways_entry_that_is_not_a_mapping_reports_no_role(monkeypatch):
 
     report = host._post_connect_report(object(), "epics", "live", section)
 
-    assert (report["selected_role"], report["mode"], report["host"], report["port"]) == (
+    assert (report.selected_role, report.mode, report.host, report.port) == (
         None,
         "name_server",
         "localhost",
@@ -1063,9 +1078,9 @@ def test_the_report_arms_the_target_whose_switch_is_on(mixed_deployment):
         _posture_carrier("virtual_accelerator", "va"), "virtual_accelerator", "va", mixed_deployment
     )
 
-    assert report["target"] == "va"
-    assert report["connector_type"] == "virtual_accelerator"
-    assert report["writes_enabled"] is True
+    assert report.target == "va"
+    assert report.connector_type == "virtual_accelerator"
+    assert report.writes_enabled is True
 
 
 def test_a_target_whose_switch_is_off_reports_off(mixed_deployment):
@@ -1075,9 +1090,9 @@ def test_a_target_whose_switch_is_off_reports_off(mixed_deployment):
         _posture_carrier("epics", "live"), "epics", "live", mixed_deployment
     )
 
-    assert report["target"] == "live"
-    assert report["connector_type"] == "epics"
-    assert report["writes_enabled"] is False
+    assert report.target == "live"
+    assert report.connector_type == "epics"
+    assert report.writes_enabled is False
 
 
 def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deployment, monkeypatch):
@@ -1097,9 +1112,9 @@ def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deploy
     # half, reported where the run mode collapses the verdict. What the readonly
     # run collapses is the selection itself — an armed target still went
     # through the read gateway.
-    assert report["writes_enabled"] is True
-    assert report["readonly_run"] is True
-    assert report["selected_role"] == "read_only"
+    assert report.writes_enabled is True
+    assert report.readonly_run is True
+    assert report.selected_role == "read_only"
 
 
 # ------------------------------- the posture the selection was made with
@@ -1264,14 +1279,14 @@ def test_identical_gateways_report_the_role_the_switched_off_posture_selected(
     # it down, and the report is the connector's own answer rather than a
     # second reading of the config.
     assert connector._writes_enabled is False
-    assert report["selected_role"] == "read_only"
+    assert report.selected_role == "read_only"
 
     derivation, verification = _verify(config, report, connector._writes_enabled)
     assert derivation.selected_role == "read_only"
     assert verification.ok, verification.detail
 
-    assert report["writes_enabled"] is False
-    assert report["readonly_run"] is False
+    assert report.writes_enabled is False
+    assert report.readonly_run is False
 
 
 def test_identical_gateways_still_report_write_access_when_the_switch_is_on(
@@ -1291,8 +1306,8 @@ def test_identical_gateways_still_report_write_access_when_the_switch_is_on(
     )
 
     assert connector._writes_enabled is True
-    assert report["writes_enabled"] is True
-    assert report["selected_role"] == "write_access"
+    assert report.writes_enabled is True
+    assert report.selected_role == "write_access"
 
     derivation, verification = _verify(config, report, connector._writes_enabled)
     assert derivation.selected_role == "write_access"
@@ -1318,9 +1333,9 @@ async def test_a_switched_off_target_reports_the_posture_its_writes_are_refused_
         connector, "virtual_accelerator", "va", config["control_system"]
     )
 
-    assert report["writes_enabled"] is False
-    assert report["readonly_run"] is False
-    assert report["selected_role"] == "read_only"
+    assert report.writes_enabled is False
+    assert report.readonly_run is False
+    assert report.selected_role == "read_only"
 
     # Same instance, same rule: the deployment arms this target, so the refusal
     # can only be the switch the report is now reporting.
@@ -1441,7 +1456,9 @@ def _child_limits_policy(section: dict, config_file: str, target: str) -> dict:
 
     async def build():
         connector, _report = await host._build_connector(
-            {"control_system": section, "target": target, "config_file": config_file}
+            host._host_init(
+                {"control_system": section, "target": target, "config_file": config_file}
+            )
         )
         try:
             return dict(connector._limits_validator.policy)
