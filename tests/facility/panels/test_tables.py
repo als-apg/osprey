@@ -50,7 +50,25 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     assert ",".join(COLUMNS["metrics.csv"]) == (
         "view,level,order,title,measure,signal,class,unit,caption,source"
     )
-    assert OPTIONAL_FILES == frozenset({"pictures.csv", "excluded.csv", "names.csv", "metrics.csv"})
+    assert ",".join(COLUMNS["calibration_kinds.csv"]) == (
+        "kind,title,class,shape,unit,wanted_basis,tolerance,tolerance_source,held_in,order"
+    )
+    assert ",".join(COLUMNS["calibrations.csv"]) == (
+        "id,kind,subject,value,unit,conditions,basis,method,date,document,version,state,"
+        "supersedes,standing"
+    )
+    assert ",".join(COLUMNS["calibration_curves.csv"]) == "id,x,y"
+    assert OPTIONAL_FILES == frozenset(
+        {
+            "pictures.csv",
+            "excluded.csv",
+            "names.csv",
+            "metrics.csv",
+            "calibration_kinds.csv",
+            "calibrations.csv",
+            "calibration_curves.csv",
+        }
+    )
 
 
 def test_the_fixture_tables_read(panel_tables: Path) -> None:
@@ -82,6 +100,7 @@ def test_a_missing_optional_file_is_empty(tmp_path: Path) -> None:
     assert tables.pictures == ()
     assert tables.excluded == ()
     assert tables.names == ()
+    assert tables.calibrations == () and tables.calibration_kinds == ()
 
 
 @pytest.mark.parametrize("name", ["positions.csv", "record_types.csv", "pairs.csv", "health.csv"])
@@ -206,4 +225,49 @@ def test_a_short_name_must_be_stated(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
     _edit(directory, "names.csv", [_header("names.csv"), "XR01:QF1,,controls,stated,d,v,s,l"])
     with pytest.raises(PanelTableError, match="short_name is empty"):
+        read_tables(directory)
+
+
+def test_the_calibration_tables_read(panel_tables: Path) -> None:
+    tables = read_tables(panel_tables)
+    kinds = {kind.kind: kind for kind in tables.calibration_kinds}
+    assert kinds["integrated_gradient"].tolerance == pytest.approx(0.01)
+    assert kinds["integrated_gradient"].cls == "Quadrupole"
+    assert kinds["current_offset"].held_in == "current_setpoint"
+    bench = next(c for c in tables.calibrations if c.id == "ig/QF1/bench")
+    assert bench.supersedes == "ig/QF/design" and bench.basis == "bench"
+    assert [(p.x, p.y) for p in tables.calibration_curves] == [(0.0, -0.02376), (73.33, -4.9198)]
+
+
+_CLAIM = "x,integrated_gradient,XR01:QF1,1.0,T,,bench,,2024-01-01,D,A,Released,,accepted"
+
+
+@pytest.mark.parametrize(
+    ("name", "row", "says"),
+    [
+        ("calibrations.csv", _CLAIM.replace("integrated_gradient", "nope"), "no stated kind"),
+        ("calibrations.csv", _CLAIM.replace(",,accepted", ",ghost,accepted"), "no claim"),
+        ("calibrations.csv", _CLAIM.replace("bench", "guess"), "basis is 'guess'"),
+        ("calibrations.csv", _CLAIM.replace("accepted", "maybe"), "standing is 'maybe'"),
+        ("calibration_curves.csv", "x,1,2", "no claim whose value is a curve"),
+        ("calibration_kinds.csv", "k,K,Quadrupole,blob,,bench,,,,1", "shape is 'blob'"),
+    ],
+)
+def test_a_calibration_row_that_does_not_hold_is_refused(tmp_path, name, row, says) -> None:
+    directory = copy_tables(tmp_path / "panels")
+    lines = (directory / name).read_text().splitlines()
+    if name == "calibration_curves.csv":
+        claims = (directory / "calibrations.csv").read_text().splitlines()
+        _edit(directory, "calibrations.csv", [*claims, _CLAIM])
+    _edit(directory, name, [*lines, row])
+    with pytest.raises(PanelTableError, match=says) as raised:
+        read_tables(directory)
+    assert raised.value.file == name and raised.value.line == len(lines) + 1
+
+
+def test_a_calibration_id_must_be_unique(tmp_path) -> None:
+    directory = copy_tables(tmp_path / "panels")
+    lines = (directory / "calibrations.csv").read_text().splitlines()
+    _edit(directory, "calibrations.csv", [*lines, lines[1]])
+    with pytest.raises(PanelTableError, match="already has a row"):
         read_tables(directory)

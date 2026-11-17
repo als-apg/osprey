@@ -10,10 +10,18 @@ line, the schema this module holds them to:
 - ``health.csv``: the state a channel's value means, one row per stated value
   and source, so two sources may state two states for one value;
 - ``excluded.csv``: things, channels and documents no screen shows;
-- ``pictures.csv``: the parts drawn on a device class's picture.
+- ``pictures.csv``: the parts drawn on a device class's picture;
+- ``names.csv``: a thing's short name; ``metrics.csv``: the key numbers;
+- ``calibration_kinds.csv``: the calibration quantities a device class has;
+- ``calibrations.csv``: the calibration claims, one value of one kind for one
+  subject each, with basis, date, source and standing;
+- ``calibration_curves.csv``: the points of a claim whose value is a curve.
 
-``pictures.csv`` and ``excluded.csv`` may be absent, which reads as empty; the
-other four must be there. A header must name exactly the file's columns (in
+``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
+must be there; every other file may be absent, which reads as empty. Across
+the calibration files, a claim's kind must be a stated kind, a claim's
+``supersedes`` a stated claim, and a curve's ``id`` a claim whose value is a
+curve. A header must name exactly the file's columns (in
 any order). A row must have one field per column; a field the schema requires
 must be non-empty, a field with a vocabulary must hold one of its words, a
 number must parse, and a key the file is unique on must not repeat. An empty
@@ -48,6 +56,12 @@ __all__ = [
     "PicturePart",
     "ShortName",
     "Metric",
+    "CalibrationKind",
+    "Calibration",
+    "CurvePoint",
+    "CALIBRATION_BASES",
+    "CALIBRATION_SHAPES",
+    "STANDINGS",
     "Pose",
     "RecordType",
     "read_tables",
@@ -61,6 +75,9 @@ EXCLUDED = "excluded.csv"
 PICTURES = "pictures.csv"
 NAMES = "names.csv"
 METRICS = "metrics.csv"
+CALIBRATION_KINDS = "calibration_kinds.csv"
+CALIBRATIONS = "calibrations.csv"
+CALIBRATION_CURVES = "calibration_curves.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -71,6 +88,9 @@ TABLE_FILES: tuple[str, ...] = (
     PICTURES,
     NAMES,
     METRICS,
+    CALIBRATION_KINDS,
+    CALIBRATIONS,
+    CALIBRATION_CURVES,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -143,11 +163,42 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "caption",
             "source",
         ],
+        CALIBRATION_KINDS: [
+            "kind",
+            "title",
+            "class",
+            "shape",
+            "unit",
+            "wanted_basis",
+            "tolerance",
+            "tolerance_source",
+            "held_in",
+            "order",
+        ],
+        CALIBRATIONS: [
+            "id",
+            "kind",
+            "subject",
+            "value",
+            "unit",
+            "conditions",
+            "basis",
+            "method",
+            "date",
+            "document",
+            "version",
+            "state",
+            "supersedes",
+            "standing",
+        ],
+        CALIBRATION_CURVES: ["id", "x", "y"],
     }
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
-OPTIONAL_FILES = frozenset({PICTURES, EXCLUDED, NAMES, METRICS})
+OPTIONAL_FILES = frozenset(
+    {PICTURES, EXCLUDED, NAMES, METRICS, CALIBRATION_KINDS, CALIBRATIONS, CALIBRATION_CURVES}
+)
 
 Basis = Literal["stated", "inferred"]
 DrawnAs = Literal["value", "setpoint", "state", "command", "text", "waveform", "untyped"]
@@ -171,6 +222,14 @@ MEASURES: tuple[str, ...] = (
     "min",
 )
 
+#: How a calibration was found, in the order the screens rank it: a display order
+#: only (which basis to show as further along), not a rule of which value counts.
+CALIBRATION_BASES: tuple[str, ...] = ("design", "bench", "survey", "beam")
+#: What a calibration value is: a number, numbers separated by ``;``, or a curve.
+CALIBRATION_SHAPES: tuple[str, ...] = ("scalar", "tuple", "curve")
+#: A claim's standing, as relation claims have it.
+STANDINGS: tuple[str, ...] = ("accepted", "contested", "superseded")
+
 # Per file: the columns that must be non-empty, the columns with a vocabulary,
 # the number columns (required or not by the first set) and the unique key.
 _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -183,6 +242,9 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         PICTURES: ("device_class", "view", "part", "kind", "x_mm", "y_mm", "z_mm"),
         NAMES: ("thing", "short_name", "basis"),
         METRICS: ("view", "order", "title", "measure", "signal"),
+        CALIBRATION_KINDS: ("kind", "title", "class", "shape", "wanted_basis"),
+        CALIBRATIONS: ("id", "kind", "subject", "value", "basis", "standing"),
+        CALIBRATION_CURVES: ("id", "x", "y"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -196,6 +258,9 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         PICTURES: {"view": PICTURE_VIEWS},
         NAMES: {"basis": BASES},
         METRICS: {"view": METRIC_VIEWS, "measure": MEASURES},
+        CALIBRATION_KINDS: {"shape": CALIBRATION_SHAPES, "wanted_basis": CALIBRATION_BASES},
+        CALIBRATIONS: {"basis": CALIBRATION_BASES, "standing": STANDINGS},
+        CALIBRATION_CURVES: {},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -213,6 +278,8 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         ),
         PICTURES: ("x_mm", "y_mm", "z_mm"),
         METRICS: ("order",),
+        CALIBRATION_KINDS: ("tolerance", "order"),
+        CALIBRATION_CURVES: ("x", "y"),
     }
 )
 _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -222,6 +289,8 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         PAIRS: ("setpoint",),
         NAMES: ("thing",),
         METRICS: ("view", "level", "order"),
+        CALIBRATION_KINDS: ("kind",),
+        CALIBRATIONS: ("id",),
     }
 )
 
@@ -392,6 +461,64 @@ def _metric(**columns: Any) -> Metric:
 
 
 @dataclass(frozen=True)
+class CalibrationKind:
+    """One row of ``calibration_kinds.csv``: a quantity every device of ``cls`` has.
+
+    ``tolerance`` is in ``unit``: two claims further apart disagree.
+    ``held_in`` names the signal of the subject's channel that holds the value
+    in force in the control system, or is ``None`` when the records hold it.
+    """
+
+    kind: str
+    title: str
+    cls: str
+    shape: str
+    unit: str | None
+    wanted_basis: str
+    tolerance: float | None
+    tolerance_source: str | None
+    held_in: str | None
+    order: float | None
+
+
+def _calibration_kind(**columns: Any) -> CalibrationKind:
+    return CalibrationKind(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
+class Calibration:
+    """One row of ``calibrations.csv``: one claim of a value of a kind for a subject.
+
+    ``value`` is the text as stated: a number, numbers separated by ``;`` (a
+    tuple), or ``curve:<n> points`` with the points in ``calibration_curves.csv``.
+    """
+
+    id: str
+    kind: str
+    subject: str
+    value: str
+    unit: str | None
+    conditions: str | None
+    basis: str
+    method: str | None
+    date: str | None
+    document: str | None
+    version: str | None
+    state: str | None
+    supersedes: str | None
+    standing: str
+
+
+@dataclass(frozen=True)
+class CurvePoint:
+    """One row of ``calibration_curves.csv``: a point of a claim's curve."""
+
+    id: str
+    x: float
+    y: float
+
+
+@dataclass(frozen=True)
 class PanelTables:
     """The rule tables, each in file order."""
 
@@ -403,6 +530,9 @@ class PanelTables:
     pictures: tuple[PicturePart, ...]
     names: tuple[ShortName, ...] = ()
     metrics: tuple[Metric, ...] = ()
+    calibration_kinds: tuple[CalibrationKind, ...] = ()
+    calibrations: tuple[Calibration, ...] = ()
+    calibration_curves: tuple[CurvePoint, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -415,6 +545,9 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         PICTURES: PicturePart,
         NAMES: ShortName,
         METRICS: _metric,
+        CALIBRATION_KINDS: _calibration_kind,
+        CALIBRATIONS: Calibration,
+        CALIBRATION_CURVES: CurvePoint,
     }
 )
 
@@ -461,7 +594,7 @@ def _field(name: str, line: int, column: str, text: str) -> Any:
     return text
 
 
-def _read(directory: Path, name: str) -> tuple[Any, ...]:
+def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[Any, ...]:
     path = directory / name
     if not path.is_file():
         if name in OPTIONAL_FILES:
@@ -498,7 +631,39 @@ def _read(directory: Path, name: str) -> tuple[Any, ...]:
         rows.append(
             make(**{column: _field(name, line, column, texts[column]) for column in header})
         )
+        if lines is not None:
+            lines.append(line)
     return tuple(rows)
+
+
+def _check_calibrations(
+    kinds: tuple[CalibrationKind, ...],
+    claims: tuple[Calibration, ...],
+    claim_lines: list[int],
+    points: tuple[CurvePoint, ...],
+    point_lines: list[int],
+) -> None:
+    """Hold the calibration files to each other: a claim's kind is stated, its
+    ``supersedes`` is a claim, and a curve point's ``id`` is a claim of a curve."""
+    known = {kind.kind for kind in kinds}
+    ids = {claim.id for claim in claims}
+    for claim, line in zip(claims, claim_lines, strict=True):
+        if claim.kind not in known:
+            raise PanelTableError(CALIBRATIONS, line, f"kind {claim.kind!r} is no stated kind")
+        if claim.supersedes is not None and claim.supersedes not in ids:
+            raise PanelTableError(
+                CALIBRATIONS, line, f"supersedes {claim.supersedes!r}, which is no claim"
+            )
+    curves = {claim.id for claim in claims if claim.value.startswith(CURVE_PREFIX)}
+    for point, line in zip(points, point_lines, strict=True):
+        if point.id not in curves:
+            raise PanelTableError(
+                CALIBRATION_CURVES, line, f"id {point.id!r} is no claim whose value is a curve"
+            )
+
+
+#: The start of a claim's value that holds its points in ``calibration_curves.csv``.
+CURVE_PREFIX = "curve:"
 
 
 def read_tables(panels_dir: Path) -> PanelTables:
@@ -524,4 +689,15 @@ def read_tables(panels_dir: Path) -> PanelTables:
         pictures=_read(directory, PICTURES),
         names=_read(directory, NAMES),
         metrics=_read(directory, METRICS),
+        **_read_calibrations(directory),
     )
+
+
+def _read_calibrations(directory: Path) -> dict[str, tuple[Any, ...]]:
+    claim_lines: list[int] = []
+    point_lines: list[int] = []
+    kinds = _read(directory, CALIBRATION_KINDS)
+    claims = _read(directory, CALIBRATIONS, claim_lines)
+    points = _read(directory, CALIBRATION_CURVES, point_lines)
+    _check_calibrations(kinds, claims, claim_lines, points, point_lines)
+    return {"calibration_kinds": kinds, "calibrations": claims, "calibration_curves": points}

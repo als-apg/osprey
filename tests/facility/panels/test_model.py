@@ -540,3 +540,51 @@ def test_a_part_of_an_excluded_thing_is_withheld_with_its_channels(tmp_path: Pat
 def test_a_thing_carries_the_short_name_the_names_table_states(panel_graph) -> None:
     assert panel_graph.thing("XR01:QF1", "device").short_name == "F1"
     assert panel_graph.thing("XR01:BEND1", "device").short_name is None
+
+
+# -- calibrations ------------------------------------------------------------------
+
+
+def test_the_claim_in_force_is_the_newest_accepted_one_not_superseded(panel_graph) -> None:
+    found = panel_graph.calibration("XR01:QF1", "integrated_gradient")
+    assert found.in_force is not None and found.in_force.id == "ig/QF1/bench"
+    assert found.state == "bench" and not found.below_wanted
+    assert found.design is not None and found.design.id == "ig/QF/design"
+    assert [c.id for c in found.earlier] == ["ig/QF/design"]
+
+
+def test_two_accepted_claims_of_one_basis_beyond_the_tolerance_are_contested(panel_graph):
+    found = panel_graph.calibration("XR02:QF1", "integrated_gradient")
+    assert found.state == "contested"
+    assert found.in_force is not None and found.in_force.id == "ig/XR02QF1/bench-b"
+    assert [c.id for c in found.rivals] == ["ig/XR02QF1/bench-a"]
+
+
+def test_a_kind_with_no_claim_is_none_and_below_its_wanted_basis(panel_graph) -> None:
+    found = panel_graph.calibration("XR02:QD1", "integrated_gradient")
+    assert (found.in_force, found.state, found.below_wanted) == (None, "none", True)
+    design = panel_graph.calibration("XR01:QD1", "integrated_gradient")
+    assert design.state == "design" and design.below_wanted  # bench wanted
+
+
+def test_a_curve_claim_carries_its_points_and_kinds_go_by_order(panel_graph) -> None:
+    found = panel_graph.calibration("XR01:QF1", "excitation")
+    assert [(p.x, p.y) for p in found.points] == [(0.0, -0.02376), (73.33, -4.9198)]
+    kinds = [k.kind for k in panel_graph.calibration_kinds("Quadrupole")]
+    assert kinds == [
+        "integrated_gradient", "excitation", "centre", "strength_scale", "current_offset"
+    ]  # fmt: skip
+    assert panel_graph.calibration_kinds("Pump") == []
+
+
+def test_a_claim_from_an_excluded_document_is_dropped(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "excluded.csv").open("a") as rows:
+        rows.write("document,XR-MAG-TEST,withdrawn,XR-LAYOUT,A,sheet 3\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    found = graph.calibration("XR01:QF1", "integrated_gradient")
+    assert found.in_force is not None and found.in_force.id == "ig/QF/design"
+    assert found.state == "design"

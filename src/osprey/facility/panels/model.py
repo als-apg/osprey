@@ -57,8 +57,13 @@ from typing import Any, Literal
 
 from osprey.facility import FACILITY_FILE
 from osprey.facility.panels.tables import (
+    CALIBRATION_BASES,
+    CURVE_PREFIX,
     POSITIONS,
     TABLE_FILES,
+    Calibration,
+    CalibrationKind,
+    CurvePoint,
     DrawnAs,
     HealthRule,
     Metric,
@@ -74,6 +79,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.relations import END_KINDS, end_identity
 
 __all__ = [
+    "CalibrationState",
     "PART_RELATION",
     "PLACE_RELATION",
     "SIMULATION_PREFIX",
@@ -270,6 +276,61 @@ def _ring_frame(poses: list[Pose]) -> str | None:
     return ranked[0][0]
 
 
+@dataclass(frozen=True)
+class CalibrationState:
+    """What the records say of one calibration kind of one device.
+
+    Attributes:
+        kind: The kind.
+        subject: The device.
+        in_force: The claim in force: the newest accepted claim no other claim
+            supersedes (a contested one when no accepted claim is left), or
+            ``None``.
+        state: ``contested`` when the claim in force says so or two accepted
+            claims in force of one basis differ by more than the kind's
+            tolerance; else the basis of the claim in force; else ``none``.
+        below_wanted: The claim in force ranks under the kind's wanted basis
+            (in :data:`~osprey.facility.panels.tables.CALIBRATION_BASES`, a
+            display order), or there is none.
+        design: The newest accepted ``design`` claim, in force or not, the
+            value a deviation is taken from; ``None`` with none.
+        earlier: The other claims of the kind for the device, newest first.
+        rivals: The accepted claims in force that disagree with the claim in
+            force, with it excluded.
+        points: The points of the claim in force when its value is a curve.
+    """
+
+    kind: CalibrationKind
+    subject: str
+    in_force: Calibration | None
+    state: str
+    below_wanted: bool
+    design: Calibration | None
+    earlier: tuple[Calibration, ...]
+    rivals: tuple[Calibration, ...]
+    points: tuple[CurvePoint, ...] = ()
+
+
+def calibration_numbers(value: str) -> tuple[float, ...] | None:
+    """The numbers of a claim's value: one for a number, several for ``a;b;c``;
+    ``None`` for a curve or text that is no number."""
+    if value.startswith(CURVE_PREFIX):
+        return None
+    try:
+        return tuple(float(part) for part in value.split(";"))
+    except ValueError:
+        return None
+
+
+def _disagree(a: Calibration, b: Calibration, tolerance: float | None) -> bool:
+    """Whether two claims differ by more than *tolerance* in any number; claims with
+    no tolerance, or values that are no numbers, are not compared."""
+    x, y = calibration_numbers(a.value), calibration_numbers(b.value)
+    if tolerance is None or x is None or y is None or len(x) != len(y):
+        return False
+    return any(abs(p - q) > tolerance for p, q in zip(x, y, strict=True))
+
+
 class PanelGraph:
     """The things, channels, relations, poses and rules screens are drawn from.
 
@@ -329,6 +390,28 @@ class PanelGraph:
         for part in tables.pictures:
             if part.document not in self._excluded_documents:
                 self._pictures.setdefault(part.device_class, []).append(part)
+        self._read_calibrations(tables)
+
+    def _read_calibrations(self, tables: PanelTables) -> None:
+        self._kinds = {kind.kind: kind for kind in tables.calibration_kinds}
+        self._kinds_of: dict[str, list[CalibrationKind]] = {}
+        for kind in sorted(
+            tables.calibration_kinds, key=lambda k: (k.order is None, k.order or 0.0, k.kind)
+        ):
+            self._kinds_of.setdefault(kind.cls, []).append(kind)
+        self._claims: dict[tuple[str, str], list[Calibration]] = {}
+        for claim in tables.calibrations:
+            if claim.document not in self._excluded_documents:
+                self._claims.setdefault((claim.subject, claim.kind), []).append(claim)
+        self._superseded = {
+            claim.supersedes
+            for claims in self._claims.values()
+            for claim in claims
+            if claim.supersedes is not None
+        }
+        self._points: dict[str, list[CurvePoint]] = {}
+        for point in tables.calibration_curves:
+            self._points.setdefault(point.id, []).append(point)
 
     # -- building -------------------------------------------------------------
 
@@ -797,6 +880,76 @@ class PanelGraph:
             and row.source not in self._excluded_documents
         ]
         return sorted(rows, key=lambda row: row.order)
+
+    def calibration_kinds(self, cls: str | None = None) -> list[CalibrationKind]:
+        """The calibration kinds of a device class, by ``order``; every kind with ``None``."""
+        if cls is None:
+            return [kind for kinds in self._kinds_of.values() for kind in kinds]
+        return list(self._kinds_of.get(cls, ()))
+
+    def calibration_kind(self, kind: str) -> CalibrationKind:
+        """The calibration kind *kind*.
+
+        Raises:
+            KeyError: No such kind.
+        """
+        return self._kinds[kind]
+
+    def calibration(self, device_id: str, kind: str) -> CalibrationState:
+        """What the records say of *kind* for a device: the claims whose subject is the
+        device, one of its channels, or a part placed through it (:meth:`parts_through`).
+
+        Raises:
+            KeyError: No such device or kind.
+        """
+        found = self._kinds[kind]
+        subjects = [
+            device_id,
+            *(channel.name for channel in self.channels(device_id, "device")),
+            *(part.id for part in self.parts_through(device_id)),
+        ]
+        order = {id(c): n for n, c in enumerate(self._tables.calibrations)}
+        claims = sorted(
+            (claim for subject in subjects for claim in self._claims.get((subject, kind), ())),
+            key=lambda c: (c.date or "", order[id(c)]),
+            reverse=True,
+        )  # newest first; a later row wins a tie
+        live = [c for c in claims if c.id not in self._superseded and c.standing != "superseded"]
+        accepted = [c for c in live if c.standing == "accepted"]
+        in_force = accepted[0] if accepted else next(iter(live), None)
+        rivals = tuple(
+            c
+            for c in accepted
+            if in_force is not None
+            and c is not in_force
+            and c.basis == in_force.basis
+            and _disagree(c, in_force, found.tolerance)
+        )
+        if in_force is None:
+            state = "none"
+        elif rivals or any(c.standing == "contested" for c in live):
+            state = "contested"
+        else:
+            state = in_force.basis
+        rank = CALIBRATION_BASES.index  # a display order, not a precedence
+        below = in_force is None or rank(in_force.basis) < rank(found.wanted_basis)
+        design = next((c for c in claims if c.basis == "design" and c.standing == "accepted"), None)
+        points = (
+            tuple(self._points.get(in_force.id, ()))
+            if in_force is not None and in_force.value.startswith(CURVE_PREFIX)
+            else ()
+        )
+        return CalibrationState(
+            kind=found,
+            subject=device_id,
+            in_force=in_force,
+            state=state,
+            below_wanted=below,
+            design=design,
+            earlier=tuple(c for c in claims if c is not in_force),
+            rivals=rivals,
+            points=points,
+        )
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""
