@@ -187,9 +187,28 @@ def _box(n: dict) -> tuple[float, float, float, float]:
     return g["x"], g["y"], g["x"] + g["width"], g["y"] + g["height"]
 
 
-def _strip_parts(doc: dict) -> tuple[list[dict], list[dict]]:
-    values = [n for n in nodes(doc) if n["type"] == "pv-label"]
-    names = [n for n in nodes(doc) if n["type"] == "text-label" and n["props"]["text"][:1] == "P"]
+def _annotations(doc: dict) -> dict[str, dict]:
+    """The strip's values by channel: static labels whose text a formula rule sets."""
+    formulas = {f["name"]: f for f in doc.get("formulas", ())}
+    found = {}
+    for n in nodes(doc):
+        for rule in n.get("rules", ()):
+            if n["type"] == "text-label" and rule["targetProperty"] == "text" and "formula" in rule:
+                formula = formulas[rule["formula"].removeprefix("formula://")]
+                found[formula["bindings"]["v"]] = n
+    return found
+
+
+def _annotation_labels(doc: dict) -> list[dict]:
+    return list(_annotations(doc).values())
+
+
+def _strip_parts(doc: dict) -> tuple[dict[str, dict], list[dict]]:
+    values = _annotations(doc)
+    names = [
+        n for n in nodes(doc)
+        if n["type"] == "text-label" and n["props"]["text"][:1] == "P" and not n.get("rules")
+    ]  # fmt: skip
     return values, names
 
 
@@ -197,11 +216,10 @@ def test_strip_values_are_whole_in_two_lanes_and_no_box_overlaps_another(tmp_pat
     _graph, doc = _crowded_strip(tmp_path)
     values, names = _strip_parts(doc)
     assert values and len(names) == CROWD  # a symbol with no room keeps its bare name
-    room = layout.value_width("mm", layout.SMALL_SIZE)
-    boxes = [_box(n) for n in values + names]
-    for n in values:
+    room = layout.text_width(layout.VALUE_SAMPLE, layout.SMALL_SIZE)  # no unit appended
+    boxes = [_box(n) for n in [*values.values(), *names]]
+    for n in values.values():
         assert n["geometry"]["width"] >= room
-        assert _rules(doc, n)
     for i, a in enumerate(boxes):
         for b in boxes[i + 1 :]:
             assert a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1], (a, b)
@@ -213,8 +231,8 @@ def test_strip_values_are_whole_in_two_lanes_and_no_box_overlaps_another(tmp_pat
     assert layout._CROWDED.format(left_out) in texts
 
 
-def _shown(values: list[dict]) -> set[str]:
-    return {f"P{v['props']['pv'].split(':')[1].removeprefix('BPM')}" for v in values}
+def _shown(values: dict[str, dict]) -> set[str]:
+    return {f"P{channel.split(':')[1].removeprefix('BPM')}" for channel in values}
 
 
 def test_each_value_sits_under_its_own_name_and_a_lower_lane_has_a_leader(tmp_path) -> None:
@@ -226,8 +244,7 @@ def test_each_value_sits_under_its_own_name_and_a_lower_lane_has_a_leader(tmp_pa
         i = shown.removeprefix("P")
         (name,) = [n for n in names if n["props"]["text"] == shown]
         x, y = (f"XR01:BPM{i}:position_{a}_readback" for a in "xy")
-        (vx,) = [n for n in values if n["props"]["pv"] == x]
-        (vy,) = [n for n in values if n["props"]["pv"] == y]
+        vx, vy = values[x], values[y]
         centre = name["geometry"]["x"] + name["geometry"]["width"] / 2
         for value in (vx, vy):
             g = value["geometry"]
@@ -407,3 +424,46 @@ def test_a_long_value_takes_the_compact_rule_that_names_it_once(bpm_graph, monke
     doc = stub_render(device_card(bpm_graph, "XR01:BPM1"), bpm_graph)
     precision = [f for f in doc["formulas"] if f["name"].startswith("precision-")]
     assert precision and all(f["expression"] == compact for f in precision)
+
+
+# -- the strip's annotations: a static label, its text a formula ---------------------
+
+
+def _rounded(value: float) -> float:
+    """The annotation formula evaluated as Python with the formula engine's functions."""
+    expression = layout.significant_expression("{v}").replace("{v}", f"({value!r})")
+    names = {"abs": abs, "floor": math.floor, "log10": math.log10, "pow": pow}
+    return eval(expression, {"__builtins__": {}}, names)  # the engine's own text, no builtins
+
+
+@pytest.mark.parametrize(
+    ("value", "shown"),
+    [
+        (1.9448, 1.94),
+        (92.1234, 92.1),
+        (-0.3127, -0.313),
+        (0.0, 0.0),
+        (0.00123456, 0.00123),
+        (12345.6, 12300.0),
+        (3.2179e-9, 3.22e-9),
+    ],
+)
+def test_an_annotation_formula_rounds_to_three_significant_digits(value, shown) -> None:
+    assert _rounded(value) == pytest.approx(shown, rel=1e-12)
+    assert "round(" not in layout.significant_expression("{v}")  # the server has no round
+
+
+def test_a_strip_annotation_is_a_static_label_whose_text_a_formula_sets(tmp_path) -> None:
+    _graph, doc = _crowded_strip(tmp_path)
+    assert not [n for n in nodes(doc) if n["type"] == "pv-label"]  # no unit appended
+    values = _annotation_labels(doc)
+    assert values
+    for label in values:
+        assert label["props"]["text"] == layout.NO_VALUE  # until it delivers, or disconnected
+        (rule,) = label["rules"]
+        assert rule["targetProperty"] == "text"
+        formula = _formula(doc, rule)
+        assert formula["expression"] == layout.significant_expression("{v}")
+        assert set(formula["bindings"]) == {"v"}
+    texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
+    assert any(t.endswith("values not shown: open the card") for t in texts)

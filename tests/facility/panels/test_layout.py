@@ -1321,12 +1321,15 @@ ANNOTATE = {"quadrupole": ("current_readback",), "ion_pump": ("vacuum_readback",
 
 
 def _values(doc: dict) -> dict[str, dict]:
-    """The strip's values (small labels; a key number is big)."""
-    return {
-        n["props"]["pv"]: n
-        for n in _by_type(doc, "pv-label")
-        if n["props"]["fontSize"] == layout.SMALL_SIZE
-    }
+    """The strip's values by channel: static labels whose text a formula rule sets."""
+    formulas = {f["name"]: f for f in doc.get("formulas", ())}
+    found = {}
+    for n in _by_type(doc, "text-label"):
+        for rule in n.get("rules", ()):
+            if rule["targetProperty"] == "text" and "formula" in rule:
+                formula = formulas[rule["formula"].removeprefix("formula://")]
+                found[formula["bindings"]["v"]] = n
+    return found
 
 
 def test_a_strip_shows_the_annotated_values_under_its_symbols_and_beside_its_badges(
@@ -1378,10 +1381,9 @@ def test_strip_values_are_bare_text_stacked_under_their_own_name(panel_graph) ->
         g = value["geometry"]
         edge = g["x"] == layout.MARGIN or g["x"] + g["width"] == layout.MARGIN + layout.STRIP_WIDTH
         assert edge or abs(g["x"] + g["width"] / 2 - (left + right) / 2) < 1  # centred, kept in
-    for node in first + second:  # no field: no ground, no alarm border, centred
+    for node in first + second:  # bare text: no ground, centred
         props = node["props"]
         assert props["backgroundColor"] == symbols.TRANSPARENT
-        assert props["alarmSensitiveBorder"] is False
         assert props["align"] == "center"
 
 

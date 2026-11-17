@@ -370,10 +370,11 @@ _NO_DATA = "no data yet"
 _NEEDS_SERVER = "needs a server-side aggregate"
 _MANY_VALUES = "{} channels state it: the row names no one"
 _DASH = "—"
+NO_VALUE = _DASH  # an annotation's text until its formula delivers, and while disconnected
 _COUNTS = frozenset({"count_true", "count_false", "count_in_tolerance"})
 _VALUES = "values: "
 _DROPPED = "{} values not shown: the screen's budget is spent"
-_CROWDED = "{} values not shown: no room under their symbols; each card shows them"
+_CROWDED = "{} values not shown: open the card"
 _MORE_CHANNELS = "{} more {} channels not drawn"
 _MORE_ROWS = "{} more not drawn"
 _NOT_AT_A_UNIT = "not at a unit"
@@ -2851,10 +2852,7 @@ class _Page:
             if not p.annotations:
                 continue
             name = p.short if p.short is not None else _short(p.thing)
-            units = [unit for _channel, unit in p.annotations]
-            w = max(
-                text_width(name, STRIP_LABEL_SIZE), *(value_width(u, SMALL_SIZE) for u in units)
-            )
+            w = max(text_width(name, STRIP_LABEL_SIZE), text_width(VALUE_SAMPLE, SMALL_SIZE))
             left = min(max(MARGIN + p.x - w / 2, MARGIN), MARGIN + STRIP_WIDTH - w)
             wanted.append((p, name, left, w))
         lanes = value_lanes([(left, w, p.symbol) for p, _name, left, w in wanted])
@@ -2897,7 +2895,7 @@ class _Page:
         channels = [channel for channel, _unit in element.annotations]
         if not channels:
             return []
-        if not self.budget.take([(0, frozenset(channels))]):
+        if not self.budget.take([(len(channels), frozenset(channels))]):
             self.dropped += len(channels)
             return []
         for channel, unit in element.annotations:
@@ -2908,23 +2906,37 @@ class _Page:
         return channels
 
     def value(self, x: float, y: float, w: float, channel: str, align: str = "center") -> None:
-        """A channel's live value on the strip: small, muted, no ground, no alarm
-        border, to :data:`SIGNIFICANT_DIGITS` significant digits; no unit asked for
-        (the strip's values line names the units), though its box has room for the
-        one the served viewer prints anyway."""
+        """A channel's live value on the strip: a static label, small and muted, whose
+        text a formula rule sets to the value at :data:`SIGNIFICANT_DIGITS`
+        significant digits (:func:`significant_expression`). The viewer appends no
+        unit to it (the strip's values line names the units); it shows
+        :data:`NO_VALUE` until the rule delivers and while the channel is
+        disconnected, since the rule's output is stale then."""
+        name = f"value-{len(self.s.formulas)}"
+        self.s.formulas.append(
+            {
+                "name": name,
+                "kind": "scalar",
+                "expression": significant_expression("{v}"),
+                "bindings": {"v": channel},
+            }
+        )
+        self.s._rules += 1
+        rule = {
+            "id": f"r-{self.s._rules:04d}",
+            "name": f"{channel} value",
+            "targetProperty": "text",
+            "default": NO_VALUE,
+            "formula": _FORMULA_PREFIX + name,
+        }
         props = {
-            "pv": channel,
+            "text": NO_VALUE,
             "fontSize": SMALL_SIZE,
             "foregroundColor": MUTED_TEXT,
             "backgroundColor": TRANSPARENT,
-            "showUnits": False,
-            "alarmSensitive": False,
-            "alarmBorder": False,
-            "alarmSensitiveBorder": False,  # the viewer's name for the alarm border
             "align": align,
         }
-        rules = self.precision(props, "{v}", {"v": channel})
-        self.s.widget("pv-label", x, y, w, VALUE_STEP, props, rules=rules)
+        self.s.widget("text-label", x, y, w, VALUE_STEP, props, rules=[rule])
 
     def values_line(self) -> None:
         """What the values on the strip are, and how many the budget left out."""
@@ -2985,11 +2997,9 @@ class _Page:
         if self.free(box):
             self.text(x, cy - VALUE_STEP, name, size=SMALL_SIZE, w=w, h=VALUE_STEP)
             self.taken.append(box)
-        units = dict(element.annotations)
         for i, channel in enumerate(self.affordable(element)):
             top = cy + i * VALUE_STEP
-            room = value_width(units.get(channel), SMALL_SIZE)
-            w = max(BADGE_VALUE_WIDTH, room)
+            w = max(BADGE_VALUE_WIDTH, text_width(VALUE_SAMPLE, SMALL_SIZE))
             box = (x, top, w, VALUE_STEP)
             if self.free(box):
                 self.value(x, top, w, channel, align="left")
@@ -4190,6 +4200,16 @@ def value_size(unit: str | None, width: float) -> float:
     under :data:`SMALL_SIZE`, the floor of all text."""
     text = f"{VALUE_SAMPLE} {unit}" if unit else VALUE_SAMPLE
     return max(SMALL_SIZE, (width - NUMBER_PAD) / (len(text) * CHAR_WIDTH))
+
+
+def significant_expression(value: str) -> str:
+    """*value* (a formula expression) rounded to :data:`SIGNIFICANT_DIGITS` significant
+    digits, as a number: the formula engine has no ``round``, so ``floor(x + 0.5)``; a
+    power of ten divides when the last digit is a decimal, so the number prints short."""
+    exponent = f"(floor(log10(abs({value}))) - {SIGNIFICANT_DIGITS - 1})"
+    down = f"floor({value} * pow(10, -{exponent}) + 0.5) / pow(10, -{exponent})"
+    up = f"floor({value} / pow(10, {exponent}) + 0.5) * pow(10, {exponent})"
+    return f"0 if {value} == 0 else ({down} if {exponent} < 0 else {up})"
 
 
 def value_lanes(spans: Sequence[tuple[float, float, str]]) -> list[int | None]:
