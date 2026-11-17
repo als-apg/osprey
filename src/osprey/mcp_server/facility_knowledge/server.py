@@ -419,7 +419,7 @@ async def read_concept(concept_id: str) -> str:
     suffix, e.g. ``tables/beam_params`` or ``facility_overview``.
 
     Cross-links in the document body may reference concepts that do not
-    exist in the bundle; the document is returned as-is (OKF §9 tolerance).
+    exist in the bundle; the document is returned as-is (OKF §6.1 tolerance).
 
     Args:
         concept_id: OKF §2 path-minus-extension identifier.
@@ -527,7 +527,7 @@ async def draft_concept(
     """Write or update a facility knowledge concept document.
 
     Creates or replaces the ``.md`` file for *concept_id* in the bundle.
-    The document is validated at the ``"authoring"`` level (OKF §9) before
+    The document is validated at the ``"authoring"`` level before
     writing: ``type``, ``title``, and ``description`` must all be non-empty.
     The file is written atomically (temp file plus rename), and the bundle's
     ``.qmd-touch`` freshness marker is then rewritten — also atomically — so a
@@ -628,7 +628,6 @@ async def draft_concept(
                     str(exc),
                     [
                         "Provide non-empty type, title, and description.",
-                        "timestamp is not required.",
                     ],
                 )
 
