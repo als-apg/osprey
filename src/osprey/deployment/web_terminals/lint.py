@@ -42,6 +42,7 @@ from osprey.cli.build_profile_document import RETIRED_WRITES_LEAF
 from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
+    FIXED_SERVICE_AUDIT_IDENTITIES,
     deployed_app_audit_identities,
     resolve_project_name,
 )
@@ -5299,6 +5300,8 @@ def _check_reserved_audit_identities(
                     f"writes var/spool/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/, a "
                     "queueserver writes var/spool/[<lane>-]queueserver/, a bridge "
                     f"writes var/spool/{{{','.join(sorted(BRIDGE_IDENTITIES.values()))}}}/), "
+                    "a recording service's own (var/spool/"
+                    f"{{{','.join(sorted(FIXED_SERVICE_AUDIT_IDENTITIES.values()))}}}/), "
                     f"the history page's {HISTORY_SERVICE!r}, or the agent record's "
                     f"{OPERATOR_IDENTITY!r} credential. Each "
                     "user's container binds var/spool/<user>/ and var/state/<user>/ "

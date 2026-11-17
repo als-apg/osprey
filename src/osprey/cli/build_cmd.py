@@ -87,6 +87,7 @@ from .build_injectors import (
     _inject_bluesky_web,
     _inject_dispatch,
     _inject_gchat_bridge,
+    _inject_ioc_fleet,
     _inject_limits_database,
     _inject_nextcloud_bridge,
     _inject_optimizer,
@@ -5293,6 +5294,9 @@ def _inject_services(
     if build_profile.va_archiver is not None:
         _inject_va_archiver(build_profile.va_archiver, project_path)
         injected.append("archiver store")
+    # Follows the config rather than a profile block: pv_directory.fleet.
+    if _inject_ioc_fleet(project_path):
+        injected.append("IOC fleet")
 
     _declare_bundled_host_bindings(
         project_path, profile_dir, {**(build_profile.services or {}), **app_services}

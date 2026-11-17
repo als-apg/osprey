@@ -2340,14 +2340,24 @@ SERVICE_ROLE_DRIVES_TARGET = "drives_target"
 #: The container's compose fragment binds the staged control-identity module.
 SERVICE_ROLE_CONTROL_IDENTITY = "control_identity"
 
+#: The container reads the target and writes nothing to it: its staged
+#: ``config.yml`` reaches the deployed machines across the compose network
+#: (:func:`_stage_in_network_gateways`), without the login→tier map a
+#: :data:`SERVICE_ROLE_DRIVES_TARGET` container judges writes by.
+SERVICE_ROLE_READS_TARGET = "reads_target"
+
 #: The bundled templates' declaration of the same roles, by service key: every
 #: bluesky lane, the dispatch worker and the optimizer, whose runs each write
 #: for the login that started them. All lanes render the one ``bluesky``
 #: directory (``osprey.cli.build_injectors._inject_bluesky``), so
 #: its basename is the first lane's key.
+#: The IOC fleet service reads every refreshed target's liveness channels.
 BUNDLED_SERVICE_ROLES: dict[str, frozenset[str]] = {
-    key: frozenset({SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY})
-    for key in (*LANE_KEYS, "dispatch_worker", "optimizer")
+    **{
+        key: frozenset({SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY})
+        for key in (*LANE_KEYS, "dispatch_worker", "optimizer")
+    },
+    "ioc_fleet": frozenset({SERVICE_ROLE_READS_TARGET}),
 }
 
 
@@ -2364,8 +2374,8 @@ def service_role(config, service_key, role):
     :type config: dict
     :param service_key: A ``services:`` key (for a build context, its basename).
     :type service_key: str
-    :param role: :data:`SERVICE_ROLE_DRIVES_TARGET` or
-        :data:`SERVICE_ROLE_CONTROL_IDENTITY`.
+    :param role: :data:`SERVICE_ROLE_DRIVES_TARGET`,
+        :data:`SERVICE_ROLE_CONTROL_IDENTITY` or :data:`SERVICE_ROLE_READS_TARGET`.
     :type role: str
     :rtype: bool
     """
@@ -2526,9 +2536,9 @@ def in_network_gateways(document, deployed_services):
 
 
 def _stage_in_network_gateways(config, source_dir, out_dir, service_key=None):
-    """Readdress the deployed machines in a bridged target driver's staged ``config.yml``.
+    """Readdress the deployed machines in a bridged target reader's staged ``config.yml``.
 
-    Applies to every context whose service drives the target
+    Applies to every context whose service drives or reads the target
     (:func:`service_role`) and is not on the host network: it reaches the
     machines across the compose network (:func:`in_network_gateways`). Every
     other context is left alone, as are the tiered worker's copy (the tier's
@@ -2545,7 +2555,10 @@ def _stage_in_network_gateways(config, source_dir, out_dir, service_key=None):
     :type service_key: str or None
     """
     key = service_key or _service_key(source_dir)
-    if not service_role(config, key, SERVICE_ROLE_DRIVES_TARGET):
+    if not (
+        service_role(config, key, SERVICE_ROLE_DRIVES_TARGET)
+        or service_role(config, key, SERVICE_ROLE_READS_TARGET)
+    ):
         return
     block = (config.get("services") or {}).get(key)
     if isinstance(block, Mapping) and block.get("network") == "host":
@@ -4821,6 +4834,7 @@ def dispatch_worker_audit_identities(config):
 #: projected service's identity comes from its block's ``audit_identity``
 #: (:func:`service_audit_identities`), not from this mapping.
 FIXED_SERVICE_AUDIT_IDENTITIES = {
+    "ioc_fleet": "ioc-fleet",
     "bluesky_web": "bluesky-web",
     "optimizer": "optimizer",
     "optimizer_web": "optimizer-web",

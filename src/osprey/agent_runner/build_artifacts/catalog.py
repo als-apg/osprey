@@ -666,6 +666,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_root="services",
             is_directory=True,
         ),
+        BuildArtifact(
+            canonical_name="services/ioc_fleet",
+            template_path="ioc_fleet",
+            output_path="services/ioc_fleet",
+            description="IOC fleet service compose template (the fleet snapshot refresher)",
+            template_root="services",
+            is_directory=True,
+        ),
     ]
 
 
