@@ -82,6 +82,61 @@ def test_external_links_not_flagged(tmp_path):
     assert [w for w in warnings if w.kind in ("broken-link", "malformed-link")] == []
 
 
+def test_relative_links_resolve_from_the_page(tmp_path):
+    """OKF §6: a link without a leading slash resolves from its own directory."""
+    _write_concept(tmp_path, "devices/corrector", frontmatter=_clean_fm("Corrector"))
+    _write_concept(tmp_path, "physics/orbit", frontmatter=_clean_fm("Orbit"))
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body=(
+            "See the [corrector](corrector.md), the [same one](./corrector.md#gain) "
+            "and the [orbit](../physics/orbit.md)."
+        ),
+    )
+
+    assert validate_bundle(OKFBundle(tmp_path)) == []
+
+
+def test_a_relative_link_is_not_read_from_the_bundle_root(tmp_path):
+    """``corrector.md`` in ``devices/`` is not the root's ``corrector.md``."""
+    _write_concept(tmp_path, "corrector", frontmatter=_clean_fm("Corrector"))
+    _write_concept(
+        tmp_path, "devices/bpm", frontmatter=_clean_fm("BPM"), body="[corrector](corrector.md)"
+    )
+
+    broken = [w for w in validate_bundle(OKFBundle(tmp_path)) if w.kind == "broken-link"]
+
+    assert [w.concept_id for w in broken] == ["devices/bpm"]
+    assert "devices/corrector.md" in broken[0].detail
+
+
+def test_links_to_assets_and_directories_are_checked_as_files(tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets" / "ring.png").write_bytes(b"\x89PNG")
+    _write_concept(
+        tmp_path,
+        "devices/bpm",
+        frontmatter=_clean_fm("BPM"),
+        body="![ring](/assets/ring.png) in [devices](/devices/), not [this](/assets/gone.png).",
+    )
+
+    broken = [w for w in validate_bundle(OKFBundle(tmp_path)) if w.kind == "broken-link"]
+
+    assert len(broken) == 1
+    assert "assets/gone.png" in broken[0].detail
+
+
+def test_a_link_out_of_the_bundle_is_external(tmp_path):
+    """OKF §6: a target outside the root is external, and is never read."""
+    (tmp_path / "secret.md").write_text("outside", encoding="utf-8")
+    root = tmp_path / "bundle"
+    _write_concept(root, "bpm", frontmatter=_clean_fm("BPM"), body="[out](../secret.md)")
+
+    assert validate_bundle(OKFBundle(root)) == []
+
+
 def test_slash_id_concept_validates(tmp_path):
     _write_concept(
         tmp_path,
