@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -1599,6 +1600,30 @@ def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
     assert seen_volumes, "the exemplar rendered no named volumes to check"
     assert not unlabelled_services, f"containers without {REPO_ID_LABEL}: {unlabelled_services}"
     assert not labelled_volumes, f"volumes carrying {REPO_ID_LABEL}: {labelled_volumes}"
+
+
+@pytest.mark.parametrize("args", [("-d",), ("-d", "--as-built")])
+def test_a_real_build_copied_to_another_directory_is_refused_naming_it(
+    built_repo, tmp_path, args, started
+):
+    """A ``build/`` names the checkout it was rendered for; a copy elsewhere is not it.
+
+    The containers such a copy would start carry the original directory's
+    identity, so every verb run from the copy, the start's own check among
+    them, would find none of them. The start refuses before any container step
+    and names the directory the build belongs to. ``built_repo`` is only read.
+    """
+    copy = tmp_path / "moved" / built_repo.name
+    shutil.copytree(built_repo, copy, symlinks=True)
+    (copy / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+
+    result = run_up(copy, *args)
+
+    assert result.exit_code == 1, result.output
+    assert f"this build was rendered in {built_repo}" in result.stderr
+    assert "→ run `osprey build` here" in result.stderr
+    assert not started
+    assert read_deployment_record(copy) is None
 
 
 def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):
