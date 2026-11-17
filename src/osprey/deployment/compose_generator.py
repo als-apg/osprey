@@ -23,7 +23,7 @@ import shutil
 import stat
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, Undefined, UndefinedError
@@ -313,9 +313,11 @@ def repo_identity(repo_root):
     container and the templates give every named volume, ``osprey down`` uses it
     to find this deployment's containers when ``build/`` no longer holds the
     compose files that declared them, ``osprey reset`` uses it to refuse removing
-    resources that belong to a different checkout of the same name, and ``osprey
+    resources that belong to a different checkout of the same name, ``osprey
     status`` uses it to sort every container on the host by which checkout it
-    belongs to. Any new one derives it from here too.
+    belongs to, and a start compares it with the identity the override states
+    and refuses a build rendered for another checkout. Any new one derives it
+    from here too.
 
     :param repo_root: The deployment repo root.
     :return: 12 lowercase hex characters.
@@ -457,6 +459,52 @@ def labels_override_path(repo_root):
     from osprey_connectors.workspace import BUILD_DIR_NAME
 
     return Path(repo_root) / BUILD_DIR_NAME / LABELS_OVERRIDE_FILENAME
+
+
+class RenderedCheckout(NamedTuple):
+    """What a render stated about which checkout its build is for.
+
+    ``repo_ids`` holds every :data:`REPO_ID_LABEL` value the labels override
+    gives a service; one render states one. ``project_root`` is the
+    :data:`PROJECT_ROOT_LABEL` value when every service states the same one,
+    else ``None``. Both are as written: a reader compares them with the
+    checkout it runs in, it does not trust them.
+    """
+
+    repo_ids: frozenset[str]
+    project_root: str | None
+
+
+def rendered_checkout(repo_root):
+    """What the build at *repo_root* states about which checkout it is for.
+
+    Read from the labels override, the one file a render writes the checkout
+    identity into. A build whose override is absent, or names no service
+    carrying :data:`REPO_ID_LABEL`, states nothing.
+
+    :param repo_root: The deployment repo root.
+    :return: The stated checkout, or ``None`` when the build states none.
+    :raises ComposeMergeError: The override itself does not parse.
+    """
+    override_file = labels_override_path(repo_root)
+    if not override_file.is_file():
+        return None
+    entries = _load_compose_document(override_file).get("services")
+    if not isinstance(entries, dict):
+        return None
+    repo_ids: set[str] = set()
+    roots: set[str] = set()
+    for entry in entries.values():
+        labels = entry.get("labels") if isinstance(entry, dict) else None
+        if not isinstance(labels, dict) or labels.get(REPO_ID_LABEL) is None:
+            continue
+        repo_ids.add(str(labels[REPO_ID_LABEL]))
+        root = labels.get(PROJECT_ROOT_LABEL)
+        roots.add("" if root is None else str(root))
+    if not repo_ids:
+        return None
+    project_root = next(iter(roots)) if len(roots) == 1 else None
+    return RenderedCheckout(frozenset(repo_ids), project_root or None)
 
 
 def _invocation_labels_override(root, compose_files):

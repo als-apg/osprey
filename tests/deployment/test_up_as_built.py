@@ -1046,6 +1046,85 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
     assert "${OSPREY_REPO_ID}" not in compose
 
 
+def bake_labels_override(repo: Path, rendered_in: Path) -> Path:
+    """Write the labels override a render run in *rendered_in* would leave in *repo*.
+
+    *rendered_in* has to exist: the render takes its ``project_root`` only when
+    that names a directory.
+    """
+    import yaml
+
+    from osprey.deployment.compose_generator import write_labels_override
+
+    services = repo / "build" / "services"
+    written = write_labels_override(
+        repo / "build",
+        [services / "docker-compose.yml", services / "event_dispatcher" / "docker-compose.yml"],
+        yaml.safe_load(_RENDERED_CONFIG) | {"project_root": str(rendered_in)},
+    )
+    assert written is not None
+    return written
+
+
+def test_a_build_rendered_in_another_directory_is_refused_naming_it(
+    lifecycle_repo, tmp_path, started
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    bake_labels_override(lifecycle_repo, elsewhere)
+    previous = DeploymentRecord("podman", "an-earlier-project")
+    write_deployment_record(lifecycle_repo, previous)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 1, result.output
+    assert f"this build was rendered in {elsewhere}" in result.stderr
+    assert "→ run `osprey build` here" in result.stderr
+    assert not started
+    assert read_deployment_record(lifecycle_repo) == previous
+
+
+def test_a_build_rendered_here_starts(lifecycle_repo, started):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    bake_labels_override(lifecycle_repo, lifecycle_repo)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    assert started
+
+
+def test_a_build_whose_recorded_root_does_not_match_names_this_directory(
+    lifecycle_repo, tmp_path, started
+):
+    """A root label that does not hash to the stated identity is not named."""
+    import yaml
+
+    from osprey.deployment.compose_generator import PROJECT_ROOT_LABEL
+
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    override = bake_labels_override(lifecycle_repo, elsewhere)
+    document = yaml.safe_load(override.read_text(encoding="utf-8"))
+    for entry in document["services"].values():
+        entry["labels"][PROJECT_ROOT_LABEL] = "/app/x"
+    override.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 1, result.output
+    assert (
+        f"this build was rendered in a different directory than {lifecycle_repo}" in result.stderr
+    )
+    assert "/app/x" not in result.stderr
+    assert not started
+
+
 # ---------------------------------------------------------------------------
 # One deployment, one port block
 #

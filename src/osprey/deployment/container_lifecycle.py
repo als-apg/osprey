@@ -43,6 +43,7 @@ from osprey.deployment.compose_generator import (
     compose_provider_env,
     configured_ariel_mirror_path,
     prepare_compose_files,
+    rendered_checkout,
     repo_identity,
     resolve_image_defaults,
     resolve_image_platform,
@@ -67,6 +68,7 @@ from osprey.deployment.dotenv import (
 )
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
+    BuildRenderedElsewhereError,
     ComposeInterpolationError,
     DeploymentRecordError,
     DevModeUnavailableError,
@@ -7417,6 +7419,8 @@ def up_as_built(
 
     Raises:
         NoRenderedBuildError: When ``build/`` holds no rendered config to start.
+        BuildRenderedElsewhereError: When ``build/`` was rendered for another
+            checkout.
         RuntimeError: From the preflights, including the ``--dev`` one.
     """
     repo_root = Path(repo_root)
@@ -7485,6 +7489,29 @@ def _sidecar_dev_flavor(compose_files: list[str], repo_root: Path) -> tuple[list
     return pinned, dev
 
 
+def _refuse_build_rendered_elsewhere(repo_root: Path) -> None:
+    """Refuse a build whose labels name a checkout other than *repo_root*.
+
+    A build that states no checkout contradicts none and passes. The directory
+    the build names is printed only when its own identity is the one the build
+    states, so a hand-edited label never prints a wrong cause.
+
+    Raises:
+        BuildRenderedElsewhereError: When the stated identity is not this
+            checkout's.
+    """
+    stated = rendered_checkout(repo_root)
+    if stated is None:
+        return
+    if stated.repo_ids == {repo_identity(repo_root)}:
+        return
+    if stated.project_root and stated.repo_ids == {repo_identity(stated.project_root)}:
+        reason = f"this build was rendered in {stated.project_root}"
+    else:
+        reason = f"this build was rendered in a different directory than {repo_root}"
+    raise BuildRenderedElsewhereError(reason=reason, remedy="run `osprey build` here")
+
+
 def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, list[str], bool]:
     """Read what a start would run, and refuse before anything is touched.
 
@@ -7507,6 +7534,8 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
     Raises:
         NoRenderedBuildError: When ``build/`` holds no rendered config, or none
             of the services it declares was rendered.
+        BuildRenderedElsewhereError: When the labels override names another
+            checkout than this one.
         DevModeUnavailableError: When ``--dev`` was asked of a render that holds
             pinned (non-dev) sidecar image builds — `up` never re-renders, so
             honoring it is impossible without a dev build.
@@ -7518,6 +7547,11 @@ def _resolve_as_built_inputs(repo_root: Path, *, dev_mode: bool) -> tuple[dict, 
             reason=f"No build found at {config_path.parent}.",
             remedy="Render one:\n    osprey build",
         )
+
+    # The identity the build states and the one this directory has are one
+    # fact: a build that contradicts its directory is refused before any
+    # container is touched.
+    _refuse_build_rendered_elsewhere(repo_root)
 
     if dev_mode:
         # The same fail-before-any-work check the rendering path gets from
@@ -8161,6 +8195,8 @@ def restart_deployment(
     Raises:
         NoRenderedBuildError: When ``build/`` holds nothing to start. Nothing is
             stopped.
+        BuildRenderedElsewhereError: When ``build/`` was rendered for another
+            checkout. Nothing is stopped.
         ForeignCheckoutError: When another copy of this repo's containers hold
             the project name. Nothing is stopped.
         RuntimeError: From the preflights or from the stop itself.
