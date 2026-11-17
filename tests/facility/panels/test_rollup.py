@@ -63,32 +63,51 @@ def test_the_by_system_rows_stand_right_of_the_tiles(panel_graph) -> None:
     )
 
 
-def test_a_childs_part_lights_stand_inside_its_tile(panel_graph, monkeypatch) -> None:
+def test_a_child_over_the_limit_is_an_open_tile_and_all_tiles_have_one_height(
+    panel_graph, monkeypatch
+) -> None:
     from tests.facility.panels.test_layout import _limit_between_one_channel_and_three
 
     limit = _limit_between_one_channel_and_three(panel_graph)
-    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", limit)  # "three" is in parts
+    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", limit)  # "three" is over it
     doc = stub_render(rollup_view(), panel_graph)
-    parts = [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).startswith("part ")]
-    assert parts
-    (tile,) = [
+    assert not [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).startswith("part ")]
+    assert not [n for n in nodes(doc) if n["geometry"]["width"] == layout.MOSAIC_LIGHT]
+    tiles = [
         n["geometry"]
         for n in nodes(doc)
-        if n["type"] == "rectangle"
-        and n["props"].get("fillColor") == symbols.FIELD_BACKGROUND
-        and any(
-            t["props"].get("text") == "three"
-            and n["geometry"]["x"]
-            <= t["geometry"]["x"]
-            < n["geometry"]["x"] + n["geometry"]["width"]
-            and n["geometry"]["y"]
-            <= t["geometry"]["y"]
-            < n["geometry"]["y"] + n["geometry"]["height"]
-            for t in nodes(doc)
-            if t["type"] == "text-label"
-        )
-    ]
-    for part in parts:
-        g = part["geometry"]
-        assert tile["x"] <= g["x"] and g["x"] + g["width"] <= tile["x"] + tile["width"]
-        assert tile["y"] <= g["y"] and g["y"] + g["height"] <= tile["y"] + tile["height"]
+        if n["type"] == "rectangle" and n["props"].get("fillColor") == symbols.FIELD_BACKGROUND
+        and layout.ROLLUP_TILE_WIDTH <= n["geometry"]["width"] < layout.ROLLUP_LEFT
+    ]  # fmt: skip
+    assert tiles and {t["height"] for t in tiles} == {layout.ROLLUP_TILE_HEIGHT}
+    texts = [n["props"].get("text") for n in nodes(doc) if n["type"] == "text-label"]
+    assert "3 channels · open" in texts
+
+
+def test_the_title_stands_in_the_header_bar_after_the_id(panel_graph) -> None:
+    view = health_rollup(panel_graph, "XR/XR01")
+    doc = stub_render(view, panel_graph)
+    texts = [n for n in nodes(doc) if n["type"] == "text-label"]
+    (rest,) = [n for n in texts if n["props"].get("text") == "health by place"]
+    assert rest["geometry"]["y"] < layout.HEADER_HEIGHT
+    assert rest["props"].get("foregroundColor") == symbols.MUTED_TEXT
+    assert not [n for n in texts if n["props"].get("text") == view.title]
+    assert [n for n in texts if str(n["props"].get("text")).startswith("model ")]
+
+
+def test_a_metrics_row_applies_only_where_the_place_level_matches(panel_graph, monkeypatch) -> None:
+    from dataclasses import replace
+
+    from osprey.facility.panels.tables import Metric
+    from osprey.facility.panels.view import Band
+
+    ring = Metric(
+        view="rollup", level="ring", order=1.0, title="Ring number", measure="count",
+        signal="status", cls=None, unit=None, caption=None, source=None,
+    )  # fmt: skip
+    tables = replace(panel_graph._tables, metrics=(ring,))
+    monkeypatch.setattr(panel_graph, "_tables", tables)
+    assert panel_graph.thing("XR/XR01", "place").level != "ring"
+    assert panel_graph.metrics("rollup", "ring") == [ring]
+    view = health_rollup(panel_graph, "XR/XR01")  # a place of another level: no band
+    assert not [i for s in view.sections for i in s.items if isinstance(i, Band)]

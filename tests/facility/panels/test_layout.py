@@ -232,15 +232,11 @@ def test_a_root_over_the_limit_says_its_summary_needs_a_server_side_aggregate(
     summary = f"{len(RULED)} channels: a live summary of this level needs a server-side aggregate"
     assert texts.count(summary) == 1
     assert "server-side aggregate" in needs(doc)
-    assert aggregates(doc) == 1  # the three-channel child, drawn in parts in its tile
+    assert aggregates(doc) == 1  # the three-channel child's tile: open, a link down
     assert unexpressed(doc) == 0  # an aggregate is not an unknown light
     shapes = _by_type(doc, "polygon")
-    tiles = [n for n in shapes if n["geometry"]["width"] == layout.MOSAIC_LIGHT]
-    parts = [n for n in tiles if n["props"]["tooltip"].startswith("part ")]
-    assert tiles == parts  # no mosaic of the children: each has its tile
-    assert len(parts) > 1 and all(n.get("rules") for n in parts)
-    assert parts[0]["props"]["tooltip"] == f"part 1 of {len(parts)}"
-    live = [n for n in shapes if n.get("rules") and n not in parts]
+    assert not [n for n in shapes if n["geometry"]["width"] == layout.MOSAIC_LIGHT]
+    live = [n for n in shapes if n.get("rules")]
     armed = [c for c in RULED if ladder(panel_graph, [light(panel_graph, c)]).arms]
     assert len(live) == len(armed)  # one light per child that fits one rule (and has an arm)
 
@@ -253,59 +249,23 @@ def _bound(doc: dict) -> set[str]:
     return {pv["name"] for n in nodes(doc) for r in n.get("rules", ()) for pv in r["pvs"]}
 
 
-def test_a_roll_up_spends_its_budget_on_single_lights_then_parts_then_opens(tmp_path, monkeypatch):
+def test_a_roll_up_spends_its_budget_on_single_lights_then_opens(tmp_path, monkeypatch):
     from osprey.facility.panels.describe import health_rollup
 
     graph = graph_with_wide(tmp_path, 40)
     view = health_rollup(graph, "XR/XR01")
-    full, _ = draw(view, graph)
-    wide = [n for n in nodes(full) if str(n["props"].get("tooltip", "")).startswith("part ")]
-    assert wide, "the 40-channel device is drawn in parts with the default budget"
-    beside = sum(  # the rows by system, right of the tiles, spend what the tiles leave
-        bool(r["conditions"])
-        for n in nodes(full)
-        if n["geometry"]["x"] >= layout.MARGIN + layout.ROLLUP_LEFT
-        for r in n.get("rules", ())
-    )
-    budget = _subscriptions(full) - beside - 1  # the parts of the wide device no longer fit
-    monkeypatch.setattr(layout, "SCREEN_RULE_BUDGET", budget)
-    doc, screens = draw(view, graph)
-    assert _subscriptions(doc) <= budget
+    doc, _ = draw(view, graph)
     assert not [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).startswith("part ")]
     assert any(t.startswith("40 channels") for t in _texts(doc))  # its tile: it is open
     opens = [n for n in _links_drawn(doc) if n["props"]["tooltip"] == "XR01:WIDE1"]
     assert len(opens) == 1
+    budget = _subscriptions(doc) - 1
+    monkeypatch.setattr(layout, "SCREEN_RULE_BUDGET", budget)
+    doc, _ = draw(view, graph)
+    assert _subscriptions(doc) <= budget
     monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 2)
     doc, _ = draw(view, graph)
     assert len(_bound(doc)) <= 2
-
-
-def test_a_tile_grows_with_its_parts_and_no_part_covers_a_text(tmp_path, monkeypatch):
-    from osprey.facility.panels.describe import health_rollup
-
-    graph = graph_with_wide(tmp_path, 300)
-    one = layout.engine_length(ladder(graph, [light(graph, "XR01-WIDE1:Sig0-Sts")]))
-    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", one)  # one part per channel
-    monkeypatch.setattr(layout, "SCREEN_RULE_BUDGET", 10**4)
-    monkeypatch.setattr(layout, "SCREEN_CHANNEL_BUDGET", 10**4)
-    doc, _ = draw(health_rollup(graph, "XR/XR01"), graph)
-    parts = [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).startswith("part ")]
-    assert len(parts) == 300
-
-    def box(n):
-        g = n["geometry"]
-        return g["x"], g["y"], g["x"] + g["width"], g["y"] + g["height"]
-
-    shapes = {box(n) for n in _by_type(doc, "polygon")}
-    labels = [box(n) for n in _by_type(doc, "text-label") if box(n) not in shapes]  # no marks
-    for tile in (box(n) for n in parts):
-        for label in labels:
-            assert not (
-                tile[0] < label[2]
-                and label[0] < tile[2]
-                and tile[1] < label[3]
-                and label[1] < tile[3]
-            ), (tile, label)
 
 
 def test_tile_positions_wrap_at_the_margin_and_give_the_rows_height() -> None:

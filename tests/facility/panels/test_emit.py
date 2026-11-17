@@ -568,7 +568,7 @@ def _strip_rules(path: Path) -> None:
     path.write_text(json.dumps(doc))
 
 
-def test_a_roll_up_with_no_live_row_is_static_only_when_no_row_opens_a_live_screen(
+def test_a_roll_up_with_no_live_light_is_static_only_when_a_child_has_no_screen(
     panel_graph, tmp_path
 ):
     out = tmp_path / "out"
@@ -579,13 +579,18 @@ def test_a_roll_up_with_no_live_row_is_static_only_when_no_row_opens_a_live_scre
     def kinds() -> set[str]:
         return {p.kind for p in check(panel_graph, out) if p.file == name}
 
-    assert "static_rollup" not in kinds()  # its rows open screens with live lights
     here = json.loads((out / name).read_text())
-    for ref in {
+    refs = {
         n["props"]["actions"][0]["file"] for n in _walk(here) if n.get("props", {}).get("actions")
-    }:
+    }
+    for ref in refs:  # a drill-down: its children open screens, live or not
         _strip_rules((out / name).parent / ref)
-    assert "static_rollup" in kinds()
+    assert "static_rollup" not in kinds()
+    child = next(r for r in sorted(refs) if "rollup-place-xr-" in r)
+    ((out / name).parent / child).unlink()
+    found = [p for p in check(panel_graph, out) if p.file == name]
+    static = [p for p in found if p.kind == "static_rollup"]
+    assert static and "no screen to open" in static[0].detail
 
 
 def test_a_roll_up_or_rack_over_its_budget_fails_and_a_card_over_it_is_noted(tmp_path, monkeypatch):
@@ -611,7 +616,7 @@ def test_no_fixture_roll_up_is_static_even_over_the_rule_limit(tmp_path, monkeyp
     from osprey.facility.panels.describe import light
 
     panel_graph = graph_with_wide(tmp_path / "wide", 8)
-    # every channel's rule fits alone, so a long node is drawn in parts
+    # a long node is open: a drill-down to its own screen, which has the lights
     singles = [
         layout.ladder(panel_graph, [light(panel_graph, r.channel)]) for r in panel_graph.rules()
     ]
@@ -621,13 +626,6 @@ def test_no_fixture_roll_up_is_static_even_over_the_rule_limit(tmp_path, monkeyp
     write(panel_graph, out)
     found = check(panel_graph, out)
     assert not [p for p in found if p.kind in ("static_rollup", "unrolled")]
-    parts = [
-        n
-        for path in out.glob("rollup/*.json")
-        for n in _walk(json.loads(path.read_text()))
-        if str(n.get("props", {}).get("tooltip", "")).startswith("part ")
-    ]
-    assert parts and any(n.get("rules") for n in parts)  # a part of only skipped rows has none
 
 
 def test_a_rule_the_engine_would_refuse_as_too_long_is_a_long_formula(tmp_path, panel_graph):
@@ -662,5 +660,4 @@ def test_a_channel_a_roll_up_row_opens_is_not_unrolled(panel_graph, tmp_path, mo
     write(panel_graph, out)
     found = check(panel_graph, out)
     assert not [p for p in found if p.kind == "unrolled"]
-    static = {p.file for p in found if p.kind == "static_rollup"}
-    assert "rollup/rollup-place-xr.screen.json" in static  # it opens only roll-ups with none
+    assert not [p for p in found if p.kind == "static_rollup"]  # every child opens a screen

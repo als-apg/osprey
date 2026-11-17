@@ -1347,8 +1347,8 @@ def panels_check(
 
     Exits 1 on any failing problem: stale, missing, orphan, dangling_link,
     unknown_channel, stamp, invalid, incomplete, oversize, unrolled (a rule
-    channel no roll-up reads), static_rollup (a roll-up with no live light that
-    opens no screen with one), long_formula (an expression the formula engine
+    channel no roll-up reads), static_rollup (a roll-up with no live light where
+    a child has no screen to open), long_formula (an expression the formula engine
     would refuse as too long) or over_budget (more rules or channels than one
     screen may bind).
     A link to a screen outside the written set (``outside_set``), and a card or

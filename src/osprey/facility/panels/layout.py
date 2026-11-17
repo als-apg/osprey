@@ -1428,7 +1428,8 @@ class _Page:
     def draw(self) -> dict[str, Any]:
         self.header()
         self.y = HEADER_HEIGHT + SECTION_GAP
-        if self.view.title != self.view.id.id:  # else the header says it already
+        if self.view.title != self.view.id.id and self.title_rest() is None:
+            # else the header says it already
             self.text(MARGIN, self.y, self.view.title, size=TITLE_SIZE, w=STRIP_WIDTH, h=ROW + GAP)
             self.y += ROW + GAP
         sections = list(self.view.sections)
@@ -1455,10 +1456,10 @@ class _Page:
         and, right of them, the rows *beside* (the place by system).
 
         A tile is a child's light, its short name and what it reads, opening its
-        screen. The budget is spent as :meth:`plan` says: a child that fits one
-        rule has its light; one too long for a rule whose parts fit carries the
-        aggregate mark and its parts' lights inside the tile, so the roll-up stays
-        live; any other is ``open``, the aggregate mark and a link down.
+        screen; all tiles have one height. The budget is spent as :meth:`plan`
+        says: a child that fits one rule has its light; any other is ``open``:
+        the aggregate mark, its count and a link down to its own screen, where
+        its lights are. A tile never holds small lights of its parts.
         """
         first = len(self.s.nodes)
         top = self.y
@@ -1473,20 +1474,11 @@ class _Page:
         children = list(enumerate(root.children))
         y = self.y
         for start in range(0, len(children), columns):
-            row = children[start : start + columns]
-            parts = {
-                i: chunks(self.graph, [describe_light(self.graph, c) for c in child.channels])
-                for i, child in row
-                if decisions.get(i) == "parts"
-            }
-            h = max(
-                [ROLLUP_TILE_HEIGHT] + [_tile_height(len(found), w) for found in parts.values()]
-            )
-            for column, (i, child) in enumerate(row):
+            for column, (i, child) in enumerate(children[start : start + columns]):
                 x = MARGIN + column * (w + GAP)
                 plan_i = "none" if child.no_rule else decisions.get(i, "open")
-                self.rollup_tile(x, y, w, h, child, root.label, plan_i, parts.get(i))
-            y += h + GAP
+                self.rollup_tile(x, y, w, ROLLUP_TILE_HEIGHT, child, root.label, plan_i)
+            y += ROLLUP_TILE_HEIGHT + GAP
         bottom = y
         if beside is not None:
             self.x0, self.right = MARGIN + ROLLUP_LEFT, MARGIN + STRIP_WIDTH
@@ -1547,10 +1539,10 @@ class _Page:
         node: Node,
         parent: str,
         plan: str,
-        parts: Sequence[Sequence[Light]] | None,
     ) -> None:
-        """One child: its light top left with its short name, what it reads under it,
-        and the lights of its parts when it is drawn in parts."""
+        """One child: its light top left with its short name and what it reads under
+        it; a child over the rule limit has the aggregate mark, its count and
+        ``open``."""
         self.box(x, y, w, h, fill=FIELD_BACKGROUND)
         inner = x + TILE_PAD
         top = y + TILE_PAD / 2
@@ -1573,18 +1565,6 @@ class _Page:
         lines = _wrap(note, w - 2 * TILE_PAD, SMALL_SIZE)
         for i, line in enumerate(lines):
             self.small(inner, top + ROW + i * SMALL_LINE, line, fg=MUTED_TEXT)
-        if parts:
-            per = _tile_parts_per_row(w)
-            first = top + ROW + len(lines) * SMALL_LINE + ROW_GAP
-            for number, part in enumerate(parts):
-                px = inner + (number % per) * (MOSAIC_LIGHT + MOSAIC_GAP)
-                py = first + (number // per) * (MOSAIC_LIGHT + MOSAIC_GAP)
-                rule = ladder(self.graph, part, node=len(part) > 1)
-                tooltip = _PART.format(number + 1, len(parts))
-                self.light(
-                    px, py - (ROW - MOSAIC_LIGHT) / 2, part, rule=rule, size=MOSAIC_LIGHT,
-                    tile=True, tooltip=tooltip,
-                )  # fmt: skip
         if node.link is not None:
             self.nav(x, y, w, h, replace(node.link, label=node.label))
 
@@ -1798,10 +1778,21 @@ class _Page:
         if self.view.alias is not None:  # the stated short name, as a chip
             w = text_width(self.view.alias, SMALL_SIZE)
             self.box(x + GAP, y, w, ROW, fill=PANEL_BACKGROUND)
-            self.text(x + GAP, y, self.view.alias, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
+            x = self.text(x + GAP, y, self.view.alias, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
         stamp = f"model {self.graph.content_hash[:STAMP_DIGITS]}"
         w = text_width(stamp, SMALL_SIZE)
         self.text(PAGE_WIDTH - MARGIN - w, y, stamp, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
+        rest = self.title_rest()
+        if rest:  # what the screen shows of it ("health by place"), muted
+            self.text(x + GAP, y, rest, fg=MUTED_TEXT)
+
+    def title_rest(self) -> str | None:
+        """What the title says after the screen's id, when it starts with the id; the
+        header bar carries it. ``None`` when the title is something else."""
+        title, thing = self.view.title, self.view.id.id
+        if title.startswith(thing + " "):
+            return title.removeprefix(thing).strip()
+        return None
 
     def heading(self, text: str) -> None:
         """A section's heading: small capitals in the muted role."""
@@ -2096,9 +2087,8 @@ class _Page:
         """How a roll-up screen spends its budget: the root's plan and each child's.
 
         In order: the root's own light when it fits one rule; then each child
-        that fits one rule gets its light; then the children too long for one
-        rule are drawn in parts, the fewest parts first, all of a child's parts
-        or none; every other child is ``open``. A root that is not live is in
+        that fits one rule gets its light; every other child is ``open``, a
+        link down to its own screen. A root that is not live is in
         parts when it has no children and they fit, else a ``summary``.
         """
         budget = self.budget  # the screen's: what is left goes to the rows beside
@@ -2127,7 +2117,6 @@ class _Page:
                 plan = "parts"
             else:
                 plan = "summary" if root.children else "open"
-        long: list[tuple[int, int]] = []
         for i, child in enumerate(root.children):
             if child.no_rule:
                 continue
@@ -2136,21 +2125,8 @@ class _Page:
                 isinstance(rule, str) and rule != "aggregate state"
             ):
                 decisions[i] = "live"  # a rule that cannot be written is drawn unknown
-            elif rule == "aggregate state":
-                long.append(
-                    (
-                        len(
-                            chunks(
-                                self.graph, [describe_light(self.graph, c) for c in child.channels]
-                            )
-                        ),
-                        i,
-                    )
-                )
             else:
-                decisions[i] = "open"
-        for _count, i in sorted(long):
-            decisions[i] = "parts" if budget.take(part_costs(root.children[i])) else "open"
+                decisions[i] = "open"  # its own screen has its lights
         return plan, decisions
 
     def parts(self, parts: Sequence[Sequence[Light]], x0: float, line_x: float) -> float:
@@ -3027,17 +3003,6 @@ def rack_lanes(units: Sequence[RackUnit]) -> list[tuple[int, int]]:
         cluster[i] = len(clusters) - 1
     width = [max(lanes[j] for j in members) + 1 for members in clusters]
     return [(lanes[i], width[cluster[i]]) for i in range(len(units))]
-
-
-def _tile_parts_per_row(width: float) -> int:
-    """How many part lights stand on one line of a roll-up tile *width* wide."""
-    return max(1, int((width - 2 * TILE_PAD + MOSAIC_GAP) // (MOSAIC_LIGHT + MOSAIC_GAP)))
-
-
-def _tile_height(parts: int, width: float) -> float:
-    """A roll-up tile's height holding *parts* part lights under its two lines of text."""
-    lines = math.ceil(parts / _tile_parts_per_row(width))
-    return TILE_PAD + ROW + TILE_LINES * SMALL_LINE + ROW_GAP + lines * (MOSAIC_LIGHT + MOSAIC_GAP)
 
 
 def _unit_top(unit: RackUnit) -> int:

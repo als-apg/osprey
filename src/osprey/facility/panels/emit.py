@@ -132,8 +132,8 @@ class Problem:
             (a channel with a rule a light can read that no roll-up screen
             reads, nor a screen one of its rows opens),
             ``static_rollup`` (a roll-up that reads a rule a light can read,
-            where no row has a live light and no row opens a screen that
-            has one), ``long_formula`` (an expression the formula engine
+            has no live light, and has a child, or a root without children,
+            with no screen of the set to open), ``long_formula`` (an expression the formula engine
             would refuse as too long), ``over_budget`` (more rules or bound
             channels than one screen may have) or ``outside_set``.
         file: The file the problem is in, relative to the output directory.
@@ -686,6 +686,25 @@ def _reads(graph: PanelGraph, view: View) -> bool:
     )
 
 
+def _unopened(
+    graph: PanelGraph, view: View, ids: Mapping[Target, str], valid: set[str]
+) -> list[str]:
+    """The nodes of a roll-up that read a rule a light can read and have no screen of
+    the set to open: each child of the tree, or the root when it has none. A child
+    that opens its own screen is a drill-down, not a static roll-up."""
+    found: list[str] = []
+    for section in view.sections:
+        for item in section.items:
+            if not isinstance(item, Node):
+                continue
+            for node in item.children or (item,):
+                if not any(_carried(graph, c) for c in node.channels):
+                    continue
+                if node.link is None or _path(node.link.target, ids) not in valid:
+                    found.append(node.label)
+    return found
+
+
 def _live(document: Any) -> bool:
     """Whether any widget of a document carries a rule."""
     stack = [document.get("root", {})] if isinstance(document, dict) else []
@@ -696,14 +715,6 @@ def _live(document: Any) -> bool:
                 return True
             stack.extend(node.get("children") or ())
     return False
-
-
-def _live_file(out: Path, relative: str) -> bool:
-    """Whether the written screen *relative* carries a rule (see :func:`_live`)."""
-    try:
-        return _live(json.loads((out / relative).read_bytes()))
-    except (OSError, ValueError):
-        return False
 
 
 def _over_budget(document: Any, relative: str) -> list[Problem]:
@@ -933,14 +944,14 @@ def _check_file(
     problems += _long_formulas(document, relative)
     fresh, _title, view = _generate(graph, target, ids, draw)
     if target.view == "rollup" and _reads(graph, view) and not _live(document):
-        here = posixpath.dirname(relative)
-        linked = (posixpath.normpath(posixpath.join(here, ref)) for ref in _links(document))
-        if not any(_live_file(out, path) for path in dict.fromkeys(linked) if path in valid):
+        unopened = _unopened(graph, view, ids, valid)
+        if unopened:
             problems.append(
                 Problem(
                     "static_rollup",
                     relative,
-                    "reads rule channels; no row has a live light or opens a screen with one",
+                    "reads rule channels with no live light; no screen to open for "
+                    + ", ".join(unopened),
                 )
             )
     problems += _over_budget(document, relative)
