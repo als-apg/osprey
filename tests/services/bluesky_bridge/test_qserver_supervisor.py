@@ -315,13 +315,8 @@ def test_the_port_is_not_asked_about_a_manager_that_answers(
     )
 
 
-def test_a_closed_port_reads_as_refused() -> None:
-    with socket.socket() as placeholder:
-        placeholder.bind(("127.0.0.1", 0))
-        port = placeholder.getsockname()[1]
-    # Bound and closed again, never listening: nothing answers here.
-
-    assert supervisor.control_port_refused("127.0.0.1", port) is True
+def test_a_port_nothing_holds_reads_as_refused(reserve_port: Callable[[], int]) -> None:
+    assert supervisor.control_port_refused("127.0.0.1", reserve_port()) is True
 
 
 def test_a_listening_port_is_not_refused_even_when_nobody_accepts() -> None:
