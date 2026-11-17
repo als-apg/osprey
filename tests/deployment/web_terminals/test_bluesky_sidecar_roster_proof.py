@@ -201,20 +201,19 @@ def _harness_dockerfile() -> str:
     )
 
 
-def _build_harness_image(tmp_path: Path) -> tuple[str, bool]:
+def _build_harness_image(tmp_path: Path) -> str:
     """Build (or reuse) the image the sidecar runs from.
 
     The tag carries a digest of the Dockerfile, so a dependency-declaration
-    change produces a new tag instead of silently reusing a stale layer. The
-    second value says whether THIS call built it: the teardown removes the
-    image only then, leaving a tag another session (or the auth-serving
-    harness, whose Dockerfile may be byte-identical) already had on the host.
+    change produces a new tag instead of silently reusing a stale layer. Every
+    session on the host that would build identical content shares the tag, so
+    no session removes it: another may be starting a container from it.
     """
     dockerfile = _harness_dockerfile()
     tag = f"osprey-bluesky-roster-harness:{hashlib.sha256(dockerfile.encode()).hexdigest()[:12]}"
 
     if runtime_command("image", "inspect", tag, capture_output=True).returncode == 0:
-        return tag, False
+        return tag
 
     context = tmp_path / "harness"
     context.mkdir()
@@ -226,7 +225,7 @@ def _build_harness_image(tmp_path: Path) -> tuple[str, bool]:
         timeout=900,
     )
     assert result.returncode == 0, f"harness image build failed:\n{result.stdout}\n{result.stderr}"
-    return tag, True
+    return tag
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +420,7 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
     )
 
     require_container_runtime()
-    image, built_here = _build_harness_image(tmp_path)
+    image = _build_harness_image(tmp_path)
 
     # One compose project per run: the container name is a host-global docker
     # identifier and the network is namespaced by the project, so a unique
@@ -468,8 +467,6 @@ def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
         yield Sidecar(base_url=base_url, env=env)
     finally:
         _compose("down", "-v", "--remove-orphans", "--timeout", "5")
-        if built_here:
-            runtime_command("image", "rm", "-f", image, capture_output=True)
 
 
 # ---------------------------------------------------------------------------
