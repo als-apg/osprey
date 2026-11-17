@@ -166,7 +166,7 @@ BAND_COLUMNS = 7  # tiles in one row of the band
 RING_PAD = 6  # a state ring's distance from its symbol
 TAG_HEIGHT = 16  # the word above a ring
 VALUE_STEP = 16  # one live value under a symbol's name
-VALUE_MAX = 80  # the widest a value under a symbol gets
+STRIP_VALUE_WIDTH = 44  # every value under a symbol: "-412.0" at the small size
 BADGE_VALUE_WIDTH = 64  # a value beside a badge
 TAG_WIDTH = 64  # room for the longest word a ring carries, at the small size
 SUMMARY_ROW = 36  # one row of a by-system summary
@@ -1148,6 +1148,7 @@ class _Page:
             str, dict[str | None, str | None]
         ] = {}  # strip values: symbol, signal, unit
         self.dropped = 0  # strip values the budget left out
+        self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
 
     # -- primitives -----------------------------------------------------------
 
@@ -1823,15 +1824,7 @@ class _Page:
             above = max(above, stem + BADGE / 2 + (RING_PAD + TAG_HEIGHT if ruled else 0))
         axis = self.y + above + GAP
         self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], PAGE_TEXT, AXIS_WIDTH)
-        for p, level in zip(badges, levels, strict=True):
-            x = MARGIN + p.x
-            cy = axis - (STEM_HIGH if level else STEM_LOW)
-            self.line([(x, cy + BADGE / 2), (x, axis)], MUTED_TEXT)
-            self.badge(p, x, cy)
-            values = self.affordable(p)
-            for i, channel in enumerate(values):
-                top = cy - len(values) * VALUE_STEP / 2 + i * VALUE_STEP
-                self.value(x + BADGE / 2 + GAP / 2, top, BADGE_VALUE_WIDTH, channel)
+        self.taken = []  # boxes a badge's name and values must clear: tags, badges
         for p, tag_level in zip(beam, tags, strict=True):
             x = MARGIN + p.x
             self.symbol(p, x, axis, p.width / symbols.WIDTH_UNITS[p.symbol], tag_level)
@@ -1839,6 +1832,16 @@ class _Page:
                 half = p.width / 2
                 link = replace(p.link, label=p.thing)
                 self.nav(x - half, axis - STRIP_AXIS, p.width, 2 * STRIP_AXIS, link)
+        centres = []
+        for p, level in zip(badges, levels, strict=True):
+            x = MARGIN + p.x
+            cy = axis - (STEM_HIGH if level else STEM_LOW)
+            self.line([(x, cy + BADGE / 2), (x, axis)], MUTED_TEXT)
+            self.badge(p, x, cy)
+            self.taken.append((x - BADGE / 2, cy - BADGE / 2, BADGE, BADGE))
+            centres.append((p, x, cy))
+        for p, x, cy in centres:
+            self.badge_text(p, x, cy)
         lines = 0
         for text, left, w, level in strip_labels(beam):
             top = axis + STRIP_LABEL_TOP + level * STRIP_LABEL_STEP
@@ -1846,10 +1849,14 @@ class _Page:
             lines = max(lines, level + 1)
         names = axis + STRIP_LABEL_TOP + lines * STRIP_LABEL_STEP
         below = names
-        for p, slot in zip(beam, _slots(beam), strict=True):
+        # one width, centred: bare text, so two close neighbours' boxes may overlap
+        # where their numbers do not
+        w = STRIP_VALUE_WIDTH
+        for p in beam:
             for i, channel in enumerate(self.affordable(p)):
-                top = names + i * VALUE_STEP
-                self.value(MARGIN + p.x - slot / 2, top, slot, channel)
+                top = names + i * VALUE_STEP  # row i: every symbol's i-th value
+                left = min(max(MARGIN + p.x - w / 2, MARGIN), MARGIN + STRIP_WIDTH - w)
+                self.value(left, top, w, channel)
                 below = max(below, top + VALUE_STEP)
         self.y = max(axis + STRIP_AXIS, below) + LEADER_GAP
         if extent is not None:
@@ -1873,9 +1880,9 @@ class _Page:
                 units[signal] = unit
         return channels
 
-    def value(self, x: float, y: float, w: float, channel: str) -> None:
-        """A channel's live value on the strip: small, muted, no unit (the strip's
-        values line names the units)."""
+    def value(self, x: float, y: float, w: float, channel: str, align: str = "center") -> None:
+        """A channel's live value on the strip: small, muted, no ground, no alarm
+        border, no unit (the strip's values line names the units)."""
         props = {
             "pv": channel,
             "fontSize": SMALL_SIZE,
@@ -1884,6 +1891,8 @@ class _Page:
             "showUnits": False,
             "alarmSensitive": False,
             "alarmBorder": False,
+            "alarmSensitiveBorder": False,  # the viewer's name for the alarm border
+            "align": align,
         }
         self.s.widget("pv-label", x, y, w, VALUE_STEP, props)
 
@@ -1934,6 +1943,34 @@ class _Page:
         if element.link is not None:
             link = replace(element.link, label=element.thing)
             self.nav(cx - BADGE / 2, cy - BADGE / 2, BADGE, BADGE, link)
+
+    def badge_text(self, element: strip.Placed, cx: float, cy: float) -> None:
+        """A badge's short name right of it, its values under the name; each left out
+        only when it would touch a tag, a badge or another badge's text, or leave
+        the strip."""
+        x = cx + BADGE / 2 + GAP / 2
+        name = element.short if element.short is not None else _short(element.thing)
+        w = text_width(name, SMALL_SIZE)
+        box = (x, cy - VALUE_STEP, w, VALUE_STEP)
+        if self.free(box):
+            self.text(x, cy - VALUE_STEP, name, size=SMALL_SIZE, w=w, h=VALUE_STEP)
+            self.taken.append(box)
+        for i, channel in enumerate(self.affordable(element)):
+            top = cy + i * VALUE_STEP
+            box = (x, top, BADGE_VALUE_WIDTH, VALUE_STEP)
+            if self.free(box):
+                self.value(x, top, BADGE_VALUE_WIDTH, channel, align="left")
+                self.taken.append(box)
+
+    def free(self, box: tuple[float, float, float, float]) -> bool:
+        """Whether *box* stays inside the strip and touches nothing in :attr:`taken`."""
+        x, y, w, h = box
+        if x + w > MARGIN + STRIP_WIDTH:
+            return False
+        return all(
+            x + w <= ox or ox + ow <= x or y + h <= oy or oy + oh <= y
+            for ox, oy, ow, oh in self.taken
+        )
 
     def symbol_rule(self, element: strip.Placed) -> tuple[Ladder | None, list[str]]:
         """The live rule of a strip element (the worst of its channels, as a roll-up
@@ -1992,6 +2029,8 @@ class _Page:
         low, high = MARGIN + TAG_WIDTH / 2, MARGIN + STRIP_WIDTH - TAG_WIDTH / 2
         centre = min(max((left + right) / 2, low), high)  # the word stays on the page
         word = symbols.tag(centre, above, TAG_WIDTH, TAG_HEIGHT, SMALL_SIZE, static)
+        g = word["geometry"]
+        self.taken.append((g["x"], g["y"], g["width"], g["height"]))
         rules: list[dict] = []
         word_rules: list[dict] = []
         if live is not None:
@@ -2520,19 +2559,6 @@ def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float
         ends[level] = left + w
         found.append((text, left, w, level))
     return found
-
-
-def _slots(beam: Sequence[strip.Placed]) -> list[float]:
-    """The width each symbol's values may take: the room to its nearer neighbour,
-    at least the symbol's own width, at most :data:`VALUE_MAX`."""
-    out = []
-    for i, p in enumerate(beam):
-        room = [b.x - p.x for b in beam[i + 1 : i + 2]] + [
-            p.x - a.x for a in beam[max(i - 1, 0) : i]
-        ]
-        near = min(room) if room else VALUE_MAX
-        out.append(min(max(near - STRIP_LABEL_GAP, p.width), VALUE_MAX))
-    return out
 
 
 def metric_formula(name: str, item: Tile) -> dict[str, Any]:

@@ -990,7 +990,7 @@ def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(
     view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
     doc, _ = draw(view, panel_graph)
     assert {"F1", "D1"} <= set(_texts(doc))  # the stated short names
-    assert "IP1" not in _texts(doc)  # a badge carries its letter, not a name
+    assert "IP1" in _texts(doc)  # a badge's name stands right of it, not under the axis
     from osprey.facility.panels.strip import Placed
 
     wide = [
@@ -1349,6 +1349,84 @@ def test_a_strip_shows_the_annotated_values_under_its_symbols_and_beside_its_bad
     ]
     assert pump["geometry"]["x"] >= circle["geometry"]["x"] + circle["geometry"]["width"]
     assert any(t.startswith("values: ") and "current_readback (A)" in t for t in _texts(doc))
+
+
+def _names_bottom(doc: dict, names: set[str]) -> float:
+    return max(
+        n["geometry"]["y"] + n["geometry"]["height"]
+        for n in _by_type(doc, "text-label")
+        if n["props"]["text"] in names
+    )
+
+
+def test_strip_values_are_bare_text_on_fixed_rows_under_the_lowest_name(panel_graph) -> None:
+    two = {"quadrupole": ("current_readback", "current_setpoint")}
+    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=two)
+    doc, _ = draw(view, panel_graph)
+    values = _values(doc)
+    first = [values["XR01-QF1:Current-RB"], values["XR01-QD1:Current-RB"]]
+    second = [values["XR01-QF1:Current-SP"], values["XR01-QD1:Current-SP"]]
+    # one width for every value of the row, one row per value, below every name
+    assert len({n["geometry"]["width"] for n in first + second}) == 1
+    assert len({n["geometry"]["y"] for n in first}) == 1
+    assert len({n["geometry"]["y"] for n in second}) == 1
+    row1, row2 = first[0]["geometry"]["y"], second[0]["geometry"]["y"]
+    assert row2 == row1 + layout.VALUE_STEP
+    assert row1 >= _names_bottom(doc, {"F1", "D1"})
+    for thing, value in (("XR01:QF1", first[0]), ("XR01:QD1", first[1])):
+        shapes = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == thing]
+        left = min(n["geometry"]["x"] for n in shapes)
+        right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in shapes)
+        g = value["geometry"]
+        edge = g["x"] == layout.MARGIN or g["x"] + g["width"] == layout.MARGIN + layout.STRIP_WIDTH
+        assert edge or abs(g["x"] + g["width"] / 2 - (left + right) / 2) < 1  # centred, kept in
+    for node in first + second:  # no field: no ground, no alarm border, centred
+        props = node["props"]
+        assert props["backgroundColor"] == symbols.TRANSPARENT
+        assert props["alarmSensitiveBorder"] is False
+        assert props["align"] == "center"
+
+
+def test_a_lifted_badge_carries_its_name_right_of_it_and_its_value_under_the_name(
+    panel_graph,
+) -> None:
+    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE, annotate=ANNOTATE)
+    doc, _ = draw(view, panel_graph)
+    (circle,) = [
+        n
+        for n in _by_type(doc, "polygon")
+        if n["props"].get("tooltip") == "XR01:IP1" and len(n["props"]["points"]) > 8
+    ]
+    right = circle["geometry"]["x"] + circle["geometry"]["width"]
+    (name,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "IP1"]
+    assert name["props"]["fontSize"] == layout.SMALL_SIZE
+    assert name["props"]["foregroundColor"] == symbols.PAGE_TEXT
+    assert name["geometry"]["x"] >= right
+    value = _values(doc)["XR01-IP1:Pressure-RB"]
+    assert value["geometry"]["x"] == name["geometry"]["x"]
+    assert value["geometry"]["y"] >= name["geometry"]["y"] + name["geometry"]["height"]
+    assert value["props"]["align"] == "left"
+
+
+def test_a_badge_name_that_would_collide_is_left_out(panel_graph) -> None:
+    near = [
+        StripElement("XR:P1", None, 1.0, "ion_pump", "above", None, ()),
+        StripElement("XR:P2", None, 1.0001, "ion_pump", "above", None, ()),
+        StripElement("XR:P3", None, 1.0002, "ion_pump", "above", None, ()),
+    ]
+    doc, _ = draw(strip_view(near), panel_graph)
+    texts = _texts(doc)
+    drawn = [t for t in ("P1", "P2", "P3") if t in texts]
+    assert len(drawn) < 3  # three badges at one place: their names cannot all fit
+    boxes = [n["geometry"] for n in _by_type(doc, "text-label") if n["props"]["text"] in drawn]
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1 :]:
+            assert (
+                a["x"] + a["width"] <= b["x"]
+                or b["x"] + b["width"] <= a["x"]
+                or a["y"] + a["height"] <= b["y"]
+                or b["y"] + b["height"] <= a["y"]
+            )
 
 
 def test_over_the_budget_values_are_dropped_not_symbols_and_the_strip_says_so(
