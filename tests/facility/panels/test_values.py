@@ -254,3 +254,87 @@ def test_every_formula_takes_min_and_max_over_one_tuple(bpm_graph, panel_graph) 
     assert any("min(" in e for e in expressions) and any("max(" in e for e in expressions)
     for expression in expressions:
         assert not re.search(r"\b(min|max)\((?!\()", expression), expression
+
+
+# -- whole units, whole states -----------------------------------------------------
+
+LONG_UNITS = ("1/Meter^3", "Radian", "mAmps", "Torr", "Ampere or Counts?")
+
+
+def _units_device(document) -> None:
+    document["devices"].append({"id": "XR01:UNITS1", "class": "Quadrupole", "place": "XR/XR01"})
+    for i, unit in enumerate(LONG_UNITS):
+        document["channels"].append(
+            {"id": f"XR01-UNITS1:V{i}-RB", "signal": f"units_{i}", "unit": unit,
+             "on": {"device": "XR01:UNITS1"}}
+        )  # fmt: skip
+
+
+def _overlap(a: dict, b: dict) -> bool:
+    (ax, ay, ar, ab), (bx, by, br, bb) = _box(a), _box(b)
+    return not (ar <= bx or br <= ax or ab <= by or bb <= ay)
+
+
+def test_a_value_box_holds_the_number_and_the_whole_unit(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _units_device), PANELS_DIR)
+    doc = stub_render(device_card(graph, "XR01:UNITS1"), graph)
+    labels = {n["props"]["pv"]: n for n in nodes(doc) if n["type"] == "pv-label"}
+    for i, unit in enumerate(LONG_UNITS):
+        label = labels[f"XR01-UNITS1:V{i}-RB"]
+        assert label["geometry"]["width"] >= layout.value_width(unit, label["props"]["fontSize"])
+    drawn = [n for n in nodes(doc) if n["type"] in ("pv-label", "text-label")]
+    for label in labels.values():
+        others = [n for n in drawn if n is not label]
+        assert not [n for n in others if _overlap(label, n)], label["props"]["pv"]
+        assert label["geometry"]["x"] + label["geometry"]["width"] <= (
+            layout.MARGIN + layout.CARD_LEFT - layout.COLUMN_GAP
+        )
+
+
+def test_a_key_number_with_a_long_unit_fits_its_tile_whole(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "metrics.csv").open("a") as handle:
+        handle.write("place,,9,Long unit,value,units_2,,,one channel,XR-METRICS-001\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _units_device), tables)
+    doc = stub_render(place_view(graph, "XR/XR01", symbols=SYMBOLS), graph)
+    (number,) = [
+        n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == "XR01-UNITS1:V2-RB"
+    ]
+    size = number["props"]["fontSize"]
+    assert number["geometry"]["width"] >= layout.value_width("mAmps", size)
+    assert size >= layout.SMALL_SIZE
+    frames = [
+        n for n in nodes(doc)
+        if n["type"] == "rectangle"
+        and n.get("meta", {}).get("comment", "").startswith("tile: Long unit")
+    ]  # fmt: skip
+    (frame,) = frames
+    assert number["geometry"]["x"] + number["geometry"]["width"] <= (
+        frame["geometry"]["x"] + frame["geometry"]["width"]
+    )
+
+
+def test_a_state_the_health_rules_name_by_whole_values_prints_whole(panel_graph) -> None:
+    doc = stub_render(device_card(panel_graph, "XR01:IP1"), panel_graph)
+    states = [
+        n for n in nodes(doc)
+        if n["type"] == "pv-label" and n["props"]["pv"] == "XR01-IP1:State-Sts"
+    ]  # fmt: skip
+    assert states
+    for state in states:
+        assert state["props"]["precision"] == 0 and not _rules(doc, state)
+
+
+def test_no_value_field_on_a_card_overlaps_another(bpm_graph, panel_graph) -> None:
+    for graph, device in ((bpm_graph, "XR01:BPM1"), (panel_graph, "XR01:QF1")):
+        doc = stub_render(device_card(graph, device), graph)
+        fields = [n for n in nodes(doc) if n["type"] in ("pv-label", "pv-text-input")]
+        for i, a in enumerate(fields):
+            for b in fields[i + 1 :]:
+                assert not _overlap(a, b), (a["props"]["pv"], b["props"]["pv"])

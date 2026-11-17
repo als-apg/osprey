@@ -346,6 +346,7 @@ OUTLINE_KIND = "outline"
 _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
+_WHOLE = re.compile(r"-?\d+")  # a health rule's value that names one state
 _TOKEN = re.compile(r"\{(\d+)\}")
 _NAVIGATION_TARGET = "tab"
 _HOVER_LABEL = "hoverLabel"
@@ -1557,10 +1558,32 @@ class _Page:
                 "align": "right",
             }
             rules = []
-            if kind in _NUMBERS:
+            w = max(w, value_width(self.unit_of(channel), TEXT_SIZE))  # the unit printed whole
+            if kind == "state" or self.prints_whole(channel):
+                props["precision"] = 0
+            elif kind in _NUMBERS:
                 rules = self.precision(props, "{v}", {"v": channel})
             self.s.widget("pv-label", x, y, w, ROW, props, rules=rules)
         return x + w
+
+    def unit_of(self, channel: str) -> str | None:
+        """The unit the facility states for *channel*: the one the viewer prints after
+        its value; ``None`` with none, or for a channel the graph does not hold."""
+        try:
+            return self.graph.channel(channel).unit
+        except KeyError:
+            return None
+
+    def prints_whole(self, channel: str) -> bool:
+        """Whether *channel* is a state: every health rule of it names one whole value."""
+        rules = self.graph.rule(channel)
+        return bool(rules) and all(_WHOLE.fullmatch(r.value.strip()) for r in rules)
+
+    def values_width(self, rows: Sequence[ValueRow], least: float) -> float:
+        """The width of a table's value column: *least*, or what :func:`value_width`
+        needs for the widest unit its channels print."""
+        channels = [c for row in rows for c in (row.channel, row.readback) if c is not None]
+        return max(least, *(value_width(self.unit_of(c), TEXT_SIZE) for c in channels))
 
     def unit_field(
         self, x: float, channel: str, unit: str | None, drawn_as: str | None, writable: bool
@@ -1569,7 +1592,7 @@ class _Page:
         if self.widget_for(drawn_as, writable)[0] != "pv-label":
             x = self.field(x, self.y, channel, drawn_as=drawn_as, writable=writable)
             return self.unit(x, self.y, unit)
-        w = max(VALUE_WIDTH, value_width(unit, TEXT_SIZE))
+        w = max(VALUE_WIDTH, value_width(self.unit_of(channel), TEXT_SIZE))
         return self.field(x, self.y, channel, drawn_as=drawn_as, writable=writable, w=w, units=True)
 
     def unit(self, x, y, unit: str | None) -> float:
@@ -1863,11 +1886,16 @@ class _Page:
                 return
         self.heading(section.title)
         if section.title in ("signals", "settings"):
+            rows = [i for i in items if isinstance(i, ValueRow)]
+            saved = (self.label_w, self.value_w)
+            self.value_w = self.values_width(rows[:CARD_ROWS], self.value_w)
+            room = self.right - self.x0 - 2 * (self.value_w + GAP) - LIGHT_SIZE - GAP
+            self.label_w = min(self.label_w, room)  # the name wraps; the unit is whole
             if section.title == "signals":
                 self.signal_heads()
-            rows = [i for i in items if isinstance(i, ValueRow)]
             for row in rows[:CARD_ROWS]:
                 self.signal_row(row)
+            self.label_w, self.value_w = saved
             rest = Counter(row.drawn_as or "untyped" for row in rows[CARD_ROWS:])
             for kind, count in sorted(rest.items()):
                 text = _MORE_CHANNELS.format(count, kind)
@@ -1895,8 +1923,7 @@ class _Page:
         past :data:`CARD_ROWS` are counted under them, as in one column."""
         rows = [i for i in section.items if isinstance(i, ValueRow)]
         shown = rows[:CARD_ROWS]
-        units = {u for row in shown for u in (row.unit, row.readback_unit)}
-        value_w = max(CARD_COMPACT_VALUE, *(value_width(u, TEXT_SIZE) for u in units))
+        value_w = self.values_width(shown, CARD_COMPACT_VALUE)
         least = max(CARD_COLUMN_MIN, CARD_LABEL_MIN + 2 * (value_w + GAP) + LIGHT_SIZE + GAP)
         count = max(1, int((STRIP_WIDTH + COLUMN_GAP) // (least + COLUMN_GAP)))
         count = min(count, len(shown)) or 1
@@ -2465,7 +2492,7 @@ class _Page:
             self.nav(x[0], top, wide, ROW + (len(titles) - 1) * TITLE_LINE, row.link)
         under = top + ROW
         if row.channels:
-            self.held(x[1], top, row.channels, min(VALUE_WIDTH, widths[1]))
+            under = self.held(x[1], top, row.channels, widths[1])
         elif row.shown is None:
             self.small(x[1], top + (ROW - SMALL_LINE) / 2, _NO_VALUE_YET, fg=MUTED_TEXT)
         else:
@@ -2503,12 +2530,18 @@ class _Page:
         }
         self.s.widget("rectangle", x, y, w, h, props)
 
-    def held(self, x: float, y: float, channels: tuple[str, ...], w: float) -> None:
-        """The channels holding a calibration value live, side by side in *w*, a gap
-        between each two: one field for a scalar, one per number of a tuple."""
-        each = (w - GAP * (len(channels) - 1)) / len(channels)
-        for n, channel in enumerate(channels):
-            self.field(x + n * (each + GAP), y, channel, w=each)
+    def held(self, x: float, y: float, channels: tuple[str, ...], w: float) -> float:
+        """The channels holding a calibration value live, side by side within *w*, a
+        gap between each two: one field for a scalar, one per number of a tuple, each
+        as wide as its number and whole unit need (:func:`value_width`). A field that
+        does not fit the line starts the next one. Returns the bottom."""
+        left, top = x, y
+        for channel in channels:
+            need = value_width(self.unit_of(channel), TEXT_SIZE)
+            if left > x and left + need > x + w:
+                left, top = x, top + ROW + ROW_GAP
+            left = self.field(left, top, channel, w=need) + GAP
+        return top + ROW
 
     def basis_chip(self, x: float, y: float, row: CalibrationRow) -> None:
         """The basis chip: an outline in the basis role (the disagree role when
@@ -3326,12 +3359,18 @@ class _Page:
         else:
             digits = max(len(str(total)), COUNT_DIGITS) if counted else VALUE_DIGITS
             number_w = digits * CHAR_WIDTH * BIG_SIZE + NUMBER_PAD
+            size: float = BIG_SIZE
+            room = inner - beside_w - GAP
             if not counted:
-                number_w = max(number_w, value_width(item.unit if own_unit else None, BIG_SIZE))
-            number_w = min(number_w, inner - beside_w - GAP)
+                unit = self.unit_of(pv) if own_unit else None
+                number_w = max(number_w, value_width(unit, BIG_SIZE))
+                if number_w > room:  # a smaller number, the unit whole: never cut
+                    size = value_size(unit, room)
+                    number_w = value_width(unit, size)
+            number_w = min(number_w, room) if counted else number_w
             props = {
                 "pv": pv,
-                "fontSize": BIG_SIZE,
+                "fontSize": size,
                 "foregroundColor": PAGE_TEXT,
                 "backgroundColor": TRANSPARENT,
                 "showUnits": False,
@@ -3344,6 +3383,8 @@ class _Page:
                 props["precision"] = 0
             elif item.precision is not None:  # stated by the data
                 props["precision"] = item.precision
+            elif formula is None and self.prints_whole(pv):
+                props["precision"] = 0
             elif formula is not None:
                 value = f"({formula['expression']})"
                 precision = self.precision(props, value, formula["bindings"])
@@ -4104,6 +4145,13 @@ def value_width(unit: str | None, size: float) -> float:
     *size*: the characters, and the display's own padding and frame."""
     text = f"{VALUE_SAMPLE} {unit}" if unit else VALUE_SAMPLE
     return len(text) * CHAR_WIDTH * size + NUMBER_PAD
+
+
+def value_size(unit: str | None, width: float) -> float:
+    """The largest font size at which :func:`value_width` of *unit* fits *width*; never
+    under :data:`SMALL_SIZE`, the floor of all text."""
+    text = f"{VALUE_SAMPLE} {unit}" if unit else VALUE_SAMPLE
+    return max(SMALL_SIZE, (width - NUMBER_PAD) / (len(text) * CHAR_WIDTH))
 
 
 def value_lanes(spans: Sequence[tuple[float, float]]) -> list[int]:
