@@ -139,6 +139,7 @@ _RACKS = "racks"
 _OTHER = "other"
 _MORE = "+{} more"
 _BY_SYSTEM = "by system"
+_RING = "ring"
 #: The most chips one group of a place view lists; the rest are counted in a link.
 MAX_CHIPS = 24
 _WITHOUT = "{} without a rule"
@@ -1090,6 +1091,37 @@ def _place_children(graph: PanelGraph, index: _Index, root_id: str, by: str) -> 
     return children
 
 
+def ring_arcs(graph: PanelGraph, place_id: str) -> list[str]:
+    """The child places of *place_id* that lie on the ring, in beam order.
+
+    A child lies on the ring when what it holds (:meth:`PanelGraph.contents`)
+    has a true ring position. Its span starts after the widest gap between
+    its positions, taken round the ring (whose length is the furthest
+    position of them all), so a child across the ring's start is ordered by
+    where its span begins, not by its position nearest zero.
+    """
+    spans: dict[str, list[float]] = {}
+    for child in graph.within(place_id):
+        if child.kind != "place":
+            continue
+        found = sorted(
+            pose.s_m
+            for thing in graph.contents(child.id)
+            for pose in (graph.pose(thing.id),)
+            if pose is not None and pose.is_ring_position
+        )
+        if found:
+            spans[child.id] = found
+    length = max((s for found in spans.values() for s in found), default=0.0)
+
+    def start(found: list[float]) -> float:
+        gaps = [(b - a, b) for a, b in zip(found, found[1:], strict=False)]
+        gaps.append((found[0] + length - found[-1], found[0]))  # round the ring's start
+        return max(gaps)[1]
+
+    return sorted(spans, key=lambda child: (start(spans[child]), child))
+
+
 def _beam_key(graph: PanelGraph, label: str) -> tuple[float, str]:
     """Beam order for a node of a thing with a true ring position, else name order after."""
     pose = graph.pose(label)
@@ -1157,6 +1189,7 @@ def health_rollup(
     *,
     system_of: Callable[[Thing], str | None] | None = None,
     system: str | None = None,
+    ring: frozenset[str] = frozenset(),
 ) -> View:
     """The channels each node of a place's roll-up reads: the root and one level below it.
 
@@ -1178,7 +1211,10 @@ def health_rollup(
     channels are a child of their own, ``<place> itself``, so a screen whose
     root is too long for one rule still shows them live. By ``place``, a
     section ``by system`` before the tree holds the rows of the place's
-    roll-up by system, each opening it.
+    roll-up by system, each opening it. By ``place``, a place named in *ring*
+    has a section ``ring`` before them: a group of form ``ring`` holding the
+    nodes of its children on the ring (:func:`ring_arcs`), in beam order,
+    those without a rule too.
 
     A root place (one with no parent) has one more child, ``not placed``:
     every device in no place, linked to their own roll-up, whose channels the
@@ -1223,12 +1259,18 @@ def health_rollup(
     if own:  # the place's own channels are no child's: a node of their own
         label = _OWN.format(root_id)
         children.insert(0, _node(label, Link(label, rest), own))
+    arcs: list[Node] = []
+    if by == "place" and root_id in ring:
+        on_ring = {node.label: node for node in children}
+        arcs = [on_ring[label] for label in ring_arcs(graph, root_id) if label in on_ring]
     children = _ordered(graph, children, rest, sort=by == "place", tail=unplaced)
     root = _node(root_id, None, channels, tuple(children))
     crumbs = _crumbs(graph, index, place.place, "rollup", by)
     title = f"{root_id} health by {by}"
     band = _band(graph, place, "rollup")
     head: tuple[Section, ...] = (Section("key numbers", (band,)),) if band is not None else ()
+    if arcs:
+        head += (Section(_RING, (Group(_RING, "ring", tuple(arcs)),)),)
     if by == "place" and root_id in index.ruled:  # beside the places: the same by system
         *_band_, section = health_rollup(graph, root_id, "system").sections
         (system_root,) = section.items
@@ -1337,6 +1379,7 @@ def describe(
     above: frozenset[str] = frozenset(),
     annotate: Mapping[str, tuple[str, ...]] = MappingProxyType({}),
     system_of: Callable[[Thing], str | None] | None = None,
+    ring: frozenset[str] = frozenset(),
 ) -> View:
     """The view a target addresses, each parameter passed to the function that takes it.
 
@@ -1359,6 +1402,7 @@ def describe(
             target.by,  # type: ignore[arg-type]
             system_of=system_of,
             system=target.system,
+            ring=ring,
         )
     if target.view == "checkout":
         return checkout(graph, target.id)

@@ -439,15 +439,15 @@ class Group:
 
     Attributes:
         title: What they are (``racks``, a place level, ``other``, ``by system``).
-        form: ``chips`` (names that wrap across the page) or ``rows`` (a
-            summary line each).
+        form: ``chips`` (names that wrap across the page), ``rows`` (a
+            summary line each) or ``ring`` (an arc each, in beam order).
         nodes: One per thing: its name, its screen, the rule-bearing channels
             its light reads.
         more: Where the things not listed are, labelled with how many, or ``None``.
     """
 
     title: str
-    form: Literal["chips", "rows"]
+    form: Literal["chips", "rows", "ring"]
     nodes: tuple[Node, ...]
     more: Link | None = None
 

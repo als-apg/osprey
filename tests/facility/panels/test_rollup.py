@@ -111,3 +111,79 @@ def test_a_metrics_row_applies_only_where_the_place_level_matches(panel_graph, m
     assert panel_graph.metrics("rollup", "ring") == [ring]
     view = health_rollup(panel_graph, "XR/XR01")  # a place of another level: no band
     assert not [i for s in view.sections for i in s.items if isinstance(i, Band)]
+
+
+# -- the ring --------------------------------------------------------------------
+
+
+class _Pose:
+    def __init__(self, s_m: float) -> None:
+        self.s_m, self.is_ring_position = s_m, True
+
+
+class _Ringed:
+    """A stand-in graph: place R with children A, B, C; C spans the ring's start."""
+
+    spans = {"R/A": [10.0, 20.0], "R/B": [40.0, 55.0], "R/C": [0.5, 80.0, 99.0]}
+
+    def within(self, _place_id):
+        from osprey.facility.panels.model import Thing
+
+        return [Thing(c, "place", None, "R") for c in ("R/C", "R/A", "R/B")]
+
+    def contents(self, place_id):
+        from osprey.facility.panels.model import Thing
+
+        return [
+            Thing(f"{place_id}#{i}", "device", None, place_id)
+            for i in range(len(self.spans[place_id]))
+        ]
+
+    def pose(self, thing_id):
+        place, i = thing_id.split("#")
+        return _Pose(self.spans[place][int(i)])
+
+
+def test_the_ring_orders_children_by_where_their_span_starts() -> None:
+    from osprey.facility.panels.describe import ring_arcs
+
+    assert ring_arcs(_Ringed(), "R") == ["R/A", "R/B", "R/C"]  # C starts at 80 m, not 0.5 m
+
+
+def _ring_view(panel_graph):
+    return health_rollup(panel_graph, "XR", ring=frozenset({"XR"}))
+
+
+def test_a_ring_roll_up_has_its_children_on_the_ring_in_beam_order(panel_graph) -> None:
+    view = _ring_view(panel_graph)
+    (group,) = _section(view, "ring").items
+    assert isinstance(group, Group) and group.form == "ring"
+    assert [n.label for n in group.nodes] == ["XR/XR01", "XR/XR02"]
+    assert not [s for s in health_rollup(panel_graph, "XR").sections if s.title == "ring"]
+    assert not [s for s in health_rollup(panel_graph, "XR", "system").sections if s.title == "ring"]
+
+
+def test_the_ring_draws_an_arc_per_child_with_its_name_and_link(panel_graph) -> None:
+    doc = stub_render(_ring_view(panel_graph), panel_graph)
+    big = [
+        n for n in nodes(doc)
+        if n["type"] == "polygon" and n["geometry"]["height"] > 2 * layout.RING_INNER
+    ]  # fmt: skip
+    assert len(big) == 2  # two half rings, each as tall as the ring
+    for arc in big:
+        assert arc.get("rules") or arc["props"]["lineStyle"] == "dashed" or any(
+            t.startswith("needs:") for t in arc.get("tags", ())
+        )  # fmt: skip
+    texts = {n["props"].get("text"): n for n in nodes(doc) if n["type"] == "text-label"}
+    for name in ("XR01", "XR02", "XR"):
+        assert texts[name]["props"].get("fontSize", layout.TEXT_SIZE) >= layout.SMALL_SIZE
+    links = [
+        n for n in nodes(doc)
+        if n["props"].get("actions") and n["props"].get("tooltip") in ("XR/XR01", "XR/XR02")
+    ]  # fmt: skip
+    assert len(links) == 2
+    a, b = (n["geometry"] for n in links)
+    assert a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"] or (
+        a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
+    )  # fmt: skip
+    assert not [t for t in _tiles(doc) if t["props"]["tooltip"] in ("XR/XR01", "XR/XR02")]

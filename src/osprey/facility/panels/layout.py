@@ -187,6 +187,13 @@ CHAIN_ARROW = 40  # the run of an arrow between two boxes of the chain
 ROLLUP_LEFT = 700  # a roll-up's tiles, with the gap to its by-system rows
 ROLLUP_TILE_WIDTH = 150  # the least width of a child's tile
 ROLLUP_TILE_HEIGHT = 64
+RING_OUTER = 185  # a ring roll-up's arcs: outer and inner radius
+RING_INNER = 120
+RING_GAP = 2  # degrees left free at each end of an arc
+TURN = 360  # degrees round the ring
+RING_PAD = 16  # above and below the ring
+RING_LABEL_WIDTH = 60  # an arc's name and mark, centred on the arc
+RING_MARK = 12  # the font size of an arc's mark, under its name
 SUMMARY_ROW = 36  # one row of a by-system summary
 SUMMARY_COLUMNS = 2
 PICTURE_SIZE = 260
@@ -1325,9 +1332,28 @@ class _Page:
         """
         if rule is None:
             rule = ladder(self.graph, lights)
-        aggregate = rule == "aggregate state"
-        look = "aggregate" if aggregate else "unknown"
+        look = "aggregate" if rule == "aggregate state" else "unknown"
         shape, mark = symbols.light(x, y + (ROW - size) / 2, size, look)
+        self.attach(shape, mark, lights, rule, tile=tile, tooltip=tooltip)
+        right = x + size
+        if not tile and any(item.inferred for item in lights):
+            right = self.mark(right + GAP, y, symbols.INFERRED_MARK)
+        return right
+
+    def attach(
+        self,
+        shape: dict[str, Any],
+        mark: dict[str, Any],
+        lights: Sequence[Light],
+        rule: Ladder | str,
+        *,
+        tile: bool = False,
+        tooltip: str | None = None,
+    ) -> None:
+        """Add a light's *shape* and *mark*, drawn in the look *rule* starts in, with
+        the rules that turn them to the state of *lights*, or the tags saying why
+        none can."""
+        aggregate = rule == "aggregate state"
         names = ", ".join(item.channel for item in lights[:TOOLTIP_CHANNELS])
         if len(lights) > TOOLTIP_CHANNELS:
             names = f"{len(lights)} channels"
@@ -1349,10 +1375,6 @@ class _Page:
         self.s.add(shape, rules=shape_rules, tags=tags)
         mark_tags = [_need("hatched fill")] if mark_rules else []
         self.s.add(mark, rules=mark_rules, tags=mark_tags)
-        right = x + size
-        if not tile and any(item.inferred for item in lights):
-            right = self.mark(right + GAP, y, symbols.INFERRED_MARK)
-        return right
 
     def no_rule(self, x, y, size: float = LIGHT_SIZE) -> float:
         """The look of a thing with no rule: a bare outline, no rules, no mark; its right edge."""
@@ -1436,22 +1458,30 @@ class _Page:
         if self.on_card:
             sections = self.card(sections)
         beside: Group | None = None
+        arcs: Group | None = None
         if self.view.id.view == "rollup":
-            found = [s for s in sections if s.title == _BY_SYSTEM_TITLE]
-            if found and isinstance(found[0].items[0], Group):
-                beside = found[0].items[0]
-                sections.remove(found[0])
+            for section in list(sections):
+                group = section.items[0] if section.items else None
+                if not isinstance(group, Group):
+                    continue
+                if group.form == "ring":
+                    arcs = group
+                elif section.title == _BY_SYSTEM_TITLE:
+                    beside = group
+                else:
+                    continue
+                sections.remove(section)
         for section in sections:
             tree = section.items[0] if section.items else None
             if self.view.id.view == "rollup" and isinstance(tree, Node):
-                self.rollup(tree, beside)
+                self.rollup(tree, beside, arcs)
             else:
                 self.section(section)
         return self.s.document(self.y + SECTION_GAP)
 
     # -- the roll-up ----------------------------------------------------------
 
-    def rollup(self, root: Node, beside: Group | None) -> None:
+    def rollup(self, root: Node, beside: Group | None, arcs: Group | None = None) -> None:
         """A roll-up in one frame: the root's state, then its children as large tiles
         and, right of them, the rows *beside* (the place by system).
 
@@ -1459,7 +1489,9 @@ class _Page:
         screen; all tiles have one height. The budget is spent as :meth:`plan`
         says: a child that fits one rule has its light; any other is ``open``:
         the aggregate mark, its count and a link down to its own screen, where
-        its lights are. A tile never holds small lights of its parts.
+        its lights are. A tile never holds small lights of its parts. With
+        *arcs*, those children are the ring's arcs (:meth:`ring`) and the
+        others are tiles under it.
         """
         first = len(self.s.nodes)
         top = self.y
@@ -1469,9 +1501,12 @@ class _Page:
         self.heading(f"by {self.view.id.by or 'place'}")
         plan, decisions = self.plan(root)
         self.rollup_root(root, plan)
+        on_ring = {node.label for node in arcs.nodes} if arcs is not None else set()
+        if arcs is not None:
+            self.ring(root, arcs, decisions)
         columns = max(1, int((width + GAP) // (ROLLUP_TILE_WIDTH + GAP)))
         w = (width - (columns - 1) * GAP) / columns
-        children = list(enumerate(root.children))
+        children = [(i, c) for i, c in enumerate(root.children) if c.label not in on_ring]
         y = self.y
         for start in range(0, len(children), columns):
             for column, (i, child) in enumerate(children[start : start + columns]):
@@ -1503,6 +1538,55 @@ class _Page:
         )
         self.s.nodes.insert(first, self.s.nodes.pop())
         self.y += PANEL_GAP
+
+    def ring(self, root: Node, arcs: Group, decisions: Mapping[int, str]) -> None:
+        """The ring: one arc per child on it, clockwise from twelve o'clock in beam
+        order, each in the look of its tile (:meth:`rollup_tile`): its light's
+        rule, the aggregate mark when over the rule limit, a dashed outline with
+        no rule; its short name and mark on it, and a link to its screen. The
+        root's id stands in the middle."""
+        index = {node.label: i for i, node in enumerate(root.children)}
+        cx = (self.x0 + self.right) / 2
+        cy = self.y + RING_PAD + RING_OUTER
+        share = TURN / len(arcs.nodes)
+        for number, node in enumerate(arcs.nodes):
+            start, end = number * share + RING_GAP, (number + 1) * share - RING_GAP
+            i = index.get(node.label)
+            plan = "none" if node.no_rule or i is None else decisions.get(i, "open")
+            self.arc(cx, cy, start, end, node, root.label, plan)
+        w = text_width(root.label, TITLE_SIZE)
+        self.text(cx - w / 2, cy - ROW / 2, root.label, size=TITLE_SIZE, w=w)
+        self.y = cy + RING_OUTER + RING_PAD
+
+    def arc(
+        self, cx: float, cy: float, start: float, end: float, node: Node, parent: str, plan: str
+    ) -> None:
+        """One child on the ring: its arc, its short name and mark at the arc's middle,
+        and a box there that opens its screen."""
+        lights = [describe_light(self.graph, c) for c in node.channels]
+        middle = math.radians((start + end) / 2)
+        r = (RING_INNER + RING_OUTER) / 2
+        mx, my = cx + r * math.sin(middle), cy - r * math.cos(middle)
+        name = self.graph.thing(node.label, "place").short_name  # an arc is a child place
+        name = name or node.label.removeprefix(parent + "/")
+        name = _cut(name, RING_LABEL_WIDTH, TEXT_SIZE)
+        left, top = mx - RING_LABEL_WIDTH / 2, my - ROW
+        if plan == "none":
+            shape = symbols.arc(cx, cy, RING_INNER, RING_OUTER, start, end, symbols.NONE)
+            shape["props"]["lineStyle"] = "dashed"
+            shape["props"][_TOOLTIP] = _NO_RULE
+            self.s.add(shape)
+        else:
+            rule = ladder(self.graph, lights, node=True) if plan == "live" else "aggregate state"
+            look = "aggregate" if rule == "aggregate state" else "unknown"
+            shape = symbols.arc(cx, cy, RING_INNER, RING_OUTER, start, end, look)
+            _light, mark = symbols.light(left, top + ROW, RING_LABEL_WIDTH, look)
+            mark["geometry"]["height"] = ROW
+            mark["props"]["fontSize"] = RING_MARK
+            self.attach(shape, mark, lights, rule)
+        self.text(left, top, name, w=RING_LABEL_WIDTH, align="center")
+        if node.link is not None:
+            self.nav(left, top, RING_LABEL_WIDTH, 2 * ROW, replace(node.link, label=node.label))
 
     def rollup_root(self, root: Node, plan: str | None) -> None:
         """The root's line: its light and what it reads, its parts, or that its summary

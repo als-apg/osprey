@@ -599,6 +599,26 @@ def near_state(
     return None
 
 
+_ARC_STEP = 3  # degrees between two corners of an arc's curved edges
+
+
+def arc(
+    cx: float, cy: float, inner: float, outer: float, start: float, end: float, state: str
+) -> Node:
+    """An arc of a ring in the look of *state*, as one polygon: the part of the ring
+    between radii *inner* and *outer* from angle *start* to *end*, in degrees
+    clockwise from twelve o'clock (where the ring's first arc begins)."""
+    steps = max(1, math.ceil((end - start) / _ARC_STEP))
+    angles = [math.radians(start + (end - start) * i / steps) for i in range(steps + 1)]
+    edge = [(cx + outer * math.sin(a), cy - outer * math.cos(a)) for a in angles]
+    edge += [(cx + inner * math.sin(a), cy - inner * math.cos(a)) for a in reversed(angles)]
+    shown = look(state)
+    shape = _polygon(edge, fill=shown["fill"])
+    for prop in LIGHT_PROPS:
+        shape["props"][prop] = shown[prop]
+    return shape
+
+
 def light(x: float, y: float, size: float, state: str) -> list[Node]:
     """A light's two nodes, without ids: its shape (an octagon) and its mark.
 

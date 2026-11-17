@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.panels import layout
-from osprey.facility.panels.describe import describe, light, targets
+from osprey.facility.panels.describe import describe, light, ring_arcs, targets
 from osprey.facility.panels.health import supported
 from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
 from osprey.facility.panels.symbols import WIDTH_UNITS, near_state
@@ -161,6 +161,7 @@ class Draw:
     above: frozenset[str] = frozenset()
     colours: Mapping[str, str] = field(default_factory=dict)
     annotate: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    ring: tuple[str, ...] = ()
 
     @property
     def digest(self) -> str:
@@ -172,6 +173,7 @@ class Draw:
                 "above": sorted(self.above),
                 "colours": sorted(self.colours.items()),
                 "annotate": sorted((k, list(v)) for k, v in self.annotate.items()),
+                "ring": sorted(self.ring),
             },
             sort_keys=True,
         )
@@ -192,7 +194,9 @@ def load_draw(path: Path) -> Draw:
     upper lane of a strip; each needs a symbol), ``colours`` (symbol name to
     the ``#rrggbb`` its strip symbols are filled with) and ``annotate`` (symbol
     name to at most :data:`MAX_ANNOTATIONS` stated signals whose values a strip
-    shows under its symbols). All are optional.
+    shows under its symbols) and ``ring`` (place ids whose roll-up draws their
+    children on the ring as arcs; each must be a place with children on the
+    ring, which :func:`check_draw` holds against the graph). All are optional.
 
     Raises:
         EmitError: The file is missing or unreadable, is not JSON, holds a key
@@ -207,10 +211,12 @@ def load_draw(path: Path) -> Draw:
         raise EmitError(f"{path} cannot be read as {DRAW_FILE}: {error}") from error
     if not isinstance(document, dict):
         raise EmitError(f"{path}: the file must hold one JSON object")
-    unknown = sorted(set(document) - {"rack_classes", "symbols", "above", "colours", "annotate"})
+    keys = {"rack_classes", "symbols", "above", "colours", "annotate", "ring"}
+    unknown = sorted(set(document) - keys)
     if unknown:
         raise EmitError(f"{path}: unknown key {', '.join(unknown)}")
     racks = _strings(document.get("rack_classes", []), "rack_classes", path)
+    ring = _strings(document.get("ring", []), "ring", path)
     above = _strings(document.get("above", []), "above", path)
     symbols = document.get("symbols", {})
     if not isinstance(symbols, dict) or not all(
@@ -252,7 +258,33 @@ def load_draw(path: Path) -> Draw:
         above=frozenset(symbols[cls] for cls in above),
         colours={name: colour.lower() for name, colour in colours.items()},
         annotate={name: tuple(signals) for name, signals in annotate.items()},
+        ring=tuple(dict.fromkeys(ring)),
     )
+
+
+#: The fewest children on the ring a place named in ``ring`` must have.
+MIN_RING_ARCS = 2
+
+
+def check_draw(graph: PanelGraph, draw: Draw) -> None:
+    """Hold the drawing settings to the graph: each place named in ``ring`` exists and
+    has at least :data:`MIN_RING_ARCS` children on the ring (:func:`describe.ring_arcs`).
+
+    Raises:
+        EmitError: A place named in ``ring`` is no place of the graph or has
+            too few children on the ring.
+    """
+    for place_id in draw.ring:
+        try:
+            graph.thing(place_id, "place")
+        except KeyError:
+            raise EmitError(f"ring names {place_id}, which is no place of the facility") from None
+        found = len(ring_arcs(graph, place_id))
+        if found < MIN_RING_ARCS:
+            raise EmitError(
+                f"ring names {place_id}, which has {found} children with a ring position, "
+                f"fewer than {MIN_RING_ARCS}"
+            )
 
 
 _HEX = re.compile(r"#[0-9a-fA-F]{6}")
@@ -402,6 +434,7 @@ def _generate(
         symbols=draw.symbols,
         above=draw.above,
         annotate=draw.annotate,
+        ring=frozenset(draw.ring),
     )
     document = layout.render(
         view, graph=graph, screens=screens, doc_id=own[: -len(SCREEN_SUFFIX)], colours=draw.colours
@@ -541,9 +574,11 @@ def write(
         The screen files written, in target order (not ``index.json``).
 
     Raises:
-        EmitError: *out* holds files and no ``index.json``, or the index is
-            not one this generator wrote.
+        EmitError: *out* holds files and no ``index.json``, the index is not
+            one this generator wrote, or *draw* does not hold for the graph
+            (:func:`check_draw`).
     """
+    check_draw(graph, draw)
     out = Path(out)
     previous = _read_index(out)
     if previous is None and out.exists() and any(out.iterdir()):
@@ -808,6 +843,10 @@ def check(
         (:attr:`Problem.failing` is false).
     """
     out = Path(out)
+    try:
+        check_draw(graph, draw)
+    except EmitError as error:
+        return [Problem("invalid", DRAW_FILE, str(error))]
     try:
         index = _read_index(out)
     except (EmitError, ValueError) as error:
