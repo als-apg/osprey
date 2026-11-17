@@ -617,30 +617,6 @@ class ConfigBuilder:
     Singleton access: use :func:`get_config_builder` or :func:`_get_config`.
     """
 
-    # Sentinel to distinguish "no default given" from "default is None".
-    _REQUIRED = object()
-
-    def _require_config(self, path: str, default: object = _REQUIRED) -> object:
-        """Get config value, raising ValueError if required (no default) and missing.
-
-        When *default* is provided, uses it with a warning. When *default* is
-        omitted (_REQUIRED sentinel), raises on missing/None values.
-        """
-        value = self.get(path)
-
-        if value is None:
-            if default is self._REQUIRED:
-                # No default provided - this is a required configuration
-                raise ValueError(
-                    f"Missing required configuration: '{path}'. For profile-built "
-                    f"projects, set it under `config:` in profile.yml and run "
-                    f"`osprey build`; otherwise add it to your config file."
-                )
-            # Default provided - use it but warn for visibility
-            logger.warning(f"Using default value for '{path}' = {default}. ")
-            return default
-        return value
-
     def __init__(self, config_path: str | Path | None = None, *, load_env: bool = True):
         """
         Initialize configuration builder.

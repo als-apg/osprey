@@ -715,8 +715,7 @@ class TestNonNumericReadback:
     """A non-numeric property confirms by equality, and never by fabrication.
 
     ``observed_value`` holds whatever the property reads back — a string, a
-    sequence, an object — in the type the channel holds; ``observed_number``
-    narrows it to a float only where that means something.
+    sequence, an object — in the type the channel holds.
     """
 
     async def test_matching_string_readback_confirms(self, connector):
@@ -727,7 +726,6 @@ class TestNonNumericReadback:
 
         assert result.outcome is WriteOutcome.CONFIRMED
         assert result.observed_value == "DESIRED"
-        assert result.observed_number is None
         assert result.error_message is None
 
     async def test_differing_string_readback_is_a_mismatch(self, connector):

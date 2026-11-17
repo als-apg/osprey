@@ -333,8 +333,6 @@ class ChannelWriteFailedError(ChannelError):
     carries is coerced on construction, as ``ChannelWriteResult`` coerces its own.
     """
 
-    _VALID_REASONS = ("FAILED", "MISMATCH", "UNCONFIRMED")
-
     def __init__(
         self,
         channel_address: str,
