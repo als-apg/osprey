@@ -27,6 +27,7 @@ import tempfile
 import textwrap
 import threading
 import time
+from collections import Counter
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -412,7 +413,10 @@ class TestReads:
         )
         _task, client = served
         rows = await client.read([f"TOGETHER:{i}" for i in range(ipc.MAX_NAMES)])
-        assert {row.outcome for row in rows} == {ipc.OUTCOME_FOUND}
+        # Counted with the reason, so a failure says why a row was not found.
+        assert Counter((row.outcome, row.reason) for row in rows) == {
+            (ipc.OUTCOME_FOUND, None): ipc.MAX_NAMES
+        }
 
     async def test_a_batch_at_the_cap_reads_every_name(self, served):
         _task, client = served

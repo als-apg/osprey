@@ -1142,6 +1142,9 @@ def test_payload_with_a_dead_session_still_carries_text_and_metadata():
 @pytest.mark.parametrize(
     "text",
     ["", "short", "x" * 40_000, "x" * 100_000, "мощность" * 5_000, "✅" * 20_000],
+    # Named, because pytest would spell the text into the id, and a log line of 100 KB
+    # ends `gh run view --log`: the run then reads as a hang at this test.
+    ids=["empty", "short", "ascii-40k", "ascii-100k", "cyrillic-40k", "emoji-20k"],
 )
 def test_payload_copy_bundle_is_byte_identical_to_the_payload_bundle(text):
     """The pinned criterion: the standalone Copy button and the send payload agree."""
