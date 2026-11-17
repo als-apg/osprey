@@ -1266,7 +1266,7 @@ class OspreyPVConnector:
             value_kind=kind,
             # No severity reported is not an alarm; an unknown one is.
             severity=AlarmSeverity.NO_ALARM if severity is None else normalize_severity(severity),
-            ts_ns=_timestamp_ns(reading.timestamp),
+            ts_ns=_timestamp_ns(reading.sampled_at),
             connected=True,
             error=error,
         )
