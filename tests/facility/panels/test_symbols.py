@@ -161,3 +161,28 @@ def test_no_hex_colour_outside_the_theme_role_table() -> None:
     assert HEX.search(table)
     assert not HEX.search(rest)
     assert not HEX.search((PANELS / "layout.py").read_text())
+
+
+def test_each_look_is_pinned_to_its_role_and_pattern_by_name() -> None:
+    def shown(state: str) -> tuple:
+        x = look(state)
+        return (
+            x["fill"],
+            x["fillColor"]["$role"],
+            x["lineColor"]["$role"],
+            x["lineStyle"],
+            x["text"],
+        )
+
+    assert shown("normal") == (True, "Led_Off", "Page_Text", "solid", "")
+    assert shown("warn") == (True, "MINOR", "MINOR", "solid", "")
+    assert shown("bad") == (True, "MAJOR", "MAJOR", "solid", "")
+    assert shown("unknown") == (False, "Page_Background", "DISCONNECTED", "dashed", "?")
+    assert shown("disagree") == (True, "Disagree", "Page_Text", "solid", symbols.DISAGREE_MARK)
+    assert shown("aggregate") == (
+        True,
+        "Field_Background",
+        "Page_Text",
+        "solid",
+        symbols.AGGREGATE_MARK,
+    )

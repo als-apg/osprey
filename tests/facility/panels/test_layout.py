@@ -530,3 +530,31 @@ def test_agreeing_sources_write_a_condition_once_and_literals_never_disagree(tmp
     assert rule.arms == (("{0} == 0", "warn"), ("{0} == 1", "normal"))
     for value in VALUES:
         assert evaluate(rule, [value]) == channel_state(graph, item.channel, value)
+
+
+def test_a_one_channel_roll_up_node_over_the_limit_is_an_aggregate(panel_graph, monkeypatch):
+    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 10)
+    node = Node("one", None, ("XR02:IP1:Pressure-RB",), False)
+    doc, _ = draw(card("one", node), panel_graph)
+    assert aggregates(doc) == 1
+    assert unexpressed(doc) == 0
+    assert "1 channels, open for detail" in _texts(doc)
+
+
+def test_an_unwritable_channel_leaves_its_siblings_arms_and_never_normal(tmp_path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write("XR01:PS1:On-Sts,ON,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    items = [light(graph, "XR01:PS1:On-Sts"), light(graph, "XR02:IP1:Pressure-RB")]
+    assert ladder(graph, items[:1]) == "label condition"  # alone, its light is unknown
+    rule = ladder(graph, items)
+    assert not isinstance(rule, str)
+    assert rule.unwritten == ("XR01:PS1:On-Sts",)
+    assert all(state != "normal" for _, state in rule.arms)
+    assert evaluate(rule, [1, 7]) == "bad"  # the sibling's bad still shows
+    assert evaluate(rule, [1, 0.5]) == "warn"
+    assert evaluate(rule, [1, 3]) == "unknown"  # the sibling is normal: unknown, not normal
+    doc, _ = draw(card("node", Node("n", None, tuple(i.channel for i in items), False)), graph)
+    assert unexpressed(doc) == 0
+    assert "label condition" in needs(doc)

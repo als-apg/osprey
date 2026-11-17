@@ -216,10 +216,13 @@ class Ladder:
     Attributes:
         channels: The bound channels; ``{i}`` in an arm is ``channels[i]``.
         arms: ``(expression, state)`` in order; no arm matching is ``unknown``.
+        unwritten: Channels whose rows no condition can say; they add no arm,
+            and the light is never ``normal``.
     """
 
     channels: tuple[str, ...]
     arms: tuple[tuple[str, State], ...]
+    unwritten: tuple[str, ...] = ()
 
 
 def _number(value: float) -> str:
@@ -304,7 +307,7 @@ def _channel_arms(graph: PanelGraph, item: Light, token: str) -> dict[str, str |
     return arms
 
 
-def ladder(graph: PanelGraph, lights: Sequence[Light]) -> Ladder | str:
+def ladder(graph: PanelGraph, lights: Sequence[Light], *, node: bool = False) -> Ladder | str:
     """The rule of one light over *lights*' channels: the worst state among them.
 
     A channel is ``disagree`` where rows of different states match its value,
@@ -313,21 +316,38 @@ def ladder(graph: PanelGraph, lights: Sequence[Light]) -> Ladder | str:
     worst channel (``bad > warn > disagree > unknown > normal``), so it is
     ``normal`` only when every channel is.
 
+    A channel whose rows no condition can say adds no arm, so the others'
+    ``bad``, ``warn`` and ``disagree`` still show and the light is never
+    ``normal``; when that is every channel, the light cannot be written.
+
+    Args:
+        graph: The panel graph.
+        lights: The channels the light reads.
+        node: The light is a roll-up node's: over the limit it is an
+            aggregate even with one channel. Otherwise only a light over
+            several channels is.
+
     Returns:
         The ladder, or the :data:`FORMAT_REQUESTS` name of why the format
         cannot write it.
     """
-    too_long = "aggregate state" if len(lights) > 1 else "long rule"
+    too_long = "aggregate state" if node or len(lights) > 1 else "long rule"
     per_channel: list[dict[str, str | None]] = []
+    unwritten: list[str] = []
+    reason = ""
     written = 0
     for i, item in enumerate(lights):
         arms = _channel_arms(graph, item, f"{{{i}}}")
         if isinstance(arms, str):
-            return arms
+            reason = arms
+            unwritten.append(item.channel)
+            arms = dict.fromkeys(("disagree", "bad", "warn", "normal"))
         per_channel.append(arms)
         written += sum(len(c) for c in arms.values() if c)
         if written > RULE_EXPRESSION_LIMIT:
             return too_long  # every condition appears at least once in the ladder
+    if unwritten and len(unwritten) == len(lights):
+        return reason
     out: list[tuple[str, State]] = []
     for state in _STATE_ORDER:
         found = _any([c for arms in per_channel if (c := arms[state])])
@@ -337,7 +357,7 @@ def ladder(graph: PanelGraph, lights: Sequence[Light]) -> Ladder | str:
     if normals and all(normals):
         joined = normals[0] if len(normals) == 1 else " and ".join(f"({c})" for c in normals)
         out.append((joined, "normal"))  # type: ignore[arg-type]
-    rule = Ladder(tuple(item.channel for item in lights), tuple(out))
+    rule = Ladder(tuple(item.channel for item in lights), tuple(out), tuple(unwritten))
     return too_long if rule_length(rule) > RULE_EXPRESSION_LIMIT else rule
 
 
@@ -626,6 +646,8 @@ class _Page:
         elif isinstance(rule, str):
             tags += [_need(rule), _UNKNOWN_TAG + rule]
             self.s.unknown += 1
+        elif rule.unwritten:
+            tags.append(_need("label condition"))
         elif rule.arms:
             looks = {state: symbols.look(state) for state in symbols.STATES}
             for prop in symbols.LIGHT_PROPS:
@@ -825,7 +847,7 @@ class _Page:
             x = self.text(x, self.y, _NO_RULE, size=SMALL_SIZE)
         else:
             lights = [describe_light(self.graph, c) for c in node.channels]
-            rule = ladder(self.graph, lights)
+            rule = ladder(self.graph, lights, node=True)
             x = self.light(x, self.y, lights, rule=rule)
         if node.link is not None:
             x = self.button(x + GAP, self.y, node.link, label=node.label)
@@ -851,7 +873,9 @@ class _Page:
                 self.y += MOSAIC_LIGHT + MOSAIC_GAP
                 x = x0
             lights = [describe_light(self.graph, c) for c in child.channels]
-            self.light(x, self.y - (ROW - MOSAIC_LIGHT) / 2, lights, size=MOSAIC_LIGHT, tile=True)
+            rule = ladder(self.graph, lights, node=True)
+            top = self.y - (ROW - MOSAIC_LIGHT) / 2
+            self.light(x, top, lights, rule=rule, size=MOSAIC_LIGHT, tile=True)
             x += MOSAIC_LIGHT + MOSAIC_GAP
         self.y += MOSAIC_LIGHT + ROW_GAP
 

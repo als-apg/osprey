@@ -1,9 +1,16 @@
 """Every rendered panel view is a valid Screen-IR 1.1 document, by CANOPY's own checks.
 
 ``osprey.facility.panels.layout`` draws the panels fixture's views (every view
-kind) and the invented views of ``tests/facility/panels``. The schema is the PyDM converter's copy (``pydmconverter.ir``), staged the way
-``tests/templates/canopy`` stages it; ``check_schema`` and ``check_semantic``
-are CANOPY's. Importing CANOPY at module level carries the ``canopy`` mark.
+kind) and the invented views of ``tests/facility/panels``.
+
+The contract is the schema and runtime this worktree pins: CANOPY and the PyDM
+converter at the commits ``osprey.integrations.canopy`` proves
+(``PROVEN_COMMITS``), the same ones the rest of ``tests/templates/canopy``
+validates against. It is not a copy in another checkout, such as
+``canopy-sdk-js``. The schema is the PyDM converter's copy
+(``pydmconverter.ir``), staged the way ``tests/templates/canopy`` stages it;
+``check_schema`` and ``check_semantic`` are CANOPY's. Importing CANOPY at
+module level carries the ``canopy`` mark.
 """
 
 from __future__ import annotations
