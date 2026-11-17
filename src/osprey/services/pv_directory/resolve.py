@@ -47,6 +47,8 @@ INTERNAL_TYPES = (SIMULATOR_VIEW, ALARM_REPLAY)
 
 #: The alarm-state type that reads the alarm server's Kafka topic.
 KAFKA_ALARM_STATE = "phoebus_alarm_server"
+#: The alarm-state type that reads an OSPREY alarm relay over HTTP.
+RELAY_ALARM_STATE = "osprey_alarm_relay"
 
 KAFKA_CLIENT_MISSING = (
     "Kafka client not installed "
@@ -236,6 +238,8 @@ def _alarm_state_type(block: Mapping[str, Any]) -> str | None:
                 raise SectionError(
                     f"{key}.settings.{name}", f"type {service!r} needs the Kafka {name}"
                 )
+    if service == RELAY_ALARM_STATE and not _given(settings.get("url")):
+        raise SectionError(f"{key}.settings.url", f"type {service!r} needs the relay's URL")
     return service
 
 
