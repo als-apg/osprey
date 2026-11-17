@@ -25,14 +25,13 @@ The pieces are:
 
 from __future__ import annotations
 
-import contextlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from tests.services.ariel_search.integration._support import migrated_repository
+from tests.services.ariel_search.integration._support import fresh_database, migrated_repository
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -403,26 +402,8 @@ def scratch_database(database_url: str):
     Yields:
         The scratch database's URI.
     """
-    import uuid
-
-    import psycopg
-    from psycopg import sql
-
-    name = f"ariel_{uuid.uuid4().hex}"
-    uri = f"{database_url.rsplit('/', 1)[0]}/{name}"
-    with psycopg.connect(database_url, autocommit=True) as conn:
-        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-    try:
-        with psycopg.connect(uri, autocommit=True) as conn:
-            # no pgvector on this server; the vector migrations skip
-            with contextlib.suppress(psycopg.Error):
-                conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    with fresh_database(database_url) as uri:
         yield uri
-    finally:
-        with psycopg.connect(database_url, autocommit=True) as conn:
-            conn.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
-            )
 
 
 @pytest.fixture
