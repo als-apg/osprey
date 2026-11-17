@@ -558,3 +558,43 @@ def test_an_unwritable_channel_leaves_its_siblings_arms_and_never_normal(tmp_pat
     doc, _ = draw(card("node", Node("n", None, tuple(i.channel for i in items), False)), graph)
     assert unexpressed(doc) == 0
     assert "label condition" in needs(doc)
+
+
+def drawn(shape: dict, values: dict[str, object]) -> dict:
+    """The props a drawn light's own rules give it for *values* by channel, as the viewer reads
+    them: per rule, the first condition that holds sets the prop, else the rule's default;
+    a prop no rule sets keeps its static value."""
+    out = {prop: shape["props"][prop] for prop in symbols.LIGHT_PROPS}
+    for rule in shape.get("rules", ()):
+        v = [values[p["name"]] for p in rule["pvs"]]
+        out[rule["targetProperty"]] = rule["default"]
+        for condition in rule["conditions"]:
+            # the layout's own expressions: numbers and operators over {i}
+            if eval(TOKEN.sub(r"v[\1]", condition["expression"]), {"__builtins__": {}}, {"v": v}):
+                out[rule["targetProperty"]] = condition["value"]
+                break
+    return out
+
+
+def shown(state: str) -> dict:
+    return {prop: symbols.look(state)[prop] for prop in symbols.LIGHT_PROPS}
+
+
+def test_a_drawn_node_with_an_unwritable_channel_shows_its_siblings_states(tmp_path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write("XR01:PS1:On-Sts,ON,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
+        rows.write("XR02:IP1:Pressure-RB,3,normal,screen,stated,xr-screens,4d5e6f7,vac.screen:1\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    a, b = "XR02:IP1:Pressure-RB", "XR01:PS1:On-Sts"  # A: >=5 bad, <1 warn, 3 normal; B: a label
+    alone, _ = draw(card("a", Light(a)), graph)
+    assert drawn(_by_type(alone, "polygon")[0], {a: 3}) == shown("normal")  # A alone reads normal
+    doc, _ = draw(card("node", Node("n", None, (a, b), False)), graph)
+    (shape,) = _by_type(doc, "polygon")
+    assert shape.get("rules"), "the writable channel's rules are drawn"
+    static = {prop: shape["props"][prop] for prop in symbols.LIGHT_PROPS}
+    assert static == shown("unknown")
+    assert drawn(shape, {a: 7, b: 1}) == shown("bad")
+    assert drawn(shape, {a: 0.5, b: 1}) == shown("warn")
+    assert drawn(shape, {a: 3, b: 1}) == shown("unknown")  # A normal: never normal
+    assert "label condition" in needs(doc) and unexpressed(doc) == 0

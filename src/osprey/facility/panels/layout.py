@@ -646,15 +646,12 @@ class _Page:
         elif isinstance(rule, str):
             tags += [_need(rule), _UNKNOWN_TAG + rule]
             self.s.unknown += 1
-        elif rule.unwritten:
-            tags.append(_need("label condition"))
-        elif rule.arms:
-            looks = {state: symbols.look(state) for state in symbols.STATES}
-            for prop in symbols.LIGHT_PROPS:
-                values = {state: looks[state][prop] for state in symbols.STATES}
-                shape_rules.append(self.s.rule(f"{names} {prop}", prop, rule, values))
-            values = {state: looks[state][symbols.MARK_PROP] for state in symbols.STATES}
-            mark_rules.append(self.s.rule(f"{names} mark", symbols.MARK_PROP, rule, values))
+        else:
+            if rule.unwritten:
+                # the writable channels' arms are drawn; the unwritten ones add none
+                tags.append(_need("label condition"))
+            if rule.arms:
+                self.rules(shape_rules, mark_rules, names, rule)
         self.s.add(shape, rules=shape_rules, tags=tags)
         mark_tags = [_need("hatched fill")] if mark_rules else []
         self.s.add(mark, rules=mark_rules, tags=mark_tags)
@@ -662,6 +659,15 @@ class _Page:
         if not tile and any(item.inferred for item in lights):
             right = self.mark(right + GAP, y, symbols.INFERRED_MARK)
         return right
+
+    def rules(self, shape_rules: list, mark_rules: list, names: str, rule: Ladder) -> None:
+        """A light's rules: one per shape prop and one for its mark, all from *rule*."""
+        looks = {state: symbols.look(state) for state in symbols.STATES}
+        for prop in symbols.LIGHT_PROPS:
+            values = {state: looks[state][prop] for state in symbols.STATES}
+            shape_rules.append(self.s.rule(f"{names} {prop}", prop, rule, values))
+        values = {state: looks[state][symbols.MARK_PROP] for state in symbols.STATES}
+        mark_rules.append(self.s.rule(f"{names} mark", symbols.MARK_PROP, rule, values))
 
     def field(self, x, y, channel: str, *, writable: bool, w=VALUE_WIDTH) -> float:
         common = {
