@@ -195,6 +195,12 @@ PRECISION_FALLBACK = 3  # its decimals until its precision rule delivers, or wit
 FIXED_SMALLEST = 0.001  # below this a value keeps the viewer's own format (an exponent)
 COMPACT_SMALLEST = 0.1  # the compact rule prints smaller values as it prints this one
 VALUE_SAMPLE = "-0.00123"  # the widest number three significant digits print below 10 000
+#: The most characters of a unit Channel Access carries: its units field is 8 bytes, the
+#: last a NUL. A longer unit arrives cut ("1/Meter^2" as "1/Meter"), and a pv-label
+#: appends what arrives, a false unit; such a channel's number is a static label a
+#: formula sets, with the facility's whole unit beside it. That route goes when the
+#: format takes the unit from the screen (format request (e)).
+CHANNEL_ACCESS_UNIT_CHARS = 7
 RING_PAD = 6  # a state ring's distance from its symbol
 TAG_HEIGHT = 16  # the word above a ring
 VALUE_STEP = 16  # one live value under a symbol's name
@@ -348,6 +354,7 @@ OUTLINE_KIND = "outline"
 _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
+_PRINTED = _NUMBERS | {"state"}  # the kinds a formula can print: numbers
 _WHOLE = re.compile(r"(?:==|!=)?\s*-?\d+")  # a health rule's value naming one state, or not it
 _TOKEN = re.compile(r"\{(\d+)\}")
 _NAVIGATION_TARGET = "tab"
@@ -1578,7 +1585,19 @@ class _Page:
                 "align": "right",
             }
             rules = []
-            w = max(w, value_width(self.unit_of(channel), TEXT_SIZE))  # the unit printed whole
+            w = max(w, self.value_span(channel))  # the unit printed whole
+            if kind in _PRINTED and self.cuts_unit(channel):
+                expression = self.number_expression(channel, kind)
+                if self.budget.take([(1, frozenset({channel}))]):
+                    unit = self.unit_of(channel) or ""
+                    unit_w = text_width(unit, TEXT_SIZE)
+                    number_w = w - UNIT_GAP - unit_w
+                    self.formula_text(
+                        x, y, number_w, ROW, channel, expression, size=TEXT_SIZE, fg=PAGE_TEXT,
+                        bg=FIELD_BACKGROUND, align="right",
+                    )  # fmt: skip
+                    self.text(x + number_w + UNIT_GAP, y, unit, w=unit_w)
+                    return x + w
             if kind == "state" or self.prints_whole(channel):
                 props["precision"] = 0
             elif kind in _NUMBERS:
@@ -1594,6 +1613,57 @@ class _Page:
         except KeyError:
             return None
 
+    def cuts_unit(self, channel: str) -> bool:
+        """Whether Channel Access cuts *channel*'s unit: it is longer than
+        :data:`CHANNEL_ACCESS_UNIT_CHARS`."""
+        return len(self.unit_of(channel) or "") > CHANNEL_ACCESS_UNIT_CHARS
+
+    def value_span(self, channel: str) -> float:
+        """The width *channel*'s value takes with its unit: one display
+        (:func:`value_width`), or, for a unit Channel Access cuts, the number's
+        display and the whole unit beside it."""
+        unit = self.unit_of(channel)
+        if not self.cuts_unit(channel):
+            return value_width(unit, TEXT_SIZE)
+        return value_width(None, TEXT_SIZE) + UNIT_GAP + text_width(unit or "", TEXT_SIZE)
+
+    def number_expression(self, channel: str, kind: str | None, decimals: int | None = None):
+        """The formula that prints *channel* as a static label's text: as it is for a
+        state, to *decimals* when the data states them, else to
+        :data:`SIGNIFICANT_DIGITS` significant digits."""
+        if kind == "state" or self.prints_whole(channel):
+            return "{v}"
+        if decimals is not None:
+            return fixed_expression("{v}", decimals)
+        return significant_expression("{v}")
+
+    def formula_text(
+        self, x, y, w, h, channel: str, expression: str, *, size, fg, bg, align, tags=()
+    ) -> None:
+        """A static label whose text a formula rule sets to *expression* over
+        *channel*: :data:`NO_VALUE` until the rule delivers and while the channel is
+        disconnected, since the rule's output is stale then."""
+        name = f"value-{len(self.s.formulas)}"
+        self.s.formulas.append(
+            {"name": name, "kind": "scalar", "expression": expression, "bindings": {"v": channel}}
+        )
+        self.s._rules += 1
+        rule = {
+            "id": f"r-{self.s._rules:04d}",
+            "name": f"{channel} value",
+            "targetProperty": "text",
+            "default": NO_VALUE,
+            "formula": _FORMULA_PREFIX + name,
+        }
+        props = {
+            "text": NO_VALUE,
+            "fontSize": size,
+            "foregroundColor": fg,
+            "backgroundColor": bg,
+            "align": align,
+        }
+        self.s.widget("text-label", x, y, w, h, props, rules=[rule], tags=tags)
+
     def prints_whole(self, channel: str) -> bool:
         """Whether *channel* is a state: every health rule of it names one whole value,
         as itself or with ``==`` or ``!=``; a threshold (``>=5``) is a measure's."""
@@ -1604,7 +1674,7 @@ class _Page:
         """The width of a table's value column: *least*, or what :func:`value_width`
         needs for the widest unit its channels print."""
         channels = [c for row in rows for c in (row.channel, row.readback) if c is not None]
-        return max(least, *(value_width(self.unit_of(c), TEXT_SIZE) for c in channels))
+        return max(least, *(self.value_span(c) for c in channels))
 
     def unit_field(
         self, x: float, channel: str, unit: str | None, drawn_as: str | None, writable: bool
@@ -1613,7 +1683,7 @@ class _Page:
         if self.widget_for(drawn_as, writable)[0] != "pv-label":
             x = self.field(x, self.y, channel, drawn_as=drawn_as, writable=writable)
             return self.unit(x, self.y, unit)
-        w = max(VALUE_WIDTH, value_width(self.unit_of(channel), TEXT_SIZE))
+        w = max(VALUE_WIDTH, self.value_span(channel))
         return self.field(x, self.y, channel, drawn_as=drawn_as, writable=writable, w=w, units=True)
 
     def unit(self, x, y, unit: str | None) -> float:
@@ -2912,31 +2982,10 @@ class _Page:
         unit to it (the strip's values line names the units); it shows
         :data:`NO_VALUE` until the rule delivers and while the channel is
         disconnected, since the rule's output is stale then."""
-        name = f"value-{len(self.s.formulas)}"
-        self.s.formulas.append(
-            {
-                "name": name,
-                "kind": "scalar",
-                "expression": significant_expression("{v}"),
-                "bindings": {"v": channel},
-            }
-        )
-        self.s._rules += 1
-        rule = {
-            "id": f"r-{self.s._rules:04d}",
-            "name": f"{channel} value",
-            "targetProperty": "text",
-            "default": NO_VALUE,
-            "formula": _FORMULA_PREFIX + name,
-        }
-        props = {
-            "text": NO_VALUE,
-            "fontSize": SMALL_SIZE,
-            "foregroundColor": MUTED_TEXT,
-            "backgroundColor": TRANSPARENT,
-            "align": align,
-        }
-        self.s.widget("text-label", x, y, w, VALUE_STEP, props, rules=[rule])
+        self.formula_text(
+            x, y, w, VALUE_STEP, channel, significant_expression("{v}"), size=SMALL_SIZE,
+            fg=MUTED_TEXT, bg=TRANSPARENT, align=align,
+        )  # fmt: skip
 
     def values_line(self) -> None:
         """What the values on the strip are, and how many the budget left out."""
@@ -3392,7 +3441,13 @@ class _Page:
             )  # fmt: skip
         counted = item.measure in _COUNTS
         own_unit = formula is None and pv is not None  # a channel: the viewer prints its unit
+        cut = own_unit and not counted and self.cuts_unit(pv)  # type: ignore[arg-type]
+        if cut:  # the number a formula's, the unit whole beside it
+            expression = self.number_expression(pv, None, item.precision)  # type: ignore[arg-type]
+            cut = self.budget.take([(1, frozenset({pv}))])
         beside = f"of {total}" if counted else ("" if own_unit else (item.unit or ""))
+        if cut:
+            beside = self.unit_of(pv) or ""  # type: ignore[arg-type]
         beside_w = text_width(beside, SMALL_SIZE) if beside else 0
         if pv is None:
             dash_w = text_width(_DASH, BIG_SIZE)
@@ -3406,12 +3461,17 @@ class _Page:
             size: float = BIG_SIZE
             room = inner - beside_w - GAP
             if not counted:
-                unit = self.unit_of(pv) if own_unit else None
+                unit = self.unit_of(pv) if own_unit and not cut else None
                 number_w = max(number_w, value_width(unit, BIG_SIZE))
                 if number_w > room:  # a smaller number, the unit whole: never cut
                     size = value_size(unit, room)
                     number_w = value_width(unit, size)
             number_w = min(number_w, room) if counted else number_w
+            if cut:
+                self.formula_text(
+                    left, number_top, number_w, NUMBER_HEIGHT, pv, expression, size=size,
+                    fg=PAGE_TEXT, bg=TRANSPARENT, align="left", tags=tags,
+                )  # fmt: skip
             props = {
                 "pv": pv,
                 "fontSize": size,
@@ -3434,10 +3494,11 @@ class _Page:
                 precision = self.precision(props, value, formula["bindings"])
             else:
                 precision = self.precision(props, "{v}", {"v": pv})
-            self.s.widget(
-                "pv-label", left, number_top, number_w, NUMBER_HEIGHT, props, tags=tags,
-                rules=precision,
-            )  # fmt: skip
+            if not cut:
+                self.s.widget(
+                    "pv-label", left, number_top, number_w, NUMBER_HEIGHT, props, tags=tags,
+                    rules=precision,
+                )  # fmt: skip
             if beside:  # on the number's baseline: its line's middle below the number's
                 base = number_top + NUMBER_HEIGHT - SMALL_LINE - ROW_GAP
                 self.small(left + number_w + ROW_GAP, base, beside, fg=MUTED_TEXT, tags=tags)
@@ -4205,6 +4266,11 @@ def value_size(unit: str | None, width: float) -> float:
 def not_shown(count: int, words: str) -> str:
     """*words* (:data:`_CROWDED` or :data:`_DROPPED`) for *count* values."""
     return words.format(f"{count} value" if count == 1 else f"{count} values")
+
+
+def fixed_expression(value: str, decimals: int) -> str:
+    """*value* (a formula expression) rounded to *decimals* decimals, as a number."""
+    return f"floor({value} * pow(10, {decimals}) + 0.5) / pow(10, {decimals})"
 
 
 def significant_expression(value: str) -> str:

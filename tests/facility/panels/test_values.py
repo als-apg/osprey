@@ -329,6 +329,8 @@ def test_a_value_box_holds_the_number_and_the_whole_unit(tmp_path) -> None:
     doc = stub_render(device_card(graph, "XR01:UNITS1"), graph)
     labels = {n["props"]["pv"]: n for n in nodes(doc) if n["type"] == "pv-label"}
     for i, unit in enumerate(LONG_UNITS):
+        if len(unit) > layout.CHANNEL_ACCESS_UNIT_CHARS:
+            continue  # a static number and unit: the next test
         label = labels[f"XR01-UNITS1:V{i}-RB"]
         assert label["geometry"]["width"] >= layout.value_width(unit, label["props"]["fontSize"])
     drawn = [n for n in nodes(doc) if n["type"] in ("pv-label", "text-label")]
@@ -362,6 +364,82 @@ def test_a_key_number_with_a_long_unit_fits_its_tile_whole(tmp_path) -> None:
     ]  # fmt: skip
     (frame,) = frames
     assert number["geometry"]["x"] + number["geometry"]["width"] <= (
+        frame["geometry"]["x"] + frame["geometry"]["width"]
+    )
+
+
+def _unit_beside(doc: dict, number: dict, unit: str) -> dict:
+    """The static label of *unit* on *number*'s row, right of it."""
+    x, top, right, bottom = _box(number)
+    found = [
+        n for n in nodes(doc)
+        if n["type"] == "text-label" and n["props"]["text"] == unit and not n.get("rules")
+        and n["geometry"]["x"] >= right and n["geometry"]["y"] < bottom
+        and n["geometry"]["y"] + n["geometry"]["height"] > top
+    ]  # fmt: skip
+    assert len(found) == 1, unit
+    return found[0]
+
+
+def test_the_channel_access_unit_limit_is_a_named_constant() -> None:
+    assert layout.CHANNEL_ACCESS_UNIT_CHARS == 7
+
+
+def test_a_unit_longer_than_channel_access_carries_is_printed_whole_beside_a_formula_number(
+    tmp_path,
+) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _units_device), PANELS_DIR)
+    doc = stub_render(device_card(graph, "XR01:UNITS1"), graph)
+    gauges = {n["props"]["pv"] for n in nodes(doc) if n["type"] == "pv-label"}
+    numbers = _annotations(doc)
+    drawn = [n for n in nodes(doc) if n["type"] in ("pv-label", "text-label")]
+    column_end = layout.MARGIN + layout.CARD_LEFT - layout.COLUMN_GAP
+    long = [(i, u) for i, u in enumerate(LONG_UNITS) if len(u) > layout.CHANNEL_ACCESS_UNIT_CHARS]
+    assert long
+    for i, unit in long:
+        channel = f"XR01-UNITS1:V{i}-RB"
+        assert channel not in gauges  # the viewer would append the unit cut
+        number = numbers[channel]
+        assert number["props"]["text"] == layout.NO_VALUE
+        (rule,) = number["rules"]
+        assert rule["default"] == layout.NO_VALUE
+        assert _formula(doc, rule)["expression"] == layout.significant_expression("{v}")
+        beside = _unit_beside(doc, number, unit)
+        assert beside["geometry"]["width"] >= layout.text_width(unit, beside["props"]["fontSize"])
+        assert beside["geometry"]["x"] + beside["geometry"]["width"] <= column_end
+        for label in (number, beside):
+            others = [n for n in drawn if n is not label]
+            assert not [n for n in others if _overlap(label, n)], channel
+    for i, unit in enumerate(LONG_UNITS):
+        if len(unit) <= layout.CHANNEL_ACCESS_UNIT_CHARS:
+            assert f"XR01-UNITS1:V{i}-RB" in gauges  # the unit arrives whole: pv-label
+
+
+def test_a_key_number_with_a_unit_channel_access_cuts_prints_the_unit_whole_beside_it(
+    tmp_path,
+) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "metrics.csv").open("a") as handle:
+        handle.write("place,,9,Cut unit,value,units_0,,,one channel,XR-METRICS-001\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _units_device), tables)
+    doc = stub_render(place_view(graph, "XR/XR01", symbols=SYMBOLS), graph)
+    channel = "XR01-UNITS1:V0-RB"
+    assert not [n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == channel]
+    number = _annotations(doc)[channel]
+    assert number["props"]["text"] == layout.NO_VALUE
+    beside = _unit_beside(doc, number, LONG_UNITS[0])
+    (frame,) = [
+        n for n in nodes(doc)
+        if n["type"] == "rectangle"
+        and n.get("meta", {}).get("comment", "").startswith("tile: Cut unit")
+    ]  # fmt: skip
+    assert beside["geometry"]["x"] + beside["geometry"]["width"] <= (
         frame["geometry"]["x"] + frame["geometry"]["width"]
     )
 
@@ -472,3 +550,9 @@ def test_a_strip_annotation_is_a_static_label_whose_text_a_formula_sets(tmp_path
 def test_the_values_line_counts_one_value_in_the_singular() -> None:
     assert layout.not_shown(1, layout._CROWDED) == "1 value not shown: open the card"
     assert layout.not_shown(3, layout._CROWDED) == "3 values not shown: open the card"
+
+
+def test_a_stated_precision_rounds_a_static_number_to_those_decimals() -> None:
+    expression = layout.fixed_expression("{v}", 2).replace("{v}", "(1.23456)")
+    names = {"floor": math.floor, "pow": pow}
+    assert eval(expression, {"__builtins__": {}}, names) == pytest.approx(1.23)
