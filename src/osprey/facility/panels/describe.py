@@ -131,6 +131,7 @@ _NOT_IN = "not placed"
 _NO_THING = "on no device"
 _OTHERS = "{} other things in this place"
 _WITHOUT = "{} without a rule"
+_OWN = "{} itself"
 _DRAWN_RANK = {drawn: rank for rank, drawn in enumerate(DRAWN_AS)}
 _EMPTY: Mapping[str, str] = MappingProxyType({})
 
@@ -1035,7 +1036,9 @@ def health_rollup(
     shows one level. The children with a rule come first, in beam order (a
     device with a true ring position) then name order, by system in name
     order; then one row ``<n> without a rule`` for all the others, which opens
-    the place's card, where they are listed.
+    the place's card, where they are listed. The place's own rule-bearing
+    channels are a child of their own, ``<place> itself``, so a screen whose
+    root is too long for one rule still shows them live.
 
     A root place (one with no parent) has one more child, ``not placed``:
     every device in no place, linked to their own roll-up, whose channels the
@@ -1076,6 +1079,10 @@ def health_rollup(
     if unplaced is not None:
         channels += unplaced.channels
     rest = Target("card", "place", root_id)
+    own = [c.name for c in graph.channels(root_id, "place") if graph.rule(c.name)]
+    if own:  # the place's own channels are no child's: a node of their own
+        label = _OWN.format(root_id)
+        children.insert(0, _node(label, Link(label, rest), own))
     children = _ordered(graph, children, rest, sort=by == "place", tail=unplaced)
     root = _node(root_id, None, channels, tuple(children))
     crumbs = _crumbs(graph, index, place.place, "rollup", by)

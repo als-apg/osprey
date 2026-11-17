@@ -970,3 +970,14 @@ def test_a_system_within_a_place_has_its_own_roll_up_of_its_devices(panel_graph)
     (root,) = _section(view, "roll-up").items
     assert root.label == "Pump" and root.channels == ("XR02-IP1:Pressure-RB",)
     assert [node.label for node in root.children] == ["XR02:IP1", "1 without a rule"]
+
+
+def test_a_places_own_rule_channels_are_a_child_of_its_roll_ups(tmp_path):
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write("XR01:RackTemp-RB,>=40,bad,database-severity,stated,xr-ioc,0a1b2c3,r.db:1\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    for by in ("place", "system"):
+        (root,) = _section(health_rollup(graph, "XR/XR01/RK1", by), "roll-up").items
+        (own,) = [node for node in root.children if node.label == "XR/XR01/RK1 itself"]
+        assert own.channels == ("XR01:RackTemp-RB",)
