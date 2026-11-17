@@ -46,6 +46,7 @@ one), unless :func:`load_graph` is told which.
 from __future__ import annotations
 
 import dataclasses
+import fnmatch
 import hashlib
 import json
 from collections import Counter
@@ -1069,6 +1070,34 @@ class PanelGraph:
             KeyError: No such device.
         """
         return next(iter(self.signal_channels(device_id, signal)), None)
+
+    def picture_channel(self, device_id: str, signal: str) -> str | None:
+        """The channel a ``pictures.csv`` row's *signal* shows on a device: a signal
+        name as :meth:`probe_channel` finds it; a pattern with ``*``, ``?`` or ``[``
+        the first channel name it matches, from the same devices in the same order
+        as :meth:`signal_channels` looks. ``None`` when nothing matches.
+
+        Raises:
+            KeyError: No such device.
+        """
+        if not any(mark in signal for mark in "*?["):
+            return self.probe_channel(device_id, signal)
+        edges = [
+            edge
+            for edge in self.neighbours(device_id, "device").get(READ_OUT_RELATION, ())
+            if edge.outgoing and edge.other_kind == "device"
+        ]
+        ports = [
+            edge.other_port
+            for edge in edges
+            if edge.other_port is not None and ("device", edge.other_port) in self._things
+        ]
+        for level in (ports, [device_id], [edge.other for edge in edges]):
+            for each in level:
+                for channel in self.channels(each, "device"):
+                    if fnmatch.fnmatchcase(channel.name, signal):
+                        return channel.name
+        return None
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""

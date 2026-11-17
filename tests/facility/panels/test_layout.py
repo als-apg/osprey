@@ -1079,7 +1079,9 @@ def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(panel_graph) -> 
                 for q in n["props"]["points"]
             ]
             for n in _by_type(doc, "line")
-            if n["props"]["lineColor"] == symbols.MUTED_TEXT and len(n["props"]["points"]) == 2
+            if n["props"]["lineColor"] == symbols.MUTED_TEXT
+            and len(n["props"]["points"]) == 2
+            and "tooltip" not in n["props"]  # the scale bar's
         ]
         assert len(leaders) == len(names)
         for a, b in [(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1 :]]:
@@ -1092,7 +1094,7 @@ def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(panel_graph) -> 
                 assert not _crossing(*a, *b), (a, b)
 
 
-def test_a_picture_without_an_outline_is_a_list_of_parts_by_kind(panel_graph) -> None:
+def test_a_picture_without_an_outline_draws_its_parts_in_a_frame(panel_graph) -> None:
     parts = [
         ("pole 1", "pole", 5.0, 5.0),
         ("probe", "a-kind-of-the-facility", -5.0, 0.0),
@@ -1100,15 +1102,13 @@ def test_a_picture_without_an_outline_is_a_list_of_parts_by_kind(panel_graph) ->
     ]
     doc, _ = draw(_picture_view(parts), panel_graph)
     texts = _texts(doc)
-    assert "PARTS" in texts and "PICTURE" not in texts
-    assert "outline not in the data" not in texts
-    assert not _by_type(doc, "ellipse") and not _by_type(doc, "line")
+    assert "END VIEW" in texts and "outline not stated" in texts
+    tips = [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")]
+    assert tips == ["pole 1", "probe", "pole 2"]  # each part at its position, plain
     kinds = [t for t in texts if t in ("pole", "a-kind-of-the-facility")]
-    assert kinds == ["pole", "a-kind-of-the-facility"]  # in table order
-    for name in ("pole 1", "pole 2", "probe"):
-        assert name in texts
+    assert kinds == ["pole", "a-kind-of-the-facility"]  # the legend, in table order
     bare = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "no rule"]
-    assert len(bare) == 3  # each chip has its light, in the no-rule look
+    assert not bare  # no chips with unbound lights
 
 
 def test_a_picture_draws_the_outline_the_table_states(panel_graph) -> None:
@@ -1119,7 +1119,7 @@ def test_a_picture_draws_the_outline_the_table_states(panel_graph) -> None:
         ("o3", "outline", 0.0, 9.0),
     ]
     doc, _ = draw(_picture_view([*parts, *corners]), panel_graph)
-    assert "PARTS" not in _texts(doc)
+    assert "outline not stated" not in _texts(doc)
     assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == ["pole 1", "probe"]
     outline = [n for n in _by_type(doc, "line") if len(n["props"]["points"]) == len(corners) + 1]
     assert len(outline) == 1  # the stated points, closed
