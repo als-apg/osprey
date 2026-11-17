@@ -2203,7 +2203,9 @@ html[data-agent-surface="terminal"] #operator-container {
   cursor: default;
 }
 
-.op-input-controls .op-mic-btn:hover:not(:disabled) {
+/* Hover only at rest: holding the icon keeps the pointer over it, and the
+   recording red must win. */
+.op-input-controls .op-mic-btn[data-state='idle']:hover:not(:disabled) {
   color: var(--text-primary);
   border-color: var(--border-accent);
   background: var(--accent-tint-08);
