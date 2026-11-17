@@ -82,7 +82,8 @@ def test_more_columns_than_fit_wrap_to_a_block_with_its_row_heads_again(panel_gr
     view = View(Target("set", "group", "X"), "x", (), (Section("members", (Grid(None, rows),)),))
     doc = stub_render(view, panel_graph)
     texts = _texts(doc)
-    assert len(texts["XR01"]) == 2 and len(texts["NOT PLACED"]) == 2  # once per block
+    assert len(texts["XR01"]) == 2  # once per block it has members in
+    assert len(texts["NOT PLACED"]) == 1  # its two members are all in the first block
     assert len(texts["#1"]) == 1 and len(texts["#14"]) == 1
     assert texts["#14"][0]["geometry"]["y"] > texts["#1"][0]["geometry"]["y"]
     for g in _cells(doc).values():
@@ -144,3 +145,46 @@ def test_rows_of_two_machines_get_two_groups_with_a_gap(panel_graph) -> None:
     heads = sorted(t["geometry"]["y"] for k in ("XR", "NOT PLACED") for t in texts[k])
     rows_y = sorted(t["geometry"]["y"] for t in texts["XR02"])
     assert heads[1] - rows_y[0] > layout.ROW  # a gap between the groups
+
+
+def _wide_set(long: int, short_rows: int) -> View:
+    def cells(prefix: str, n: int) -> tuple[GridCell, ...]:
+        return tuple(
+            GridCell(Link(f"{prefix}:M{i}", Target("card", "device", f"{prefix}:M{i}")), ())
+            for i in range(n)
+        )
+
+    rows = (
+        GridRow(Link("XR/XR01", Target("card", "place", "XR/XR01")), cells("A", long)),
+        *(
+            GridRow(Link("XR/XR02", Target("card", "place", "XR/XR02")), cells(f"B{k}", 2))
+            for k in range(short_rows)
+        ),
+    )
+    return View(Target("set", "group", "X"), "x", (), (Section("members", (Grid(None, rows),)),))
+
+
+def test_a_wrapped_block_is_as_tall_as_the_rows_it_draws(panel_graph) -> None:
+    doc = stub_render(_wide_set(60, 20), panel_graph)
+    cells = _cells(doc)
+    top = min(g["y"] for g in cells.values())
+    texts = [  # headings and column heads; a row head counts only with its cells
+        n for n in nodes(doc)
+        if n["type"] == "text-label" and n["geometry"]["y"] >= top
+        and n["props"]["text"] not in ("XR01", "XR02")
+    ]  # fmt: skip
+    lines = len({n["geometry"]["y"] for n in texts} | {g["y"] for g in cells.values()})
+    blocks = len(_texts(doc)["#1"]) + len([t for t in _texts(doc) if t in ("#9", "#17")])
+    budget = (lines * (layout.ROW + layout.ROW_GAP) + blocks * layout.SET_BLOCK_GAP) * 1.1
+    bottom = max(g["y"] + g["height"] for g in cells.values())
+    assert bottom - top <= budget, (bottom - top, budget)
+    assert any(name.startswith("A:M") and g["y"] > top for name, g in cells.items())  # wraps
+    assert len(_texts(doc)["XR02"]) == 20  # the short rows only in the first block
+
+
+def test_a_set_of_more_members_than_the_most_counts_the_rest(panel_graph) -> None:
+    doc = stub_render(_wide_set(300, 0), panel_graph)
+    drawn = len(_cells(doc))
+    assert layout.SET_MEMBERS <= drawn < layout.SET_MEMBERS + 20
+    (line,) = [t for t in _texts(doc) if str(t).endswith("more members: open by place")]
+    assert line.startswith(f"{300 - drawn} ")

@@ -133,6 +133,8 @@ NAME_WIDTH = 260  # a checkout's first column
 SET_CELL_WIDTH = 112  # one member of a set overview at the least: its value or name, a light
 SET_CELL_MAX = 220  # the widest a cell grows to when the columns are few
 SET_ROW_HEAD = 64  # a set overview's row heads: the place, short
+SET_BLOCK_GAP = 24  # between two blocks of a set overview's columns
+SET_MEMBERS = 200  # a set overview draws blocks until this many cells are drawn
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
 MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 45 px tall
 SYMBOL_UNIT = 20  # one shape unit of a symbol, in px, at scale 1: a bend is 75 px tall
@@ -346,6 +348,7 @@ _SOURCES = "sources"
 _RACK_COUNTS = "{} at a stated unit · {} not at a unit"
 _UNITS_FROM = "{} · {} devices"
 _SET_READBACK = "each cell: readback of {}"
+_SET_MORE = "{} more members: open by place"
 _SET_NAMES = "each cell: the member's short name and its light"
 _NO_CLASS = "no class stated"
 _BY_SYSTEM_TITLE = "by system"
@@ -2025,8 +2028,10 @@ class _Page:
         one light: the deviation light when the pair has one, else the member's.
         It opens the member's card and nothing in it is writable. Few columns
         widen to at most :data:`SET_CELL_MAX`; columns past the page's width go
-        on in a block below, the row heads repeated. At most
-        :data:`MAX_TABLE_ROWS` cells are drawn."""
+        on in a block below, :data:`SET_BLOCK_GAP` under the one before, with
+        only the rows that have members in it. Blocks are drawn while fewer than
+        :data:`SET_MEMBERS` cells are; the members of the rest are counted in a
+        line under them."""
         tags = (_need("table"),)
         count = sum(len(row.cells) for row in grid.rows)
         width = max((len(row.cells) for row in grid.rows), default=0)
@@ -2042,6 +2047,13 @@ class _Page:
         drawn = 0
         left_out = 0
         for first in range(0, width, fit):
+            here = [(t, [r for r in rows if r.cells[first : first + fit]]) for t, rows in groups]
+            here = [(t, rows) for t, rows in here if rows]  # a row with none here is not drawn
+            if drawn >= SET_MEMBERS:
+                left_out += sum(len(r.cells[first : first + fit]) for _t, rs in here for r in rs)
+                continue
+            if first:
+                self.y += SET_BLOCK_GAP - ROW_GAP
             w = text_width(what, SMALL_SIZE)
             self.text(self.set_x(0), self.y, what, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
             self.y += ROW
@@ -2052,7 +2064,7 @@ class _Page:
                 x_head = x + (self.cell_w - w) / 2
                 self.text(x_head, self.y, head, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
             self.y += ROW
-            for title, rows in groups:
+            for title, rows in here:
                 self.y += ROW_GAP
                 self.text(MARGIN, self.y, title.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
                 self.y += ROW
@@ -2064,15 +2076,13 @@ class _Page:
                         self.text(MARGIN, self.y, _cut(short, w, SMALL_SIZE), size=SMALL_SIZE, w=w)
                         self.nav(MARGIN, self.y, w, ROW, row.label)
                     for column, cell in enumerate(cells):
-                        if drawn >= MAX_TABLE_ROWS:
-                            left_out += 1
-                            continue
                         self.grid_cell(self.set_x(column), self.y, cell)
                         drawn += 1
                     self.y += ROW + ROW_GAP
-            self.y += ROW_GAP
         if left_out:
-            self.left_out(left_out)
+            self.y += ROW_GAP
+            self.text(MARGIN, self.y, _SET_MORE.format(left_out), size=SMALL_SIZE, fg=MUTED_TEXT)
+            self.next_row()
 
     def grid_what(self, grid: Grid) -> str:
         """What a set overview's cells show: the readback of the primary pair's signal
