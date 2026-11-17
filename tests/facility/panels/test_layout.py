@@ -897,6 +897,27 @@ def test_a_command_shown_as_a_value_prints_whole_and_its_input_keeps_its_precisi
     assert "precision" not in button["props"]
 
 
+def test_a_paired_state_readback_prints_whole_and_a_two_valued_setpoints_input_too(
+    panel_graph,
+) -> None:
+    # a bo setpoint paired with a bi state readback, as record_types.csv types them
+    row = ValueRow("on", "XR01-PS1:On-Cmd", "XR01-IP1:State-Sts", None, True, drawn_as="setpoint")
+    doc, _ = draw(card("one", row), panel_graph)
+    (field,) = [n for n in nodes(doc) if n["type"] == "pv-text-input"]
+    assert field["props"]["precision"] == 0  # an operator types 0 or 1
+    (label,) = [n for n in nodes(doc) if n["type"] == "pv-label"]
+    assert label["props"]["pv"] == "XR01-IP1:State-Sts"
+    assert label["props"]["precision"] == 0
+    assert not [r for r in label.get("rules", ()) if r["targetProperty"] == "precision"]
+
+
+def test_an_analogue_setpoints_input_keeps_the_channels_own_precision(panel_graph) -> None:
+    row = ValueRow("i", "XR01-QF1:Current-SP", "XR01-QF1:Current-RB", None, True)
+    doc, _ = draw(card("one", row), panel_graph)
+    (field,) = [n for n in nodes(doc) if n["type"] == "pv-text-input"]
+    assert "precision" not in field["props"]
+
+
 @pytest.mark.parametrize("channel", RULED)
 def test_a_lights_screen_formula_gives_the_ladders_state_for_every_value(panel_graph, channel):
     item = light(panel_graph, channel)

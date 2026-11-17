@@ -355,6 +355,7 @@ _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
 _WHOLE_KINDS = frozenset({"state", "command"})  # an enum, a two-valued output: printed whole
+ENUMERATED_OUTPUTS = frozenset({"bo", "mbbo"})  # record types whose setpoint is a whole number
 _PRINTED = _NUMBERS | _WHOLE_KINDS  # the kinds a formula can print: numbers
 _WHOLE = re.compile(r"(?:==|!=)?\s*-?\d+")  # a health rule's value naming one state, or not it
 _TOKEN = re.compile(r"\{(\d+)\}")
@@ -1561,6 +1562,8 @@ class _Page:
         common = {"pv": channel, "fontSize": TEXT_SIZE, "foregroundColor": PAGE_TEXT}
         if widget == "pv-text-input":
             props = {**common, "backgroundColor": FIELD_BACKGROUND, "alarmSensitiveBorder": False}
+            if self.enumerated(channel):  # an operator types 0 or 1, not 1.0000
+                props["precision"] = 0
             self.s.widget(widget, x, y, w, ROW, props)
         elif widget == "pv-button":
             props = {
@@ -1587,6 +1590,8 @@ class _Page:
             }
             rules = []
             w = max(w, self.value_span(channel))  # the unit printed whole
+            if self.own_kind(channel) in _WHOLE_KINDS:  # a readback shown without its row's kind
+                kind = self.own_kind(channel)
             if kind in _PRINTED and self.cuts_unit(channel):
                 expression = self.number_expression(channel, kind)
                 if self.budget.take([(1, frozenset({channel}))]):
@@ -1613,6 +1618,17 @@ class _Page:
             return self.graph.channel(channel).unit
         except KeyError:
             return None
+
+    def own_kind(self, channel: str) -> str | None:
+        """The ``drawn_as`` ``record_types.csv`` states for *channel*, or ``None``."""
+        row = self.graph.record_type(channel)
+        return row.drawn_as if row is not None else None
+
+    def enumerated(self, channel: str) -> bool:
+        """Whether *channel*'s record is a two- or multi-valued output
+        (:data:`ENUMERATED_OUTPUTS`): its value is whole."""
+        row = self.graph.record_type(channel)
+        return row is not None and row.record_type in ENUMERATED_OUTPUTS
 
     def cuts_unit(self, channel: str) -> bool:
         """Whether Channel Access cuts *channel*'s unit: it is longer than
