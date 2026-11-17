@@ -1225,7 +1225,10 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
    * - ``pv_directory.alarm_state``
      - Current alarm state. ``type: phoebus_alarm_server`` reads the alarm
        server's Kafka topic and needs ``settings.bootstrap_servers`` and
-       ``settings.topic``.
+       ``settings.topic``. Where the broker is out of reach and only HTTP
+       crosses the network, ``type: osprey_alarm_relay`` with ``settings.url``
+       reads the same state from a relay run beside the broker
+       (``python -m osprey_connectors.alarm_state.relay``).
    * - ``pv_directory.alarm_state.settings.auth``
      - The login a broker asks for: ``username`` with ``password_env``, sent
        as SASL. ``mechanism`` names how: ``PLAIN`` unless it says

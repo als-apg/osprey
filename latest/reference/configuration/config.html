@@ -1693,7 +1693,10 @@ CSV export. Default <code class="docutils literal notranslate"><span class="pre"
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state</span></code></p></td>
 <td><p>Current alarm state. <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">phoebus_alarm_server</span></code> reads the alarm
 server’s Kafka topic and needs <code class="docutils literal notranslate"><span class="pre">settings.bootstrap_servers</span></code> and
-<code class="docutils literal notranslate"><span class="pre">settings.topic</span></code>.</p></td>
+<code class="docutils literal notranslate"><span class="pre">settings.topic</span></code>. Where the broker is out of reach and only HTTP
+crosses the network, <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">osprey_alarm_relay</span></code> with <code class="docutils literal notranslate"><span class="pre">settings.url</span></code>
+reads the same state from a relay run beside the broker
+(<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey_connectors.alarm_state.relay</span></code>).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state.settings.auth</span></code></p></td>
 <td><p>The login a broker asks for: <code class="docutils literal notranslate"><span class="pre">username</span></code> with <code class="docutils literal notranslate"><span class="pre">password_env</span></code>, sent
