@@ -77,9 +77,13 @@ ALL_ON = tuple(CONTROL_TARGETS)
 
 
 def _mirror() -> dict[str, str]:
-    """The record's ``posture`` mirror as the record reader parses it; ``{}`` for no record."""
-    record = control_context.read_record()
-    return {} if record is None else record.posture
+    """The record's stored ``posture`` mirror, read by its grammar; ``{}`` for no record."""
+    path = control_context.record_path()
+    if path is None or not path.is_file():
+        return {}
+    return posture_store._parse_posture_value(
+        json.loads(path.read_text(encoding="utf-8")).get("posture")
+    )
 
 
 # --- path resolution -------------------------------------------------------
@@ -162,56 +166,56 @@ def test_the_retired_store_file_is_gone(data_root):
     record = control_context.read_record()
     assert record is not None
     assert record.switch == {"live": "asked"}
-    assert "live" not in record.posture
+    assert "live" not in _mirror()
 
 
-# --- parse_posture_value: the entry grammar ----------------------------------------
+# --- _parse_posture_value: the mirror's grammar ----------------------------------
 #
-# The record carries ONE posture value of this grammar and applies this filter
-# to it (``control_context.parse_record``). What survives it decides whether a
-# real machine is written to.
+# The record carries ONE posture value of this grammar, the mirror of its switch.
+# Nothing in the package reads it; the stdlib hook twin does, and its reader is
+# held to this grammar.
 
 
 def test_bare_sandbox_expands_to_every_target():
-    assert posture_store.parse_posture_value("sandbox") == dict.fromkeys(CONTROL_TARGETS, "sandbox")
+    assert posture_store._parse_posture_value("sandbox") == dict.fromkeys(
+        CONTROL_TARGETS, "sandbox"
+    )
 
 
 def test_bare_writes_is_dropped():
-    assert posture_store.parse_posture_value("writes") == {}
+    assert posture_store._parse_posture_value("writes") == {}
 
 
 def test_unknown_values_are_dropped():
-    assert posture_store.parse_posture_value("readonly") == {}
-    assert posture_store.parse_posture_value(7) == {}
-    assert posture_store.parse_posture_value(None) == {}
+    assert posture_store._parse_posture_value("readonly") == {}
+    assert posture_store._parse_posture_value(7) == {}
+    assert posture_store._parse_posture_value(None) == {}
 
 
 def test_per_target_values_are_validated_the_same_way():
-    parsed = posture_store.parse_posture_value(
+    parsed = posture_store._parse_posture_value(
         {"live": "sandbox", "va": "writes", "standin": "nonsense", 7: "sandbox"}
     )
     assert parsed == {"live": "sandbox"}
 
 
 def test_a_map_that_narrows_nothing_is_dropped():
-    assert posture_store.parse_posture_value({"live": "writes"}) == {}
-    assert posture_store.parse_posture_value({}) == {}
+    assert posture_store._parse_posture_value({"live": "writes"}) == {}
+    assert posture_store._parse_posture_value({}) == {}
 
 
 def test_a_shape_the_grammar_does_not_know_is_tolerated():
-    assert posture_store.parse_posture_value([1, 2, 3]) == {}
-    assert posture_store.parse_posture_value({7: "sandbox"}) == {}
+    assert posture_store._parse_posture_value([1, 2, 3]) == {}
+    assert posture_store._parse_posture_value({7: "sandbox"}) == {}
 
 
-def test_the_record_applies_this_very_filter(data_root):
-    """One grammar, one implementation: the record's field is filtered here."""
+def test_the_record_reader_does_not_read_the_mirror(data_root):
+    """Whatever the field holds, the record is the same: the switch decides every write."""
     _write_record(data_root, {"live": "sandbox", "va": "writes", "nonsense": "sandbox"})
-    record = control_context.read_record()
-    assert record is not None
-    assert record.posture == {"live": "sandbox", "nonsense": "sandbox"}
-    assert record.posture == posture_store.parse_posture_value(
-        {"live": "sandbox", "va": "writes", "nonsense": "sandbox"}
-    )
+    narrowed = control_context.read_record()
+    _write_record(data_root, "writes")
+    widened = control_context.read_record()
+    assert narrowed is not None and narrowed == widened
 
 
 # --- cache -----------------------------------------------------------------

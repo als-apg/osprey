@@ -614,35 +614,12 @@ async def _refuse_switch_in_progress(
     )
 
 
-def _terminus(
-    record: control_context.ControlContext,
-    *,
-    request_id: str,
-    wanted: str,
-    requested_at: datetime,
-    status: str,
-    reason: str | None,
-    detail: str,
-    generation: int | None,
-) -> control_context.ControlContext:
-    """The record as it will be once this request has been answered.
+def _requested_by() -> str:
+    """Who asked, in this server's own answer to its own agent.
 
-    The block itself is
-    :func:`~osprey_connectors.control_context.terminus`; what this server adds
-    is who asked. It is answering its own agent, so the requester is this
-    session — or this process, for a run that reports no session.
+    This session — or this process, for a run that reports no session.
     """
-    return control_context.terminus(
-        record,
-        request_id=request_id,
-        target=wanted,
-        requested_at=requested_at,
-        requested_by=posture_session() or f"pid:{os.getpid()}",
-        status=status,
-        reason=reason,
-        detail=detail,
-        generation=generation,
-    )
+    return posture_session() or f"pid:{os.getpid()}"
 
 
 async def _record_write_failed(from_target: str, wanted: str) -> NoReturn:
@@ -680,19 +657,15 @@ async def _apply_here(
     verdict = _gate(context, record, wanted, reports)
 
     if not verdict.allowed:
-        control_context.write_terminus(
-            _terminus(
-                record,
-                request_id=request_id,
-                wanted=wanted,
-                requested_at=requested_at,
-                status=control_context.SWITCH_REFUSED,
-                reason=str(verdict.reason or ""),
-                detail=verdict.detail,
-                generation=None,
-            ),
-            request_id,
+        refused = control_context.SwitchTerminus.refused(
+            request_id=request_id,
+            target=wanted,
+            reason=str(verdict.reason or ""),
+            detail=verdict.detail,
+            requested_at=requested_at,
+            requested_by=_requested_by(),
         )
+        control_context.write_terminus(record.answered(refused), request_id)
         return await _refuse(
             from_target=record.target,
             to_target=wanted,
@@ -702,19 +675,14 @@ async def _apply_here(
         )
 
     generation = record.generation + 1
-    if not control_context.write_terminus(
-        _terminus(
-            record,
-            request_id=request_id,
-            wanted=wanted,
-            requested_at=requested_at,
-            status=control_context.SWITCH_APPLIED,
-            reason=None,
-            detail=control_context.applied_detail(wanted, generation),
-            generation=generation,
-        ),
-        request_id,
-    ):
+    applied = control_context.SwitchTerminus.applied(
+        request_id=request_id,
+        target=wanted,
+        generation=generation,
+        requested_at=requested_at,
+        requested_by=_requested_by(),
+    )
+    if control_context.write_terminus(record.answered(applied), request_id) != "stuck":
         return await _record_write_failed(record.target, wanted)
 
     return await _await_the_swap(context, wanted, generation, previous_target=record.target)
@@ -831,7 +799,7 @@ async def _poll_for_the_terminus(
         return answer
 
     target_state.remove_request()
-    owner_pid = record.owner.pid if record.owner is not None else None
+    owner_pid = record.writer.pid if record.writer is not None else None
     named = "no process" if owner_pid is None else f"pid {owner_pid}"
     return await _refuse(
         from_target=record.target,
@@ -867,18 +835,16 @@ async def _answered(
     of its own, because the owner that wrote the terminus already emitted one
     and two lines for one gesture read as two gestures.
     """
-    last_switch = record.last_switch or {}
-    if last_switch.get("request_id") != request_id:
+    last_switch = record.last_switch
+    if last_switch is None or last_switch.request_id != request_id:
         return None
 
-    status = str(last_switch.get("status") or "")
-    if status == control_context.SWITCH_REFUSED:
-        reason = str(last_switch.get("reason") or "")
-        detail = str(last_switch.get("detail") or "")
+    if last_switch.status == control_context.SWITCH_REFUSED:
+        reason = last_switch.reason or ""
         return await _refuse(
             from_target=record.target,
             to_target=wanted,
-            message=detail or f"the switch to {wanted!r} was refused.",
+            message=last_switch.detail or f"the switch to {wanted!r} was refused.",
             suggestions=[
                 "Ask for the target roster to see what each target would need to become usable."
             ],
@@ -886,8 +852,8 @@ async def _answered(
             notify=False,
         )
 
-    generation = last_switch.get("generation")
-    if not isinstance(generation, int):
+    generation = last_switch.generation
+    if generation is None:
         generation = record.generation
     return await _await_the_swap(
         context,
@@ -898,21 +864,21 @@ async def _answered(
     )
 
 
-def _report_block(generation: int) -> dict[str, Any]:
+def _report_block(generation: int) -> control_context.SwitchProgress | None:
     """This server's own progress through the generation it is reaching for.
 
-    ``{}`` for a report that says nothing about this generation: a block for an
-    older one is not evidence about this swap, and a reader that treated it as
-    one would report the previous switch's outcome for this one.
+    ``None`` for a report that says nothing about this generation: a block for
+    an older one is not evidence about this swap, and a reader that treated it
+    as one would report the previous switch's outcome for this one.
     """
     try:
         report = control_context.read_report(target_state.report_file_path())
     except Exception:
         logger.debug("Could not read this server's report", exc_info=True)
-        return {}
-    block = getattr(report, "last_switch", None)
-    if not isinstance(block, dict) or block.get("generation") != generation:
-        return {}
+        return None
+    block = None if report is None else report.switch_progress
+    if block is None or block.generation != generation:
+        return None
     return block
 
 
@@ -941,7 +907,7 @@ async def _await_the_swap(
     deadline = time.monotonic() + hosts.applying_bound_s()
     while True:
         block = _report_block(generation)
-        status = str(block.get("status") or "")
+        status = None if block is None else block.status
         if status == target_state.SWITCH_APPLIED:
             break
         if status == target_state.SWITCH_FAILED:
@@ -977,7 +943,7 @@ async def _swap_failed(
     previous_target: str,
     wanted: str,
     generation: int,
-    block: dict[str, Any],
+    block: control_context.SwitchProgress | None,
     *,
     incomplete: bool = False,
 ) -> NoReturn:
@@ -988,8 +954,8 @@ async def _swap_failed(
     The record is left exactly as it is — the login's target of record is
     not this server's to revoke, and the next reconcile tick tries again.
     """
-    reason = str(block.get("reason") or "") or REASON_SWAP_INCOMPLETE
-    detail = str(block.get("detail") or "")
+    reason = (None if block is None else block.reason) or REASON_SWAP_INCOMPLETE
+    detail = (None if block is None else block.detail) or ""
     if incomplete or not detail:
         detail = (
             f"the swap did not complete: this server has not reached target {wanted!r} "
@@ -1145,6 +1111,6 @@ async def _switch(wanted: str) -> str:
         return _already_there(record, context.connector_hosts)
 
     reports = control_context.live_reports()
-    if control_context.owned_here(record):
+    if control_context.written_here(record):
         return await _apply_here(context, record, wanted, reports)
     return await _request_and_wait(context, record, wanted, reports)

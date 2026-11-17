@@ -908,9 +908,9 @@ class TestLastSwitchAndRealign:
                 last_switch={
                     "request_id": "req-1",
                     "target": "live",
+                    "requested_at": stamp(age_s=12),
                     "status": "applied",
                     "generation": 4,
-                    "at": stamp(age_s=12),
                 },
             )
             payload = get_posture(client)
@@ -921,8 +921,8 @@ class TestLastSwitchAndRealign:
     def test_a_terminus_stamped_only_by_its_request_is_aged_from_it(
         self, make_client, agent_data_root
     ):
-        # control_context.terminus copies the request's `requested_at` and
-        # writes no `at`. Unaged, the popover kept the outcome up for good.
+        # A terminus carries the request's `requested_at` and no `at`.
+        # Unaged, the popover kept the outcome up for good.
         with make_client() as client:
             write_control_context(
                 agent_data_root,
@@ -1509,3 +1509,123 @@ class TestNoSessionScope:
 
 async def _noop_cleanup() -> None:
     """The lifespan's shutdown calls this on whatever registry it finds."""
+
+
+# -- the served bytes of the switch blocks ------------------------------------
+
+#: The record's terminus and two servers' progress, each as its writer stores it.
+_SERVED_TERMINUS = {
+    "request_id": "req-9",
+    "target": "live",
+    "requested_at": "2026-01-01T00:00:15.125000+00:00",
+    "requested_by": "sess-1",
+    "status": "applied",
+    "reason": None,
+    "detail": "The control target is now 'live' (generation 4).",
+    "generation": 4,
+}
+_SERVED_APPLYING = {
+    "generation": 4,
+    "status": "applying",
+    "at": "2026-01-01T00:00:05.000250+00:00",
+    "expires_at": "2026-01-01T00:00:35.000250+00:00",
+}
+_SERVED_FAILED = {
+    "generation": 4,
+    "status": "failed",
+    "reason": "spawn_failed",
+    "detail": "The child did not answer.",
+    "at": "2026-01-01T00:00:06+00:00",
+}
+
+#: What ``GET /api/terminal/posture`` served for them before the blocks were
+#: typed, captured byte for byte with every age fixed at 1.5 s.
+_SERVED_BYTES = """{
+  "last_switch": {
+    "request_id": "req-9",
+    "target": "live",
+    "requested_at": "2026-01-01T00:00:15.125000+00:00",
+    "requested_by": "sess-1",
+    "status": "applied",
+    "reason": null,
+    "detail": "The control target is now 'live' (generation 4).",
+    "generation": 4,
+    "age_s": 1.5
+  },
+  "servers": [
+    {
+      "pid": 5150,
+      "session": "s-1",
+      "applied_target": "live",
+      "applied_generation": 3,
+      "children": [
+        11
+      ],
+      "last_switch": {
+        "generation": 4,
+        "status": "applying",
+        "at": "2026-01-01T00:00:05.000250+00:00",
+        "expires_at": "2026-01-01T00:00:35.000250+00:00",
+        "age_s": 1.5
+      },
+      "last_posture_realign": {
+        "state": "done",
+        "at": "2026-01-01T00:00:05+00:00"
+      },
+      "updated_at": "2026-01-01T00:00:07+00:00"
+    },
+    {
+      "pid": 5151,
+      "session": "s-2",
+      "applied_target": "va",
+      "applied_generation": 4,
+      "children": [],
+      "last_switch": {
+        "generation": 4,
+        "status": "failed",
+        "reason": "spawn_failed",
+        "detail": "The child did not answer.",
+        "at": "2026-01-01T00:00:06+00:00",
+        "age_s": 1.5
+      },
+      "last_posture_realign": null,
+      "updated_at": "2026-01-01T00:00:08+00:00"
+    }
+  ]
+}"""
+
+
+def test_the_served_switch_blocks_keep_their_bytes(make_client, agent_data_root, monkeypatch):
+    """The chip and the popover read these keys: typing the blocks moves none of them."""
+    from osprey.interfaces.web_terminal.routes import websocket
+
+    monkeypatch.setattr(websocket, "_age_seconds", lambda stamp: None if not stamp else 1.5)
+    with make_client() as client:
+        write_control_context(
+            agent_data_root, target="live", generation=4, last_switch=_SERVED_TERMINUS
+        )
+        write_server_report(
+            agent_data_root,
+            SERVER_A,
+            session="s-1",
+            applied_target="live",
+            applied_generation=3,
+            children=[11],
+            last_switch=_SERVED_APPLYING,
+            last_posture_realign={"state": "done", "at": "2026-01-01T00:00:05+00:00"},
+            updated_at="2026-01-01T00:00:07+00:00",
+        )
+        write_server_report(
+            agent_data_root,
+            SERVER_B,
+            session="s-2",
+            applied_target="va",
+            applied_generation=4,
+            last_switch=_SERVED_FAILED,
+            updated_at="2026-01-01T00:00:08+00:00",
+        )
+        with only_alive(SERVER_A, SERVER_B):
+            payload = get_posture(client)
+    served = {"last_switch": payload["last_switch"], "servers": payload["servers"]}
+    assert json.dumps(served, indent=2) == _SERVED_BYTES
+    assert set(payload["owner"]) == {"kind", "pid", "port", "self"}

@@ -32,7 +32,16 @@ from pydantic import BaseModel
 
 from osprey_connectors import control_context, session_hold
 from osprey_connectors import write_authorization as wa
-from osprey_connectors.control_context import ControlContext, Owner, ServerReport
+from osprey_connectors.control_context import (
+    ControlContext,
+    MachineStatement,
+    Reachable,
+    RecordWriter,
+    ServerReport,
+    SwitchProgress,
+    SwitchTerminus,
+    WritesStatement,
+)
 from osprey_connectors.model import evolve, parse_instant
 from osprey_connectors.write_authorization import (
     Approver,
@@ -55,15 +64,17 @@ T0 = datetime(2026, 1, 1, tzinfo=UTC)
 CONTEXT_FULL = ControlContext(
     target="live",
     generation=3,
-    owner=Owner(kind="web_terminal", pid=1234, port=8087),
-    # Read off disk and never stored: the writer derives the field from ``switch``.
-    posture={"live": "sandbox", "extra": "writes"},
-    last_switch={
-        "request_id": "r-1",
-        "terminus": "applied",
-        "target": "live",
-        "nested": {"a": [1, 2]},
-    },
+    writer=RecordWriter(kind="web_terminal", pid=1234, port=8087),
+    last_switch=SwitchTerminus(
+        request_id="r-1",
+        target="live",
+        requested_at=None,
+        requested_by="sess-1",
+        status="applied",
+        reason=None,
+        detail="The control target is now 'live' (generation 3).",
+        generation=3,
+    ),
     switch={"standin": "asked", "live": "allowed"},
     switch_epoch=1700000000000000001,
 )
@@ -75,25 +86,139 @@ REPORT_DISPLAY = ServerReport(
     applied_generation=7,
     children=(11, 12),
     reachability={"va": {"state": "ok", "at": "2026-01-01T00:00:00+00:00"}},
-    last_switch={"state": "applying", "expires_at": "2026-01-01T00:01:00+00:00"},
+    switch_progress=SwitchProgress.applying(7, at=T0, expires_at=T0 + timedelta(minutes=1)),
     last_posture_realign={"at": "x", "posture": {"va": "sandbox"}},
     targets={"va": {"label": "VA", "kind": "simulator"}},
     updated_at=T0 + timedelta(microseconds=500_000),
-    statement={"reachable": {"state": "yes", "since": "t", "reason": None}, "writes": None},
+    statement=MachineStatement(
+        reachable=Reachable(state="yes", since=T0 + timedelta(microseconds=250_000)),
+        writes=None,
+    ),
 )
 REPORT_SERVER = ServerReport(server_pid=99)
 #: A switch answer: the request's own stamp, given in another zone, is stored in UTC.
-CONTEXT_TERMINUS = control_context.terminus(
-    CONTEXT_BARE,
-    request_id="r-2",
-    target="live",
-    requested_at=datetime(2026, 1, 1, 9, 30, 15, 125_000, tzinfo=timezone(timedelta(hours=9.5))),
-    requested_by="pid:4242",
-    status=control_context.SWITCH_APPLIED,
-    reason=None,
-    detail="",
-    generation=1,
+CONTEXT_TERMINUS = CONTEXT_BARE.answered(
+    SwitchTerminus(
+        request_id="r-2",
+        target="live",
+        requested_at=datetime(
+            2026, 1, 1, 9, 30, 15, 125_000, tzinfo=timezone(timedelta(hours=9.5))
+        ),
+        requested_by="pid:4242",
+        status="applied",
+        reason=None,
+        detail="",
+        generation=1,
+    )
 )
+
+#: The record the three answers to a switch request store, each built through
+#: its constructor. Their bytes were captured from the writer before the block
+#: was typed, when the nine-keyword ``terminus`` built it.
+_ANSWERING = ControlContext(
+    target="va",
+    generation=2,
+    writer=RecordWriter(kind="web_terminal", pid=1234, port=8087),
+    switch={"standin": "asked", "live": "allowed"},
+    switch_epoch=1700000000000000001,
+)
+_SERVER_WRITTEN = ControlContext(
+    target="live", generation=5, writer=RecordWriter(kind="controls_server", pid=77)
+)
+CONTEXT_ANSWERS = {
+    "context_applied": _ANSWERING.answered(
+        SwitchTerminus.applied(
+            request_id="r-applied",
+            target="live",
+            generation=3,
+            requested_at=datetime(
+                2026, 1, 1, 9, 30, 15, 125_000, tzinfo=timezone(timedelta(hours=9.5))
+            ),
+            requested_by="sess-1",
+        )
+    ),
+    "context_unchanged": _ANSWERING.answered(
+        SwitchTerminus.unchanged(
+            request_id="r-unchanged",
+            target="va",
+            generation=2,
+            requested_at=T0,
+            requested_by="pid:4242",
+        )
+    ),
+    "context_refused": _SERVER_WRITTEN.answered(
+        SwitchTerminus.refused(
+            request_id="r-refused",
+            target="standin",
+            reason="target_unconfigured",
+            detail="The stand-in is not configured.",
+            requested_at=None,
+            requested_by="pid:9",
+        )
+    ),
+    "context_refused_blank_reason": _SERVER_WRITTEN.answered(
+        SwitchTerminus.refused(
+            request_id="r-blank",
+            target="va",
+            reason="",
+            detail="",
+            requested_at=T0 + timedelta(seconds=1),
+            requested_by="pid:9",
+        )
+    ),
+}
+
+#: A controls server's report at each step of a switch, and a display
+#: process's at each machine statement. Captured from the writers before the
+#: blocks were typed, when they were the publishers' own dicts.
+_AT = T0 + timedelta(seconds=5, microseconds=250)
+_PROGRESS = {
+    "applying": SwitchProgress.applying(3, at=_AT, expires_at=_AT + timedelta(seconds=30)),
+    "applying_unbounded": SwitchProgress.applying(3, at=_AT, expires_at=None),
+    "applied": SwitchProgress.applied(3, at=_AT),
+    "failed": SwitchProgress.failed(
+        3, reason="spawn_failed", detail="The child did not answer.", at=_AT
+    ),
+    "failed_bare": SwitchProgress.failed(4, reason=None, detail=None, at=_AT),
+}
+REPORTS = {
+    f"report_{name}": ServerReport(
+        server_pid=4321,
+        session="s-1",
+        applied_target="va",
+        applied_generation=3,
+        children=(11,),
+        reachability={
+            "published_at": _AT.isoformat(),
+            "targets": {"va": {"epics": {"state": "reached"}}},
+        },
+        switch_progress=progress,
+        last_posture_realign={"state": "done", "at": _AT.isoformat()},
+        targets={"va": {"label": "VA", "endpoint": "e", "real_machine": False}},
+        updated_at=T0 + timedelta(seconds=6),
+    )
+    for name, progress in _PROGRESS.items()
+}
+for _name, _writes, _reach in (
+    (
+        "display_allowed",
+        WritesStatement(allowed=True, position="asked", reason=None, kind="real"),
+        Reachable(state="yes"),
+    ),
+    (
+        "display_refused",
+        WritesStatement(allowed=False, position=None, reason="switch_off", kind="rehearsal"),
+        Reachable(state="no", since=T0 + timedelta(seconds=7, microseconds=1)),
+    ),
+    ("display_unstated", None, None),
+):
+    REPORTS[f"report_{_name}"] = ServerReport(
+        server_pid=4322,
+        applied_target="live",
+        applied_generation=1,
+        updated_at=T0 + timedelta(seconds=8),
+        statement=MachineStatement(reachable=_reach, writes=_writes),
+    )
 GRANT = Grant(
     id=ID,
     owner="alice",
@@ -156,14 +281,13 @@ STATE_DIRECTORY_FILES: dict[str, tuple[BaseModel, bytes]] = {
   },
   "last_switch": {
     "request_id": "r-1",
-    "terminus": "applied",
     "target": "live",
-    "nested": {
-      "a": [
-        1,
-        2
-      ]
-    }
+    "requested_at": null,
+    "requested_by": "sess-1",
+    "status": "applied",
+    "reason": null,
+    "detail": "The control target is now 'live' (generation 3).",
+    "generation": 3
   },
   "switch": {
     "standin": "asked",
@@ -207,7 +331,9 @@ STATE_DIRECTORY_FILES: dict[str, tuple[BaseModel, bytes]] = {
     }
   },
   "last_switch": {
-    "state": "applying",
+    "generation": 7,
+    "status": "applying",
+    "at": "2026-01-01T00:00:00+00:00",
     "expires_at": "2026-01-01T00:01:00+00:00"
   },
   "last_posture_realign": {
@@ -226,7 +352,7 @@ STATE_DIRECTORY_FILES: dict[str, tuple[BaseModel, bytes]] = {
   "statement": {
     "reachable": {
       "state": "yes",
-      "since": "t",
+      "since": "2026-01-01T00:00:00.250000+00:00",
       "reason": null
     },
     "writes": null
@@ -272,6 +398,403 @@ STATE_DIRECTORY_FILES: dict[str, tuple[BaseModel, bytes]] = {
   },
   "switch": {},
   "switch_epoch": null
+}""",
+    ),
+    "context_applied": (
+        CONTEXT_ANSWERS["context_applied"],
+        b"""{
+  "schema": 1,
+  "owner": {
+    "kind": "web_terminal",
+    "pid": 1234,
+    "port": 8087
+  },
+  "target": "live",
+  "generation": 3,
+  "posture": {
+    "va": "sandbox"
+  },
+  "last_switch": {
+    "request_id": "r-applied",
+    "target": "live",
+    "requested_at": "2026-01-01T00:00:15.125000+00:00",
+    "requested_by": "sess-1",
+    "status": "applied",
+    "reason": null,
+    "detail": "The control target is now 'live' (generation 3).",
+    "generation": 3
+  },
+  "switch": {
+    "standin": "asked",
+    "live": "allowed"
+  },
+  "switch_epoch": 1700000000000000001
+}""",
+    ),
+    "context_unchanged": (
+        CONTEXT_ANSWERS["context_unchanged"],
+        b"""{
+  "schema": 1,
+  "owner": {
+    "kind": "web_terminal",
+    "pid": 1234,
+    "port": 8087
+  },
+  "target": "va",
+  "generation": 2,
+  "posture": {
+    "va": "sandbox"
+  },
+  "last_switch": {
+    "request_id": "r-unchanged",
+    "target": "va",
+    "requested_at": "2026-01-01T00:00:00+00:00",
+    "requested_by": "pid:4242",
+    "status": "applied",
+    "reason": null,
+    "detail": "The control target is already 'va' (generation 2).",
+    "generation": 2
+  },
+  "switch": {
+    "standin": "asked",
+    "live": "allowed"
+  },
+  "switch_epoch": 1700000000000000001
+}""",
+    ),
+    "context_refused": (
+        CONTEXT_ANSWERS["context_refused"],
+        b"""{
+  "schema": 1,
+  "owner": {
+    "kind": "controls_server",
+    "pid": 77,
+    "port": null
+  },
+  "target": "live",
+  "generation": 5,
+  "posture": {
+    "live": "sandbox",
+    "va": "sandbox",
+    "standin": "sandbox"
+  },
+  "last_switch": {
+    "request_id": "r-refused",
+    "target": "standin",
+    "requested_at": null,
+    "requested_by": "pid:9",
+    "status": "refused",
+    "reason": "target_unconfigured",
+    "detail": "The stand-in is not configured.",
+    "generation": null
+  },
+  "switch": {},
+  "switch_epoch": null
+}""",
+    ),
+    "context_refused_blank_reason": (
+        CONTEXT_ANSWERS["context_refused_blank_reason"],
+        b"""{
+  "schema": 1,
+  "owner": {
+    "kind": "controls_server",
+    "pid": 77,
+    "port": null
+  },
+  "target": "live",
+  "generation": 5,
+  "posture": {
+    "live": "sandbox",
+    "va": "sandbox",
+    "standin": "sandbox"
+  },
+  "last_switch": {
+    "request_id": "r-blank",
+    "target": "va",
+    "requested_at": "2026-01-01T00:00:01+00:00",
+    "requested_by": "pid:9",
+    "status": "refused",
+    "reason": "",
+    "detail": "",
+    "generation": null
+  },
+  "switch": {},
+  "switch_epoch": null
+}""",
+    ),
+    "report_applying": (
+        REPORTS["report_applying"],
+        b"""{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    11
+  ],
+  "reachability": {
+    "published_at": "2026-01-01T00:00:05.000250+00:00",
+    "targets": {
+      "va": {
+        "epics": {
+          "state": "reached"
+        }
+      }
+    }
+  },
+  "last_switch": {
+    "generation": 3,
+    "status": "applying",
+    "at": "2026-01-01T00:00:05.000250+00:00",
+    "expires_at": "2026-01-01T00:00:35.000250+00:00"
+  },
+  "last_posture_realign": {
+    "state": "done",
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "targets": {
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:06+00:00"
+}""",
+    ),
+    "report_applying_unbounded": (
+        REPORTS["report_applying_unbounded"],
+        b"""{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    11
+  ],
+  "reachability": {
+    "published_at": "2026-01-01T00:00:05.000250+00:00",
+    "targets": {
+      "va": {
+        "epics": {
+          "state": "reached"
+        }
+      }
+    }
+  },
+  "last_switch": {
+    "generation": 3,
+    "status": "applying",
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "last_posture_realign": {
+    "state": "done",
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "targets": {
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:06+00:00"
+}""",
+    ),
+    "report_applied": (
+        REPORTS["report_applied"],
+        b"""{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    11
+  ],
+  "reachability": {
+    "published_at": "2026-01-01T00:00:05.000250+00:00",
+    "targets": {
+      "va": {
+        "epics": {
+          "state": "reached"
+        }
+      }
+    }
+  },
+  "last_switch": {
+    "generation": 3,
+    "status": "applied",
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "last_posture_realign": {
+    "state": "done",
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "targets": {
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:06+00:00"
+}""",
+    ),
+    "report_failed": (
+        REPORTS["report_failed"],
+        b"""{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    11
+  ],
+  "reachability": {
+    "published_at": "2026-01-01T00:00:05.000250+00:00",
+    "targets": {
+      "va": {
+        "epics": {
+          "state": "reached"
+        }
+      }
+    }
+  },
+  "last_switch": {
+    "generation": 3,
+    "status": "failed",
+    "reason": "spawn_failed",
+    "detail": "The child did not answer.",
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "last_posture_realign": {
+    "state": "done",
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "targets": {
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:06+00:00"
+}""",
+    ),
+    "report_failed_bare": (
+        REPORTS["report_failed_bare"],
+        b"""{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    11
+  ],
+  "reachability": {
+    "published_at": "2026-01-01T00:00:05.000250+00:00",
+    "targets": {
+      "va": {
+        "epics": {
+          "state": "reached"
+        }
+      }
+    }
+  },
+  "last_switch": {
+    "generation": 4,
+    "status": "failed",
+    "reason": null,
+    "detail": null,
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "last_posture_realign": {
+    "state": "done",
+    "at": "2026-01-01T00:00:05.000250+00:00"
+  },
+  "targets": {
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:06+00:00"
+}""",
+    ),
+    "report_display_allowed": (
+        REPORTS["report_display_allowed"],
+        b"""{
+  "server_pid": 4322,
+  "session": null,
+  "applied_target": "live",
+  "applied_generation": 1,
+  "children": [],
+  "reachability": {},
+  "last_switch": null,
+  "last_posture_realign": null,
+  "targets": {},
+  "updated_at": "2026-01-01T00:00:08+00:00",
+  "statement": {
+    "reachable": {
+      "state": "yes",
+      "since": null,
+      "reason": null
+    },
+    "writes": {
+      "allowed": true,
+      "position": "asked",
+      "reason": null,
+      "kind": "real"
+    }
+  }
+}""",
+    ),
+    "report_display_refused": (
+        REPORTS["report_display_refused"],
+        b"""{
+  "server_pid": 4322,
+  "session": null,
+  "applied_target": "live",
+  "applied_generation": 1,
+  "children": [],
+  "reachability": {},
+  "last_switch": null,
+  "last_posture_realign": null,
+  "targets": {},
+  "updated_at": "2026-01-01T00:00:08+00:00",
+  "statement": {
+    "reachable": {
+      "state": "no",
+      "since": "2026-01-01T00:00:07.000001+00:00",
+      "reason": null
+    },
+    "writes": {
+      "allowed": false,
+      "position": null,
+      "reason": "switch_off",
+      "kind": "rehearsal"
+    }
+  }
+}""",
+    ),
+    "report_display_unstated": (
+        REPORTS["report_display_unstated"],
+        b"""{
+  "server_pid": 4322,
+  "session": null,
+  "applied_target": "live",
+  "applied_generation": 1,
+  "children": [],
+  "reachability": {},
+  "last_switch": null,
+  "last_posture_realign": null,
+  "targets": {},
+  "updated_at": "2026-01-01T00:00:08+00:00",
+  "statement": {
+    "reachable": null,
+    "writes": null
+  }
 }""",
     ),
 }
@@ -476,21 +999,21 @@ def test_an_authorization_file_is_stored_as_before(name: str, tmp_path: Path) ->
 def test_the_stored_record_and_report_read_back_as_written() -> None:
     record = control_context.parse_record(STATE_DIRECTORY_FILES["context_full"][1])
     assert record is not None
-    assert (record.owner, record.switch, record.last_switch) == (
-        CONTEXT_FULL.owner,
+    assert (record.writer, record.switch, record.last_switch) == (
+        CONTEXT_FULL.writer,
         CONTEXT_FULL.switch,
         CONTEXT_FULL.last_switch,
     )
-    assert record.posture == {"va": "sandbox"}
     answered = control_context.parse_record(STATE_DIRECTORY_FILES["context_terminus"][1])
     assert answered is not None
     assert answered.last_switch == CONTEXT_TERMINUS.last_switch
-    stamp = answered.last_switch["requested_at"]
-    assert isinstance(stamp, str)
-    assert parse_instant(stamp) == datetime(2026, 1, 1, 0, 0, 15, 125_000, tzinfo=UTC)
-    for name in ("report_display", "report_server"):
-        report, stored = STATE_DIRECTORY_FILES[name]
-        assert control_context._parse_report(json.loads(stored)) == report
+    assert answered.last_switch is not None
+    assert answered.last_switch.requested_at == datetime(2026, 1, 1, 0, 0, 15, 125_000, tzinfo=UTC)
+    for name, (model, stored) in STATE_DIRECTORY_FILES.items():
+        if name.startswith("context_"):
+            assert control_context.parse_record(stored) == model, name
+        else:
+            assert control_context._parse_report(json.loads(stored)) == model, name
 
 
 @pytest.mark.parametrize(

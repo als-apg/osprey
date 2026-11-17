@@ -664,8 +664,8 @@ class ControlSession:
     def writes(self) -> dict[str, Any]:
         """What this session's writes are, on the execution verdict's own terms. Reads no file.
 
-        :func:`~osprey_connectors.control_context.write_statement` of the cached
-        verdict: ``{allowed, position, reason, kind}``. ``position`` says whether
+        :class:`~osprey_connectors.control_context.WritesStatement` of the cached
+        verdict, as JSON: ``{allowed, position, reason, kind}``. ``position`` says whether
         a person is asked before a write (``asked``) or not (``allowed``);
         ``reason`` names the refusal when there is one, ``session_held`` for a
         hold on this session. A reader words it with
@@ -673,9 +673,9 @@ class ControlSession:
         states — :attr:`binding` (``fallback``, ``unservable``) and
         :attr:`target_moving` — are read beside it, not folded into it.
         """
-        from osprey_connectors.control_context import write_statement
+        from osprey_connectors.control_context import WritesStatement
 
-        return write_statement(self._verdict)
+        return WritesStatement.of(self._verdict).model_dump(mode="json")
 
     @property
     def target_moving(self) -> bool:

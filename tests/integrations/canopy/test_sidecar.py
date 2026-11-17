@@ -94,7 +94,7 @@ MONGODB_BLOCK = {
 
 def write_record(state_dir: Path, *, target: str, generation: int) -> None:
     control_context.write_record(
-        control_context.ControlContext(target=target, generation=generation, posture={}),
+        control_context.ControlContext(target=target, generation=generation),
         path=state_dir / control_context.RECORD_FILENAME,
     )
     control_context.invalidate_cache()
@@ -285,7 +285,7 @@ class TestScrubbedEnvironment:
 
 class TestRenderedFor:
     def test_it_spells_the_record_as_data_compares_it(self):
-        record = control_context.ControlContext(target="va", generation=3, posture={})
+        record = control_context.ControlContext(target="va", generation=3)
         assert rendered_for(record) == "va@3"
         assert rendered_for(None) == "none"
 

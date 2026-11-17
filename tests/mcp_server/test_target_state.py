@@ -817,10 +817,10 @@ class TestServerStartClaimsTheRecord:
 
         assert claimed is not None
         assert (claimed.target, claimed.generation) == ("va", 7)
-        assert claimed.owner is not None
-        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
-        assert claimed.owner.pid == os.getpid()
-        assert claimed.owner.port is None
+        assert claimed.writer is not None
+        assert claimed.writer.kind == control_context.OWNER_CONTROLS_SERVER
+        assert claimed.writer.pid == os.getpid()
+        assert claimed.writer.port is None
 
     def test_server_start_claim_keeps_the_switch_it_found(
         self, control_context_root, write_control_context
@@ -838,7 +838,8 @@ class TestServerStartClaimsTheRecord:
 
         assert claimed is not None
         assert claimed.switch == {"va": "asked"}
-        assert claimed.posture == control_context._posture_mirror({"va": "asked"})
+        stored = json.loads(control_context.record_path().read_text(encoding="utf-8"))
+        assert stored["posture"] == control_context._posture_mirror({"va": "asked"})
 
     def test_claim_moves_generation_zero_live_record_to_va(
         self, control_context_root, write_control_context
@@ -853,8 +854,8 @@ class TestServerStartClaimsTheRecord:
 
         assert claimed is not None
         assert (claimed.target, claimed.generation) == ("va", 0)
-        assert claimed.owner is not None
-        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert claimed.writer is not None
+        assert claimed.writer.kind == control_context.OWNER_CONTROLS_SERVER
         assert control_context.read_record().target == "va"
 
     def test_claim_keeps_a_switched_live_record(self, control_context_root, write_control_context):
@@ -881,8 +882,8 @@ class TestServerStartClaimsTheRecord:
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert claimed.owner is not None
-        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert claimed.writer is not None
+        assert claimed.writer.kind == control_context.OWNER_CONTROLS_SERVER
         assert (claimed.target, claimed.generation) == ("standin", 4)
 
     def test_server_start_claims_over_an_owner_too_degraded_to_name_a_process(
@@ -905,8 +906,8 @@ class TestServerStartClaimsTheRecord:
         claimed = server_context.claim_control_context(baseline="live")
 
         assert claimed is not None
-        assert claimed.owner is not None
-        assert claimed.owner.pid == os.getpid()
+        assert claimed.writer is not None
+        assert claimed.writer.pid == os.getpid()
         assert (claimed.target, claimed.generation) == ("va", 7)
 
     def test_server_start_follows_a_live_web_terminal_owner(
@@ -918,8 +919,8 @@ class TestServerStartClaimsTheRecord:
         followed = server_context.claim_control_context(baseline="live")
 
         assert followed is not None
-        assert followed.owner is not None
-        assert followed.owner.kind == control_context.OWNER_WEB_TERMINAL
+        assert followed.writer is not None
+        assert followed.writer.kind == control_context.OWNER_WEB_TERMINAL
         assert path.read_text(encoding="utf-8") == before
 
     def test_server_start_follows_a_live_controls_server_owner(
@@ -938,8 +939,8 @@ class TestServerStartClaimsTheRecord:
         followed = server_context.claim_control_context(baseline="live")
 
         assert followed is not None
-        assert followed.owner is not None
-        assert followed.owner.pid == os.getpid()
+        assert followed.writer is not None
+        assert followed.writer.pid == os.getpid()
         assert path.read_text(encoding="utf-8") == before
 
     def test_server_start_writes_a_baseline_record_when_there_is_none(self, control_context_root):
@@ -948,9 +949,10 @@ class TestServerStartClaimsTheRecord:
         assert claimed is not None
         assert (claimed.target, claimed.generation, claimed.switch) == ("live", 0, {})
         # No switch turned on: the mirror refuses every machine.
-        assert claimed.posture == control_context._posture_mirror({})
-        assert claimed.owner is not None
-        assert claimed.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        stored = json.loads(control_context.record_path().read_text(encoding="utf-8"))
+        assert stored["posture"] == control_context._posture_mirror({})
+        assert claimed.writer is not None
+        assert claimed.writer.kind == control_context.OWNER_CONTROLS_SERVER
         assert control_context._record_path_under(control_context_root).exists()
 
     def test_server_start_writes_a_baseline_record_over_an_unreadable_one(
@@ -973,8 +975,8 @@ class TestServerStartClaimsTheRecord:
         claimed = server_context.claim_control_context(baseline="live", server_pid=4321)
 
         assert claimed is not None
-        assert claimed.owner is not None
-        assert claimed.owner.pid == 4321
+        assert claimed.writer is not None
+        assert claimed.writer.pid == 4321
 
     def test_server_start_claim_survives_an_unresolvable_agent_data_root(self, monkeypatch):
         from osprey_connectors import posture_store
@@ -1070,8 +1072,8 @@ class TestServerStartStep:
         assert reports == [None]
         record = control_context.read_record()
         assert record is not None
-        assert record.owner is not None
-        assert record.owner.kind == control_context.OWNER_CONTROLS_SERVER
+        assert record.writer is not None
+        assert record.writer.kind == control_context.OWNER_CONTROLS_SERVER
         assert (record.target, record.generation) == ("va", 7)
 
     def test_server_start_step_claims_even_when_the_report_cannot_be_written(
@@ -1091,8 +1093,8 @@ class TestServerStartStep:
 
         record = control_context.read_record()
         assert record is not None
-        assert record.owner is not None
-        assert record.owner.pid == os.getpid()
+        assert record.writer is not None
+        assert record.writer.pid == os.getpid()
 
     def test_server_start_step_never_raises(self, monkeypatch):
         def boom():

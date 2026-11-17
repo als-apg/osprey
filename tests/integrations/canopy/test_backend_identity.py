@@ -48,7 +48,7 @@ class _RefusingConnector(FakeConnector):
 
 def _write_record(state_dir: Path) -> None:
     control_context.write_record(
-        control_context.ControlContext(target="va", generation=3, posture={}),
+        control_context.ControlContext(target="va", generation=3),
         path=state_dir / control_context.RECORD_FILENAME,
     )
     control_context.invalidate_cache()

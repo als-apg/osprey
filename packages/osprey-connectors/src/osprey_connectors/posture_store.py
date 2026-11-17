@@ -44,10 +44,9 @@ its one reader: a machine is armed only at ``"asked"`` or ``"allowed"``, and a
 stored ``"on"`` from an older release reads as ``"asked"``. Everything else — no
 record, a record that does not name the machine, any other value — is that
 machine's writes off. The record's ``posture`` field is a mirror of the switch
-kept for readers that predate it, and no verdict reads it.
-:func:`parse_posture_value` is the grammar of that mirror, applied by
-:func:`~osprey_connectors.control_context.parse_record` rather than restated
-there.
+kept for readers that predate it, and nothing in this package reads it back.
+:func:`_parse_posture_value` is the grammar of that mirror, the reference the
+stdlib hook twin's reader of it is held to.
 
 **3. How a write is decided.** :func:`write_verdict` is the whole rule: one
 total order of terms — read-only run, tier, target, owner, owner tier, record,
@@ -181,7 +180,6 @@ __all__ = [
     "execution_verdict",
     "launch_posture_stamp",
     "owner_tier_term",
-    "parse_posture_value",
     "session_hold_refusal",
     "stamped_agent_data_root",
     "state_dir",
@@ -666,14 +664,14 @@ def _control_context_tree() -> Path | None:
 # -- parsing ----------------------------------------------------------------
 
 
-def parse_posture_value(value: object) -> dict[str, Posture]:
+def _parse_posture_value(value: object) -> dict[str, Posture]:
     """The record's ``posture`` mirror as ``{target: "sandbox"}`` — the switched-off targets.
 
-    The grammar of the mirror field (rule 2), in one place:
-    :func:`~osprey_connectors.control_context.parse_record` reaches this
-    filter rather than restating it. No verdict reads the result — the switch
-    decides every write — so this is the shape a reader that predates the
-    switch sees, and nothing more.
+    The grammar of the mirror field (rule 2), in one place: the stdlib hook
+    twin reads the mirror, and its parity test holds that reader to this one.
+    Nothing in this package reads the field — the switch decides every write —
+    so this is the shape a reader that predates the switch sees, and nothing
+    more.
 
     Never raises. Anything that is not a ``"sandbox"`` entry — a bare
     ``"writes"``, an unknown string, a non-string target key, a hand-edited or

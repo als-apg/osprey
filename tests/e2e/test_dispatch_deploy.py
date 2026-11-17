@@ -116,13 +116,11 @@ from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.connector_types import (
-    CONTROL_TARGETS,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
 )
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
-from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_tier import tier_allows
 from tests.e2e import _orm_stack, _queue_drive
@@ -550,8 +548,7 @@ def _narrow_on_the_host(repo: Path, identity: str) -> Path:
     record = ControlContext(
         target=TARGET_VA,
         generation=1,
-        owner=None,
-        posture=dict.fromkeys(CONTROL_TARGETS, POSTURE_SANDBOX),
+        writer=None,
     )
     return write_record(record, path=record_path)
 

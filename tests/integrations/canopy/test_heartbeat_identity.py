@@ -140,7 +140,7 @@ def _write_record(state_dir: Path, switch: dict[str, str] | None = None) -> None
     """Write the ``va@3`` record; with *switch*, make its switch exactly that."""
     path = state_dir / control_context.RECORD_FILENAME
     control_context.write_record(
-        control_context.ControlContext(target="va", generation=3, posture={}), path=path
+        control_context.ControlContext(target="va", generation=3), path=path
     )
     control_context.invalidate_cache()
     if switch is not None:
@@ -315,7 +315,7 @@ async def _move_record(connector) -> None:
     """
     state_dir = Path(os.environ[posture_store.CONTROL_CONTEXT_DIR_ENV_VAR])
     control_context.write_record(
-        control_context.ControlContext(target="va", generation=4, posture={}),
+        control_context.ControlContext(target="va", generation=4),
         path=state_dir / control_context.RECORD_FILENAME,
     )
     control_context.invalidate_cache()

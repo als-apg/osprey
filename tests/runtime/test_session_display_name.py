@@ -46,7 +46,7 @@ def _serve(monkeypatch, section):
 
 def _write_record(state_dir: Path, *, target="va", generation=3) -> None:
     control_context.write_record(
-        control_context.ControlContext(target=target, generation=generation, posture={}),
+        control_context.ControlContext(target=target, generation=generation),
         path=state_dir / control_context.RECORD_FILENAME,
     )
     control_context.invalidate_cache()

@@ -32,9 +32,11 @@ pass between them, which no import catches:
   re-write as the same record, not as the same bytes. A second golden record
   (``switch_on/``) arms a machine with the switch's legacy ``"on"``: both the
   package and the hook must read it as armed (``"asked"`` where the hook knows
-  the three positions), and ``set_switch(..., "on")`` -- the word a framework
-  released before the positions sends -- must store ``"asked"``, which the
-  hook must read as armed too.
+  the three positions). The gesture no longer takes the word:
+  ``set_switch(..., "on")`` -- what a framework released before the positions
+  sends -- is refused and writes nothing, so a machine such a framework tries
+  to arm stays off. The package reads the record's target and generation; its
+  ``posture`` mirror is the hook's alone to read.
 
 Usage::
 
@@ -217,18 +219,15 @@ def check_control_context_golden(fixtures: Path = FIXTURES) -> str:
     record = control_context.parse_record(raw)
     _require(record is not None, "the golden record no longer parses")
     assert record is not None
-    stated = {
-        "target": record.target,
-        "generation": record.generation,
-        "posture": dict(record.posture),
-    }
-    _require(stated == GOLDEN_RECORD, f"the golden record reads as {stated}")
+    stated = {"target": record.target, "generation": record.generation}
+    expected = {key: GOLDEN_RECORD[key] for key in stated}
+    _require(stated == expected, f"the golden record reads as {stated}")
     _require(
-        record.owner is not None and record.owner.kind == control_context.OWNER_WEB_TERMINAL,
-        f"the golden record's owner reads as {record.owner}",
+        record.writer is not None and record.writer.kind == control_context.OWNER_WEB_TERMINAL,
+        f"the golden record's owner reads as {record.writer}",
     )
     _require(
-        record.last_switch is not None and record.last_switch.get("request_id") == "req-7",
+        record.last_switch is not None and record.last_switch.request_id == "req-7",
         f"the golden record's last switch reads as {record.last_switch}",
     )
 
@@ -262,12 +261,14 @@ def check_switch_golden(fixtures: Path = SWITCH_ON_FIXTURES) -> None:
 
 
 def check_set_switch_legacy_word(workdir: Path) -> Path:
-    """``set_switch(..., "on")`` arms at ``asked`` and stores no ``"on"``.
+    """``set_switch(..., "on")`` is refused and leaves the record as it was.
 
-    Applied to a copy of the golden switch record under *workdir*.
+    Applied to a copy of the golden switch record under *workdir*. A machine a
+    released framework tries to arm with the word stays off: the refusal fails
+    closed.
 
     Returns:
-        The written record's path.
+        The record's path, unchanged.
     """
     from osprey_connectors import control_context
 
@@ -275,17 +276,15 @@ def check_set_switch_legacy_word(workdir: Path) -> Path:
     path = workdir / SWITCH_ON_FIXTURES.name / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
-    epoch = json.loads(path.read_text(encoding="utf-8"))["switch_epoch"]
+    before = path.read_bytes()
+    epoch = json.loads(before)["switch_epoch"]
     try:
         control_context.set_switch([LEGACY_GESTURE_TARGET], "on", epoch=epoch, path=path)
-    except Exception as error:  # the released chip route's gesture is refused
-        raise ContractError(
-            f'set_switch(["{LEGACY_GESTURE_TARGET}"], "on") raised '
-            f"{error.__class__.__name__}: {error}"
-        ) from error
-    stored = json.loads(path.read_text(encoding="utf-8"))["switch"]
-    expected = {SWITCH_ON_TARGET: "asked", LEGACY_GESTURE_TARGET: "asked"}
-    _require(stored == expected, f'set_switch(..., "on") stored the switch as {stored}')
+    except ValueError:
+        pass
+    else:
+        raise ContractError(f'set_switch(["{LEGACY_GESTURE_TARGET}"], "on") was taken')
+    _require(path.read_bytes() == before, 'a refused set_switch(..., "on") wrote the record')
     return path
 
 
@@ -369,9 +368,9 @@ def check_control_context_hook(hook: Path, workdir: Path) -> str:
             {SWITCH_ON_TARGET},
         ),
         (
-            'set_switch(..., "on")',
+            'refused set_switch(..., "on")',
             gestured.read_text(encoding="utf-8"),
-            {SWITCH_ON_TARGET, LEGACY_GESTURE_TARGET},
+            {SWITCH_ON_TARGET},
         ),
     ):
         record = module.parse_switch_record(text)
@@ -466,7 +465,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             lines = [check_control_context_golden()]
             with tempfile.TemporaryDirectory() as scratch:
                 check_set_switch_legacy_word(Path(scratch))
-                lines.append('set_switch "on" OK')
+                lines.append('set_switch "on" refused OK')
                 if args.hook is not None:
                     lines.append(check_control_context_hook(args.hook, Path(scratch)))
     except ContractError as error:

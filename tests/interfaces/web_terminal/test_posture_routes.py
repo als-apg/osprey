@@ -418,10 +418,10 @@ class TestTheGesture:
         before = read_record()
         assert turn_on(client, "standin").status_code == 200
         after = read_record()
-        assert (after.target, after.generation, after.owner) == (
+        assert (after.target, after.generation, after.writer) == (
             before.target,
             before.generation,
-            before.owner,
+            before.writer,
         )
 
     def test_each_gesture_pushes_the_context_frame(self, client):
@@ -467,7 +467,7 @@ class TestOffIsNeverRefused:
 
         assert post_switch(on, target="standin", state="off").status_code == 200
         assert switch_now() == {}
-        assert read_record().owner == holder
+        assert read_record().writer == holder
 
     def test_on_lands_from_a_follower_terminal_too(self, client, agent_data_root):
         holder = owner(pid=OTHER_TERMINAL_PID, port=OTHER_TERMINAL_PORT)
@@ -476,7 +476,7 @@ class TestOffIsNeverRefused:
 
         assert turn_on(client, "va").status_code == 200
         assert switch_now() == {"va": "asked"}
-        assert read_record().owner == holder
+        assert read_record().writer == holder
 
     def test_neither_gesture_needs_the_owner_primitive(self, client):
         """No owner on ``app.state`` is no 503: ``set_switch`` is called directly."""

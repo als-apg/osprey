@@ -72,23 +72,19 @@ from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.control_context import (
     OWNER_CONTROLS_SERVER,
     OWNER_WEB_TERMINAL,
-    SWITCH_APPLIED,
-    SWITCH_REFUSED,
     ControlContext,
-    Owner,
-    applied_detail,
+    RecordWriter,
+    SwitchTerminus,
     claimed,
     converged,
     file_signature,
-    live_owner,
     live_reports,
-    owned_here,
+    live_writer,
     read_record,
     record_path,
     report_paths,
-    terminus,
-    unchanged_detail,
     write_record,
+    written_here,
 )
 from osprey_connectors.model import evolve
 
@@ -179,7 +175,7 @@ _OWNER_KIND_WORDS = {
 }
 
 
-def owned_elsewhere_message(owner: Owner | None) -> str:
+def owned_elsewhere_message(owner: RecordWriter | None) -> str:
     """The sentence a process reads when the record is not its to write.
 
     Spelled here rather than at each refusal because two surfaces say it: the
@@ -215,7 +211,7 @@ class ContextOwnedElsewhere(ContextOwnerError):
             try to take it again on its next tick.
     """
 
-    def __init__(self, owner: Owner | None, message: str) -> None:
+    def __init__(self, owner: RecordWriter | None, message: str) -> None:
         super().__init__("context_owned_elsewhere", message)
         self.owner = owner
 
@@ -237,12 +233,12 @@ class ControlContextOwner:
             write stamps it.
     """
 
-    def __init__(self, identity: Owner) -> None:
+    def __init__(self, identity: RecordWriter) -> None:
         self._identity = identity
         self._lock = asyncio.Lock()
 
     @property
-    def identity(self) -> Owner:
+    def identity(self) -> RecordWriter:
         """Who this process is in the record it writes."""
         return self._identity
 
@@ -289,7 +285,7 @@ class ControlContextOwner:
             return mutation.result
 
         try:
-            owned = evolve(mutation.record, owner=self._identity)
+            owned = evolve(mutation.record, writer=self._identity)
             write_record(owned, path=path)
         except Exception as exc:  # reported to the operator as a 503
             logger.warning(
@@ -316,7 +312,7 @@ class ControlContextOwner:
         return path
 
     def _require_ownership(self, record: ControlContext | None) -> None:
-        owner = None if record is None else record.owner
+        owner = None if record is None else record.writer
         if owner == self._identity:
             return
         raise ContextOwnedElsewhere(owner, owned_elsewhere_message(owner))
@@ -358,7 +354,7 @@ class _Unobserved:
     """Sentinel: this task has not yet seen who owns the record."""
 
 
-def terminal_identity() -> Owner:
+def terminal_identity() -> RecordWriter:
     """Who this web terminal is in the record's ``owner`` field.
 
     A port that is unset or unreadable becomes ``None`` rather than a guess:
@@ -373,7 +369,7 @@ def terminal_identity() -> Owner:
             "%s is %r, which is not a port; the record names none", WEB_PORT_ENV, declared
         )
         port = None
-    return Owner(kind=OWNER_WEB_TERMINAL, pid=os.getpid(), port=port)
+    return RecordWriter(kind=OWNER_WEB_TERMINAL, pid=os.getpid(), port=port)
 
 
 @dataclass(frozen=True)
@@ -444,7 +440,7 @@ class ControlContextOwnerTask:
         self._signatures: tuple[Any, ...] | None = None
 
     @property
-    def identity(self) -> Owner:
+    def identity(self) -> RecordWriter:
         """Who this task claims as."""
         return self._identity
 
@@ -496,11 +492,11 @@ class ControlContextOwnerTask:
 
     # -- claim or follow ---------------------------------------------------
 
-    def _claim_or_follow(self, record: ControlContext | None) -> Mutation[Owner | None]:
+    def _claim_or_follow(self, record: ControlContext | None) -> Mutation[RecordWriter | None]:
         """Take the record, or name the live terminal that already has it.
 
         Runs in the primitive's worker thread, so the liveness probe behind
-        :func:`~osprey_connectors.control_context.live_owner` is off the loop.
+        :func:`~osprey_connectors.control_context.live_writer` is off the loop.
 
         A claim is a **merge**: the target, generation and posture belong to
         the deployment and outlive every process that reads them, so taking
@@ -512,7 +508,7 @@ class ControlContextOwnerTask:
         fresh one, at the deployment's baseline, generation 0, narrowing
         nothing.
         """
-        owner = live_owner(record)
+        owner = live_writer(record)
         if owner is not None and owner.pid == self._identity.pid:
             # Already ours. Writing an unchanged record here would move the
             # file's signature once a second and wake every reader watching it.
@@ -525,7 +521,7 @@ class ControlContextOwnerTask:
             )
         return Mutation(record=claimed(record, self._baseline()), result=None)
 
-    def _publish(self, follows: Owner | None) -> None:
+    def _publish(self, follows: RecordWriter | None) -> None:
         """Say on ``app.state`` what this terminal may do with the record.
 
         ``control_context_owner`` is how a route reaches the record at all —
@@ -627,7 +623,7 @@ class ControlContextOwnerTask:
             return None
 
         record = read_record()
-        if record is None or not owned_here(record):
+        if record is None or not written_here(record):
             return None
 
         reports = live_reports()
@@ -722,7 +718,7 @@ class ControlContextOwnerTask:
         """
         if record is None:
             return Mutation.unchanged(False)
-        if (record.last_switch or {}).get("request_id") == request.request_id:
+        if record.last_switch is not None and record.last_switch.request_id == request.request_id:
             logger.debug("Switch request %r was already answered", request.request_id)
             return Mutation.unchanged(True)
 
@@ -732,11 +728,13 @@ class ControlContextOwnerTask:
             # refuse every write bound to the old one for nothing.
             return self._terminus(
                 record,
-                request,
-                status=SWITCH_APPLIED,
-                reason=None,
-                detail=unchanged_detail(request.target, record.generation),
-                generation=record.generation,
+                SwitchTerminus.unchanged(
+                    request_id=request.request_id,
+                    target=request.target,
+                    generation=record.generation,
+                    requested_at=request.requested_at,
+                    requested_by=request.requested_by,
+                ),
             )
 
         try:
@@ -745,55 +743,41 @@ class ControlContextOwnerTask:
             logger.exception("Switch request %r could not be judged", request.request_id)
             return self._terminus(
                 record,
-                request,
-                status=SWITCH_REFUSED,
-                reason=REASON_INTERNAL_ERROR,
-                detail=f"{type(exc).__name__}: {exc}",
-                generation=None,
+                SwitchTerminus.refused(
+                    request_id=request.request_id,
+                    target=request.target,
+                    reason=REASON_INTERNAL_ERROR,
+                    detail=f"{type(exc).__name__}: {exc}",
+                    requested_at=request.requested_at,
+                    requested_by=request.requested_by,
+                ),
             )
 
         if not verdict.allowed:
             return self._terminus(
                 record,
-                request,
-                status=SWITCH_REFUSED,
-                reason=str(verdict.reason or ""),
-                detail=verdict.detail,
-                generation=None,
+                SwitchTerminus.refused(
+                    request_id=request.request_id,
+                    target=request.target,
+                    reason=str(verdict.reason or ""),
+                    detail=verdict.detail,
+                    requested_at=request.requested_at,
+                    requested_by=request.requested_by,
+                ),
             )
         return self._terminus(
             record,
-            request,
-            status=SWITCH_APPLIED,
-            reason=None,
-            detail=applied_detail(request.target, record.generation + 1),
-            generation=record.generation + 1,
-        )
-
-    def _terminus(
-        self,
-        record: ControlContext,
-        request: _Answerable,
-        *,
-        status: str,
-        reason: str | None,
-        detail: str,
-        generation: int | None,
-    ) -> Mutation[bool]:
-        return Mutation(
-            record=terminus(
-                record,
+            SwitchTerminus.applied(
                 request_id=request.request_id,
                 target=request.target,
+                generation=record.generation + 1,
                 requested_at=request.requested_at,
                 requested_by=request.requested_by,
-                status=status,
-                reason=reason,
-                detail=detail,
-                generation=generation,
             ),
-            result=True,
         )
+
+    def _terminus(self, record: ControlContext, terminus: SwitchTerminus) -> Mutation[bool]:
+        return Mutation(record=record.answered(terminus), result=True)
 
     def _gate(self, record: ControlContext, request: _Answerable) -> Any:
         """The switch verdict, in the words every other surface would get.
@@ -833,10 +817,13 @@ class ControlContextOwnerTask:
         from osprey.mcp_server.control_system import target_state
 
         record = read_record()
-        if record is None or not owned_here(record):
+        if record is None or not written_here(record):
             answered = False
         else:
-            answered = (record.last_switch or {}).get("request_id") == request.request_id
+            answered = (
+                record.last_switch is not None
+                and record.last_switch.request_id == request.request_id
+            )
         if not answered:
             logger.warning(
                 "The answer to switch request %r did not stick; leaving the request for "

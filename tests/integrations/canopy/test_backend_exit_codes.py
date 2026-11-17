@@ -938,7 +938,7 @@ WALL_START = 1_760_700_000.0
 
 HOLD_S = epics_connector_module.STALE_HOLD_DOWN_S
 
-SAME_RECORD = control_context.ControlContext(target="va", generation=3, posture={})
+SAME_RECORD = control_context.ControlContext(target="va", generation=3)
 
 
 class _ReachClock:
@@ -1245,7 +1245,7 @@ class TestTheNextProcessStartsInTheLastStatement:
             await run.backend.close()
         assert _statement_file()["binding_key"] == "va@3"
 
-        moved = control_context.ControlContext(target="va", generation=4, posture={})
+        moved = control_context.ControlContext(target="va", generation=4)
         carried = sidecar_module.carried_reach(Path.cwd(), moved)
         assert carried is None
         assert not (Path.cwd() / STATEMENT_FILENAME).exists()

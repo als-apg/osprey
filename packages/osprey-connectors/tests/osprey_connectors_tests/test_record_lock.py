@@ -30,6 +30,7 @@ from osprey_connectors_tests._harness import (
     data_root,
     race_record_writers,
     write_control_context,
+    write_payload,
 )
 
 __all__ = ["data_root"]
@@ -161,22 +162,90 @@ def test_a_held_lock_makes_a_terminus_report_that_it_did_not_stick(data_root, mo
     path = write_control_context(data_root)
     monkeypatch.setattr(control_context, "_LOCK_TIMEOUT_S", 0.1)
     record = control_context.read_record()
-    updated = control_context.terminus(
-        record,
-        request_id="r-locked",
-        target="va",
-        requested_at=None,
-        requested_by="pid:1",
-        status=control_context.SWITCH_REFUSED,
-        reason="test",
-        detail="refused",
-        generation=None,
+    updated = record.answered(
+        control_context.SwitchTerminus.refused(
+            request_id="r-locked",
+            target="va",
+            reason="test",
+            detail="refused",
+            requested_at=None,
+            requested_by="pid:1",
+        )
     )
     fd = _hold(path.with_name(path.name + ".lock"))
     try:
-        assert control_context.write_terminus(updated, "r-locked") is False
+        assert control_context.write_terminus(updated, "r-locked") == "write_failed"
     finally:
         _release(fd)
+
+
+def _refusal(record, request_id="r-1"):
+    return record.answered(
+        control_context.SwitchTerminus.refused(
+            request_id=request_id,
+            target="va",
+            reason="test",
+            detail="refused",
+            requested_at=None,
+            requested_by="pid:1",
+        )
+    )
+
+
+def test_a_terminus_that_lands_and_reads_back_stuck(data_root):
+    write_control_context(data_root)
+    record = control_context.read_record()
+
+    assert control_context.write_terminus(_refusal(record), "r-1") == "stuck"
+
+
+def test_a_terminus_with_no_record_to_read_back_did_not_stick(data_root, monkeypatch):
+    write_control_context(data_root)
+    record = control_context.read_record()
+    monkeypatch.setattr(control_context, "read_record", lambda **_kwargs: None)
+
+    assert control_context.write_terminus(_refusal(record), "r-1") == "unreadable"
+
+
+def test_a_terminus_this_process_no_longer_writes_did_not_stick(data_root):
+    write_control_context(data_root, owned_by=None)
+    record = control_context.read_record()
+
+    assert control_context.write_terminus(_refusal(record), "r-1") == "not_writer"
+
+
+def test_a_terminus_another_answer_replaced_did_not_stick(data_root):
+    write_control_context(data_root)
+    record = control_context.read_record()
+
+    assert control_context.write_terminus(_refusal(record, "r-other"), "r-1") == "overwritten"
+
+
+@pytest.mark.parametrize(
+    "degraded",
+    [
+        {"request_id": "r-1", "status": "Refused"},
+        {"request_id": "r-1"},
+        {"request_id": 1, "status": "refused"},
+        "r-1",
+    ],
+    ids=["unknown-status", "no-status", "non-text-id", "not-a-block"],
+)
+def test_a_block_that_reads_back_as_none_did_not_stick(data_root, monkeypatch, degraded):
+    """The write lands a block the reader cannot read: the answer is not believed (fail closed)."""
+    path = write_control_context(data_root)
+    record = control_context.read_record()
+
+    def land_degraded(updated, **_kwargs):
+        payload = updated.model_dump(mode="json")
+        payload["last_switch"] = degraded
+        return write_payload(control_context.record_path(), payload)
+
+    monkeypatch.setattr(control_context, "write_record", land_degraded)
+
+    assert control_context.write_terminus(_refusal(record), "r-1") == "overwritten"
+    assert control_context.read_record().last_switch is None
+    assert json.loads(path.read_text(encoding="utf-8"))["last_switch"] == degraded
 
 
 @pytest.mark.usefixtures("data_root")
@@ -266,7 +335,7 @@ def test_a_write_over_a_lost_record_writes_the_switch_empty_with_a_fresh_epoch(d
 #: ``read``, wait for a signal, write through the public API.
 _CHILD = """
     path = cc.record_path()
-    me = cc.Owner(kind=cc.OWNER_CONTROLS_SERVER, pid=os.getpid())
+    me = cc.RecordWriter(kind=cc.OWNER_CONTROLS_SERVER, pid=os.getpid())
     if mode in ("stop", "turn_on"):
         wait(wait_for)
         with cc._record_lock(path):
@@ -289,20 +358,19 @@ _CHILD = """
         mark("read")
         wait(wait_for)
         if mode == "terminus":
-            updated = cc.terminus(
-                evolve(seen, owner=me),
-                request_id="req-1",
-                target=seen.target,
-                requested_at=None,
-                requested_by="pid:1",
-                status=cc.SWITCH_REFUSED,
-                reason="test",
-                detail="refused",
-                generation=None,
+            updated = evolve(seen, writer=me).answered(
+                cc.SwitchTerminus.refused(
+                    request_id="req-1",
+                    target=seen.target,
+                    reason="test",
+                    detail="refused",
+                    requested_at=None,
+                    requested_by="pid:1",
+                )
             )
             print(json.dumps({"confirmed": cc.write_terminus(updated, "req-1")}))
         else:
-            cc.write_record(evolve(seen, owner=me, generation=seen.generation + 1))
+            cc.write_record(evolve(seen, writer=me, generation=seen.generation + 1))
             print(json.dumps({"confirmed": True}))
 """
 
@@ -320,8 +388,9 @@ def test_a_stop_and_a_terminus_leave_the_switch_empty(data_root, tmp_path, inter
     assert record.switch == {}
     assert record.switch_epoch == stopped["epoch"] > old_epoch
     # The terminus was not lost either: it landed, after the stop, and stuck.
-    assert answered["confirmed"] is True
-    assert record.last_switch["request_id"] == "req-1"
+    assert answered["confirmed"] == "stuck"
+    assert record.last_switch is not None
+    assert record.last_switch.request_id == "req-1"
 
 
 @pytest.mark.parametrize("interleaved", [True, False], ids=["interleaved", "after"])

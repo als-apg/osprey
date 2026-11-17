@@ -1093,7 +1093,7 @@ def _write_record(directory, *, target="va", generation=3):
 
     path = directory / control_context.RECORD_FILENAME
     control_context.write_record(
-        control_context.ControlContext(target=target, generation=generation, posture={}),
+        control_context.ControlContext(target=target, generation=generation),
         path=path,
     )
     control_context.invalidate_cache()

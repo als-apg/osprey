@@ -515,32 +515,25 @@ def test_turning_every_machine_on_is_a_value_error(data_root, state):
     assert path.read_bytes() == before
 
 
-def test_the_legacy_gesture_word_on_is_taken_as_asked_and_never_stored(data_root):
-    """A framework released before the three positions sends ``on``."""
-    path = write_control_context(data_root)
-    stored = set_switch(["va"], "on", epoch=_epoch(path))
-    assert stored is not None and stored.switch == {"va": "asked"}
-    assert _payload(path)["switch"] == {"va": "asked"}
-
-
-def test_the_legacy_gesture_word_on_widens_like_asked(data_root):
-    path = write_control_context(data_root)
+@pytest.mark.parametrize(
+    ("targets", "switch", "with_epoch"),
+    [
+        (["va"], None, True),
+        (["va"], None, False),
+        (["va"], {"va": "allowed"}, False),
+        ("all", None, True),
+    ],
+    ids=["widening", "widening-without-epoch", "narrowing", "all"],
+)
+def test_the_legacy_gesture_word_on_is_refused_and_writes_nothing(
+    data_root, targets, switch, with_epoch
+):
+    """The gesture no longer takes ``on``; a record that spells it still reads as ``asked``."""
+    path = write_control_context(data_root, switch=switch)
     before = path.read_bytes()
-    with pytest.raises(StoppedSinceError):
-        set_switch(["va"], "on")
+    with pytest.raises(ValueError, match="state must be one of"):
+        set_switch(targets, "on", epoch=_epoch(path) if with_epoch else None)
     assert path.read_bytes() == before
-
-
-def test_the_legacy_gesture_word_on_narrows_allowed_to_asked(data_root):
-    write_control_context(data_root, switch={"va": "allowed"})
-    stored = set_switch(["va"], "on")
-    assert stored is not None and stored.switch == {"va": "asked"}
-
-
-def test_the_legacy_gesture_word_on_cannot_name_all(data_root):
-    write_control_context(data_root)
-    with pytest.raises(ValueError, match="one at a time"):
-        set_switch("all", "on")
 
 
 @pytest.mark.parametrize("epoch", [True, "1", 1.5], ids=["bool", "str", "float"])
@@ -733,8 +726,8 @@ _CHILD = """
         assert seen.switch, "the other writer must start from a view with machines on"
         mark("read")
         wait(wait_for)
-        me = cc.Owner(kind=cc.OWNER_CONTROLS_SERVER, pid=os.getpid())
-        cc.write_record(evolve(seen, owner=me, generation=seen.generation + 1))
+        me = cc.RecordWriter(kind=cc.OWNER_CONTROLS_SERVER, pid=os.getpid())
+        cc.write_record(evolve(seen, writer=me, generation=seen.generation + 1))
         print(json.dumps({"confirmed": True}))
 """
 
