@@ -628,7 +628,9 @@ def _arm_queue_owner(repo: Path) -> None:
     config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
     owner = _queue_owner()
     ensure_control_target_dir(config, repo, owner, relative_to=repo)
-    set_switch_in_record(repo, owner=owner, targets=[TARGET_VA])
+    # `allowed`, not `asked`: this lane is not about the approval, and at `asked`
+    # each plan waits for a person to approve its write authorization.
+    set_switch_in_record(repo, owner=owner, targets=[TARGET_VA], position="allowed")
 
 
 def _dead_container_logs() -> str:

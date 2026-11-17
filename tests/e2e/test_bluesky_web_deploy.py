@@ -408,7 +408,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     _orm_stack.seed_repo_env(repo)
     # The plans write, and the worker's writes follow the add's owner's switch:
     # this login's switch on in the deployment's record, before `up`.
-    arm_deployed_queue_owner(repo)
+    # `allowed`, not `asked`: this lane is not about the approval, and at `asked`
+    # each plan waits for a person to approve its write authorization.
+    arm_deployed_queue_owner(repo, position="allowed")
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise

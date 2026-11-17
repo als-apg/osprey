@@ -655,12 +655,15 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     # The plan runs later, in the lane's worker, for the owner the tools stamp
     # on every add (``current_owner`` here); its writes follow THAT owner's
     # switch, read from the deployment's control tree. On for the simulator,
-    # so an armed add executes rather than failing its first write.
+    # so an armed add executes rather than failing its first write: at
+    # `allowed`, because at `asked` each plan waits for a person to approve its
+    # write authorization, and this module is about lanes. The tools' own
+    # `asked` is the session record above, which this does not touch.
     owner = posture_store.current_owner()
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     config = yaml.safe_load(stack.config_path.read_text(encoding="utf-8"))
     ensure_control_target_dir(config, stack.repo, owner, relative_to=stack.repo)
-    set_switch_in_record(stack.repo, owner=owner, targets=[TARGET_VA])
+    set_switch_in_record(stack.repo, owner=owner, targets=[TARGET_VA], position="allowed")
     initialize_server_context()
     try:
         yield queue_tools

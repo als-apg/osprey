@@ -447,7 +447,9 @@ def deployed_sandbox_stack(
     _orm_stack.seed_repo_env(repo)
     # The positive plan writes: this login's switch on in the deployment's
     # record, before `up`, for the owner every add here names.
-    arm_deployed_queue_owner(repo)
+    # `allowed`, not `asked`: this lane is not about the approval, and at `asked`
+    # each plan waits for a person to approve its write authorization.
+    arm_deployed_queue_owner(repo, position="allowed")
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 
