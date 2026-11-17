@@ -15,8 +15,10 @@ reported against it is :mod:`osprey_connectors.ipc`'s.
 eligibility question every supervisor asks from derivation alone: an endpoint a
 target that is never the real machine selects must not be one ``live`` derives.
 
-The gateway role rule itself lives in the control-system layer, where
-``EPICSConnector.connect()`` takes it; its types are re-exported here.
+The gateway role rule and the gateway words (:data:`GatewayRole`,
+:data:`SelectedRole`, :data:`GatewayMode`, :data:`GatewaysDeclared`) live in
+the control-system layer, where ``EPICSConnector.connect()`` and the
+connector-host child take them; they are re-exported here.
 
 Nothing here imports a control-system client library, and importing this
 module loads neither :mod:`osprey_connectors.ipc` nor its wire codec.
@@ -25,7 +27,7 @@ module loads neither :mod:`osprey_connectors.ipc` nor its wire codec.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, SupportsIndex, SupportsInt
+from typing import SupportsIndex, SupportsInt
 
 from osprey_connectors.config import config_flag, config_section, connector_block, subsection
 from osprey_connectors.connector_types import (
@@ -38,7 +40,9 @@ from osprey_connectors.connector_types import (
     connector_transport,
 )
 from osprey_connectors.control_system._gateway_role import (
+    GatewayMode,
     GatewayRole,
+    GatewaysDeclared,
     SelectedRole,
     _selected_role,
     readonly_gateway_refusal,
@@ -66,13 +70,6 @@ __all__ = [
     "same_endpoint",
 ]
 
-# -- The environment modes gateway roles produce ----------------------------
-
-#: How a gateway reaches EPICS: ``name_server`` (``use_name_server: true``:
-#: EPICS_CA_NAME_SERVERS / EPICS_PVA_NAME_SERVERS) or ``addr_list``
-#: (``use_name_server: false``: EPICS_CA_ADDR_LIST / EPICS_PVA_ADDR_LIST).
-GatewayMode = Literal["name_server", "addr_list"]
-
 
 #: The ports ``EPICSConnector.connect()`` falls back to when a gateway names
 #: none. The virtual accelerator never reaches the CA default: its unset ports
@@ -81,11 +78,6 @@ GatewayMode = Literal["name_server", "addr_list"]
 #: is passed to p4p without one, so its row carries ``None``.
 DEFAULT_CA_PORT = 5064
 DEFAULT_PVA_PORT = 5075
-
-#: How a connector block spells its ``gateways`` table, as
-#: :func:`declared_gateways` reads it: an explicit ``gateways: []`` (nothing to
-#: probe), no table anybody filled in, or rows.
-GatewaysDeclared = Literal["none_declared", "missing", "rows"]
 
 
 class Endpoint(FrozenModel):

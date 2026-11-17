@@ -1,6 +1,6 @@
 """The gateway role a connector selects, and why a readonly run cannot connect.
 
-The one place the role rule lives. It sits in the control-system layer, the
+The one place the role rule and the gateway words live. It sits in the control-system layer, the
 bottom of the connectors layering, so ``EPICSConnector.connect()`` takes it
 from below, and :mod:`osprey_connectors.gateways` (the derivation, which
 re-exports these types) and the connector host's report import it from here
@@ -21,6 +21,16 @@ GatewayRole = Literal["read_only", "write_access", "pva"]
 #: EPICS keeps one process-wide context, so exactly one of them is used; ``pva``
 #: is never the selected role.
 SelectedRole = Literal["read_only", "write_access"]
+
+#: How a gateway reaches EPICS: ``name_server`` (``use_name_server: true``:
+#: EPICS_CA_NAME_SERVERS / EPICS_PVA_NAME_SERVERS) or ``addr_list``
+#: (``use_name_server: false``: EPICS_CA_ADDR_LIST / EPICS_PVA_ADDR_LIST).
+GatewayMode = Literal["name_server", "addr_list"]
+
+#: How a connector block spells its ``gateways`` table, as
+#: :func:`osprey_connectors.gateways.declared_gateways` reads it: an explicit
+#: ``gateways: []`` (nothing to probe), no table anybody filled in, or rows.
+GatewaysDeclared = Literal["none_declared", "missing", "rows"]
 
 
 def _selected_role(
