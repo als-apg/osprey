@@ -224,6 +224,10 @@
       "reason": "Same shape as test_terminal_auth_e2e.py and no LLM anywhere: launches `osprey web --detach` with --shell true twice on the same port and asserts over raw HTTP that the browser's session cookie survives the restart; the PTY never spawns an agent."
     },
     {
+      "path": "tests/e2e/web_terminals/test_web_stop_e2e.py",
+      "reason": "Same shape as test_session_restart_e2e.py and no LLM anywhere: launches `osprey web --detach` with --shell true and asserts that SIGTERM and `osprey web stop` end the server and the processes it started; the PTY never spawns an agent."
+    },
+    {
       "path": "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
       "reason": "Deterministic deploy-generator checks: render/lint library calls plus an `osprey scaffold` CLI subprocess; no LLM involved."
     },
