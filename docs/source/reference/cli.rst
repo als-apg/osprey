@@ -1342,16 +1342,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``description``, ``tags`` (``;``-separated), ``s`` (metres, a number) and
    ``model`` (the model whose deck ``s`` is measured in), in any order. A file
    whose first row names no ``address`` column holds one address per line.
-   For each device a row names, the import writes ``{id}`` to
-   ``data/facility/imported/list/devices.yaml``, and no ``devices.yaml`` when
-   no row names one. ``s`` and ``model`` are the position of the row's device:
-   where a row states ``s``, the record also holds ``s``, plus ``model`` when
-   stated. It holds no other device field, so the device merges with one
-   another source declares, or is created holding only its id and position.
-   ``osprey build`` places a device with an ``s`` by the span of its model
-   containing it. When ``records/devices.yaml`` or another layer declares
-   devices, one line on stderr, ``import list: declared by this list only:
-   <ids>``, names the devices no other such file declares. A row that names both a device and a place,
+   ``s`` and ``model`` are the position of the row's device: for each device a
+   row names, the import writes ``id``, ``s`` where stated and ``model`` when
+   stated, to ``data/facility/imported/list/devices.yaml``, and no other
+   device field, so the device merges with one another source declares, or is
+   created holding only its id and position. A list naming no device leaves
+   no ``devices.yaml``. ``osprey build`` places a device with an ``s`` by the
+   span of its model containing it. When ``records/devices.yaml`` or another
+   layer declares devices and a listed device is in none of them, one stderr
+   line names it: ``import list: declared by this list only: <ids>``.
+   A row that names both a device and a place,
    states a role other than ``setpoint``, ``readback`` or ``none``, has no
    address or repeats one, states ``s`` or ``model`` with no device, or
    states an ``s`` that is not a finite number, a row with more cells than
