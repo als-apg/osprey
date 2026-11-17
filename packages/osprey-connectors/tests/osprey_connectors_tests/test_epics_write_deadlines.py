@@ -39,7 +39,7 @@ import aioca
 import pytest
 
 from osprey_connectors.control_system import _epics_connector
-from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._base import SendReport, WriteOutcome
 from osprey_connectors.control_system._ca_loop import CaLoop
 from osprey_connectors.control_system._epics_connector import (
     WRITE_THREAD_PREFIX,
@@ -560,7 +560,7 @@ class TestConnectionEvidence:
     async def test_a_confirming_read_records_its_connection_for_stale_detection(self, clock):
         connector = _connector(TimingAioca(clock, SR_CH=_Record()))
 
-        await connector._confirming_read("SR:CH", T)
+        await connector._confirming_read("SR:CH", SendReport(), timeout_s=T)
 
         assert "SR:CH" in connector._one_shot_connected
         assert "SR:CH" not in connector._connect_failures

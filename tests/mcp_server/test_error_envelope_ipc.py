@@ -2,11 +2,13 @@
 
 Once the control-system connector lives in a child process, every refusal an
 operator reads has travelled down a pipe as a frame and been rebuilt on this
-side. The claim these tests make is that the rebuilt exception is
-indistinguishable from the one an in-process connector would have raised — not
+side. The claim these tests make is that what is rebuilt is
+indistinguishable from what an in-process connector would have answered — not
 "an error was reported", but the *same* class, carrying the *same* fields,
 rendering the *same* agent-facing envelope, down to the allowed-range text the
-operator is told to report.
+operator is told to report. A limits refusal crosses as a ``refused`` result
+carrying its ``LimitsViolation``; ``channel_write`` renders it as the envelope
+the in-process violation renders.
 
 Nothing is stubbed on the far side: every test here spawns the real
 ``python -m osprey_connectors.ipc._host``, drives it through the real
@@ -14,8 +16,8 @@ Nothing is stubbed on the far side: every test here spawns the real
 comes back through the real ``connector_error_handler``. Two connectors are
 used, for two different claims:
 
-- :mod:`tests.mcp_server._raising_connector`, reached by dotted path, raises
-  each refusal class with *every* field populated — including ``max_step`` and
+- :mod:`tests.mcp_server._raising_connector`, reached by dotted path, refuses
+  with *every* field populated — including ``max_step`` and
   ``current_value``, which no naturally occurring violation sets without an
   EPICS readback — so field fidelity is tested exhaustively rather than
   wherever the defaults happen to land.
@@ -43,12 +45,14 @@ import yaml
 
 from osprey.mcp_server.control_system.connector_host_manager import SwitchError
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
+from osprey.mcp_server.control_system.tools.channel_write import _limits_violation_error
 from osprey.mcp_server.errors import NothingAnsweredError
+from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.errors import (
-    ChannelLimitsViolationError,
     ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorUnavailableError,
+    RefusalReason,
 )
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
@@ -61,6 +65,7 @@ from tests.mcp_server._raising_connector import (
     LIMITS_CHANNEL,
     LIMITS_FIELDS,
     READ_VALUE,
+    expected_violation,
     make_limits_violation,
     make_write_blocked,
 )
@@ -256,28 +261,29 @@ async def _envelope_for(exc: BaseException, tool_name: str = "channel_write") ->
 # ------------------------------------------------- field fidelity (CC-1 (a))
 
 
-async def test_a_limits_violation_arrives_as_the_real_class_with_every_field(raising_pair):
-    """The proxied exception is the class itself, not a stand-in carrying text."""
-    with pytest.raises(ChannelLimitsViolationError) as exc_info:
-        await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
+async def test_a_limits_refusal_arrives_as_a_result_with_every_field(raising_pair):
+    """The proxied refusal is a result carrying the violation, every field intact."""
+    result = await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
 
-    exc = exc_info.value
-    # Identity, not merely isinstance: a subclass or a look-alike would be a
-    # different thing arriving at the envelope's isinstance branches.
-    assert type(exc) is ChannelLimitsViolationError
-    assert {name: getattr(exc, name) for name in LIMITS_FIELDS} == LIMITS_FIELDS
+    assert result.outcome is WriteOutcome.REFUSED
+    assert result.refusal_reason is RefusalReason.LIMITS
+    assert result.value_written == LIMITS_FIELDS["attempted_value"]
+    assert result.limits_violation == expected_violation()
 
 
-async def test_the_envelopes_isinstance_branch_fires_on_the_reconstructed_class(raising_pair):
+async def test_the_checked_write_raises_the_refusal_class_the_handler_names(raising_pair):
     """The child's refusal arrives as the very class the handler's ``except`` names.
 
     The handler's ``except`` clauses name the classes from ``osprey_connectors.errors``,
-    and the child's refusal frame is rebuilt into an instance of that same class. If
-    the rebuilt class were ever a different object, every refusal would fall through
-    to ``internal_error`` — silently, and only across the process boundary.
+    and a checked write raises an instance of that same class, with the violation the
+    child's result carried. If it were ever a different object, every refusal would
+    fall through to ``internal_error`` — silently, and only across the process boundary.
     """
-    with pytest.raises(ChannelLimitsViolationError):
-        await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
+    with pytest.raises(ChannelWriteBlockedError) as exc_info:
+        await raising_pair.write_channel_checked(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
+
+    assert exc_info.value.reason is RefusalReason.LIMITS
+    assert exc_info.value.violation == expected_violation()
 
 
 async def test_a_write_refusal_arrives_with_its_reason_and_its_own_message(raising_pair):
@@ -295,11 +301,10 @@ async def test_a_write_refusal_arrives_with_its_reason_and_its_own_message(raisi
 
 
 async def test_the_limits_envelope_is_identical_to_the_in_process_one(raising_pair):
-    """Same envelope, key for key, whichever side of the pipe raised it."""
-    with pytest.raises(ChannelLimitsViolationError) as exc_info:
-        await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
+    """Same envelope, key for key, whichever side of the pipe refused."""
+    result = await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
 
-    proxied = await _envelope_for(exc_info.value)
+    proxied = await _envelope_for(_limits_violation_error(result))
     in_process = await _envelope_for(make_limits_violation())
 
     assert proxied == in_process
@@ -308,10 +313,9 @@ async def test_the_limits_envelope_is_identical_to_the_in_process_one(raising_pa
 
 async def test_the_limits_envelope_tells_the_operator_the_allowed_range(raising_pair):
     """The range is what the operator is told to report, so it is asserted verbatim."""
-    with pytest.raises(ChannelLimitsViolationError) as exc_info:
-        await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
+    result = await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
 
-    envelope = await _envelope_for(exc_info.value)
+    envelope = await _envelope_for(_limits_violation_error(result))
 
     assert envelope["error_message"] == (
         f"Channel limits violated during channel_write: {LIMITS_FIELDS['violation_reason']} "
@@ -349,22 +353,22 @@ async def test_the_refusal_envelope_is_identical_to_the_in_process_one(raising_p
 
 
 async def test_a_real_limits_database_refusal_renders_its_range_across_the_boundary(limits_pair):
-    """Nobody constructed this exception: config went in, a refusal came back.
+    """Nobody constructed this refusal: config went in, a refusal came back.
 
-    The mock connector's own ``LimitsValidator`` raises it inside the child,
+    The mock connector's own ``LimitsValidator`` refuses it inside the child,
     which is the path a deployment actually takes, and the range the operator
     reads on this side is the one the database configured.
     """
-    with pytest.raises(ChannelLimitsViolationError) as exc_info:
-        await limits_pair.write_channel(BOUNDED_CHANNEL, 150.0)
+    result = await limits_pair.write_channel(BOUNDED_CHANNEL, 150.0)
 
-    exc = exc_info.value
-    assert exc.address == BOUNDED_CHANNEL
-    assert exc.attempted_value == 150.0
-    assert exc.violation_type == "MAX_EXCEEDED"
-    assert (exc.min_value, exc.max_value) == (0.0, 100.0)
+    assert result.address == BOUNDED_CHANNEL
+    assert result.value_written == 150.0
+    violation = result.limits_violation
+    assert violation is not None
+    assert violation.kind == "MAX_EXCEEDED"
+    assert (violation.min_value, violation.max_value) == (0.0, 100.0)
 
-    envelope = await _envelope_for(exc)
+    envelope = await _envelope_for(_limits_violation_error(result))
 
     assert envelope["error_type"] == "limits_violation"
     assert "(allowed range: [0.0, 100.0])" in envelope["error_message"]
@@ -377,8 +381,8 @@ async def test_a_real_limits_database_refusal_renders_its_range_across_the_bound
 
 async def test_a_refusal_does_not_end_the_child(raising_pair):
     """A refused write is an answer, not a casualty: the next call still works."""
-    with pytest.raises(ChannelLimitsViolationError):
-        await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
+    result = await raising_pair.write_channel(LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"])
+    assert result.refusal_reason is RefusalReason.LIMITS
 
     value = await raising_pair.read_channel("TEST:ANY:CHANNEL")
 

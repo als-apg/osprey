@@ -26,6 +26,7 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     ConnectorUnavailableError,
     ConnectRefusedError,
+    LimitsViolation,
     RecoveryRecord,
 )
 from osprey_connectors.ipc import _exceptions as exceptions
@@ -72,12 +73,11 @@ _SAMPLES: dict[str, Callable[[], BaseException]] = {
     "ChannelNotFoundError": lambda: ChannelNotFoundError("SR:Q"),
     "ChannelUnreachableError": lambda: ChannelUnreachableError("SR:Q", "SR:Q timed out"),
     "ChannelWriteBlockedError": lambda: ChannelWriteBlockedError(
-        "SR:Q", "WRITES_DISABLED", "Writes are disabled for this deployment"
+        "SR:Q", "WRITES_DISABLED", message="Writes are disabled for this deployment"
     ),
     "ChannelWriteFailedError": lambda: ChannelWriteFailedError(
         "SR:Q",
-        "MISMATCH",
-        outcome=WriteOutcome.MISMATCH,
+        WriteOutcome.MISMATCH,
         value_written=1.7,
         observed_value=1.5,
     ),
@@ -98,7 +98,7 @@ def test_the_registry_is_the_builtins_plus_the_vocabulary():
 
 def test_write_blocked_field_list_is_the_published_spec():
     spec = exceptions.EXCEPTION_SPECS["ChannelWriteBlockedError"]
-    assert spec.fields == ("address", "reason", "verdict_reason")
+    assert spec.fields == ("address", "reason", "verdict_reason", "violation")
     # Its text is not a field: the frame's own message feeds the ctor keyword.
     assert spec.message_kwarg == "message"
 
@@ -216,6 +216,7 @@ def test_write_blocked_round_trips_reason_and_custom_message():
         "address": "SR:BEND:1:CUR",
         "reason": "WRITES_DISABLED",
         "verdict_reason": None,
+        "violation": None,
     }
 
     rebuilt = exceptions.decode_exception(body)
@@ -243,6 +244,33 @@ def test_write_blocked_default_message_survives():
     assert rebuilt.address == "SR:Y"
     assert rebuilt.reason == "LIMITS"
     assert str(rebuilt) == str(original)
+
+
+def test_a_limits_refusal_round_trips_its_violation():
+    violation = LimitsViolation(
+        kind="MAX_STEP_EXCEEDED",
+        reason="Step 5.0 above maximum step 1.0",
+        max_step=1.0,
+        current_value=2.0,
+    )
+    original = ChannelWriteBlockedError("SR:Y", "LIMITS", violation=violation)
+
+    rebuilt = _round_trip(original)
+
+    assert isinstance(rebuilt, ChannelWriteBlockedError)
+    assert rebuilt.violation == violation
+
+
+def test_a_blocked_error_with_an_unknown_reason_decodes_as_an_internal_error():
+    body = exceptions.ExceptionFrameBody(
+        class_tag="ChannelWriteBlockedError",
+        message="refused",
+        fields={"address": "SR:Y", "reason": "NOT_A_REASON"},
+    )
+
+    rebuilt = exceptions.decode_exception(body)
+
+    assert type(rebuilt) is ConnectorInternalError
 
 
 def test_an_unknown_channel_round_trips_as_itself():
@@ -318,7 +346,7 @@ def test_fields_are_read_by_spec_name_not_from_the_instance_dict():
     body = exceptions.encode_exception(original)
 
     assert "internal_handle" not in body.fields
-    assert set(body.fields) == {"address", "reason", "verdict_reason"}
+    assert set(body.fields) == {"address", "reason", "verdict_reason", "violation"}
 
 
 def test_missing_attribute_encodes_as_none_without_raising():

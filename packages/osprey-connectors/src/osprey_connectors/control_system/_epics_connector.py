@@ -45,11 +45,10 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteOutcome,
+    SendReport,
     _batch_send_verdict,
     _verdict_refusal,
     normalise_limit_pair,
-    values_match,
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
 from osprey_connectors.control_system._epics_bulk import Aioca, CABulk, normalise_address
@@ -461,6 +460,10 @@ class _PutSent:
     as_text: bool
 
 
+class _TextSent(SendReport):
+    """A put that went to a char array as text, so its confirming read is read as text."""
+
+
 @dataclass(frozen=True, slots=True)
 class _PutFault:
     """A put that was not sent, not acknowledged, or not taken; ``failure`` says why."""
@@ -538,24 +541,6 @@ def _severity_int(severity: object) -> int | None:
     if severity is None:
         return None
     return _int_or_none(severity)
-
-
-def _readback_alarm_fields(readback: object) -> tuple[str | None, int | None]:
-    """Alarm name and severity of a readback, or ``(None, None)`` if unreported.
-
-    ``None`` means "the readback carried no alarm metadata" and is deliberately
-    distinct from a reported healthy readback (severity ``0``), so a consumer
-    can tell "no alarm" from "no information".
-    """
-    metadata: object = getattr(readback, "metadata", None)
-    if metadata is None:
-        return None, None
-
-    status: object = getattr(metadata, "alarm_status", None)
-    raw: object = getattr(metadata, "raw_metadata", None) or {}
-    severity = _severity_int(raw.get("severity") if isinstance(raw, dict) else None)
-
-    return (str(status) if status is not None else None, severity)
 
 
 class _LimitFields(TypedDict):
@@ -1918,7 +1903,23 @@ class EPICSConnector(ControlSystemConnector):
         return _verdict_refusal(address, value, verdict)
 
     @override
-    def _write_precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
+    def _bound(self, timeout_s: float | None) -> float:
+        """The per-call ``timeout_s`` when one is given, else the block's ``timeout_s``."""
+        return self._timeout if timeout_s is None else timeout_s
+
+    @override
+    async def _run_check(self, check: Callable[[], None], *, timeout_s: float) -> None:
+        """Run a write's limits check on the write executor, unbounded here.
+
+        A caller on the event loop is never stalled by the blocking read that
+        ``max_step`` validation waits for, and the validation never queues
+        behind PVA reads on the default executor. That read carries its own
+        budget (``step_read_timeout``), so the check needs no second one.
+        """
+        await self._run_write_phase(check)
+
+    @override
+    def _precheck(self, address: str, value: object) -> tuple[str, ChannelWriteResult | None]:
         """The record a write names, and the refusal that needs no I/O to make."""
         # One name for the whole write, decided before any check runs. ``X``,
         # ``ca://X`` and a spelling with surrounding whitespace are one record,
@@ -1938,16 +1939,13 @@ class EPICSConnector(ControlSystemConnector):
         # one name the put would use, so neither padding nor a scheme slips a
         # PVA-routed record past the refusal.
         if self._is_pva_channel(given) or self._is_pva_channel(address):
-            return address, ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason=RefusalReason.VALIDATION_ERROR,
-                error_message=(
-                    f"Write to '{address}' refused: PVAccess writes are not supported. "
-                    "This address matches a configured 'pva_channels' pattern, so it is routed "
-                    "over PVAccess and is read-only in this deployment. No write was attempted."
-                ),
+            return address, ChannelWriteResult.refused(
+                address,
+                value,
+                RefusalReason.VALIDATION_ERROR,
+                f"Write to '{address}' refused: PVAccess writes are not supported. "
+                "This address matches a configured 'pva_channels' pattern, so it is routed "
+                "over PVAccess and is read-only in this deployment. No write was attempted.",
             )
 
         # Step 0b: the verdict allowed this write (the guard asked it first), but
@@ -1956,229 +1954,55 @@ class EPICSConnector(ControlSystemConnector):
         return address, self._role_refusal(address, value)
 
     @override
-    async def write_channel(
-        self,
-        address: str,
-        value: object,
-        *,
-        timeout_s: float | None = None,
-        confirm: bool | None = None,
-    ) -> ChannelWriteResult:
-        """
-        Write a value to an EPICS channel and confirm the channel took it.
+    async def _send(
+        self, address: str, value: ContractAny, *, timeout_s: float, wait: bool
+    ) -> SendReport:
+        """Put one value that passed every check, waiting for the put-callback when *wait*.
 
-        The connector automatically:
-        1. Validates limits (min/max/step/writable) if limits checking is enabled
-        2. Puts the value, waiting for the IOC's put-callback when confirming
-        3. Re-reads the channel once and compares what it now holds with what
-           was sent, using the shared :func:`values_match` rule
-
-        Args:
-            address: EPICS channel address
-            value: Value to write
-            timeout_s: Timeout in seconds
-            confirm: Whether to confirm the write by re-reading the channel.
-                ``None`` means "no opinion" and resolves this channel's own
-                policy from the limits database.
-
-        Returns:
-            ChannelWriteResult carrying the one outcome word, and — when the
-            write was confirmed — what the channel was seen to hold
+        The put-callback is Channel Access's acknowledgement that the IOC
+        processed the put, so a confirming write waits for it: the read that
+        follows would otherwise race the record's own processing. A write
+        nobody asked to confirm does not wait. The put phase has one deadline,
+        set here so the wait for the CA loop is charged to it as well.
 
         Raises:
-            ChannelUnreachableError: If the put fails in a way that leaves its
-                outcome unknown
-            ChannelLimitsViolationError: If limits validation fails (when enabled)
+            ChannelUnreachableError: The put failed in a way that leaves its
+                outcome unknown.
         """
-        address, refusal = self._write_precheck(address, value)
-        if refusal is not None:
-            return refusal
-
-        if timeout_s is None:
-            timeout_s = self._timeout
-
-        # Step 1: Resolve the channel's confirmation policy when the caller has
-        # no opinion (cheap, on-loop). An explicit False is an answer and is
-        # never re-resolved.
-        if confirm is None:
-            confirm = self._resolve_confirm(address)
-
-        # Import here to avoid circular dependency
-        from osprey_connectors.errors import ChannelLimitsViolationError
-
-        # Step 2: Validate limits (FAIL CLOSED) in a thread of the write
-        # executor, so a caller on the event loop is never stalled by the
-        # blocking read that max_step validation waits for, and the validation
-        # never queues behind PVA reads on the default executor.
-        def _validate() -> Exception | None:
-            if self._limits_validator:
-                try:
-                    self._limits_validator.validate(
-                        address, value, read_current=self.current_value_reader()
-                    )
-                    logger.debug(f"✓ Limits validation passed: {address}={value}")
-                except ChannelLimitsViolationError:
-                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
-                except Exception as e:
-                    # FAIL CLOSED: any other validation error refuses the write — no caput
-                    # issued. The refusal itself is built on the loop, by the base class's
-                    # one helper, so all four connectors word it identically.
-                    return e
-            return None
-
-        validation_error = await self._run_write_phase(_validate)
-        if validation_error is not None:
-            return self._validation_refusal(address, value, validation_error)
-
-        return await self._put_and_verify(address, value, timeout_s, confirm)
-
-    async def _put_and_verify(
-        self, address: str, value: object, timeout_s: float, confirm: bool
-    ) -> ChannelWriteResult:
-        """Put one value that passed every check, and confirm it when asked.
-
-        Steps 3 and 4 of :meth:`write_channel`, shared with a batch.
-        """
-        # Step 3: The put. The put-callback is Channel Access's acknowledgement
-        # that the IOC processed the put, so a confirming write waits for it:
-        # the read that follows would otherwise race the record's own
-        # processing. A write nobody asked to confirm does not wait. The put
-        # phase has one deadline T, set here so the wait for the CA loop is
-        # charged to it as well.
         put_deadline = (time.time() + timeout_s,)
         put = await self._ca_loop.run(
-            self._put_ca(address, value, wait=bool(confirm), deadline=put_deadline)
+            self._put_ca(address, value, wait=wait, deadline=put_deadline)
         )
         if isinstance(put, _PutFault):
-            return self._put_fault_result(address, value, timeout_s, put)
-
-        if not confirm:
-            # Nothing was checked, and nothing may be claimed: the result stays
-            # value-less by design.
-            logger.debug(f"EPICS write (unconfirmed by request): {address} = {value}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNREQUESTED,
-            )
-
-        # Step 4: One fresh read of the channel that was just written.
-        try:
-            observed = await self._confirming_read(address, timeout_s)
-        except Exception as e:
-            logger.warning(f"EPICS confirming read failed for {address}: {e}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=(
-                    f"Write to '{address}' could not be confirmed — "
-                    f"the read that followed it failed: {e}"
-                ),
-            )
-
-        sent, as_text = put.sent, put.as_text
-        if as_text:
-            # Written to a char array as text, so it is read back as text.
-            observed = evolve(observed, value=_char_text(observed.value))
-
-        alarm_status, alarm_severity = _readback_alarm_fields(observed)
-        metadata = getattr(observed, "metadata", None)
-        enum_label = getattr(metadata, "enum_label", None) if metadata is not None else None
-
-        if values_match(sent, observed.value, enum_label=enum_label):
-            logger.debug(f"EPICS write confirmed: {address} = {observed.value}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.CONFIRMED,
-                observed_value=observed.value,
-                alarm_status=alarm_status,
-                alarm_severity=alarm_severity,
-            )
-
-        logger.warning(
-            f"EPICS write mismatch on {address}: sent {value}, channel holds {observed.value}"
-        )
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.MISMATCH,
-            # No error_message: both values are on the result, and the raising
-            # path composes "sent X, channel holds Y" from them — a message set
-            # here would take that wording's place.
-            observed_value=observed.value,
-            alarm_status=alarm_status,
-            alarm_severity=alarm_severity,
-            notes=f"Channel holds {observed.value}, sent {value}",
-        )
+            return self._fault_report(put, timeout_s)
+        if put.as_text:
+            return _TextSent(sent=put.sent)
+        return SendReport(sent=put.sent)
 
     @staticmethod
-    def _put_fault_result(
-        address: str, value: object, timeout_s: float, put: _PutFault
-    ) -> ChannelWriteResult:
-        """The result of a put that was not sent, not acknowledged, or not taken."""
+    def _fault_report(put: _PutFault, timeout_s: float) -> SendReport:
+        """The report of a put that was not sent, not acknowledged, or not taken."""
         payload = put.failure
         if put.verdict == "cs_refused":
             # The control system was asked and said no: access security, not
             # a client bug, and nothing was written.
-            logger.warning(f"Control system refused write to {address}: {payload}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason=RefusalReason.CONTROL_SYSTEM_REFUSED,
-                error_message=(
-                    f"Write to '{address}' refused by the control system "
-                    f"(access security); no value was written: {payload}"
-                ),
-            )
-
-        # The value was sent and its callback never came: nothing has said the
-        # IOC took it, so the outcome is unknown and no re-read is made.
+            return SendReport(fault="cs_refused", detail=f"access security denied it: {payload}")
         if put.verdict == "unacknowledged":
-            logger.warning(f"EPICS put not acknowledged within {timeout_s}s: {address} = {value}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.UNCONFIRMED,
-                error_message=(
-                    f"Write to '{address}' could not be confirmed — the control "
-                    f"system did not acknowledge the put within {timeout_s}s"
-                ),
+            # The value was sent and its callback never came: nothing has said
+            # the IOC took it, so the outcome is unknown and no re-read is made.
+            return SendReport(
+                fault="unacknowledged",
+                detail=f"the control system did not acknowledge the put within {timeout_s}s",
             )
-
         if put.verdict == "unwritable":
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason=RefusalReason.VALIDATION_ERROR,
-                error_message=(f"Write to '{address}' refused: {payload}. No value was sent."),
-            )
-
+            return SendReport(fault="unwritable", detail=str(payload))
         if put.verdict == "put_failed":
-            logger.warning(f"IOC did not take the put to {address}: {payload}")
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.FAILED,
-                error_message=(
-                    f"Write to '{address}' failed: the IOC answered the put and "
-                    f"did not take it: {payload}"
-                ),
+            return SendReport(
+                fault="not_taken",
+                detail=f"the IOC answered the put and did not take it: {payload}",
             )
-
         # "not_sent": nothing left this process.
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.FAILED,
-            error_message=(
-                f"Failed to write to channel '{address}': no value was sent "
-                f"within {timeout_s}s ({payload})"
-            ),
-        )
+        return SendReport(fault="not_sent", detail=f"within {timeout_s}s: {payload}")
 
     @override
     async def _current_values(self, addresses: list[str]) -> dict[str, object] | None:
@@ -2227,20 +2051,18 @@ class EPICSConnector(ControlSystemConnector):
         Channel Access takes the puts concurrently, so a batch costs about one
         put and one confirming read however many records it names. The write
         verdict is asked once more immediately before the puts start; a put in
-        flight cannot be recalled. A subclass's own refusal must live in
-        :meth:`_write_precheck`: an overridden :meth:`write_channel` is not
-        consulted by a batch.
+        flight cannot be recalled. The batch was checked whole, so each write
+        goes straight to its send.
         """
         refused = self._send_refusal(batch)
         if refused is not None:
             return [_verdict_refusal(name, value, refused) for name, value in batch]
-        if timeout_s is None:
-            timeout_s = self._timeout
+        bound = self._bound(timeout_s)
 
         async def send(name: str, value: object) -> ChannelWriteResult:
             confirmed = self._resolve_confirm(name) if confirm is None else confirm
             try:
-                return await self._put_and_verify(name, value, timeout_s, confirmed)
+                return await self._send_and_confirm(name, value, timeout_s=bound, confirm=confirmed)
             except Exception as exc:
                 return _batch_send_verdict(name, value, exc)
 
@@ -2254,22 +2076,29 @@ class EPICSConnector(ControlSystemConnector):
                 raise end
         return [end for end in ended if not isinstance(end, BaseException)]
 
-    async def _confirming_read(self, address: str, timeout_s: float) -> ChannelValue:
+    @override
+    async def _confirming_read(
+        self, address: str, sent: SendReport, *, timeout_s: float
+    ) -> ChannelValue:
         """Read the channel a write just touched, straight off the wire.
 
         The ordinary read path already asks the IOC every time, so a reading
         taken after the put-callback cannot be a stale cached one. A read that
-        fails raises, and the caller reports the write as unconfirmed: what
-        the channel holds is unknown, not different.
+        fails raises, and the write is reported unconfirmed: what the channel
+        holds is unknown, not different. A value written to a char array as
+        text is read back as the text the array holds.
 
         Connect and get share one deadline T; the control fields are fetched
         only for an enumeration, whose label the comparison uses, and under
         the same deadline.
         """
         deadline = (time.time() + timeout_s,)
-        return await self._ca_loop.run(
+        observed = await self._ca_loop.run(
             self._read_channel_ca(normalise_address(address), deadline, timeout_s, ctrl="enum")
         )
+        if isinstance(sent, _TextSent):
+            return evolve(observed, value=_char_text(observed.value))
+        return observed
 
     @override
     async def read_multiple_channels(

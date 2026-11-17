@@ -233,7 +233,10 @@ class TestVAInProcessConnector:
 
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
-        assert result.error_message == "Write to 'A:SP' refused by the simulator"
+        assert result.error_message == (
+            "Write to 'A:SP' refused by the control system; no value was written: "
+            "the simulator refused it"
+        )
 
         await connector.disconnect()
 
@@ -292,7 +295,10 @@ class TestVAInProcessConnector:
         result = await connector.write_channel("A:SP", 1.0)
 
         assert result.outcome is WriteOutcome.REFUSED
-        assert result.error_message == "orbit does not close"
+        assert result.error_message == (
+            "Write to 'A:SP' refused by the control system; no value was written: "
+            "orbit does not close"
+        )
 
         await connector.disconnect()
 
@@ -1022,7 +1028,7 @@ class TestInProcessWriteConfirmationContract:
 
     @staticmethod
     def _raising_read(message):
-        async def _read(_channel_address):
+        async def _read(_channel_address, _sent, *, timeout_s):  # noqa: ARG001 - the read-back hook's signature
             raise RuntimeError(message)
 
         return _read
@@ -1136,8 +1142,8 @@ class TestInProcessWriteConfirmationContract:
     async def test_notes_text_does_not_change_the_outcome(self, monkeypatch, tmp_path):
         """Two confirming reads failing differently classify identically.
 
-        The exception text flows into ``notes`` and ``error_message`` and
-        nowhere else — the machine-readable verdict must be identical.
+        The exception text flows into ``error_message`` and nowhere else —
+        the machine-readable verdict must be identical.
         """
         connector = await self._connected_in_process(monkeypatch, tmp_path)
 
@@ -1156,7 +1162,7 @@ class TestInProcessWriteConfirmationContract:
                 result.alarm_severity,
             )
 
-        assert first.notes != second.notes, "notes should differ"
+        assert first.error_message != second.error_message, "messages should differ"
         assert structured(first) == structured(second)
 
         await connector.disconnect()

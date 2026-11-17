@@ -34,9 +34,9 @@ proxy method that could not deliver callbacks across the boundary would be a
 lie about the surface.
 
 ``write_channel_checked`` is the one method that is not a wire method. It is
-the base class's own function, bound here unchanged: it only composes
-``write_channel`` — which crosses to the child, where the ``writes_enabled``
-guard and the limits checks run — with
+the base class's own composition, written out here: ``write_channel`` — which
+crosses to the child, where the ``writes_enabled`` guard and the limits checks
+run — held to
 :func:`~osprey_connectors.control_system.raise_for_write_result`, which
 reads the result the child already decided. Running that composition in the
 parent keeps every refusal decision in the child.
@@ -91,7 +91,7 @@ from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
-    ControlSystemConnector,
+    raise_for_write_result,
 )
 from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.ipc import _frames as frames
@@ -350,8 +350,18 @@ class ConnectorHostProxy:
             raise _unexpected(reply, "write_multiple_channels")
         return [_expect(item, ChannelWriteResult, "write_multiple_channels") for item in reply]
 
-    #: The base class's own function, not a copy: see the module docstring.
-    write_channel_checked = ControlSystemConnector.write_channel_checked
+    async def write_channel_checked(
+        self,
+        address: str,
+        value: ContractAny,
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
+    ) -> ChannelWriteResult:
+        """``write_channel`` held to the denial contract in the parent: see the module docstring."""
+        return raise_for_write_result(
+            await self.write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
+        )
 
     async def validate_channel(self, address: str) -> bool:
         """Whether the channel exists and is reachable, as the child's connector sees it."""

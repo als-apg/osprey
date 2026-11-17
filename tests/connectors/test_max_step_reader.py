@@ -25,7 +25,6 @@ from osprey_connectors.control_system._limits_validator import (
     step_read_timeout_s,
 )
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors_tests._epics_fakes import FakeChannel, ca_connector, ca_reading
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests.connectors._driver_fakes import driven_through
@@ -164,10 +163,10 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
     connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
     connector._limits_validator = _step_validator("SIM:CHANNEL:SP", max_step=5.0)
 
-    with pytest.raises(ChannelLimitsViolationError) as exc:
-        await connector.write_channel("SIM:CHANNEL:SP", 90.0)
+    result = await connector.write_channel("SIM:CHANNEL:SP", 90.0)
 
-    assert exc.value.violation_type == "MAX_STEP_EXCEEDED"
+    assert result.refusal_reason == "LIMITS"
+    assert result.limits_violation.kind == "MAX_STEP_EXCEEDED"
     assert connector._composite.held(["SIM:CHANNEL:SP"])["SIM:CHANNEL:SP"] == CURRENT
 
     await connector.disconnect()

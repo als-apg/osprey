@@ -609,19 +609,21 @@ class TestConfirmResolution:
         assert result.outcome is WriteOutcome.CONFIRMED
         assert proxy.read_attribute.call_count == 1
 
-    async def test_limits_violation_propagates(self):
+    async def test_a_limits_violation_is_a_limits_refusal(self):
         from osprey_connectors.errors import ChannelLimitsViolationError
 
         validator = MagicMock()
         validator.validate.side_effect = ChannelLimitsViolationError(
-            _ADDRESS, 1e9, "range", "too big", max_value=200.0
+            _ADDRESS, 1e9, "MAX_EXCEEDED", "too big", max_value=200.0
         )
-        with pytest.raises(ChannelLimitsViolationError):
-            await _write_with_validator(validator, value=1e9)
+        refused, proxy = await _write_with_validator(validator, value=1e9)
+        assert refused.refusal_reason == "LIMITS"
+        assert refused.limits_violation.max_value == 200.0
+        proxy.write_attribute.assert_not_called()
 
 
 class TestNonBlockingOffload:
-    """Validation and the send run in ONE thread offload.
+    """Validation and the send each run in a thread offload, one after the other.
 
     ``max_step`` validation reads the attribute's present value through a
     blocking ``read_attribute``, and both the ``DeviceProxy`` lookup and the
@@ -631,14 +633,15 @@ class TestNonBlockingOffload:
     """
 
     async def test_validate_and_send_run_off_the_event_loop(self):
-        """Validation and the send run on one thread, and it is not the loop's.
+        """Validation and the send each run off the loop, as two separate steps.
 
         A stand-in for ``max_step``'s blocking fresh read parks inside
         ``validate()`` until this test releases it. Regaining the loop while
         that call is still parked is possible only if it never ran there.
         The thread each fake records says the same thing a second way:
         ``validate()``, the ``DeviceProxy`` lookup and ``write_attribute``
-        all report one thread, and it is not the one the loop runs on.
+        report no thread the loop runs on. The lookup and the write share
+        the send's offload; the check is its own, finished before it.
         """
         loop_thread = threading.get_ident()
         entered = threading.Event()  # validate() has begun
@@ -694,36 +697,29 @@ class TestNonBlockingOffload:
         assert still_parked, "the loop was regained only after validate() returned"
         assert threads.keys() == {"validate", "proxy", "write"}
         assert loop_thread not in threads.values()
-        assert len(set(threads.values())) == 1, f"the offload was split: {threads}"
+        assert threads["proxy"] == threads["write"]
         validator.validate.assert_called_once()
         assert result.outcome is WriteOutcome.UNREQUESTED
         proxy.write_attribute.assert_called_once_with("Current", 10.0)
 
-    async def test_confirm_is_not_resolved_for_a_refused_write(self):
-        """A write that never left is not a confirmation question.
-
-        The policy lookup happens on the branch where the value was actually
-        sent, so a write refused by validation does not ask the limits database
-        whether it should be read back.
-        """
+    async def test_a_check_that_cannot_be_made_sends_nothing(self):
+        """A validation error refuses the write before anything is sent."""
         validator = _make_limits_validator()
         validator.validate.side_effect = RuntimeError("limits database unreachable")
         refused, proxy = await _write_with_validator(validator)
         assert refused.outcome is WriteOutcome.REFUSED
         assert refused.refusal_reason == "VALIDATION_ERROR"
         proxy.write_attribute.assert_not_called()
-        validator.resolve_confirm.assert_not_called()
 
-    async def test_confirm_is_not_resolved_for_a_failed_write(self):
-        """A write the device did not take is not a confirmation question either."""
+    async def test_a_write_the_device_did_not_take_is_not_read_back(self):
+        """A write the device did not take is failed, with no confirming read."""
         validator = _make_limits_validator()
         failed, proxy = await _write_with_validator(
             validator, write_error=RuntimeError("write refused by device")
         )
         assert failed.outcome is WriteOutcome.FAILED
-        assert failed.notes == "TANGO did not take the value"
+        assert "TANGO did not take the value" in failed.error_message
         proxy.read_attribute.assert_not_called()
-        validator.resolve_confirm.assert_not_called()
 
 
 async def _bounded_tango(timeout):
@@ -867,7 +863,7 @@ class TestUnreachableDevice:
         conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert result.outcome is WriteOutcome.FAILED
-        assert result.notes == "TANGO did not take the value"
+        assert "TANGO did not take the value" in result.error_message
         assert _ADDRESS in result.error_message
         assert result.observed_value is None
         proxy.read_attribute.assert_not_called()

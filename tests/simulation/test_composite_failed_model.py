@@ -221,7 +221,10 @@ async def test_a_live_quadrupole_write_that_destabilises_the_orbit_is_refused(
 
     assert result.outcome is WriteOutcome.REFUSED
     assert raised
-    assert result.error_message == str(raised[-1])
+    assert result.error_message == (
+        f"Write to '{result.address}' refused by the control system; no value was written: "
+        f"{raised[-1]}"
+    )
     assert composite.held(setpoints) == before
     assert model_status(connector, "SR") == "ok"
     assert not journal.exists()
@@ -234,6 +237,12 @@ LINE_SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "facility_demo" 
 
 #: A single-pass loss: the element index, its ``FamName`` and the turn.
 LOST = re.compile(r"^lost at element \d+ \(\w+\) turn 0: ")
+
+#: A write the composite refused because the beam was lost.
+LOST_WRITE = re.compile(
+    r"^Write to '[^']+' refused by the control system; no value was written: "
+    r"lost at element \d+ \(\w+\) turn 0: "
+)
 
 
 LINE = load_module("_line", LINE_SOURCE)
@@ -262,7 +271,7 @@ async def test_a_live_line_corrector_write_that_loses_the_beam_is_refused(
 
     assert result.outcome is WriteOutcome.REFUSED
     assert result.error_message is not None
-    assert LOST.match(result.error_message), result.error_message
+    assert LOST_WRITE.match(result.error_message), result.error_message
     assert composite.held([corrector]) == before
     assert model_status(connector, "LINE") == "ok"
     await connector.disconnect()

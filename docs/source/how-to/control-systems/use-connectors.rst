@@ -234,7 +234,8 @@ Pick a control system
 
       A read that does not answer within ``timeout_s`` (or the call's own
       timeout) raises ``ChannelUnreachableError`` naming the property, as an
-      EPICS read does. A set that does not return within it
+      EPICS read does. A limits check that does not finish within it refuses
+      the write with nothing sent. A set that does not return within it
       is reported ``unconfirmed``, because the value may still arrive. A
       ``timeout_s`` that is not a positive number of seconds is refused when
       the connector connects.

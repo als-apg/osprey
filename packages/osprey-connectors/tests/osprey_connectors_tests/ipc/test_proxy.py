@@ -36,6 +36,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
     ConnectorInternalError,
+    LimitsViolation,
 )
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import (
@@ -601,26 +602,25 @@ async def test_write_channel_checked_turns_a_refusal_into_blocked(teardown):
     assert caught.value.reason == "WRITES_DISABLED"
 
 
-async def test_write_channel_checked_normalizes_a_limits_violation(teardown):
-    async def handler(child, frame):
-        child.send_error(
-            frame.request_id,
-            ChannelLimitsViolationError(
-                address="SR:SP",
-                value=9.0,
-                violation_type="MAX_EXCEEDED",
-                violation_reason="above max",
-                min_value=0.0,
-                max_value=5.0,
-            ),
-        )
-
-    proxy, child = await _proxy_with_child(handler)
+async def test_write_channel_checked_raises_a_limits_refusal_with_its_violation(teardown):
+    violation = LimitsViolation(
+        kind="MAX_EXCEEDED", reason="above max", min_value=0.0, max_value=5.0
+    )
+    refused = ChannelWriteResult(
+        address="SR:SP",
+        value_written=9.0,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason="LIMITS",
+        error_message="Write to 'SR:SP' refused by the limits (MAX_EXCEEDED): above max",
+        limits_violation=violation,
+    )
+    proxy, child = await _proxy_with_child(_echo_handler([refused]))
     teardown.append((proxy, child))
 
     with pytest.raises(ChannelWriteBlockedError) as caught:
         await proxy.write_channel_checked("SR:SP", 9.0)
     assert caught.value.reason == "LIMITS"
+    assert caught.value.violation == violation
 
 
 async def test_an_error_the_child_sent_is_marked_as_the_childs(teardown):

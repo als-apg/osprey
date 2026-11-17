@@ -16,6 +16,7 @@ from osprey_connectors.errors import (
     ChannelWriteFailedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
+    LimitsViolation,
     RecoveryRecord,
     RefusalReason,
 )
@@ -31,7 +32,7 @@ class TestChannelWriteBlockedError:
         )
 
     def test_custom_message(self):
-        err = ChannelWriteBlockedError("RING:MAG:PS:SP", "LIMITS", "value out of range")
+        err = ChannelWriteBlockedError("RING:MAG:PS:SP", "LIMITS", message="value out of range")
         assert err.address == "RING:MAG:PS:SP"
         assert err.reason == "LIMITS"
         assert str(err) == "value out of range"
@@ -51,21 +52,26 @@ class TestChannelWriteBlockedError:
             "CHANNEL_NOT_FOUND",
         ]
 
-    def test_unknown_reason_permitted(self):
-        # The exception keeps an unknown reason as given (permissive by design).
-        err = ChannelWriteBlockedError("chan", "SOMETHING_ELSE")
-        assert err.reason == "SOMETHING_ELSE"
-        assert str(err) == "Write to 'chan' refused (SOMETHING_ELSE)"
+    @pytest.mark.parametrize("reason", ["SOMETHING_ELSE", None])
+    def test_a_reason_outside_the_set_is_refused(self, reason):
+        with pytest.raises(ValueError):
+            ChannelWriteBlockedError("chan", reason)
 
-    def test_a_known_reason_is_stored_as_its_member(self):
+    def test_a_reason_is_stored_as_its_member(self):
         err = ChannelWriteBlockedError("chan", "LIMITS")
         assert err.reason is RefusalReason.LIMITS
 
+    def test_a_limits_refusal_carries_its_violation(self):
+        violation = LimitsViolation(kind="MAX_EXCEEDED", reason="above max", max_value=5.0)
+        err = ChannelWriteBlockedError("chan", "LIMITS", violation=violation)
+        assert err.violation == violation
+        assert ChannelWriteBlockedError("chan", "LIMITS").violation is None
+
     def test_every_reason_has_a_refuser_and_a_remedy_entry(self):
         for reason in RefusalReason:
-            assert ChannelWriteBlockedError.refuser(reason) == reason.refuser
-            assert ChannelWriteBlockedError.remedy(reason) == reason.remedy
-            assert ChannelWriteBlockedError.remedy(reason.value) == reason.remedy
+            err = ChannelWriteBlockedError("chan", reason.value)
+            assert err.reason.refuser == reason.refuser
+            assert err.reason.remedy == reason.remedy
             # A reason that denies a write names its refuser and says what to do;
             # only an address outside the facility names neither.
             if reason is RefusalReason.CHANNEL_NOT_FOUND:
@@ -81,14 +87,6 @@ class TestChannelWriteBlockedError:
         assert "no value was written" in remedy[0]
         assert "never sent" not in " ".join(remedy)
 
-    def test_unknown_reason_names_no_refuser(self):
-        assert ChannelWriteBlockedError.refuser("SOMETHING_ELSE") is None
-        assert ChannelWriteBlockedError.refuser(None) is None
-
-    def test_unknown_reason_has_no_remedy(self):
-        assert ChannelWriteBlockedError.remedy("SOMETHING_ELSE") == ()
-        assert ChannelWriteBlockedError.remedy(None) == ()
-
 
 class TestChannelNotFoundError:
     def test_message_names_the_address(self):
@@ -97,9 +95,6 @@ class TestChannelNotFoundError:
 
     def test_carries_the_address(self):
         assert ChannelNotFoundError("NO:SUCH:CHANNEL").address == "NO:SUCH:CHANNEL"
-
-    def test_reason(self):
-        assert ChannelNotFoundError.reason is RefusalReason.CHANNEL_NOT_FOUND
 
     def test_is_a_lookup_error(self):
         assert isinstance(ChannelNotFoundError("X"), LookupError)
@@ -160,36 +155,28 @@ class TestTheFailureRoots:
 
 class TestChannelWriteFailedError:
     def test_default_message(self):
-        err = ChannelWriteFailedError("RING:MAG:PS:SP", "FAILED")
+        err = ChannelWriteFailedError("RING:MAG:PS:SP", "failed")
         assert err.address == "RING:MAG:PS:SP"
-        assert err.reason == "FAILED"
+        assert err.outcome is WriteOutcome.FAILED
         assert str(err) == "Write to 'RING:MAG:PS:SP' failed (FAILED)"
 
     def test_custom_message(self):
-        err = ChannelWriteFailedError("RING:MAG:PS:SP", "UNCONFIRMED", "re-read raised")
+        err = ChannelWriteFailedError("RING:MAG:PS:SP", "unconfirmed", message="re-read raised")
         assert err.address == "RING:MAG:PS:SP"
-        assert err.reason == "UNCONFIRMED"
+        assert err.outcome is WriteOutcome.UNCONFIRMED
         assert str(err) == "re-read raised"
 
     def test_is_exception(self):
         with pytest.raises(ChannelWriteFailedError):
-            raise ChannelWriteFailedError("chan", "UNCONFIRMED")
+            raise ChannelWriteFailedError("chan", "unconfirmed")
 
-    def test_valid_reasons_reference(self):
-        assert ChannelWriteFailedError._VALID_REASONS == (
-            "FAILED",
-            "MISMATCH",
-            "UNCONFIRMED",
-        )
-
-    def test_unknown_reason_permitted(self):
-        err = ChannelWriteFailedError("chan", "WHATEVER")
-        assert err.reason == "WHATEVER"
+    @pytest.mark.parametrize("outcome", ["refused", "confirmed", "unrequested", "WHATEVER"])
+    def test_an_outcome_a_write_does_not_raise_under_is_refused(self, outcome):
+        with pytest.raises(ValueError):
+            ChannelWriteFailedError("chan", outcome)
 
     def test_write_detail_attributes_default_to_none(self):
-        """Positional construction stays valid; the new detail is optional."""
-        err = ChannelWriteFailedError("chan", "FAILED")
-        assert err.outcome is None
+        err = ChannelWriteFailedError("chan", "failed")
         assert err.value_written is None
         assert err.observed_value is None
 
@@ -197,8 +184,7 @@ class TestChannelWriteFailedError:
         """A mismatch must say what was sent and what the channel holds."""
         err = ChannelWriteFailedError(
             "RING:MAG:PS:SP",
-            "MISMATCH",
-            outcome=WriteOutcome.MISMATCH,
+            WriteOutcome.MISMATCH,
             value_written=1.7,
             observed_value=1.5,
         )
@@ -211,17 +197,21 @@ class TestChannelWriteFailedError:
 
     def test_mismatch_message_can_still_be_overridden(self):
         err = ChannelWriteFailedError(
-            "chan", "MISMATCH", "clamped by the power supply", value_written=1.7, observed_value=1.5
+            "chan",
+            "mismatch",
+            message="clamped by the power supply",
+            value_written=1.7,
+            observed_value=1.5,
         )
         assert str(err) == "clamped by the power supply"
 
     def test_mismatch_without_detail_does_not_report_none_as_a_reading(self):
         """A detail-less mismatch falls back rather than saying "sent None"."""
-        err = ChannelWriteFailedError("chan", "MISMATCH")
+        err = ChannelWriteFailedError("chan", "mismatch")
         assert str(err) == "Write to 'chan' failed (MISMATCH)"
 
     def test_non_mismatch_reason_keeps_the_generic_message(self):
-        err = ChannelWriteFailedError("chan", "UNCONFIRMED", value_written=1.7)
+        err = ChannelWriteFailedError("chan", "unconfirmed", value_written=1.7)
         assert str(err) == "Write to 'chan' failed (UNCONFIRMED)"
 
 
@@ -231,7 +221,7 @@ SINGLE_CHANNEL_FAILURES = {
         "SR:Q", 9.0, "range", "Value 9.0 above maximum 5.0", min_value=0.0, max_value=5.0
     ),
     ChannelWriteBlockedError: lambda: ChannelWriteBlockedError("SR:Q", "WRITES_DISABLED"),
-    ChannelWriteFailedError: lambda: ChannelWriteFailedError("SR:Q", "FAILED"),
+    ChannelWriteFailedError: lambda: ChannelWriteFailedError("SR:Q", "failed"),
     ChannelNotFoundError: lambda: ChannelNotFoundError("SR:Q"),
     ChannelUnreachableError: lambda: ChannelUnreachableError("SR:Q"),
 }

@@ -12,6 +12,7 @@ from osprey_connectors.errors import (
     ChannelReadFailedError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    LimitsViolation,
 )
 from pyaml_cs_osprey.errors import (
     OspreyReadFailed,
@@ -28,7 +29,7 @@ def _limits_violation() -> ChannelLimitsViolationError:
     return ChannelLimitsViolationError(
         ADDR,
         1.5,
-        "MAX_STEP",
+        "MAX_STEP_EXCEEDED",
         "Step 0.5 exceeds max_step 0.1",
         max_step=0.1,
         current_value=1.0,
@@ -81,11 +82,12 @@ def test_blocked_limits_with_banner_is_refused_with_violation_line() -> None:
     assert mapped.channel_address == ADDR
 
 
-def test_blocked_limits_takes_the_violation_from_its_cause() -> None:
-    """The connector's LIMITS refusal is raised from the violation; its reason wins."""
-    violation = _limits_violation()
-    original = ChannelWriteBlockedError(ADDR, "LIMITS", message="refused by limits")
-    original.__cause__ = violation
+def test_blocked_limits_takes_the_violation_it_carries() -> None:
+    """The connector's LIMITS refusal carries the violation; its reason wins."""
+    violation = LimitsViolation.from_error(_limits_violation())
+    original = ChannelWriteBlockedError(
+        ADDR, "LIMITS", message="refused by limits", violation=violation
+    )
     mapped = map_write_error(original)
     assert isinstance(mapped, OspreyWriteRefused)
     assert mapped.reason == "LIMITS: Step 0.5 exceeds max_step 0.1"
@@ -108,13 +110,6 @@ def test_other_blocked_writes_are_refused(reason: str, message: str | None, expe
     assert expected in mapped.reason
     assert reason in mapped.reason
     assert expected in str(mapped)
-
-
-def test_a_refusal_without_a_reason_is_refused_with_its_message() -> None:
-    original = ChannelWriteBlockedError(ADDR, None, message="refused by the gateway")
-    mapped = map_write_error(original)
-    assert isinstance(mapped, OspreyWriteRefused)
-    assert mapped.reason == "refused by the gateway"
 
 
 def test_control_target_changed_is_refused() -> None:
@@ -149,7 +144,7 @@ def test_an_error_with_no_channel_uses_the_address() -> None:
 
 @pytest.mark.parametrize("reason", ["FAILED", "MISMATCH", "UNCONFIRMED"])
 def test_write_failed_maps_to_write_failed(reason: str) -> None:
-    original = ChannelWriteFailedError(ADDR, reason, value_written=1.0, observed_value=0.9)
+    original = ChannelWriteFailedError(ADDR, reason.lower(), value_written=1.0, observed_value=0.9)
     mapped = map_write_error(original)
     assert isinstance(mapped, OspreyWriteFailed)
     assert not isinstance(mapped, OspreyWriteRefused)

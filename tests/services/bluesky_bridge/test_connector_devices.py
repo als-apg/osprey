@@ -47,14 +47,14 @@ async def test_set_raises_on_blocked_write() -> None:
 async def test_set_raises_on_failed_write() -> None:
     """A write the control system did not take must also abort via a raise."""
     fake = FakeConnector(readbacks={"SP:RB": 0.0})
-    fake.write_side_effect = ChannelWriteFailedError("SP:RB", "FAILED")
+    fake.write_side_effect = ChannelWriteFailedError("SP:RB", "failed")
     device = ConnectorSettable(fake, "SP:RB", name="motor")
 
     with pytest.raises(ChannelWriteFailedError):
         await device.set(5.0)
 
 
-@pytest.mark.parametrize("reason", ["MISMATCH", "UNCONFIRMED"])
+@pytest.mark.parametrize("reason", ["mismatch", "unconfirmed"])
 async def test_set_aborts_when_the_write_was_not_confirmed(reason: str) -> None:
     """A mismatched or unconfirmed write is a false premise for the rest of the
     scan, so ``write_channel_checked``'s raise must propagate out of ``set()``."""
@@ -65,7 +65,7 @@ async def test_set_aborts_when_the_write_was_not_confirmed(reason: str) -> None:
     with pytest.raises(ChannelWriteFailedError) as excinfo:
         await device.set(5.0)
 
-    assert excinfo.value.reason == reason
+    assert excinfo.value.outcome == reason
     assert fake.read_calls == [], "a raised write must never fall through to the poll loop"
 
 

@@ -588,7 +588,7 @@ async def test_a_refusal_raised_partway_names_every_command_not_refused_as_fired
             self, operations: list[tuple[str, Any]], **kwargs: Any
         ) -> list[ChannelWriteResult]:
             self.calls.append((list(operations), kwargs))
-            raise ChannelWriteBlockedError(REQUEST, "WRITES_DISABLED", "refused partway")
+            raise ChannelWriteBlockedError(REQUEST, "WRITES_DISABLED", message="refused partway")
 
     connector = _RefusesTheSecond()
 
@@ -637,7 +637,9 @@ async def test_a_concurrent_write_in_the_process_never_counts_as_a_fired_command
             osprey.runtime._notify_write(CORRECTOR, "sent")
             if raises:
                 self.calls.append((list(operations), kwargs))
-                raise ChannelWriteBlockedError(REQUEST, "WRITES_DISABLED", "refused partway")
+                raise ChannelWriteBlockedError(
+                    REQUEST, "WRITES_DISABLED", message="refused partway"
+                )
             return await super().write_multiple_channels(operations, **kwargs)
 
     connector = _AnotherWriterLandsMeanwhile()

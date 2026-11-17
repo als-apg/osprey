@@ -430,8 +430,7 @@ an executor run. It refuses, for reads as for writes:
 - a client shared library (``libca``, the PVAccess libraries) loaded through
   Python's two loaders, ``ctypes`` and ``cffi``
 
-Both refusals carry ``ClientLibraryRefusedError`` and reason
-``RAW_CLIENT_IMPORT``. A client
+Both refusals raise ``ClientLibraryRefusedError``. A client
 already loaded when the block is installed cannot be unloaded, so the install
 refuses it and the kernel does not start. Like the armed block it is
 cooperative: it keeps honest cell code on the connector path and is not a

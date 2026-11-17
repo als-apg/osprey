@@ -147,9 +147,9 @@ class _Machine(FakeConnector):
     def _notify(self, addresses):
         super()._notify(address for address in addresses if address in type(self).store)
 
-    async def write_channel(self, *args, **kwargs):
+    async def _write_one(self, *args, **kwargs):
         type(self).writes += 1
-        return await super().write_channel(*args, **kwargs)
+        return await super()._write_one(*args, **kwargs)
 
 
 class _RefusingConnector(FakeConnector):

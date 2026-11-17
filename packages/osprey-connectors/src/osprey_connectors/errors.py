@@ -63,9 +63,9 @@ and still answers a ping, so it was kept; under
 connector, and is read by its ``ConnectionError`` base as a bare one was.
 
 :class:`RefusalReason` names why a write was refused, who refused it and what
-to do about it. ``ChannelWriteFailedError``'s reason codes are the uppercased
-``WriteOutcome`` words for the outcomes that raise, so the reason a caller
-branches on and the outcome the result reports are one vocabulary.
+to do about it. ``ChannelWriteFailedError`` carries the ``WriteOutcome`` of the
+write that raised, so the outcome a caller branches on and the outcome the
+result reports are one vocabulary.
 
 The connector-host IPC registry is derived from this module: every class in
 ``__all__`` under a contract root crosses the process boundary as itself,
@@ -80,6 +80,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import field_validator
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.model import FrozenModel
 
 if TYPE_CHECKING:
@@ -105,6 +106,7 @@ __all__ = [
     "ConnectorInternalError",
     "ConnectorUnavailableError",
     "ConnectorsError",
+    "LimitsViolation",
     "LimitsViolationKind",
     "NaiveDatetimeError",
     "RecoveryAction",
@@ -223,6 +225,37 @@ class ChannelLimitsViolationError(ChannelError):
         return "\n".join(msg)
 
 
+class LimitsViolation(FrozenModel):
+    """Why the limits refused one write, as a write result and its refusal carry it.
+
+    The detail of a :class:`ChannelLimitsViolationError`, without the channel
+    and the value: the result or the refusal that carries this record names
+    both already. ``kind`` is the violation's type, ``reason`` its one-line
+    sentence, and the bounds are the ones the refused value was judged by,
+    each ``None`` where the check that refused it has none. ``current_value``
+    is what the channel held when a ``max_step`` check measured the step.
+    """
+
+    kind: LimitsViolationKind
+    reason: str
+    min_value: float | None = None
+    max_value: float | None = None
+    max_step: float | None = None
+    current_value: ContractAny = None
+
+    @classmethod
+    def from_error(cls, exc: ChannelLimitsViolationError) -> "LimitsViolation":
+        """The violation ``exc`` reports."""
+        return cls(
+            kind=exc.violation_type,
+            reason=exc.violation_reason,
+            min_value=exc.min_value,
+            max_value=exc.max_value,
+            max_step=exc.max_step,
+            current_value=exc.current_value,
+        )
+
+
 _REFERENCE_MONITOR = "the reference monitor"
 _CONTROL_SYSTEM = "the control system"
 _NEVER_SENT = (
@@ -285,63 +318,44 @@ class RefusalReason(StrEnum):
     CHANNEL_NOT_FOUND = ("CHANNEL_NOT_FOUND", None, ())
 
 
-def _known_reason(reason: str | None) -> RefusalReason | None:
-    """Return the :class:`RefusalReason` member ``reason`` names, or None."""
-    if reason is None:
-        return None
-    try:
-        return RefusalReason(reason)
-    except ValueError:
-        return None
-
-
 class ChannelWriteBlockedError(ChannelError):
     """Raised when a channel write was refused and no value was written.
 
     Distinct from ChannelWriteFailedError, which means the write was attempted
     and its outcome is a failure rather than a denial.
 
-    ``reason`` is a :class:`RefusalReason` member when the reason is a known
-    one, and then names its refuser and remedy. An unknown reason, or no reason
-    at all, is kept as given and names neither: no refuser is guessed.
+    ``reason`` is the :class:`RefusalReason` member that says why, and its
+    :attr:`~RefusalReason.refuser` and :attr:`~RefusalReason.remedy` say who
+    refused and what to do. The word of a member is taken for the member, as
+    the connector-host IPC carries it; any other word raises ``ValueError``.
 
     ``verdict_reason`` narrows ``WRITES_DISABLED`` to the reason the write
     verdict gave, a member of :data:`osprey_connectors.refusals.REASONS`, when
     it gave one: ``switch_off``, ``auth_exhausted``, ``auth_range`` and the
     rest, so a program branches on the word rather than the message.
+
+    ``violation`` is the :class:`LimitsViolation` of a ``LIMITS`` refusal, and
+    ``None`` on every other.
     """
-
-    @classmethod
-    def refuser(cls, reason: str | None) -> str | None:
-        """Return who refused a write for ``reason``, or None when no one is known."""
-        known = _known_reason(reason)
-        return known.refuser if known is not None else None
-
-    @classmethod
-    def remedy(cls, reason: str | None) -> tuple[str, ...]:
-        """Return the suggestion sentences for ``reason``, or ``()`` when none is known."""
-        known = _known_reason(reason)
-        return known.remedy if known is not None else ()
 
     def __init__(
         self,
         address: str,
-        reason: str | None,
+        reason: RefusalReason | str,
+        *,
         message: str | None = None,
         verdict_reason: str | None = None,
+        violation: LimitsViolation | None = None,
     ):
         self.address = address
-        self.reason: str | None = _known_reason(reason) or reason
+        self.reason = RefusalReason(reason)
         self.verdict_reason = verdict_reason
-        refuser = self.refuser(reason)
+        self.violation = violation
+        refuser = self.reason.refuser
         if refuser is not None:
-            fallback = f"Write to '{address}' refused by {refuser} ({reason})"
-        elif reason == ChannelNotFoundError.reason:
-            fallback = str(ChannelNotFoundError(address))
-        elif reason is None:
-            fallback = f"Write to '{address}' refused"
+            fallback = f"Write to '{address}' refused by {refuser} ({self.reason})"
         else:
-            fallback = f"Write to '{address}' refused ({reason})"
+            fallback = str(ChannelNotFoundError(address))
         super().__init__(address, message or fallback)
 
 
@@ -368,9 +382,9 @@ def raw_client_write_message(address: str) -> str:
 class ClientLibraryRefusedError(ConnectorsError, RuntimeError):
     """Raised when a process that may hold no control-system client loads one.
 
-    reason is "RAW_CLIENT_IMPORT": user code imported a control-system client
-    package, or loaded a client shared library, in a process whose only route
-    to the machine is ``osprey.runtime``. Nothing was loaded and no channel was
+    User code imported a control-system client package, or loaded a client
+    shared library, in a process whose only route to the machine is
+    ``osprey.runtime``. Nothing was loaded and no channel was
     touched. ``package`` names the refused top-level package and ``library``
     the refused shared library; one of the two is set.
 
@@ -385,7 +399,6 @@ class ClientLibraryRefusedError(ConnectorsError, RuntimeError):
     def __init__(self, *, package: str | None = None, library: str | None = None):
         self.package = package
         self.library = library
-        self.reason = "RAW_CLIENT_IMPORT"
         if library is not None:
             what = f"loading '{library}' refused: it is a control-system client library"
         else:
@@ -406,37 +419,36 @@ class ChannelWriteFailedError(ChannelError):
     Distinct from ChannelWriteBlockedError (a refusal — no value was written).
     A scan consumer must abort on this.
 
-    reason is one of: "FAILED", "MISMATCH", "UNCONFIRMED" — the ``WriteOutcome``
-    words that raise. All three are protocol-neutral on purpose: the same codes
-    describe an EPICS, DOOCS, or simulated write.
+    ``outcome`` is the :class:`~osprey_connectors.control_system.WriteOutcome`
+    of the write that raised: ``failed``, ``mismatch`` or ``unconfirmed``, the
+    words a write raises under. All three are protocol-neutral on purpose: the
+    same outcome describes an EPICS, DOOCS, or simulated write. The word of a
+    member is taken for the member, as the connector-host IPC carries it; any
+    other outcome raises ``ValueError``.
 
-    ``outcome``, ``value_written`` and ``observed_value`` carry the detail the
-    result held, so a caller that only sees the exception can still say what was
-    sent and what the channel holds. ``outcome`` is a ``WriteOutcome`` member on
-    either side of the connector-host boundary: the plain string the wire
-    carries is coerced on construction, as ``ChannelWriteResult`` coerces its own.
+    ``value_written`` and ``observed_value`` carry the detail the result held,
+    so a caller that only sees the exception can still say what was sent and
+    what the channel holds.
     """
-
-    _VALID_REASONS = ("FAILED", "MISMATCH", "UNCONFIRMED")
 
     def __init__(
         self,
         address: str,
-        reason: str,
-        message: str | None = None,
+        outcome: "WriteOutcome | str",
         *,
-        outcome: "WriteOutcome | str | None" = None,
+        message: str | None = None,
         value_written: object = None,
         observed_value: object = None,
     ):
-        if outcome is not None:
-            from osprey_connectors.control_system import WriteOutcome
+        from osprey_connectors.control_system import WriteOutcome
 
-            if not isinstance(outcome, WriteOutcome):
-                outcome = WriteOutcome(outcome)
+        member = WriteOutcome(outcome)
+        if member not in _FAILED_OUTCOMES:
+            raise ValueError(
+                f"Write to '{address}': {member} is not an outcome a write raises under"
+            )
         self.address = address
-        self.reason = reason
-        self.outcome = outcome
+        self.outcome = member
         self.value_written = value_written
         self.observed_value = observed_value
         super().__init__(address, message or self._default_message())
@@ -450,12 +462,17 @@ class ChannelWriteFailedError(ChannelError):
         report. Saying "sent None, channel holds None" would dress that up as a
         reading, so the generic wording is used instead.
         """
-        if self.reason == "MISMATCH" and self.value_written is not None:
+        word = self.outcome.upper()
+        if word == "MISMATCH" and self.value_written is not None:
             return (
                 f"Write to '{self.address}' not confirmed (MISMATCH): "
                 f"sent {self.value_written}, channel holds {self.observed_value}"
             )
-        return f"Write to '{self.address}' failed ({self.reason})"
+        return f"Write to '{self.address}' failed ({word})"
+
+
+#: The outcome words a write raises :class:`ChannelWriteFailedError` under.
+_FAILED_OUTCOMES = frozenset({"failed", "mismatch", "unconfirmed"})
 
 
 class ChannelReadFailedError(ConnectorsError):
@@ -506,11 +523,9 @@ class ChannelNotFoundError(ChannelError, LookupError):
     connector that cannot tell an unknown name from an unreachable one (a
     Channel Access search that finds nothing times out) raises
     :class:`ChannelUnreachableError` instead. A write to such an address is not
-    raised: it comes back ``refused`` with ``refusal_reason`` :attr:`reason`.
+    raised: it comes back ``refused`` with ``refusal_reason``
+    :attr:`RefusalReason.CHANNEL_NOT_FOUND`.
     """
-
-    #: The refusal reason a write to an address outside the facility carries.
-    reason = RefusalReason.CHANNEL_NOT_FOUND
 
     def __init__(self, address: str):
         super().__init__(address, f"{address} is {NOT_A_CHANNEL}")
