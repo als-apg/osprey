@@ -1124,6 +1124,6 @@ def test_the_compared_set_matches_the_rendered_kill_switch(
 
 def test_the_arming_tiers_are_the_package_words_above_never():
     """The hook restates the tier words in the stdlib; the package is their one producer."""
-    from osprey_connectors.types import TIER_WORDS
+    from osprey_connectors.write_tier import TIER_WORDS
 
     assert _hook()._TIER_ARMING == TIER_WORDS[1:]

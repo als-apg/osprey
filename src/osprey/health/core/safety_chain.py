@@ -78,12 +78,12 @@ from osprey.health.models import CheckResult, Status
 from osprey.utils.workspace import session_hold_dir
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.types import tier_writes
 from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,
     repo_root_for_config,
 )
+from osprey_connectors.write_tier import tier_writes
 
 if TYPE_CHECKING:
     from osprey.health.core import CategoryCallable

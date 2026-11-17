@@ -898,7 +898,7 @@ name = "The framework reaches the connector packages only through their namespac
 # later is private until it is exempted here. The simulation subpackage keeps
 # its modules public: its root is imported by readers that must not load
 # numpy, so the heavy modules are reached by their own names. The package's
-# top-level modules (config, types, posture_store, ...) are each their own
+# top-level modules (config, connector_types, posture_store, ...) are each their own
 # public API, except the private ones: `_config_read`, the config readers the
 # stand-in and the simulator share, and `_service_http`, the one HTTP path of
 # the read-only service backends, are listed; `_version` is written by the
@@ -929,8 +929,17 @@ name = "The connector package's top-level modules, in layers"
 # archiver reads the simulator view the in-process control-system connector
 # names, so the archivers sit above the control-system connectors. The posture
 # store, the config loader and their kin sit below every connector, and the
-# leaves at the bottom import nothing from the package at module scope (the
-# `types` exceptions are named in `ignore_imports` below).
+# leaves at the bottom import nothing from the package but the exception
+# vocabulary and `model`.
+#
+# The deployment's own machines (`deployment`: the simulator, the stand-in and
+# which targets the archive serves) sit just below the config loader; the
+# service backends pick their targets from them. The type vocabulary is split by
+# what it answers, each part above what it reads: the limits posture reads the
+# targets and the write tier, the archiver selection and the targets read the
+# connector types, and the connector types (each built-in's row, and the target
+# words a row is written in) are a leaf. The published machine kind reads the
+# controls servers' reports, so it lives in `control_context`, beside them.
 #
 # The read-only predicate lives in `posture_env`, a leaf, so the posture store
 # no longer imports the control-system connectors that consult it.
@@ -972,10 +981,11 @@ layers = [
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
     "osprey_connectors.config : osprey_connectors.workspace",
-    "osprey_connectors.archive_targets",
-    "osprey_connectors.simulator",
-    "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.honesty | osprey_connectors.session_hold",
-    "osprey_connectors.connection | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.standin | osprey_connectors.types | osprey_connectors.yaml_loader",
+    "osprey_connectors.deployment",
+    "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.session_hold",
+    "osprey_connectors.archiver_selection | osprey_connectors.limits_posture",
+    "osprey_connectors.targets | osprey_connectors.write_tier",
+    "osprey_connectors.connection | osprey_connectors.connector_types | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
     "osprey_connectors.errors",
     "osprey_connectors._config_read | osprey_connectors._contract_types | osprey_connectors.model",
 ]
@@ -991,11 +1001,6 @@ ignore_imports = [
     # defines: a type-checking import for the annotation, and one function-local
     # import that coerces the outcome a write error carries.
     "osprey_connectors.errors -> osprey_connectors.control_system",
-    # Two function-local imports from the type vocabulary up into the posture
-    # readers that import it at module scope: the published machine kind is
-    # read from the controls server's report beside the control-context record.
-    "osprey_connectors.types -> osprey_connectors.control_context",
-    "osprey_connectors.types -> osprey_connectors.posture_store",
     # A stop is one gesture: the switch's one writer marks the program
     # authorizations on the stopped machines revoked inside its record lock,
     # through one function-local import of the grant format's own writer.

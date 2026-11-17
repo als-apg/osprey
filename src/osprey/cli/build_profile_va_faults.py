@@ -32,7 +32,7 @@ from typing import Any
 # the path-tree builder below is.
 from osprey.deployment.reach import dotted_get
 from osprey.port_layout import VA_PVA_PORT_CONFIG_KEY
-from osprey_connectors.types import (
+from osprey_connectors.connector_types import (
     EPICS,
     LIVE_STANDIN,
     VIRTUAL_ACCELERATOR,

@@ -21,8 +21,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.types import (
-    _ONE_REAL_MACHINE,
+from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     DOOCS,
     EPICS,
@@ -36,12 +35,11 @@ from osprey_connectors.types import (
     TRANSPORT_CA,
     TRANSPORT_IN_PROCESS,
     VIRTUAL_ACCELERATOR,
-    baseline_target,
     connector_transport,
     is_simulated,
     resolve_control_system_type,
-    resolve_target,
 )
+from osprey_connectors.targets import _ONE_REAL_MACHINE, baseline_target, resolve_target
 
 
 def _section(control_system_type: Any = ..., connector: Any = ...) -> dict[str, Any]:
@@ -229,7 +227,7 @@ def test_a_second_real_block_beside_a_real_baseline_is_reported(caplog: Any):
     Silence would leave that to be discovered by never being offered the machine."""
     section = _section(EPICS, {"epics": {"address": "ring"}, DOOCS: {"address": "injector"}})
 
-    with caplog.at_level(logging.WARNING, logger="osprey_connectors.types"):
+    with caplog.at_level(logging.WARNING, logger="osprey_connectors.targets"):
         assert resolve_target(section, TARGET_LIVE) == EPICS
 
     assert len(caplog.records) == 1
@@ -249,7 +247,7 @@ def test_the_stand_in_and_the_simulator_are_not_a_second_real_machine(caplog: An
         },
     )
 
-    with caplog.at_level(logging.WARNING, logger="osprey_connectors.types"):
+    with caplog.at_level(logging.WARNING, logger="osprey_connectors.targets"):
         assert resolve_target(section, TARGET_LIVE) == EPICS
 
     assert caplog.records == []

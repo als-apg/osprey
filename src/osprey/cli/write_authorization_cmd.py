@@ -200,7 +200,7 @@ def _ceiling(scope: _Scope, owner: str, *, in_container: bool) -> str:
     this host, the rendered config, as the web terminal's card reads it.
     """
     from osprey_connectors import posture_store
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     section = (scope.config or {}).get("control_system")
     try:
@@ -222,7 +222,7 @@ def _ceiling(scope: _Scope, owner: str, *, in_container: bool) -> str:
 
 def _configured_targets(scope: _Scope) -> tuple[str, ...]:
     """The control targets the config describes, as the chip's approval checks them; ``()`` for none."""
-    from osprey_connectors.types import configured_targets
+    from osprey_connectors.targets import configured_targets
 
     try:
         return tuple(configured_targets((scope.config or {}).get("control_system")))

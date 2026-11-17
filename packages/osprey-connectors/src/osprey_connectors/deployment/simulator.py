@@ -10,7 +10,7 @@ simulator, and two readers decide from it:
 * :func:`virtual_accelerator_port` — **the deployment's shape**: did it build
   a simulator, and on which Channel Access port? This is what makes the
   deployment's own archive store the simulator's
-  (:mod:`osprey_connectors.archive_targets`): the store is seeded with the
+  (:mod:`osprey_connectors.deployment.archive_targets`): the store is seeded with the
   simulator's history and the recorder samples the simulator into it, so a
   deployment that builds one has a ``va`` archive whatever machine its
   sessions start on.
@@ -22,7 +22,7 @@ simulator, and two readers decide from it:
   must never land in a synthesized past.
 
 The second predicate is the simulator's twin of
-:func:`osprey_connectors.standin.live_standin_active`, with the same three
+:func:`osprey_connectors.deployment.standin.live_standin_active`, with the same three
 conjuncts and the same fail-closed answers: the deployment built a simulator,
 the endpoint is on its port, and the endpoint is loopback. A ``va`` block whose
 gateways were moved off this host — to a simulator another host runs, or to
@@ -39,7 +39,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from osprey_connectors._config_read import coerce_port, is_loopback, nested_value
-from osprey_connectors.types import TARGET_VA, configured_targets
+from osprey_connectors.connector_types import TARGET_VA
+from osprey_connectors.targets import configured_targets
 
 #: Where a rendered ``config.yml`` states the simulator's Channel Access port,
 #: dotted as the build's service injector writes it, the reach contract

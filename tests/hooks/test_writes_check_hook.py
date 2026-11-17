@@ -16,7 +16,7 @@ import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as _TWIN
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     write_control_context,

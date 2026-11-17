@@ -447,7 +447,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     )
     from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
-    from osprey_connectors.types import connector_transport
+    from osprey_connectors.connector_types import connector_transport
     from osprey_connectors.workspace import agent_data_base_dir
 
     control_system = config.get("control_system", {}) or {}
@@ -994,7 +994,7 @@ def _terminal_theme(config: dict) -> str | None:
 def _renders_the_target_switch(control_system: dict) -> bool:
     """Whether the rendered config gives this deployment two targets to switch between.
 
-    Delegates to :func:`osprey_connectors.types.switch_capable`, the same
+    Delegates to :func:`osprey_connectors.targets.switch_capable`, the same
     predicate the controls server uses at run time to decide whether its tools
     are served by a connector-host child. Restating it here — "an epics block
     and a virtual_accelerator block", say — would be a second opinion that gets
@@ -1006,7 +1006,7 @@ def _renders_the_target_switch(control_system: dict) -> bool:
     those have defaults and can be present in a deployment with nowhere to
     switch to, while a connector block cannot be defaulted into existence.
     """
-    from osprey_connectors.types import switch_capable
+    from osprey_connectors.targets import switch_capable
 
     return switch_capable(control_system)
 
@@ -1347,7 +1347,7 @@ def build_claude_code_context(
         rule_carries_both_write_hooks,
         rule_carries_writes_check,
     )
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     control_system = config.get("control_system", {}) or {}
 
@@ -2083,7 +2083,7 @@ def _lint_write_gates_are_selected(ctx: dict, control_system: dict) -> None:
         BuildProfileError: Naming each unselected gate and what it was meant
             to guard.
     """
-    from osprey_connectors.types import tier_allows, tier_writes
+    from osprey_connectors.write_tier import tier_allows, tier_writes
 
     selection = set(ctx.get("selected_hooks") or [])
 
@@ -2713,7 +2713,7 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
             "build_cmd._profile_setup_patch_capable about the floor."
         )
 
-    from osprey_connectors.types import tier_allows
+    from osprey_connectors.write_tier import tier_allows
 
     deny = _rendered_deny_list(ctx)
     matchers = _pretooluse_matchers(ctx, fw_pre_rules)

@@ -30,7 +30,7 @@ from osprey.runtime.session import (
     STATE_BOUND,
     STATE_UNSERVABLE,
 )
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors_tests._fake_connector import FakeConnector
@@ -47,8 +47,8 @@ QUIET_S = 3.0
 STALE_LINE = "stale transport — exit 76"
 
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 
@@ -144,7 +144,9 @@ def deployment(tmp_path, monkeypatch):
     with isolated_connector_registries():
 
         def serve_with(connector_class) -> None:
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, connector_class)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, connector_class
+            )
 
         serve_with(_TrackedFake)
         yield exits, serve_with

@@ -32,8 +32,9 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey_connectors.archiver_selection import archiver_settings_errors
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.types import archiver_settings_errors, incomplete_limits_blocks
+from osprey_connectors.limits_posture import incomplete_limits_blocks
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "docs/source/how-to/control-systems/examples"

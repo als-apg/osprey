@@ -33,6 +33,7 @@ from osprey.apps.sdk import (
     verify_launch_token,
 )
 from osprey_connectors.config import get_config_value
+from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.errors import (
     ChannelError,
     ChannelReadFailedError,
@@ -41,7 +42,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-from osprey_connectors.types import baseline_target, resolve_target, speaks_channel_access
+from osprey_connectors.targets import baseline_target, resolve_target
 from scaffold_app import APP_NAME, CHANNEL_KEY, CHANNEL_SETTING, STATE_ROUTE, WRITE_ROUTE
 
 #: Where the deployment hands this application its rendered ``apps.<name>.config``.

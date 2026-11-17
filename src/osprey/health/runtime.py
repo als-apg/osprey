@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.health.models import CheckResult, Status
 from osprey_connectors.control_system import ControlSystemConnector
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 
 if TYPE_CHECKING:
     from osprey_connectors.archiver import ArchiverConnector

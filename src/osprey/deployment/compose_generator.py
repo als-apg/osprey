@@ -1002,10 +1002,10 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     silently re-point the mount at a file that is not there.
 
     Refusals are gated on
-    :func:`~osprey_connectors.types.tier_limits_database_targets`: a target
+    :func:`~osprey_connectors.limits_posture.tier_limits_database_targets`: a target
     needs this file only when the render's login tier arms writes
     (``control_system.writes`` is ``asked`` or ``allowed``) and that target's
-    limits posture :func:`~osprey_connectors.types.limits_database_required` —
+    limits posture :func:`~osprey_connectors.limits_posture.limits_database_required` —
     limits checking on, and either a mode other than ``optional`` or a path
     configured — so that pairing is what makes the file's absence a fault rather than a
     posture. The tier is the same value every Bluesky lane's mount is rendered
@@ -1053,7 +1053,8 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         not on this host
     """
     from osprey_connectors.control_system import LimitsValidator, mapping_config_lookup
-    from osprey_connectors.types import WRITES_KEY, tier_limits_database_targets, tier_writes
+    from osprey_connectors.limits_posture import tier_limits_database_targets
+    from osprey_connectors.write_tier import WRITES_KEY, tier_writes
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
@@ -2035,7 +2036,7 @@ def resolve_image_defaults(config):
 def drives_target_write_posture(services, control_system):
     """Whether writes are armed for each service that drives the target, by key.
 
-    The render's login tier decides (:func:`~osprey_connectors.types.tier_allows`
+    The render's login tier decides (:func:`~osprey_connectors.write_tier.tier_allows`
     over ``control_system.writes``), not the service's target: the tier is a
     ceiling, not a selection, so an ``asked`` or ``allowed`` render arms every
     such service — each one binds the limits database and the control-context
@@ -2053,7 +2054,7 @@ def drives_target_write_posture(services, control_system):
         the ``drives_target`` role (:func:`service_role`)
     :rtype: dict[str, bool]
     """
-    from osprey_connectors.types import tier_allows
+    from osprey_connectors.write_tier import tier_allows
 
     armed = tier_allows(control_system)
     config = {"services": services}
@@ -2568,7 +2569,7 @@ def _drives_target_stop_grace_period(control_system):
     :raises ValueError: The connector block's ``timeout_s`` is not a duration
     """
     from osprey_connectors.call_timeout import call_timeout_s
-    from osprey_connectors.types import resolve_control_system_type
+    from osprey_connectors.connector_types import resolve_control_system_type
 
     connector_type = resolve_control_system_type(control_system)
     timeout_s = call_timeout_s(_connector_block(control_system, connector_type), connector_type)
@@ -2598,13 +2599,9 @@ def _ca_name_servers(config):
     :return: The address, or ``None`` when none can be derived
     :rtype: str or None
     """
+    from osprey_connectors.connector_types import DEFAULT_VA_PORT, TARGET_STANDIN, TARGET_VA
     from osprey_connectors.ipc import derive_endpoints
-    from osprey_connectors.types import (
-        DEFAULT_VA_PORT,
-        TARGET_STANDIN,
-        TARGET_VA,
-        baseline_target,
-    )
+    from osprey_connectors.targets import baseline_target
 
     section = config.get("control_system")
     target = baseline_target(section)
@@ -2640,8 +2637,9 @@ def _drives_target_ca_env(config, key, block):
     :raises DeploymentPreconditionError: The container is on the bridge against
         a Channel Access target and no name server can be derived
     """
+    from osprey_connectors.connector_types import speaks_channel_access
     from osprey_connectors.ipc import ROLE_READ_ONLY, ROLE_WRITE_ACCESS
-    from osprey_connectors.types import speaks_channel_access, tier_allows
+    from osprey_connectors.write_tier import tier_allows
 
     if block.get("network") == "host" or not speaks_channel_access(config.get("control_system")):
         return None
@@ -5438,7 +5436,7 @@ def simulator_log_mount_sources():
     :rtype: dict[str, str]
     """
     from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
-    from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
+    from osprey_connectors.connector_types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
     from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH
 
     base = PurePosixPath(SIMULATOR_LOG_DIR_RELPATH)
@@ -5461,14 +5459,14 @@ def simulated_target_configured(config):
     :return: Whether any configured target is simulated
     :rtype: bool
     """
-    from osprey_connectors.types import (
+    from osprey_connectors.connector_types import (
         SIMULATED_TYPES,
         STANDIN_TYPES,
         TARGET_STANDIN,
         TARGET_VA,
         resolve_control_system_type,
-        target_configured,
     )
+    from osprey_connectors.targets import target_configured
 
     section = config.get("control_system") if isinstance(config, Mapping) else None
     try:
@@ -5556,7 +5554,7 @@ def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
         be provisioned or the platform reports none
     :rtype: int | None
     """
-    from osprey_connectors.types import configured_targets
+    from osprey_connectors.targets import configured_targets
 
     section = config.get("control_system") if isinstance(config, Mapping) else None
     root = Path(repo_root) / guarded_run_relpath()
@@ -5670,7 +5668,7 @@ def _ensure_agent_data_structure(config):
     :param config: Configuration dictionary containing agent_data and file_paths settings
     :type config: dict
     """
-    from osprey_connectors.types import VIRTUAL_ACCELERATOR
+    from osprey_connectors.connector_types import VIRTUAL_ACCELERATOR
     from osprey_connectors.workspace import (
         agent_data_base_dir,
         anchored_path,
@@ -6147,7 +6145,7 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
         return False
 
     from osprey.facility.views.bluesky import BLUESKY_DEVICES_FILE
-    from osprey_connectors.types import talks_to_network
+    from osprey_connectors.connector_types import talks_to_network
 
     staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
     view_path = f"data/{BLUESKY_DEVICES_FILE}"

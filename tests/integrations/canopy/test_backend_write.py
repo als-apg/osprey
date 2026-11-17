@@ -48,7 +48,7 @@ from osprey.runtime import session as session_module
 from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import SessionWriteResult
 from osprey.services.python_executor.execution.wrapper import armed_contract
-from osprey_connectors import control_context, posture_store, session_hold, types
+from osprey_connectors import connector_types, control_context, posture_store, session_hold
 from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
@@ -64,9 +64,9 @@ BACKEND_PATH = "osprey.integrations.canopy.backend:OspreyPVConnector"
 #: The virtual accelerator with the write tier allowed: with its switch on (the
 #: record :func:`write_record` writes) the write verdict allows.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
+    "type": connector_types.VIRTUAL_ACCELERATOR,
     "writes": "allowed",
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 CHANNEL = "SR:QF:01:SP"
@@ -154,7 +154,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     )
     control_context.invalidate_cache()
     if switch is None:
-        switch = dict.fromkeys({target} & set(types.CONTROL_TARGETS), "allowed")
+        switch = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     _set_switch_to(path, switch)
     control_context.invalidate_cache()
 
@@ -227,7 +227,7 @@ def state_dir(tmp_path, monkeypatch, audit_dir, armed, exits):  # noqa: ARG001 -
 @pytest.fixture
 def machine(state_dir):  # noqa: ARG001 - the environment comes first
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Machine)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Machine)
         yield _Machine
 
 
@@ -1015,7 +1015,9 @@ class TestTheStaleExit:
     def stale_machine(self, state_dir):  # noqa: ARG002 - the environment comes first
         _Machine.reset()
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _StaleMachine)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _StaleMachine
+            )
             yield _StaleMachine
 
     async def test_exit_76_does_not_wait_for_a_write_in_flight(

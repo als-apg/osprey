@@ -29,7 +29,7 @@ from osprey.runtime.session import (
     SessionEnvironmentError,
     SessionUnservableError,
 )
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._epics_connector import EPICSConnector
@@ -42,28 +42,34 @@ from osprey_connectors_tests._harness._control_context_fixtures import _set_swit
 
 #: A deployment whose baseline is the virtual accelerator, its write tier allowed.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
+    "type": connector_types.VIRTUAL_ACCELERATOR,
     "writes": "allowed",
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 #: A deployment whose baseline is the stand-in, with a virtual accelerator beside it.
 STANDIN_WITH_VA_SECTION = {
-    "type": types.LIVE_STANDIN,
+    "type": connector_types.LIVE_STANDIN,
     "connector": {
-        types.LIVE_STANDIN: {},
-        types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0},
+        connector_types.LIVE_STANDIN: {},
+        connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0},
     },
 }
 
 #: A stand-in baseline with one real machine and no virtual accelerator.
 STANDIN_WITH_LIVE_SECTION = {
-    "type": types.LIVE_STANDIN,
-    "connector": {types.LIVE_STANDIN: {}, types.EPICS: {"response_delay_ms": 0}},
+    "type": connector_types.LIVE_STANDIN,
+    "connector": {
+        connector_types.LIVE_STANDIN: {},
+        connector_types.EPICS: {"response_delay_ms": 0},
+    },
 }
 
 #: A stand-in with no simulator beside it and no real machine named: ``live`` has no answer.
-STANDIN_ONLY_SECTION = {"type": types.LIVE_STANDIN, "connector": {types.LIVE_STANDIN: {}}}
+STANDIN_ONLY_SECTION = {
+    "type": connector_types.LIVE_STANDIN,
+    "connector": {connector_types.LIVE_STANDIN: {}},
+}
 
 
 class _CountingFake(FakeConnector):
@@ -101,7 +107,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     )
     control_context.invalidate_cache()
     if switch is None:
-        wanted = dict.fromkeys({target} & set(types.CONTROL_TARGETS), "allowed")
+        wanted = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     elif isinstance(switch, Mapping):
         wanted = dict(switch)
     else:
@@ -148,7 +154,7 @@ def mock_va(monkeypatch, state_dir):
     _CountingFake.connects = 0
     _CountingFake.configs = []
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _CountingFake)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _CountingFake)
         yield state_dir
 
 
@@ -157,9 +163,11 @@ def epics_gateways(monkeypatch, state_dir):
     """The virtual accelerator behind a real EPICS connector with a read and a write gateway."""
     gateway = {"address": "127.0.0.1", "port": 5064}
     block = {"gateways": {"read_only": gateway, "write_access": {**gateway, "port": 5065}}}
-    _serve(monkeypatch, {**VA_SECTION, "connector": {types.VIRTUAL_ACCELERATOR: block}})
+    _serve(monkeypatch, {**VA_SECTION, "connector": {connector_types.VIRTUAL_ACCELERATOR: block}})
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, EPICSConnector)
+        ConnectorFactory.register_control_system(
+            connector_types.VIRTUAL_ACCELERATOR, EPICSConnector
+        )
         yield state_dir
 
 
@@ -263,7 +271,7 @@ class TestOpen:
         binding = session.binding
         assert (binding.target, binding.generation) == ("va", 7)
         assert binding.state == "bound"
-        assert binding.connector_type == types.VIRTUAL_ACCELERATOR
+        assert binding.connector_type == connector_types.VIRTUAL_ACCELERATOR
         assert binding.display_name
         assert binding.id == "va@7"
         await session.close()
@@ -274,7 +282,7 @@ class TestOpen:
         session = await _opened()
 
         assert isinstance(session._connector, _CountingFake)
-        assert session._connector._connector_type == types.VIRTUAL_ACCELERATOR
+        assert session._connector._connector_type == connector_types.VIRTUAL_ACCELERATOR
         assert session._connector._control_target == "va"
         await session.close()
 
@@ -294,7 +302,9 @@ class TestOpen:
         write_record(state_dir, target="va")
         with isolated_connector_registries(clear=True):
             session = await _opened()
-            assert types.VIRTUAL_ACCELERATOR in ConnectorFactory._control_system_connectors
+            assert (
+                connector_types.VIRTUAL_ACCELERATOR in ConnectorFactory._control_system_connectors
+            )
             await session.close()
 
     async def test_a_warm_step_that_raises_is_not_fatal(self, mock_va, monkeypatch):
@@ -354,18 +364,22 @@ class TestWriteBudgetAndProcessMark:
         assert config[STEP_READ_TIMEOUT_KEY] == 0.25
         assert session._call_bound_s == 0.5
         assert session._write_bound_s == 1.25
-        assert "timeout_s" not in VA_SECTION["connector"][types.VIRTUAL_ACCELERATOR]
+        assert "timeout_s" not in VA_SECTION["connector"][connector_types.VIRTUAL_ACCELERATOR]
         await session.close()
 
     async def test_a_block_below_the_budget_keeps_its_own_bounds(self, state_dir, monkeypatch):
         section = {
-            "type": types.VIRTUAL_ACCELERATOR,
-            "connector": {types.VIRTUAL_ACCELERATOR: {"timeout_s": 2, STEP_READ_TIMEOUT_KEY: 1}},
+            "type": connector_types.VIRTUAL_ACCELERATOR,
+            "connector": {
+                connector_types.VIRTUAL_ACCELERATOR: {"timeout_s": 2, STEP_READ_TIMEOUT_KEY: 1}
+            },
         }
         _serve(monkeypatch, section)
         _CountingFake.configs = []
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _CountingFake)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _CountingFake
+            )
             write_record(state_dir)
             session = await _opened()
 
@@ -435,7 +449,9 @@ class TestFallback:
     async def test_a_standin_baseline_falls_back_to_the_va_when_one_exists(self, monkeypatch):
         _serve(monkeypatch, STANDIN_WITH_VA_SECTION)
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _CountingFake)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _CountingFake
+            )
             session = await _opened()
 
         assert (session.binding.target, session.binding.state) == ("va", "fallback")
@@ -445,12 +461,12 @@ class TestFallback:
     async def test_a_standin_baseline_falls_back_to_live_without_a_va(self, monkeypatch):
         _serve(monkeypatch, STANDIN_WITH_LIVE_SECTION)
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.EPICS, _CountingFake)
+            ConnectorFactory.register_control_system(connector_types.EPICS, _CountingFake)
             session = await _opened()
 
         binding = session.binding
         assert (binding.target, binding.state) == ("live", "fallback")
-        assert binding.connector_type == types.EPICS
+        assert binding.connector_type == connector_types.EPICS
         await session.close()
 
     @pytest.mark.usefixtures("state_dir")
@@ -500,14 +516,16 @@ class TestUnservable:
             session = await _opened()
 
         assert session.binding.state == "unservable"
-        assert session.binding.connector_type == types.VIRTUAL_ACCELERATOR
+        assert session.binding.connector_type == connector_types.VIRTUAL_ACCELERATOR
         await session.close()
 
     async def test_a_connect_that_raises(self, state_dir, monkeypatch):
         _serve(monkeypatch, VA_SECTION)
         write_record(state_dir, target="va")
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _RefusingConnector)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _RefusingConnector
+            )
             session = await _opened()
 
         assert session.binding.state == "unservable"
@@ -834,9 +852,13 @@ class TestMoved:
     async def test_a_write_gateway_alone_never_lags(self, monkeypatch, state_dir):
         """Such a block stays on its one gateway whatever the switch says."""
         block = {"gateways": {"write_access": {"address": "127.0.0.1", "port": 5065}}}
-        _serve(monkeypatch, {**VA_SECTION, "connector": {types.VIRTUAL_ACCELERATOR: block}})
+        _serve(
+            monkeypatch, {**VA_SECTION, "connector": {connector_types.VIRTUAL_ACCELERATOR: block}}
+        )
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, EPICSConnector)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, EPICSConnector
+            )
             write_record(state_dir, target="va", generation=3, switch={})
             session = await _opened()
             write_record(state_dir, target="va", generation=3, switch={"va": "asked"})
@@ -1023,7 +1045,7 @@ def pin_env(tmp_path, monkeypatch):
     import os
 
     from osprey.runtime import session as session_module
-    from osprey_connectors import control_context, posture_store, types
+    from osprey_connectors import connector_types, control_context, posture_store
     from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
     from osprey_connectors_tests._fake_connector import FakeConnector
@@ -1051,8 +1073,8 @@ def pin_env(tmp_path, monkeypatch):
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
 
     section = {
-        "type": types.VIRTUAL_ACCELERATOR,
-        "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+        "type": connector_types.VIRTUAL_ACCELERATOR,
+        "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
     }
 
     def get_config_value(path, default=None, _config_path=None):
@@ -1061,7 +1083,7 @@ def pin_env(tmp_path, monkeypatch):
     monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
     control_context.invalidate_cache()
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, FakeConnector)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, FakeConnector)
         yield directory
     control_context.invalidate_cache()
 

@@ -32,7 +32,8 @@ try:
         AlarmStates,
         severity_rank,
     )
-    from osprey_connectors.archive_targets import APPLIANCE_TARGETS
+    from osprey_connectors.deployment.archive_targets import APPLIANCE_TARGETS
+    from osprey_connectors.deployment.simulator import has_simulator
     from osprey_connectors.directory import (
         ChannelDirectory,
         DirectoryPage,
@@ -54,11 +55,10 @@ try:
         IOC_HEALTH_SIGNALS,
         SERVED_SIGNAL_PROPERTY,
     )
-    from osprey_connectors.simulator import has_simulator
 
     DIRECTORY_CONNECTORS_AVAILABLE = True
 except ImportError:
-    from osprey_connectors.types import CONTROL_TARGETS as _FLOOR_STAND_IN  # noqa: F401
+    from osprey_connectors.connector_types import CONTROL_TARGETS as _FLOOR_STAND_IN  # noqa: F401
 
     DIRECTORY_CONNECTORS_AVAILABLE = False
     APPLIANCE_TARGETS = None  # type: ignore[assignment]

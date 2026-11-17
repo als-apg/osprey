@@ -318,7 +318,7 @@ def guarded_run_target(target: str | None) -> str:
             stamp (:data:`osprey.runtime.ENV_CONTROL_TARGET`). An absent stamp
             and the executor's ``baseline`` both mean the deployment's own
             baseline target, and resolve to the name
-            :func:`osprey_connectors.types.baseline_target` gives the resolved
+            :func:`osprey_connectors.targets.baseline_target` gives the resolved
             config's ``control_system`` section.
 
     Returns:
@@ -328,7 +328,8 @@ def guarded_run_target(target: str | None) -> str:
         GuardedRunDirError: If the name is not one of the control targets,
             which would otherwise become a directory of its own.
     """
-    from osprey_connectors.types import CONTROL_TARGETS, baseline_target
+    from osprey_connectors.connector_types import CONTROL_TARGETS
+    from osprey_connectors.targets import baseline_target
 
     if target is None:
         from osprey.runtime import ENV_CONTROL_TARGET
@@ -495,7 +496,7 @@ def target_limits_off(target: str) -> bool:
     """Whether limits checking is explicitly off for the control target *target*.
 
     The target's limits posture
-    (:func:`osprey_connectors.types.target_limits_posture`, the one reader the
+    (:func:`osprey_connectors.limits_posture.target_limits_posture`, the one reader the
     hook, the executor and the tool layer share) over the resolved config's
     ``control_system`` section: off only when the posture is complete and
     states ``enabled: false``. Silence and an unreadable block are not off.
@@ -506,7 +507,7 @@ def target_limits_off(target: str) -> bool:
     Returns:
         ``True`` only for a complete posture with ``enabled`` ``False``.
     """
-    from osprey_connectors.types import target_limits_posture
+    from osprey_connectors.limits_posture import target_limits_posture
     from osprey_connectors.workspace import load_osprey_config
 
     section = load_osprey_config().get("control_system")

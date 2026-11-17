@@ -35,7 +35,7 @@ import pytest
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey_connectors import control_context, posture_env, posture_store
-from osprey_connectors.types import switch_capable
+from osprey_connectors.targets import switch_capable
 from osprey_connectors_tests._harness import (
     pin_identity,
     state_dir_under,

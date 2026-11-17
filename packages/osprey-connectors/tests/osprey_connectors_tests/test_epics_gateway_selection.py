@@ -32,7 +32,7 @@ from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 from osprey_connectors.errors import ConnectorUnavailableError, ConnectRefusedError
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import WRITES_KEY
+from osprey_connectors.write_tier import WRITES_KEY
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     FakeChannel,
     InlineCaLoop,

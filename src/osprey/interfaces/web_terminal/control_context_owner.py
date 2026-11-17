@@ -68,6 +68,7 @@ from osprey.interfaces.web_terminal.config_view import (
     terminal_config,
     unreadable_config_refusal,
 )
+from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.control_context import (
     OWNER_CONTROLS_SERVER,
     OWNER_WEB_TERMINAL,
@@ -90,7 +91,6 @@ from osprey_connectors.control_context import (
     write_record,
 )
 from osprey_connectors.model import evolve
-from osprey_connectors.types import ControlTarget
 
 logger = logging.getLogger(__name__)
 

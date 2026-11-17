@@ -51,7 +51,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as py_executor
 from osprey_connectors import control_context
-from osprey_connectors.types import LIVE_STANDIN
+from osprey_connectors.connector_types import LIVE_STANDIN
 from osprey_connectors_tests._harness import owner, write_control_context, write_server_report
 from tests._live import async_wait_until
 from tests.mcp_server._switch_harness import SETTLE_TIMEOUT_S, raw_config

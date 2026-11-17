@@ -524,7 +524,7 @@ def _hint_for(value: BaseException) -> str | None:
     from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
     from osprey_connectors import posture_store
     from osprey_connectors.errors import ChannelWriteBlockedError, ClientLibraryRefusedError
-    from osprey_connectors.types import baseline_target
+    from osprey_connectors.targets import baseline_target
 
     if isinstance(value, SwitchInProgressError):
         return None

@@ -33,7 +33,7 @@ import yaml
 from websockets.sync import client as websockets_client
 
 from osprey.integrations.canopy.sidecar import CanopySidecar
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 
 #: How long the two servers get to come up.
@@ -55,18 +55,18 @@ SITECUSTOMIZE = textwrap.dedent(
     import os
 
     if os.environ.get("CANOPY_EPICS__BACKEND"):
-        from osprey_connectors import types
+        from osprey_connectors import connector_types
         from osprey_connectors_tests._fake_connector import FakeConnector
         from osprey_connectors.factory import ConnectorFactory
 
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, FakeConnector)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, FakeConnector)
     """
 )
 
 CONFIG = {
     "control_system": {
-        "type": types.VIRTUAL_ACCELERATOR,
-        "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+        "type": connector_types.VIRTUAL_ACCELERATOR,
+        "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
     }
 }
 

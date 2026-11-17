@@ -169,7 +169,7 @@ def build_connector_config(control_system_type: str, section: Any) -> dict[str, 
 
     *section* is the deployment's ``control_system:`` mapping, which together
     with the type decides the connector's wire
-    (:func:`osprey_connectors.types.connector_transport`). A connector that
+    (:func:`osprey_connectors.connector_types.connector_transport`). A connector that
     speaks Channel Access gets a gateway-less config with a connect timeout: a gateway-less config makes
     ``connect()`` skip the block that sets process-wide ``EPICS_CA_*`` env, so
     the compose-inherited ``EPICS_CA_NAME_SERVERS`` survives untouched. Anything
@@ -186,7 +186,7 @@ def build_connector_config(control_system_type: str, section: Any) -> dict[str, 
     :mod:`osprey.services.bluesky_bridge.queue_backend`).
     """
     from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, TIMEOUT_KEY
-    from osprey_connectors.types import (
+    from osprey_connectors.connector_types import (
         IN_PROCESS,
         SERVING_LEAF,
         TRANSPORT_CA,
@@ -340,7 +340,7 @@ async def build_devices(
     if connector is None:
         connector = await create_connector()
 
-    from osprey_connectors.types import is_simulated
+    from osprey_connectors.connector_types import is_simulated
 
     devices = dict(
         await connector_devices.build_devices(

@@ -696,8 +696,8 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     through the connector the agent reads with.
     """
     from osprey_connectors import config as config_module
+    from osprey_connectors.connector_types import TARGET_VA
     from osprey_connectors.factory import ConnectorFactory
-    from osprey_connectors.types import TARGET_VA
     from osprey_connectors_tests._write_fakes import arm_switch
 
     # Writes are fail-closed on two halves, and the guard does NOT consult the

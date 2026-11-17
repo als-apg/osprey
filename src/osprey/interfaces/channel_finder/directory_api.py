@@ -27,7 +27,7 @@ from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.services.pv_directory.resolve import ResolvedSection, predicates
 from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, source_label
-from osprey_connectors.archive_targets import archive_targets
+from osprey_connectors.deployment.archive_targets import archive_targets
 
 __all__ = ["ariel_configured", "directory_descriptor", "router"]
 

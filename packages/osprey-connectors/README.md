@@ -70,11 +70,11 @@ Most modules are their own API, each imported by its own path:
 
 | Area | Modules |
 | --- | --- |
-| Building connectors | `factory` (the factory and the built-in registry), `types` (the type names), `connection` (an outbound connection block's address, bound, login and CA), `call_timeout` (a connector call's bound) |
+| Building connectors | `factory` (the factory and the built-in registry), `connector_types` (the type names and the row each built-in is described by), `targets` (which machine a control target means), `archiver_selection` (which archiver a config selects), `connection` (an outbound connection block's address, bound, login and CA), `call_timeout` (a connector call's bound) |
 | Configuration | `config`, `workspace` (where a process finds its config and agent data), `dotenv` (the deployment's env chain), `yaml_loader` |
 | Errors and logging | `errors`, `logger`, `log_filter` |
-| Writing safely | `posture_env` (the read-only run), `posture_store` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle) |
-| The deployment's machines | `simulator` (its virtual accelerator), `standin` (its stand-in soft IOC), `archive_targets` (which machines its archive serves), `honesty` (the one connector pairing a deployment may not have) |
+| Writing safely | `posture_env` (the read-only run), `write_tier` (the login tier's write ceiling), `limits_posture` (the limits posture a type or target runs under), `posture_store` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle) |
+| The deployment's machines | `deployment.simulator` (its virtual accelerator), `deployment.standin` (its stand-in soft IOC), `deployment.archive_targets` (which machines its archive serves) |
 | Supervising connector processes | `process` (starting and stopping child processes), `recovery` (what to do about a failed connector call) |
 | Read-only services | `service_answers` (what every service backend answers), `service_targets` (which source answers each kind on each target) |
 | Utilities | `identity` (who an audit record names), `relative_time`, `safety_file` (replacing a file whole) |
@@ -116,7 +116,7 @@ second. import-linter also holds this package to never importing `osprey`, and
 holds every top-level module of it in layers: the connector host above the
 factory, the factory above the archivers, the archivers above the
 control-system connectors, those above the simulation core, and the posture
-store, config loading and the bottom layer (`posture_env`, `types`,
+store, config loading and the bottom layer (`posture_env`, `connector_types`,
 `identity`, ...) below them all.
 
 ## Import map
@@ -128,8 +128,8 @@ removed; the table maps each old path to the public spelling that replaces it.
 | --- | --- |
 | `osprey.connectors` | `osprey_connectors` |
 | `osprey.connectors.factory` | `osprey_connectors.factory` |
-| `osprey.connectors.types` | `osprey_connectors.types` |
-| `osprey.connectors.honesty` | `osprey_connectors.honesty` |
+| `osprey.connectors.types` | `osprey_connectors.connector_types`, `.targets`, `.write_tier`, `.limits_posture`, `.archiver_selection` |
+| `osprey.connectors.honesty` | `osprey.deployment.honesty` |
 | `osprey.connectors.control_system`, `.control_system.base`, `.control_system.limits_validator` | `osprey_connectors.control_system` |
 | `osprey.connectors.control_system.*_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
 | `osprey.connectors.archiver`, `.archiver.base` | `osprey_connectors.archiver` |

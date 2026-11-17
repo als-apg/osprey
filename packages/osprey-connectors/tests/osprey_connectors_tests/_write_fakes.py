@@ -18,6 +18,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from osprey_connectors import control_context
+from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelValue,
@@ -25,7 +26,6 @@ from osprey_connectors.control_system._base import (
     SendReport,
 )
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector
 from osprey_connectors_tests._harness._control_context_fixtures import (
     isolate_verdict_environment,

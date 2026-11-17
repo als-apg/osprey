@@ -23,7 +23,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey_connectors.types import LIMITS_MODE_EXCLUSIVE
+from osprey_connectors.limits_posture import LIMITS_MODE_EXCLUSIVE
 from pyaml_cs_osprey.catalog import parse_reference
 from pyaml_cs_osprey.device import OUTSIDE_A_RUN, OspreyDevice
 from pyaml_cs_osprey.devices import OspreyDeviceList

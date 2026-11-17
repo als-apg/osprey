@@ -29,11 +29,8 @@ from typing import TYPE_CHECKING, Any
 from osprey.cli.build_profile_document import RETIRED_CATALOG_KEY, RETIRED_DEFAULT_TIER_KEY
 from osprey.errors import BuildProfileError
 from osprey_connectors.connection import ENV_NAME_RE
-from osprey_connectors.types import (
+from osprey_connectors.connector_types import (
     IN_PROCESS,
-    LIMITS_CHECKING_LEAF,
-    LIMITS_LEAVES,
-    LIMITS_MODES,
     RETIRED_CONTROL_SYSTEM_TYPES,
     SERVING_KEY,
     SERVING_MODES,
@@ -41,6 +38,7 @@ from osprey_connectors.types import (
     VIRTUAL_ACCELERATOR,
     retired_type_message,
 )
+from osprey_connectors.limits_posture import LIMITS_CHECKING_LEAF, LIMITS_LEAVES, LIMITS_MODES
 
 if TYPE_CHECKING:
     from osprey.agent_record.config import AgentRecordConfig
@@ -82,7 +80,7 @@ _ENV_CHANNEL_KEYS: tuple[str, ...] = ("env", "environment")
 #: The rendered config section a per-type limits posture lives in, and the
 #: dotted spelling of the same path for a spelling-agnostic lookup. The block's
 #: own key and the leaves that make it complete come from
-#: :mod:`osprey_connectors.types`, which is where the resolvers read them: a
+#: :mod:`osprey_connectors.limits_posture`, which is where the resolvers read them: a
 #: build that refused a different pair than the runtime answers with would be
 #: refusing profiles the deployment can honour, or passing ones it cannot.
 _CONTROL_SYSTEM_KEY = "control_system"

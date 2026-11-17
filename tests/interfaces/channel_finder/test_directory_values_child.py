@@ -40,7 +40,7 @@ from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
 from osprey.runtime import session as session_module
 from osprey.runtime.session import EXIT_BINDING_MOVED, EXIT_START_REFUSED, EXIT_TRANSPORT_STALE
 from osprey.services.python_executor.write_surface import _ARMED_CHECKED
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
@@ -61,8 +61,8 @@ CHILD_TIMEOUT_S = 120.0
 ORPHAN_BOUND_S = 15.0
 
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 
@@ -304,7 +304,7 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
     monkeypatch.setattr(_ScriptedFake, "writes", 0)
     _write_record(state_dir)
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _ScriptedFake)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _ScriptedFake)
         yield state_dir
     control_context.invalidate_cache()
 
@@ -796,9 +796,9 @@ class _DeadlineAioca(FakeAioca):
 #: A deployment whose live machine is EPICS behind a name server, the shape whose
 #: transport can go stale; its calls would take the connector's 5 s default.
 EPICS_SECTION = {
-    "type": types.EPICS,
+    "type": connector_types.EPICS,
     "connector": {
-        types.EPICS: {
+        connector_types.EPICS: {
             "gateways": {"read_only": {"address": "gw", "port": 5075, "use_name_server": True}}
         }
     },
@@ -874,9 +874,9 @@ WRITE_GATEWAY = {"address": "write-gw", "port": 5084}
 def _epics_section(**gateways: dict[str, Any]) -> dict[str, Any]:
     """A live EPICS machine whose write tier allows writes, so only the switch decides."""
     return {
-        "type": types.EPICS,
+        "type": connector_types.EPICS,
         "writes": "allowed",
-        "connector": {types.EPICS: {"gateways": gateways}},
+        "connector": {connector_types.EPICS: {"gateways": gateways}},
     }
 
 

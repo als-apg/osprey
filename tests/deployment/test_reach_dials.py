@@ -174,7 +174,7 @@ class TestVirtualAccelerator:
         assert _dial("virtual_accelerator", config) == ("va.example", 5074)
 
     def test_the_connector_default_when_nothing_is_configured(self):
-        from osprey_connectors.types import DEFAULT_VA_PORT
+        from osprey_connectors.connector_types import DEFAULT_VA_PORT
 
         assert _dial("virtual_accelerator", {}) == ("localhost", DEFAULT_VA_PORT)
 

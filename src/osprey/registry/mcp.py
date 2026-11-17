@@ -1995,7 +1995,8 @@ def _warn_writes_without_live_target(sdef: ServerDefinition, ctx: dict) -> None:
     """
     if not sdef.writes or sdef.app or "control_system_section" not in ctx:
         return
-    from osprey_connectors.types import TARGET_LIVE, target_configured
+    from osprey_connectors.connector_types import TARGET_LIVE
+    from osprey_connectors.targets import target_configured
 
     if not target_configured(ctx["control_system_section"], TARGET_LIVE):
         logger.warning(

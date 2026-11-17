@@ -16,7 +16,7 @@ import pytest
 import yaml
 
 from osprey.cli.build_limits_check import limits_database_errors
-from osprey_connectors.types import WRITES_KEY
+from osprey_connectors.write_tier import WRITES_KEY
 
 VALID_DB = {
     "SR:C01:MAG:SP": {

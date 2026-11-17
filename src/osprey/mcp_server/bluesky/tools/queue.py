@@ -183,7 +183,7 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import posture_store
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 
 # The capability reason code for "the deployment is on a control target
 # its single plan lane does not serve". Defined as a constant in

@@ -20,12 +20,17 @@ from typing import Any
 import pytest
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import (
+    TARGET_LIVE,
+    TARGET_STANDIN,
+    TARGET_VA,
+    VIRTUAL_ACCELERATOR,
+)
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.refusals import REASONS, refusal_phrase
-from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA, VIRTUAL_ACCELERATOR
 from osprey_connectors_tests._harness import (
     REFUSAL_BAN_LIST,
     isolated_connector_registries,

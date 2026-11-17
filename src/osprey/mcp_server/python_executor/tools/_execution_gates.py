@@ -50,7 +50,7 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor import executor
 from osprey.utils.session_hold_api import execution_verdict
 from osprey_connectors.posture_store import WriteVerdict
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 
 if TYPE_CHECKING:
     from osprey.mcp_server.python_executor.executor import ExecutionResult
@@ -170,7 +170,7 @@ def _launch_target(section: Any) -> str | None:
     the launch drops it, so a gate that honoured it would answer for a machine
     the run is never pointed at. With no record the run is unstamped and builds
     the deployment's baseline connector, so the question is about
-    :func:`~osprey_connectors.types.baseline_target` — and with no record, every
+    :func:`~osprey_connectors.targets.baseline_target` — and with no record, every
     switch is off.
 
     A record naming a target this deployment cannot build is answered for that

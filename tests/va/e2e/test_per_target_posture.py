@@ -122,9 +122,9 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as execution_gates
 from osprey.mcp_server.python_executor.tools import python_execute as python_execute_module
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps

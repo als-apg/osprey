@@ -37,7 +37,7 @@ from osprey.integrations.canopy.backend import (
 )
 from osprey.interfaces.web_terminal.supervised_child import PREVIOUS_EXIT_ENV
 from osprey.runtime import session as session_module
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -124,9 +124,12 @@ def deployment(tmp_path, monkeypatch):
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
     monkeypatch.chdir(tmp_path)
     section = {
-        "type": types.VIRTUAL_ACCELERATOR,
+        "type": connector_types.VIRTUAL_ACCELERATOR,
         "connector": {
-            types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0, "never_connects": list(NEVER)}
+            connector_types.VIRTUAL_ACCELERATOR: {
+                "response_delay_ms": 0,
+                "never_connects": list(NEVER),
+            }
         },
     }
 
@@ -143,7 +146,7 @@ def deployment(tmp_path, monkeypatch):
     _write_record(directory)
     monkeypatch.setenv(RENDERED_FOR_ENV, "va@3")
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Fake)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Fake)
         yield directory
     control_context.invalidate_cache()
 

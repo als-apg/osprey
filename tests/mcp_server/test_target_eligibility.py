@@ -29,9 +29,9 @@ from typing import Any
 import pytest
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
+from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors import control_context
-from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY
 from osprey_connectors.ipc._verification import (
     DEFAULT_CA_PORT,
     DEFAULT_PVA_PORT,

@@ -55,10 +55,11 @@ from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey.services.pv_directory.origin import Origin, mark
 from osprey.services.pv_directory.vocabulary import service_failed
 from osprey_connectors import control_context
-from osprey_connectors.archive_targets import archive_targets
+from osprey_connectors.archiver_selection import resolve_archiver_type
+from osprey_connectors.deployment.archive_targets import archive_targets
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.model import evolve
-from osprey_connectors.types import baseline_target, resolve_archiver_type
+from osprey_connectors.targets import baseline_target
 
 __all__ = ["DirectoryService"]
 

@@ -63,8 +63,8 @@ from osprey_optimizer.models.protocols import PVReading
 from osprey_optimizer.models.types import PVValues, VariableInputs
 
 if TYPE_CHECKING:
+    from osprey_connectors.connector_types import ControlTarget
     from osprey_connectors.control_system import ChannelValue, ControlSystem
-    from osprey_connectors.types import ControlTarget
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +251,7 @@ class ConnectorInterface:
     def __init__(
         self, target: str, execution_mode: str | None = None, *, bridge: _PoolBridge | None = None
     ) -> None:
-        from osprey_connectors.types import CONTROL_TARGETS, is_control_target
+        from osprey_connectors.connector_types import CONTROL_TARGETS, is_control_target
 
         if not is_control_target(target):
             raise InterfaceError(

@@ -106,8 +106,8 @@ from osprey.utils.seconds import positive_seconds
 from osprey.utils.workspace import session_hold_dir
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
-from osprey_connectors.types import WRITES_KEY
 from osprey_connectors.workspace import repo_root_for_config
+from osprey_connectors.write_tier import WRITES_KEY
 
 if TYPE_CHECKING:
     import socket

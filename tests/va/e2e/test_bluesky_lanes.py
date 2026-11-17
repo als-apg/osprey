@@ -94,7 +94,7 @@ from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.types import TARGET_VA
+from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port

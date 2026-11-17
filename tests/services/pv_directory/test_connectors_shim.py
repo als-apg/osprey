@@ -112,7 +112,8 @@ def test_as_payload_converts_nested_dataclasses_and_enums() -> None:
 
 def test_with_the_modules_every_name_is_bound() -> None:
     pytest.importorskip("osprey_connectors.service_answers")
-    from osprey_connectors import service_answers, simulator
+    from osprey_connectors import service_answers
+    from osprey_connectors.deployment import simulator
     from osprey_connectors.simulation import view
 
     assert _connectors.DIRECTORY_CONNECTORS_AVAILABLE is True

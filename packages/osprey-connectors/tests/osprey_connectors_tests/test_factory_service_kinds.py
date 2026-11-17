@@ -18,12 +18,9 @@ import pytest
 
 from osprey_connectors import factory
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
+from osprey_connectors.connector_types import BUILTIN_CONNECTORS
 from osprey_connectors.directory import ChannelDirectory
-from osprey_connectors.factory import (
-    _SERVICE_BUILTINS,
-    BUILTIN_CONNECTORS,
-    ConnectorFactory,
-)
+from osprey_connectors.factory import _SERVICE_BUILTINS, ConnectorFactory
 from osprey_connectors.service_answers import BackendSpec
 from osprey_connectors_tests._harness import isolated_connector_registries
 

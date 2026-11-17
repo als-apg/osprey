@@ -2065,7 +2065,7 @@ _LANE_KEYS = ("bluesky", "bluesky_va", "bluesky_live", "bluesky_standin")
 #: The two control-system types whose deployments run a machine they stand up
 #: themselves, and the three target names a lane can be wired to. Literals for
 #: the same reason the lane keys are: this hook is deployed standalone and can
-#: import neither ``osprey_connectors.types`` nor ``target_state``'s
+#: import neither ``osprey_connectors.connector_types`` nor ``target_state``'s
 #: ``TARGET_VA``/``TARGET_LIVE``/``TARGET_STANDIN``.
 _VIRTUAL_ACCELERATOR_TYPE = "virtual_accelerator"
 _LIVE_STANDIN_TYPE = "live_standin"

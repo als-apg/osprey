@@ -12,9 +12,9 @@ from collections.abc import Mapping
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.connector_types import DEFAULT_VA_PORT
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import DEFAULT_VA_PORT
 
 logger = get_logger("va_connector")
 

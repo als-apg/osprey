@@ -6,7 +6,7 @@ that all Osprey applications build upon.
 .. seealso:: :class:`RegistryConfigProvider`, :class:`RegistryManager`
 """
 
-from osprey_connectors.factory import BUILTIN_CONNECTORS
+from osprey_connectors.connector_types import BUILTIN_CONNECTORS
 
 from .base import (
     ArielEnhancementModuleRegistration,

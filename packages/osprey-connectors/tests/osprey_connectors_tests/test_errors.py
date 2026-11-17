@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import osprey_connectors
-from osprey_connectors import call_timeout, connection, factory, types
+from osprey_connectors import archiver_selection, call_timeout, connection, connector_types, factory
 from osprey_connectors.errors import (
     AlreadyApprovedError,
     ConfigurationError,
@@ -127,11 +127,11 @@ def test_the_write_path_errors_carry_their_context(tmp_path):
     ("read", "key"),
     [
         (
-            lambda: call_timeout.call_timeout_s({"timeout_s": 0}, types.EPICS),
+            lambda: call_timeout.call_timeout_s({"timeout_s": 0}, connector_types.EPICS),
             "control_system.connector.epics.timeout_s",
         ),
         (
-            lambda: call_timeout.call_timeout_s({"timeout": 3}, types.EPICS),
+            lambda: call_timeout.call_timeout_s({"timeout": 3}, connector_types.EPICS),
             "control_system.connector.epics.timeout",
         ),
         (
@@ -141,15 +141,22 @@ def test_the_write_path_errors_carry_their_context(tmp_path):
             "control_system.connector.tango.timeout",
         ),
         (
-            lambda: types.resolve_serving(
+            lambda: connector_types.resolve_serving(
                 {
-                    "type": types.VIRTUAL_ACCELERATOR,
-                    "connector": {types.VIRTUAL_ACCELERATOR: {types.SERVING_LEAF: "nowhere"}},
+                    "type": connector_types.VIRTUAL_ACCELERATOR,
+                    "connector": {
+                        connector_types.VIRTUAL_ACCELERATOR: {
+                            connector_types.SERVING_LEAF: "nowhere"
+                        }
+                    },
                 }
             ),
-            types.SERVING_KEY,
+            connector_types.SERVING_KEY,
         ),
-        (lambda: types.resolve_archiver_settings({"settings": 3}), "archiver.settings"),
+        (
+            lambda: archiver_selection.resolve_archiver_settings({"settings": 3}),
+            "archiver.settings",
+        ),
         (
             lambda: connection.read_connection_settings(
                 {"timeout_s": -1}, where="archiver.settings"

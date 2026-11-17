@@ -24,7 +24,8 @@ from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.cli.init_cmd import init
 from osprey.cli.init_revalidate import WRITE_STANZAS, _preset_stanza
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.types import configured_targets, tier_writes
+from osprey_connectors.targets import configured_targets
+from osprey_connectors.write_tier import tier_writes
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 from tests.cli.test_init_revalidate import (
     _hermetic_git,  # noqa: F401  (autouse: keeps the developer's git config out)

@@ -52,7 +52,7 @@ from osprey.integrations.canopy.sidecar import (
 )
 from osprey.interfaces.web_terminal.supervised_child import PREVIOUS_EXIT_ENV
 from osprey.runtime.budget import write_budget
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 
 #: How long a stub child gets to show up, or to be gone.
@@ -81,7 +81,7 @@ STUB = textwrap.dedent(
 )
 
 MONGODB_BLOCK = {
-    "type": types.MONGODB_ARCHIVER,
+    "type": connector_types.MONGODB_ARCHIVER,
     "settings": {
         "host": "store.example.org",
         "port": 27017,  # osprey:not-a-port
@@ -409,7 +409,7 @@ class TestMoleBlock:
         user on either is shown the appliance; a user on the simulator is not."""
         config = {
             "archiver": {
-                "type": types.EPICS_ARCHIVER,
+                "type": connector_types.EPICS_ARCHIVER,
                 "settings": {"url": "https://archiver.example.org"},
             }
         }
@@ -429,7 +429,7 @@ class TestMoleBlock:
         was built and recorded, and whatever machine the sessions start on —
         the recorder samples the simulator this deployment built."""
         config = {
-            "control_system": {"type": types.LIVE_STANDIN},
+            "control_system": {"type": connector_types.LIVE_STANDIN},
             "archiver": MONGODB_BLOCK,
             "services": {"virtual_accelerator": {"port": 5064}, "live_standin": {"port": 5074}},
             "deployed_services": ["virtual_accelerator", "live_standin", "archiver_recorder"],

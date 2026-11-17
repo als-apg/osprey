@@ -38,7 +38,7 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import baseline_target, configured_targets, resolve_target
+from osprey_connectors.targets import baseline_target, configured_targets, resolve_target
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch, turn_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV

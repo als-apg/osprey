@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Literal, TypeVar, get_args
+from typing import TYPE_CHECKING, TypeVar, get_args
 
-from osprey_connectors import types
+from osprey_connectors import archiver_selection, connector_types
+from osprey_connectors.connector_types import BUILTIN_CONNECTORS
 from osprey_connectors.control_system._base import (
     ConnectorContext,
     ControlSystemConnector,
@@ -43,8 +44,6 @@ if TYPE_CHECKING:
     _ServiceBackend = ChannelDirectory | AlarmState | AlarmLog | PutLog
 
 __all__ = [
-    "BUILTIN_CONNECTORS",
-    "BuiltinConnector",
     "ConnectorFactory",
 ]
 
@@ -365,12 +364,12 @@ class ConnectorFactory:
 
         # Fail closed: an under-specified config must never bring up a live
         # control system. A blank value is treated as absent for the same
-        # reason. The fallback lives in types.resolve_control_system_type so
+        # reason. The fallback lives in connector_types.resolve_control_system_type so
         # that anything deciding what this call WILL build — the honesty rule's
         # three refusals above all — resolves it identically.
-        connector_type = types.resolve_control_system_type(config)
+        connector_type = connector_types.resolve_control_system_type(config)
         if not config.get("type"):
-            logger.warning(types.UNSET_TYPE_WARNING)
+            logger.warning(connector_types.UNSET_TYPE_WARNING)
 
         cls._ensure_builtins()
         connector_class = cls._control_system_connectors.get(connector_type)
@@ -378,8 +377,8 @@ class ConnectorFactory:
         # check reads the connector's wire from: the simulator served in process
         # is built here, and nowhere else decides it.
         if (
-            connector_type == types.VIRTUAL_ACCELERATOR
-            and types.resolve_serving(config) == types.IN_PROCESS
+            connector_type == connector_types.VIRTUAL_ACCELERATOR
+            and connector_types.resolve_serving(config) == connector_types.IN_PROCESS
         ):
             from osprey_connectors.control_system._va_in_process_connector import (
                 VAInProcessConnector,
@@ -394,9 +393,10 @@ class ConnectorFactory:
                 )
                 cls._control_system_connectors[connector_type] = connector_class
             else:
-                if connector_type in types.RETIRED_CONTROL_SYSTEM_TYPES:
+                if connector_type in connector_types.RETIRED_CONTROL_SYSTEM_TYPES:
                     raise ConfigurationError(
-                        types.retired_type_message(connector_type), key="control_system.type"
+                        connector_types.retired_type_message(connector_type),
+                        key="control_system.type",
                     )
                 available = list(cls._control_system_connectors.keys())
                 raise ConfigurationError(
@@ -427,7 +427,7 @@ class ConnectorFactory:
         context = ConnectorContext(
             connector_type=connector_type,
             control_target=control_target,
-            transport=types.connector_transport(config, connector_type),
+            transport=connector_types.connector_transport(config, connector_type),
             settings=type_config,
             readonly_wording=readonly_wording,
         )
@@ -534,12 +534,12 @@ class ConnectorFactory:
         # Fail closed: a config with no `archiver:` section is under-specified,
         # not a declaration that a facility archiver exists. A blank value is
         # treated as absent for the same reason. The fallback lives in
-        # types.resolve_archiver_type because the honesty rule's refusals have
+        # archiver_selection.resolve_archiver_type because the honesty rule's refusals have
         # to answer "what will this build?" with exactly this answer.
-        connector_type = types.resolve_archiver_type(config)
+        connector_type = archiver_selection.resolve_archiver_type(config)
         if not config.get("type"):
             logger.warning(
-                f"archiver.type is not set; defaulting to '{types.MOCK_ARCHIVER}'. "
+                f"archiver.type is not set; defaulting to '{connector_types.MOCK_ARCHIVER}'. "
                 f"Set archiver.type explicitly to select a connector."
             )
 
@@ -566,7 +566,7 @@ class ConnectorFactory:
 
         # The selected archiver's settings block. The rule is in types so that the
         # build's refusal and this read give the same answer.
-        type_config = types.resolve_archiver_settings(config)
+        type_config = archiver_selection.resolve_archiver_settings(config)
 
         # Connect with configuration
         await connector.connect(type_config)
@@ -624,116 +624,6 @@ class ConnectorFactory:
         return list(cls._archiver_connectors.keys())
 
 
-class BuiltinConnector(FrozenModel):
-    """One connector this package ships, as a registry names it.
-
-    The module path names an implementation module of this package, which only
-    this table spells: a registry that loads connectors lazily by path takes
-    its entries from here rather than restating the private paths.
-    """
-
-    #: The type name a config selects it by, and the key it registers under.
-    name: str
-    #: Which registry it goes into, and the ``connector_type`` a registration names.
-    kind: Literal["control_system", "archiver"]
-    module_path: str
-    class_name: str
-    description: str
-
-    def load(self) -> type[ControlSystemConnector] | type[ArchiverConnector]:
-        """Import the module and return the connector class.
-
-        Raises:
-            TypeError: The class is not a subclass of the base its kind names.
-        """
-        if self.kind == "archiver":
-            return _archiver_class(self.module_path, self.class_name)
-        return _control_system_class(self.module_path, self.class_name)
-
-
-#: Every built-in connector, in registration order.
-BUILTIN_CONNECTORS: tuple[BuiltinConnector, ...] = (
-    BuiltinConnector(
-        name=types.EPICS,
-        kind="control_system",
-        module_path="osprey_connectors.control_system._epics_connector",
-        class_name="EPICSConnector",
-        description="EPICS Channel Access control system connector",
-    ),
-    BuiltinConnector(
-        name=types.VIRTUAL_ACCELERATOR,
-        kind="control_system",
-        module_path="osprey_connectors.control_system._va_connector",
-        class_name="VirtualAcceleratorConnector",
-        description="Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
-    ),
-    BuiltinConnector(
-        name=types.DOOCS,
-        kind="control_system",
-        module_path="osprey_connectors.control_system._doocs_connector",
-        class_name="DOOCSConnector",
-        description="DOOCS control system connector (requires doocs4py)",
-    ),
-    BuiltinConnector(
-        name=types.TANGO,
-        kind="control_system",
-        module_path="osprey_connectors.control_system._tango_connector",
-        class_name="TangoConnector",
-        description="TANGO Controls control system connector (requires PyTango)",
-    ),
-    # The live stand-in is a soft IOC, so the EPICS connector is what reaches
-    # it — but it registers under its own name rather than sharing 'epics'.
-    # The registry key is what build_control_system_connector() names as the
-    # context's connector type, and that type is what selects the
-    # connector block ('control_system.connector.live_standin') and the write
-    # posture read from it. Registering the stand-in as 'epics' would give it
-    # the facility's authored block and the facility's arming.
-    BuiltinConnector(
-        name=types.LIVE_STANDIN,
-        kind="control_system",
-        module_path="osprey_connectors.control_system._epics_connector",
-        class_name="EPICSConnector",
-        description="Live stand-in connector: the facility-shaped soft IOC a deployment runs "
-        "for itself, served over Channel Access",
-    ),
-    BuiltinConnector(
-        name=types.MOCK_ARCHIVER,
-        kind="archiver",
-        module_path="osprey_connectors.archiver._mock_archiver_connector",
-        class_name="MockArchiverConnector",
-        description="Mock archiver connector for development and testing",
-    ),
-    BuiltinConnector(
-        name=types.EPICS_ARCHIVER,
-        kind="archiver",
-        module_path="osprey_connectors.archiver._epics_archiver_connector",
-        class_name="EPICSArchiverConnector",
-        description="EPICS Archiver Appliance connector",
-    ),
-    BuiltinConnector(
-        name=types.MONGODB_ARCHIVER,
-        kind="archiver",
-        module_path="osprey_connectors.archiver._mongodb_archiver_connector",
-        class_name="MongoDBArchiverConnector",
-        description="MongoDB archiver connector for time-series PV data",
-    ),
-    BuiltinConnector(
-        name=types.DOOCS_ARCHIVER,
-        kind="archiver",
-        module_path="osprey_connectors.archiver._doocs_archiver_connector",
-        class_name="DOOCSArchiverConnector",
-        description="DOOCS local history connector (requires doocs4py)",
-    ),
-    BuiltinConnector(
-        name=types.MYA_ARCHIVER,
-        kind="archiver",
-        module_path="osprey_connectors.archiver._mya_archiver_connector",
-        class_name="MYAArchiverConnector",
-        description="MYA archiver connector, read over the myquery HTTP service "
-        "(requires jlab-archiver-client)",
-    ),
-)
-
 _BUILTIN_CONTROL_SYSTEMS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "control_system")
 _BUILTIN_ARCHIVERS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
 
@@ -741,7 +631,7 @@ _BUILTIN_ARCHIVERS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "arch
 class _ServiceBuiltin(FrozenModel):
     """One service backend this package ships.
 
-    Apart from :class:`BuiltinConnector` because the framework registry reads
+    Apart from :class:`~osprey_connectors.connector_types.BuiltinConnector` because the framework registry reads
     that table, and these kinds must never reach a framework that predates them.
     """
 

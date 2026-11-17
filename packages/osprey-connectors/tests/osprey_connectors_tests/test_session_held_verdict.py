@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 from osprey_connectors import posture_store, session_hold
+from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.ipc._pool import ConnectorHostPool
@@ -31,7 +32,6 @@ from osprey_connectors.posture_store import (
     write_verdict,
 )
 from osprey_connectors.refusals import REASONS, refusal_phrase, refusal_text
-from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST
 from osprey_connectors_tests._harness._control_context_fixtures import (
     isolate_verdict_environment,

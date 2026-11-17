@@ -115,16 +115,16 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
-from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
-from osprey_connectors.posture_store import POSTURE_SANDBOX
-from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import (
+from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
-    tier_allows,
 )
+from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
+from osprey_connectors.posture_store import POSTURE_SANDBOX
+from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_tier import tier_allows
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_support import (
     find_osprey_console_script,

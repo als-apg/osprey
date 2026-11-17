@@ -29,14 +29,14 @@ from pathlib import Path
 from typing_extensions import override
 
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.types import (
+from osprey_connectors.connector_types import (
     TARGET_LIVE,
     ControlTarget,
     MachineKind,
-    baseline_target,
     is_control_target,
-    published_machine_kind,
 )
+from osprey_connectors.control_context import published_machine_kind
+from osprey_connectors.targets import baseline_target
 
 __all__ = [
     "KIND_BANNERS",

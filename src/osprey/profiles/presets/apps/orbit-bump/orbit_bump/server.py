@@ -68,11 +68,12 @@ from osprey.apps.sdk import (
 )
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_config_value
+from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.control_system import ControlSystem
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-from osprey_connectors.types import baseline_target, resolve_target, speaks_channel_access
+from osprey_connectors.targets import baseline_target, resolve_target
 
 _log = logging.getLogger(__name__)
 

@@ -55,7 +55,7 @@ from osprey.services.pv_directory.archive import (
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
 from osprey.services.pv_directory.vocabulary import CONFIG_LABELS, service_failed
-from osprey_connectors.archive_targets import archive_targets
+from osprey_connectors.deployment.archive_targets import archive_targets
 
 __all__ = ["ACTIVE_ALARMS_MAX_ROWS", "Facts", "panel_link"]
 

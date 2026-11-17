@@ -29,7 +29,9 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey_connectors.archiver import field_name
+from osprey_connectors.archiver_selection import resolve_archiver_type
 from osprey_connectors.config import get_facility_timezone, load_config
+from osprey_connectors.connector_types import MONGODB_ARCHIVER
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import resolve_relative_timestamp
 from osprey_connectors.simulation.state import (
@@ -40,7 +42,6 @@ from osprey_connectors.simulation.state import (
     scenario_targets,
     write_active_state,
 )
-from osprey_connectors.types import MONGODB_ARCHIVER, resolve_archiver_type
 from osprey_connectors.workspace import resolve_simulation_state_dir
 
 if TYPE_CHECKING:

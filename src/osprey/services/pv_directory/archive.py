@@ -30,14 +30,11 @@ from typing import Any
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig, freshness_max_age_s
 from osprey.services.pv_directory.vocabulary import service_failed
-from osprey_connectors.archive_targets import archive_targets
+from osprey_connectors.archiver_selection import resolve_archiver_type
+from osprey_connectors.connector_types import MONGODB_ARCHIVER, TARGET_VA
+from osprey_connectors.deployment.archive_targets import archive_targets
 from osprey_connectors.simulation.archive import SeedKnobs
-from osprey_connectors.types import (
-    MONGODB_ARCHIVER,
-    TARGET_VA,
-    configured_targets,
-    resolve_archiver_type,
-)
+from osprey_connectors.targets import configured_targets
 
 __all__ = [
     "NO_EXTENT_REASON",

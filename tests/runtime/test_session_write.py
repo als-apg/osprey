@@ -30,7 +30,7 @@ from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey.runtime import session as session_module
 from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import ControlSession
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
     ChannelWriteBlockedError,
@@ -48,9 +48,9 @@ from tests._audit_capture import capture_audit_bodies
 #: The virtual accelerator with the write tier allowed: with its switch on (the
 #: record :func:`write_record` writes by default) the write verdict allows.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
+    "type": connector_types.VIRTUAL_ACCELERATOR,
     "writes": "allowed",
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 #: The section the refusal-wording tests serve: the same tier-allowed render, so
 #: a refusal is worded from the verdict's own reason.
@@ -65,7 +65,10 @@ def phrase(reason: str) -> str:
     return refusal_phrase(reason, "simulator")
 
 
-STANDIN_ONLY_SECTION = {"type": types.LIVE_STANDIN, "connector": {types.LIVE_STANDIN: {}}}
+STANDIN_ONLY_SECTION = {
+    "type": connector_types.LIVE_STANDIN,
+    "connector": {connector_types.LIVE_STANDIN: {}},
+}
 
 CHANNEL = "SR:QF:01:SP"
 ORIGIN = {"screen": "sr/overview", "rev": "r7"}
@@ -101,7 +104,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     )
     control_context.invalidate_cache()
     if switch is None:
-        wanted = dict.fromkeys({target} & set(types.CONTROL_TARGETS), "allowed")
+        wanted = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     elif isinstance(switch, Mapping):
         wanted = dict(switch)
     else:
@@ -148,7 +151,7 @@ def va(monkeypatch, state_dir):
     _serve(monkeypatch, VA_SECTION)
     _Connector.disconnects = 0
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Connector)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Connector)
         yield state_dir
 
 

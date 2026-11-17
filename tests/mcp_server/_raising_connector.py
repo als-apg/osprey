@@ -1,7 +1,7 @@
 """A connector whose only job is to refuse a chosen write, on cue.
 
 The connector-host child builds whatever connector its init frame names, and
-:func:`osprey_connectors.types.resolve_target` returns a dotted class path
+:func:`osprey_connectors.targets.resolve_target` returns a dotted class path
 verbatim for ``live``, so this module is reachable from a real child by asking
 for ``tests.mcp_server._raising_connector.RaisingConnector``. It exists because
 the two refusals that matter to the error envelope cannot both be provoked out

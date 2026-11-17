@@ -36,7 +36,7 @@ from osprey.cli.build_profile_merge import _deep_merge, _resolve_extends
 from osprey.cli.build_profile_presets import _presets_dir
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.types import tier_writes
+from osprey_connectors.write_tier import tier_writes
 
 _LOGGER_NAME = doc.__name__
 _REMEDY = "run `osprey init --revalidate`"

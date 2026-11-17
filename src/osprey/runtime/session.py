@@ -124,13 +124,13 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
+    from osprey_connectors.connector_types import ControlTarget
     from osprey_connectors.control_system import (
         ChannelMetadata,
         ChannelValue,
         ControlSystemConnector,
     )
     from osprey_connectors.posture_store import WriteVerdict
-    from osprey_connectors.types import ControlTarget
 
 logger = get_logger("control_session")
 
@@ -335,15 +335,15 @@ def _fallback_target(section: dict[str, Any]) -> ControlTarget:
     accelerator when the deployment configures one, and the live machine
     otherwise.
     """
-    from osprey_connectors import types
+    from osprey_connectors import connector_types, targets
 
-    target = types.baseline_target(section)
-    if target != types.TARGET_STANDIN:
+    target = targets.baseline_target(section)
+    if target != connector_types.TARGET_STANDIN:
         return target
     connectors = section.get("connector")
-    if isinstance(connectors, dict) and types.VIRTUAL_ACCELERATOR in connectors:
-        return types.TARGET_VA
-    return types.TARGET_LIVE
+    if isinstance(connectors, dict) and connector_types.VIRTUAL_ACCELERATOR in connectors:
+        return connector_types.TARGET_VA
+    return connector_types.TARGET_LIVE
 
 
 #: What names the sessions a process writes for: a zero-argument callable read
@@ -573,7 +573,7 @@ class ControlSession:
                 ``fallback`` state and an unbuildable connector the
                 ``unservable`` one.
         """
-        from osprey_connectors import types
+        from osprey_connectors import targets
         from osprey_connectors.factory import ConnectorFactory
 
         check_environment(os.environ)
@@ -594,7 +594,7 @@ class ControlSession:
         connector: ControlSystemConnector | None = None
         connector_type: str | None = None
         try:
-            connector_type = types.resolve_target(section, target)
+            connector_type = targets.resolve_target(section, target)
             config, call_bound_s, write_bound_s = _bounded_config(section, connector_type, budget)
             # A long-lived session runs no script: a readonly refusal on its
             # connector is the deployment's, worded as in an MCP server.

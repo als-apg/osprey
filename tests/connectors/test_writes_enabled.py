@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey_connectors.connector_types import TARGET_LIVE, TARGET_VA
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelValue,
@@ -21,7 +22,6 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
 )
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import TARGET_LIVE, TARGET_VA
 from osprey_connectors_tests._write_fakes import (
     RecordingConnector,
     arm_switch,
@@ -256,18 +256,20 @@ class TestFactoryTypeStamp:
 
     @pytest.mark.asyncio
     async def test_stamp_is_visible_inside_connect(self):
-        from osprey_connectors import types
+        from osprey_connectors import connector_types
         from osprey_connectors.factory import ConnectorFactory
         from osprey_connectors_tests._harness import isolated_connector_registries
 
         with isolated_connector_registries(clear=True):
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _TypeSeenConnector)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _TypeSeenConnector
+            )
             connector = await ConnectorFactory.create_control_system_connector(
-                {"type": types.VIRTUAL_ACCELERATOR}
+                {"type": connector_types.VIRTUAL_ACCELERATOR}
             )
 
-        assert connector.type_seen_in_connect == types.VIRTUAL_ACCELERATOR
-        assert connector._connector_type == types.VIRTUAL_ACCELERATOR
+        assert connector.type_seen_in_connect == connector_types.VIRTUAL_ACCELERATOR
+        assert connector._connector_type == connector_types.VIRTUAL_ACCELERATOR
 
 
 class TestTheTierIsTargetBlind:

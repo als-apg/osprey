@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey_connectors.standin import (
+from osprey_connectors.deployment.standin import (
     LIVE_STANDIN_PORT_KEY,
     live_standin_active,
     live_standin_port,

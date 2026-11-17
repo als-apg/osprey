@@ -193,9 +193,9 @@ from typing import Any, Final
 
 from osprey.audit.posture import posture_session
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import parse_instant
-from osprey_connectors.types import ControlTarget
 from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
@@ -204,7 +204,7 @@ logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
 #: accelerator, ``standin`` the live stand-in soft IOC; every one of them is
 #: always present in the record's ``targets`` mapping so a reader can describe a
 #: target it is *not* on without a second lookup. Restated here rather than
-#: imported from :mod:`osprey_connectors.types` for the same reason the path
+#: imported from :mod:`osprey_connectors.connector_types` for the same reason the path
 #: contract is restated in the hooks: this module is the readers' vocabulary.
 TARGET_LIVE: Final = "live"
 TARGET_VA: Final = "va"
@@ -455,7 +455,7 @@ def record_pid(record: Mapping[str, Any], field: str) -> int | None:
 _OPTIONAL_TARGET_KEYS = ("probe_channel", "selected_role")
 
 #: The key each target's published machine kind sits under, and the values it
-#: may carry (C-KIND). Read back by ``osprey_connectors.types.published_machine_kind``
+#: may carry (C-KIND). Read back by ``osprey_connectors.control_context.published_machine_kind``
 #: and its hook twin.
 _MACHINE_KIND_KEY = "machine_kind"
 _MACHINE_KINDS = frozenset({"real", "rehearsal", "simulator"})

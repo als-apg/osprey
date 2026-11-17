@@ -38,8 +38,8 @@ from pydantic import (
     model_validator,
 )
 
+from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, parse_instant
-from osprey_connectors.types import ControlTarget
 
 #: The row record a :class:`HistoryPage` holds.
 _RowT = TypeVar("_RowT")

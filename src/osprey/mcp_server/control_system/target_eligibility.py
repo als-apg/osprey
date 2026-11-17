@@ -110,14 +110,23 @@ from datetime import UTC, datetime
 from typing import Any, SupportsIndex, SupportsInt
 
 from osprey.audit.posture import posture_session
-from osprey_connectors import posture_store
-from osprey_connectors.config import unresolved_placeholders
-from osprey_connectors.honesty import (
+from osprey.deployment.honesty import (
     VA_MOCK_ARCHIVER_WHY,
     invents_history,
     pairing_for_target,
     target_section,
 )
+from osprey_connectors import posture_store
+from osprey_connectors.config import unresolved_placeholders
+from osprey_connectors.connector_types import (
+    CONTROL_TARGETS,
+    TARGET_LIVE,
+    TARGET_STANDIN,
+    is_control_target,
+    speaks_channel_access,
+)
+from osprey_connectors.deployment.simulator import virtual_accelerator_active
+from osprey_connectors.deployment.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
 from osprey_connectors.ipc import (
     GATEWAYS_MISSING,
     GATEWAYS_NONE_DECLARED,
@@ -131,16 +140,7 @@ from osprey_connectors.ipc import (
     subsection,
 )
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.simulator import virtual_accelerator_active
-from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
-from osprey_connectors.types import (
-    CONTROL_TARGETS,
-    TARGET_LIVE,
-    TARGET_STANDIN,
-    is_control_target,
-    resolve_target,
-    speaks_channel_access,
-)
+from osprey_connectors.targets import resolve_target
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_eligibility")
 
@@ -297,7 +297,7 @@ def endpoint_is_live_standin(config: Any, endpoint: Endpoint | None) -> bool:
     """Whether a derived *endpoint* is this deployment's own live stand-in.
 
     The step between :func:`derive_endpoints` — which says where a session would
-    land — and :func:`~osprey_connectors.standin.live_standin_active`, which says
+    land — and :func:`~osprey_connectors.deployment.standin.live_standin_active`, which says
     whether landing there is landing on the stand-in. It lives beside the
     derivation because its callers reach it from one: the roster labels the
     target an operator is told they are on from this answer, and the switch
@@ -342,7 +342,7 @@ def endpoint_is_virtual_accelerator(config: Any, endpoint: Endpoint | None) -> b
 
     The simulator's twin of :func:`endpoint_is_live_standin`: the step between
     :func:`derive_endpoints` for the ``va`` target and
-    :func:`~osprey_connectors.simulator.virtual_accelerator_active`, which says
+    :func:`~osprey_connectors.deployment.simulator.virtual_accelerator_active`, which says
     whether landing there is landing on the container this deployment built.
     Its caller is the archiver recorder, which samples the ``va`` target into
     the deployment's store and must not do so for an endpoint the deployment
@@ -423,7 +423,7 @@ def unknown_target_detail(target: object) -> str:
     """The detail of :data:`REASON_TARGET_UNRESOLVABLE` for a word that names no target.
 
     Said where a requested target is parsed, before any resolver is handed it:
-    a resolver takes a :data:`~osprey_connectors.types.ControlTarget`, and the
+    a resolver takes a :data:`~osprey_connectors.connector_types.ControlTarget`, and the
     requested word is what an operator typed.
     """
     valid = ", ".join(repr(name) for name in CONTROL_TARGETS)

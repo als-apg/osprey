@@ -50,9 +50,9 @@ from typing import Any
 import pytest
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.posture_store import NO_OWNER
 from osprey_connectors.refusals import REASONS
-from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._harness import (
     VERDICT_ENV_VARS,
     isolate_verdict_environment,

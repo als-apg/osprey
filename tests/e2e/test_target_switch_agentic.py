@@ -96,6 +96,7 @@ from osprey.mcp_server.control_system.target_state import (
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
 from osprey.utils.workspace import TIERS_DIRNAME
+from osprey_connectors.connector_types import TARGET_LIVE, TARGET_VA
 from osprey_connectors.control_context import (
     RECORD_FILENAME,
     SWITCH_APPLIED,
@@ -104,7 +105,6 @@ from osprey_connectors.control_context import (
     write_json_atomic,
 )
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.types import TARGET_LIVE, TARGET_VA
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests.e2e import refusals
 from tests.e2e._facility_select import repo_view

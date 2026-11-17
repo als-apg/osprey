@@ -25,20 +25,18 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import types
-from osprey_connectors.types import (
+from osprey_connectors import targets, write_tier
+from osprey_connectors.connector_types import (
     EPICS,
     LIVE_STANDIN,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
-    WRITES_KEY,
-    machine_kind,
-    published_machine_kind,
-    tier_allows,
-    tier_writes,
 )
+from osprey_connectors.control_context import published_machine_kind
+from osprey_connectors.targets import machine_kind
+from osprey_connectors.write_tier import WRITES_KEY, tier_allows, tier_writes
 
 
 def _section(writes: Any = ..., writes_enabled: Any = ..., connector: Any = ...) -> dict[str, Any]:
@@ -58,8 +56,9 @@ def test_writes_key_is_the_dotted_control_system_writes_key() -> None:
 
 
 def test_new_names_are_exported() -> None:
-    for name in ("WRITES_KEY", "tier_writes", "tier_allows", "machine_kind"):
-        assert name in types.__all__
+    for name in ("WRITES_KEY", "tier_writes", "tier_allows"):
+        assert name in write_tier.__all__
+    assert "machine_kind" in targets.__all__
 
 
 # -- the new key present: only the two literal arming words arm ----------------
@@ -312,7 +311,7 @@ def test_published_kind_reads_the_state_dir_by_default(tmp_path: Path, monkeypat
 def test_tier_word_is_the_tier_words_as_a_type():
     from typing import get_args
 
-    assert get_args(types.TierWord) == types.TIER_WORDS
+    assert get_args(write_tier.TierWord) == write_tier.TIER_WORDS
 
 
 @pytest.mark.parametrize(

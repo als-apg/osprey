@@ -56,6 +56,11 @@ MODULES = (
     )
     + ("osprey_connectors.control_system.write_door", "osprey_connectors.simulation")
     + tuple(
+        f"osprey_connectors.deployment.{path.stem}"
+        for path in sorted((ROOT / "deployment").glob("*.py"))
+        if not path.stem.startswith("_")
+    )
+    + tuple(
         f"osprey_connectors.simulation.{path.stem}"
         for path in sorted((ROOT / "simulation").glob("*.py"))
         if not path.stem.startswith("_")

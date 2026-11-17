@@ -220,6 +220,7 @@ from typing import Final, Literal, TypeVar
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
+from osprey_connectors.connector_types import TRANSPORT_CA, ControlTarget
 from osprey_connectors.control_system._base import (
     ChannelReadBatch,
     ChannelValue,
@@ -257,7 +258,7 @@ from osprey_connectors.ipc._verification import (
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code, terminate
 from osprey_connectors.recovery import RecoveryPolicy, Timing
-from osprey_connectors.types import TRANSPORT_CA, ControlTarget, machine_kind
+from osprey_connectors.targets import machine_kind
 
 __all__ = [
     "DEFAULT_CALL_TIMEOUT_S",
@@ -743,7 +744,7 @@ class ConnectorHostPool:
 
         Args:
             target: ``"live"``, ``"va"`` or ``"standin"``, resolved per
-                :func:`~osprey_connectors.types.resolve_target`.
+                :func:`~osprey_connectors.targets.resolve_target`.
             execution_mode: ``None``, or ``"readonly"`` for a child that
                 refuses every write whatever the config arms.
             owner: The login whose switch the child's writes follow, stamped

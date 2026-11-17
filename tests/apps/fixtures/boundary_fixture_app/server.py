@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.apps import sdk
 from osprey.apps.sdk import serve_tools
-from osprey_connectors.types import tier_writes
+from osprey_connectors.write_tier import tier_writes
 
 from . import helpers
 

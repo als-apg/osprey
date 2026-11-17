@@ -49,7 +49,7 @@ from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import TERMINAL_USER_ENV
 from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,

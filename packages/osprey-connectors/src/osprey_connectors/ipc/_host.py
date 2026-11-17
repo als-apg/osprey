@@ -42,7 +42,7 @@ whose kwargs are::
 
 ``control_system`` is passed whole rather than re-read from disk, so the child
 builds from exactly the section the parent resolved against. ``target`` is
-resolved to a connector type by :func:`osprey_connectors.types.resolve_target`
+resolved to a connector type by :func:`osprey_connectors.targets.resolve_target`
 — the same shared resolver the parent and the executor sandbox use, so no
 holder can decide privately which machine ``live`` means.
 
@@ -464,7 +464,7 @@ def _as_port(value: str | None) -> int | str | None:
 def _writes_enabled_input() -> bool:
     """The DEPLOYMENT half of this child's write posture — the write tier alone.
 
-    :func:`osprey_connectors.types.tier_allows` over the project config's
+    :func:`osprey_connectors.write_tier.tier_allows` over the project config's
     ``control_system`` section: whether this deployment's write tier allows
     writes at all, before the switch, the owner or the target are asked. The
     tier is one per section, so the connector type this child serves does not
@@ -489,7 +489,7 @@ def _writes_enabled_input() -> bool:
     cannot be read allows nothing.
     """
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.types import tier_allows
+    from osprey_connectors.write_tier import tier_allows
 
     try:
         section: object = get_config_value("control_system", {})
@@ -715,15 +715,15 @@ async def _build_connector(
         # Restriction only: an inherited readonly claim is never cleared here.
         os.environ[POSTURE_ENV_VAR] = SANDBOX_MODE
 
-    from osprey_connectors import types
+    from osprey_connectors import connector_types, targets
     from osprey_connectors.factory import ConnectorFactory
 
-    if not types.is_control_target(target):
+    if not connector_types.is_control_target(target):
         raise ValueError(
             f"Unknown control target {target!r} in the connector host init frame; "
-            f"valid targets are {', '.join(types.CONTROL_TARGETS)}."
+            f"valid targets are {', '.join(connector_types.CONTROL_TARGETS)}."
         )
-    connector_type = types.resolve_target(section, target)
+    connector_type = targets.resolve_target(section, target)
     if marks is not None:
         marks.mark("imports")
 
@@ -737,7 +737,7 @@ async def _build_connector(
     # would build the other venue.
     config = (
         section
-        if types.resolve_control_system_type(section) == connector_type
+        if connector_types.resolve_control_system_type(section) == connector_type
         else {**section, "type": connector_type}
     )
     # The target the parent pointed this child at — already validated above as

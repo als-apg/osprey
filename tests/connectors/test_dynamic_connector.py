@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from osprey_connectors import types
+from osprey_connectors import connector_types
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
@@ -77,7 +77,9 @@ class TestDynamicConnectorImport:
     @pytest.mark.asyncio
     async def test_an_unusable_control_system_type_is_refused(self, connector_type, message):
         """Mirrors ``TestArchiverTypeResolution`` for the control-system side."""
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, VAInProcessConnector)
+        ConnectorFactory.register_control_system(
+            connector_types.VIRTUAL_ACCELERATOR, VAInProcessConnector
+        )
 
         with pytest.raises(ValueError) as caught:
             await ConnectorFactory.create_control_system_connector(

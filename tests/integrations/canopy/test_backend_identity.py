@@ -21,7 +21,7 @@ from canopy.epics.gateway import build_connector
 from osprey.integrations.canopy import backend as backend_module
 from osprey.runtime import session as session_module
 from osprey.runtime.session import STATE_BOUND, STATE_FALLBACK, STATE_UNSERVABLE
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors_tests._fake_connector import FakeConnector
@@ -34,8 +34,8 @@ BACKEND_PATH = "osprey.integrations.canopy.backend:OspreyPVConnector"
 
 #: A deployment whose baseline is the virtual accelerator.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 
@@ -100,7 +100,9 @@ def _identity(connector) -> tuple:
 async def _check_lifecycle(connector_class, *, state: str, notice, binding_id: str) -> None:
     """Start a backend over *connector_class*, check its identity, close it."""
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, connector_class)
+        ConnectorFactory.register_control_system(
+            connector_types.VIRTUAL_ACCELERATOR, connector_class
+        )
         built = build_connector(EpicsConfig(backend=BACKEND_PATH, connect_report_s=5.0))
         assert _identity(built) == (None, None, None)
         await built.start()

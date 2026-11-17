@@ -2,12 +2,12 @@
 
 import pytest
 
-from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.types import (
+from osprey_connectors.archiver_selection import (
     archiver_settings_errors,
     archiver_settings_key,
     resolve_archiver_settings,
 )
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._mock_dynamic_connector import RecordingArchiver
 
@@ -144,7 +144,7 @@ class TestArchiverSettingsErrors:
 
 def test_the_known_archiver_names_are_the_factory_builtins():
     """A built-in's own name block is read, so every built-in has to be a known name."""
-    from osprey_connectors import types
+    from osprey_connectors import archiver_selection
     from osprey_connectors.factory import _BUILTIN_ARCHIVERS
 
-    assert sorted(types._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
+    assert sorted(archiver_selection._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)
