@@ -78,6 +78,7 @@ from .build_environment import (
     _create_project_venv,
     _plan_project_venv,
     _resolve_osprey_spec,
+    report_inner_call_keys,
     report_provider_credentials,
 )
 from .build_injectors import (
@@ -2924,6 +2925,7 @@ def _render_project(
 
     if deployment:
         report_provider_credentials(render_dir, build_profile.provider, profile_dir=repo_root)
+        report_inner_call_keys(_rendered_config(render_dir), render_dir, profile_dir=repo_root)
 
     manifest_context: dict[str, Any] = {
         "default_provider": build_profile.provider,
@@ -4975,6 +4977,67 @@ def _ariel_server_enabled(build_profile: Any) -> bool:
     if stated:
         return stated[0][1]
     return FRAMEWORK_SERVERS["ariel"].default_enabled
+
+
+def model_call_view(
+    *,
+    provider: str | None,
+    pipeline: str | None,
+    ariel_server_on: bool,
+    provider_catalog: Mapping[str, Any],
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The keys of a rendered ``config.yml`` that say which features call a model.
+
+    ``osprey validate`` judges a profile without rendering it, and the keys
+    :func:`osprey.models.inner_calls.inner_model_calls` reads are written by the
+    framework template from profile fields rather than spelled in ``config:``.
+    This lays those derived keys under the profile's own ``config:`` entries,
+    as :func:`~osprey.cli.build_profile_deploy.build_lint_view` does for the
+    web lint. It restates five lines of ``templates/project/config.yml.j2``;
+    ``tests/cli/test_inner_call_key_warnings.py`` renders the template and holds
+    the two to the same answer.
+
+    Args:
+        provider: The profile's ``provider:``.
+        pipeline: The channel-finder paradigm the render names, ``None`` when it
+            renders no ``channel_finder`` block.
+        ariel_server_on: :func:`_ariel_server_enabled`.
+        provider_catalog: The catalog rendered as ``api.providers``.
+        config: The profile's ``config:`` block, dotted keys.
+
+    Returns:
+        A nested config mapping holding only what the list reads.
+    """
+    from osprey.deployment.web_terminals.lint import _nest_dotted
+
+    derived: dict[str, Any] = {"api.providers": dict(provider_catalog)}
+    if provider:
+        derived["claude_code.provider"] = provider
+        if ariel_server_on:
+            derived["logbook.composition.provider"] = provider
+            derived["ariel.enhancement_modules.semantic_processor.provider"] = provider
+    if pipeline:
+        derived["channel_finder.pipeline_mode"] = pipeline
+    return _nest_dotted({**derived, **config})
+
+
+def profile_model_call_view(build_profile: Any, repo_root: Path) -> dict[str, Any]:
+    """:func:`model_call_view` of *build_profile*, the deployment at *repo_root*.
+
+    The channel-finder block is read off the profile's own ``agents:``. A
+    profile that takes the agent from its preset's selection instead shows no
+    paradigm here, so ``osprey validate`` stays silent on it and ``osprey
+    build``, which reads the render, reports it.
+    """
+    selects_finder = "channel-finder" in (build_profile.agents or [])
+    return model_call_view(
+        provider=build_profile.provider,
+        pipeline=build_profile.channel_finder_mode if selects_finder else None,
+        ariel_server_on=_ariel_server_enabled(build_profile),
+        provider_catalog=load_provider_catalog(repo_root).entries,
+        config=build_profile.config or {},
+    )
 
 
 def _repo_render_context(

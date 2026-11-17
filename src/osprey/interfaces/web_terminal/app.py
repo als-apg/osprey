@@ -99,7 +99,7 @@ from osprey.profiles.web_panels import (
     sidecar_panel_descriptors,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
-from osprey.services.session_naming import SessionNamer
+from osprey.services.session_naming import session_namer_for
 from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.seconds import positive_seconds
@@ -1564,12 +1564,9 @@ def _create_lifespan(
         # Automatic session names (Decision 8): `GET /api/sessions` hands its
         # rows to this scheduler, which names them in the background through
         # the project's provider. Without a project config there is no provider
-        # to ask, and the rows keep their first-prompt titles.
-        app.state.session_namer = (
-            SessionNamer(app, project_dir=resolved_config_path.parent)
-            if resolved_config_path is not None
-            else None
-        )
+        # to ask, and without that provider's API key no call can be made; in
+        # both cases the rows keep their first-prompt titles.
+        app.state.session_namer = session_namer_for(app, resolved_config_path)
 
         # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>
