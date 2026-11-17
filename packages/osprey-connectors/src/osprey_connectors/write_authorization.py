@@ -12,10 +12,11 @@ nothing renews the budget. The machine's switch may stay off throughout.
 This module owns the two files, their readers and their writers, and the
 verdict. The write guard of every control-system connector
 (:class:`~osprey_connectors.control_system.ControlSystemConnector`) asks
-:func:`authorized_execution_verdict` for every write call of a process that
-names an authorization (:data:`AUTHORIZATION_ENV_VAR`), spending its step, and
+:func:`spend_authorized_write` for every write call of a process that names an
+authorization (:data:`AUTHORIZATION_ENV_VAR`, which only that guard reads), and
 the connector-host pool sets that variable for a child whose key names one; a
-gateway choice and a child's report take :func:`authorized_write_verdict`.
+gateway choice and a child's report take :func:`authorized_write_verdict`. Each
+takes the authorization as an argument: none of them reads the environment.
 
 **1. Two files, two writers.** The grant is ``<authorizations dir>/<id>.json``,
 written once by the approver's process and afterwards only to mark it
@@ -50,8 +51,9 @@ because the switch verdict reaches it only with the switch on), the owner, the
 record, the grant, its holder and owner, its machine, a stop, its expiry, the
 switch position for a self-issued grant, every channel listed and every value a
 finite number in its range, the lease, and a step left. It does not repeat the
-switch verdict's earlier terms; :func:`authorized_execution_verdict` is the
-composition a write path takes: the execution verdict first, and for a process
+switch verdict's earlier terms; :func:`authorized_execution_verdict` (and
+:func:`spend_authorized_write`, which spends) is the composition a write path
+takes: the execution verdict first, and for a process
 that names an authorization, whenever that verdict allows or refuses only
 ``switch_off``, this one in its place. An authorization never lifts a tier, an
 unknown owner, an unreadable record, a pin or a hold, and a person turning the
@@ -166,8 +168,22 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import FrozenModel, Instant, ReadOnlyMapping, evolve
-from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.posture_store import (
+    NO_OWNER,
+    Allowed,
+    BudgetSpent,
+    ChannelNotListed,
+    FixedCause,
+    NoOwner,
+    OverlapHeld,
+    RefusalCause,
+    Refused,
+    StoppedBy,
+    ValueOutOfRange,
+    WriteVerdict,
+    WrongMachine,
+)
+from osprey_connectors.refusals import VerdictReason, refusal_phrase
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 logger = logging.getLogger("osprey_connectors.write_authorization")
@@ -204,7 +220,6 @@ __all__ = [
     "list_grants",
     "list_requests",
     "listed_grants",
-    "named_authorization",
     "prune_grants",
     "read_request",
     "renew_lease",
@@ -212,13 +227,15 @@ __all__ = [
     "revoke_grants",
     "self_issue",
     "self_issued_directories",
+    "spend_authorized_write",
     "start_lease",
     "withdraw_request",
     "write_request",
 ]
 
 #: The environment variable a holder's connector child carries: the id of the
-#: authorization its writes are judged by.
+#: authorization its writes are judged by. The connector-host pool sets it; the
+#: control-system connectors' write guard alone reads it.
 AUTHORIZATION_ENV_VAR: Final = "OSPREY_WRITE_AUTHORIZATION"
 
 #: The environment variable naming the holder's ledger directory, a path in the
@@ -645,15 +662,23 @@ class AuthorizationRefusedError(ConnectorsError):
     """A writer of this module refused, for one of the refusal reasons.
 
     Attributes:
-        reason: A member of :data:`~osprey_connectors.refusals.REASONS`.
-        detail: What the refusal adds after its phrase, or ``None``.
+        reason: The :class:`~osprey_connectors.refusals.VerdictReason` it refused for.
+        cause: Which of the causes *reason* covers it was
+            (:data:`~osprey_connectors.posture_store.RefusalCause`), or ``None``
+            when the reason says it all.
     """
 
-    def __init__(self, reason: str, detail: str | None = None) -> None:
+    def __init__(self, reason: VerdictReason, cause: RefusalCause | None = None) -> None:
         self.reason = reason
-        self.detail = detail
+        self.cause = cause
         phrase = refusal_phrase(reason)
+        detail = self.detail
         super().__init__(f"{phrase} {detail}" if detail else phrase)
+
+    @property
+    def detail(self) -> str | None:
+        """What the refusal adds after its phrase: its cause's sentence, or ``None``."""
+        return None if self.cause is None else self.cause.sentence()
 
 
 # -- parsing ------------------------------------------------------------------
@@ -838,16 +863,6 @@ def ledger_dir() -> Path | None:
     """This process's ledger directory, or ``None`` when it has none (rule 1)."""
     place = _ledger_place()
     return None if place is None else place.path
-
-
-def named_authorization() -> str | None:
-    """The authorization :data:`AUTHORIZATION_ENV_VAR` names, or ``None``.
-
-    Blank is unset. A value that is not a well-formed id is returned as it is,
-    so the verdict refuses it rather than treating the process as naming none.
-    """
-    value = (os.environ.get(AUTHORIZATION_ENV_VAR) or "").strip()
-    return value or None
 
 
 # -- reading ------------------------------------------------------------------
@@ -1070,14 +1085,17 @@ _ANY_WRITE: Final = object()
 class _Basis:
     """What the switch verdict already read, for a judgement that follows it.
 
-    ``seen`` is the record that verdict read (``seen.read`` true), so the grant's
-    epoch and the switch are judged on one read of it; ``switch`` is that
-    verdict, which stands in for a second read of the switch's position for a
-    self-issued grant. Either ``None`` reads afresh.
+    ``switch`` is that verdict (:func:`~osprey_connectors.posture_store._switch_basis`):
+    it names the machine kind every answer here carries, and stands in for a
+    second read of the switch's position for a self-issued grant. ``record``
+    is the record it read when ``read`` is true, so the grant's epoch and the
+    switch are judged on one read of it; a record it did not reach is read
+    afresh.
     """
 
-    seen: posture_store._RecordSeen | None = None
-    switch: WriteVerdict | None = None
+    switch: WriteVerdict
+    read: bool
+    record: control_context.ControlContext | None
 
 
 @dataclass(frozen=True)
@@ -1125,108 +1143,101 @@ def _judge(
 
     *operations* :data:`_ANY_WRITE` skips the channel terms (11): the answer is
     whether some write could go ahead now. *basis* carries what the switch
-    verdict already read.
+    verdict already read, and the machine kind it named; with none, the
+    switch is read afresh where a term needs it and the answer names no kind.
     """
     named = target if isinstance(target, str) else None
-    kind = posture_store._verdict_kind(section, target)
+    kind = None if basis is None else basis.switch.kind
     identifier = authorization if isinstance(authorization, str) else None
 
-    def refuse(reason: str, detail: str | None = None) -> _Judgement:
+    def refuse(reason: VerdictReason, cause: RefusalCause | None = None) -> _Judgement:
         return _Judgement(
-            WriteVerdict(
-                allowed=False,
-                reason=reason,
-                target=named,
-                kind=kind,
-                detail=detail,
-                authorization=identifier,
-            )
+            Refused(reason=reason, target=named, kind=kind, cause=cause, authorization=identifier)
         )
 
     if identifier is None or _ID.fullmatch(identifier) is None:
-        return refuse("auth_unreadable", "The authorization this process names is not an id.")
+        return refuse(VerdictReason.AUTH_UNREADABLE, FixedCause(kind="not_an_id"))
     if posture_store._launch_pin_term(named) != "none":
-        return refuse("launch_pinned")
+        return refuse(VerdictReason.LAUNCH_PINNED)
 
     resolved = _resolved_owner(owner)
     if resolved is None:
         if posture_store._is_dispatch_run():
-            return refuse("owner_unscheduled")
-        return refuse("owner_unknown")
+            return refuse(VerdictReason.OWNER_UNSCHEDULED)
+        return refuse(VerdictReason.OWNER_UNKNOWN)
     if not posture_store._tree_is_bound() and resolved != acting_identity():
-        return refuse("owner_foreign")
+        return refuse(VerdictReason.OWNER_FOREIGN)
 
-    if basis is not None and basis.seen is not None and basis.seen.read:
-        readable, record = True, basis.seen.record
+    if basis is not None and basis.read:
+        readable, record = True, basis.record
     else:
         readable, record = _governing_record(resolved)
     if not readable:
-        return refuse("record_unavailable")
+        return refuse(VerdictReason.RECORD_UNAVAILABLE)
 
     status, grant = _find_grant(resolved, identifier)
     if status == "absent":
-        return refuse("switch_off")
+        return refuse(VerdictReason.SWITCH_OFF)
     if status != "ok" or grant is None:
-        return refuse("auth_unreadable")
+        return refuse(VerdictReason.AUTH_UNREADABLE)
 
     if grant.owner != resolved or grant.holder != acting_identity():
-        return refuse("auth_holder")
+        return refuse(VerdictReason.AUTH_HOLDER)
     if grant.target != named:
-        return refuse("auth_channel", f"The authorization covers {grant.target}, not this machine.")
+        return refuse(VerdictReason.AUTH_CHANNEL, WrongMachine(covers=grant.target))
     if grant.revoked is not None:
-        return refuse("auth_revoked", f"Stopped by {grant.revoked.by}.")
+        stopped = StoppedBy(by=grant.revoked.by, revoked_at=grant.revoked.revoked_at)
+        return refuse(VerdictReason.AUTH_REVOKED, stopped)
     if record is None or record.switch_epoch != grant.switch_epoch:
-        return refuse("auth_revoked", "The switch record has moved past its approval.")
+        return refuse(VerdictReason.AUTH_REVOKED, FixedCause(kind="epoch_moved"))
     if now >= grant.expires_at:
-        return refuse("auth_expired")
+        return refuse(VerdictReason.AUTH_EXPIRED)
     if grant.approver.surface == SELF_ISSUE_SURFACE:
         # The pin was judged first, so the switch verdict that honoured it and
         # one that ignores it agree here.
         switch = (
             basis.switch
-            if basis is not None and basis.switch is not None
+            if basis is not None
             else posture_store.write_verdict(section, named, owner=resolved, ignore_launch_pin=True)
         )
         if not switch.allowed or switch.position != "allowed":
-            ended = refuse("auth_revoked", "The switch is no longer at allowed.")
+            ended = refuse(VerdictReason.AUTH_REVOKED, FixedCause(kind="switch_left_allowed"))
             return _Judgement(ended.verdict, ends=True)
 
     pairs = [] if operations is _ANY_WRITE else _operations(operations)
     if pairs is None or (not pairs and operations is not _ANY_WRITE):
-        return refuse("auth_channel", "The write names no channel.")
+        return refuse(VerdictReason.AUTH_CHANNEL, FixedCause(kind="empty_batch"))
     for address, value in pairs:
         bound = grant.channels.get(address) if isinstance(address, str) else None
         if bound is None:
-            return refuse("auth_channel", f"Channel: {address}.")
+            # Spelt as the sentence always spelt it, whatever the address is.
+            return refuse(VerdictReason.AUTH_CHANNEL, ChannelNotListed(address=f"{address}"))
         if not bound.holds(value):
-            return refuse(
-                "auth_range", f"Channel: {address}; allowed range [{bound.min}, {bound.max}]."
-            )
+            out_of_range = ValueOutOfRange(address=f"{address}", min=bound.min, max=bound.max)
+            return refuse(VerdictReason.AUTH_RANGE, out_of_range)
 
     ledger_place = _ledger_place()
     if ledger_place is None:
-        return refuse("auth_unreadable", "This process has no write ledger directory.")
+        return refuse(VerdictReason.AUTH_UNREADABLE, FixedCause(kind="no_ledger_directory"))
     ledger_status, ledger = _read_ledger_at(ledger_place, identifier)
     if ledger_status == "absent":
-        return refuse("auth_lease_lapsed", "The holder never started its lease.")
+        return refuse(VerdictReason.AUTH_LEASE_LAPSED, FixedCause(kind="lease_never_started"))
     if ledger_status != "ok" or ledger is None:
-        return refuse("auth_unreadable", "The write ledger cannot be read.")
+        return refuse(VerdictReason.AUTH_UNREADABLE, FixedCause(kind="ledger_unreadable"))
     if not _lease_live(ledger, now):
-        return refuse("auth_lease_lapsed")
+        return refuse(VerdictReason.AUTH_LEASE_LAPSED)
     if len(ledger.steps) >= grant.steps:
-        return refuse("auth_exhausted", f"{grant.steps} of {grant.steps} writes used.")
+        return refuse(VerdictReason.AUTH_EXHAUSTED, BudgetSpent(allowed=grant.steps))
 
     return _Judgement(
-        WriteVerdict(allowed=True, reason=None, target=named, kind=kind, authorization=identifier),
-        ledger,
+        Allowed(target=named, kind=kind, position=None, authorization=identifier), ledger
     )
 
 
-def _unreachable(target: object, authorization: object, what: str) -> WriteVerdict:
+def _unreachable(target: object, authorization: object, what: str) -> Refused:
     logger.warning("The write authorization verdict could not be reached; refusing (%s)", what)
-    return WriteVerdict(
-        allowed=False,
-        reason="auth_unreadable",
+    return Refused(
+        reason=VerdictReason.AUTH_UNREADABLE,
         target=target if isinstance(target, str) else None,
         kind=None,
         authorization=authorization if isinstance(authorization, str) else None,
@@ -1275,7 +1286,8 @@ def _verdict(
     This reads and never writes, so it is the answer for a report or a
     gateway choice; a write spends its step through :func:`_spend`. It
     does not repeat the switch verdict's read-only, tier and hold terms:
-    :func:`authorized_execution_verdict` is the composition a write path takes.
+    :func:`authorized_execution_verdict` is the composition a write path takes
+    (:func:`spend_authorized_write` when it spends).
 
     Args:
         section: The ``control_system`` section of the resolved config.
@@ -1286,11 +1298,13 @@ def _verdict(
         owner: Whose switch the grant stands in for; ``None`` asks
             :func:`~osprey_connectors.posture_store.current_owner`.
         basis: The record and switch verdict the caller already read, or
-            ``None`` to read them here.
+            ``None`` to read the record and the switch here (the answer then
+            names no machine kind).
 
     Returns:
-        A :class:`~osprey_connectors.posture_store.WriteVerdict` whose
-        ``authorization`` names the id and whose ``position`` is ``None``.
+        An :class:`~osprey_connectors.posture_store.Allowed` or a
+        :class:`~osprey_connectors.posture_store.Refused` whose
+        ``authorization`` names the id; an allowed one has no ``position``.
         Never raises: a verdict that cannot be reached refuses
         ``auth_unreadable``.
     """
@@ -1383,7 +1397,7 @@ def _checked_ledger_place(authorization: str, *, create: bool = False) -> _Place
         _prepare_directory(place.path)
     if place is None or _dir_status(place) != "ok":
         raise AuthorizationRefusedError(
-            "auth_unreadable", "This process has no usable write ledger directory."
+            VerdictReason.AUTH_UNREADABLE, FixedCause(kind="no_usable_ledger_directory")
         )
     return place
 
@@ -1451,87 +1465,126 @@ def _spend(
         return _unreachable(target, authorization, "spend")
 
 
+def _authorized_basis(
+    section: object,
+    target: str | None,
+    authorization: str,
+    owner: str | NoOwner | None,
+    session_keys: Sequence[str] | None,
+    *,
+    hold: bool,
+) -> Refused | _Basis:
+    """The switch verdict an authorized write follows: the refusal that stands, or the basis.
+
+    The switch's refusal stands, naming *authorization*, for every reason but
+    ``switch_off``: an authorization lifts no tier, owner, record, pin or hold.
+    Otherwise — the switch allowed or was off — the authorization decides,
+    judged on what the switch verdict read.
+    """
+    switch, read, record = posture_store._switch_basis(
+        section, target, owner, session_keys, hold=hold
+    )
+    if isinstance(switch, Refused) and switch.reason is not VerdictReason.SWITCH_OFF:
+        return evolve(switch, authorization=authorization)
+    return _Basis(switch=switch, read=read, record=record)
+
+
 def authorized_execution_verdict(
     section: object,
     target: str | None,
     operations: Sequence[tuple[str, object]] | Mapping[str, object],
     *,
-    authorization: str | None,
+    authorization: str,
     owner: str | NoOwner | None = None,
     session_keys: Sequence[str] | None = None,
-    spend: bool = False,
 ) -> WriteVerdict:
-    """The verdict on one write call about to execute, for a process that may hold a grant.
+    """The verdict on one write call about to execute under *authorization*; it spends nothing.
 
-    :func:`~osprey_connectors.posture_store.execution_verdict` first. A process
-    naming no *authorization* gets that verdict unchanged. One that names one
-    gets it whenever it refuses for any reason but ``switch_off`` — an
+    :func:`~osprey_connectors.posture_store.execution_verdict` first, which
+    stands whenever it refuses for any reason but ``switch_off`` — an
     authorization lifts no tier, owner, record, pin or hold — and otherwise,
     whether the switch allowed or was off, the authorization's verdict in its
-    place: a person turning the switch on mid-run does not lift the bounds.
+    place: a person turning the switch on mid-run does not lift the bounds. A
+    process that names no authorization asks
+    :func:`~osprey_connectors.posture_store.execution_verdict` itself.
 
     Args:
         section: The ``control_system`` section of the resolved config.
         target: The control target the write lands on.
         operations: The write call's ``(channel, value)`` pairs.
-        authorization: The id the process names, or ``None``.
+        authorization: The id the process names.
         owner: As for :func:`_verdict`.
         session_keys: As for
             :func:`~osprey_connectors.posture_store.execution_verdict`.
-        spend: Spend the step (:func:`_spend`) rather than only judge.
 
     The record is read once: the authorization's terms are judged on the
     record the switch verdict read, and a self-issued grant's position on that
     verdict's own answer.
 
     Returns:
-        A :class:`~osprey_connectors.posture_store.WriteVerdict`. Never raises.
+        An :class:`~osprey_connectors.posture_store.Allowed` or a
+        :class:`~osprey_connectors.posture_store.Refused`. Never raises.
     """
-    if authorization is None:
-        return posture_store.execution_verdict(
-            section, target, owner=owner, session_keys=session_keys
-        )
-    seen = posture_store._RecordSeen()
-    base = posture_store._with_hold(
-        section, posture_store._write_verdict(section, target, owner, False, seen), session_keys
-    )
-    if not base.allowed and base.reason != "switch_off":
-        return evolve(base, authorization=authorization)
-    basis = _Basis(seen=seen, switch=base)
-    if spend:
-        return _spend(section, target, operations, authorization, owner, basis)
+    basis = _authorized_basis(section, target, authorization, owner, session_keys, hold=True)
+    if isinstance(basis, Refused):
+        return basis
     return _verdict(section, target, operations, authorization, owner, basis)
+
+
+def spend_authorized_write(
+    section: object,
+    target: str | None,
+    operations: Sequence[tuple[str, object]] | Mapping[str, object],
+    *,
+    authorization: str,
+    owner: str | NoOwner | None = None,
+    session_keys: Sequence[str] | None = None,
+) -> WriteVerdict:
+    """:func:`authorized_execution_verdict`, and when it allows, the call's step spent first.
+
+    The same composition and the same terms; the authorization's are judged
+    again under the ledger's lock and the step appended before the answer
+    (:func:`_spend`), so an allowed answer means the step is on disk and the
+    caller writes only then. Arguments as for
+    :func:`authorized_execution_verdict`.
+
+    Returns:
+        An :class:`~osprey_connectors.posture_store.Allowed` or a
+        :class:`~osprey_connectors.posture_store.Refused`. Never raises.
+    """
+    basis = _authorized_basis(section, target, authorization, owner, session_keys, hold=True)
+    if isinstance(basis, Refused):
+        return basis
+    return _spend(section, target, operations, authorization, owner, basis)
 
 
 def authorized_write_verdict(
     section: object,
     target: str | None,
     *,
-    authorization: str | None,
+    authorization: str,
     owner: str | NoOwner | None = None,
 ) -> WriteVerdict:
-    """Whether a process may write to *target* at all: the gateway's and the report's answer.
+    """Whether a process may write to *target* at all under *authorization*.
 
-    :func:`~osprey_connectors.posture_store.write_verdict` for a process naming
-    no *authorization*. For one that names one, composed as
-    :func:`authorized_execution_verdict` composes the execution verdict, with
-    the authorization judged on every term but the channels and values: the
-    grant in force, the lease live and a step left. It names no hold, as the
-    switch verdict names none, because the gateway a connector selects must not
-    follow a session's hold. It reads and never spends.
+    The gateway's and the report's answer: composed as
+    :func:`authorized_execution_verdict` composes the execution verdict, over
+    :func:`~osprey_connectors.posture_store.write_verdict`, with the
+    authorization judged on every term but the channels and values: the grant
+    in force, the lease live and a step left. It names no hold, as the switch
+    verdict names none, because the gateway a connector selects must not
+    follow a session's hold. It reads and never spends. A process that names
+    no authorization asks
+    :func:`~osprey_connectors.posture_store.write_verdict` itself.
 
     Returns:
-        A :class:`~osprey_connectors.posture_store.WriteVerdict`. Never raises.
+        An :class:`~osprey_connectors.posture_store.Allowed` or a
+        :class:`~osprey_connectors.posture_store.Refused`. Never raises.
     """
-    if authorization is None:
-        return posture_store.write_verdict(section, target, owner=owner)
-    seen = posture_store._RecordSeen()
-    base = posture_store._write_verdict(section, target, owner, False, seen)
-    if not base.allowed and base.reason != "switch_off":
-        return evolve(base, authorization=authorization)
-    return _verdict(
-        section, target, _ANY_WRITE, authorization, owner, _Basis(seen=seen, switch=base)
-    )
+    basis = _authorized_basis(section, target, authorization, owner, None, hold=False)
+    if isinstance(basis, Refused):
+        return basis
+    return _verdict(section, target, _ANY_WRITE, authorization, owner, basis)
 
 
 # -- the lease ----------------------------------------------------------------
@@ -1545,21 +1598,23 @@ def _live_grant(owner: str | NoOwner | None, authorization: str, now: datetime) 
     """
     resolved = _resolved_owner(owner)
     if resolved is None:
-        raise AuthorizationRefusedError("owner_unknown")
+        raise AuthorizationRefusedError(VerdictReason.OWNER_UNKNOWN)
     readable, record = _governing_record(resolved)
     if not readable:
-        raise AuthorizationRefusedError("record_unavailable")
+        raise AuthorizationRefusedError(VerdictReason.RECORD_UNAVAILABLE)
     status, grant = _find_grant(resolved, authorization)
     if status == "absent":
-        raise AuthorizationRefusedError("switch_off", "No such authorization.")
+        raise AuthorizationRefusedError(
+            VerdictReason.SWITCH_OFF, FixedCause(kind="no_such_authorization")
+        )
     if status != "ok" or grant is None:
-        raise AuthorizationRefusedError("auth_unreadable")
+        raise AuthorizationRefusedError(VerdictReason.AUTH_UNREADABLE)
     if grant.owner != resolved or grant.holder != acting_identity():
-        raise AuthorizationRefusedError("auth_holder")
+        raise AuthorizationRefusedError(VerdictReason.AUTH_HOLDER)
     if grant.revoked is not None or record is None or record.switch_epoch != grant.switch_epoch:
-        raise AuthorizationRefusedError("auth_revoked")
+        raise AuthorizationRefusedError(VerdictReason.AUTH_REVOKED)
     if now >= grant.expires_at:
-        raise AuthorizationRefusedError("auth_expired")
+        raise AuthorizationRefusedError(VerdictReason.AUTH_EXPIRED)
     return grant
 
 
@@ -1587,7 +1642,9 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
         grant = _live_grant(owner, authorization, now)
         status, _ledger = _read_ledger_at(place, authorization)
         if status != "absent":
-            raise AuthorizationRefusedError("auth_lease_lapsed", "A lease was already started.")
+            raise AuthorizationRefusedError(
+                VerdictReason.AUTH_LEASE_LAPSED, FixedCause(kind="lease_already_started")
+            )
         pid = os.getpid()
         ledger = Ledger(
             authorization=authorization,
@@ -1600,34 +1657,59 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
     return ledger
 
 
-def renew_lease(authorization: str, *, owner: str | NoOwner | None = None) -> bool:
+def renew_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Ledger:
     """Move the lease on by the grant's ``lease_s``, if this process holds it and it is live.
 
-    A compare-and-swap under the ledger's lock. ``False`` writes nothing: the
-    ledger is absent or unreadable, another process holds the lease, the lease
-    has lapsed (a lapsed lease never comes back), or the grant is no longer in
-    force. Never raises.
+    A compare-and-swap under the ledger's lock; the renewed ledger is returned.
+    A renewal that is refused writes nothing and raises, so a holder never
+    writes on after a lease it failed to renew. A lapsed lease never comes
+    back.
+
+    Raises:
+        AuthorizationRefusedError: The reason the grant no longer stands —
+            unreadable, another holder's, revoked or expired, or an unreadable
+            record (:func:`approved_grant`'s reasons) — and otherwise
+            ``auth_lease_lapsed``, with its cause: no such authorization, no
+            usable ledger directory, no ledger (``lease_never_started``), a
+            ledger that cannot be read, another process holding the lease
+            (``lease_held_elsewhere``), any other failure (``renewal_failed``),
+            or none for a lease past its time.
     """
     try:
         place = _checked_ledger_place(authorization)
         with _locked(_ledger_lock_path(place, authorization)):
             now = _now()
-            status, ledger = _read_ledger_at(place, authorization)
-            if status != "ok" or ledger is None:
-                return False
-            if ledger.holder_pid != os.getpid() or ledger.pid_ns != _pid_namespace():
-                return False
-            if not _lease_live(ledger, now):
-                return False
             grant = _live_grant(owner, authorization, now)
+            status, ledger = _read_ledger_at(place, authorization)
+            if status == "absent":
+                raise _lapsed(FixedCause(kind="lease_never_started"))
+            if status != "ok" or ledger is None:
+                raise _lapsed(FixedCause(kind="ledger_unreadable"))
+            if ledger.holder_pid != os.getpid() or ledger.pid_ns != _pid_namespace():
+                raise _lapsed(FixedCause(kind="lease_held_elsewhere"))
+            if not _lease_live(ledger, now):
+                raise _lapsed()
             renewed = evolve(ledger, lease_expires_at=now + timedelta(seconds=grant.lease_s))
             _write_json(
                 place.path / f"{authorization}{_LEDGER_SUFFIX}", renewed.model_dump(mode="json")
             )
-            return True
-    except Exception:  # a renewal that cannot be made is a lease left to lapse
+            return renewed
+    except AuthorizationRefusedError as refused:
+        logger.warning("The lease of %r was not renewed: %s", authorization, refused)
+        if refused.reason in (VerdictReason.SWITCH_OFF, VerdictReason.AUTH_UNREADABLE) and (
+            refused.cause is not None
+        ):
+            # No such grant, or no ledger directory: nothing stands to renew.
+            raise _lapsed(refused.cause) from refused
+        raise
+    except Exception as exc:  # a renewal that cannot be made is a lease left to lapse
         logger.warning("The lease of %r was not renewed", authorization, exc_info=True)
-        return False
+        raise _lapsed(FixedCause(kind="renewal_failed")) from exc
+
+
+def _lapsed(cause: RefusalCause | None = None) -> AuthorizationRefusedError:
+    """The refusal of a lease that cannot be renewed, for *cause*."""
+    return AuthorizationRefusedError(VerdictReason.AUTH_LEASE_LAPSED, cause)
 
 
 # -- issuing ------------------------------------------------------------------
@@ -1816,7 +1898,8 @@ def _issue_grant(
         )
         if held is not None:
             raise AuthorizationRefusedError(
-                "auth_overlap", f"Held by {held.holder} under {held.id} ({held.label})."
+                VerdictReason.AUTH_OVERLAP,
+                OverlapHeld(holder=held.holder, authorization=held.id, label=held.label),
             )
         _write_json(path, payload)
     return path
@@ -1918,24 +2001,28 @@ def self_issue(
     require_aware(expires_at, name="expires_at")
     resolved = _resolved_owner(owner)
     if resolved is None:
-        raise AuthorizationRefusedError("owner_unknown")
+        raise AuthorizationRefusedError(VerdictReason.OWNER_UNKNOWN)
 
     def epoch_at_allowed() -> int:
         switch = posture_store.write_verdict(section, target, owner=resolved)
-        if not switch.allowed:
-            raise AuthorizationRefusedError(switch.reason or "switch_off")
+        if isinstance(switch, Refused):
+            raise AuthorizationRefusedError(switch.reason)
         if switch.position != "allowed":
-            raise AuthorizationRefusedError("auth_revoked", "The switch is not at allowed.")
+            raise AuthorizationRefusedError(
+                VerdictReason.AUTH_REVOKED, FixedCause(kind="switch_not_at_allowed")
+            )
         readable, record = _governing_record(resolved)
         if not readable:
-            raise AuthorizationRefusedError("record_unavailable")
+            raise AuthorizationRefusedError(VerdictReason.RECORD_UNAVAILABLE)
         if record is None or record.switch_epoch is None:
-            raise AuthorizationRefusedError("record_unavailable", "The switch has no epoch.")
+            raise AuthorizationRefusedError(
+                VerdictReason.RECORD_UNAVAILABLE, FixedCause(kind="no_epoch")
+            )
         return record.switch_epoch
 
     epoch = epoch_at_allowed()
     if not is_control_target(target):  # the verdict refused it already; said for the type
-        raise AuthorizationRefusedError("target_unknown")
+        raise AuthorizationRefusedError(VerdictReason.TARGET_UNKNOWN)
     now = _now()
     holder = acting_identity()
     ranges = _channel_ranges(channels)
@@ -1962,7 +2049,9 @@ def self_issue(
     path = _issue_grant(grant, directory=place.path, peers=self_issued_directories())
     try:
         if epoch_at_allowed() != epoch:
-            raise AuthorizationRefusedError("auth_revoked", "A stop came during the issue.")
+            raise AuthorizationRefusedError(
+                VerdictReason.AUTH_REVOKED, FixedCause(kind="stop_during_issue")
+            )
     except BaseException:
         with contextlib.suppress(OSError):
             path.unlink()
@@ -2424,7 +2513,7 @@ def write_request(
     require_aware(expires_at, name="expires_at")
     resolved = _resolved_owner(owner)
     if resolved is None:
-        raise AuthorizationRefusedError("owner_unknown")
+        raise AuthorizationRefusedError(VerdictReason.OWNER_UNKNOWN)
     if not is_control_target(target):
         raise ValueError(f"target {target!r} is not a control target")
     request = WriteRequest(
@@ -2531,7 +2620,7 @@ def approve_request(
     identity = approver or acting_identity()
     if record_file is None:
         if request.owner != acting_identity():
-            raise AuthorizationRefusedError("owner_foreign")
+            raise AuthorizationRefusedError(VerdictReason.OWNER_FOREIGN)
         record_file = control_context.record_path()
         if record_file is None:
             raise StateUnavailableError("No agent-data root: there is no record to approve under")
@@ -2541,7 +2630,9 @@ def approve_request(
         with control_context.held_epoch(record_file, request.target) as epoch:
             now = _now()
             if now >= request.expires_at:
-                raise AuthorizationRefusedError("auth_expired", "The request's expiry has passed.")
+                raise AuthorizationRefusedError(
+                    VerdictReason.AUTH_EXPIRED, FixedCause(kind="request_expired")
+                )
             grant = request.grant(
                 switch_epoch=epoch,
                 approver=Approver(identity=identity, surface=surface, approved_at=now),
@@ -2553,6 +2644,6 @@ def approve_request(
                 peers=self_issued_directories() if peers is None else peers,
             )
     except control_context.RecordUnavailableError as exc:
-        raise AuthorizationRefusedError("record_unavailable") from exc
+        raise AuthorizationRefusedError(VerdictReason.RECORD_UNAVAILABLE) from exc
     control_context.invalidate_cache()
     return grant

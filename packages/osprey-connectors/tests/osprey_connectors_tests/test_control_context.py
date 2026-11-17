@@ -1157,13 +1157,11 @@ def test_reachable_is_stated_as_one_of_the_two_roots(state):
 
 
 def test_write_statement_carries_the_verdicts_terms_and_nothing_else():
-    verdict = posture_store.WriteVerdict(
-        allowed=False,
+    verdict = posture_store.Refused(
         reason="session_held",
         target="va",
         kind="simulator",
-        position=None,
-        detail="a watchdog flagged the session",
+        cause=posture_store._SessionHeld(sources=("watchdog:a",)),
     )
     writes = control_context.write_statement(verdict)
 
@@ -1179,9 +1177,7 @@ def test_write_statement_carries_the_verdicts_terms_and_nothing_else():
     )
     assert report.statement["writes"] == writes
 
-    allowed = posture_store.WriteVerdict(
-        allowed=True, reason=None, target="live", kind="real", position="asked"
-    )
+    allowed = posture_store.Allowed(target="live", kind="real", position="asked")
     assert control_context.write_statement(allowed) == {
         "allowed": True,
         "position": "asked",

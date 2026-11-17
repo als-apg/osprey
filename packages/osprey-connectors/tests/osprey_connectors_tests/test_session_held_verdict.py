@@ -25,7 +25,7 @@ from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.ipc._pool import ConnectorHostPool
 from osprey_connectors.posture_store import (
     NO_OWNER,
-    WriteVerdict,
+    Refused,
     backstop_verdict,
     execution_verdict,
     session_hold_refusal,
@@ -80,25 +80,31 @@ def hold_root(tmp_path, monkeypatch) -> Path:
 
 
 def _flag(flag_id: str = "f1", source: str = "watchdog:scope") -> None:
-    assert session_hold.open_flag(
-        KEY,
-        flag_id=flag_id,
-        source=source,
-        reason="off the plan",
-        prompt_ref=f"record:{flag_id}",
-        prompt_excerpt="move the corrector",
+    assert (
+        session_hold.open_flag(
+            KEY,
+            flag_id=flag_id,
+            source=source,
+            reason="off the plan",
+            prompt_ref=f"record:{flag_id}",
+            prompt_excerpt="move the corrector",
+        )
+        == "opened"
     )
 
 
 def _flag_for(key: str, flag_id: str = "f1", source: str = "watchdog:scope") -> None:
     session_hold.ensure_session(key)
-    assert session_hold.open_flag(
-        key,
-        flag_id=flag_id,
-        source=source,
-        reason="off the plan",
-        prompt_ref=f"record:{flag_id}",
-        prompt_excerpt="move the corrector",
+    assert (
+        session_hold.open_flag(
+            key,
+            flag_id=flag_id,
+            source=source,
+            reason="off the plan",
+            prompt_ref=f"record:{flag_id}",
+            prompt_excerpt="move the corrector",
+        )
+        == "opened"
     )
 
 
@@ -165,7 +171,7 @@ def test_an_open_flag_refuses_and_a_release_lifts_it():
     assert session_hold_refusal() is None
     _flag()
     refusal = session_hold_refusal()
-    assert refusal == WriteVerdict(allowed=False, reason="session_held", target=None, kind=None)
+    assert refusal == Refused(reason="session_held", target=None, kind=None)
     _release("f1")
     assert session_hold_refusal() is None
 
@@ -260,7 +266,7 @@ def test_any_held_session_holds_with_its_own_flags():
 
     _flag_for(OTHER, source="watchdog:other")
     refusal = session_hold_refusal(session_keys=[KEY, OTHER])
-    assert refusal == WriteVerdict(allowed=False, reason="session_held", target=None, kind=None)
+    assert refusal == Refused(reason="session_held", target=None, kind=None)
     assert refusal.detail == "Raised by: watchdog:other."
 
     _flag("f2", source="watchdog:mine")

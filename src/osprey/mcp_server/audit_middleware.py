@@ -161,7 +161,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     import mcp.types as mt
     from fastmcp.tools.base import ToolResult
 
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.posture_store import Refused, WriteVerdict
 
 logger = logging.getLogger(__name__)
 
@@ -814,7 +814,7 @@ def _backstop() -> WriteVerdict:
     return backstop_verdict(posture.control_system_section())
 
 
-def _clamp_refusal(backstop: WriteVerdict, tool: str) -> WriteVerdict | None:
+def _clamp_refusal(backstop: WriteVerdict, tool: str) -> Refused | None:
     """Why a clamped call is refused: the *backstop*, then the session's hold.
 
     The tools of :data:`_NEVER_HELD` pass the hold and answer only to the
@@ -917,7 +917,7 @@ class AuditMiddleware(Middleware):
             else None
         )
         if refusal is not None:
-            refused_for = refusal.reason or "tier_never"
+            refused_for = refusal.reason
             _record(
                 surface=surface,
                 subject=subject,

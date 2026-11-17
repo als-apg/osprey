@@ -427,7 +427,7 @@ def test_a_verdict_defaults_to_no_position_as_the_package_does():
     args = {"allowed": False, "reason": "switch_off", "target": "va", "kind": "simulator"}
 
     assert reader.WriteVerdict(**args).position is None
-    assert posture_store.WriteVerdict(**args).position is None
+    assert posture_store.Refused(**args).position is None
 
 
 def test_position_counts_in_a_verdicts_equality_and_repr():
@@ -453,9 +453,10 @@ def test_reasons_match_in_order():
 
 
 def test_phrase_table_matches_key_by_key():
-    assert list(reader._PHRASES) == list(refusals._PHRASES)
+    phrases = {reason.value: reason.phrase for reason in refusals.VerdictReason}
+    assert list(reader._PHRASES) == list(phrases)
     for reason in refusals.REASONS:
-        assert reader._PHRASES[reason] == refusals._PHRASES[reason], reason
+        assert reader._PHRASES[reason] == phrases[reason], reason
 
 
 @pytest.mark.parametrize("kind", [None, *refusals.KIND_WORDS, "unknown"])

@@ -371,7 +371,8 @@ def _verdict(target: str, session_keys: SessionKeys = None) -> WriteVerdict:
     refuses as ``record_unavailable``. Never raises.
     """
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.posture_store import WriteVerdict, execution_verdict
+    from osprey_connectors.posture_store import Refused, execution_verdict
+    from osprey_connectors.refusals import VerdictReason
 
     try:
         section = get_config_value("control_system", {})
@@ -380,7 +381,7 @@ def _verdict(target: str, session_keys: SessionKeys = None) -> WriteVerdict:
         logger.warning(
             "The control_system config or the session keys could not be read", exc_info=True
         )
-        return WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
+        return Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=target, kind=None)
     return execution_verdict(section, target, session_keys=keys)
 
 
@@ -972,7 +973,7 @@ class ControlSession:
         execution = _verdict(self._binding.target, self._session_keys)
         self._verdict = entry.verdict = execution
         if not execution.allowed:
-            return refused(OUTCOME_REFUSED, str(execution.reason), refusal_message(execution))
+            return refused(OUTCOME_REFUSED, execution.reason.value, refusal_message(execution))
         if execution.position == "asked" and not entry.confirmed:
             return refused(OUTCOME_REFUSED, REASON_APPROVAL_MISSING, MESSAGE_CONFIRMATION_MISSING)
 
@@ -999,9 +1000,9 @@ class ControlSession:
 
     def _phrase(self, reason: str = REASON_SWITCHING) -> str:
         """The phrase for *reason*, naming this session's kind of machine."""
-        from osprey_connectors.refusals import refusal_phrase
+        from osprey_connectors.refusals import VerdictReason, refusal_phrase
 
-        return refusal_phrase(reason, self._verdict.kind)
+        return refusal_phrase(VerdictReason(reason), self._verdict.kind)
 
     async def _connector_write(
         self,
@@ -1012,11 +1013,8 @@ class ControlSession:
         verdict: WriteVerdict | None = None,
     ) -> SessionWriteResult:
         """The checked write on the bound connector, mapped to the write contract's outcomes."""
-        from osprey_connectors.errors import (
-            ChannelWriteBlockedError,
-            ChannelWriteFailedError,
-            RefusalReason,
-        )
+        from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
+        from osprey_connectors.refusals import RefusalReason
 
         connector = self._connector
         if connector is None:  # closed between admission and here

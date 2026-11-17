@@ -183,6 +183,7 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import posture_store
+from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import baseline_target
 
 # The capability reason code for "the deployment is on a control target
@@ -390,8 +391,8 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
         return execution_verdict(section, target)
     except Exception:  # unknown posture must not arm hardware
         logger.warning("Write verdict for lane target %r could not be reached", lane_target)
-        return posture_store.WriteVerdict(
-            allowed=False, reason="record_unavailable", target=lane_target, kind=None
+        return posture_store.Refused(
+            reason=VerdictReason.RECORD_UNAVAILABLE, target=lane_target, kind=None
         )
 
 
@@ -423,21 +424,17 @@ def _halt_lane_target(halt_lane: str | None) -> str | None:
     return None
 
 
-def _refusal_text(verdict: posture_store.WriteVerdict) -> tuple[str, str]:
-    """The verdict's reason, and the phrase an operator reads for it.
-
-    A refused verdict always carries a reason; ``record_unavailable`` stands in
-    for one that somehow does not, so a refusal is never worded as nothing.
-    """
+def _refusal_text(verdict: posture_store.Refused) -> tuple[VerdictReason, str]:
+    """The refused verdict's reason, and the phrase an operator reads for it."""
     from osprey_connectors.refusals import refusal_phrase
 
-    reason = verdict.reason or "record_unavailable"
+    reason = verdict.reason
     phrase = refusal_phrase(reason, verdict.kind)
     return reason, refusal_detail(phrase, verdict) or phrase
 
 
 def _refuse_writes_disabled(
-    refused: str, verdict: posture_store.WriteVerdict, *, lane: str | None = None
+    refused: str, verdict: posture_store.Refused, *, lane: str | None = None
 ) -> NoReturn:
     """The local write-verdict refusal: the verdict refused, so this arms nothing.
 
@@ -1696,9 +1693,10 @@ async def queue_stop(cancel: bool = False) -> str:
 
     if cancel:
         halt_target = _halt_lane_target(halt_lane)
+        verdict: posture_store.WriteVerdict
         if halt_target is None:
-            verdict = posture_store.WriteVerdict(
-                allowed=False, reason="target_unknown", target=None, kind=None
+            verdict = posture_store.Refused(
+                reason=VerdictReason.TARGET_UNKNOWN, target=None, kind=None
             )
         else:
             verdict = _lane_verdict(halt_target)

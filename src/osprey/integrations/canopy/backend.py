@@ -501,9 +501,9 @@ def writes_claim(session: ControlSession) -> dict[str, Any]:
 
 def _phrase_for(session: ControlSession, reason: str) -> str:
     """The refusal phrase for *reason*, naming the session's kind of machine."""
-    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.refusals import VerdictReason, refusal_phrase
 
-    return refusal_phrase(reason, session.verdict.kind)
+    return refusal_phrase(VerdictReason(reason), session.verdict.kind)
 
 
 def _claim(state: str, reason: str | None, cause: str | None) -> dict[str, Any]:

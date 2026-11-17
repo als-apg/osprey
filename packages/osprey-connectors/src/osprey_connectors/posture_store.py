@@ -135,15 +135,32 @@ import stat
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast, get_args
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    ClassVar,
+    Final,
+    Literal,
+    NamedTuple,
+    TypeAlias,
+    cast,
+    get_args,
+)
 
+from pydantic import Field
 from typing_extensions import override
 
 from osprey_connectors import session_hold
-from osprey_connectors.connector_types import CONTROL_TARGETS, MachineKind, is_control_target
+from osprey_connectors.connector_types import (
+    CONTROL_TARGETS,
+    ControlTarget,
+    MachineKind,
+    is_control_target,
+)
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.model import FrozenModel, FrozenTuple, Instant, evolve
 from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.refusals import VerdictReason, VerdictReasonField
 from osprey_connectors.targets import machine_kind, resolve_target
 from osprey_connectors.workspace import resolve_shared_data_root
 from osprey_connectors.write_tier import TIER_WORDS, TierWord, tier_allows, tier_writes
@@ -155,12 +172,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger("osprey_connectors.posture_store")
 
 __all__ = [
+    "Allowed",
     "ArmedPosition",
+    "BudgetSpent",
+    "ChannelNotListed",
+    "FixedCause",
     "NoOwner",
+    "OverlapHeld",
     "OwnerTierTerm",
     "Posture",
+    "RefusalCause",
+    "Refused",
+    "StoppedBy",
     "SwitchPosition",
+    "ValueOutOfRange",
     "WriteCeiling",
+    "WrongMachine",
     "CONTROL_CONTEXT_DIR_ENV_VAR",
     "CONTROL_CONTEXT_TREE_ENV_VAR",
     "CONTROL_OWNER_ENV_VAR",
@@ -1133,60 +1160,254 @@ def write_ceiling(
 _SESSION_KEY_ENV_VAR: Final = "OSPREY_SESSION_ID"
 
 
-class WriteVerdict(FrozenModel):
-    """Whether one write may go ahead, and the one reason when it may not.
+# -- why a refusal refused: the cause beside the reason ------------------------
 
-    Attributes:
-        allowed: ``True`` only when every term of :func:`write_verdict` passed.
-        reason: ``None`` when allowed; otherwise a member of
-            :data:`~osprey_connectors.refusals.REASONS`, the first term that
-            refused. :func:`~osprey_connectors.refusals.refusal_phrase` turns it,
-            with *kind*, into the words an operator reads.
-        target: The control target the caller asked about, verbatim when it was
-            a string, else ``None``.
-        kind: The kind of machine *target* names here — ``real``, ``rehearsal``
-            or ``simulator`` — or ``None`` when the target does not resolve.
-        position: The effective switch position when *allowed* — ``asked`` or
-            ``allowed``, the stored position capped by the environment's
-            ceiling — and ``None`` on every refusal and from
-            :func:`backstop_verdict`.
-        detail: Words the refusal adds after its phrase, such as what raised a
-            session's hold. Not part of the decision, so verdicts compare and
-            hash without it.
-        authorization: The id of the program's write authorization the verdict
-            was decided by (:mod:`~osprey_connectors.write_authorization`), or
-            ``None`` for a verdict no authorization took part in. An authorized
-            write carries no ``position``: the switch did not decide it.
+
+class ChannelNotListed(FrozenModel):
+    """The write names a channel the authorization does not list."""
+
+    kind: Literal["channel_not_listed"] = "channel_not_listed"
+    address: str
+
+    def sentence(self) -> str:
+        """The words the refusal adds after its phrase."""
+        return f"Channel: {self.address}."
+
+
+class ValueOutOfRange(FrozenModel):
+    """A value outside the range the authorization allows its channel.
+
+    ``min`` and ``max`` are the channel's bounds as the authorization holds them.
     """
 
-    allowed: bool
-    reason: str | None
+    kind: Literal["value_out_of_range"] = "value_out_of_range"
+    address: str
+    min: int | float
+    max: int | float
+
+    def sentence(self) -> str:
+        """The words the refusal adds after its phrase."""
+        return f"Channel: {self.address}; allowed range [{self.min}, {self.max}]."
+
+
+class WrongMachine(FrozenModel):
+    """The authorization covers another machine than the one written to."""
+
+    kind: Literal["wrong_machine"] = "wrong_machine"
+    covers: ControlTarget
+
+    def sentence(self) -> str:
+        """The words the refusal adds after its phrase."""
+        return f"The authorization covers {self.covers}, not this machine."
+
+
+class StoppedBy(FrozenModel):
+    """A stop marked the authorization revoked: whose gesture, and when."""
+
+    kind: Literal["stopped_by"] = "stopped_by"
+    by: str
+    revoked_at: Instant
+
+    def sentence(self) -> str:
+        """The words the refusal adds after its phrase."""
+        return f"Stopped by {self.by}."
+
+
+class BudgetSpent(FrozenModel):
+    """Every write the authorization allows has been spent."""
+
+    kind: Literal["budget_spent"] = "budget_spent"
+    allowed: int
+
+    def sentence(self) -> str:
+        """The words the refusal adds after its phrase."""
+        return f"{self.allowed} of {self.allowed} writes used."
+
+
+class OverlapHeld(FrozenModel):
+    """Another program holds a live authorization on a channel this one names."""
+
+    kind: Literal["overlap_held"] = "overlap_held"
+    holder: str
+    authorization: str
+    label: str
+
+    def sentence(self) -> str:
+        """The words the refusal adds after its phrase."""
+        return f"Held by {self.holder} under {self.authorization} ({self.label})."
+
+
+class _SessionHeld(FrozenModel):
+    """The session's open hold flags, by what raised them, each once in the order opened."""
+
+    kind: Literal["session_held"] = "session_held"
+    sources: FrozenTuple[str]
+
+    def sentence(self) -> str:
+        """The words the refusal adds after its phrase."""
+        return f"Raised by: {', '.join(self.sources)}."
+
+
+#: The causes that carry nothing but their kind, each with its words.
+_FixedCauseKind = Literal[
+    "not_an_id",
+    "empty_batch",
+    "epoch_moved",
+    "switch_left_allowed",
+    "switch_not_at_allowed",
+    "stop_during_issue",
+    "no_epoch",
+    "no_such_authorization",
+    "no_ledger_directory",
+    "no_usable_ledger_directory",
+    "ledger_unreadable",
+    "lease_never_started",
+    "lease_already_started",
+    "lease_held_elsewhere",
+    "renewal_failed",
+    "request_expired",
+]
+
+_FIXED_SENTENCES: Final[Mapping[_FixedCauseKind, str]] = {
+    "not_an_id": "The authorization this process names is not an id.",
+    "empty_batch": "The write names no channel.",
+    "epoch_moved": "The switch record has moved past its approval.",
+    "switch_left_allowed": "The switch is no longer at allowed.",
+    "switch_not_at_allowed": "The switch is not at allowed.",
+    "stop_during_issue": "A stop came during the issue.",
+    "no_epoch": "The switch has no epoch.",
+    "no_such_authorization": "No such authorization.",
+    "no_ledger_directory": "This process has no write ledger directory.",
+    "no_usable_ledger_directory": "This process has no usable write ledger directory.",
+    "ledger_unreadable": "The write ledger cannot be read.",
+    "lease_never_started": "The holder never started its lease.",
+    "lease_already_started": "A lease was already started.",
+    "lease_held_elsewhere": "Another process holds the lease.",
+    "renewal_failed": "The lease could not be renewed.",
+    "request_expired": "The request's expiry has passed.",
+}
+
+
+class FixedCause(FrozenModel):
+    """A cause that names only its kind: the words are the kind's own."""
+
+    kind: _FixedCauseKind
+
+    def sentence(self) -> str:
+        """The words the refusal adds after its phrase."""
+        return _FIXED_SENTENCES[self.kind]
+
+
+#: Why a refusal refused, beside its reason word: one record per kind, which a
+#: program reads by its fields and a person by its :meth:`sentence`. A reason
+#: word such as ``auth_revoked`` covers several causes; the cause says which.
+RefusalCause: TypeAlias = Annotated[
+    ChannelNotListed
+    | ValueOutOfRange
+    | WrongMachine
+    | StoppedBy
+    | BudgetSpent
+    | OverlapHeld
+    | _SessionHeld
+    | FixedCause,
+    Field(discriminator="kind"),
+]
+
+
+# -- the verdict: allowed, or refused for one reason ---------------------------
+
+
+class _Verdict(FrozenModel):
+    """What every verdict names: the machine asked about, and the authorization."""
+
     target: str | None
     kind: MachineKind | None
-    position: ArmedPosition | None = None
-    detail: str | None = None
     authorization: str | None = None
 
     def _decision(self) -> tuple[object, ...]:
-        """Every field but ``detail``: what two verdicts compare and hash by."""
-        return (
-            self.allowed,
-            self.reason,
-            self.target,
-            self.kind,
-            self.position,
-            self.authorization,
-        )
+        raise NotImplementedError
 
     @override
     def __eq__(self, other: object) -> bool:
-        if type(other) is not type(self) or not isinstance(other, WriteVerdict):
+        if type(other) is not type(self) or not isinstance(other, _Verdict):
             return NotImplemented
         return self._decision() == other._decision()
 
     @override
     def __hash__(self) -> int:
         return hash(self._decision())
+
+
+class Allowed(_Verdict):
+    """The write may go ahead: every term of the verdict passed.
+
+    An allowed verdict carries no reason, cause or detail; the class has no
+    such fields, so one cannot be built with them.
+
+    Attributes:
+        target: The control target the caller asked about, verbatim when it was
+            a string, else ``None``.
+        kind: The kind of machine *target* names here — ``real``, ``rehearsal``
+            or ``simulator`` — or ``None`` when the target does not resolve.
+        position: The effective switch position — ``asked`` or ``allowed``, the
+            stored position capped by the environment's ceiling — and ``None``
+            from :func:`backstop_verdict` and for an authorized write, which the
+            switch did not decide.
+        authorization: The id of the program's write authorization the verdict
+            was decided by (:mod:`~osprey_connectors.write_authorization`), or
+            ``None`` for a verdict no authorization took part in.
+    """
+
+    allowed: Literal[True] = True
+    position: ArmedPosition | None
+    reason: ClassVar[None] = None
+    cause: ClassVar[None] = None
+    detail: ClassVar[None] = None
+
+    @override
+    def _decision(self) -> tuple[object, ...]:
+        """Every field: what two allowed verdicts compare and hash by."""
+        return (True, None, self.target, self.kind, self.position, self.authorization)
+
+
+class Refused(_Verdict):
+    """The write may not go ahead, for one reason: the first term that refused.
+
+    Attributes:
+        reason: The :class:`~osprey_connectors.refusals.VerdictReason` of the
+            term that refused; its word is taken for it. Required: a refusal
+            without a reason cannot be built.
+            :func:`~osprey_connectors.refusals.refusal_phrase` turns it, with
+            *kind*, into the words an operator reads.
+        target: As for :class:`Allowed`.
+        kind: As for :class:`Allowed`.
+        cause: Which of the causes the reason covers refused, as a record a
+            program can read (:data:`RefusalCause`), or ``None`` when the
+            reason says it all. Not part of the decision, so verdicts compare
+            and hash without it.
+        authorization: As for :class:`Allowed`.
+    """
+
+    allowed: Literal[False] = False
+    reason: VerdictReasonField
+    cause: RefusalCause | None = None
+    position: ClassVar[None] = None
+
+    @property
+    def detail(self) -> str | None:
+        """The words the refusal adds after its phrase: its cause's sentence, or ``None``."""
+        return None if self.cause is None else self.cause.sentence()
+
+    @override
+    def _decision(self) -> tuple[object, ...]:
+        """Every field but ``cause``: what two refusals compare and hash by."""
+        return (False, self.reason, self.target, self.kind, None, self.authorization)
+
+
+#: Whether one write may go ahead: :class:`Allowed`, or :class:`Refused` with
+#: the one reason. Both answer ``allowed``, ``reason``, ``cause``, ``detail``,
+#: ``position``, ``target``, ``kind`` and ``authorization``.
+WriteVerdict: TypeAlias = Allowed | Refused
 
 
 def write_verdict(
@@ -1251,8 +1472,8 @@ def write_verdict(
         ignore_launch_pin: Skip the last term.
 
     Returns:
-        A :class:`WriteVerdict`. Never raises: an exception anywhere in the
-        terms refuses rather than allows.
+        An :class:`Allowed` or a :class:`Refused`. Never raises: an exception
+        anywhere in the terms refuses rather than allows.
     """
     return _write_verdict(section, target, owner, ignore_launch_pin, None)
 
@@ -1264,9 +1485,9 @@ class _RecordSeen:
     been read and found usable: ``read`` is then ``True`` and ``record`` the
     record, or ``None`` for one that is absent (every switch off). A verdict
     refused before the record was reached leaves ``read`` ``False``. The write
-    authorization's verdict takes it so one authorized write is judged on one
-    read of the record rather than two that a person's gesture could fall
-    between.
+    authorization's verdict takes it (:func:`_switch_basis`) so one authorized
+    write is judged on one read of the record rather than two that a person's
+    gesture could fall between.
     """
 
     __slots__ = ("read", "record")
@@ -1274,6 +1495,12 @@ class _RecordSeen:
     def __init__(self) -> None:
         self.read = False
         self.record: ControlContext | None = None
+
+
+class _Armed(NamedTuple):
+    """The verdict's terms all passed: the effective position the write goes ahead at."""
+
+    position: ArmedPosition
 
 
 def _write_verdict(
@@ -1286,17 +1513,17 @@ def _write_verdict(
     """:func:`write_verdict`, recording the record it read into *seen* when given."""
     named = target if isinstance(target, str) else None
     kind = _verdict_kind(section, target)
-    position: ArmedPosition | None = None
+    judged: VerdictReason | _Armed
     try:
-        reason, position = _write_refusal(section, target, owner, ignore_launch_pin, seen)
+        judged = _write_refusal(section, target, owner, ignore_launch_pin, seen)
     except Exception:  # a verdict that cannot be reached refuses; it never raises
         logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
-        reason = "record_unavailable"
+        judged = VerdictReason.RECORD_UNAVAILABLE
         if seen is not None:
             seen.read = False
-    return WriteVerdict(
-        allowed=reason is None, reason=reason, target=named, kind=kind, position=position
-    )
+    if isinstance(judged, _Armed):
+        return Allowed(target=named, kind=kind, position=judged.position)
+    return Refused(reason=judged, target=named, kind=kind)
 
 
 def _verdict_kind(section: object, target: object) -> MachineKind | None:
@@ -1333,24 +1560,25 @@ def backstop_verdict(section: object) -> WriteVerdict:
         section: The ``control_system`` section of the resolved config.
 
     Returns:
-        A :class:`WriteVerdict` whose ``target``, ``kind`` and ``position`` are
-        always ``None``. Never raises: a tier that cannot be read refuses as
-        ``tier_never``.
+        An :class:`Allowed` or a :class:`Refused` whose ``target``, ``kind`` and
+        ``position`` are always ``None``. Never raises: a tier that cannot be
+        read refuses as ``tier_never``.
     """
     if is_readonly_run():
-        reason: str | None = "readonly_run"
-    else:
-        try:
-            reason = None if tier_allows(section) else "tier_never"
-        except Exception:  # tier_allows never raises by contract; refuse if it does
-            logger.warning("Backstop tier could not be read; refusing", exc_info=True)
-            reason = "tier_never"
-    return WriteVerdict(allowed=reason is None, reason=reason, target=None, kind=None)
+        return Refused(reason=VerdictReason.READONLY_RUN, target=None, kind=None)
+    try:
+        allows = tier_allows(section)
+    except Exception:  # tier_allows never raises by contract; refuse if it does
+        logger.warning("Backstop tier could not be read; refusing", exc_info=True)
+        allows = False
+    if not allows:
+        return Refused(reason=VerdictReason.TIER_NEVER, target=None, kind=None)
+    return Allowed(target=None, kind=None, position=None)
 
 
 def session_hold_refusal(
     *, root: Path | str | None = None, session_keys: Sequence[str] | None = None
-) -> WriteVerdict | None:
+) -> Refused | None:
     """The ``session_held`` refusal for this process's session, or ``None``.
 
     The session is :data:`_SESSION_KEY_ENV_VAR`; a process without one belongs to
@@ -1371,8 +1599,10 @@ def session_hold_refusal(
     Returns:
         ``None`` when no named session is held; otherwise the first held
         session's refusal, in the order given: ``target`` and ``kind`` are
-        ``None`` and ``detail`` names that session's open flags' sources, each
-        once in the order opened. An unsafe session key has no flags to name.
+        ``None`` and ``cause`` names that session's open flags' sources, each
+        once in the order opened (its ``detail`` is ``Raised by: <sources>.``).
+        A hold that cannot be read, and an unsafe session key, has no flags to
+        name and no cause.
         Never raises.
     """
     for key in _session_keys(session_keys):
@@ -1390,21 +1620,20 @@ def _session_keys(session_keys: Sequence[str] | None) -> list[str]:
     return [key for key in session_keys if key]
 
 
-def _hold_refusal(key: str, root: Path | str | None) -> WriteVerdict | None:
+def _hold_refusal(key: str, root: Path | str | None) -> Refused | None:
     """The ``session_held`` refusal for one session *key*, or ``None`` (see :func:`session_hold_refusal`)."""
-    detail = None
+    cause = None
     try:
         # One read: the decision and the words it is refused in come from one answer.
         flags = session_hold.open_flags(key, root=root)
         if not flags:
             return None
-        sources = ", ".join(dict.fromkeys(flag.source for flag in flags))
-        detail = f"Raised by: {sources}."
+        cause = _SessionHeld(sources=tuple(dict.fromkeys(flag.source for flag in flags)))
     except ValueError:  # the key is not a safe file name, which holds
         logger.warning("Session key %r is unsafe; held", key)
     except Exception:  # a hold that cannot be read refuses; it never raises
         logger.warning("Session hold for %r could not be read; held", key, exc_info=True)
-    return WriteVerdict(allowed=False, reason="session_held", target=None, kind=None, detail=detail)
+    return Refused(reason=VerdictReason.SESSION_HELD, target=None, kind=None, cause=cause)
 
 
 def execution_verdict(
@@ -1432,8 +1661,8 @@ def execution_verdict(
             environment's session.
 
     Returns:
-        A :class:`WriteVerdict` with the ``target`` and ``kind`` of
-        :func:`write_verdict`. Never raises.
+        An :class:`Allowed` or a :class:`Refused` with the ``target`` and
+        ``kind`` of :func:`write_verdict`. Never raises.
     """
     verdict = write_verdict(section, target, owner=owner, ignore_launch_pin=ignore_launch_pin)
     return _with_hold(section, verdict, session_keys)
@@ -1451,63 +1680,88 @@ def _with_hold(
     return evolve(held, target=verdict.target, kind=verdict.kind)
 
 
+def _switch_basis(
+    section: object,
+    target: str | None,
+    owner: str | NoOwner | None,
+    session_keys: Sequence[str] | None,
+    *,
+    hold: bool,
+) -> tuple[WriteVerdict, bool, ControlContext | None]:
+    """The switch verdict a write authorization's verdict follows, and the record it read.
+
+    :func:`write_verdict` for *target* and *owner*, launch pin honoured, and
+    with *hold* the session's hold placed as :func:`execution_verdict` places
+    it (*session_keys* as there). Then whether that verdict read the record
+    governing the write and found it usable, and the record (``None`` for an
+    absent one, every switch off), so the authorization is judged on the same
+    read. Never raises.
+    """
+    seen = _RecordSeen()
+    verdict = _write_verdict(section, target, owner, False, seen)
+    if hold:
+        verdict = _with_hold(section, verdict, session_keys)
+    return verdict, seen.read, seen.record
+
+
 def _write_refusal(
     section: object,
     target: str | None,
     owner: str | NoOwner | None,
     ignore_launch_pin: bool,
     seen: _RecordSeen | None = None,
-) -> tuple[str | None, ArmedPosition | None]:
+) -> VerdictReason | _Armed:
     """The first term of :func:`write_verdict` that refuses, else the position.
 
-    Answers ``(reason, None)`` or ``(None, position)``. May raise. The usable
-    record it read, if it got that far, is left in *seen*.
+    Answers the refusing term's reason, or :class:`_Armed` with the effective
+    position once every term passed — the last thing it answers. May raise.
+    The usable record it read, if it got that far, is left in *seen*.
     """
     # Imported here, not at module scope: ``control_context`` imports this module.
     from osprey_connectors import control_context
 
     if is_readonly_run():
-        return "readonly_run", None
+        return VerdictReason.READONLY_RUN
     if not tier_allows(section):
-        return "tier_never", None
+        return VerdictReason.TIER_NEVER
     if not is_control_target(target):  # resolve_target refuses it too; said here for the type
-        return "target_unknown", None
+        return VerdictReason.TARGET_UNKNOWN
     try:
         resolve_target(section, target)
     except Exception:  # ValueError by contract; anything else is no resolution either
-        return "target_unknown", None
+        return VerdictReason.TARGET_UNKNOWN
 
     resolved = current_owner(owner)
     if resolved is NO_OWNER and _is_dispatch_run():
-        return "owner_unscheduled", None
+        return VerdictReason.OWNER_UNSCHEDULED
     if resolved is NO_OWNER or not isinstance(resolved, str) or not resolved.strip():
-        return "owner_unknown", None
+        return VerdictReason.OWNER_UNKNOWN
     # A host holds one login's switch: an owner other than that login is refused
     # before its tier or any record is read (a tree bind reads each owner's own).
     if not _tree_is_bound() and resolved.strip() != acting_identity():
-        return "owner_foreign", None
+        return VerdictReason.OWNER_FOREIGN
 
     rung = owner_tier_term(section, resolved)
     if rung == "unknown":
-        return "owner_unknown", None
+        return VerdictReason.OWNER_UNKNOWN
     if rung == "never":
-        return "tier_never", None
+        return VerdictReason.TIER_NEVER
 
     if _tree_is_bound():
         tree = _control_context_tree()
         if tree is None:
             logger.warning("Write record unreadable for %r: %s", resolved, _tree_bind_unusable())
-            return "record_unavailable", None
+            return VerdictReason.RECORD_UNAVAILABLE
         read = _read_tree_context(tree, resolved)
         if read.unavailable is not None:
             logger.warning("Write record unreadable for %r: %s", resolved, read.unavailable)
-            return "record_unavailable", None
+            return VerdictReason.RECORD_UNAVAILABLE
         record = read.record
     else:
         record, status = control_context.read_record_status()
         if status == "unreadable":
             logger.warning("Write record unreadable on this host; refusing")
-            return "record_unavailable", None
+            return VerdictReason.RECORD_UNAVAILABLE
         if status != "ok":
             record = None
     if seen is not None:
@@ -1515,9 +1769,9 @@ def _write_refusal(
 
     stored = control_context.switch_position(record, target)
     if stored == "off":
-        return "switch_off", None
+        return VerdictReason.SWITCH_OFF
 
     if not ignore_launch_pin and _launch_pin_term(target) != "none":
-        return "launch_pinned", None
+        return VerdictReason.LAUNCH_PINNED
     ceiling = write_ceiling(section, resolved)
-    return None, cast("ArmedPosition", min(stored, ceiling, key=_LOGIN_TIERS.index))
+    return _Armed(cast("ArmedPosition", min(stored, ceiling, key=_LOGIN_TIERS.index)))

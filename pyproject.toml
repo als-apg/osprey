@@ -948,7 +948,9 @@ name = "The connector package's top-level modules, in layers"
 # the write guard in the control-system connectors, so it sits between them.
 #
 # The exception vocabulary sits just above the bottom: every config reader and
-# every write-path writer raises its classes, so it imports only `model`.
+# every write-path writer raises its classes, so it imports only `model` and
+# the refusal vocabulary (`refusals`), whose reasons its blocked-write error
+# carries. `refusals` imports nothing from the package.
 #
 # The factory builds the read-only service backends, one namespace per kind.
 # They reach the control system through neither connector family, so they sit
@@ -985,9 +987,9 @@ layers = [
     "osprey_connectors.call_timeout | osprey_connectors.dotenv | osprey_connectors.session_hold",
     "osprey_connectors.archiver_selection | osprey_connectors.limits_posture",
     "osprey_connectors.targets | osprey_connectors.write_tier",
-    "osprey_connectors.connection | osprey_connectors.connector_types | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.refusals | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
+    "osprey_connectors.connection | osprey_connectors.connector_types | osprey_connectors.identity | osprey_connectors.log_filter | osprey_connectors.posture_env | osprey_connectors.process | osprey_connectors.relative_time | osprey_connectors.safety_file | osprey_connectors.yaml_loader",
     "osprey_connectors.errors",
-    "osprey_connectors._config_read | osprey_connectors._contract_types | osprey_connectors.model",
+    "osprey_connectors._config_read | osprey_connectors._contract_types | osprey_connectors.model | osprey_connectors.refusals",
 ]
 ignore_imports = [
     # Edges that point up, each named so that no other can join them. The

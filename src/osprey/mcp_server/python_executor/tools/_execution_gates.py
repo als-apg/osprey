@@ -49,7 +49,8 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor import executor
 from osprey.utils.session_hold_api import execution_verdict
-from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.posture_store import Refused, WriteVerdict
+from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import baseline_target
 
 if TYPE_CHECKING:
@@ -205,7 +206,7 @@ def _launch_verdict() -> WriteVerdict:
         return execution_verdict(section, _launch_target(section))
     except Exception:  # execution_verdict never raises by contract; refuse if it does
         logger.warning("Write verdict could not be reached; refusing", exc_info=True)
-        return WriteVerdict(allowed=False, reason="record_unavailable", target=None, kind=None)
+        return Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None)
 
 
 def _tool_subject(tool: str) -> str:
@@ -329,7 +330,7 @@ def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
 
     from osprey_connectors.refusals import refusal_text
 
-    reason = verdict.reason or "record_unavailable"
+    reason = verdict.reason
     make_error(
         "safety_error",
         refusal_text(reason, verdict.kind, detail=verdict.detail),

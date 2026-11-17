@@ -326,7 +326,7 @@ class _KeyedBridge:
 
 def _refused(reason):
     from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
-    from osprey_connectors.errors import RefusalReason
+    from osprey_connectors.refusals import RefusalReason
 
     def results(operations):
         return [
@@ -427,7 +427,8 @@ def test_any_other_refusal_keeps_its_verdict_reason_and_leaves_the_authority_sta
 
 def test_a_limits_refusal_out_of_the_batch_is_a_refusal():
     from osprey_connectors.control_system import ChannelWriteResult
-    from osprey_connectors.errors import LimitsViolation, RefusalReason
+    from osprey_connectors.errors import LimitsViolation
+    from osprey_connectors.refusals import RefusalReason
 
     def refused(operations):
         return [

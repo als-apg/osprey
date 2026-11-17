@@ -43,9 +43,7 @@ def _queue_start_refusal() -> str:
     """The text of the bluesky ``queue_start`` in-tool refusal, as the tool raises it."""
     from osprey.mcp_server.bluesky.tools.queue import _refuse_writes_disabled
 
-    verdict = posture_store.WriteVerdict(
-        allowed=False, reason="switch_off", target="standin", kind="rehearsal"
-    )
+    verdict = posture_store.Refused(reason="switch_off", target="standin", kind="rehearsal")
     with pytest.raises(ToolError) as raised:
         _refuse_writes_disabled("queue_start", verdict, lane="bluesky_standin")
     return str(raised.value)

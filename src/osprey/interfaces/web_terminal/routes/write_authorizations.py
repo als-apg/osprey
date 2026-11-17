@@ -187,7 +187,7 @@ class _Facts:
     login: str
     configured: tuple[str, ...]
     ceiling: str
-    lock: posture_store.WriteVerdict | None = None
+    lock: posture_store.Refused | None = None
     request: wa.WriteRequest | None = None
     request_problem: str | None = None
     limits: dict[str, Any] | None = None
@@ -260,7 +260,10 @@ def _facts(config_path: Path | None, request_id: str) -> _Facts:
             owner=login,
             ignore_launch_pin=True,
         )
-        if verdict.reason in posture_routes._TURN_ON_LOCKS:
+        if (
+            isinstance(verdict, posture_store.Refused)
+            and verdict.reason in posture_routes._TURN_ON_LOCKS
+        ):
             facts.lock = verdict
     facts.approved = _own_grant_exists(request_id)
     if config is UNREADABLE or not isinstance(config, dict):
@@ -281,7 +284,7 @@ def _locks(facts: _Facts) -> dict[str, Any] | None:
         return {"status": 403, "reason": posture_routes.POSTURE_REASON_TIER_CAPS,
                 "ceiling": facts.ceiling}  # fmt: skip
     if facts.lock is not None:
-        reason = str(facts.lock.reason)
+        reason = facts.lock.reason
         return {"status": 403, "reason": reason,
                 "phrase": refusal_phrase(reason, facts.lock.kind)}  # fmt: skip
     return None

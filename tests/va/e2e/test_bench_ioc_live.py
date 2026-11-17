@@ -79,8 +79,8 @@ from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelUnreachableError,
     ChannelWriteBlockedError,
-    RefusalReason,
 )
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port

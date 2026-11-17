@@ -474,8 +474,8 @@ class TestConnectorRows:
 
         def unreadable(_section, target, **_kwargs):
             # What the verdict answers for a record it cannot read; it never raises.
-            return posture_store.WriteVerdict(
-                allowed=False, reason="record_unavailable", target=target, kind="simulator"
+            return posture_store.Refused(
+                reason="record_unavailable", target=target, kind="simulator"
             )
 
         monkeypatch.setattr(posture_store, "write_verdict", unreadable)
@@ -535,14 +535,17 @@ class TestConnectorRows:
         monkeypatch.setenv(session_module.SESSION_KEY_ENV_VAR, "alice-1")
         write_record(va)
         session = await opened()
-        assert session_hold.open_flag(
-            "alice-1",
-            flag_id="flag-1",
-            source="watchdog:limits",
-            reason="a limit was refused",
-            prompt_ref="turn-7",
-            prompt_excerpt="set the current to 900",
-            root=root,
+        assert (
+            session_hold.open_flag(
+                "alice-1",
+                flag_id="flag-1",
+                source="watchdog:limits",
+                reason="a limit was refused",
+                prompt_ref="turn-7",
+                prompt_excerpt="set the current to 900",
+                root=root,
+            )
+            == "opened"
         )
 
         result = await session.write(CHANNEL, 1.5, origin=ORIGIN)

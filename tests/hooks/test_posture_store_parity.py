@@ -464,14 +464,15 @@ _PRODUCTION_ROOTS = ("packages", "src")
 
 #: The posture store's write-path questions, each taking the target the write
 #: lands on as its second argument. A caller that hands them no target has
-#: stopped naming the machine it writes to. The write authorization's two
-#: compositions of them are the same questions for a process that may name an
+#: stopped naming the machine it writes to. The write authorization's
+#: compositions of them are the same questions for a process that names an
 #: authorization, and take the target in the same place.
 _TARGETED_RULES = (
     "write_verdict",
     "execution_verdict",
     "authorized_write_verdict",
     "authorized_execution_verdict",
+    "spend_authorized_write",
 )
 
 

@@ -29,11 +29,8 @@ from osprey_connectors.control_system._base import (
     SendReport,
     WriteOutcome,
 )
-from osprey_connectors.errors import (
-    ChannelLimitsViolationError,
-    ChannelWriteBlockedError,
-    RefusalReason,
-)
+from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors.write_authorization import (
     Approver,
     ChannelRange,

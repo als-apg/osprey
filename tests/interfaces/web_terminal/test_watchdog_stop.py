@@ -134,14 +134,17 @@ def root(tmp_path) -> Path:
 
 
 def _flag(root: Path, flag_id: str, *, source: str = "wd") -> None:
-    assert open_flag(
-        KEY,
-        flag_id=flag_id,
-        source=source,
-        reason="risky",
-        prompt_ref=make_prompt_ref(RECORD_SESSION, flag_id),
-        prompt_excerpt="loosen the limits",
-        root=root,
+    assert (
+        open_flag(
+            KEY,
+            flag_id=flag_id,
+            source=source,
+            reason="risky",
+            prompt_ref=make_prompt_ref(RECORD_SESSION, flag_id),
+            prompt_excerpt="loosen the limits",
+            root=root,
+        )
+        == "opened"
     )
 
 

@@ -228,13 +228,16 @@ def _hold(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(session_hold.HOLD_DIR_ENV_VAR, str(tmp_path / "holds"))
     monkeypatch.setenv("OSPREY_SESSION_ID", HOLD_KEY)
     session_hold.ensure_session(HOLD_KEY)
-    assert session_hold.open_flag(
-        HOLD_KEY,
-        flag_id="f1",
-        source=HOLD_SOURCE,
-        reason="off the plan",
-        prompt_ref="record:f1",
-        prompt_excerpt="set the knob",
+    assert (
+        session_hold.open_flag(
+            HOLD_KEY,
+            flag_id="f1",
+            source=HOLD_SOURCE,
+            reason="off the plan",
+            prompt_ref="record:f1",
+            prompt_excerpt="set the knob",
+        )
+        == "opened"
     )
 
 
@@ -376,9 +379,9 @@ def test_approval_refused_from_refusal_appends_guidance():
 
 
 def test_approval_refused_from_verdict_names_the_tool():
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.posture_store import Refused
 
-    verdict = WriteVerdict(allowed=False, reason="tier_never", target="va", kind="simulator")
+    verdict = Refused(reason="tier_never", target="va", kind="simulator")
     refused = ApprovalRefused.from_verdict(verdict, TOOL)
     assert refused.reason == "tier_never"
     assert refused.details == {"reason": "tier_never", "target": "va"}

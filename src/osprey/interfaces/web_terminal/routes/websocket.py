@@ -64,7 +64,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_context import published_machine_kind
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.refusals import VerdictReason, refusal_phrase
 from osprey_connectors.session_hold import has_no_record, is_held, is_safe_session_key
 from osprey_connectors.write_target import KIND_BANNERS
 
@@ -1957,7 +1957,7 @@ class _PostureRequestFacts:
     #: How reading the login's record ended: ``ok``, ``missing``, ``unreadable``.
     record_status: str
     #: The verdict that locks a widening (:data:`_TURN_ON_LOCKS`), else ``None``.
-    lock: posture_store.WriteVerdict | None
+    lock: posture_store.Refused | None
     #: Where the machine stands now; ``None`` for all-off or an unreadable record.
     before: str | None = None
     #: The login's ceiling (:func:`~osprey.interfaces.web_terminal.config_view.login_tier`)
@@ -2000,7 +2000,7 @@ def _posture_post_facts(
     if target in configured and _widens(state, before):
         ceiling = login_tier(section, login)
         verdict = posture_store.write_verdict(section, target, owner=login, ignore_launch_pin=True)
-        if verdict.reason in _TURN_ON_LOCKS:
+        if isinstance(verdict, posture_store.Refused) and verdict.reason in _TURN_ON_LOCKS:
             lock = verdict
     return _PostureRequestFacts(
         configured=configured,
@@ -2075,7 +2075,7 @@ def _posture_not_taken(
     if state == SWITCH_OFF:
         phrase = STOP_NOT_TAKEN_PHRASE
     else:
-        phrase = refusal_phrase("record_unavailable")
+        phrase = refusal_phrase(VerdictReason.RECORD_UNAVAILABLE)
         if record_missing:
             return _refuse_posture(
                 session_key,
@@ -2189,7 +2189,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
         )
 
     if facts.lock is not None:
-        lock_reason = cast(str, facts.lock.reason)
+        lock_reason = facts.lock.reason
         raise _refuse_posture(
             session_id,
             status_code=403,

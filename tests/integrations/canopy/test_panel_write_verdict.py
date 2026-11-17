@@ -58,7 +58,7 @@ from osprey.runtime.session import EXIT_BINDING_MOVED
 from osprey.runtime.session_outcomes import refusal_message
 from osprey_connectors import control_context, posture_store, session_hold
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
-from osprey_connectors.posture_store import WriteVerdict
+from osprey_connectors.posture_store import Allowed, Refused, WriteVerdict, _SessionHeld
 from osprey_connectors.refusals import refusal_phrase
 
 # The backend's fixtures and helpers: a real session over a recording machine,
@@ -91,7 +91,8 @@ CLAIMS = json.loads(
 CLAIM_ROWS = {row["id"]: row for row in CLAIMS["rows"]}
 
 #: The detail a hold raised by ``watchdog:limits`` adds to its verdict.
-HOLD_DETAIL = "Raised by: watchdog:limits."
+HOLD_SOURCE = "watchdog:limits"
+HOLD_DETAIL = f"Raised by: {HOLD_SOURCE}."
 
 
 def _writes(value: Any) -> dict[str, Any]:
@@ -181,13 +182,14 @@ def _wait_for(predicate, timeout: float = 5.0) -> None:
 def _verdict_for(row: dict) -> WriteVerdict:
     """The execution verdict *row* names, for the simulator; a hold names its source."""
     verdict = row["verdict"]
-    return WriteVerdict(
-        allowed=verdict["allowed"],
+    if verdict["allowed"]:
+        return Allowed(target="va", kind="simulator", position=verdict["position"])
+    held = verdict["reason"] == "session_held"
+    return Refused(
         reason=verdict["reason"],
         target="va",
         kind="simulator",
-        position=verdict["position"],
-        detail=HOLD_DETAIL if verdict["reason"] == "session_held" else None,
+        cause=_SessionHeld(sources=(HOLD_SOURCE,)) if held else None,
     )
 
 
@@ -233,7 +235,7 @@ class TestTheClaimTable:
 
     @pytest.mark.parametrize("reason", ["owner_unknown", "owner_foreign", "launch_pinned"])
     def test_any_other_refusal_is_locked_with_its_reason(self, reason):
-        verdict = WriteVerdict(allowed=False, reason=reason, target="va", kind="simulator")
+        verdict = Refused(reason=reason, target="va", kind="simulator")
         session = SimpleNamespace(
             target_moving=False, binding=SimpleNamespace(state="bound"), verdict=verdict
         )
@@ -257,14 +259,17 @@ def _hold_store(tmp_path: Path, monkeypatch, *keys: str) -> Path:
 
 
 def _raise(root: Path, key: str) -> None:
-    assert session_hold.open_flag(
-        key,
-        flag_id="flag-1",
-        source="watchdog:limits",
-        reason="a limit was refused",
-        prompt_ref="turn-7",
-        prompt_excerpt="set the current to 900",
-        root=root,
+    assert (
+        session_hold.open_flag(
+            key,
+            flag_id="flag-1",
+            source="watchdog:limits",
+            reason="a limit was refused",
+            prompt_ref="turn-7",
+            prompt_excerpt="set the current to 900",
+            root=root,
+        )
+        == "opened"
     )
 
 

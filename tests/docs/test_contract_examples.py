@@ -207,14 +207,17 @@ def _store_example_record(root: Path) -> None:
 def test_hold_record_has_the_keys_the_writer_writes(tmp_path: Path) -> None:
     from osprey_connectors import session_hold
 
-    assert session_hold.open_flag(
-        _SESSION_KEY,
-        flag_id="f1",
-        source="guard-circumvention",
-        reason="r",
-        prompt_ref="s:1",
-        prompt_excerpt="e",
-        root=tmp_path,
+    assert (
+        session_hold.open_flag(
+            _SESSION_KEY,
+            flag_id="f1",
+            source="guard-circumvention",
+            reason="r",
+            prompt_ref="s:1",
+            prompt_excerpt="e",
+            root=tmp_path,
+        )
+        == "opened"
     )
     written = json.loads((tmp_path / _SESSION_KEY / session_hold.RECORD_NAME).read_text())
     example = _example("watchdog-hold-record.json")

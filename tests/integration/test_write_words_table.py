@@ -37,11 +37,15 @@ import pytest
 from osprey.agent_runner import tool_names
 from osprey_connectors import refusals, write_target
 from osprey_connectors.control_system import _base as connector_base
-from osprey_connectors.errors import (
-    ChannelNotFoundError,
-    ChannelWriteBlockedError,
-    RefusalReason,
-)
+from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
+from osprey_connectors.posture_store import Allowed, Refused
+from osprey_connectors.refusals import RefusalReason
+
+
+def _package_phrases() -> dict[str, str]:
+    """The package's phrase table: each reason's word and its phrase, in order."""
+    return {reason.value: reason.phrase for reason in refusals.VerdictReason}
+
 
 REPO = Path(__file__).resolve().parents[2]
 SRC = REPO / "src" / "osprey"
@@ -95,7 +99,7 @@ WORDS_TABLE: dict[str, dict[str, Any]] = {
     },
     "refusal phrases": {
         "class": "vocabulary",
-        "source": "osprey_connectors.refusals._PHRASES",
+        "source": "osprey_connectors.refusals.VerdictReason (phrase)",
         "copies": (
             "osprey_target_state._PHRASES (hook twin)",
             "osprey_writes_check._READONLY_RUN_PHRASE / _RECORD_UNAVAILABLE_PHRASE",
@@ -126,7 +130,7 @@ WORDS_TABLE: dict[str, dict[str, Any]] = {
     },
     "WRITES_DISABLED": {
         "class": "contract",
-        "source": "osprey_connectors.errors.RefusalReason",
+        "source": "osprey_connectors.refusals.RefusalReason",
         "copies": ("control_system._base._verdict_refusal refusal_reason",),
     },
     "shell set": {
@@ -255,7 +259,7 @@ def test_no_other_js_module_spells_a_banner():
 def test_the_twin_restates_the_refusal_words():
     twin = _import_hook("osprey_target_state")
     assert twin.KIND_WORDS == refusals.KIND_WORDS
-    assert twin._PHRASES == refusals._PHRASES
+    assert twin._PHRASES == _package_phrases()
     assert twin.REASONS == refusals.REASONS
     assert tuple(twin.STORE_PATH_MARKERS) == refusals.STORE_PATH_MARKERS
 
@@ -284,14 +288,18 @@ def test_the_approval_store_markers_restate_the_package():
 def test_writes_off_is_the_deny_lead():
     check = _import_hook("osprey_writes_check")
     assert "WRITES OFF" in check._DENY_HEADER
-    assert "WRITES OFF" not in "".join(refusals._PHRASES.values())
+    assert "WRITES OFF" not in "".join(_package_phrases().values())
 
 
 # ── contract spellings ───────────────────────────────────────────────────────
 
 
 def _refused(reason: str | None, kind: str | None = None, allowed: bool = False) -> Any:
-    verdict = SimpleNamespace(allowed=allowed, reason=reason, kind=kind, detail=None)
+    verdict = (
+        Allowed(target=None, kind=kind, position=None)
+        if allowed
+        else Refused(reason=reason, target=None, kind=kind)
+    )
     return connector_base._verdict_refusal("SR:TEST:SP", 1.0, verdict, wording="script")
 
 

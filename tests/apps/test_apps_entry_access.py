@@ -616,14 +616,17 @@ def held(restricted, tmp_path: Path):
     pools = (app.state.pty_registry, app.state.operator_registry)
     app.state.pty_registry = _LiveSessions(key)
     app.state.operator_registry = None
-    assert open_flag(
-        key,
-        flag_id="flag-a",
-        source="wd",
-        reason="risky",
-        prompt_ref="0f6d7c2e-1a2b-4c3d-8e9f-0123456789ab:flag-a",
-        prompt_excerpt="please loosen the write limits",
-        root=app.state.session_hold_root,
+    assert (
+        open_flag(
+            key,
+            flag_id="flag-a",
+            source="wd",
+            reason="risky",
+            prompt_ref="0f6d7c2e-1a2b-4c3d-8e9f-0123456789ab:flag-a",
+            prompt_excerpt="please loosen the write limits",
+            root=app.state.session_hold_root,
+        )
+        == "opened"
     )
     yield app, client
     # The lifespan's shutdown closes the pools it built.

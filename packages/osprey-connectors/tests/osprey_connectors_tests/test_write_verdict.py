@@ -18,7 +18,7 @@ import pytest
 from pydantic import ValidationError
 
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.posture_store import NO_OWNER, WriteVerdict, write_verdict
+from osprey_connectors.posture_store import NO_OWNER, Allowed, Refused, WriteVerdict, write_verdict
 from osprey_connectors.refusals import REASONS, refusal_text
 from osprey_connectors_tests._harness import (
     write_control_context,
@@ -111,9 +111,7 @@ def _refused(verdict: WriteVerdict, reason: str) -> None:
 def test_everything_in_place_allows(root):
     _host(root, switch={"live": "asked"})
     verdict = write_verdict(LIVE, "live")
-    assert verdict == WriteVerdict(
-        allowed=True, reason=None, target="live", kind="real", position="asked"
-    )
+    assert verdict == Allowed(target="live", kind="real", position="asked")
 
 
 STANDIN_SECTION = {**LIVE, "connector": {"live_standin": {"prefix": "S:"}}}
@@ -139,8 +137,8 @@ def test_kind_names_the_machine(root):
 def test_a_live_standin_reads_rehearsal(root):
     _host(root, switch={"standin": "asked"})
     _report(root, "rehearsal")
-    assert write_verdict(STANDIN_SECTION, "standin") == WriteVerdict(
-        allowed=True, reason=None, target="standin", kind="rehearsal", position="asked"
+    assert write_verdict(STANDIN_SECTION, "standin") == Allowed(
+        target="standin", kind="rehearsal", position="asked"
     )
 
 
@@ -597,7 +595,7 @@ def test_ignoring_the_pin_still_reports_the_position(root, monkeypatch):
 
 def test_the_position_is_optional_for_a_refusal_built_by_hand():
     """Callers that refuse before reaching the verdict build one without the field."""
-    verdict = WriteVerdict(allowed=False, reason="record_unavailable", target=None, kind=None)
+    verdict = Refused(reason="record_unavailable", target=None, kind=None)
     assert verdict.position is None
 
 
@@ -657,6 +655,6 @@ def test_never_emits_the_lock_reasons(root):
 
 
 def test_verdict_is_frozen():
-    verdict = WriteVerdict(allowed=True, reason=None, target="live", kind="real")
+    verdict = Allowed(target="live", kind="real", position=None)
     with pytest.raises(ValidationError, match="frozen"):
         verdict.allowed = False  # type: ignore[misc]

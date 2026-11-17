@@ -140,6 +140,7 @@ from osprey_connectors.ipc import (
     subsection,
 )
 from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import resolve_target
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_eligibility")
@@ -269,8 +270,8 @@ def target_write_verdict(section: Any, target: str) -> posture_store.WriteVerdic
         return posture_store.write_verdict(section, target)
     except Exception:  # write_verdict never raises; a refusal is still the floor
         logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
-        return posture_store.WriteVerdict(
-            allowed=False, reason="record_unavailable", target=None, kind=None
+        return posture_store.Refused(
+            reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None
         )
 
 

@@ -73,16 +73,12 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import ChannelValue, ConnectorContext
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
-from osprey_connectors.errors import (
-    ChannelNotFoundError,
-    ChannelUnreachableError,
-    LimitsViolation,
-    RefusalReason,
-)
+from osprey_connectors.errors import ChannelNotFoundError, ChannelUnreachableError, LimitsViolation
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.ipc._verification import derive_endpoints
+from osprey_connectors.refusals import RefusalReason
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     isolated_connector_registries,

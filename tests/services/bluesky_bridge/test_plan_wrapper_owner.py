@@ -63,12 +63,7 @@ from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import posture_store
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
-from osprey_connectors.posture_store import (
-    NO_OWNER,
-    RESERVED_OWNER_KWARG,
-    WriteVerdict,
-    current_owner,
-)
+from osprey_connectors.posture_store import NO_OWNER, RESERVED_OWNER_KWARG, Refused, current_owner
 from osprey_connectors.refusals import refusal_phrase
 from tests.services.bluesky_bridge._fake_connector import FakeConnector
 
@@ -104,9 +99,7 @@ def refuse_a_switched_off_write() -> None:
         connector_base._verdict_refusal(
             _CHANNEL,
             _SETPOINT,
-            WriteVerdict(
-                allowed=False, reason="switch_off", target=_REFUSAL_TARGET, kind=_REFUSAL_KIND
-            ),
+            Refused(reason="switch_off", target=_REFUSAL_TARGET, kind=_REFUSAL_KIND),
             wording="script",
         )
     )

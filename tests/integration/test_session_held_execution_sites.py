@@ -106,13 +106,16 @@ def stamps(tmp_path, monkeypatch) -> ApprovalStamps:
 
 
 def _flag() -> None:
-    assert session_hold.open_flag(
-        KEY,
-        flag_id="f1",
-        source=SOURCE,
-        reason="off the plan",
-        prompt_ref="record:f1",
-        prompt_excerpt="move the corrector",
+    assert (
+        session_hold.open_flag(
+            KEY,
+            flag_id="f1",
+            source=SOURCE,
+            reason="off the plan",
+            prompt_ref="record:f1",
+            prompt_excerpt="move the corrector",
+        )
+        == "opened"
     )
 
 

@@ -143,10 +143,9 @@ from osprey_connectors.errors import (
     NOT_A_CHANNEL,
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
-    RefusalReason,
 )
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict
-from osprey_connectors.refusals import refusal_text
+from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, Refused
+from osprey_connectors.refusals import RefusalReason, VerdictReason, refusal_text
 from osprey_connectors.targets import baseline_target
 from osprey_connectors.workspace import load_osprey_config
 
@@ -683,10 +682,10 @@ def _check_write_verdict(record: control_context.ControlContext | None, config: 
         verdict = execution_verdict(section or {}, target)
     except Exception:  # unknown posture must not write
         logger.warning("Write verdict for channel_write could not be reached", exc_info=True)
-        verdict = WriteVerdict(allowed=False, reason="record_unavailable", target=target, kind=None)
+        verdict = Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=target, kind=None)
     if verdict.allowed:
         return
-    reason = verdict.reason or "record_unavailable"
+    reason = verdict.reason
     make_error(
         WRITES_DISABLED_ERROR,
         refusal_text(

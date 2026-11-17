@@ -567,11 +567,8 @@ class TestNonBlockingOffload:
         than flattened into a failed write, and the value it refused must never
         reach ``doocs4py.set``.
         """
-        from osprey_connectors.errors import (
-            ChannelLimitsViolationError,
-            LimitsViolation,
-            RefusalReason,
-        )
+        from osprey_connectors.errors import ChannelLimitsViolationError, LimitsViolation
+        from osprey_connectors.refusals import RefusalReason
 
         refusal = ChannelLimitsViolationError(
             "FAC/DEV/LOC/PROP", 10.0, "MAX_EXCEEDED", "above the configured ceiling"

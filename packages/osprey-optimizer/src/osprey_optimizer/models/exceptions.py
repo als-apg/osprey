@@ -77,10 +77,10 @@ AUTHORIZATION_TOO_MANY_STEPS = "authorization_too_many_steps"
 
 def _ended_message(reason: str, detail: str | None) -> str:
     """The operator's words for an authorization that ended for *reason*."""
-    from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.refusals import VerdictReason, refusal_phrase
 
     try:
-        phrase: str | None = refusal_phrase(reason)
+        phrase: str | None = refusal_phrase(VerdictReason(reason))
     except ValueError:  # one of the optimizer's own words, not a verdict reason
         phrase = None
     words = " ".join(part for part in (phrase, detail) if part)

@@ -61,11 +61,11 @@ from osprey_connectors.errors import (
     ConnectorInternalError,
     ConnectorUnavailableError,
     ConnectRefusedError,
-    RefusalReason,
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
+from osprey_connectors.refusals import RefusalReason, VerdictReason
 from osprey_connectors.targets import machine_kind
 from osprey_connectors.write_tier import WRITES_KEY
 
@@ -1900,12 +1900,11 @@ class EPICSConnector(ControlSystemConnector):
         if self._write_route_open():
             return None
         # Imported here, as ``_base`` does: ``posture_store`` imports ``_base``.
-        from osprey_connectors.posture_store import WriteVerdict
+        from osprey_connectors.posture_store import Refused
 
         allowed = self._last_verdict
-        verdict = WriteVerdict(
-            allowed=False,
-            reason="switching",
+        verdict = Refused(
+            reason=VerdictReason.SWITCHING,
             target=allowed.target if allowed is not None else self._control_target,
             kind=allowed.kind if allowed is not None else None,
         )
