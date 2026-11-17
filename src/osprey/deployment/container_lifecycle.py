@@ -4803,14 +4803,14 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     from osprey_connectors.config import get_facility_timezone
     from osprey_connectors.simulation.archive import build
     from osprey_connectors.simulation.state import read_active_state
-    from osprey_connectors.simulation.view import SimulatorView
+    from osprey_connectors.simulation.view import SimulatorView, view_path
     from osprey_connectors.workspace import resolve_simulation_state_dir
 
     view = SimulatorView.find(project_dir)
     if view is None:
         raise RuntimeError(
             "The archiver seed has no channel set to build from: no simulator view in "
-            f"{SimulatorView.path_for_project(project_dir)}. "
+            f"{view_path(project_dir)}. "
             "Run `osprey build`; the seed never invents a namespace."
         )
     active = read_active_state(resolve_simulation_state_dir(config, project_dir))

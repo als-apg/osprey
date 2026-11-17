@@ -51,9 +51,9 @@ def repo_view(repo: Path) -> SimulatorView:
     holds every channel and says which way each points, and which of them a
     given plan can do physics with is the lane's own question.
     """
-    from osprey_connectors.simulation.view import SimulatorView
+    from osprey_connectors.simulation.view import view_path
 
-    path = SimulatorView.path_for_project(repo)
+    path = view_path(repo)
     if not path.is_dir():
         raise AssertionError(f"the build rendered no simulator view at {path}")
     return _view_of_resolved(path.resolve())

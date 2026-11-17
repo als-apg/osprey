@@ -203,7 +203,7 @@ def apply_scenarios(
         ValueError: If the render carries no simulator view, a scenario name is
             unknown, or the requested set does not compose (channel collision).
     """
-    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView, view_path
 
     project_dir = Path(project_dir)
     config = load_config(str(_config_file(project_dir)))
@@ -212,7 +212,7 @@ def apply_scenarios(
     if view is None:
         raise ValueError(
             f"Project {project_dir} has no simulator view in "
-            f"{SimulatorView.path_for_project(project_dir)}; "
+            f"{view_path(project_dir)}; "
             "`sim apply` only applies to simulation-backed projects (guards a real DB). "
             "Run 'osprey build'."
         )
@@ -319,12 +319,12 @@ def require_view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord]:
     Raises:
         ValueError: If the render carries no simulator view.
     """
-    from osprey_connectors.simulation.view import SimulatorView
+    from osprey_connectors.simulation.view import view_path
 
     scenarios = view_scenarios(project_dir)
     if scenarios is None:
         raise ValueError(
-            f"No simulator view in {SimulatorView.path_for_project(project_dir)}. "
+            f"No simulator view in {view_path(project_dir)}. "
             "Run 'osprey build'."
         )
     return scenarios
@@ -650,7 +650,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
     See :func:`active_logbook_entries`; the entries are empty when the render
     carries no simulator view.
     """
-    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, view_path
 
     # Read in the facility zone, as the simulator reads the same anchor: a logbook
     # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
@@ -664,7 +664,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
 
     # A set that does not compose is served as nominal alone, so that is what it narrates.
     served = compose(scenarios, _active_state(config, project_dir)).names
-    files = SimulatorView.path_for_project(project_dir) / SCENARIOS_DIR
+    files = view_path(project_dir) / SCENARIOS_DIR
     return _view_logbook(scenarios, served, files), anchor
 
 
