@@ -218,8 +218,10 @@ too, each because the real thing makes a test slow or flaky:
 - `wait_for_page_ready(target)` (`tests/interfaces/_browser.py`) — the one wait
   after a navigation. Every page OSPREY serves sets `data-page-ready="true"` on
   its `<html>` once it can be driven (`design-system/js/page-ready.js`); the
-  helper waits for it on a page, frame or frame locator. `open_hub_page`,
-  `open_panel_host`, `PanelHost.goto` and `PanelHost.reload` wait through it.
+  helper waits for it on a page, frame or frame locator. It fails at once on
+  `data-page-ready="failed"`, the writer's mark for a pending page that threw.
+  `open_hub_page`, `open_panel_host`, `PanelHost.goto` and `PanelHost.reload`
+  wait through it.
   `tests/interfaces/test_page_ready_guard.py` fails a test whose next use of a
   page after `goto`, `reload`, `wait_for_url` or a popup is anything else; a
   document OSPREY does not author, or a test whose subject is the page before

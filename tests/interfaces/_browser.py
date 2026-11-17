@@ -11,9 +11,9 @@ known-benign noise.
 ``wait_for_dock_settled`` is the other shared wait: it blocks until the dock has
 finished arranging the shell, for any suite that drives or photographs the
 web-terminal hub. ``wait_for_page_ready`` is the one wait every browser test
-makes after it navigates: it blocks until the page sets its ready mark
+makes after it navigates: it returns once the page sets its ready mark
 (``html[data-page-ready="true"]``), whatever the page, frame or popped-out
-window. ``open_hub_page`` is the hub's own entry point — it opens the page and
+window, and fails at once when the writer marked the page ``failed``. ``open_hub_page`` is the hub's own entry point — it opens the page and
 waits through it — and ``rail_entry`` builds the locator for one of that rail's
 buttons.
 """
@@ -21,11 +21,14 @@ buttons.
 from __future__ import annotations
 
 import contextlib
+import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import expect
+
+from osprey.interfaces.design_system.panels.page_ready import FAILED
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -238,12 +241,25 @@ def wait_for_page_ready(target: Page | Frame | FrameLocator) -> None:
     has dressed it). Ready means "can be driven", not "has data": a test that
     needs data waits for the data after this.
 
+    The wait returns on ``true`` and fails at once on ``failed``, the writer's
+    mark for a pending page that threw an uncaught error, or left a rejection
+    unhandled, before it marked itself.
+
     Args:
         target: The page, frame or frame locator to wait on.
+
+    Raises:
+        AssertionError: The page was marked ``failed``.
     """
-    expect(target.locator('html[data-page-ready="true"]')).to_be_attached(
-        timeout=_PAGE_READY_TIMEOUT_MS
+    root = target.locator("html")
+    expect(root).to_have_attribute(
+        "data-page-ready", re.compile(rf"^(true|{FAILED})$"), timeout=_PAGE_READY_TIMEOUT_MS
     )
+    if root.get_attribute("data-page-ready") != "true":
+        raise AssertionError(
+            f'the page set data-page-ready="{FAILED}": an uncaught error or unhandled '
+            "rejection before it marked itself ready"
+        )
 
 
 def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = None) -> Page:
