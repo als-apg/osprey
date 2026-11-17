@@ -1139,6 +1139,36 @@ class TestHostNetworkConflicts:
 
         assert find_port_conflicts([binding], project_name="proj", config=_host_config()) == []
 
+    @staticmethod
+    def _own_host_dispatcher(monkeypatch):
+        """``ps`` shows this deployment's host-network event dispatcher, which maps no port."""
+        ps_json = json.dumps(
+            {
+                "Names": "proj-event-dispatcher",
+                "Ports": "",
+                "Networks": "host",
+                "Labels": (
+                    "com.docker.compose.project=proj,com.docker.compose.service=event-dispatcher"
+                ),
+            }
+        )
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+
+    def test_leaving_the_host_network_on_a_new_port_is_not_excused(
+        self, monkeypatch, listening_port
+    ):
+        _, port = listening_port
+        self._own_host_dispatcher(monkeypatch)
+        binding = HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
+
+        conflicts = find_port_conflicts(
+            [binding],
+            project_name="proj",
+            config=_host_config(),
+            last_host_ports={"event-dispatcher": frozenset({port + 1})},
+        )
+        assert [(c.kind, c.holder) for c in conflicts] == [("external", "an unknown host process")]
+
     def test_own_bridge_container_does_not_excuse_a_listener_on_its_new_published_port(
         self, monkeypatch, listening_port
     ):
