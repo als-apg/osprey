@@ -77,6 +77,7 @@ def test_more_columns_than_fit_wrap_to_a_block_with_its_row_heads_again(panel_gr
     )
     rows = (
         GridRow(Link("XR/XR01", Target("card", "place", "XR/XR01")), many),
+        GridRow(Link("XR/XR02", Target("card", "place", "XR/XR02")), many[:3]),
         GridRow(Fact("row", "not placed"), many[:2]),
     )
     view = View(Target("set", "group", "X"), "x", (), (Section("members", (Grid(None, rows),)),))
@@ -188,3 +189,32 @@ def test_a_set_of_more_members_than_the_most_counts_the_rest(panel_graph) -> Non
     assert layout.SET_MEMBERS <= drawn < layout.SET_MEMBERS + 20
     (line,) = [t for t in _texts(doc) if str(t).endswith("more members: open by place")]
     assert line.startswith(f"{300 - drawn} ")
+
+
+def test_a_group_of_one_row_too_long_for_a_block_is_a_flow_at_full_width(panel_graph) -> None:
+    def cells(prefix: str, n: int) -> tuple[GridCell, ...]:
+        return tuple(
+            GridCell(Link(f"{prefix}{i}", Target("card", "device", f"{prefix}{i}")), ())
+            for i in range(n)
+        )
+
+    rows = (
+        GridRow(Link("XR/XR01", Target("card", "place", "XR/XR01")), cells("A", 3)),
+        GridRow(Link("XR/XR02", Target("card", "place", "XR/XR02")), cells("B", 3)),
+        GridRow(Fact("row", "not placed"), cells("C", 40)),
+    )
+    view = View(Target("set", "group", "X"), "x", (), (Section("members", (Grid(None, rows),)),))
+    doc = stub_render(view, panel_graph)
+    texts = _texts(doc)
+    assert len(texts["NOT PLACED"]) == 1  # one heading, no row head per line
+    assert "#4" not in texts and len(texts["#1"]) == 1  # column heads: the grid group only
+    flow = {k: g for k, g in _cells(doc).items() if k.startswith("C")}
+    assert len(flow) == 40
+    assert min(g["x"] for g in flow.values()) == layout.MARGIN  # full width, no row head
+    right = max(g["x"] + g["width"] for g in flow.values())
+    assert right <= layout.MARGIN + layout.STRIP_WIDTH
+    assert right > layout.MARGIN + layout.STRIP_WIDTH - layout.SET_CELL_MAX
+    lines = sorted({g["y"] for g in flow.values()})
+    assert len(lines) > 1 and min(lines) > max(
+        g["y"] for k, g in _cells(doc).items() if k[0] in "AB"
+    )

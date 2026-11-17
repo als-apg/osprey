@@ -1205,6 +1205,7 @@ class _Page:
         self.lit: set[str] = set()  # channels whose light a card's table drew
         self.facts_bottom: float = 0  # a rack's right column, where it ends
         self.cell_w: float = SET_CELL_WIDTH  # a set overview's cell width
+        self.drawn = 0  # a set overview's cells drawn so far
         self.parts_listed: set[str] = set()  # a card's parts listed without a picture
 
     # -- primitives -----------------------------------------------------------
@@ -2029,37 +2030,40 @@ class _Page:
         It opens the member's card and nothing in it is writable. Few columns
         widen to at most :data:`SET_CELL_MAX`; columns past the page's width go
         on in a block below, :data:`SET_BLOCK_GAP` under the one before, with
-        only the rows that have members in it. Blocks are drawn while fewer than
-        :data:`SET_MEMBERS` cells are; the members of the rest are counted in a
-        line under them."""
+        only the rows that have members in it. A group whose members all sit in
+        one row too long for a block is no grid: it is a flow (:meth:`set_flow`)
+        after the grid groups. Cells are drawn while fewer than
+        :data:`SET_MEMBERS` are; the members of the rest are counted in a line
+        under them."""
         tags = (_need("table"),)
         count = sum(len(row.cells) for row in grid.rows)
-        width = max((len(row.cells) for row in grid.rows), default=0)
         line = " · ".join((f"{count} members", f"{len(grid.rows)} rows"))
         self.text(MARGIN, self.y, line.upper(), size=SMALL_SIZE, fg=MUTED_TEXT, tags=tags)
         self.next_row()
         room = STRIP_WIDTH - SET_ROW_HEAD
         fit = max(1, int((room + GAP) // (SET_CELL_WIDTH + GAP)))
-        shown = max(1, min(fit, width))
+        groups = self.grid_groups(grid.rows)
+        flows = [(t, rows[0]) for t, rows in groups if len(rows) == 1 and len(rows[0].cells) > fit]
+        flowing = {t for t, _row in flows}
+        gridded = [(t, rows) for t, rows in groups if t not in flowing]
+        width = max((len(r.cells) for _t, rows in gridded for r in rows), default=0)
+        shown = max(1, min(fit, width or fit))
         self.cell_w = min(SET_CELL_MAX, (room - (shown - 1) * GAP) / shown)
         what = self.grid_what(grid)
-        groups = self.grid_groups(grid.rows)
-        drawn = 0
+        w = text_width(what, SMALL_SIZE)
+        x_what = self.set_x(0) if gridded else MARGIN
+        self.text(x_what, self.y, what, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
+        self.y += ROW
+        self.drawn = 0
         left_out = 0
         for first in range(0, width, fit):
-            here = [(t, [r for r in rows if r.cells[first : first + fit]]) for t, rows in groups]
+            here = [(t, [r for r in rows if r.cells[first : first + fit]]) for t, rows in gridded]
             here = [(t, rows) for t, rows in here if rows]  # a row with none here is not drawn
-            if drawn >= SET_MEMBERS:
+            if self.drawn >= SET_MEMBERS:
                 left_out += sum(len(r.cells[first : first + fit]) for _t, rs in here for r in rs)
                 continue
             if first:
                 self.y += SET_BLOCK_GAP - ROW_GAP
-            if not first:  # what a cell shows: once, over the first block
-                w = text_width(what, SMALL_SIZE)
-                self.text(
-                    self.set_x(0), self.y, what, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags
-                )
-                self.y += ROW
             for column in range(first, min(first + fit, width)):
                 x = self.set_x(column - first)
                 head = f"#{column + 1}"
@@ -2080,12 +2084,36 @@ class _Page:
                         self.nav(MARGIN, self.y, w, ROW, row.label)
                     for column, cell in enumerate(cells):
                         self.grid_cell(self.set_x(column), self.y, cell)
-                        drawn += 1
+                        self.drawn += 1
                     self.y += ROW + ROW_GAP
+        for title, row in flows:
+            left_out += self.set_flow(title, row)
         if left_out:
             self.y += ROW_GAP
             self.text(MARGIN, self.y, _SET_MORE.format(left_out), size=SMALL_SIZE, fg=MUTED_TEXT)
             self.next_row()
+
+    def set_flow(self, title: str, row: GridRow) -> int:
+        """A group whose members all sit in one row too long for a block: its heading,
+        then its cells in lines at full width, no column heads, no row head. Cells
+        past :data:`SET_MEMBERS` drawn on the screen are not drawn; returns how many."""
+        self.y += SET_BLOCK_GAP - ROW_GAP
+        self.text(MARGIN, self.y, title.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+        if isinstance(row.label, Link):
+            w = text_width(title.upper(), HEADING_SIZE)
+            self.nav(MARGIN, self.y, w, ROW, row.label)
+        self.y += ROW
+        per = max(1, int((STRIP_WIDTH + GAP) // (self.cell_w + GAP)))
+        room = max(0, SET_MEMBERS - self.drawn)
+        cells = row.cells[:room]
+        for k, cell in enumerate(cells):
+            if k and not k % per:
+                self.y += ROW + ROW_GAP
+            self.grid_cell(MARGIN + (k % per) * (self.cell_w + GAP), self.y, cell)
+            self.drawn += 1
+        if cells:
+            self.y += ROW + ROW_GAP
+        return len(row.cells) - len(cells)
 
     def grid_what(self, grid: Grid) -> str:
         """What a set overview's cells show: the readback of the primary pair's signal
