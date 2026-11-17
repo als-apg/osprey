@@ -336,6 +336,7 @@ def test_the_fixture_names_every_json_panel_route() -> None:
         "alarms",
         "archive",
         "values",
+        "fleet",
     }
 
 

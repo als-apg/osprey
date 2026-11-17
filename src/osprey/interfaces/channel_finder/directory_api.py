@@ -4,9 +4,10 @@
 ``/api/directory`` only when the ``pv_directory`` section is configured, so an
 unconfigured panel has no directory route at all. The routes themselves live in
 :mod:`.directory_search_api`, :mod:`.directory_pages_api`,
-:mod:`.directory_alarms_api`, :mod:`.directory_archive_api` and
-:mod:`.directory_values_api`; every one answers through the ``DirectoryService``
-the lifespan puts on ``app.state``.
+:mod:`.directory_alarms_api`, :mod:`.directory_archive_api`,
+:mod:`.directory_values_api` and :mod:`.directory_fleet_api`; every one but the
+fleet route answers through the ``DirectoryService`` the lifespan puts on
+``app.state``, and the fleet route through the fleet connection.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from fastapi import APIRouter
 from osprey.interfaces.channel_finder import (
     directory_alarms_api,
     directory_archive_api,
+    directory_fleet_api,
     directory_pages_api,
     directory_search_api,
     directory_values_api,
@@ -32,7 +34,7 @@ from osprey_connectors.archive_targets import archive_targets
 __all__ = ["ariel_configured", "directory_descriptor", "router"]
 
 #: The optional services the descriptor names, in the order it lists them.
-_SERVICES = ("alarm_log", "alarm_state", "put_log")
+_SERVICES = ("alarm_log", "alarm_state", "put_log", "fleet")
 
 router = APIRouter()
 router.include_router(directory_search_api.router)
@@ -40,6 +42,7 @@ router.include_router(directory_pages_api.router)
 router.include_router(directory_alarms_api.router)
 router.include_router(directory_archive_api.router)
 router.include_router(directory_values_api.router)
+router.include_router(directory_fleet_api.router)
 
 
 def _panels(config: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -68,8 +71,8 @@ async def directory_descriptor(
     Returns:
         ``{label, configured_services, canopy, ariel}``; ``label`` is the
         directory's served label, the same with or without a source.
-        ``configured_services`` names ``archive`` when the deployment's archive
-        serves some target.
+        ``configured_services`` names ``fleet`` when the IOC fleet is on, and
+        ``archive`` when the deployment's archive serves some target.
     """
     _backend, source, _reason = await service.backend("pv_directory")
     flags = predicates(resolved)

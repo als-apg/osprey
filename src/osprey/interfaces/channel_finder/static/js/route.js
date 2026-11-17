@@ -3,8 +3,9 @@
  * OSPREY Channel Finder — the panel's route grammar.
  *
  * One statement of what a panel hash looks like (Deep links, Panel view
- * contract): `#/pv/<name>`, `#/ioc/<name>`, `#/allpvs?q=<words>&ioc=<name>`
- * and `#/<view>`, where `<name>` is one percent-encoded segment.
+ * contract): `#/pv/<name>`, `#/ioc/<name>`, `#/allpvs?q=<words>&ioc=<name>`,
+ * `#/iocs` (the IOC fleet) and `#/<view>`, where `<name>` is one
+ * percent-encoded segment.
  * {@link parseRoute} reads a hash and {@link formatRoute} writes one; they are
  * inverses. Values are encoded with encodeURIComponent and never through
  * URLSearchParams, so a `+` is a plus. No imports and no side effects, so any

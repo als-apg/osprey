@@ -32,6 +32,7 @@ const VIEW_MODULES = {
   ioc: ['ioc-page.js', 'mountIocPage', 'unmountIocPage'],
   alarms: ['alarms.js', 'mountAlarms', 'unmountAlarms'],
   archive: ['archive.js', 'mountArchive', 'unmountArchive'],
+  iocs: ['iocs.js', 'mountIocs', 'unmountIocs'],
 };
 
 /** @type {EventListener[]} */
@@ -628,5 +629,58 @@ describe('the Archive tab', () => {
     expect(pressed()).toEqual(['archive']);
     click('feedback');
     expect(views.archive.unmount).toHaveBeenCalled();
+  });
+});
+
+describe('the IOCs tab', () => {
+  const FLEET = {
+    ...WITH_DIRECTORY,
+    directory: { ...DESCRIPTOR, configured_services: ['fleet'] },
+  };
+
+  test('with the fleet service the IOCs tab sits beside All PVs', async () => {
+    await boot(FLEET);
+    expect(names()).toEqual([
+      'explore:Curated',
+      'allpvs:All PVs',
+      'iocs:IOCs',
+      'feedback:Feedback',
+    ]);
+  });
+
+  test('the order is fixed beside every other service', async () => {
+    await boot({
+      ...WITH_DIRECTORY,
+      directory: { ...DESCRIPTOR, configured_services: ['archive', 'fleet', 'alarm_state'] },
+    });
+    expect(names()).toEqual([
+      'explore:Curated',
+      'allpvs:All PVs',
+      'iocs:IOCs',
+      'alarms:Alarms',
+      'archive:Archive',
+      'feedback:Feedback',
+    ]);
+  });
+
+  test('without the fleet service there is no tab, and #/iocs falls back to Curated', async () => {
+    const { views } = await boot(WITH_DIRECTORY, '#/iocs');
+    expect(names()).toEqual(WITH);
+    expect(views.iocs.mount).not.toHaveBeenCalled();
+    expect(pressed()).toEqual(['explore']);
+  });
+
+  test('without the directory descriptor there is no tab', async () => {
+    const { views } = await boot(WITHOUT_DIRECTORY, '#/iocs');
+    expect(names()).toEqual(WITHOUT);
+    expect(views.iocs.mount).not.toHaveBeenCalled();
+  });
+
+  test('#/iocs mounts the view and presses the tab', async () => {
+    const { views } = await boot(FLEET, '#/iocs');
+    expect(views.iocs.mount).toHaveBeenCalledTimes(1);
+    expect(pressed()).toEqual(['iocs']);
+    click('feedback');
+    expect(views.iocs.unmount).toHaveBeenCalled();
   });
 });

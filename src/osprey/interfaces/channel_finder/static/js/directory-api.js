@@ -217,7 +217,79 @@ import { state } from './state.js';
  *   alarms?: IocAlarms,
  *   links: Record<string, string>,
  *   reason?: string,
+ *   fleet?: FleetEntry,
  * }} IocFacts
+ */
+
+// ---- The IOC fleet (GET /api/directory/fleet) ----
+// Every time here is epoch seconds, never an ISO string.
+
+/**
+ * What the fleet service answered. `stale` keeps the last snapshot, marked;
+ * every other non-`ok` outcome carries none. `not_in_snapshot` is an entry's
+ * outcome only.
+ * @typedef {'ok'|'no_snapshot'|'not_refreshed'|'cannot_list'|'unavailable'|'stale'|'not_in_snapshot'} FleetOutcome
+ */
+
+/** @typedef {'alive'|'stalled'|'silent'|'unreached'|'unknown'} FleetState */
+/** @typedef {'degraded'|'expected_running_not_alive'|'expected_stopped_alive'|'alive_unexpected'} FleetFinding */
+
+/**
+ * One IOC of a snapshot, in the served order.
+ * @typedef {{
+ *   name: string,
+ *   host: string|null,
+ *   class_name: string|null,
+ *   group: string|null,
+ *   state: FleetState,
+ *   since: number|null,
+ *   reason: string|null,
+ *   findings: FleetFinding[],
+ *   directory_status: string|null,
+ *   listed: boolean,
+ *   sources: string[],
+ *   liveness: { pv: string|null, kind: 'counter'|'value'|null, value: unknown, read_at: number|null, ambiguous: boolean }|null,
+ *   health: { pv: string, value: unknown, status: 'ok'|'out_of_range'|'unread' }[],
+ * }} FleetRow
+ */
+
+/**
+ * A snapshot of one target's fleet.
+ * @typedef {{
+ *   outcome: string,
+ *   target: string,
+ *   generated_at: number,
+ *   cycle?: number,
+ *   period_s?: number,
+ *   cycle_duration_s?: number,
+ *   read_path: { status: 'ok'|'down'|'unverified', pv: string|null },
+ *   sources: { name: string, outcome: string, reason: string|null }[],
+ *   counts: { by_state: Record<FleetState, number>, by_finding: Record<FleetFinding, number> },
+ *   group_by: 'host'|'class_name'|'group'|null,
+ *   iocs: FleetRow[],
+ * }} FleetSnapshot
+ */
+
+/**
+ * The fleet route's answer for the session's target.
+ * @typedef {{
+ *   outcome: FleetOutcome,
+ *   target: string|null,
+ *   reason: string|null,
+ *   generated_at: number|null,
+ *   snapshot: FleetSnapshot|null,
+ * }} FleetAnswer
+ */
+
+/**
+ * One IOC's fleet entry, as the IOC facts carry it while the view is on.
+ * @typedef {{
+ *   outcome: FleetOutcome,
+ *   target: string|null,
+ *   reason: string|null,
+ *   generated_at: number|null,
+ *   row: FleetRow|null,
+ * }} FleetEntry
  */
 
 /**
@@ -418,6 +490,16 @@ export function fetchActiveAlarms({ severity, limit } = {}, signal) {
  */
 export function fetchArchiveSummary(signal) {
   return fetchJSON('/api/directory/archive', { signal });
+}
+
+/**
+ * The IOC fleet of the session's target, from the fleet service alone: the
+ * route reads no PV and queries no directory. `signal` aborts the read.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<FleetAnswer>}
+ */
+export function fetchFleet(signal) {
+  return fetchJSON('/api/directory/fleet', { signal });
 }
 
 /**

@@ -288,5 +288,96 @@
       "enum_label": null,
       "reason": "no answer within 2 s"
     }
-  ]
+  ],
+  "fleet": {
+    "outcome": "ok",
+    "target": "live",
+    "reason": null,
+    "generated_at": 1700000000.0,
+    "snapshot": {
+      "outcome": "ok",
+      "target": "live",
+      "generated_at": 1700000000.0,
+      "cycle": 4,
+      "period_s": 30.0,
+      "cycle_duration_s": 2.0,
+      "read_path": {
+        "status": "ok",
+        "pv": "SR:PROBE"
+      },
+      "sources": [
+        {
+          "name": "directory",
+          "outcome": "ok",
+          "reason": null
+        }
+      ],
+      "counts": {
+        "by_state": {
+          "alive": 1,
+          "stalled": 0,
+          "silent": 1,
+          "unreached": 0,
+          "unknown": 0
+        },
+        "by_finding": {
+          "degraded": 0,
+          "expected_running_not_alive": 1,
+          "expected_stopped_alive": 0,
+          "alive_unexpected": 0
+        }
+      },
+      "group_by": "host",
+      "iocs": [
+        {
+          "name": "demo-ioc-rf",
+          "host": "ioc-host-02",
+          "class_name": "default",
+          "group": null,
+          "state": "silent",
+          "since": 1699999400.0,
+          "reason": "heartbeat did not answer",
+          "findings": [
+            "expected_running_not_alive"
+          ],
+          "directory_status": "Active",
+          "listed": true,
+          "sources": [
+            "directory"
+          ],
+          "liveness": {
+            "pv": "demo-ioc-rf:HB",
+            "kind": "counter",
+            "value": 3,
+            "read_at": 1700000000.0,
+            "ambiguous": false
+          },
+          "health": []
+        },
+        {
+          "name": "demo-ioc-bpm",
+          "host": "ioc-host-01",
+          "class_name": "default",
+          "group": null,
+          "state": "alive",
+          "since": 1699999900.0,
+          "reason": "counter moved",
+          "findings": [],
+          "directory_status": "Active",
+          "listed": true,
+          "sources": [
+            "directory"
+          ],
+          "liveness": {
+            "pv": "demo-ioc-bpm:HB",
+            "kind": "counter",
+            "value": 3,
+            "read_at": 1700000000.0,
+            "ambiguous": false
+          },
+          "health": []
+        }
+      ]
+    }
+  }
 }
