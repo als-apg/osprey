@@ -132,7 +132,7 @@ def _settings_slice(settings: dict[str, Any]) -> dict[str, Any]:
         if matched:
             hooks[event] = matched
     permissions = {
-        key: [entry for entry in entries if APP in entry]
+        key: [entry for entry in entries if TOOL_PREFIX in entry]
         for key, entries in (settings.get("permissions") or {}).items()
         if isinstance(entries, list)
     }
