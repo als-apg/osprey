@@ -92,7 +92,7 @@ def test_deploy_time_entries_and_calendar_events_name_one_instant(tmp_path, monk
     from datetime import UTC, datetime
 
     from osprey.simulation.apply import active_logbook_entries
-    from osprey_connectors.simulation.series import anchored_instant
+    from osprey_connectors.simulation.series import _instant
 
     project = _make_project(tmp_path)
 
@@ -108,7 +108,14 @@ def test_deploy_time_entries_and_calendar_events_name_one_instant(tmp_path, monk
     entries = {e["entry_id"]: e["timestamp"] for e in active_logbook_entries(config, project)}
 
     # DEMO-026's own `when`.
-    event = view_event({"shape": "spike", "at_when": {"days_ago": 4, "time": "03:20:00"}})
-    expected = anchored_instant(event, anchor_s=anchor.timestamp(), tz=LA)
+    event = view_event(
+        {
+            "shape": "spike",
+            "at_when": {"days_ago": 4, "time": "03:20:00"},
+            "amplitude": 1.0,
+            "width": 1.0,
+        }
+    )
+    expected = _instant(event.placement, anchor_s=anchor.timestamp(), tz=LA)
     assert entries["DEMO-026"].timestamp() == expected
     assert entries["DEMO-026"].astimezone(LA).day == 8

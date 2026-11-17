@@ -397,13 +397,17 @@ def _event_instants(
     tz: ZoneInfo,
 ) -> list[float]:
     """The instants of the anchored (``at_offset`` / ``at_when``) events on ``channels``."""
-    from osprey_connectors.simulation.series import anchored_instant
+    from osprey_connectors.simulation.series import occurrences
 
     return [
-        anchored_instant(event, anchor_s=anchor_s, tz=tz)
+        instant
         for address in channels
         for event in events.get(address, ())
         if event.at_offset is not None or event.at_when is not None
+        # An anchored event fires once, wherever that falls; the bounds bound daily events only.
+        for instant in occurrences(
+            event, start_s=anchor_s, end_s=anchor_s, anchor_s=anchor_s, tz=tz
+        )
     ]
 
 

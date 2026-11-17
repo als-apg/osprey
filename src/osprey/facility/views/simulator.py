@@ -65,9 +65,10 @@ from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, STILL_ALL
 from osprey.facility.records import ChannelSelection, FacilityRecords
-from osprey.facility.scenarios import scenario_logbook, view_scenario
+from osprey.facility.scenarios import view_scenario
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation import TEXTURE
+from osprey_connectors.simulation.records import LogEntryRecord, PictureRef
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
 from osprey_connectors.simulation.view import (
@@ -444,21 +445,23 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
 def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
     """Copy each file a scenario's logbook entries attach into the view.
 
-    Every scenario's entries are read first
-    (:func:`~osprey.facility.scenarios.scenario_logbook`), so an attachment
-    that leaves its scenario directory, names a missing file or holds a
-    malformed picture is refused before anything is copied. A file two entries
-    attach is copied, and listed, once.
+    Every scenario's entries are read and resolved first
+    (:meth:`~osprey_connectors.simulation.records.LogEntryRecord.resolve`), so
+    an attachment that leaves its scenario directory, names a missing file or
+    holds a malformed picture is refused before anything is copied. A file two
+    entries attach is copied, and listed, once.
     """
     copies: dict[Path, Path] = {}
     for scenario in inputs.records.document.get("scenarios", []):
         name = str(scenario["name"])
         source = inputs.facility_dir / SCENARIOS_DIR / name
-        scenario_logbook(scenario, source)
-        for entry in scenario.get("logbook") or []:
-            for item in entry.get("attachments") or []:
-                for rel in item.values():
-                    copies.setdefault(root / SCENARIOS_DIR / name / rel, source / rel)
+        entries = [LogEntryRecord.model_validate(raw) for raw in scenario.get("logbook") or []]
+        for entry in entries:
+            entry.resolve(source, scenario=name)
+        for entry in entries:
+            for item in entry.attachments:
+                rel = item.path if isinstance(item, PictureRef) else item.plot
+                copies.setdefault(root / SCENARIOS_DIR / name / rel, source / rel)
     for target, origin in copies.items():
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(origin.read_bytes())

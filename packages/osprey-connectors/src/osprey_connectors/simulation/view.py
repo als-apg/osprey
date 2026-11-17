@@ -506,10 +506,11 @@ class SimulatorView:
     # validates the rest against the file's document model: the overloads below
     # name that model, of :mod:`osprey_connectors.simulation.records`, for each
     # file by name. The facility schema leaves a scenario's ``archiver`` events
-    # free-form; the build checks each one with
+    # free-form; each event's record (``ArchiverEvent``) holds the rules
+    # between its keys, so an event that breaks one refuses the view, and the
+    # build checks the rest against the event's channel with
     # ``osprey.facility.scenarios.check_scenario_events`` before it writes
-    # ``scenarios.json``, and ``ArchiverEvent`` states what that check
-    # guarantees.
+    # ``scenarios.json``.
     @overload
     def document(self, name: Literal["served_models.json"]) -> ServedModelsDocument: ...
     @overload

@@ -32,13 +32,14 @@ into its record first.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Final
 
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.records import (
+    AbsoluteNoise,
     CouplingTerm,
     DriveRecord,
-    NoiseRecord,
+    Noise,
+    RelativeNoise,
     ResolvedCoupling,
     ScenarioRecord,
     SeedRecord,
@@ -53,8 +54,6 @@ __all__ = [
 #: Gaussian headroom on a noise sigma: a per-draw miss rate near 1e-9.
 _MOTION_SIGMAS = 6.0
 
-_ABSOLUTE: Final = "absolute"
-
 
 def _number(value: object) -> float | None:
     """``value`` as a float when it is a real number, else None."""
@@ -63,7 +62,7 @@ def _number(value: object) -> float | None:
     return float(value)
 
 
-def _noise_sigma(noise: NoiseRecord | None, nominal: object = None) -> float:
+def _noise_sigma(noise: Noise | None, nominal: object = None) -> float:
     """The sigma a noise record draws with, in the channel's unit.
 
     Args:
@@ -72,30 +71,32 @@ def _noise_sigma(noise: NoiseRecord | None, nominal: object = None) -> float:
         nominal: The seed's ``nominal``, which a relative term is taken of.
 
     Returns:
-        ``|absolute|``, or ``|relative| x |nominal|``; 0.0 for no record. A
-        record stating ``absolute`` draws with it, whatever else it states.
+        ``|absolute|``, or ``|relative| x |nominal|``; 0.0 for no record.
 
     Raises:
         ValueError: The record is relative and ``nominal`` is not a number.
     """
-    if noise is None:
-        return 0.0
-    if _ABSOLUTE in noise.model_fields_set:
-        return abs(float(noise.absolute or 0.0))
-    relative = abs(float(noise.relative or 0.0))
-    if not relative:
-        return 0.0
-    base = _number(nominal)
-    if base is None:
-        raise ValueError(f"a relative noise is taken of a numeric nominal, not {nominal!r}")
-    return relative * abs(base)
+    match noise:
+        case None:
+            return 0.0
+        case AbsoluteNoise(absolute=absolute):
+            return abs(float(absolute))
+        case RelativeNoise(relative=relative) if relative:
+            base = _number(nominal)
+            if base is None:
+                raise ValueError(f"a relative noise is taken of a numeric nominal, not {nominal!r}")
+            return abs(float(relative)) * abs(base)
+        case RelativeNoise():
+            return 0.0
 
 
-def _term(noise: NoiseRecord | None) -> float:
+def _term(noise: Noise | None) -> float:
     """The noise record's one term, signed as stated; 0.0 for no record."""
-    if noise is None:
-        return 0.0
-    return float(noise.absolute or noise.relative or 0.0)
+    match noise:
+        case None:
+            return 0.0
+        case AbsoluteNoise(absolute=term) | RelativeNoise(relative=term):
+            return float(term)
 
 
 def declares_motion(seed: SeedRecord | None) -> bool:
@@ -108,7 +109,7 @@ def declares_motion(seed: SeedRecord | None) -> bool:
 def motion_envelope(
     seed: SeedRecord | None,
     *,
-    noise: NoiseRecord | None = None,
+    noise: Noise | None = None,
     couplings: Iterable[ResolvedCoupling] = (),
     still: bool = False,
 ) -> float:
@@ -173,7 +174,7 @@ def active_envelopes(
     """
     drivers: dict[str, DriveRecord] = {}
     couple: dict[str, list[CouplingTerm]] = {}
-    noise: dict[str, NoiseRecord] = {}
+    noise: dict[str, Noise] = {}
     still: set[str] = set()
     for name in active:
         scenario = scenarios.get(name)

@@ -15,7 +15,7 @@ import pytest
 from osprey_connectors.simulation import envelope, topoff
 from osprey_connectors.simulation.archive import SeedKnobs, seed_fingerprint
 from osprey_connectors.simulation.records import (
-    NoiseRecord,
+    AbsoluteNoise,
     ScenarioRecord,
     SeedRecord,
     SeedsDocument,
@@ -182,7 +182,7 @@ def test_an_unstilled_channel_moves_and_has_an_envelope():
         topoff.tooth_depth(RECORD), rel=1e-12
     )
     # A scenario noise replacement keeps the tooth moving.
-    model.set_motion({}, {CURRENT: NoiseRecord(absolute=0.0)})
+    model.set_motion({}, {CURRENT: AbsoluteNoise(absolute=0.0)})
     assert model.has_motion(CURRENT)
 
 

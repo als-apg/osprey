@@ -30,8 +30,8 @@ def apply_events(values, scripted, n, times_s, anchor_s, tz):
 
 
 def step_end(event, anchor_s, tz):
-    """:func:`series.step_end` of an event stated as a mapping."""
-    return series.step_end(_event(event), anchor_s=anchor_s, tz=tz)
+    """:func:`series._step_end` of an event stated as a mapping."""
+    return series._step_end(_event(event), anchor_s=anchor_s, tz=tz)
 
 
 def event_window(scripted, anchor, horizon, **kwargs):

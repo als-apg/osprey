@@ -22,7 +22,7 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.archive import ArchiveComposite, _synthesize_documents, build
 from osprey_connectors.simulation.records import SeedRecord, TopoffRecord
-from osprey_connectors.simulation.series import anchored_instant, step_end
+from osprey_connectors.simulation.series import _instant, _step_end
 from tests._archiver_events import event as view_event
 
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
@@ -64,8 +64,9 @@ def dump(facility) -> dict[str, Any]:
         item["events"] for item in facility["scenario"]["archiver"] if item["channel"] == DCCT
     )
     tz = get_facility_timezone()
-    start = anchored_instant(view_event(stated), anchor_s=RF_ANCHOR_S, tz=tz)
-    end = step_end(view_event(stated), anchor_s=RF_ANCHOR_S, tz=tz)
+    step = view_event(stated)
+    start = _instant(step.placement, anchor_s=RF_ANCHOR_S, tz=tz)
+    end = _step_end(step, anchor_s=RF_ANCHOR_S, tz=tz)
     assert end is not None, "the dump is a bounded step"
     return {"event": stated, "start": start, "end": end}
 

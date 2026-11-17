@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.scenarios import ScenarioLogEntry, scenario_logbook
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.scenarios import ScenarioLogEntry, scenario_logbook, view_scenario
 from osprey_connectors.relative_time import RelativeTimestamp
 
 FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
@@ -25,16 +26,20 @@ def _entry(**fields) -> dict:
     return entry
 
 
-def test_a_logbook_block_reads_as_its_entries_in_order():
-    scenario = {
-        "name": "burst",
-        "logbook": [
-            _entry(tags=["rf"], categories=["Operations"], loto_tag="L-7", extra={"shift": "owl"}),
-            _entry(entry_id="E-2"),
-        ],
-    }
+def test_a_logbook_block_reads_as_its_entries_in_order(tmp_path):
+    scenario = view_scenario(
+        {
+            "name": "burst",
+            "logbook": [
+                _entry(
+                    tags=["rf"], categories=["Operations"], loto_tag="L-7", extra={"shift": "owl"}
+                ),
+                _entry(entry_id="E-2"),
+            ],
+        }
+    )
 
-    first, second = scenario_logbook(scenario)
+    first, second = scenario_logbook(scenario, tmp_path)
 
     assert first == ScenarioLogEntry(
         entry_id="E-1",
@@ -52,52 +57,65 @@ def test_a_logbook_block_reads_as_its_entries_in_order():
     assert second.loto_tag is None
 
 
-def test_a_scenario_without_a_logbook_narrates_nothing():
-    assert scenario_logbook({"name": "quiet"}) == ()
+def test_an_entrys_extra_is_the_plain_mapping_it_states(tmp_path):
+    scenario = view_scenario({"name": "burst", "logbook": [_entry(extra={"shift": ["owl", 2]})]})
+
+    (entry,) = scenario_logbook(scenario, tmp_path)
+
+    assert entry.extra == {"shift": ["owl", 2]}
+    assert type(entry.extra["shift"]) is list
+
+
+def test_a_scenario_without_a_logbook_narrates_nothing(tmp_path):
+    assert scenario_logbook(view_scenario({"name": "quiet"}), tmp_path) == ()
 
 
 @pytest.mark.parametrize(
-    ("fields", "match"),
+    ("fields", "key", "reason"),
     [
-        ({"entry_id": ""}, "'entry_id'"),
-        ({"when": {"days_ago": -1, "time": "03:20:00"}}, "'days_ago'"),
-        ({"when": {"days_ago": 1, "time": 12000}}, "'when.time'"),
-        ({"when": {"days_ago": 1, "time": "03:20:00+01:00"}}, "timezone"),
-        ({"title": 3}, "'title'"),
-        ({"tags": "rf"}, "'tags'"),
-        ({"loto_tag": 7}, "'loto_tag'"),
-        ({"extra": []}, "'extra'"),
+        ({"entry_id": ""}, "logbook.0.entry_id", "at least 1 character"),
+        ({"when": {"days_ago": -1, "time": "03:20:00"}}, "logbook.0.when.days_ago", "0"),
+        ({"when": {"days_ago": 1, "time": 12000}}, "logbook.0.when.time", "time"),
+        ({"when": {"days_ago": 1, "time": "noon"}}, "logbook.0.when.time", "HH:MM[:SS]"),
+        ({"when": {"days_ago": 1, "time": "03:20:00+01:00"}}, "logbook.0.when.time", "offset"),
+        ({"title": 3}, "logbook.0.title", "string"),
+        ({"tags": "rf"}, "logbook.0.tags", "tuple"),
+        ({"loto_tag": 7}, "logbook.0.loto_tag", "string"),
+        ({"extra": []}, "logbook.0.extra", "dictionary"),
+        ({"attachments": [{"picture": "a.png"}]}, "logbook.0.attachments.0", "`path` or `plot`"),
+        ({"colour": "red"}, "logbook.0.colour", "Extra inputs are not permitted"),
     ],
 )
-def test_a_malformed_entry_is_refused_by_name(fields, match):
-    with pytest.raises(ValueError, match=match) as raised:
-        scenario_logbook({"name": "burst", "logbook": [_entry(**fields)]})
+def test_a_malformed_entry_is_refused_naming_its_key(fields, key, reason):
+    with pytest.raises(FacilityBuildError) as raised:
+        view_scenario({"name": "burst", "logbook": [_entry(**fields)]})
 
-    assert "'burst'" in str(raised.value)
+    assert raised.value.kind == "value-invalid"
+    assert raised.value.detail.startswith(f"`{key}` is ")
+    assert reason in raised.value.detail
+    assert "scenario burst" in raised.value.format_message()
 
 
 def test_an_entrys_pictures_resolve_against_the_scenario_directory(tmp_path):
     picture = tmp_path / "plots" / "trend.png"
     picture.parent.mkdir()
     picture.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 16)
-    scenario = {"name": "burst", "logbook": [_entry(attachments=[{"path": "plots/trend.png"}])]}
+    scenario = view_scenario(
+        {"name": "burst", "logbook": [_entry(attachments=[{"path": "plots/trend.png"}])]}
+    )
 
     (entry,) = scenario_logbook(scenario, tmp_path)
 
     assert entry.attachments == (picture.resolve(),)
 
 
-def test_an_entry_attaching_a_picture_needs_the_scenario_directory():
-    scenario = {"name": "burst", "logbook": [_entry(attachments=[{"path": "plots/trend.png"}])]}
+def test_an_attachment_outside_the_scenario_directory_is_refused(tmp_path):
+    scenario = view_scenario(
+        {"name": "burst", "logbook": [_entry(attachments=[{"path": "../trend.png"}])]}
+    )
 
-    with pytest.raises(ValueError, match="'attachments'") as raised:
-        scenario_logbook(scenario)
+    with pytest.raises(ValueError, match="relative to the scenario directory") as raised:
+        scenario_logbook(scenario, tmp_path)
 
     assert "'burst'" in str(raised.value)
-
-
-def test_an_attachment_outside_the_scenario_directory_is_refused(tmp_path):
-    scenario = {"name": "burst", "logbook": [_entry(attachments=[{"path": "../trend.png"}])]}
-
-    with pytest.raises(ValueError, match="relative to the scenario directory"):
-        scenario_logbook(scenario, tmp_path)
+    assert "'E-1'" in str(raised.value)

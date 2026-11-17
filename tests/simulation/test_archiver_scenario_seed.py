@@ -56,6 +56,7 @@ from osprey_connectors.simulation.archive import (
     seed_base,
 )
 from osprey_connectors.simulation.records import ArchiverEvent
+from tests._archiver_events import events as view_events
 from tests._container_support import is_docker_available
 from tests._mongo_container import started_mongo
 from tests._simulator_view import write_scenarios_view, write_texture_view
@@ -91,7 +92,7 @@ def event_window(events: list[dict], *args, **kwargs) -> tuple[float, float]:
     In the facility zone unless a case names its own, as the rewrite places them.
     """
     kwargs.setdefault("tz", get_facility_timezone())
-    return apply.event_window([ArchiverEvent.model_validate(e) for e in events], *args, **kwargs)
+    return apply.event_window(view_events(events), *args, **kwargs)
 
 
 def event_subwindows(events: list[dict], *args, **kwargs) -> list[tuple[float, float]]:
@@ -100,13 +101,11 @@ def event_subwindows(events: list[dict], *args, **kwargs) -> list[tuple[float, f
     In the facility zone unless a case names its own, as the rewrite places them.
     """
     kwargs.setdefault("tz", get_facility_timezone())
-    return apply.event_subwindows(
-        [ArchiverEvent.model_validate(e) for e in events], *args, **kwargs
-    )
+    return apply.event_subwindows(view_events(events), *args, **kwargs)
 
 
 def _events(*events: dict) -> list[ArchiverEvent]:
-    return [ArchiverEvent.model_validate(event) for event in events]
+    return view_events(events)
 
 
 def _spike(offset: float, amplitude: float = 5e-9) -> dict:

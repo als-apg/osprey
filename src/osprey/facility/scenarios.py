@@ -17,9 +17,11 @@ The engine plug-in names what a model built from a wiring declares through
 is coerced as a float and must lie inside its slot's ``value_range`` or equal
 one of its ``options``.
 
-A scenario's ``logbook`` block reads as :class:`ScenarioLogEntry` records
-through :func:`scenario_logbook`; each entry's ``when`` is ``{days_ago,
-time}``, resolved against the activation anchor when the entry is seeded.
+A scenario's ``logbook`` block is a list of
+:class:`~osprey_connectors.simulation.records.LogEntryRecord`, which
+:func:`scenario_logbook` resolves to the :class:`ScenarioLogEntry` records the
+seed writes; each entry's ``when`` is ``{days_ago, time}``, resolved against
+the activation anchor when the entry is seeded.
 An entry's ``attachments`` list names its pictures, each item one of
 ``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative to the
 scenario's own directory ``scenarios/<name>/``.
@@ -32,20 +34,21 @@ A scenario's ``sessions`` block parses through
 from __future__ import annotations
 
 import difflib
+import functools
 import json
 from collections.abc import Iterator, Mapping, Set
-from datetime import time
 from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.errors import FacilityBuildError, exact_number, quoted_slots
+from osprey.facility.errors import FacilityBuildError, exact_number
 from osprey.simulation.sessions import SessionTurn, ToolStep, parse_sessions
-from osprey_connectors.relative_time import RelativeTimestamp
-from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
+from osprey_connectors.simulation.logbook import ScenarioLogEntry
 
 if TYPE_CHECKING:
-    from osprey_connectors.simulation.records import ScenarioRecord
+    from pydantic import TypeAdapter
+
+    from osprey_connectors.simulation.records import ArchiverEvent, ScenarioRecord
 
 __all__ = [
     "FaultRoster",
@@ -98,17 +101,13 @@ def view_scenario(entry: Mapping[str, object]) -> ScenarioRecord:
         ) from None
 
 
-def scenario_logbook(
-    scenario: Mapping[str, Any], directory: Path | None = None
-) -> tuple[ScenarioLogEntry, ...]:
+def scenario_logbook(scenario: ScenarioRecord, directory: Path) -> tuple[ScenarioLogEntry, ...]:
     """The entries a scenario's ``logbook`` block narrates, in block order.
 
     Args:
-        scenario: One scenario record: its ``name`` and, when stated, its
-            ``logbook`` list.
+        scenario: The scenario's record.
         directory: The scenario's own directory, which its entries'
-            ``attachments`` resolve against; needed only when an entry
-            attaches a picture.
+            ``attachments`` resolve against.
 
     Returns:
         The entries; empty when the scenario states no logbook. A shipped
@@ -116,84 +115,11 @@ def scenario_logbook(
         parsed spec.
 
     Raises:
-        ValueError: An entry is malformed, or attaches a picture with no
-            ``directory`` given; the message names the scenario, the entry and
-            the key.
+        ValueError: An entry's attachment is not a picture or plot spec inside
+            ``directory``; the message names the scenario, the entry and the
+            attachment.
     """
-    name = str(scenario.get("name"))
-    raw = scenario.get("logbook") or []
-    if not isinstance(raw, list):
-        raise ValueError(f"Scenario {name!r} logbook: must be a list of entries")
-    return tuple(_log_entry(name, item, directory) for item in raw)
-
-
-def _log_entry(scenario: str, raw: Any, directory: Path | None) -> ScenarioLogEntry:
-    prefix = f"Scenario {scenario!r} logbook"
-    if not isinstance(raw, Mapping):
-        raise ValueError(f"{prefix}: each entry must be a mapping")
-    entry_id = raw.get("entry_id")
-    if not isinstance(entry_id, str) or not entry_id:
-        raise ValueError(f"{prefix}: 'entry_id' must be a non-empty string, got {entry_id!r}")
-    prefix = f"{prefix} entry {entry_id!r}"
-
-    def text(key: str) -> str:
-        value = raw.get(key)
-        if not isinstance(value, str):
-            raise ValueError(f"{prefix}: {key!r} must be a string, got {value!r}")
-        return value
-
-    def strings(key: str) -> tuple[str, ...]:
-        value = raw.get(key, [])
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-            raise ValueError(f"{prefix}: {key!r} must be a list of strings, got {value!r}")
-        return tuple(value)
-
-    loto_tag = raw.get("loto_tag")
-    if loto_tag is not None and not isinstance(loto_tag, str):
-        raise ValueError(f"{prefix}: 'loto_tag' must be a string or null, got {loto_tag!r}")
-    extra = raw.get("extra", {})
-    if not isinstance(extra, Mapping):
-        raise ValueError(f"{prefix}: 'extra' must be a mapping, got {extra!r}")
-    attachments = raw.get("attachments", [])
-    if attachments and directory is None:
-        raise ValueError(f"{prefix}: 'attachments' resolve against the scenario's directory")
-    return ScenarioLogEntry(
-        entry_id=entry_id,
-        when=_relative_timestamp(prefix, raw.get("when")),
-        author=text("author"),
-        title=text("title"),
-        text=text("text"),
-        tags=strings("tags"),
-        categories=strings("categories"),
-        loto_tag=loto_tag,
-        extra=dict(extra),
-        attachments=(
-            parse_log_attachments(prefix, attachments, directory) if directory is not None else ()
-        ),
-    )
-
-
-def _relative_timestamp(prefix: str, raw: Any) -> RelativeTimestamp:
-    if not isinstance(raw, Mapping):
-        raise ValueError(f"{prefix}: 'when' must be a mapping with 'days_ago' and 'time'")
-    days_ago = raw.get("days_ago")
-    if isinstance(days_ago, bool) or not isinstance(days_ago, int) or days_ago < 0:
-        raise ValueError(f"{prefix}: 'days_ago' must be a non-negative integer, got {days_ago!r}")
-    raw_time = raw.get("time")
-    if not isinstance(raw_time, str):
-        raise ValueError(f"{prefix}: 'when.time' must be an 'HH:MM:SS' string, got {raw_time!r}")
-    try:
-        parsed = time.fromisoformat(raw_time)
-    except ValueError:
-        raise ValueError(
-            f"{prefix}: 'when.time' must be a valid 'HH:MM:SS' time of day, got {raw_time!r}"
-        ) from None
-    if parsed.tzinfo is not None:
-        raise ValueError(
-            f"{prefix}: 'when.time' is local time and must not carry a timezone offset, "
-            f"got {raw_time!r}"
-        )
-    return RelativeTimestamp(days_ago=days_ago, time=parsed)
+    return tuple(entry.resolve(directory, scenario=scenario.name) for entry in scenario.logbook)
 
 
 class FaultRoster:
@@ -560,53 +486,21 @@ def _attachment_errors(
         )
 
 
-#: The keys that place an archiver event; an event states exactly one.
-_EVENT_POSITIONS = ("at", "at_offset", "at_time", "at_when")
-
-#: The keys each archiver event shape carries besides its position.
-_EVENT_VALUE_KEYS: dict[str, tuple[str, ...]] = {
-    "burst": ("amplitude", "decay_s"),
-    "loss": ("amount",),
-    "ramp": ("to",),
-    "spike": ("amplitude", "width"),
-    "step": ("to",),
-}
-
-#: The optional slow tail of a ``burst``: both keys or neither.
-_BURST_TAIL = ("tail_share", "tail_decay_s")
-
-#: The keys that hold a duration or a size, read as greater than 0.
-_EVENT_POSITIVE = ("width", "decay_s", "tail_decay_s", "amount")
-
-#: The keys holding a window fraction, read on the closed interval 0 to 1.
-_EVENT_FRACTIONS = ("at", "until")
-
-#: The ``ramp`` end key each position key pairs with.
-_RAMP_UNTIL = {"at": "until", "at_offset": "until_offset"}
-
-#: The optional ``step`` end key each position key pairs with; a daily
-#: ``at_time`` step has none.
-_STEP_UNTIL = {"at": "until", "at_offset": "until_offset", "at_when": "until_when"}
-
-
 def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     """Check every event of every scenario's ``archiver`` entries.
 
-    An event has a known shape (``step``, ``ramp``, ``spike``, ``burst``,
-    ``loss``) and that shape's keys, exactly one position key (``at``, ``at_offset``, ``at_time``,
-    ``at_when``), a number wherever the archive reads one, and a shape other
-    than ``step`` only on a ``float`` channel. A ``ramp`` is placed by ``at``
-    with ``until`` or by ``at_offset`` with ``until_offset``. A ``step`` may
-    end, on a ``float`` channel only, by the key its position pairs with
-    (``until``, ``until_offset``, ``until_when``), later than its start; a
-    daily ``at_time`` step never ends. ``at`` and
-    ``until`` lie from 0 to 1, a ``width``, ``decay_s``, ``tail_decay_s`` and
-    ``amount`` are greater than 0, a ``burst`` states ``tail_share`` (above 0,
-    below 1) and ``tail_decay_s`` together or neither, ``at_time`` is
-    an ``HH:MM[:SS]`` time of day, ``at_when`` is ``{days_ago: <int>, time:
-    HH:MM[:SS]}``, and a ``to`` coerces to the channel's value type, options
-    and shape. An entry naming no channel is left to the reference check.
-    Each malformed event is one ``value-invalid``.
+    Each event is read as the view's
+    :data:`~osprey_connectors.simulation.records.ArchiverEvent`, whose record
+    holds the rules between its keys: a known shape (``step``, ``ramp``,
+    ``spike``, ``burst``, ``loss``) and that shape's keys, exactly one position
+    key, a number wherever the archive reads one, window fractions from 0 to 1,
+    a readable ``at_time`` and ``at_when``, an end that pairs with the position
+    and lies after it. An event the record refuses stops with the rule's own
+    words. The rules that need the channel are checked here: a shape other than
+    ``step``, and a ``step`` that ends, only on a ``float`` channel, and a
+    ``to`` that coerces to the channel's value type, options and shape. An
+    entry naming no channel is left to the reference check. Each malformed
+    event is one ``value-invalid``.
 
     Args:
         document: The combined document.
@@ -617,7 +511,6 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
     from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 
     channels = {str(c["id"]): c for c in document.get("channels") or [] if isinstance(c, dict)}
-    shapes = ", ".join(f"`{shape}`" for shape in sorted(_EVENT_VALUE_KEYS))
     errors: list[FacilityBuildError] = []
     for scenario in document.get("scenarios") or []:
         if not isinstance(scenario, dict) or not isinstance(scenario.get("archiver"), list):
@@ -644,7 +537,7 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
                 continue
             for index, event in enumerate(events, start=1):
                 where = f"{files[0]} `archiver` event {index} of channel {address}"
-                problem = _event_problem(event, channel, value_type, shapes)
+                problem = _event_problem(event, channel, value_type)
                 if problem is not None:
                     detail, remedy = problem
                     errors.append(_error("value-invalid", name, files, f"{where} {detail}", remedy))
@@ -769,131 +662,73 @@ def _logbook_ids(scenario: Mapping[str, Any]) -> set[str]:
     }
 
 
+@functools.cache
+def _event_adapter() -> TypeAdapter[ArchiverEvent]:
+    """The reader of one archiver event, built once."""
+    from pydantic import TypeAdapter
+
+    from osprey_connectors.simulation.records import ArchiverEvent
+
+    return TypeAdapter(ArchiverEvent)
+
+
+#: The archiver event shapes, as a stop names them.
+_EVENT_SHAPES = ", ".join(f"`{shape}`" for shape in ("burst", "loss", "ramp", "spike", "step"))
+
+
 def _event_problem(
-    event: Any, channel: Mapping[str, Any], value_type: str, shapes: str
+    event: Any, channel: Mapping[str, Any], value_type: str
 ) -> tuple[str, str] | None:
     """The first broken rule of one archiver event, as ``(detail, remedy)``."""
+    from pydantic import ValidationError
+
+    from osprey_connectors.simulation.records import EventRuleError, StepEvent
+
     if not isinstance(event, Mapping):
         return f"is {event!r}, not a mapping", "write the event as a mapping with a `shape`"
-    shape = event.get("shape")
-    if not isinstance(shape, str) or shape not in _EVENT_VALUE_KEYS:
-        return f"has shape {shape!r}, not one of {shapes}", f"write `shape` as one of {shapes}"
-    positions = [key for key in _EVENT_POSITIONS if key in event]
-    if len(positions) != 1:
-        stated = f" ({quoted_slots(positions)})" if positions else ""
+    try:
+        record = _event_adapter().validate_python(event)
+    except ValidationError as refusal:
+        error = refusal.errors()[0]
+        cause = (error.get("ctx") or {}).get("error")
+        if isinstance(cause, EventRuleError):
+            return cause.detail, cause.remedy
+        if error["type"] in ("union_tag_invalid", "union_tag_not_found"):
+            return (
+                f"has shape {event.get('shape')!r}, not one of {_EVENT_SHAPES}",
+                f"write `shape` as one of {_EVENT_SHAPES}",
+            )
+        key = str(error["loc"][1]) if len(error["loc"]) > 1 else "shape"
+        if key == "to":
+            return _channel_problem(str(event["shape"]), event, channel, value_type) or (
+                f"has `to` {event['to']!r}: {error['msg']}",
+                f"write `to` as a value the {value_type} channel holds",
+            )
+        if error["type"] == "extra_forbidden":
+            return (
+                f"states `{key}`, which a `{event['shape']}` event does not carry",
+                f"drop `{key}`",
+            )
+        return f"has `{key}` {error['input']!r}: {error['msg']}", f"correct `{key}`"
+    ends = isinstance(record, StepEvent) and record.end is not None
+    if ends and value_type != "float":
         return (
-            f"states {len(positions)} position keys{stated}",
-            f"state exactly one of {quoted_slots(_EVENT_POSITIONS)}",
+            f"ends a `step` on a {value_type} channel",
+            "drop the end, or move the bounded step to a float channel",
         )
-    (position,) = positions
-    required = list(_EVENT_VALUE_KEYS[shape])
-    if shape == "ramp":
-        until = _RAMP_UNTIL.get(position)
-        if until is None:
-            return (
-                f"places a `ramp` by `{position}`",
-                "place the `ramp` by `at` with `until`, or by `at_offset` with `until_offset`",
-            )
-        required.append(until)
-    if shape == "step":
-        ends = [key for key in _STEP_UNTIL.values() if key in event]
-        if ends and position == "at_time":
-            return (
-                f"ends an `at_time` step with {quoted_slots(ends)}",
-                "drop the end, or place the step by `at`, `at_offset` or `at_when`",
-            )
-        if ends and value_type != "float":
-            return (
-                f"ends a `step` on a {value_type} channel",
-                "drop the end, or move the bounded step to a float channel",
-            )
-        if ends and ends != [_STEP_UNTIL[position]]:
-            return (
-                f"ends a `step` placed by `{position}` with {quoted_slots(ends)}",
-                f"end a step placed by `{position}` with `{_STEP_UNTIL[position]}` only",
-            )
-        required += ends
-    if shape == "burst":
-        tail = [key for key in _BURST_TAIL if key in event]
-        if len(tail) == 1:
-            return (
-                f"states {quoted_slots(tail)} without the rest of its tail",
-                f"state {quoted_slots(_BURST_TAIL)} together, or neither",
-            )
-        required += tail
-    missing = [key for key in required if key not in event]
-    if missing:
-        return f"lacks {quoted_slots(missing)}", f"give the `{shape}` event {quoted_slots(missing)}"
-    numbers = [key for key in (position, *required) if key in ("at", "at_offset")]
-    numbers += [key for key in required if key not in ("to", "until_when")]
-    for key in numbers:
-        value = event[key]
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return f"has `{key}` {value!r}, not a number", f"write `{key}` as a number"
-    for key in _EVENT_FRACTIONS:
-        if key in numbers and not 0.0 <= event[key] <= 1.0:
-            return (
-                f"has `{key}` {event[key]!r}, outside 0 to 1",
-                f"write `{key}` as a window fraction from 0 to 1",
-            )
-    for key in _EVENT_POSITIVE:
-        if key in numbers and event[key] <= 0:
-            return (
-                f"has `{key}` {event[key]!r}, not greater than 0",
-                f"write `{key}` as a number greater than 0",
-            )
-    if "tail_share" in numbers and not 0.0 < event["tail_share"] < 1.0:
-        return (
-            f"has `tail_share` {event['tail_share']!r}, not between 0 and 1",
-            "write `tail_share` as the slow tail's fraction of the amplitude, above 0 and below 1",
-        )
-    # The logbook reads the same {days_ago, time} grammar; a value it refuses
-    # must not be served misplaced here.
-    offset = "time is local time and must not carry a timezone offset"
-    if position == "at_time":
-        at_time = event["at_time"]
-        if _time_of_day(at_time) is None:
-            return (
-                f"has `at_time` {at_time!r}, not an HH:MM[:SS] time of day",
-                "write `at_time` as HH:MM:SS",
-            )
-        if _has_offset(at_time):
-            return (
-                f"has `at_time` {at_time!r}; {offset}",
-                "write `at_time` as HH:MM:SS without an offset",
-            )
-    for key in ("at_when", "until_when"):
-        if key not in (position, *required):
-            continue
-        when = event[key]
-        if not _relative_when(when):
-            return (
-                f"has `{key}` {when!r}, not {{days_ago: <int>, time: HH:MM[:SS]}}",
-                f"write `{key}` as {{days_ago: <int>, time: HH:MM:SS}}",
-            )
-        if when["days_ago"] < 0:
-            return (
-                f"has `{key}` {when!r}; days_ago must be a non-negative integer",
-                "write `days_ago` as 0 or more",
-            )
-        if _has_offset(when["time"]):
-            return (
-                f"has `{key}` {when!r}; {offset}",
-                f"write `{key}.time` as HH:MM:SS without an offset",
-            )
-    if shape == "step" and _STEP_UNTIL.get(position) in event:
-        until = _STEP_UNTIL[position]
-        if not _ends_after(event[position], event[until]):
-            return (
-                f"ends at `{until}` {event[until]!r}, not after `{position}` {event[position]!r}",
-                f"write `{until}` later than `{position}`",
-            )
+    return _channel_problem(record.shape, event, channel, value_type)
+
+
+def _channel_problem(
+    shape: str, event: Mapping[str, Any], channel: Mapping[str, Any], value_type: str
+) -> tuple[str, str] | None:
+    """The rule an event of ``shape`` breaks against its channel, as ``(detail, remedy)``."""
     if shape != "step" and value_type != "float":
         return (
             f"is a `{shape}` on a {value_type} channel",
             "use a `step` event, or move the event to a float channel",
         )
-    if "to" in required:
+    if "to" in event:
         from osprey_connectors.simulation.values import coerce
 
         try:
@@ -904,43 +739,6 @@ def _event_problem(
                 f"write `to` as a value the {value_type} channel holds",
             )
     return None
-
-
-def _time_of_day(value: Any) -> time | None:
-    """``value`` read as a time of day, or ``None`` when it is not one."""
-    if not isinstance(value, str):
-        return None
-    try:
-        return time.fromisoformat(value)
-    except ValueError:
-        return None
-
-
-def _has_offset(value: Any) -> bool:
-    """Whether ``value``, a readable time of day, carries a timezone offset."""
-    parsed = _time_of_day(value)
-    return parsed is not None and parsed.tzinfo is not None
-
-
-def _ends_after(start: Any, end: Any) -> bool:
-    """Whether ``end`` lies after ``start``: two numbers, or two ``{days_ago, time}``."""
-    if isinstance(start, Mapping):
-        # More days ago is earlier; on the same day the later time of day is later.
-        return bool(
-            (-start["days_ago"], _time_of_day(start["time"]))
-            < (-end["days_ago"], _time_of_day(end["time"]))
-        )
-    return bool(end > start)
-
-
-def _relative_when(value: Any) -> bool:
-    """Whether ``value`` is ``{days_ago: <int>, time: HH:MM[:SS]}``."""
-    if not isinstance(value, Mapping):
-        return False
-    days_ago = value.get("days_ago")
-    if isinstance(days_ago, bool) or not isinstance(days_ago, int):
-        return False
-    return _time_of_day(value.get("time")) is not None
 
 
 def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildError]:

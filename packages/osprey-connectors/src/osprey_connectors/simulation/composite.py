@@ -168,7 +168,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         ChannelRecord,
         CouplingTerm,
         DriveRecord,
-        NoiseRecord,
+        Noise,
         ScenarioRecord,
     )
 
@@ -776,7 +776,7 @@ class Composite(LUMEModel):
         faults: dict[str, dict[str, object]] = {}
         drivers: dict[str, DriveRecord] = {}
         couple: dict[str, list[CouplingTerm]] = {}
-        noise: dict[str, NoiseRecord] = {}
+        noise: dict[str, Noise] = {}
         still: set[str] = set()
         channel_faults: dict[str, ChannelFaultKind] = {}
         faulted_by: dict[str, set[str]] = {}

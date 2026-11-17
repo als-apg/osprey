@@ -495,6 +495,7 @@ def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeyp
     from osprey.facility.scenarios import scenario_logbook
     from osprey.facility.views.simulator import SCENARIOS_DIR
     from osprey.simulation.plots import render_plot_spec
+    from osprey_connectors.simulation.records import ScenarioRecord
 
     config, project = _plot_spec_project(tmp_path, monkeypatch)
     seen = _stub_ariel(monkeypatch, existing=0)
@@ -504,7 +505,10 @@ def test_a_plot_spec_is_drawn_against_its_entrys_own_timestamp(tmp_path, monkeyp
     (row,) = seen["seeded"]
     view = json.loads((project / "data" / "simulator" / "scenarios.json").read_text())
     (scenario,) = view["scenarios"]
-    (entry,) = scenario_logbook(scenario, project / "data" / "simulator" / SCENARIOS_DIR / "drift")
+    (entry,) = scenario_logbook(
+        ScenarioRecord.model_validate(scenario),
+        project / "data" / "simulator" / SCENARIOS_DIR / "drift",
+    )
     spec, shipped = entry.attachments
     drawn_path, shipped_path = seen["pictures"]["E1"]
     assert (drawn_path.name, shipped_path) == ("orbit_rms.png", shipped)
