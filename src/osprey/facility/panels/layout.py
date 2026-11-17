@@ -33,7 +33,6 @@ from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
 from osprey.facility.panels.model import Citation, PanelGraph
 from osprey.facility.panels.symbols import (
-    BEAM,
     BOX_BORDER,
     FIELD_BACKGROUND,
     PAGE_BACKGROUND,
@@ -179,6 +178,7 @@ _REQUEST_TAG = "format-request: "
 _UNKNOWN_TAG = "unknown: "
 _AGGREGATE_ROW = "aggregate: row"
 _AGGREGATE_TILE = "aggregate: tile"
+_AGGREGATE_SYMBOL = "aggregate: symbol"
 _AGGREGATE_TEXT = "{} channels, open for detail"
 _IF_ELSE = " if () else ()"  # what the viewer adds around each arm when it compiles a ladder
 _NAVIGATION_TARGET = "tab"
@@ -906,7 +906,7 @@ class _Page:
         ]
         placed, scale = strip.arrange_scaled(drawn, widths, STRIP_WIDTH)
         axis = self.y + STRIP_ABOVE + STRIP_LEVEL
-        self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], BEAM, AXIS_WIDTH)
+        self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], PAGE_TEXT, AXIS_WIDTH)
         del scale  # p.width is already scaled; the unit follows from it
         for p in placed:
             x = MARGIN + p.x
@@ -914,10 +914,7 @@ class _Page:
             if p.lane == "above":
                 y = axis - STRIP_ABOVE - p.level * STRIP_LEVEL
                 self.line([(x, y), (x, axis)], BOX_BORDER)
-            unit = p.width / symbols.WIDTH_UNITS[p.symbol]
-            for node in symbols.draw(p.symbol, x, y, unit=unit):
-                node["props"][_TOOLTIP] = p.thing
-                self.s.add(node)
+            self.symbol(p, x, y, p.width / symbols.WIDTH_UNITS[p.symbol])
             if p.link is not None:
                 half = p.width / 2
                 reach = STRIP_LEVEL if p.lane == "above" else STRIP_BELOW
@@ -939,6 +936,51 @@ class _Page:
         if extent is not None:
             self.locator(row, extent)
 
+    def symbol(self, element: strip.Placed, x: float, y: float, unit: float) -> None:
+        """A device's symbol, in the live state of its rule channels.
+
+        The symbol reads the ladder a roll-up node of the device would read: the
+        worst of its channels. With no rule channel it is neutral and carries no
+        mark; over the format's limit it is drawn in the aggregate look.
+        """
+        if not element.channels:
+            for node in symbols.draw(element.symbol, x, y, unit=unit):
+                node["props"][_TOOLTIP] = element.thing
+                self.s.add(node)
+            return
+        lights = [describe_light(self.graph, c) for c in element.channels]
+        rule = ladder(self.graph, lights, node=True)
+        aggregate = rule == "aggregate state"
+        drawn = symbols.draw(
+            element.symbol, x, y, "aggregate" if aggregate else "unknown", unit=unit
+        )
+        tags = [_need("state light")]
+        if aggregate:
+            tags += [_need("aggregate state"), _AGGREGATE_SYMBOL]
+        elif isinstance(rule, str):
+            tags += [_need(rule), _UNKNOWN_TAG + rule]
+            self.s.unknown += 1
+        elif rule.unwritten:
+            tags.append(_need("label condition"))
+        live = rule if isinstance(rule, Ladder) and rule.arms else None
+        *shapes, mark = drawn
+        for node in shapes:
+            node["props"][_TOOLTIP] = element.thing
+            rules = [] if live is None else self.look_rules(element.thing, node["type"], live)
+            self.s.add(node, rules=rules, tags=tags)
+            tags = []  # the needs are recorded once, on the first shape
+        mark["props"][_TOOLTIP] = element.thing
+        rules = [] if live is None else self.look_rules(element.thing, mark["type"], live)
+        self.s.add(mark, rules=rules, tags=[_need("hatched fill")] if rules else [])
+
+    def look_rules(self, name: str, node_type: str, rule: Ladder) -> list[dict]:
+        """The rules that give a symbol's widget of *node_type* the look of *rule*'s state."""
+        looks = {state: symbols.look(state) for state in symbols.STATES}
+        return [
+            self.s.rule(f"{name} {prop}", prop, rule, {s: looks[s][prop] for s in symbols.STATES})
+            for prop in symbols.styled(node_type)
+        ]
+
     def locator(self, row: Sequence[StripElement], extent: tuple[float, float]) -> None:
         lo, hi = extent
         span = hi - lo
@@ -946,7 +988,9 @@ class _Page:
         self.box(MARGIN, bar, STRIP_WIDTH, LOCATOR_BAR)
         shifted = [replace(e, s_m=e.s_m - lo) for e in row]
         for _thing, x in strip.locator(shifted, span, STRIP_WIDTH):
-            self.line([(MARGIN + x, bar - TICK), (MARGIN + x, bar + LOCATOR_BAR)], BEAM, AXIS_WIDTH)
+            self.line(
+                [(MARGIN + x, bar - TICK), (MARGIN + x, bar + LOCATOR_BAR)], PAGE_TEXT, AXIS_WIDTH
+            )
         for metres, x in _ticks(lo, hi):
             top = bar + LOCATOR_BAR
             self.line([(MARGIN + x, top), (MARGIN + x, top + TICK)], PAGE_TEXT)

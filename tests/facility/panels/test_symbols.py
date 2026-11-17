@@ -1,7 +1,8 @@
-"""Symbols: the element shapes, the five looks of a light, and the theme-role table."""
+"""Symbols: the element shapes, the six looks of a light or symbol, and the theme-role table."""
 
 from __future__ import annotations
 
+import json
 import re
 from itertools import combinations
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 from osprey.facility.panels import symbols
 from osprey.facility.panels.symbols import (
     ALARM_ROLES,
+    APPEARANCES,
     KINDS,
     STATES,
     WIDTH_UNITS,
@@ -100,9 +102,97 @@ def test_an_unknown_kind_is_refused() -> None:
         draw("wiggler", 0.0, AXIS)
 
 
-def test_a_state_sets_the_symbols_outline() -> None:
-    (node,) = draw("generic", 0.0, AXIS, "bad", unit=UNIT)
-    assert node["props"]["lineColor"] == look("bad")["lineColor"]
+#: Every role the theme table may hold: neutral page roles, Disagree and the alarm roles.
+THEME_ROLES = {
+    "Page_Background",
+    "Page_Text",
+    "Field_Background",
+    "Box_Border",
+    "Led_Off",
+    "Transparent",
+    "Disagree",
+    "MINOR",
+    "MAJOR",
+    "DISCONNECTED",
+}
+NEUTRAL_ROLES = {"Page_Background", "Page_Text", "Field_Background", "Box_Border", "Led_Off"}
+
+
+def test_the_theme_table_holds_no_type_colour() -> None:
+    table, _ = _between(
+        (PANELS / "symbols.py").read_text(), "# --- theme roles", "# --- end theme roles"
+    )
+    named = set(re.findall(r'role\("([^"]+)"', table))
+    assert named == THEME_ROLES
+    defined = {v["$role"] for v in vars(symbols).values() if isinstance(v, dict) and "$role" in v}
+    assert defined == THEME_ROLES
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_symbol_with_no_state_is_neutral_and_carries_no_mark(kind) -> None:
+    nodes = draw(kind, 0.0, AXIS, unit=UNIT)
+    assert {c["$role"] for c in _colours(nodes)} <= NEUTRAL_ROLES
+    assert all(n["type"] != "text-label" for n in nodes)
+
+
+def _seen(nodes) -> tuple:
+    return tuple(
+        (
+            n["type"],
+            tuple(
+                (k, v["$role"] if isinstance(v, dict) and "$role" in v else json.dumps(v))
+                for k, v in sorted(n["props"].items())
+            ),
+        )
+        for n in nodes
+    )
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_symbol_in_each_look_differs_from_its_other_five_looks(kind) -> None:
+    drawn = {state: _seen(draw(kind, 0.0, AXIS, state, unit=UNIT)) for state in APPEARANCES}
+    for a, b in combinations(APPEARANCES, 2):
+        assert drawn[a] != drawn[b], (kind, a, b)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("state", APPEARANCES)
+def test_a_symbol_in_a_state_takes_the_lights_look(kind, state) -> None:
+    *shapes, mark = draw(kind, 0.0, AXIS, state, unit=UNIT)
+    shown = look(state)
+    assert shapes
+    for node in shapes:
+        props = symbols.styled(node["type"])
+        assert set(props) <= set(symbols.LIGHT_PROPS) and "lineColor" in props
+        for prop in props:
+            assert node["props"][prop] == shown[prop], (kind, state, prop)
+    assert mark["type"] == "text-label"
+    assert symbols.styled("text-label") == (symbols.MARK_PROP,)
+    assert mark["props"]["text"] == shown["text"]
+
+
+def _outline(kind: str) -> tuple:
+    """A kind's outline, whatever its fill: types, proportions, offset from the axis, points."""
+    nodes = draw(kind, 0.0, AXIS, unit=UNIT)
+    left, top, right, bottom = _extent(nodes)
+    w, h = right - left, bottom - top
+    return tuple(
+        (
+            n["type"],
+            round(h / w, 2),
+            round(((top + bottom) / 2 - AXIS) / h, 2),
+            n["props"].get("rotation", 0),
+            tuple(
+                (round(p["x"] / w, 2), round(p["y"] / h, 2)) for p in n["props"].get("points", ())
+            ),
+        )
+        for n in nodes
+    )
+
+
+def test_the_shape_alone_tells_the_kind() -> None:
+    for a, b in combinations(KINDS, 2):
+        assert _outline(a) != _outline(b), (a, b)
 
 
 def _appearance(state: str) -> tuple:

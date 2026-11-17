@@ -27,13 +27,16 @@ from tests.facility.panels._views import (
     Screens,
     fixture_views,
     invented_views,
+    nodes,
     rollup_view,
+    strip_view,
 )
 
-from osprey.facility.panels import layout
+from osprey.facility.panels import layout, symbols
 from osprey.facility.panels.describe import light
 from osprey.facility.panels.layout import render
 from osprey.facility.panels.model import PanelGraph, load_graph
+from osprey.facility.panels.view import StripElement
 
 WRITE_NOT_RELAYED = "write_not_relayed"
 
@@ -78,3 +81,16 @@ def test_every_view_of_every_kind_validates(panel_graph, spec_dir: Path) -> None
     assert {v.id.view for v in views} == {"card", "set", "place", "rack", "rollup", "checkout"}
     for view in views:
         _check(render(view, graph=panel_graph, screens=Screens()), spec_dir, view)
+
+
+def test_a_strip_of_every_symbol_in_a_live_state_validates(panel_graph, spec_dir: Path) -> None:
+    channel = "XR02:IP1:Pressure-RB"  # stated literal rows the format can write
+    elements = [
+        StripElement(f"E{i}", None, float(i), kind, "beam", None, (channel,))
+        for i, kind in enumerate(symbols.KINDS)
+    ]
+    view = strip_view(elements)
+    doc = render(view, graph=panel_graph, screens=Screens())
+    ruled = {n["type"] for n in nodes(doc) if n.get("rules")}
+    assert {"rectangle", "ellipse", "polygon", "line", "text-label"} <= ruled
+    _check(doc, spec_dir, view)

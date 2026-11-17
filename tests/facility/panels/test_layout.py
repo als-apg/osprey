@@ -35,7 +35,7 @@ from osprey.facility.panels.layout import (
     unexpressed,
 )
 from osprey.facility.panels.model import load_graph
-from osprey.facility.panels.view import Light, Node, Section, Target, View
+from osprey.facility.panels.view import Light, Node, Section, StripElement, Target, View
 from tests.facility.panels._fixture import copy_tables, write_fixture_facility
 from tests.facility.panels._views import (
     ABOVE,
@@ -105,7 +105,12 @@ def _texts(doc: dict) -> list[str]:
 
 
 def _beam_lines(doc: dict) -> list[dict]:
-    return [n for n in _by_type(doc, "line") if n["props"]["lineColor"] == symbols.BEAM]
+    """The beam axis and the locator's device marks: the page's lines at the axis width."""
+    return [
+        n
+        for n in _by_type(doc, "line")
+        if n["props"]["lineWidth"] == layout.AXIS_WIDTH and "tooltip" not in n["props"]
+    ]
 
 
 # --------------------------------------------------------------------------- rules
@@ -390,6 +395,88 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
     (shape,) = _by_type(doc, "polygon")
     assert shape["rules"][0]["pvs"] == [{"name": "XR01:QF1:Current-RB", "trigger": True}]
     assert not _by_type(doc, "ellipse")
+
+
+def _symbol(doc: dict, thing: str) -> tuple[list[dict], list[dict]]:
+    """A strip symbol's shape nodes (they carry the device as tooltip) and its mark, if any."""
+    found = [n for n in nodes(doc) if n["props"].get("tooltip") == thing]
+    shapes = [n for n in found if n["type"] != "text-label"]
+    marks = [n for n in found if n["type"] == "text-label"]
+    return shapes, marks
+
+
+def _live(node: dict, values: dict[str, object]) -> dict:
+    """The props a node's own rules give it for *values*, for the props they target."""
+    out = {}
+    for rule in node.get("rules", ()):
+        v = [values[p["name"]] for p in rule["pvs"]]
+        out[rule["targetProperty"]] = rule["default"]
+        for condition in rule["conditions"]:
+            if eval(TOKEN.sub(r"v[\1]", condition["expression"]), {"__builtins__": {}}, {"v": v}):
+                out[rule["targetProperty"]] = condition["value"]
+                break
+    return out
+
+
+def test_a_strip_symbol_shows_its_devices_state_live(tmp_path) -> None:
+    channel = "XR01:QF1:Current-RB"
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        for value, state in ((">=7", "bad"), ("<1", "warn"), ("2", "normal")):
+            rows.write(
+                f"{channel},{value},{state},database-severity,stated,xr-ioc,0a1b2c3,m.db:1\n"
+            )
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
+    view = place_view(graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    (element,) = [
+        e
+        for s in view.sections
+        if s.title == "strip"
+        for e in s.items[0].elements
+        if e.thing == "XR01:QF1"
+    ]
+    assert element.channels == (channel,)
+    doc, _ = draw(view, graph)
+    shapes, (mark,) = _symbol(doc, "XR01:QF1")
+    for node in [*shapes, mark]:
+        assert node.get("rules"), node["type"]
+        for rule in node["rules"]:
+            assert rule["pvs"] == [{"name": channel, "trigger": True}]
+    for value, state in ((9, "bad"), (0.5, "warn"), (2, "normal")):
+        for node in shapes:
+            props = symbols.styled(node["type"])
+            assert _live(node, {channel: value}) == {p: symbols.look(state)[p] for p in props}
+        assert _live(mark, {channel: value}) == {"text": symbols.look(state)["text"]}
+    for node in shapes:  # drawn unknown until the channel answers
+        for prop in symbols.styled(node["type"]):
+            assert node["props"][prop] == symbols.look("unknown")[prop]
+
+
+def test_a_strip_symbol_of_a_device_with_no_rule_is_neutral(panel_graph) -> None:
+    view = place_view(panel_graph, "XR/XR02", symbols=SYMBOLS, above=ABOVE)
+    doc, _ = draw(view, panel_graph)
+    shapes, marks = _symbol(doc, "XR02:SHIELD1")
+    assert shapes and not marks
+    for node in shapes:
+        assert not node.get("rules")
+        roles = {v["$role"] for k, v in node["props"].items() if k.endswith("Color")}
+        assert roles <= {"Page_Text", "Led_Off", "Box_Border", "Field_Background"}
+        assert node["props"].get("lineStyle", "solid") == "solid"
+
+
+def test_a_strip_symbol_over_the_rule_limit_takes_the_aggregate_look(
+    panel_graph, monkeypatch
+) -> None:
+    big = StripElement("BIG", None, 1.0, "bend", "beam", None, RULED)
+    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 0)
+    doc, _ = draw(strip_view([big]), panel_graph)
+    shapes, (mark,) = _symbol(doc, "BIG")
+    for node in shapes:
+        assert not node.get("rules")
+        for prop in symbols.styled(node["type"]):
+            assert node["props"][prop] == symbols.look("aggregate")[prop]
+    assert mark["props"]["text"] == symbols.AGGREGATE_MARK
+    assert "aggregate state" in needs(doc)
 
 
 # --------------------------------------------------------------------------- whole documents

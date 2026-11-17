@@ -2,13 +2,17 @@
 
 Every colour any panel screen draws is a theme role from the table below: a
 role name with light and dark fallbacks, so the viewer's theme decides the
-colour. OSPREY's own roles carry neutral and element colours; the scheme's
-alarm roles (``MINOR``, ``MAJOR``, ``DISCONNECTED``) are used only where a
-colour means a state.
+colour. Colour means state only: OSPREY's own roles are neutral, ``Disagree``
+marks sources that disagree, and the scheme's alarm roles (``MINOR``,
+``MAJOR``, ``DISCONNECTED``) are used only where a colour means a state.
 
-A light has five looks, one per health state. ``normal`` is neutral, never
-green: an operator's eye goes to what is not normal. ``unknown`` is hollow and
-dashed, ``disagree`` carries a mark, so neither reads as a colour alone.
+A light has six looks: one per health state, and an aggregate's. ``normal`` is
+neutral, never green: an operator's eye goes to what is not normal.
+``unknown`` is hollow and dashed, ``disagree`` and ``aggregate`` carry a mark,
+so none of them reads as a colour alone.
+
+An element symbol is neutral, its shape tells its type. In a state it takes
+the same look a light takes, so a symbol in warn is a warn light of that shape.
 
 :func:`draw` gives the widget nodes of one element symbol, without ids;
 :mod:`~osprey.facility.panels.layout` places them and numbers them. Shapes are
@@ -41,6 +45,7 @@ __all__ = [
     "light",
     "look",
     "role",
+    "styled",
 ]
 
 Node = dict[str, Any]
@@ -57,14 +62,6 @@ PAGE_TEXT = role("Page_Text", "#24292e", "#ccccdc")
 FIELD_BACKGROUND = role("Field_Background", "#fafbfc", "#181b1f")
 BOX_BORDER = role("Box_Border", "#d8d9da", "#2c3235")
 LED_OFF = role("Led_Off", "#ecedef", "#22252b")
-BEAM = role("Beam", "#1f62c4", "#6e9fff")
-DIPOLE = role("Dipole", "#e08e00", "#f5b73d")
-QUADRUPOLE = role("Quadrupole", "#1f62c4", "#6e9fff")
-SEXTUPOLE = role("Sextupole", "#7c4dff", "#b59cff")
-CORRECTOR = role("Corrector", "#3949ab", "#7986cb")
-DIAGNOSTIC = role("Diagnostic", "#00838f", "#4dd0e1")
-VACUUM = role("Vacuum", "#546e7a", "#90a4ae")
-KICKER = role("Kicker", "#6d4c41", "#a1887f")
 DISAGREE = role("Disagree", "#8e44ad", "#c39bd3")
 ALARM_MINOR = role("MINOR", "#e0b400", "#f2cc0c")
 ALARM_MAJOR = role("MAJOR", "#c4162a", "#e05454")
@@ -177,7 +174,7 @@ KINDS: tuple[str, ...] = tuple(WIDTH_UNITS)
 _MAGNET_HEIGHT = 1.2  # a quadrupole's height off the axis, a bend's across it
 _SEXTUPOLE_HEIGHT = 1.0
 _CORRECTOR_HEIGHT = 1.6
-_PUMP_HEIGHT = 0.8
+_NEG_HEIGHT = 0.3  # a getter strip lies flat along the chamber
 _VALVE_HEIGHT = 1.2
 _BELLOWS_HEIGHT = 1.0
 _BELLOWS_FOLDS = 4
@@ -190,43 +187,35 @@ _MARK_FONT = 0.9  # a light's mark, in parts of the light's size
 _OCTAGON = 8
 # --- end shape ratios ----------------------------------------------------------
 
-_ROLE_OF: Mapping[str, dict[str, str]] = MappingProxyType(
-    {
-        "bend": DIPOLE,
-        "quadrupole_f": QUADRUPOLE,
-        "quadrupole_d": QUADRUPOLE,
-        "quadrupole": QUADRUPOLE,
-        "sextupole": SEXTUPOLE,
-        "skew_quadrupole": QUADRUPOLE,
-        "corrector": CORRECTOR,
-        "bpm": DIAGNOSTIC,
-        "neg_pump": VACUUM,
-        "ion_pump": VACUUM,
-        "gauge": VACUUM,
-        "gate_valve": VACUUM,
-        "bellows": PAGE_TEXT,
-        "kicker": KICKER,
-        "scraper": PAGE_TEXT,
-        "generic": PAGE_TEXT,
-    }
+# A symbol with no state is drawn in these: an outline and a neutral fill.
+_OUTLINE = PAGE_TEXT
+_FILL = LED_OFF
+
+# The props a look sets on each widget type of a symbol; a closed shape takes
+# all of a light's, a line has no fill, a mark takes its text.
+_STYLED: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {"line": ("lineColor", "lineStyle"), "text-label": (MARK_PROP,)}
 )
+
+
+def styled(node_type: str) -> tuple[str, ...]:
+    """The props of a symbol's widget of *node_type* that its look, and so its rules, set."""
+    return _STYLED.get(node_type, LIGHT_PROPS)
 
 
 def _geometry(x: float, y: float, w: float, h: float) -> dict[str, float]:
     return {"x": x, "y": y, "width": w, "height": h}
 
 
-def _shape(
-    kind: str, x: float, y: float, w: float, h: float, colour: dict, *, fill: bool, **more: Any
-) -> Node:
-    props: dict[str, Any] = {"lineColor": colour, "lineWidth": _LINE, "fill": fill}
+def _shape(kind: str, x: float, y: float, w: float, h: float, *, fill: bool, **more: Any) -> Node:
+    props: dict[str, Any] = {"lineColor": _OUTLINE, "lineWidth": _LINE, "fill": fill}
     if fill:
-        props["fillColor"] = colour
+        props["fillColor"] = _FILL
     props.update(more)
     return {"type": kind, "props": props, "geometry": _geometry(x, y, w, h)}
 
 
-def _polygon(points: list[tuple[float, float]], colour: dict, *, fill: bool, **more: Any) -> Node:
+def _polygon(points: list[tuple[float, float]], *, fill: bool, **more: Any) -> Node:
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
     x0, y0 = min(xs), min(ys)
@@ -236,7 +225,6 @@ def _polygon(points: list[tuple[float, float]], colour: dict, *, fill: bool, **m
         y0,
         max(xs) - x0,
         max(ys) - y0,
-        colour,
         fill=fill,
         points=[{"x": px - x0, "y": py - y0} for px, py in points],
         **more,
@@ -254,35 +242,60 @@ def draw(
         y: The axis the symbol sits on. A focusing quadrupole is drawn above
             it, a defocusing one below, a quadrupole with no polarity centred
             on it; every other kind is centred on it.
-        state: A health state whose line colour the symbol's outline takes,
-            or ``None`` for the kind's own colour.
+        state: One of :data:`APPEARANCES`: the shapes take its look (the
+            props :func:`styled` names) and a mark is drawn over them, last.
+            ``None`` draws the symbol neutral, with no mark.
         unit: The size of one shape unit, in px.
 
     Raises:
         ValueError: *kind* is not a symbol kind.
     """
-    if kind not in _ROLE_OF:
+    if kind not in WIDTH_UNITS:
         raise ValueError(f"no symbol {kind!r}; the kinds are {', '.join(KINDS)}")
-    colour = _ROLE_OF[kind]
     w = WIDTH_UNITS[kind] * unit
     left = x - w / 2
-    nodes = _draw(kind, left, y, w, unit, colour)
-    if state is not None:
-        for node in nodes:
-            node["props"]["lineColor"] = look(state)["lineColor"]
+    nodes = _draw(kind, left, y, w, unit)
+    if state is None:
+        return nodes
+    shown = look(state)
+    for node in nodes:
+        for prop in styled(node["type"]):
+            node["props"][prop] = shown[prop]
+    nodes.append(_symbol_mark(nodes, shown[MARK_PROP], unit))
     return nodes
 
 
-def _draw(kind: str, left: float, y: float, w: float, unit: float, colour: dict) -> list[Node]:
+def _symbol_mark(nodes: list[Node], text: str, unit: float) -> Node:
+    """A symbol's mark: a square over the symbol's centre, at least one unit wide."""
+    left = min(n["geometry"]["x"] for n in nodes)
+    top = min(n["geometry"]["y"] for n in nodes)
+    right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in nodes)
+    bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in nodes)
+    side = max(right - left, bottom - top, unit)
+    cx, cy = (left + right) / 2, (top + bottom) / 2
+    return {
+        "type": "text-label",
+        "props": {
+            "text": text,
+            "fontSize": round(unit * _MARK_FONT),
+            "align": "center",
+            "foregroundColor": PAGE_TEXT,
+            "backgroundColor": TRANSPARENT,
+        },
+        "geometry": _geometry(cx - side / 2, cy - side / 2, side, side),
+    }
+
+
+def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]:
     if kind == "quadrupole_f":
         h = _MAGNET_HEIGHT * unit
-        return [_shape("rectangle", left, y - h, w, h, colour, fill=True)]
+        return [_shape("rectangle", left, y - h, w, h, fill=True)]
     if kind == "quadrupole_d":
         h = _MAGNET_HEIGHT * unit
-        return [_shape("rectangle", left, y, w, h, colour, fill=True)]
+        return [_shape("rectangle", left, y, w, h, fill=True)]
     if kind in ("quadrupole", "bend"):
         h = _MAGNET_HEIGHT * unit
-        return [_shape("rectangle", left, y - h / 2, w, h, colour, fill=True)]
+        return [_shape("rectangle", left, y - h / 2, w, h, fill=True)]
     if kind == "sextupole":
         h = _SEXTUPOLE_HEIGHT * unit
         q = w / 4
@@ -294,26 +307,28 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float, colour: dict)
             (left + q, y + h / 2),
             (left, y),
         ]
-        return [_polygon(points, colour, fill=True)]
+        return [_polygon(points, fill=True)]
     if kind == "skew_quadrupole":
-        return [_shape("rectangle", left, y - w / 2, w, w, colour, fill=False, rotation=_SKEW_TURN)]
+        return [_shape("rectangle", left, y - w / 2, w, w, fill=False, rotation=_SKEW_TURN)]
     if kind == "corrector":
         h = _CORRECTOR_HEIGHT * unit
-        return [_shape("rectangle", left, y - h / 2, w, h, colour, fill=True)]
+        return [_shape("rectangle", left, y - h / 2, w, h, fill=True)]
     if kind == "bpm":
-        return [_shape("ellipse", left, y - w / 2, w, w, colour, fill=False)]
+        return [_shape("ellipse", left, y - w / 2, w, w, fill=False)]
     if kind == "neg_pump":
-        h = _PUMP_HEIGHT * unit
-        return [_shape("rectangle", left, y - h / 2, w, h, colour, fill=False)]
-    if kind == "ion_pump":
-        return [_shape("ellipse", left, y - w / 2, w, w, colour, fill=True)]
-    if kind == "gauge":
-        return [_shape("ellipse", left, y - w / 2, w, w, colour, fill=False)]
+        h = _NEG_HEIGHT * unit
+        return [_shape("rectangle", left, y - h / 2, w, h, fill=False)]
+    if kind == "ion_pump":  # a triangle pointing down, the pump hanging off the chamber
+        top, bottom = y - w / 2, y + w / 2
+        return [_polygon([(left, top), (left + w, top), (left + w / 2, bottom)], fill=True)]
+    if kind == "gauge":  # a triangle pointing up
+        top, bottom = y - w / 2, y + w / 2
+        return [_polygon([(left + w / 2, top), (left + w, bottom), (left, bottom)], fill=False)]
     if kind == "gate_valve":
         h = _VALVE_HEIGHT * unit
         top, bottom = y - h / 2, y + h / 2
         points = [(left, top), (left + w, bottom), (left + w, top), (left, bottom)]
-        return [_polygon(points, colour, fill=True)]
+        return [_polygon(points, fill=True)]
     if kind == "bellows":
         h = _BELLOWS_HEIGHT * unit
         step = w / _BELLOWS_FOLDS
@@ -325,7 +340,7 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float, colour: dict)
         ys = [p[1] for p in points]
         x0, y0 = min(xs), min(ys)
         props = {
-            "lineColor": colour,
+            "lineColor": _OUTLINE,
             "lineWidth": _THICK,
             "points": [{"x": px - x0, "y": py - y0} for px, py in points],
             "arrowStart": False,
@@ -334,12 +349,12 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float, colour: dict)
         return [{"type": "line", "props": props, "geometry": _geometry(x0, y0, w, h)}]
     if kind == "kicker":
         h = _KICKER_HEIGHT * unit
-        return [_shape("rectangle", left, y - h / 2, w, h, colour, fill=False, lineWidth=_THICK)]
+        return [_shape("rectangle", left, y - h / 2, w, h, fill=False, lineWidth=_THICK)]
     if kind == "scraper":
         h = _SCRAPER_HEIGHT * unit
-        return [_shape("rectangle", left, y - h, w, h, colour, fill=True)]
+        return [_shape("rectangle", left, y - h, w, h, fill=True)]
     # generic
-    return [_shape("rectangle", left, y - w / 2, w, w, colour, fill=False)]
+    return [_shape("rectangle", left, y - w / 2, w, w, fill=False)]
 
 
 def light(x: float, y: float, size: float, state: str) -> list[Node]:
@@ -363,13 +378,9 @@ def light(x: float, y: float, size: float, state: str) -> list[Node]:
         (cx - r, cy - k),
     ]
     assert len(points) == _OCTAGON
-    shape = _polygon(
-        points,
-        shown["lineColor"],
-        fill=shown["fill"],
-        lineStyle=shown["lineStyle"],
-    )
-    shape["props"]["fillColor"] = shown["fillColor"]
+    shape = _polygon(points, fill=shown["fill"])
+    for prop in LIGHT_PROPS:
+        shape["props"][prop] = shown[prop]
     mark = {
         "type": "text-label",
         "props": {

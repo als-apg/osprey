@@ -40,6 +40,7 @@ class Placed:
         level: Height of an ``above`` element, 0 or 1, alternating in order of
             appearance; 0 for a beam element.
         link: Its card, or ``None``.
+        channels: Its rule-bearing channels, as the element states them.
     """
 
     thing: str
@@ -50,6 +51,7 @@ class Placed:
     width: float
     level: int
     link: Link | None
+    channels: tuple[str, ...] = ()
 
 
 def arrange(
@@ -110,7 +112,17 @@ def arrange_scaled(
             level = above % 2
             above += 1
         out.append(
-            Placed(e.thing, e.symbol, e.lane, e.s_m, offset + x * scale, w * scale, level, e.link)
+            Placed(
+                e.thing,
+                e.symbol,
+                e.lane,
+                e.s_m,
+                offset + x * scale,
+                w * scale,
+                level,
+                e.link,
+                e.channels,
+            )
         )
     return out, scale
 

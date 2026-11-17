@@ -187,6 +187,8 @@ class StripElement:
         symbol: The symbol it is drawn as; ``generic`` with none mapped.
         lane: ``above`` or ``beam``.
         link: Its card, or ``None`` when it has no screen.
+        channels: The device's rule-bearing channels, whose worst state the
+            symbol shows; none, and the symbol has no state to show.
     """
 
     thing: str
@@ -195,6 +197,7 @@ class StripElement:
     symbol: str
     lane: str
     link: Link | None
+    channels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

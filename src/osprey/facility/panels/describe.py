@@ -694,7 +694,10 @@ def place_view(
         if pose is not None and pose.is_ring_position:
             symbol = symbols.get(thing.cls or "", GENERIC_SYMBOL)
             lane = "above" if symbol in above else "beam"
-            elements.append(StripElement(thing.id, thing.cls, pose.s_m, symbol, lane, link))  # type: ignore[arg-type]
+            channels = tuple(rule_channels(graph, thing.id, "device"))
+            elements.append(
+                StripElement(thing.id, thing.cls, pose.s_m, symbol, lane, link, channels)  # type: ignore[arg-type]
+            )
         else:
             reason = pose.derived_assumes if pose is not None and pose.derived_assumes else None
             tray.append(TrayEntry(thing.id, thing.cls, reason or _NO_POSITION, link))
