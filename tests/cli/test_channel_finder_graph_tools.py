@@ -47,13 +47,15 @@ _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 
-#: The ``pv-directory`` tools demo's section serves: no alarm log, no put log.
+#: The ``pv-directory`` tools demo's section serves: no alarm log, no put log;
+#: its ``fleet`` sub-block adds ``ioc_fleet``.
 _DEMO_PV_DIRECTORY_TOOLS = [
     "mcp__pv-directory__active_alarms",
     "mcp__pv-directory__alarm_config",
     "mcp__pv-directory__alarm_state",
     "mcp__pv-directory__directory_properties",
     "mcp__pv-directory__directory_search",
+    "mcp__pv-directory__ioc_fleet",
     "mcp__pv-directory__ioc_record",
     "mcp__pv-directory__pv_record",
 ]

@@ -1492,6 +1492,9 @@ class TestDemoTiersAndApps:
             "bluesky": {"port": host["services"]["bluesky"]["port"]},
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
             "live_standin": {"port": host["services"]["live_standin"]["port"]},
+            # The demo turns the IOC fleet on; the tier's `ioc_fleet` tool
+            # dials the host's fleet service.
+            "ioc_fleet": {"port": host["services"]["ioc_fleet"]["port"]},
         }
         assert "archiver_recorder" in host["services"]
         assert config["services"]["qmd"]["port"] == QMD_DEFAULT_PORT

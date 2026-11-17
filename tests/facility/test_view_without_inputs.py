@@ -17,7 +17,10 @@ Replaced since: the four ``addresses.json`` digests, retaken when the view began
 listing the IOC health addresses, which are part of the view of every served
 model; and the injection fixture's ``variables.json``, whose request record now
 carries the ``command`` mark the injection engine describes it with; with that
-one mark removed the file still has its pre-inputs digest.
+one mark removed the file still has its pre-inputs digest; and the example
+facility's ``scenarios.json``, retaken when the facility gained the
+``line-ioc-stopped`` scenario; with that one scenario removed the file still
+has its pre-inputs digest.
 """
 
 from __future__ import annotations

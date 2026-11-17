@@ -27,7 +27,10 @@ from tests._builds import BuiltProject
 from tests.fixtures.lifecycle_repo import preserved_environ
 
 SERVER = "pv-directory"
-SECTION = {"alarm_state": {"replay_file": "demo:example-alarms"}}
+SECTION = {
+    "alarm_state": {"replay_file": "demo:example-alarms"},
+    "fleet": {"period_s": 10},
+}
 
 
 def _init_and_build(parent: Path, name: str, *init_args: str, profile: str | None = None) -> Path:

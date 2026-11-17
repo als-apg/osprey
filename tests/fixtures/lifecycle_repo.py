@@ -688,6 +688,10 @@ config:
   pv_directory:
     alarm_state:
       replay_file: demo:example-alarms
+    # IOC fleet: the IOCs view and the agent's `ioc_fleet` tool. 10 s is the
+    # shortest period allowed (twice the 5 s VA read bound). Off: `fleet: null`.
+    fleet:
+      period_s: 10
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check

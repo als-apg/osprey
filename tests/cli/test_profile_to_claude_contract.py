@@ -299,6 +299,7 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
             "mcp__pv-directory__alarm_state",
             "mcp__pv-directory__directory_properties",
             "mcp__pv-directory__directory_search",
+            "mcp__pv-directory__ioc_fleet",
             "mcp__pv-directory__ioc_record",
             "mcp__pv-directory__pv_record",
             "mcp__osprey_workspace__submit_response",
