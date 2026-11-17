@@ -611,3 +611,14 @@ def test_a_rule_the_engine_would_refuse_as_too_long_is_a_long_formula(tmp_path, 
     victim.write_text(json.dumps(doc))
     found = [p for p in emit.check(panel_graph, out) if p.kind == "long_formula"]
     assert found and all(p.file.endswith(victim.name) for p in found)
+
+
+def test_a_part_of_an_excluded_thing_has_no_screen_link_or_bound_channel(tmp_path) -> None:
+    from tests.facility.panels.test_model import _withheld
+
+    graph = _withheld(tmp_path)
+    out = tmp_path / "out"
+    write(graph, out)
+    text = "".join(p.read_text() for p in out.rglob("*.json"))
+    assert "SAF1:CARD" not in text and "SAF1-CARD" not in text
+    assert not [p for p in check(graph, out) if "SAF1" in p.detail]

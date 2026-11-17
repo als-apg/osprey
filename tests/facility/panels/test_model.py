@@ -504,3 +504,34 @@ def test_a_part_of_cycle_with_no_place_stays_unplaced(tmp_path: Path) -> None:
         assert graph.whole_of(part) is None
         assert not graph.placed(part)
     assert {"XR09:LOOPA", "XR09:LOOPB", "XR09:LOOPC"} <= {t.id for t in graph.unplaced()}
+
+
+# -- parts of an excluded thing -------------------------------------------------------
+
+
+def _withheld(tmp_path: Path) -> PanelGraph:
+    """The fixture with ``XR02:SAF1:CARD``, a ruled part of the excluded ``XR02:SAF1``,
+    and ``XR02:SAF1:CHIP``, a part of that part."""
+
+    def parts(document: dict[str, Any]) -> None:
+        add_part(document, "XR02:SAF1:CARD", "XR02:SAF1", "XR02-SAF1-CARD:Fault-Sts")
+        add_part(document, "XR02:SAF1:CHIP", "XR02:SAF1:CARD")
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write(
+            "XR02-SAF1-CARD:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,c.db:1\n"
+        )
+    return load_graph(write_fixture_facility(tmp_path / "facility.json", parts), tables)
+
+
+def test_a_part_of_an_excluded_thing_is_withheld_with_its_channels(tmp_path: Path) -> None:
+    graph = _withheld(tmp_path)
+    ids = {thing.id for thing in graph.things()}
+    assert not {"XR02:SAF1:CARD", "XR02:SAF1:CHIP"} & ids
+    with pytest.raises(KeyError):
+        graph.channel("XR02-SAF1-CARD:Fault-Sts")
+    assert "XR02-SAF1-CARD:Fault-Sts" not in {c.name for c in graph.unheld()}
+    assert not graph.rule("XR02-SAF1-CARD:Fault-Sts")
+    assert graph.withheld == 2
+    assert "XR02:SAF1:CARD" not in {thing.id for thing in graph.unplaced()}

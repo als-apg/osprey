@@ -199,3 +199,15 @@ def test_a_value_the_graph_cannot_read_is_counted_and_nothing_stops(tmp_path):
     result = _run(facility, "write", "--out", str(tmp_path / "out"))
     assert result.exit_code == 0, result.output
     assert "1 values of the facility's rows cannot be read" in result.output
+
+
+def test_a_part_of_an_excluded_thing_is_counted_as_withheld(tmp_path):
+    from tests.facility.panels._fixture import add_part
+
+    def part(document) -> None:
+        add_part(document, "XR02:SAF1:CARD", "XR02:SAF1")
+
+    facility = write_fixture_facility(tmp_path / "facility.json", part)
+    result = _run(facility, "write", "--out", str(tmp_path / "out"))
+    assert result.exit_code == 0, result.output
+    assert "1 things withheld as part of an excluded thing" in result.output

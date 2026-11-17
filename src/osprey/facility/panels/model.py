@@ -339,12 +339,19 @@ class PanelGraph:
             )
         }
         places = every_place - hidden
+        withheld = self._withheld_parts(records, excluded, hidden)
+        self.withheld = len(withheld)
+        """How many devices are left out as part of an excluded thing (at any depth)."""
         things: dict[_Key, Thing] = {}
         self._left_out: set[_Key] = set()
         for kind in END_KINDS:
             for record in records.of_kind(kind):  # type: ignore[arg-type]
                 thing_id = str(record["id"])
-                if thing_id in excluded or (kind == "place" and thing_id in hidden):
+                if (
+                    thing_id in excluded
+                    or (kind == "place" and thing_id in hidden)
+                    or (kind == "device" and thing_id in withheld)
+                ):
                     self._left_out.add((kind, thing_id))
                     continue
                 if kind == "device" and _text(record.get("place")) in hidden:
@@ -365,6 +372,38 @@ class PanelGraph:
                     level=_text(record.get("level")) if kind == "place" else None,
                 )
         return things
+
+    @staticmethod
+    def _withheld_parts(records: FacilityRecords, excluded: set[str], hidden: set[str]) -> set[str]:
+        """The devices ``part_of`` an excluded device (at any depth), which are left out too.
+
+        A device is excluded by name or by a place it is in; the ``part_of``
+        claims that are not superseded are followed down from those, each
+        device once, so a loop ends.
+        """
+        gone = {
+            str(record["id"])
+            for record in records.of_kind("device")
+            if str(record["id"]) in excluded or _text(record.get("place")) in hidden
+        }
+        parts: dict[str, list[str]] = {}
+        for claim in records.document.get("relations") or ():
+            if not isinstance(claim, Mapping) or claim.get("type") != PART_RELATION:
+                continue
+            if claim.get("standing") == "superseded":
+                continue
+            ends = [claim.get("subject"), claim.get("object")]
+            if not all(isinstance(end, Mapping) and "device" in end for end in ends):
+                continue
+            parts.setdefault(str(ends[1]["device"]), []).append(str(ends[0]["device"]))  # type: ignore[index]
+        withheld: set[str] = set()
+        stack = list(gone)
+        while stack:
+            for part in parts.get(stack.pop(), ()):
+                if part not in gone and part not in withheld:
+                    withheld.add(part)
+                    stack.append(part)
+        return withheld
 
     def _read_channels(
         self, records: FacilityRecords, tables: PanelTables, excluded: set[str]

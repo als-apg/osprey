@@ -1170,6 +1170,8 @@ def _panel_graph(
                 f"{graph.unread} values of the facility's rows cannot be read "
                 "(a rack unit that is no integer, for example); drawn without them"
             )
+        if graph.withheld:
+            report(f"{graph.withheld} things withheld as part of an excluded thing")
         return graph, tables
     except FileNotFoundError as error:
         fail("The facility cannot be read.", str(error), "Run osprey build, or name --facility.")
