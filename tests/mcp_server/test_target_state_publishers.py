@@ -46,6 +46,7 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context
+from osprey_connectors.control_context import SwitchProgress
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root
@@ -596,42 +597,37 @@ class TestApplyingBound:
 class TestPublishLastSwitch:
     @pytest.mark.usefixtures("started")
     def test_publishes_a_terminus(self):
-        outcome = {
+        at = datetime(2026, 8, 30, 10, tzinfo=UTC)
+        progress = SwitchProgress.applied(4, at=at)
+
+        assert target_state.publish_last_switch(progress) is True
+        assert target_state.read()["last_switch"] == {
             "generation": 4,
             "status": target_state.SWITCH_APPLIED,
-            "reason": None,
-            "detail": "switched to live",
             "at": "2026-08-30T10:00:00+00:00",
         }
-
-        assert target_state.publish_last_switch(outcome) is True
-        assert target_state.read()["last_switch"] == outcome
 
     @pytest.mark.usefixtures("started")
     def test_the_generation_travels_with_the_block(self):
         """A reader matches a server's progress by generation, never by target:
         two servers can be on the same target at different generations."""
-        target_state.publish_last_switch({"generation": 9, "status": target_state.SWITCH_FAILED})
+        target_state.publish_last_switch(target_state.switch_failed(9, reason=None, detail=None))
 
         assert target_state.read()["last_switch"]["generation"] == 9
 
     @pytest.mark.usefixtures("started")
-    def test_at_is_stamped_when_the_caller_omits_it(self):
-        target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_FAILED})
+    def test_at_is_stamped_now(self):
+        before = datetime.now(UTC)
+        target_state.publish_last_switch(target_state.switch_applied(1))
 
         block = target_state.read()["last_switch"]
-        datetime.fromisoformat(block["at"])
+        assert before <= datetime.fromisoformat(block["at"]) <= datetime.now(UTC)
 
     @pytest.mark.usefixtures("started")
     def test_a_failure_reason_travels_verbatim(self):
         """The vocabulary is the switch lifecycle's; this module never edits it."""
         target_state.publish_last_switch(
-            {
-                "generation": 2,
-                "status": target_state.SWITCH_FAILED,
-                "reason": "spawn_failed",
-                "detail": "the child never answered",
-            }
+            target_state.switch_failed(2, reason="spawn_failed", detail="the child never answered")
         )
 
         block = target_state.read()["last_switch"]
@@ -642,70 +638,46 @@ class TestPublishLastSwitch:
     def test_an_applying_block_carries_its_own_deadline(self):
         """Every other process only ever sees this file, so the bound is written
         into it by the one process that knows its own timeouts."""
-        target_state.publish_last_switch(
-            {
-                "generation": 3,
-                "status": target_state.SWITCH_APPLYING,
-                "at": "2026-08-30T10:00:00+00:00",
-            },
-            expires_in_s=33,
-        )
-
-        block = target_state.read()["last_switch"]
-        assert block["expires_at"] == "2026-08-30T10:00:33+00:00"
-
-    @pytest.mark.usefixtures("started")
-    def test_the_deadline_is_measured_from_the_stamp_it_publishes(self):
-        target_state.publish_last_switch(
-            {"generation": 3, "status": target_state.SWITCH_APPLYING}, expires_in_s=30
-        )
+        target_state.publish_last_switch(target_state.switch_applying(3, bound_s=33))
 
         block = target_state.read()["last_switch"]
         span = datetime.fromisoformat(block["expires_at"]) - datetime.fromisoformat(block["at"])
-        assert span == timedelta(seconds=30)
-
-    @pytest.mark.usefixtures("started")
-    def test_a_caller_supplied_deadline_is_kept(self):
-        target_state.publish_last_switch(
-            {
-                "generation": 3,
-                "status": target_state.SWITCH_APPLYING,
-                "expires_at": "2027-01-01T00:00:00+00:00",
-            },
-            expires_in_s=30,
-        )
-
-        assert target_state.read()["last_switch"]["expires_at"] == "2027-01-01T00:00:00+00:00"
+        assert span == timedelta(seconds=33)
 
     @pytest.mark.usefixtures("started")
     def test_an_applying_block_without_a_bound_stays_unbounded(self, caplog):
         """A reader with no deadline keeps waiting — the fail-closed outcome —
         and this module does not invent timeouts it does not hold."""
         with caplog.at_level("WARNING"):
-            target_state.publish_last_switch(
-                {"generation": 3, "status": target_state.SWITCH_APPLYING}
-            )
+            target_state.publish_last_switch(target_state.switch_applying(3, bound_s=None))
 
         assert "expires_at" not in target_state.read()["last_switch"]
         assert any("expires_at" in record.message for record in caplog.records)
 
-    @pytest.mark.parametrize("status", ["applied", "failed"])
+    @pytest.mark.parametrize(
+        "progress",
+        [
+            lambda: target_state.switch_applied(3),
+            lambda: target_state.switch_failed(3, reason="x", detail="y"),
+        ],
+        ids=["applied", "failed"],
+    )
     @pytest.mark.usefixtures("started")
-    def test_a_terminus_gets_no_deadline(self, status):
-        target_state.publish_last_switch({"generation": 3, "status": status}, expires_in_s=30)
+    def test_a_terminus_gets_no_deadline(self, progress):
+        target_state.publish_last_switch(progress())
 
         assert "expires_at" not in target_state.read()["last_switch"]
 
     @pytest.mark.usefixtures("started")
     def test_none_clears_the_block(self):
-        target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
+        target_state.publish_last_switch(target_state.switch_applied(1))
 
         target_state.publish_last_switch(None)
 
         assert target_state.read()["last_switch"] is None
 
     def test_preserves_identity_and_display_metadata(self, started):
-        target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
+        target_state.publish_last_switch(target_state.switch_applied(1))
 
         report = target_state.read()
         assert report["server_pid"] == started
@@ -713,7 +685,7 @@ class TestPublishLastSwitch:
         assert report["targets"] == TARGETS_META
 
     def test_without_a_report_writes_nothing(self):
-        assert target_state.publish_last_switch({"generation": 1}) is False
+        assert target_state.publish_last_switch(target_state.switch_applied(1)) is False
         assert target_state.read() is None
 
 
@@ -884,7 +856,7 @@ class TestPublishTargets:
 
     @pytest.mark.usefixtures("started")
     def test_the_sibling_blocks_survive(self):
-        target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
+        target_state.publish_last_switch(target_state.switch_applied(1))
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
         target_state.publish_posture_realign({"state": "done"})
         target_state.record_child_pids([901])
@@ -924,7 +896,7 @@ class TestBlocksDoNotClobberOneAnother:
 
     @pytest.mark.usefixtures("started")
     def test_every_block_survives_every_other_publisher(self):
-        target_state.publish_last_switch({"generation": 3, "status": target_state.SWITCH_APPLIED})
+        target_state.publish_last_switch(target_state.switch_applied(3))
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
         target_state.publish_posture_realign({"state": "pending"})
         target_state.publish_switch("live", 3, children=[901])
@@ -942,9 +914,7 @@ class TestBlocksDoNotClobberOneAnother:
 
     @pytest.mark.usefixtures("started")
     def test_publish_switch_does_not_clear_the_blocks(self):
-        target_state.publish_last_switch(
-            {"generation": 1, "status": target_state.SWITCH_APPLYING}, expires_in_s=30
-        )
+        target_state.publish_last_switch(target_state.switch_applying(1, bound_s=30))
 
         target_state.publish_switch("live", 1)
 
@@ -962,7 +932,7 @@ class TestWriteServerRecordResetsThePublications:
 
     @pytest.mark.usefixtures("started")
     def test_a_restart_drops_the_predecessors_publications(self):
-        target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
+        target_state.publish_last_switch(target_state.switch_applied(1))
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
         target_state.publish_posture_realign({"state": "pending"})
         target_state.publish_switch("live", 1)
@@ -983,9 +953,7 @@ class TestTheLibraryReadsWhatThisWrites:
 
     def test_a_published_report_parses(self, started):
         target_state.publish_switch("live", 5, children=[901])
-        target_state.publish_last_switch(
-            {"generation": 6, "status": target_state.SWITCH_APPLYING}, expires_in_s=30
-        )
+        target_state.publish_last_switch(target_state.switch_applying(6, bound_s=30))
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
         target_state.publish_posture_realign({"state": "pending"})
 
@@ -996,8 +964,9 @@ class TestTheLibraryReadsWhatThisWrites:
         assert report.applied_target == "live"
         assert report.applied_generation == 5
         assert report.children == (901,)
-        assert report.last_switch["status"] == target_state.SWITCH_APPLYING
-        assert report.last_switch["expires_at"]
+        assert report.switch_progress is not None
+        assert report.switch_progress.status == target_state.SWITCH_APPLYING
+        assert report.switch_progress.expires_at is not None
         assert report.last_posture_realign["state"] == "pending"
         assert report.reachability["targets"]["live"]["epics"]["state"] == "reached"
         assert report.updated_at
@@ -1081,3 +1050,327 @@ class TestInFlightExecutionsMoved:
     @pytest.mark.usefixtures("started")
     def test_a_report_is_not_mistaken_for_a_marker(self):
         assert target_state.in_flight_executions() == []
+
+
+# ---------------------------------------------------------------------------
+# The bytes the report writer stores
+# ---------------------------------------------------------------------------
+
+#: Each step of one server's report through a switch, captured byte for byte from
+#: the writer before the report was typed, when it merged raw dicts. The clock
+#: ticks one second and one microsecond per stamp.
+_WRITTEN = {
+    "start": """{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": null,
+  "applied_generation": null,
+  "children": [
+    11
+  ],
+  "reachability": {},
+  "last_switch": null,
+  "last_posture_realign": null,
+  "targets": {
+    "live": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    },
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false,
+      "machine_kind": "simulator"
+    },
+    "standin": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:01.000001+00:00"
+}""",
+    "applying": """{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": null,
+  "applied_generation": null,
+  "children": [
+    11
+  ],
+  "reachability": {},
+  "last_switch": {
+    "generation": 3,
+    "status": "applying",
+    "at": "2026-01-01T00:00:02.000002+00:00",
+    "expires_at": "2026-01-01T00:00:32.000002+00:00"
+  },
+  "last_posture_realign": null,
+  "targets": {
+    "live": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    },
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false,
+      "machine_kind": "simulator"
+    },
+    "standin": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:03.000003+00:00"
+}""",
+    "applying_unbounded": """{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": null,
+  "applied_generation": null,
+  "children": [
+    11
+  ],
+  "reachability": {},
+  "last_switch": {
+    "generation": 3,
+    "status": "applying",
+    "at": "2026-01-01T00:00:04.000004+00:00"
+  },
+  "last_posture_realign": null,
+  "targets": {
+    "live": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    },
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false,
+      "machine_kind": "simulator"
+    },
+    "standin": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:05.000005+00:00"
+}""",
+    "failed": """{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": null,
+  "applied_generation": null,
+  "children": [
+    11
+  ],
+  "reachability": {},
+  "last_switch": {
+    "generation": 3,
+    "status": "failed",
+    "reason": "spawn_failed",
+    "detail": "No answer.",
+    "at": "2026-01-01T00:00:06.000006+00:00"
+  },
+  "last_posture_realign": null,
+  "targets": {
+    "live": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    },
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false,
+      "machine_kind": "simulator"
+    },
+    "standin": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:07.000007+00:00"
+}""",
+    "applied": """{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    11,
+    12
+  ],
+  "reachability": {},
+  "last_switch": {
+    "generation": 3,
+    "status": "applied",
+    "at": "2026-01-01T00:00:09.000009+00:00"
+  },
+  "last_posture_realign": null,
+  "targets": {
+    "live": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    },
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false,
+      "machine_kind": "simulator"
+    },
+    "standin": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:10.000010+00:00"
+}""",
+    "rest": """{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    12
+  ],
+  "reachability": {
+    "published_at": "2026-01-01T00:00:11.000011+00:00",
+    "targets": {
+      "va": {
+        "epics": {
+          "state": "reached",
+          "probed_at": "x"
+        }
+      }
+    }
+  },
+  "last_switch": {
+    "generation": 3,
+    "status": "applied",
+    "at": "2026-01-01T00:00:09.000009+00:00"
+  },
+  "last_posture_realign": {
+    "state": "pending",
+    "at": "2026-01-01T00:00:13.000013+00:00"
+  },
+  "targets": {
+    "live": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    },
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false,
+      "machine_kind": "simulator"
+    },
+    "standin": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:15.000015+00:00"
+}""",
+    "cleared": """{
+  "server_pid": 4321,
+  "session": "s-1",
+  "applied_target": "va",
+  "applied_generation": 3,
+  "children": [
+    12
+  ],
+  "reachability": {
+    "published_at": "2026-01-01T00:00:11.000011+00:00",
+    "targets": {
+      "va": {
+        "epics": {
+          "state": "reached",
+          "probed_at": "x"
+        }
+      }
+    }
+  },
+  "last_switch": null,
+  "last_posture_realign": {
+    "state": "pending",
+    "at": "2026-01-01T00:00:13.000013+00:00"
+  },
+  "targets": {
+    "live": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    },
+    "va": {
+      "label": "VA",
+      "endpoint": "e",
+      "real_machine": false,
+      "machine_kind": "simulator"
+    },
+    "standin": {
+      "label": "",
+      "endpoint": "",
+      "real_machine": false
+    }
+  },
+  "updated_at": "2026-01-01T00:00:16.000016+00:00"
+}""",
+}
+
+
+def test_the_report_writer_stores_each_step_as_before(state_root, monkeypatch):  # noqa: ARG001
+    clock = iter(
+        datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=n, microseconds=n)
+        for n in range(1, 100)
+    )
+    monkeypatch.setattr(target_state, "_now", lambda: next(clock))
+    path = target_state.report_file_path(4321)
+    stored = {}
+
+    target_state.write_server_record(
+        {
+            "va": {
+                "label": "VA",
+                "endpoint": "e",
+                "real_machine": False,
+                "machine_kind": "simulator",
+            }
+        },
+        server_pid=4321,
+        session="s-1",
+        children=[11],
+    )
+    stored["start"] = path.read_text(encoding="utf-8")
+    target_state.publish_last_switch(target_state.switch_applying(3, bound_s=30), server_pid=4321)
+    stored["applying"] = path.read_text(encoding="utf-8")
+    target_state.publish_last_switch(target_state.switch_applying(3, bound_s=None), server_pid=4321)
+    stored["applying_unbounded"] = path.read_text(encoding="utf-8")
+    target_state.publish_last_switch(
+        target_state.switch_failed(3, reason="spawn_failed", detail="No answer."), server_pid=4321
+    )
+    stored["failed"] = path.read_text(encoding="utf-8")
+    target_state.publish_switch("va", 3, children=[11, 12], server_pid=4321)
+    target_state.publish_last_switch(target_state.switch_applied(3), server_pid=4321)
+    stored["applied"] = path.read_text(encoding="utf-8")
+    target_state.publish_reachability(
+        {"va": {"epics": {"state": "reached", "probed_at": "x"}}}, server_pid=4321
+    )
+    target_state.publish_posture_realign({"state": "pending"}, server_pid=4321)
+    target_state.record_child_pids([12], server_pid=4321)
+    stored["rest"] = path.read_text(encoding="utf-8")
+    target_state.publish_last_switch(None, server_pid=4321)
+    stored["cleared"] = path.read_text(encoding="utf-8")
+
+    assert stored == _WRITTEN

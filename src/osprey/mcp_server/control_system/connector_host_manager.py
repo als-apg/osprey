@@ -1386,12 +1386,9 @@ class ConnectorHostManager:
             return
         try:
             target_state.publish_last_switch(
-                {
-                    "generation": self._generation,
-                    "status": target_state.SWITCH_FAILED,
-                    "reason": error.reason,
-                    "detail": error.detail,
-                }
+                target_state.switch_failed(
+                    self._generation, reason=error.reason, detail=error.detail
+                )
             )
         except OSError as exc:
             logger.error(
@@ -1619,9 +1616,7 @@ class ConnectorHostManager:
             # its init frame is how it ended — leaving the block to expire would
             # hold every other session for the length of the bound over a swap
             # that finished.
-            target_state.publish_last_switch(
-                {"generation": self._generation, "status": target_state.SWITCH_APPLIED}
-            )
+            target_state.publish_last_switch(target_state.switch_applied(self._generation))
             if not published:
                 logger.warning(
                     "No target-state record to publish the switch to %r into; "

@@ -432,7 +432,7 @@ def _writes_armed() -> Iterator[None]:
         path = control_context._record_path_under(Path(scratch))
         control_context.write_record(
             control_context.ControlContext(
-                target=_ARMED_TARGET, generation=1, owner=None, posture={}, last_switch=None
+                target=_ARMED_TARGET, generation=1, owner=None, last_switch=None
             ),
             path=path,
         )

@@ -1649,11 +1649,18 @@ def _switch_mutation(
     from osprey.mcp_server.control_system import target_eligibility
 
     if wanted == record.target:
+        unchanged = control_context.SwitchTerminus.unchanged(
+            request_id=request_id,
+            target=wanted,
+            generation=record.generation,
+            requested_at=requested_at,
+            requested_by=requested_by,
+        )
         return Mutation.unchanged(
             _SwitchOutcome(
-                status=control_context.SWITCH_APPLIED,
+                status=unchanged.status,
                 generation=record.generation,
-                detail=control_context.unchanged_detail(wanted, record.generation),
+                detail=unchanged.detail,
             )
         )
 
@@ -1684,31 +1691,33 @@ def _switch_mutation(
         kernel_name=facts.kernel_names.get,
         config_path=facts.config_path,
     )
-    applied = verdict.allowed
-    if applied:
-        generation: int | None = record.generation + 1
-        detail = control_context.applied_detail(wanted, record.generation + 1)
-    else:
-        generation = None
-        detail = verdict.detail
-    return Mutation(
-        record=control_context.terminus(
-            record,
+    if verdict.allowed:
+        terminus = control_context.SwitchTerminus.applied(
             request_id=request_id,
             target=wanted,
+            generation=record.generation + 1,
             requested_at=requested_at,
             requested_by=requested_by,
-            status=control_context.SWITCH_APPLIED if applied else control_context.SWITCH_REFUSED,
-            reason=None if applied else str(verdict.reason or ""),
-            detail=detail,
-            generation=generation,
-        ),
+        )
+        message = terminus.detail
+    else:
+        terminus = control_context.SwitchTerminus.refused(
+            request_id=request_id,
+            target=wanted,
+            reason=str(verdict.reason or ""),
+            detail=verdict.detail,
+            requested_at=requested_at,
+            requested_by=requested_by,
+        )
+        message = _verdict_message(verdict)
+    return Mutation(
+        record=record.answered(terminus),
         result=_SwitchOutcome(
-            status=control_context.SWITCH_APPLIED if applied else control_context.SWITCH_REFUSED,
-            generation=record.generation if generation is None else generation,
-            reason="" if applied else str(verdict.reason or ""),
-            detail=detail,
-            message=detail if applied else _verdict_message(verdict),
+            status=terminus.status,
+            generation=record.generation if terminus.generation is None else terminus.generation,
+            reason=terminus.reason or "",
+            detail=terminus.detail,
+            message=message,
         ),
     )
 
@@ -2588,10 +2597,10 @@ def _owner_row(app: Any, record: Any) -> dict[str, Any] | None:
     if context.owner is not None:
         identity = context.follows if context.follows is not None else context.owner.identity
         return {**identity.model_dump(mode="json"), "self": context.follows is None}
-    recorded = getattr(record, "owner", None)
+    recorded = None if record is None else record.writer
     if recorded is None:
         return None
-    return {**recorded.model_dump(mode="json"), "self": control_context.owned_here(record)}
+    return {**recorded.model_dump(mode="json"), "self": control_context.written_here(record)}
 
 
 def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
@@ -2623,7 +2632,11 @@ def _server_rows(reports: Sequence[Any]) -> list[dict[str, Any]]:
             "applied_target": report.applied_target,
             "applied_generation": report.applied_generation,
             "children": list(report.children),
-            "last_switch": _aged(report.last_switch),
+            "last_switch": _aged(
+                None
+                if report.switch_progress is None
+                else report.switch_progress.model_dump(mode="json")
+            ),
             "last_posture_realign": report.last_posture_realign,
             "updated_at": None if report.updated_at is None else report.updated_at.isoformat(),
         }
@@ -3045,7 +3058,11 @@ def _posture_view(
         "servers": _server_rows(reports),
         "execution_in_flight": _execution_rows(),
         "held": _session_held(app, session_id),
-        "last_switch": _aged(None if record is None else record.last_switch),
+        "last_switch": _aged(
+            None
+            if record is None or record.last_switch is None
+            else record.last_switch.model_dump(mode="json")
+        ),
         "last_posture_realign": _fleet_realign(reports),
         "targets": rows,
     }

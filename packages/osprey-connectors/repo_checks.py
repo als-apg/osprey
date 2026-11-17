@@ -51,7 +51,19 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connector_types.SERVED": "a word of the serving vocabulary a config states",
     "osprey_connectors.connector_types.Serving": "resolve_serving answers the simulator's venue in this type",
     "osprey_connectors.connector_types.TANGO": "a word of the type-name vocabulary a config states",
-    "osprey_connectors.control_context.OwnerKind": "the record's owner names its kind in this type",
+    "osprey_connectors.control_context.ReachableState": (
+        "a machine statement says whether the machine is reached in this type"
+    ),
+    "osprey_connectors.control_context.SwitchProgressStatus": (
+        "a server's switch progress states how far it has got in this type"
+    ),
+    "osprey_connectors.control_context.SwitchStatus": (
+        "a switch request's terminus states how it ended in this type"
+    ),
+    "osprey_connectors.control_context.TerminusOutcome": (
+        "write_terminus says whether an answer stuck, and why not, in this type"
+    ),
+    "osprey_connectors.control_context.WriterKind": "the record's writer names its kind in this type",
     "osprey_connectors.control_system.Alarm": (
         "a connector's read reports the alarm state of a reading in this type"
     ),

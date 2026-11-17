@@ -171,7 +171,7 @@ def test_a_corrupt_record_is_unreadable_on_both_sides(stamped_root):
 def test_a_non_string_target_is_dropped_by_both_parsers():
     """JSON cannot spell one, but both parsers also take decoded objects."""
     raw = {"live": "sandbox", 7: "sandbox"}
-    assert reader.parse_posture(raw) == posture_store.parse_posture_value(raw)
+    assert reader.parse_posture(raw) == posture_store._parse_posture_value(raw)
     assert reader.parse_posture(raw) == {"live": "sandbox"}
 
 
@@ -207,7 +207,7 @@ def test_the_posture_parsers_agree_shape_for_shape(raw):
     reasons; this pins the surviving structure, which is what a future target
     name or a future posture value would change.
     """
-    assert reader.parse_posture(raw) == posture_store.parse_posture_value(raw)
+    assert reader.parse_posture(raw) == posture_store._parse_posture_value(raw)
 
 
 def test_legacy_bare_sandbox_covers_the_whole_target_vocabulary():
@@ -219,7 +219,7 @@ def test_legacy_bare_sandbox_covers_the_whole_target_vocabulary():
     rule.
     """
     parsed = reader.parse_posture("sandbox")
-    assert parsed == posture_store.parse_posture_value("sandbox")
+    assert parsed == posture_store._parse_posture_value("sandbox")
     assert set(parsed) == set(reader.CONTROL_TARGETS)
 
 

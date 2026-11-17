@@ -86,7 +86,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from canopy.contracts.pv import PVMeta, PVValue, PVWriteValue, ValueKind
 from canopy.contracts.sample import AlarmSeverity
@@ -291,8 +291,8 @@ _DEFAULT_MAX_ARRAY_ELEMENTS = 100_000
 STATEMENT_PUSH_WAIT_S = 1.0
 
 #: The three words :attr:`OspreyPVConnector.reachable` states.
-REACH_YES = "yes"
-REACH_NO = "no"
+REACH_YES: Final = "yes"
+REACH_NO: Final = "no"
 REACH_UNKNOWN = "unknown"
 
 
@@ -756,14 +756,17 @@ class OspreyPVConnector:
             applied_target=binding.target,
             applied_generation=binding.generation,
             updated_at=datetime.fromtimestamp(self._wall_clock(), UTC),
-            statement={"reachable": self._report_reach(), "writes": session.writes},
+            statement=control_context.MachineStatement(
+                reachable=self._report_reach(),
+                writes=control_context.WritesStatement.of(session.verdict),
+            ),
         )
         try:
-            control_context.write_json_atomic(path, report.model_dump(mode="json"))
+            control_context.write_report(report, path)
         except OSError:
             logger.warning("Could not write the display-only server report", exc_info=True)
 
-    def _report_reach(self) -> dict[str, Any]:
+    def _report_reach(self) -> control_context.Reachable:
         """The report's ``reachable``: ``no`` since the transport went stale, else ``yes``.
 
         A channel that does not answer is that channel's failure and never
@@ -771,9 +774,9 @@ class OspreyPVConnector:
         reader takes.
         """
         if self._stale_since is None:
-            return _reach(REACH_YES)
-        since = datetime.fromtimestamp(self._stale_since, UTC).isoformat()
-        return _reach(REACH_NO, since=since)
+            return control_context.Reachable(state=REACH_YES)
+        since = datetime.fromtimestamp(self._stale_since, UTC)
+        return control_context.Reachable(state=REACH_NO, since=since)
 
     # -- reachability -------------------------------------------------------
 

@@ -90,7 +90,6 @@ def write_record(
     record = control_context.ControlContext(
         target=target,
         generation=generation,
-        posture=dict(posture or {}),
     )
     control_context.write_record(record, path=path)
     control_context.invalidate_cache()

@@ -360,8 +360,7 @@ def _narrow_the_build_account(repo: Path) -> Path:
     record = ControlContext(
         target=TARGET_VA,
         generation=1,
-        owner=None,
-        posture=dict.fromkeys(CONTROL_TARGETS, POSTURE_SANDBOX),
+        writer=None,
     )
     return write_record(record, path=identity_dir / RECORD_FILENAME)
 

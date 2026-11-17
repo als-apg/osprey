@@ -140,7 +140,7 @@ def test_control_target_stands_while_the_owner_is_dead(control_context_root, wri
     write_control_context(
         control_context_root,
         target="va",
-        owned_by=control_context.Owner(
+        owned_by=control_context.RecordWriter(
             kind=control_context.OWNER_WEB_TERMINAL, pid=_DEAD_PID, port=None
         ),
     )

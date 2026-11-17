@@ -706,9 +706,9 @@ def test_switch_confirms_moves_the_record_and_waits_for_the_fleet(
             assert record.target == SWITCH_TARGET, record
             assert record.generation == RECORD_GENERATION + 1, record
             assert record.last_switch is not None, record
-            assert record.last_switch["status"] == control_context.SWITCH_APPLIED, record
-            assert record.last_switch["target"] == SWITCH_TARGET, record
-            assert record.last_switch["request_id"], record
+            assert record.last_switch.status == control_context.SWITCH_APPLIED, record
+            assert record.last_switch.target == SWITCH_TARGET, record
+            assert record.last_switch.request_id, record
         finally:
             page.close()
 
@@ -990,7 +990,7 @@ def test_all_off_from_a_follower_turns_every_machine_off(tmp_path, monkeypatch, 
             record = read_record()
             assert record is not None
             assert dict(record.switch) == {}, record.switch
-            assert record.owner is not None and record.owner.pid == os.getppid(), record.owner
+            assert record.writer is not None and record.writer.pid == os.getppid(), record.writer
             for target in KINDS:
                 verdict = write_verdict_for(app, target)
                 assert not verdict.allowed and verdict.reason == "switch_off", verdict

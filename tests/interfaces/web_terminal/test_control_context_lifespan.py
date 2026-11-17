@@ -48,7 +48,7 @@ from osprey.interfaces.web_terminal.control_context_owner import (
     terminal_identity,
 )
 from osprey_connectors import control_context
-from osprey_connectors.control_context import ControlContext, Owner
+from osprey_connectors.control_context import ControlContext, RecordWriter
 from osprey_connectors_tests._harness import _control_context_fixtures as fixtures
 
 #: A live web terminal that is not this one, and a controls server likewise.
@@ -79,7 +79,7 @@ def make_task(app: SimpleNamespace, **kwargs) -> ControlContextOwnerTask:
     """A task claiming as this process, which is the only identity it has.
 
     The PID is the real one: the request half guards on
-    :func:`~osprey_connectors.control_context.owned_here`, which is PID
+    :func:`~osprey_connectors.control_context.written_here`, which is PID
     equality against ``os.getpid()`` — the same guard the controls server
     uses, so the two owners cannot disagree about who owns one file.
     """
@@ -132,8 +132,7 @@ async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_ro
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation, stored.switch) == (BASELINE, 0, {})
-    assert stored.posture == control_context._posture_mirror({})
-    assert stored.owner == terminal_identity()
+    assert stored.writer == terminal_identity()
     assert app.state.control_context_owner is task.owner
     assert app.state.control_context_follows is None
 
@@ -161,8 +160,7 @@ async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 7)
     assert stored.switch == {"live": "asked"}
-    assert stored.posture == {"va": "sandbox", "standin": "sandbox"}
-    assert stored.owner == terminal_identity()
+    assert stored.writer == terminal_identity()
 
 
 async def test_a_terminal_claims_over_a_live_controls_server(
@@ -182,7 +180,7 @@ async def test_a_terminal_claims_over_a_live_controls_server(
 
     stored = read(control_context_root)
     assert stored is not None
-    assert stored.owner == terminal_identity()
+    assert stored.writer == terminal_identity()
     assert (stored.target, stored.generation) == ("va", 2)
     assert app.state.control_context_follows is None
 
@@ -262,7 +260,7 @@ async def test_a_terminal_claims_a_record_whose_owner_pid_is_another_users_proce
     stored = read(control_context_root)
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 5)
-    assert stored.owner == terminal_identity()
+    assert stored.writer == terminal_identity()
     assert app.state.control_context_follows is None
 
 
@@ -282,7 +280,7 @@ async def test_a_follower_takes_the_record_the_moment_the_other_terminal_goes(
 
     assert app.state.control_context_follows is None
     stored = read(control_context_root)
-    assert stored is not None and stored.owner == terminal_identity()
+    assert stored is not None and stored.writer == terminal_identity()
 
 
 # -- what the routes read off app.state -------------------------------------
@@ -332,7 +330,7 @@ async def test_the_owner_task_keeps_trying_after_a_failed_startup_claim(
         await task.stop()
 
     stored = read(control_context_root)
-    assert stored is not None and stored.owner == terminal_identity()
+    assert stored is not None and stored.writer == terminal_identity()
 
 
 # -- nothing on the loop ----------------------------------------------------
@@ -401,9 +399,9 @@ async def test_a_request_for_the_target_the_deployment_is_on_is_applied_without_
     assert stored is not None
     assert stored.generation == 6, "a switch that did not happen must not cost a generation"
     assert stored.last_switch is not None
-    assert stored.last_switch["request_id"] == "r-1"
-    assert stored.last_switch["status"] == control_context.SWITCH_APPLIED
-    assert stored.last_switch["requested_by"] == "agent-7"
+    assert stored.last_switch.request_id == "r-1"
+    assert stored.last_switch.status == control_context.SWITCH_APPLIED
+    assert stored.last_switch.requested_by == "agent-7"
     assert not path.exists(), "an answered request is removed once the answer has stuck"
 
 
@@ -418,7 +416,7 @@ async def test_a_requester_with_no_session_is_named_by_its_pid(
 
     stored = read(control_context_root)
     assert stored is not None and stored.last_switch is not None
-    assert stored.last_switch["requested_by"] == f"pid:{OTHER_TERMINAL_PID}"
+    assert stored.last_switch.requested_by == f"pid:{OTHER_TERMINAL_PID}"
 
 
 @pytest.mark.usefixtures("liveness")
@@ -519,7 +517,9 @@ def test_the_identity_names_the_port_the_terminal_actually_listens_on(monkeypatc
 
     identity = terminal_identity()
 
-    assert identity == Owner(kind=control_context.OWNER_WEB_TERMINAL, pid=os.getpid(), port=8123)
+    assert identity == RecordWriter(
+        kind=control_context.OWNER_WEB_TERMINAL, pid=os.getpid(), port=8123
+    )
 
 
 @pytest.mark.parametrize("declared", ["", "  ", "not-a-port"])
@@ -560,9 +560,9 @@ async def test_a_refused_switch_moves_neither_target_nor_generation(
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 6)
     assert stored.last_switch is not None
-    assert stored.last_switch["request_id"] == "r-6"
-    assert stored.last_switch["status"] == control_context.SWITCH_REFUSED
-    assert stored.last_switch["generation"] is None
+    assert stored.last_switch.request_id == "r-6"
+    assert stored.last_switch.status == control_context.SWITCH_REFUSED
+    assert stored.last_switch.generation is None
     assert not path.exists()
 
 
@@ -618,10 +618,10 @@ async def test_an_eligible_request_is_applied_with_a_mint(
     assert stored is not None
     assert (stored.target, stored.generation) == ("va", 7)
     assert stored.last_switch is not None
-    assert stored.last_switch["request_id"] == "r-7"
-    assert stored.last_switch["status"] == control_context.SWITCH_APPLIED
-    assert stored.last_switch["generation"] == 7
-    assert stored.last_switch["requested_by"] == "agent-7"
+    assert stored.last_switch.request_id == "r-7"
+    assert stored.last_switch.status == control_context.SWITCH_APPLIED
+    assert stored.last_switch.generation == 7
+    assert stored.last_switch.requested_by == "agent-7"
     assert not path.exists()
 
 
@@ -741,10 +741,10 @@ async def test_an_unreadable_render_refuses_a_request_naming_the_file(
     assert stored is not None
     assert (stored.target, stored.generation) == ("live", 6)
     assert stored.last_switch is not None
-    assert stored.last_switch["request_id"] == "r-9"
-    assert stored.last_switch["status"] == control_context.SWITCH_REFUSED
-    assert stored.last_switch["reason"] == "internal_error"
-    assert str(config_file) in stored.last_switch["detail"]
+    assert stored.last_switch.request_id == "r-9"
+    assert stored.last_switch.status == control_context.SWITCH_REFUSED
+    assert stored.last_switch.reason == "internal_error"
+    assert str(config_file) in stored.last_switch.detail
     assert not request.exists()
 
 
@@ -789,9 +789,9 @@ async def test_a_gate_that_raises_is_refused_as_internal_error(
     assert stored is not None
     assert (stored.target, stored.generation) == ("live", 6)
     assert stored.last_switch is not None
-    assert stored.last_switch["request_id"] == "r-8"
-    assert stored.last_switch["status"] == control_context.SWITCH_REFUSED
-    assert stored.last_switch["reason"] == "internal_error"
-    assert "RuntimeError: the gate is broken" in stored.last_switch["detail"]
-    assert stored.last_switch["generation"] is None
+    assert stored.last_switch.request_id == "r-8"
+    assert stored.last_switch.status == control_context.SWITCH_REFUSED
+    assert stored.last_switch.reason == "internal_error"
+    assert "RuntimeError: the gate is broken" in stored.last_switch.detail
+    assert stored.last_switch.generation is None
     assert not path.exists()
