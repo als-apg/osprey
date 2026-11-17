@@ -34,6 +34,7 @@ from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import health, strip, symbols
+from osprey.facility.panels.describe import NO_POSITION
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
 from osprey.facility.panels.model import Citation, PanelGraph
@@ -126,7 +127,6 @@ GRID_CELL_WIDTH = 240  # one member of a set overview
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
 MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 45 px tall
 SYMBOL_UNIT = 20  # one shape unit of a symbol, in px, at scale 1: a bend is 75 px tall
-STRIP_LANE = 200  # the strip's lane; the axis runs through its middle
 STRIP_AXIS = 38  # the axis's room each side: half the tallest symbol, a bend
 BADGE = 20  # a device off the axis: its circle
 STEM_LOW = 52  # from the axis to the centre of a badge, first level
@@ -1760,7 +1760,11 @@ class _Page:
         beam = [p for p in placed if p.lane != "above"]
         badges = [p for p in placed if p.lane == "above"]
         levels = stem_levels([p.x for p in badges])
-        axis = self.y + STRIP_LANE / 2
+        # the upper lane only when something stands in it
+        above = STRIP_AXIS
+        if badges:
+            above = (STEM_HIGH if any(levels) else STEM_LOW) + BADGE / 2
+        axis = self.y + above + GAP
         self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], PAGE_TEXT, AXIS_WIDTH)
         for p, level in zip(badges, levels, strict=True):
             x = MARGIN + p.x
@@ -1780,7 +1784,7 @@ class _Page:
             self.text(MARGIN + left, top, text, size=STRIP_LABEL_SIZE, w=w, h=STRIP_LABEL_STEP)
             lines = max(lines, level + 1)
         names = axis + STRIP_LABEL_TOP + lines * STRIP_LABEL_STEP
-        self.y = max(axis + STRIP_LANE / 2, names) + LEADER_GAP
+        self.y = max(axis + STRIP_AXIS, names) + LEADER_GAP
         if extent is not None:
             self.locator(beam, extent)
         else:
@@ -1865,8 +1869,9 @@ class _Page:
         the metres."""
         lo, hi = extent
         span = hi - lo
-        leaders_top = self.y
-        bar = self.y + LEADER_DROP + LOCATOR_BIG
+        self.text(MARGIN, self.y, _LOCATOR_CAPTION, size=SMALL_SIZE, fg=MUTED_TEXT)
+        leaders_top = self.y + ROW
+        bar = leaders_top + LEADER_DROP + LOCATOR_BIG
         self.line([(MARGIN, bar), (MARGIN + STRIP_WIDTH, bar)], MUTED_TEXT, LOCATOR_BAR)
         shifted = [StripElement(p.thing, None, p.s_m - lo, p.symbol, p.lane, None) for p in beam]
         marks = strip.locator(shifted, span, STRIP_WIDTH)
@@ -1882,9 +1887,7 @@ class _Page:
             label = f"{metres:g}"
             w = text_width(label, SMALL_SIZE)
             self.text(MARGIN + x - w / 2, top + TICK, label, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
-        self.y = top + TICK + ROW
-        self.text(MARGIN, self.y, _LOCATOR_CAPTION, size=SMALL_SIZE, fg=MUTED_TEXT)
-        self.y += ROW + ROW_GAP
+        self.y = top + TICK + ROW + ROW_GAP
 
     def legend(self, elements: Sequence[StripElement]) -> None:
         """Each symbol the strip draws, as it is drawn, and its name."""
@@ -1976,7 +1979,11 @@ class _Page:
         if item.others is not None:
             self.quiet_link(MARGIN + STRIP_WIDTH - TRAY_PAD, self.y, item.others)
         self.y += ROW
-        entries = [(f"{e.thing} · {e.reason}", e.link, None) for e in item.tray]
+        # the heading says "not placed": a reason only when it says more
+        entries = [
+            (e.thing if e.reason == NO_POSITION else f"{e.thing} · {e.reason}", e.link, None)
+            for e in item.tray
+        ]
         self.chips(MARGIN + TRAY_PAD, entries)
         self.y += TRAY_PAD - CHIP_GAP
         self.box(MARGIN, top, STRIP_WIDTH, self.y - top, line=MUTED_TEXT, dashed=True)

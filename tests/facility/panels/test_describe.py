@@ -444,7 +444,7 @@ def _every_view(
 
 
 def test_every_link_target_is_a_screen(panel_graph):
-    params = {"symbols": {"Pump": "pump"}, "above": frozenset({"Pump"})}
+    params = {"symbols": {"Pump": "pump"}, "above": frozenset({"pump"})}
     found = set(targets(panel_graph, rack_classes=SECTORS))
     views = _every_view(panel_graph, SECTORS, **params)
     assert [view.id for view in views] == targets(panel_graph, rack_classes=SECTORS)
@@ -556,7 +556,7 @@ def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
 
 
 def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
-    view = place_view(panel_graph, "XR/XR01", symbols={"Pump": "pump"}, above=frozenset({"Pump"}))
+    view = place_view(panel_graph, "XR/XR01", symbols={"Pump": "pump"}, above=frozenset({"pump"}))
     (strip,) = _section(view, "strip").items
     assert [(e.thing, e.cls, e.s_m, e.symbol, e.lane) for e in strip.elements] == [
         ("XR01:IP1", "Pump", 1.25, "pump", "above"),
@@ -1102,3 +1102,18 @@ def test_every_roll_up_counts_a_channel_once_at_every_level(tmp_path) -> None:
                 assert len(node.channels) == len(set(node.channels)), (place, by, node.label)
     (root,) = _section(health_rollup(graph, "XR"), "roll-up").items
     assert root.channels.count("XR02-CH5:Fault-Sts") == 1
+
+
+def test_a_class_the_draw_settings_lift_is_drawn_on_the_upper_lane(panel_graph, tmp_path):
+    import json
+
+    from osprey.facility.panels.emit import load_draw
+
+    path = tmp_path / "draw.json"
+    path.write_text(json.dumps({"symbols": {"Pump": "pump"}, "above": ["Pump"]}))
+    draw = load_draw(path)
+    view = place_view(panel_graph, "XR/XR01", symbols=draw.symbols, above=draw.above)
+    (strip,) = _section(view, "strip").items
+    lanes = {e.thing: (e.symbol, e.lane) for e in strip.elements}
+    assert lanes["XR01:IP1"] == ("pump", "above")
+    assert lanes["XR01:QF1"][1] == "beam"

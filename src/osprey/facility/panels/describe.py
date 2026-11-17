@@ -73,6 +73,7 @@ from osprey.facility.panels.view import (
 __all__ = [
     "GENERIC_SYMBOL",
     "NOT_PLACED",
+    "NO_POSITION",
     "NO_SYSTEM",
     "PLACE_RELATION",
     "RACK_ORDER",
@@ -127,7 +128,8 @@ def _system(thing: Thing) -> str:
     return thing.cls if thing.cls is not None else NO_SYSTEM
 
 
-_NO_POSITION = "no position"
+#: A tray entry's reason when nothing more is known than that it has no position.
+NO_POSITION = "no position"
 _NOT_IN = "not placed"
 _NO_THING = "on no device"
 _OTHERS = "{} other things in this place"
@@ -808,7 +810,9 @@ def place_view(
         graph: The panel graph.
         place_id: The place.
         symbols: Device class -> symbol; a class not named is ``generic``.
-        above: The device classes drawn on the lane above the beam.
+        above: The symbols drawn on the lane above the beam (the draw settings
+            name classes; :func:`~osprey.facility.panels.emit.load_draw` gives
+            their symbols).
 
     Raises:
         KeyError: No such place, or it is excluded.
@@ -826,14 +830,14 @@ def place_view(
         pose = graph.pose(thing.id)
         if pose is not None and pose.is_ring_position:
             symbol = symbols.get(thing.cls or "", GENERIC_SYMBOL)
-            lane = "above" if thing.cls in above else "beam"
+            lane = "above" if symbol in above else "beam"
             channels = tuple(rule_channels(graph, thing.id, "device"))
             elements.append(
                 StripElement(thing.id, thing.cls, pose.s_m, symbol, lane, link, channels)  # type: ignore[arg-type]
             )
         elif thing.cls is not None and thing.cls in symbols:
             reason = pose.derived_assumes if pose is not None and pose.derived_assumes else None
-            tray.append(TrayEntry(thing.id, thing.cls, reason or _NO_POSITION, link))
+            tray.append(TrayEntry(thing.id, thing.cls, reason or NO_POSITION, link))
         else:
             others += 1
     elements.sort(key=lambda element: (element.s_m, element.thing))

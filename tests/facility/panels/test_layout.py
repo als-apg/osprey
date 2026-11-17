@@ -445,7 +445,7 @@ def test_the_tray_is_a_dashed_box_of_its_entries_with_their_reason(panel_graph) 
     texts = _texts(doc)
     assert "IN OUR LISTS, NOT PLACED" in texts
     for entry in item.tray:
-        assert f"{entry.thing} · {entry.reason}" in texts
+        assert entry.thing in texts  # the heading says it is not placed
 
 
 def test_a_conflicting_rack_unit_is_marked(panel_graph) -> None:
@@ -667,7 +667,7 @@ def test_an_empty_strip_with_only_a_tray_renders(panel_graph) -> None:
     from osprey.facility.panels.view import TrayEntry
 
     doc, _ = draw(strip_view([], (TrayEntry("T", None, "no position", None),)), panel_graph)
-    assert "T · no position" in _texts(doc)
+    assert "T" in _texts(doc) and "T · no position" not in _texts(doc)
     assert not _axes(doc) and not _marks(doc)
 
 
@@ -1254,3 +1254,34 @@ def test_a_rack_over_its_budget_draws_one_light_per_unit_and_no_parts(tmp_path, 
     assert any("XR01-CARD1:Fault-Sts" in t and "XR01-CARD2:Fault-Sts" in t for t in tips)
     assert not [t for t in tips if t.startswith("part ")]
     assert _subscriptions(doc) < _subscriptions(full)
+
+
+def test_a_tray_chip_names_a_reason_only_when_it_says_more_than_the_heading(panel_graph):
+    from osprey.facility.panels.view import TrayEntry
+
+    tray = (TrayEntry("T1", None, "no position", None), TrayEntry("T2", None, "frame odd", None))
+    doc, _ = draw(strip_view([], tray), panel_graph)
+    assert {"T1", "T2 · frame odd"} <= set(_texts(doc))
+
+
+def test_the_upper_lane_is_reserved_only_when_something_stands_in_it(panel_graph) -> None:
+    from tests.facility.panels._views import element
+
+    flat = [element(f"E{i}", float(i), "bpm") for i in range(3)]
+    lifted = [*flat, element("UP", 1.5, "ion_pump", lane="above")]
+    tops = []
+    for row in (flat, lifted):
+        doc, _ = draw(strip_view(row), panel_graph)
+        (axis,) = _axes(doc)
+        tops.append(axis["geometry"]["y"])
+    assert tops[0] + layout.STEM_LOW - layout.STRIP_AXIS <= tops[1]
+
+
+def test_the_scale_caption_stands_above_the_bar_at_its_left_end(panel_graph) -> None:
+    doc, _ = draw(invented_views()[1], panel_graph)
+    (caption,) = [
+        n for n in _by_type(doc, "text-label") if n["props"]["text"].startswith("to scale")
+    ]
+    bar = [n for n in _by_type(doc, "line") if n["geometry"]["width"] >= layout.STRIP_WIDTH][-1]
+    assert caption["geometry"]["y"] + caption["geometry"]["height"] <= bar["geometry"]["y"]
+    assert caption["geometry"]["x"] == layout.MARGIN
