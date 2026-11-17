@@ -56,12 +56,20 @@ def _fresh_report_record(monkeypatch):
     monkeypatch.setattr(config, "_shell_only_reported", set())
 
 
-@pytest.fixture
-def chain(tmp_path) -> list[Path]:
+@pytest.fixture(scope="module")
+def chain(tmp_path_factory) -> list[Path]:
+    """The ``.env.shared`` and ``.env`` chain, written once for the module.
+
+    Shared by every test that takes it: they only read the two files (as
+    :func:`apply_env_chain` and :func:`load_project_dotenv` do), and the
+    once-per-file warning record they would share is reset for each test by
+    :func:`_fresh_report_record`.
+    """
+    directory = tmp_path_factory.mktemp("chain")
     shared = _write_chain(
-        tmp_path, ".env.shared", {"OSPREY_ORDINARY": "shared", "OSPREY_BOTH": "s"}
+        directory, ".env.shared", {"OSPREY_ORDINARY": "shared", "OSPREY_BOTH": "s"}
     )
-    local = _write_chain(tmp_path, ".env", {"OSPREY_BOTH": "local"})
+    local = _write_chain(directory, ".env", {"OSPREY_BOTH": "local"})
     return [shared, local]
 
 
