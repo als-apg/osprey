@@ -925,7 +925,7 @@ async def test_archiver_read_emits_empty_series_entry_for_absent_channel(
 ):
     """The data file's series entry for a zero-row channel is exactly {timestamps: [], values: []}.
 
-    Consumers like ``build_data_reader`` rely on every *requested* channel
+    Consumers like ``DATA_READER_SOURCE`` rely on every *requested* channel
     getting an entry in ``series``, even one with no data in range.
     """
     fn, connector = archiver_read_tool
