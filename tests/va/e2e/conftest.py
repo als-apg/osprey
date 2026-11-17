@@ -456,7 +456,7 @@ UNSTABLE_SCENARIO_NAME = "va-e2e-unstable"
 UNSTABLE_QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
 _unstable_binding = PRESET_VIEW.binding(UNSTABLE_QUADRUPOLE)
 assert _unstable_binding is not None, f"no served model wires {UNSTABLE_QUADRUPOLE}"
-UNSTABLE_CURRENT = 2 * float(_unstable_binding.record["default"])
+UNSTABLE_CURRENT = 2 * float(_unstable_binding.engine_entry()["default"])
 
 #: Synthetic scenario that excites one vertical corrector, so the vertical
 #: closed orbit at :data:`KICK_MONITOR` is nonzero: at rest the demo's closed

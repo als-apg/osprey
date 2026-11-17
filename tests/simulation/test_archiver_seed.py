@@ -27,6 +27,7 @@ and carry the contract on their own.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -37,7 +38,7 @@ from pydantic import ValidationError
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.errors import NaiveDatetimeError
-from osprey_connectors.simulation import pulse
+from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -517,7 +518,7 @@ class TestFingerprint:
     def test_the_pulse_shape_is_part_of_it(self):
         """The stored traces are the shape's output, so a store seeded under
         other shape constants holds a different history."""
-        assert self._fingerprint()["shape_version"] == pulse.SHAPE_VERSION
+        assert self._fingerprint().shape_version == pulse.SHAPE_VERSION
 
     def test_a_shape_change_changes_the_fingerprint(self, monkeypatch):
         before = self._fingerprint()
@@ -575,7 +576,7 @@ class TestFingerprintComparison:
         )
 
         assert comparison.state is SeedState.MISMATCH
-        moved = {key for key, _, _ in comparison.differences}
+        moved = {change.key for change in comparison.differences}
         assert "retention_days" in moved
         assert "7" in comparison.describe()
 
@@ -591,7 +592,7 @@ class TestFingerprintComparison:
         comparison = compare_fingerprint(collection, self._current())
 
         assert comparison.state is SeedState.MISMATCH
-        assert any(stored is None for _, stored, _ in comparison.differences)
+        assert any(change.stored is None for change in comparison.differences)
 
     def test_the_manifest_starts_with_an_empty_ledger(self, collection):
         """The scenario rewrite owns it; a fresh base has touched nothing."""
@@ -1042,9 +1043,28 @@ def test_the_manifest_document_is_json_serializable_apart_from_its_dates():
     """The fingerprint is stored verbatim and compared field by field, so every
     value in it has to be a plain scalar rather than something BSON encodes by
     its own rules."""
-    fingerprint = seed_fingerprint(SMALL, ADDRESSES, compression="zstd")
+    stored = seed_fingerprint(SMALL, ADDRESSES, compression="zstd").model_dump()
 
-    assert json.loads(json.dumps(fingerprint)) == fingerprint
+    assert json.loads(json.dumps(stored)) == stored
+
+
+def test_the_stored_fingerprint_keeps_its_fields_in_their_order():
+    """The manifest's subdocument is the fingerprint's dump, field for field as it was a dict."""
+    names = sorted(set(ADDRESSES))
+    stored = seed_fingerprint(SMALL, ADDRESSES, compression="zstd").model_dump()
+
+    assert list(stored.items()) == [
+        ("schema_version", 2),
+        ("retention_days", SMALL.retention_days),
+        ("hot_span_hours", SMALL.hot_span_hours),
+        ("hot_cadence_sec", SMALL.hot_cadence_sec),
+        ("tail_cadence_sec", SMALL.tail_cadence_sec),
+        ("compression", "zstd"),
+        ("shape_version", pulse.SHAPE_VERSION),
+        ("topoff_shape_version", topoff.SHAPE_VERSION),
+        ("channel_count", len(names)),
+        ("channel_set_sha256", hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()),
+    ]
 
 
 def test_a_comparison_describes_nothing_when_nothing_moved():
@@ -1096,9 +1116,10 @@ def test_the_report_names_its_span_in_utc(archive):
 def test_a_seed_instant_the_store_hands_back_naive_is_read_as_utc():
     """BSON dates are UTC; a client opened without ``tz_aware`` hands them back naive."""
     collection = StubCollection()
-    _write_manifest(collection, {}, seeded_at=NAIVE_T0)  # type: ignore[arg-type]
+    fingerprint = seed_fingerprint(SMALL, ADDRESSES, compression="zstd")
+    _write_manifest(collection, fingerprint, seeded_at=NAIVE_T0)
 
-    comparison = compare_fingerprint(collection, {})  # type: ignore[arg-type]
+    comparison = compare_fingerprint(collection, fingerprint)
 
     assert comparison.seeded_at == T0
     assert comparison.seeded_at is not None and comparison.seeded_at.tzinfo is UTC

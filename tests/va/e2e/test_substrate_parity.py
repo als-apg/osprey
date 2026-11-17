@@ -196,13 +196,9 @@ import yaml  # noqa: E402
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import TEXTURE, decode_char_waveform, topoff  # noqa: E402
 from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
-from osprey_connectors.simulation.records import SeedRecord  # noqa: E402
+from osprey_connectors.simulation.records import ChannelRecord, SeedRecord  # noqa: E402
 from osprey_connectors.simulation.values import is_waveform  # noqa: E402
-from osprey_connectors.simulation.view import (  # noqa: E402
-    VIEW_RELPATH,
-    Channel,
-    SimulatorView,
-)
+from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView  # noqa: E402
 from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
 from tests.e2e._facility_select import monitor_addresses  # noqa: E402
 from tests.va._collection import assert_module_collected  # noqa: E402
@@ -304,7 +300,7 @@ class View:
         """Every address the view serves: its channels and its status addresses."""
         return [*self.served, *self.status]
 
-    def channel(self, address: str) -> Channel:
+    def channel(self, address: str) -> ChannelRecord:
         return self.reader.channel(address)
 
     def seed(self, address: str) -> SeedRecord | None:

@@ -147,12 +147,8 @@ import pytest  # noqa: E402
 import yaml  # noqa: E402
 from click.testing import CliRunner  # noqa: E402
 
-from osprey_connectors.simulation.view import (  # noqa: E402
-    VIEW_RELPATH,
-    Binding,
-    Channel,
-    SimulatorView,
-)
+from osprey_connectors.simulation.records import ChannelRecord, WiringRecord  # noqa: E402
+from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView  # noqa: E402
 from tests.fixtures.mml._trees import names  # noqa: E402
 from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
@@ -315,7 +311,7 @@ class BuiltTree:
         """The simulator view the container's composite serves."""
         return self.data_root / VIEW_RELPATH.name
 
-    def channel(self, address: str) -> Channel:
+    def channel(self, address: str) -> ChannelRecord:
         """The view's record of ``address``."""
         try:
             return self.view.channel(address)
@@ -324,7 +320,7 @@ class BuiltTree:
                 f"{self.name}: the served view lists no channel {address}"
             ) from None
 
-    def bindings(self) -> tuple[Binding, ...]:
+    def bindings(self) -> tuple[WiringRecord, ...]:
         """Every wiring record of the view's physics models, model by name, then in wiring order."""
         return self.view.bindings(served_only=False)
 
@@ -332,10 +328,10 @@ class BuiltTree:
         """Every address a physics model of the view wires, in wiring order."""
         return list(dict.fromkeys(binding.address for binding in self.bindings()))
 
-    def kind(self, binding: Binding) -> str | None:
+    def kind(self, binding: WiringRecord) -> str | None:
         """The kind of device ``binding`` drives or reads, as its model's engine describes it."""
-        engine = self.view.model(binding.model).engine
-        kind: str | None = _describer(engine)(binding.record)["kind"]
+        engine = self.view.model(self.view.channel(binding.address).owner).engine
+        kind: str | None = _describer(engine)(binding.engine_entry())["kind"]
         return kind
 
     def devices(self, kind: str) -> tuple[Device, ...]:

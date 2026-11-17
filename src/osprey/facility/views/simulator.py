@@ -53,6 +53,11 @@ its element (or slices), engine block and calibration, plus the slots the build
 filled from the channel, its limits record and the model's engine (direction,
 unit, default, value_range, engine_role, plane, refresh, marks) and, for a waveform
 channel, its ``value_type`` and ``shape``.
+
+Each file is validated into its document model of
+:mod:`osprey_connectors.simulation.records` and written through
+:func:`~osprey_connectors.simulation.view.document_bytes`, the reader's own
+serializer, so a record the simulator would refuse stops the build instead.
 """
 
 from __future__ import annotations
@@ -61,20 +66,34 @@ import copy
 import shutil
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+from pydantic import ValidationError
 
 from osprey.facility import DEFAULT_ROLE, STILL_ALL
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import view_scenario
-from osprey.facility.views import ViewInputs, view_bytes
+from osprey.facility.views import ViewInputs
+from osprey_connectors.model import evolve
 from osprey_connectors.simulation import TEXTURE
-from osprey_connectors.simulation.records import LogEntryRecord, PictureRef
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    LogEntryRecord,
+    PictureRef,
+    ScenarioRecord,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+    ViewDocument,
+)
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
     DECKS_DIR,
+    IOC_HEALTH_SIGNALS,
     SCENARIOS_DIR,
     SCENARIOS_FILE,
     SCENARIOS_SCHEMA,
@@ -83,17 +102,15 @@ from osprey_connectors.simulation.view import (
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
     SETPOINT,
+    STATUS_SIGNAL,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
     SimulatorView,
+    document_bytes,
+    sim_address,
 )
 
-try:
-    from osprey_connectors.simulation.view import IOC_HEALTH_SIGNALS
-except ImportError:  # a connectors release whose view names no IOC health signals
-    from osprey_connectors.simulation.view import ADDRESSES_FILE as _FLOOR_STAND_IN  # noqa: F401
-
-    IOC_HEALTH_SIGNALS = ()
+_Document = TypeVar("_Document", bound=ViewDocument)
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -248,7 +265,7 @@ def status_address(code: str, model: str) -> str:
     Returns:
         ``<code>:SIM:<model>:STATUS``.
     """
-    return f"{code}:SIM:{model}:STATUS"
+    return sim_address(code, model, STATUS_SIGNAL)
 
 
 def ioc_health_addresses(code: str, model: str) -> list[str]:
@@ -260,9 +277,9 @@ def ioc_health_addresses(code: str, model: str) -> list[str]:
 
     Returns:
         ``<code>:SIM:<model>:<signal>`` for each signal of the view's
-        ``IOC_HEALTH_SIGNALS``; none with a connectors release that names none.
+        ``IOC_HEALTH_SIGNALS``.
     """
-    return [f"{code}:SIM:{model}:{signal}" for signal in IOC_HEALTH_SIGNALS]
+    return [sim_address(code, model, signal) for signal in IOC_HEALTH_SIGNALS]
 
 
 def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
@@ -273,6 +290,30 @@ def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
     section = rendered_config.get("control_system") or {}
     posture = type_limits_posture(section, resolve_control_system_type(section))
     return posture.mode == LIMITS_MODE_OPTIONAL
+
+
+def _view_document(kind: type[_Document], document: Mapping[str, Any]) -> _Document:
+    """A view file's document, validated into its model as the simulator reads it.
+
+    Raises:
+        FacilityBuildError: ``value-invalid``: a record breaks its model; the
+            detail names the file, the key and the reason.
+    """
+    from osprey.facility.errors import FacilityBuildError
+
+    try:
+        return kind.model_validate(document)
+    except ValidationError as refusal:
+        error = refusal.errors()[0]
+        key = ".".join(str(part) for part in error["loc"]) or "the document"
+        raise FacilityBuildError(
+            "value-invalid",
+            kind.FILE,
+            [kind.FILE],
+            f"correct the facility record `{key}` is written from",
+            record_kind="simulator view file",
+            detail=f"`{key}` is {error['input']!r}: {error['msg']}",
+        ) from None
 
 
 def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
@@ -413,8 +454,8 @@ def resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> lis
     return sorted(resolved)
 
 
-def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
-    scenarios: list[dict[str, Any]] = []
+def _scenarios_document(inputs: ViewInputs) -> ScenariosDocument:
+    scenarios: list[ScenarioRecord] = []
     for scenario in sorted(
         inputs.records.document.get("scenarios", []), key=lambda s: str(s["name"])
     ):
@@ -432,14 +473,17 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
                 if model not in inputs.served:
                     fault["inactive"] = INACTIVE_UNSERVED
                 entry["faults"][model] = fault
-        view_scenario(entry)
-        scenarios.append(entry)
-    if all(str(entry["name"]) != STILL_SCENARIO for entry in scenarios):
+        scenarios.append(view_scenario(entry))
+    if all(scenario.name != STILL_SCENARIO for scenario in scenarios):
         scenarios.append(
-            {**_BUILT_IN_STILL, "still": resolved_still(inputs.records, _BUILT_IN_STILL)}
+            view_scenario(
+                {**_BUILT_IN_STILL, "still": resolved_still(inputs.records, _BUILT_IN_STILL)}
+            )
         )
-        scenarios.sort(key=lambda entry: str(entry["name"]))
-    return {"schema": SCENARIOS_SCHEMA, "scenarios": scenarios}
+        scenarios.sort(key=lambda scenario: scenario.name)
+    return _view_document(
+        ScenariosDocument, {"schema": SCENARIOS_SCHEMA, "scenarios": tuple(scenarios)}
+    )
 
 
 def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
@@ -481,26 +525,33 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
     doc = inputs.records.document
     code = str(doc["identity"]["code"])
     physics = [name for name in inputs.served if name != TEXTURE]
-    documents = {
-        SERVED_MODELS_FILE: {"schema": SERVED_MODELS_SCHEMA, "models": list(inputs.served)},
-        ADDRESSES_FILE: {
-            "schema": ADDRESSES_SCHEMA,
-            "channels": sorted(str(channel["id"]) for channel in doc.get("channels", [])),
-            "status": [status_address(code, name) for name in physics],
-            "ioc_health": [
-                address for name in inputs.served for address in ioc_health_addresses(code, name)
-            ],
-        },
-        VARIABLES_FILE: _variables_document(inputs),
-        SEEDS_FILE: _seeds_document(doc),
-        SCENARIOS_FILE: _scenarios_document(inputs),
-    }
+    documents: list[ViewDocument] = [
+        _view_document(
+            ServedModelsDocument, {"schema": SERVED_MODELS_SCHEMA, "models": list(inputs.served)}
+        ),
+        _view_document(
+            AddressesDocument,
+            {
+                "schema": ADDRESSES_SCHEMA,
+                "channels": sorted(str(channel["id"]) for channel in doc.get("channels", [])),
+                "status": [status_address(code, name) for name in physics],
+                "ioc_health": [
+                    address
+                    for name in inputs.served
+                    for address in ioc_health_addresses(code, name)
+                ],
+            },
+        ),
+        _view_document(VariablesDocument, _variables_document(inputs)),
+        _view_document(SeedsDocument, _seeds_document(doc)),
+        _scenarios_document(inputs),
+    ]
 
     root.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for name, document in documents.items():
-        target = root / name
-        target.write_bytes(view_bytes(document))
+    for document in documents:
+        target = root / document.FILE
+        target.write_bytes(document_bytes(document))
         written.append(target)
 
     written.extend(_copy_scenario_files(root, inputs))
@@ -532,15 +583,16 @@ def withdraw_scenarios(root: Path, names: Iterable[str]) -> None:
             withdrawn.
     """
     withdrawn = set(names)
-    listed = SimulatorView.open(root).scenarios()
-    missing = withdrawn - {scenario.name for scenario in listed}
+    document = SimulatorView.open(root).document(ScenariosDocument)
+    missing = withdrawn - {scenario.name for scenario in document.scenarios}
     if missing:
         raise KeyError(f"the simulator view lists no scenario {sorted(missing)}")
-    kept = [
-        scenario.model_dump(mode="json", exclude_unset=True)
-        for scenario in listed
-        if scenario.name not in withdrawn
-    ]
-    (root / SCENARIOS_FILE).write_bytes(view_bytes({"schema": SCENARIOS_SCHEMA, "scenarios": kept}))
+    kept = evolve(
+        document,
+        scenarios=tuple(
+            scenario for scenario in document.scenarios if scenario.name not in withdrawn
+        ),
+    )
+    (root / SCENARIOS_FILE).write_bytes(document_bytes(kept))
     for name in withdrawn:
         shutil.rmtree(root / SCENARIOS_DIR / name, ignore_errors=True)

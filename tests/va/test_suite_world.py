@@ -60,7 +60,7 @@ def test_lane_selection_is_the_lane_model_s_bounded_corrector(limits: dict[str, 
     binding = VIEW.binding(LANE.setpoint)
     record = limits[LANE.setpoint]
 
-    assert binding is not None and binding.model == LANE.model
+    assert binding is not None and VIEW.channel(LANE.setpoint).owner == LANE.model
     assert binding.engine_role == "setpoint" and binding.plane is not None
     assert LANE.band == tuple(VIEW.channel(LANE.setpoint).value_range or ())
     assert LANE.band == (record["min_value"], record["max_value"])
@@ -85,13 +85,15 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
 
     kick = VIEW.binding(e2e_conftest.KICK_CORRECTOR)
     assert kick is not None
-    assert (kick.model, kick.engine_role, kick.plane) == (lane, "setpoint", "y")
+    owner = VIEW.channel(e2e_conftest.KICK_CORRECTOR).owner
+    assert (owner, kick.engine_role, kick.plane) == (lane, "setpoint", "y")
     assert e2e_conftest.KICK_MONITOR in monitor_addresses(VIEW, plane="y", model=lane)
     assert e2e_conftest.SEEDED_READOUT_BPM in monitor_addresses(VIEW, plane="x", model=lane)
 
     quadrupole = VIEW.binding(e2e_conftest.UNSTABLE_QUADRUPOLE)
     assert quadrupole is not None
-    assert (quadrupole.model, quadrupole.engine_role, quadrupole.plane) == (lane, "setpoint", None)
+    owner = VIEW.channel(e2e_conftest.UNSTABLE_QUADRUPOLE).owner
+    assert (owner, quadrupole.engine_role, quadrupole.plane) == (lane, "setpoint", None)
     on = VIEW.channel(e2e_conftest.UNSTABLE_QUADRUPOLE).on
     assert on is not None and "device" in on
     devices = {device["id"]: device for device in e2e_conftest.PRESET_DOCUMENT["devices"]}
@@ -121,7 +123,8 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
         if (binding := VIEW.binding(address)) is not None
     }
     assert sorted(
-        (binding.model, binding.engine_role, binding.plane) for binding in wired.values()
+        (VIEW.channel(address).owner, binding.engine_role, binding.plane)
+        for address, binding in wired.items()
     ) == [
         (lane, "setpoint", "x"),
         (lane, "setpoint", "y"),
@@ -139,7 +142,7 @@ def test_the_scenario_world_names_the_kinds_it_claims(limits: dict[str, Any]) ->
     for address in e2e_conftest.CHROMATICITY:
         output = VIEW.binding(address)
         assert output is not None
-        assert (output.model, output.engine_role) == (lane, "output")
+        assert (VIEW.channel(address).owner, output.engine_role) == (lane, "output")
 
 
 def test_the_second_model_is_a_served_line_without_dispersion() -> None:

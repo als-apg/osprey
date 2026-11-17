@@ -71,9 +71,9 @@ from osprey_connectors.model import FrozenModel
 from osprey_connectors.refusals import RefusalReason
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.simulation import LABELLED_TYPES
+from osprey_connectors.simulation.records import VariablesDocument
 from osprey_connectors.simulation.view import (
     SETPOINT,
-    VARIABLES_FILE,
     VIEW_RELPATH,
     NoSimulatorViewError,
     SimulatorView,
@@ -358,7 +358,7 @@ class VAInProcessConnector(ControlSystemConnector):
         state_dir = simulation_state_dir(view.path)
         try:
             self._records = {
-                entry.address: entry for entry in view.document(VARIABLES_FILE).channels
+                entry.address: entry for entry in view.document(VariablesDocument).channels
             }
             self._channels = frozenset(view.channels())
             self._served = (
@@ -512,7 +512,6 @@ class VAInProcessConnector(ControlSystemConnector):
                 return address, "not a setpoint"
             if not record.writable:
                 return address, NOT_WRITABLE
-            # A null side is unbounded, as the simulator's texture reads the band.
             band = record.value_range
             if band:
                 low, high = band
@@ -521,8 +520,8 @@ class VAInProcessConnector(ControlSystemConnector):
                     number is None
                     or isinstance(number, bool)
                     or math.isnan(number)
-                    or (low is not None and number < low)
-                    or (high is not None and number > high)
+                    or number < low
+                    or number > high
                 ):
                     return address, f"{value!r} is outside [{low}, {high}]"
         return None
@@ -605,9 +604,7 @@ class VAInProcessConnector(ControlSystemConnector):
             return value
         value_type = record.value_type
         if value_type in LABELLED_TYPES:
-            from osprey_connectors.simulation import values
-
-            options = values.channel_labels(record)
+            options = record.labels
             return options.index(value) if isinstance(value, str) and value in options else value
         if value_type == "waveform":
             import numpy as np
@@ -623,9 +620,7 @@ class VAInProcessConnector(ControlSystemConnector):
         unit = getattr(variable, "unit", None) or (record and record.unit) or ""
         labels: tuple[str, ...] | None = None
         if record is not None and record.value_type in LABELLED_TYPES:
-            from osprey_connectors.simulation import values
-
-            labels = tuple(values.channel_labels(record))
+            labels = record.labels
         return ChannelMetadata(
             units=str(unit),
             description=None if record is None else record.description,

@@ -21,6 +21,7 @@ from osprey_connectors.errors import (
     StateLockedError,
     StateUnavailableError,
 )
+from osprey_connectors.simulation.records import VariablesDocument
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     VARIABLES_FILE,
@@ -215,7 +216,7 @@ def _opened(tmp_path: Path) -> SimulatorView:
 def test_a_missing_view_file_is_no_view_naming_that_file(tmp_path):
     view = _opened(tmp_path)
     with pytest.raises(NoSimulatorViewError) as caught:
-        view.document(VARIABLES_FILE)
+        view.document(VariablesDocument)
     assert caught.value.path == view.path / VARIABLES_FILE
     assert str(view.path / VARIABLES_FILE) in str(caught.value)
 
@@ -224,7 +225,7 @@ def test_a_view_file_that_is_not_json_is_a_schema_error_naming_it(tmp_path):
     view = _opened(tmp_path)
     (view.path / VARIABLES_FILE).write_text("{", encoding="utf-8")
     with pytest.raises(ViewSchemaError) as caught:
-        view.document(VARIABLES_FILE)
+        view.document(VariablesDocument)
     assert caught.value.path == view.path / VARIABLES_FILE
     assert str(view.path / VARIABLES_FILE) in str(caught.value)
 
@@ -235,7 +236,7 @@ def test_a_schema_refusal_carries_path_key_found_and_expected(tmp_path):
     view = _opened(tmp_path)
     (view.path / VARIABLES_FILE).write_text(json.dumps({"schema": "old"}), encoding="utf-8")
     with pytest.raises(ViewSchemaError) as caught:
-        view.document(VARIABLES_FILE)
+        view.document(VariablesDocument)
     error = caught.value
     assert (error.path, error.key, error.found, error.expected) == (
         view.path / VARIABLES_FILE,

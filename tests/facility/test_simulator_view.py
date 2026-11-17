@@ -119,6 +119,25 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
     ] == ["demo-channel-finder"] * 2
 
 
+#: The demo view's five documents as the build wrote them before it wrote them
+#: through the view's document models: the models write the same bytes.
+_DEMO_VIEW_SHA256 = {
+    ADDRESSES: "7b61c123d560ff12f690bb8d1761bddce332afb108a2f0c8704951dd84add702",
+    SCENARIOS: "b106ecf59f594639f9866bfc771eb4a6df3f5bc73623877e6ee9a78dfa1a4efd",
+    SEEDS: "adf279c55a063c64133757531b1b2b8f8c543893bae188ae278b4a92709d8ecf",
+    SERVED: "b61644b836c1fa9f3cae52739e54c0fd37c6b62336264533dfe4187f5bdb64b4",
+    VARIABLES: "002ee9da7598c20d4f6bced8927255175359a79d9a6da8ea6f9f5e9a9b26b795",
+}
+
+
+def test_the_demo_view_documents_keep_their_bytes(built_demo: BuiltProject) -> None:
+    for outputs in built_demo.outputs:
+        written = {
+            name: hashlib.sha256(outputs.files[name]).hexdigest() for name in _DEMO_VIEW_SHA256
+        }
+        assert written == _DEMO_VIEW_SHA256, outputs.render_dir
+
+
 def test_addresses_are_the_facility_file_channels_and_the_served_status(
     built_demo: BuiltProject,
 ) -> None:
@@ -882,9 +901,10 @@ def _physics_monitors(root: Path) -> dict[str, list[str]]:
     """Each physics model's float monitor addresses, sorted, in the view at ``root``."""
     view = SimulatorView.open(root / "data" / "simulator")
     monitors: dict[str, list[str]] = {}
-    for binding in view.bindings(engine_role="monitor", served_only=False):
-        if view.channel(binding.address).value_type == "float":
-            monitors.setdefault(binding.model, []).append(binding.address)
+    for model in view.models():
+        for binding in view.bindings(model=model.name, engine_role="monitor", served_only=False):
+            if view.channel(binding.address).value_type == "float":
+                monitors.setdefault(model.name, []).append(binding.address)
     return {model: sorted(addresses) for model, addresses in monitors.items()}
 
 

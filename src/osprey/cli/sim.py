@@ -120,20 +120,18 @@ def _require_simulator_view(repo_root: Path) -> SimulatorView:
     Exits with a clear message when the render carries none, or carries one
     an older OSPREY wrote.
     """
-    from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+    from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError, view_path
 
     try:
         view = SimulatorView.find(repo_root)
         if view is not None:
-            for name in SCHEMAS:
-                view.document(name)
-            view.models()
+            view.check()
     except ViewSchemaError as exc:
         output.fail("The simulator view is from another OSPREY", str(exc))
         raise SystemExit(1) from None
     if view is None:
         output.fail(
-            f"No simulator view in {SimulatorView.path_for_project(repo_root)}",
+            f"No simulator view in {view_path(repo_root)}",
             "The simulator view is written by the build.",
             "run 'osprey build' first",
         )

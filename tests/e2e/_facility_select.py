@@ -131,9 +131,8 @@ def bounded_corrector_of(view: SimulatorView) -> tuple[str, str, str] | None:
         channel = view.channel(address)
         readback = channel.pair
         if channel.value_range is not None and readback is not None and readback != address:
-            binding = view.binding(address)
-            assert binding is not None, f"corrector {address} has no served binding"
-            found.setdefault(binding.model, []).append((address, readback))
+            assert view.binding(address) is not None, f"corrector {address} has no served binding"
+            found.setdefault(channel.owner, []).append((address, readback))
     if not found:
         return None
     model = min(found, key=lambda name: (-len(found[name]), name))

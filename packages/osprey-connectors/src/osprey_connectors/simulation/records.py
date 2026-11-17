@@ -19,6 +19,13 @@ A record states an optional key by a default meaning "not stated". Where a
 reader tells a key the document leaves out apart from one it states, the
 reader asks the record's ``model_fields_set``.
 
+Each view file is a :class:`ViewDocument`, which names the file
+(``FILE``), the schema it carries (``SCHEMA``) and the older schemas this
+OSPREY still reads (``ALSO_READS``); :data:`VIEW_DOCUMENTS` lists the five.
+The reader serves these records themselves: a channel as its
+:class:`ChannelRecord`, a model as its :class:`ModelRecord`, a model's wiring
+as its :class:`WiringRecord` items.
+
 The closed vocabularies the records carry — a channel's :data:`ChannelRole`, a
 wiring record's :data:`Direction`, :data:`EngineRole`, :data:`Plane`,
 :data:`Refresh` and :data:`Mark`, a scenario's :data:`ChannelFaultKind` — are
@@ -31,7 +38,9 @@ and refusing an event that breaks one with an :class:`EventRuleError`; a
 noise record is one of two told apart by the term it states (:data:`Noise`).
 
 The module imports only the standard library, pydantic, the package's model
-bases, its errors and :mod:`~osprey_connectors.relative_time`.
+bases, its errors, :mod:`~osprey_connectors.relative_time` and
+:mod:`osprey_connectors.simulation.values`, which imports only the standard
+library.
 """
 
 from __future__ import annotations
@@ -63,6 +72,8 @@ from typing_extensions import override
 from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.relative_time import RelativeTimestamp, TimeOfDay
+from osprey_connectors.simulation import values
+from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, StoredValue, ValueType
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.logbook import ScenarioLogEntry
@@ -88,7 +99,7 @@ __all__ = [
     "LogEntryRecord",
     "LossEvent",
     "Mark",
-    "ModelEntry",
+    "ModelRecord",
     "Noise",
     "PictureRef",
     "Plane",
@@ -106,7 +117,9 @@ __all__ = [
     "SpikeEvent",
     "StepEvent",
     "TopoffRecord",
+    "VIEW_DOCUMENTS",
     "VariablesDocument",
+    "ViewDocument",
     "WindowFraction",
     "WiringRecord",
 ]
@@ -161,6 +174,15 @@ _Real: TypeAlias = int | float
 
 #: A value the view carries verbatim, served read-only and written back as read.
 _Verbatim: TypeAlias = Annotated[object, AfterValidator(_freeze), PlainSerializer(_thaw)]
+
+
+def _as_pair(value: object) -> object:
+    """A list as the tuple a pair field holds; any other value as it is, for the field to judge."""
+    return tuple(value) if isinstance(value, list) else value
+
+
+#: A ``[min, max]`` pair a document states, both sides numbers.
+_Bounds: TypeAlias = Annotated[tuple[_Real, _Real], BeforeValidator(_as_pair)]
 
 
 class _Record(FrozenModel):
@@ -321,57 +343,155 @@ class SeedRecord(_Record):
 class ChannelRecord(_Record):
     """One channel entry of ``variables.json``.
 
-    ``value_range`` is ``[min, max]`` when the channel's limits record states
-    both, else ``None``; a reader takes a ``None`` side as unbounded.
-    ``options``, ``shape`` and ``precision`` are ``None`` on a channel that
-    states none.
+    Attributes:
+        address: The channel's address.
+        role: The facility file's role, ``readback`` when it states none.
+        pair: A setpoint's readback, itself when it names none; ``None`` on
+            any other role.
+        value_type: The channel's :data:`~osprey_connectors.simulation.values.ValueType`.
+        unit: The channel's unit, or ``None``.
+        description: The channel's description, or ``None``.
+        writable: Whether a write to the channel is allowed.
+        value_range: ``(min, max)`` when the channel's limits record states
+            both, else ``None``.
+        owner: The model wiring the address, else ``texture``.
+        on: The node the channel is on, ``{device: id}`` or ``{place: id}``,
+            or ``None``.
+        options: A ``bool`` or ``enum`` channel's labels, or ``None``.
+        shape: A ``waveform`` channel's shape.
+        precision: A ``float`` channel's display precision, or ``None``.
+
+    A channel states ``options`` only on a ``bool`` or ``enum`` channel,
+    ``shape`` exactly on a ``waveform`` one and ``precision`` only on a
+    ``float`` one, as the build checks them; any other channel is refused.
     """
 
     address: str
     role: ChannelRole
     pair: str | None
-    value_type: str
+    value_type: ValueType
     unit: str | None
     description: str | None
     writable: bool
-    value_range: FrozenTuple[_Real | None] | None
+    value_range: _Bounds | None
     owner: str
     on: ReadOnlyMapping[str, str] | None
     options: FrozenTuple[str] | None = None
     shape: FrozenTuple[int] | None = None
     precision: int | None = None
 
+    @model_validator(mode="after")
+    def _value_keys(self) -> Self:
+        """``options``, ``shape`` and ``precision`` belong to the value types that take them."""
+        value_type = self.value_type
+        if self.options is not None and value_type not in values.LABELLED_TYPES:
+            raise ValueError(f"a {value_type} channel carries `options`")
+        if values.is_waveform(value_type):
+            if not self.shape or any(size <= 0 for size in self.shape):
+                raise ValueError("a waveform channel needs `shape`, a list of positive ints")
+        elif self.shape is not None:
+            raise ValueError(f"a {value_type} channel carries `shape`")
+        if self.precision is not None and value_type != "float":
+            raise ValueError(f"a {value_type} channel carries `precision`")
+        return self
+
+    def coerce(self, value: object) -> StoredValue:
+        """``value`` in the stored representation of the channel's value type.
+
+        Raises:
+            ValueError: The channel's value type refuses ``value``.
+        """
+        return values.coerce(value, self.value_type, self.options, self.shape)
+
+    def zero(self) -> StoredValue:
+        """The zero of the channel's value type, in its stored representation.
+
+        Raises:
+            ValueError: An ``enum`` channel states no labels.
+        """
+        return values.zero(self.value_type, self.options, self.shape)
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """A ``bool`` or ``enum`` channel's labels: its ``options``, or the default bool labels.
+
+        Raises:
+            ValueError: The channel is of another value type, which carries no labels.
+        """
+        if self.value_type not in values.LABELLED_TYPES:
+            raise ValueError(
+                f"channel {self.address} is a {self.value_type} channel, with no labels"
+            )
+        return self.options or DEFAULT_BOOL_OPTIONS
+
 
 class WiringRecord(_Record):
     """One wiring record of a model in ``variables.json``.
 
     The record holds the wiring record's authored keys and the slots the build
-    filled; a key the record does not state is ``None``, and a reader telling
-    a stated ``None`` (a ``plane`` of no plane, say) apart from a key left out
-    asks ``model_fields_set``. The keys an engine reads and the view does not
+    filled. ``id``, ``address``, ``direction``, ``engine_role``, ``plane`` and
+    ``refresh`` are stated on every record, ``plane`` as ``None`` for a record
+    steering or reading no plane; another key the record does not state is
+    ``None`` (``marks`` empty). The keys an engine reads and the view does not
     are carried verbatim.
+
+    Attributes:
+        id: The wiring record's id.
+        address: The channel address the record serves.
+        element: The element the record names, or ``None`` (a record naming
+            slices, or none).
+        direction: ``write`` for a setpoint channel, else ``read``.
+        default: The engine's start value for the address, or ``None``.
+        engine_role: What the model's engine says the record is. A
+            ``readback`` reads an element's setting, paired with a setpoint
+            or not; the setpoint channel's ``pair`` names its readback.
+        plane: ``x`` or ``y`` for a record steering or reading one transverse
+            plane, else ``None``.
+        refresh: When the record's value is recomputed.
+        marks: The marks the record carries; empty when it carries none.
     """
 
-    id: str | None = None
+    id: str
     address: str
     element: str | None = None
     slices: _Verbatim = None
     engine: _Verbatim = None
     calibration: _Verbatim = None
-    direction: Direction | None = None
+    direction: Direction
     unit: _Verbatim = None
     default: _Verbatim = None
     value_range: _Verbatim = None
-    engine_role: EngineRole | None = None
-    plane: Plane | None = None
-    refresh: Refresh | None = None
-    marks: FrozenTuple[Mark] | None = None
-    value_type: str | None = None
+    engine_role: EngineRole
+    plane: Plane | None
+    refresh: Refresh
+    marks: FrozenTuple[Mark] = ()
+    value_type: ValueType | None = None
     shape: FrozenTuple[int] | None = None
 
+    def engine_entry(self) -> dict[str, object]:
+        """The record as a model's engine takes it: the keys it states, as plain JSON values."""
+        entry: dict[str, object] = self.model_dump(mode="json", exclude_unset=True)
+        return entry
 
-class ModelEntry(_Record):
-    """One model entry of ``variables.json``; ``inputs`` is empty when the model declares none."""
+
+class ModelRecord(_Record):
+    """One model entry of ``variables.json``.
+
+    Attributes:
+        name: The model's name.
+        engine: The engine the model names.
+        served: Whether the render serves the model.
+        settings: The model's settings, read-only.
+        deck: The path of the view's copy of the model's deck, relative to
+            the view (:meth:`~osprey_connectors.simulation.view.SimulatorView.deck_path`),
+            or ``None``.
+        wiring: The model's wiring records, in wiring order; empty for a
+            model without wiring.
+        inputs: The model's inputs, in declared order, each a read-only
+            ``{address, engine}`` record: the producer channel's address and
+            the engine block the consuming engine reads; empty when the model
+            declares none.
+    """
 
     name: str
     engine: str | None = None
@@ -380,6 +500,10 @@ class ModelEntry(_Record):
     deck: str | None = None
     wiring: FrozenTuple[WiringRecord] = ()
     inputs: FrozenTuple[ReadOnlyMapping[str, _Verbatim]] = ()
+
+    def engine_settings(self) -> dict[str, object]:
+        """The model's settings as its engine takes them: plain JSON values."""
+        return {key: _thaw(value) for key, value in self.settings.items()}
 
 
 class EventRuleError(ConnectorsError, ValueError):
@@ -964,14 +1088,30 @@ class ScenarioRecord(_Record):
         raise ValueError(f"`still` is {still!r}, not a list of addresses")
 
 
-class ServedModelsDocument(_Record):
-    """``served_models.json``: the models the render serves, in serving order."""
+class ViewDocument(_Record):
+    """One file of a simulator view: its document, and the file and schema it is.
+
+    ``FILE`` is the file's name under the view, ``SCHEMA`` the schema this
+    OSPREY writes and ``ALSO_READS`` the older schemas it still reads.
+    """
+
+    FILE: ClassVar[str]
+    SCHEMA: ClassVar[str]
+    ALSO_READS: ClassVar[frozenset[str]] = frozenset()
 
     schema_id: str = Field(alias="schema")
+
+
+class ServedModelsDocument(ViewDocument):
+    """``served_models.json``: the models the render serves, in serving order."""
+
+    FILE: ClassVar[str] = "served_models.json"
+    SCHEMA: ClassVar[str] = "osprey.facility.served_models/1"
+
     models: FrozenTuple[str]
 
 
-class AddressesDocument(_Record):
+class AddressesDocument(ViewDocument):
     """``addresses.json``: every channel address, sorted, and the simulator's own addresses.
 
     ``status`` lists each served physics model's status address and
@@ -979,30 +1119,52 @@ class AddressesDocument(_Record):
     ``ioc_health`` was written lists none.
     """
 
-    schema_id: str = Field(alias="schema")
+    FILE: ClassVar[str] = "addresses.json"
+    SCHEMA: ClassVar[str] = "osprey.facility.addresses/1"
+
     channels: FrozenTuple[str]
     status: FrozenTuple[str]
     ioc_health: FrozenTuple[str] = ()
 
 
-class VariablesDocument(_Record):
-    """``variables.json``: the facility's code, its models sorted by name, its channels sorted."""
+class VariablesDocument(ViewDocument):
+    """``variables.json``: the facility's code, its models sorted by name, its channels sorted.
 
-    schema_id: str = Field(alias="schema")
+    A released ``/3`` file reads as one whose models declare no inputs.
+    """
+
+    FILE: ClassVar[str] = "variables.json"
+    SCHEMA: ClassVar[str] = "osprey.facility.simulator/4"
+    ALSO_READS: ClassVar[frozenset[str]] = frozenset({"osprey.facility.simulator/3"})
+
     code: str
-    models: FrozenTuple[ModelEntry]
+    models: FrozenTuple[ModelRecord]
     channels: FrozenTuple[ChannelRecord]
 
 
-class SeedsDocument(_Record):
+class SeedsDocument(ViewDocument):
     """``seeds.json``: each seeded channel's seed, by address."""
 
-    schema_id: str = Field(alias="schema")
+    FILE: ClassVar[str] = "seeds.json"
+    SCHEMA: ClassVar[str] = "osprey.facility.seeds/2"
+
     seeds: ReadOnlyMapping[str, SeedRecord]
 
 
-class ScenariosDocument(_Record):
+class ScenariosDocument(ViewDocument):
     """``scenarios.json``: every scenario, sorted by name."""
 
-    schema_id: str = Field(alias="schema")
+    FILE: ClassVar[str] = "scenarios.json"
+    SCHEMA: ClassVar[str] = "osprey.facility.scenarios/3"
+
     scenarios: FrozenTuple[ScenarioRecord]
+
+
+#: Every document of a simulator view, in the order the build writes them.
+VIEW_DOCUMENTS: tuple[type[ViewDocument], ...] = (
+    ServedModelsDocument,
+    AddressesDocument,
+    VariablesDocument,
+    SeedsDocument,
+    ScenariosDocument,
+)
