@@ -90,7 +90,7 @@ and their names are imported from the subpackage itself:
 | --- | --- |
 | `osprey_connectors.control_system` | The control-system connector contract (`ControlSystemConnector`, `ChannelValue`, `ChannelWriteResult`, `WriteOutcome`, `values_match`, ...) and `LimitsValidator` |
 | `osprey_connectors.archiver` | The archiver connector contract (`ArchiverConnector`, `ArchiverMetadata`), the shared time-range helpers, the field name a channel is stored under, the MongoDB client arguments |
-| `osprey_connectors.ipc` | What a connector-host supervisor needs: the pool and the proxy, their errors, and the verification of what a child reports (the wire codec itself is internal) |
+| `osprey_connectors.ipc` | What a connector-host supervisor needs: the handle on one child (`ConnectorHost`) and the records it starts on, the pool and the proxy, their errors, and the verification of what a child reports (the wire codec itself is internal) |
 | `osprey_connectors.directory` | The channel directory contract (`ChannelDirectory`, `DirectoryQuery`, `DirectoryPage`, ...) |
 | `osprey_connectors.alarm_state` | The alarm-state feed contract (`AlarmState`, `AlarmStateRecord`, `AlarmStateRow`, `AlarmStates`, `AlarmConfigRecord`, `severity_rank`) |
 | `osprey_connectors.alarm_log` | The alarm log contract (`AlarmLog`, `AlarmHistoryRow`) |
