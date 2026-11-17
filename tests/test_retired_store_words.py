@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -52,6 +53,10 @@ class WordGroup:
     name: str
     #: Matched case-insensitively.
     pattern: str
+    #: Lowercase strings at least one of which every match of ``pattern``
+    #: contains, compared against :func:`_folded` text: a file holding none of
+    #: them cannot match, so the pattern runs only on the files that do.
+    literals: tuple[str, ...]
     allowed: dict[str, str]
     #: Spellings the pattern must catch, and near-misses it must not.
     matches: tuple[str, ...]
@@ -65,6 +70,15 @@ OPENOBSERVE = WordGroup(
     pattern=(
         r"openobserve|ZO_[A-Z_]+|OSPREY_TELEMETRY_(URL|ORG)|telemetry_org|store_org"
         r"|telemetryUrlForRun"
+    ),
+    literals=(
+        "openobserve",
+        "zo_",
+        "osprey_telemetry_url",
+        "osprey_telemetry_org",
+        "telemetry_org",
+        "store_org",
+        "telemetryurlforrun",
     ),
     allowed={
         GUARD: GUARD_REASON,
@@ -108,6 +122,21 @@ STORE = WordGroup(
         r"|ensure_audit_dir)\b"
         r"|/telemetry/play\b|(?<![A-Za-z_.-])/play\b"
         r"|\breaders['’] origin"
+    ),
+    literals=(
+        "telemetry_store",
+        "telemetry-store",
+        "telemetry_gateway",
+        "telemetry-gateway",
+        "otel_logs",
+        "audit_ledger",
+        "reader_port",
+        "reader_origin",
+        "reader_tables",  # READER_TABLES_VAR_PREFIX holds it too
+        "ensure_audit_dir",
+        "/play",  # /telemetry/play holds it too
+        "readers' origin",
+        "readers’ origin",
     ),
     allowed={
         GUARD: GUARD_REASON,
@@ -170,6 +199,7 @@ STORE = WordGroup(
 VAR_AUDIT = WordGroup(
     name="var-audit",
     pattern=r"\bvar/audit\b",
+    literals=("var/audit",),
     allowed={
         GUARD: GUARD_REASON,
         "tests/agent_record/test_writer_inventory.py": (
@@ -212,6 +242,7 @@ VAR_AUDIT = WordGroup(
 AUDIT_DIR_VARIABLE = WordGroup(
     name="audit-dir-variable",
     pattern=r"\bOSPREY_AUDIT_DIR\b",
+    literals=("osprey_audit_dir",),
     allowed={GUARD: GUARD_REASON},
     matches=("OSPREY_AUDIT_DIR", "${OSPREY_AUDIT_DIR}"),
     non_matches=("OSPREY_AUDIT_IDENTITY", "OSPREY_AUDIT_DIRS"),
@@ -242,16 +273,47 @@ def _tracked_texts() -> tuple[tuple[str, str], ...]:
     return tuple(texts)
 
 
+#: The three characters ``re.IGNORECASE`` matches to an ASCII letter although
+#: ``str.lower`` does not lower them to it (İ, dotless ı, long ſ; pinned by
+#: :func:`test_the_fold_keeps_every_case_spelling_of_a_literal`). Mapping them
+#: first makes :func:`_folded` keep every case-insensitive spelling of a
+#: literal, one character for one.
+_IGNORECASE_ODD_LETTERS = (("\u0130", "i"), ("\u0131", "i"), ("\u017f", "s"))
+
+
+def _folded(text: str) -> str:
+    """``text`` lowered so a literal is in it whenever any of its case spellings is."""
+    for odd, letter in _IGNORECASE_ODD_LETTERS:
+        text = text.replace(odd, letter)  # str.translate is several times slower here
+    return text.lower()
+
+
+def _may_name(group: WordGroup, folded: str) -> bool:
+    """Whether the folded text holds one of the group's literals."""
+    return any(literal in folded for literal in group.literals)
+
+
 def files_naming(group: WordGroup) -> set[str]:
     """The searched files whose text matches the group's pattern."""
-    return set(_files_matching(group.pattern))
+    return set(_files_matching()[group.name])
 
 
 @cache
-def _files_matching(pattern: str) -> frozenset[str]:
-    """One scan of the searched texts per pattern: both of a group's tests read it."""
-    compiled = re.compile(pattern, re.IGNORECASE)
-    return frozenset(name for name, text in _tracked_texts() if compiled.search(text))
+def _files_matching() -> dict[str, frozenset[str]]:
+    """One scan of the searched texts for every group: each group's tests read it.
+
+    Each text is folded once, and a group's pattern runs only on a text that
+    holds one of its literals; a text with none cannot match, so the files
+    found are exactly the ones the pattern alone would find.
+    """
+    compiled = {group.name: re.compile(group.pattern, re.IGNORECASE) for group in GROUPS}
+    found: dict[str, set[str]] = {group.name: set() for group in GROUPS}
+    for name, text in _tracked_texts():
+        folded = _folded(text)
+        for group in GROUPS:
+            if _may_name(group, folded) and compiled[group.name].search(text):
+                found[group.name].add(name)
+    return {group: frozenset(names) for group, names in found.items()}
 
 
 _BY_NAME = pytest.mark.parametrize("group", GROUPS, ids=lambda group: group.name)
@@ -286,8 +348,29 @@ def test_the_pattern_matches_each_retired_word(group: WordGroup) -> None:
     pattern = re.compile(group.pattern, re.IGNORECASE)
     for word in group.matches:
         assert pattern.search(word), word
+        # A spelling the pattern catches must also pass the literal prefilter,
+        # or the tree scan would skip the files that hold it.
+        assert _may_name(group, _folded(word)), word
     for word in group.non_matches:
         assert not pattern.search(word), word
+
+
+def test_the_fold_keeps_every_case_spelling_of_a_literal() -> None:
+    """Every character ``re.IGNORECASE`` matches to a literal's character folds to it.
+
+    That is what makes the literal prefilter exact: a case-insensitive match of
+    a pattern spells one of its literals in some case, and :func:`_folded`
+    turns that spelling back into the literal, so no matching file is skipped.
+    Tried on every code point, so a Python that widens its case table fails here.
+    """
+    chars = sorted({char for group in GROUPS for literal in group.literals for char in literal})
+    assert all(char == _folded(char) for char in chars)
+    any_char = re.compile("[" + "".join(re.escape(char) for char in chars) + "]", re.IGNORECASE)
+    for point in range(sys.maxunicode + 1):
+        spelled = chr(point)
+        if any_char.fullmatch(spelled):
+            matched = [c for c in chars if re.fullmatch(re.escape(c), spelled, re.IGNORECASE)]
+            assert matched == [_folded(spelled)], (hex(point), matched)
 
 
 def test_only_the_guard_names_the_audit_dir_variable() -> None:
