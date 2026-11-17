@@ -114,8 +114,8 @@ def validate(bundle: Path | None) -> None:
       - a concept, which is any other .md file with a 'type', is validated
         at the 'authoring' level (requires type, title and description).
       - a .md file without a 'type', such as a README.md, is not a concept
-        (OKF §3.2).  It is named in a warning, because the agent will not
-        be served it, and does not fail the bundle.
+        (OKF §3.2).  It is named in a warning, because it stays out of
+        the indexes and search, and does not fail the bundle.
       - each index.md must match what regen-index writes for its directory,
         and every directory holding concepts must have one.
 
