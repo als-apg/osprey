@@ -1257,7 +1257,8 @@ def test_a_handle_names_the_key_it_is_bound_to():
     live = PooledConnector(pool, HostKey(target="live"))
     live_ro = PooledConnector(pool, HostKey(target="live", execution_mode="readonly"))
 
-    assert (live.key.target, live.key.execution_mode) == HostKey(target="live")
+    assert live.key == HostKey(target="live")
+    assert (live.key.target, live.key.execution_mode) == ("live", None)
     assert (live_ro.key.target, live_ro.key.execution_mode) == ("live", "readonly")
     assert (live.key.owner, live.key.authorization) == (None, None)
 
