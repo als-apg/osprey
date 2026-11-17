@@ -65,6 +65,8 @@ from osprey.runtime.budget import (
     RELAY_MARGIN_S,
     WriteBudget,
 )
+from osprey.runtime.read_only_posture import arm_raw_put_block as _arm_raw_put_block
+from osprey.runtime.read_only_posture import enter_sandbox_mode
 from osprey.runtime.session import (
     EXIT_BINDING_MOVED,
     EXIT_START_REFUSED,
@@ -124,27 +126,6 @@ def _start_parent_watcher(parent_pid: int, interval: float = PARENT_POLL_S) -> t
     thread = threading.Thread(target=poll, name="channel-values-parent-watch", daemon=True)
     thread.start()
     return thread
-
-
-def _arm_raw_put_block() -> None:
-    """Refuse every raw client put in this process, and rpc and Tango commands with them.
-
-    This process only reads, so unlike the CANOPY backend it has no use for them.
-    The executor's contract leaves PVAccess puts to its limits check, as a readwrite
-    run's one PVAccess write route; here there is neither that check nor any write,
-    so they are refused like the rest.
-    """
-    from osprey.runtime import raw_put_block
-    from osprey.services.python_executor.execution.wrapper import armed_contract
-    from osprey.services.python_executor.write_surface import _ARMED_CHECKED
-
-    contract = armed_contract(refuse_rpc=True)
-    contract["blocked_targets"] = (
-        *contract["blocked_targets"],
-        *((dotted, (attr,)) for dotted, attr in _ARMED_CHECKED),
-    )
-    contract["ca_provider_targets"] = ()
-    raw_put_block.install("armed", **contract)
 
 
 def _read_budget() -> WriteBudget:
@@ -284,7 +265,7 @@ async def serve(listener: socket.socket) -> int:
     except SessionEnvironmentError as exc:
         return _refuse_start("; ".join(exc.problems))
 
-    os.environ[posture.POSTURE_ENV_VAR] = posture.SANDBOX_MODE
+    enter_sandbox_mode()
     _start_parent_watcher(os.getppid())
 
     try:
