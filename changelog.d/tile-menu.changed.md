@@ -1,1 +1,0 @@
-Every tile has one ⋯ menu, opened from its bar or by a right-click on the bar: the panel's own rows under "This panel", then the tile verbs, with Reload and, where the panel has a docs page, Help. A panel shows at most three icons in its bar; the rest fold into ⋯.

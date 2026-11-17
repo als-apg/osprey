@@ -72,11 +72,15 @@ class TestPolicySets:
                 "dispatch",
                 "service_capabilities",
                 "ariel_modules",
+                "pv_directory",
+                "pv_directory_alarm_feed",
             }
         )
 
     def test_on_demand_core_names(self):
-        assert ON_DEMAND_CORE == frozenset({"claude_cli_pinned", "model_chat", "ariel_modules"})
+        assert ON_DEMAND_CORE == frozenset(
+            {"claude_cli_pinned", "model_chat", "ariel_modules", "pv_directory_alarm_feed"}
+        )
 
     def test_on_demand_core_is_subset_of_config_dependent(self):
         # Both on_demand core categories also read config, so they must degrade.
@@ -327,6 +331,29 @@ class TestBuildRecords:
         by_name = {r.name: r for r in records}
         for name in ON_DEMAND_CORE:
             assert by_name[name].cost is Cost.ON_DEMAND
+
+    def test_pv_directory_categories_anchor_on_the_render(self, tmp_path, monkeypatch):
+        import osprey.health.core.pv_directory as module
+
+        anchors: dict[str, Path] = {}
+
+        def recording(name):
+            def factory(*_, cwd, **__):
+                anchors[name] = cwd
+                return list
+
+            return factory
+
+        for name in ("pv_directory", "pv_directory_alarm_feed"):
+            monkeypatch.setattr(module, name, recording(name))
+        project = tmp_path / "proj"
+        render = project / "build"
+        config_path = _write_config(render, _VALID_CONFIG)
+        state, expanded, settings, config_ok = load_config(config_path, project)
+
+        build_records(state, expanded, settings, config_ok, project, 30.0, render_path=render)
+
+        assert anchors == {"pv_directory": render, "pv_directory_alarm_feed": render}
 
     def test_channel_finder_and_file_system_anchor_in_different_zones(self, tmp_path):
         """A build-owned database is looked for in the render, not at the repo root.

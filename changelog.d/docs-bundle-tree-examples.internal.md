@@ -1,1 +1,0 @@
-A docs test runs the OKF bundle page's concept document, links and `regenerate_indexes` snippet through the knowledge code, and checks the directory trees on the build-profiles, compose-templates, describe-your-facility, project-image and profile pages against what `osprey init`, `osprey build` and the convention copier write.

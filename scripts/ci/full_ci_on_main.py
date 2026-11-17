@@ -60,6 +60,9 @@ WORKFLOW = "ci.yml"
 TRACKER_TITLE = "Full CI red on main"
 RED_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out"})
 RUNS_PER_PAGE = 100
+# GitHub answers 502 for the job list of a large rerun at 100 a page; pagination already
+# follows the further pages.
+JOBS_PER_PAGE = 50
 
 Gh = Callable[[list[str]], str]
 
@@ -105,7 +108,8 @@ class FullCi:
         run_id = run["id"]
         if run_id not in self._jobs:
             pages = self._api(
-                f"repos/{self.repo}/actions/runs/{run_id}/jobs?per_page=100", paginate=True
+                f"repos/{self.repo}/actions/runs/{run_id}/jobs?per_page={JOBS_PER_PAGE}",
+                paginate=True,
             )
             self._jobs[run_id] = [job for page in pages for job in page.get("jobs", [])]
         return self._jobs[run_id]

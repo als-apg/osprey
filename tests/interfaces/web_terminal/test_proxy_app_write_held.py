@@ -6,10 +6,15 @@ terminal: the agent's, on the panel token and naming its session, and the operat
 from the application's own page, held while any session of this terminal is held. The
 agent-tool rows drive the orbit-bump tool server's own panel call through the real
 terminal app.
+
+The websocket hop asks the same rule at every frame the browser sends: the upgrade and
+the application's own frames pass as a read does, and a frame sent under a hold closes
+the socket with the refusal, whether the hold began before or after the socket opened.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -22,6 +27,7 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from orbit_bump import APP_NAME
+from starlette.websockets import WebSocketDisconnect
 
 from osprey.apps.sdk import ApprovalRefused
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
@@ -31,7 +37,7 @@ from osprey.mcp_server.http import reset_panel_token_latch
 from osprey.utils.owner_header import SESSION_HEADER
 from osprey_connectors.session_hold import answer_flags, ensure_session, open_flag
 from tests.interfaces._asgi import OPERATOR_SECRET, PANEL_TOKEN
-from tests.interfaces.web_terminal._proxy_fakes import panel_app
+from tests.interfaces.web_terminal._proxy_fakes import _FakeConnect, _patch_connect, panel_app
 
 BACKEND = "http://127.0.0.1:9300"
 STATE_ROUTE = "/api/state"
@@ -247,6 +253,157 @@ def test_with_no_hold_store_nothing_is_read(terminal, monkeypatch, credential):
 
 def _no_read(*_args: Any, **_kwargs: Any) -> bool:
     raise AssertionError("no hold store, so no hold is read")
+
+
+# ---------------------------------------------------------------------------
+# The websocket hop: every frame the browser sends is a write
+# ---------------------------------------------------------------------------
+
+SOCKET = f"/panel/{APP_NAME}/ws"
+
+
+class _Application:
+    """The application's end of a socket: it echoes each frame, and can push one of its own."""
+
+    def __init__(self) -> None:
+        self.received: list[object] = []
+        self._frames: asyncio.Queue[str] = asyncio.Queue()
+        self._loop = asyncio.get_running_loop()
+
+    async def send(self, data: object) -> None:
+        self.received.append(data)
+        self._frames.put_nowait(f"echo:{data}")
+
+    def push(self, frame: str) -> None:
+        """Send the browser a frame, from the test's thread."""
+        self._loop.call_soon_threadsafe(self._frames.put_nowait, frame)
+
+    def __aiter__(self) -> _Application:
+        return self
+
+    async def __anext__(self) -> str:
+        return await self._frames.get()
+
+
+class _Connect(_FakeConnect):
+    """A connect that keeps the application end it handed the relay."""
+
+    application: _Application
+
+    async def __aenter__(self) -> _Application:
+        self.application = _Application()
+        return self.application
+
+
+def _assert_closed_held(closed: pytest.ExceptionInfo[WebSocketDisconnect]) -> None:
+    assert closed.value.code == 4003
+    assert "[osprey-refusal: session_held]" in closed.value.reason
+    assert len(closed.value.reason.encode()) <= 123  # the wire's cap on a close reason
+
+
+class TestTheApplicationsSocket:
+    """The operator's page; the gate opens no websocket to the panel token."""
+
+    @pytest.mark.no_auth_seam
+    def test_a_frame_reaches_the_application_when_no_session_is_held(self, terminal):
+        ensure_session(SESSION_KEY, root=_root(terminal))
+        client = TestClient(terminal, client=("127.0.0.1", 54321))
+        connect = _Connect()
+
+        with _patch_connect(connect), client.websocket_connect(SOCKET, headers=OPERATOR) as ws:
+            ws.send_text("set")
+            assert ws.receive_text() == "echo:set"
+
+        assert connect.application.received == ["set"]
+
+    @pytest.mark.no_auth_seam
+    def test_a_held_terminals_socket_opens_and_reads_but_its_frame_closes_it(self, terminal):
+        _hold(_root(terminal))
+        client = TestClient(terminal, client=("127.0.0.1", 54321))
+        connect = _Connect()
+
+        with _patch_connect(connect), client.websocket_connect(SOCKET, headers=OPERATOR) as ws:
+            connect.application.push("reading")
+            assert ws.receive_text() == "reading"
+            ws.send_text("set")
+            with pytest.raises(WebSocketDisconnect) as closed:
+                ws.receive_text()
+
+        _assert_closed_held(closed)
+        assert connect.application.received == []
+
+    @pytest.mark.no_auth_seam
+    @pytest.mark.parametrize("frame", ["set", b"\x01set"], ids=["text", "bytes"])
+    def test_a_hold_that_starts_after_the_socket_opened_refuses_the_next_frame(
+        self, terminal, frame
+    ):
+        ensure_session(SESSION_KEY, root=_root(terminal))
+        client = TestClient(terminal, client=("127.0.0.1", 54321))
+        connect = _Connect()
+
+        with _patch_connect(connect), client.websocket_connect(SOCKET, headers=OPERATOR) as ws:
+            ws.send_text("before")
+            assert ws.receive_text() == "echo:before"
+            _hold(_root(terminal))
+            connect.application.push("reading")
+            assert ws.receive_text() == "reading"
+            if isinstance(frame, bytes):
+                ws.send_bytes(frame)
+            else:
+                ws.send_text(frame)
+            with pytest.raises(WebSocketDisconnect) as closed:
+                ws.receive_text()
+
+        _assert_closed_held(closed)
+        assert connect.application.received == ["before"]
+
+    @pytest.mark.no_auth_seam
+    def test_a_frame_reaches_the_application_once_released(self, terminal):
+        _hold(_root(terminal))
+        answer_flags(
+            SESSION_KEY, ["flag-a"], answer="continue", operator="alice", root=_root(terminal)
+        )
+        client = TestClient(terminal, client=("127.0.0.1", 54321))
+        connect = _Connect()
+
+        with _patch_connect(connect), client.websocket_connect(SOCKET, headers=OPERATOR) as ws:
+            ws.send_text("set")
+            assert ws.receive_text() == "echo:set"
+
+    @pytest.mark.no_auth_seam
+    def test_a_frame_reaches_the_application_when_no_live_session_is_held(self, terminal):
+        ensure_session(SESSION_KEY, root=_root(terminal))
+        _hold(_root(terminal), OTHER_SESSION_KEY)  # held, but not a session this terminal runs
+        client = TestClient(terminal, client=("127.0.0.1", 54321))
+        connect = _Connect()
+
+        with _patch_connect(connect), client.websocket_connect(SOCKET, headers=OPERATOR) as ws:
+            ws.send_text("set")
+            assert ws.receive_text() == "echo:set"
+
+    @pytest.mark.no_auth_seam
+    def test_with_no_hold_store_nothing_is_read(self, terminal, monkeypatch):
+        terminal.state.session_hold_root = None
+        monkeypatch.setattr(proxy, "is_held", _no_read)
+        client = TestClient(terminal, client=("127.0.0.1", 54321))
+        connect = _Connect()
+
+        with _patch_connect(connect), client.websocket_connect(SOCKET, headers=OPERATOR) as ws:
+            ws.send_text("set")
+            assert ws.receive_text() == "echo:set"
+
+    @pytest.mark.no_auth_seam
+    def test_the_panel_token_opens_no_socket_to_the_application(self, terminal):
+        """Why no row here names a session: the agent's credential never reaches this hop."""
+        ensure_session(SESSION_KEY, root=_root(terminal))
+        client = TestClient(terminal, client=("127.0.0.1", 54321))
+        connect = _Connect()
+
+        with _patch_connect(connect), pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(SOCKET, headers={**BEARER, SESSION_HEADER: SESSION_KEY}):
+                pass  # pragma: no cover - the handshake is refused
+
+        assert connect.target is None
 
 
 # ---------------------------------------------------------------------------

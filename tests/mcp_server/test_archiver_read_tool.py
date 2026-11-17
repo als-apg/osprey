@@ -1169,8 +1169,12 @@ class TestComposeCoverage:
         block = self._compose({"CH": _probe(is_archived=False)})
         assert block["verdict"] == "never_recorded"
 
+    def test_an_archiver_that_cannot_say_is_unknown_not_never_recorded(self):
+        # The EPICS Archiver Appliance connector answers None for both probes.
+        block = self._compose({"CH": _probe(available=None, is_archived=None)})
+        assert block["verdict"] == "coverage_unknown"
+
     def test_boundless_metadata_is_unknown_not_guessed(self):
-        # The EPICS/DOOCS connectors report is_archived=True with no bounds.
         block = self._compose({"CH": _probe(start=None, end=None)})
         assert block["verdict"] == "coverage_unknown"
         assert "archive_start" not in block["channels"]["CH"]
@@ -1284,7 +1288,68 @@ class TestCoverageInToolResponse:
         assert data["status"] == "success"  # the read itself did not fail
         cov = data["summary"]["coverage"]
         assert cov["verdict"] == "coverage_unknown"
-        assert "store went away" in cov["channels"]["SR:OLD:RB"]["note"]
+        assert cov["channels"]["SR:OLD:RB"]["note"] == "metadata probe failed: RuntimeError"
+
+    async def test_an_archiver_not_connected_reports_unknown_with_the_reason(
+        self, archiver_read_tool
+    ):
+        """A refused availability probe still says why the coverage is unknown."""
+        from osprey_connectors.archiver._base import ArchiverMetadata
+
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({})
+        connector.check_availability.side_effect = RuntimeError("Archiver not connected")
+        connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
+            channel=ch, is_archived=None
+        )
+
+        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
+
+        data = extract_response_dict(result)
+        assert data["status"] == "success"
+        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
+        assert entry["verdict"] == "coverage_unknown"
+        assert entry["note"] == "availability probe failed: RuntimeError"
+
+    async def test_a_failed_metadata_probe_never_serves_the_exception_text(
+        self, archiver_read_tool
+    ):
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({})
+        connector.check_availability.return_value = {}
+        connector.get_metadata.side_effect = RuntimeError(
+            "cannot reach https://reader:secret@archiver.example/mgmt"
+        )
+
+        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
+
+        data = extract_response_dict(result)
+        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
+        assert entry["note"] == "metadata probe failed: RuntimeError"
+        served = json.dumps(data)
+        assert "archiver.example" not in served and "secret" not in served
+
+    async def test_a_failed_availability_probe_never_serves_the_exception_text(
+        self, archiver_read_tool
+    ):
+        from osprey_connectors.archiver._base import ArchiverMetadata
+
+        fn, connector = archiver_read_tool
+        connector.get_data.return_value = _make_archiver_df({})
+        connector.check_availability.side_effect = RuntimeError(
+            "cannot reach https://reader:secret@archiver.example/mgmt"
+        )
+        connector.get_metadata.side_effect = lambda ch: ArchiverMetadata(
+            channel=ch, is_archived=None
+        )
+
+        result = await fn(channels=["SR:OLD:RB"], start_time="2024-01-15T10:00:00")
+
+        data = extract_response_dict(result)
+        entry = data["summary"]["coverage"]["channels"]["SR:OLD:RB"]
+        assert entry["note"] == "availability probe failed: RuntimeError"
+        served = json.dumps(data)
+        assert "archiver.example" not in served and "secret" not in served
 
 
 # --- Waveform channels -------------------------------------------------------

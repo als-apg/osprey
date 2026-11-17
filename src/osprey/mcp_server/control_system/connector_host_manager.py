@@ -33,21 +33,21 @@ honestly so the layer above can refuse with a reason rather than pretend.
 Generations
 -----------
 The generation is what pins holders: an executor sandbox or an approved write
-that was granted under generation *n* must refuse once the deployment has moved
+that was granted under generation *n* must refuse once its login has moved
 past it. It therefore counts **target changes**, not process restarts. A
 same-target respawn — :meth:`ConnectorHostManager.respawn_same_target`, and
 :meth:`ConnectorHostManager.replace_child`, which recovers a child whose
 connector is lost — replaces the process and leaves the generation alone,
 because nothing a holder was promised has changed.
 
-This manager does not **mint** generations; it is handed them. One deployment
-runs one target and one generation, recorded in the shared control-context
+This manager does not **mint** generations; it is handed them. One login
+runs one target and one generation, recorded in that login's control-context
 record, and the process that owns that record is the only writer that may
-advance it. Every server then reconciles what it is running to what the record
-says (:meth:`ConnectorHostManager.reconcile`) and reports how far it has got.
-Two servers incrementing their own counters would give one deployment two
-generation *n+1* s that meant different targets, and a holder pinned to either
-of them could not tell which it had been promised.
+advance it. Every server of the login then reconciles what it is running to
+what the record says (:meth:`ConnectorHostManager.reconcile`) and reports how
+far it has got. Two servers incrementing their own counters would give one
+login two generation *n+1* s that meant different targets, and a holder pinned
+to either of them could not tell which it had been promised.
 
 Reconciling to the record
 -------------------------
@@ -110,7 +110,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.target_eligibility import (
@@ -157,6 +157,21 @@ from osprey_connectors.write_target import KIND_BANNERS
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.mcp_server.control_system.server_context import MCPServerConfig
 
+
+class RecoveryRecord(TypedDict):
+    """One thing the supervisor did about a failure: an ``action`` word and its ``text``.
+
+    The shape a failure's ``recovery`` carries. ``osprey_connectors.errors``
+    names it ``RecoveryRecord`` too, but the released connectors floor does
+    not carry that name yet; TypedDicts are structural, so this copy and that
+    one are the same type to the checker. Import it from there once the floor
+    does.
+    """
+
+    action: str
+    text: str
+
+
 logger = logging.getLogger("osprey.mcp_server.control_system.connector_host_manager")
 
 __all__ = [
@@ -165,6 +180,7 @@ __all__ = [
     "DEFAULT_SPAWN_TIMEOUT_S",
     "ConnectorHostManager",
     "NoConnectorHostError",
+    "RecoveryRecord",
     "SwitchError",
     "baseline_target",
     "reset_target_state",
@@ -291,7 +307,7 @@ class NoConnectorHostError(ConnectorUnavailableError):
         generation: int,
         detail: str | None = None,
         *,
-        recovery: tuple[dict[str, str], ...] = (),
+        recovery: tuple[RecoveryRecord, ...] = (),
     ) -> None:
         self.target = target
         self.generation = generation
@@ -1083,7 +1099,7 @@ class ConnectorHostManager:
             recovery = await self._start_one_if_none_is_live()
             raise NoConnectorHostError(self._target, self._generation, recovery=(recovery,))
 
-    async def _start_one_if_none_is_live(self) -> dict[str, str]:
+    async def _start_one_if_none_is_live(self) -> RecoveryRecord:
         """Start a child on the target of record when none is live; say what happened.
 
         Called under the lock. The previous child is gone, so there is nothing

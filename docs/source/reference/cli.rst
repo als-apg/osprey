@@ -339,6 +339,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    osprey profile presets
    osprey profile artifacts
    osprey profile card
+   osprey profile panels
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -364,6 +365,19 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    the login files beside it; nothing is built, started or probed.
    ``--json`` prints the rows as one JSON array of ``{group, label, value}``
    objects on stdout and every warning on stderr.
+
+``osprey profile panels [--json] [--html FILE] [--repo DIRECTORY]``
+   Print which login shows which panel: one row per panel, one column for the
+   deployment's own profile and for every file under ``tiers/``. A cell is
+   ``DEFAULT`` (the tab the login opens on), ``tab``, ``menu`` (selected but
+   hidden, so reachable from the panel menu only) or ``-``. It reads each
+   login's resolved profile, the way the build does; nothing is built.
+   ``--json`` prints the table as one document in which every cell names the
+   file whose line selects the panel and the file whose line hides it.
+   ``--html FILE`` writes the table as one self-contained page, where
+   selecting a cell says which file decides it. A login that selects the
+   ``roster`` panel reads the same page inside the web terminal, as of the
+   last build.
 
 .. code-block:: bash
 
@@ -1329,11 +1343,15 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``model`` (the model whose deck ``s`` is measured in), in any order. A file
    whose first row names no ``address`` column holds one address per line.
    ``s`` and ``model`` are the position of the row's device: for each device a
-   row states ``s`` for, the import writes ``{id, s}``, plus ``model`` when
+   row names, the import writes ``id``, ``s`` where stated and ``model`` when
    stated, to ``data/facility/imported/list/devices.yaml``, and no other
    device field, so the device merges with one another source declares, or is
-   created holding only its position. ``osprey build`` places it by the span
-   of its model containing ``s``. A row that names both a device and a place,
+   created holding only its id and position. A list naming no device leaves
+   no ``devices.yaml``. ``osprey build`` places a device with an ``s`` by the
+   span of its model containing it. When ``records/devices.yaml`` or another
+   layer declares devices and a listed device is in none of them, one stderr
+   line names it: ``import list: declared by this list only: <ids>``.
+   A row that names both a device and a place,
    states a role other than ``setpoint``, ``readback`` or ``none``, has no
    address or repeats one, states ``s`` or ``model`` with no device, or
    states an ``s`` that is not a finite number, a row with more cells than

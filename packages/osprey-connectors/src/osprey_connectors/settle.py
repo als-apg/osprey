@@ -12,9 +12,9 @@ readback that cannot be reached, is not a channel, or times out raises
 :class:`SettleReadError`, which names it, as does one that answers no value; a
 lost connector raises its own error.
 
-This module imports only the std-lib and ``osprey_connectors.errors``, and
-takes any connector with an awaitable ``read_channel(address)`` whose result
-carries ``.value``.
+This module imports only the std-lib, ``osprey_connectors.errors`` and the
+package's contract alias, and takes any connector with an awaitable
+``read_channel(address)`` whose result carries ``.value``.
 """
 
 from __future__ import annotations
@@ -25,8 +25,9 @@ import numbers
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import SupportsFloat, SupportsIndex
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError
 
 __all__ = [
@@ -42,7 +43,16 @@ __all__ = [
 _POLL_INTERVAL_S = 0.05
 
 
-def declared_tolerance(record: Mapping[str, Any] | None, demand: float) -> float | None:
+def _as_float(value: object) -> float:
+    """``float(value)``, refusing with ``float``'s own errors what ``float`` refuses."""
+    if isinstance(value, str | bytes | bytearray | SupportsFloat | SupportsIndex):
+        return float(value)
+    raise TypeError(
+        f"float() argument must be a string or a real number, not {type(value).__name__!r}"
+    )
+
+
+def declared_tolerance(record: Mapping[str, object] | None, demand: float) -> float | None:
     """The bound a ``tolerance`` record states for a move to ``demand``.
 
     Args:
@@ -57,14 +67,14 @@ def declared_tolerance(record: Mapping[str, Any] | None, demand: float) -> float
     if not isinstance(record, Mapping):
         return None
     if "absolute" in record:
-        return abs(float(record["absolute"]))
+        return abs(_as_float(record["absolute"]))
     if "relative" in record:
-        return abs(float(record["relative"])) * abs(float(demand))
+        return abs(_as_float(record["relative"])) * abs(float(demand))
     return None
 
 
 def settle_bound(
-    tolerance: Mapping[str, Any] | None,
+    tolerance: Mapping[str, object] | None,
     demand: float,
     *,
     motion: float = 0.0,
@@ -111,7 +121,7 @@ class SettleTimeoutError(TimeoutError):
         last: Its readback's last reading.
     """
 
-    def __init__(self, landing: Landing, last: Any, timeout_s: float) -> None:
+    def __init__(self, landing: Landing, last: object, timeout_s: float) -> None:
         self.landing = landing
         self.last = last
         super().__init__(
@@ -141,7 +151,9 @@ class SettleReadError(ChannelReadFailedError):
 
 
 async def settle(
-    connector: Any,
+    # Duck-typed by the module's contract: any object with an awaitable
+    # ``read_channel(address)``, which the package has no public type to name.
+    connector: ContractAny,
     landings: Sequence[Landing],
     *,
     timeout_s: float,
@@ -173,13 +185,13 @@ async def settle(
     deadline = clock() + timeout_s
     pending = list(landings)
     while pending:
-        unsettled: list[tuple[Landing, Any]] = []
+        unsettled: list[tuple[Landing, object]] = []
         for landing in pending:
             try:
-                reading = await connector.read_channel(landing.readback)
+                reading: object = await connector.read_channel(landing.readback)
             except ChannelError as exc:
                 raise SettleReadError(landing, exc) from exc
-            value = getattr(reading, "value", None)
+            value: object = getattr(reading, "value", None)
             if value is None:
                 raise SettleReadError(landing, None)
             if not _within(value, landing):
@@ -193,7 +205,7 @@ async def settle(
         await sleep(_POLL_INTERVAL_S)
 
 
-def _within(value: Any, landing: Landing) -> bool:
+def _within(value: object, landing: Landing) -> bool:
     """Whether ``value`` is a finite number within the landing's bound of its demand."""
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
         return False

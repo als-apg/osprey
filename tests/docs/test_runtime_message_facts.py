@@ -33,7 +33,7 @@ _HISTORY_TUPLES = re.compile(r"_(?:BANNERS|HEADERS)$")
 _PLACEHOLDER = re.compile(r"[<{\[…]|\.\.\.")
 
 _UNDATED_SUNSET = re.compile(
-    r"\b(?:deprecated|refused|removed)\b[^.]*\b(?:next|future) release", re.I
+    r"\b(?:deprecated|refused|removed)\b[^.]*\b(?:next|future)\b[^.]*\brelease", re.I
 )
 
 
@@ -141,12 +141,12 @@ def test_no_help_page_names_a_deleted_config_key() -> None:
 
 
 def test_a_sunset_names_its_release() -> None:
-    """A retirement is announced with the version that refuses it, not "the next"."""
+    """A retirement takes the release that refuses it from the window's constant."""
     offences = [
         f"{_rel(path)}:{lineno}: {match.group(0)}"
         for path, lineno, text in _messages()
         if (match := _UNDATED_SUNSET.search(" ".join(text.split())))
     ]
     assert not offences, (
-        "name the release from the window's *_REFUSED_FROM constant:\n" + "\n".join(offences)
+        "take the release from the window's *_REFUSED_FROM constant:\n" + "\n".join(offences)
     )

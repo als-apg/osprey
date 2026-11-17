@@ -272,6 +272,10 @@ def test_an_sdk_run_loads_only_the_rendered_servers(project, plugin, probe_env):
             await client.query("hi")
             async for message in client.receive_messages():
                 if isinstance(message, SystemMessage) and message.subtype == "init":
+                    # Stop the CLI as the other probes do: the turn after init only
+                    # waits on the closed port, and leaving the block would first give
+                    # it the SDK's grace period to exit on its own.
+                    client._transport._process.terminate()  # type: ignore[union-attr]
                     return _init_from(message.data)
         pytest.fail("the SDK stream ended before its init message")
 

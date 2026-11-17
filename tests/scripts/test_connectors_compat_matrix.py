@@ -275,8 +275,13 @@ def test_the_pyaml_backend_declares_the_framework_floor() -> None:
 
 
 def _today_with_the_floor_tag() -> list[str]:
-    """``TODAY`` plus the tag of the repository's real floor, which ``main`` reads."""
-    return [*TODAY, f"osprey-connectors-v{compat.connectors_floor()}"]
+    """``TODAY`` plus the tags ``main`` reads: the real floor's and each listed framework's."""
+    listed = [*compat.supported_frameworks(), *compat.retired_frameworks()]
+    return [
+        *TODAY,
+        f"osprey-connectors-v{compat.connectors_floor()}",
+        *(f"v{framework}" for framework in listed),
+    ]
 
 
 def test_the_plan_job_output_names_every_key(

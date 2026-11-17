@@ -181,6 +181,17 @@ class TestLlmJudgeCoverage:
         mock_completion.assert_called_once()
 
     @patch(_PATCH)
+    def test_the_judge_is_told_a_named_exclusion_is_not_a_recommendation(self, mock_completion):
+        """An answer that says what it left out is not marked down for saying so."""
+        mock_completion.return_value = ChannelExtractionResult(
+            covered_expected_indices=[0], extra_recommended=[], reasoning="A is the answer."
+        )
+        llm_judge_coverage("CH:A. I left out CH:GOLDEN.", ["CH:A"], judge=_ROUTE)
+        prompt = mock_completion.call_args.kwargs["message"]
+        assert "names only to say it was left out" in prompt
+        assert "is NOT recommended" in prompt
+
+    @patch(_PATCH)
     def test_out_of_range_indices_dropped(self, mock_completion):
         """Hallucinated indices (negative or beyond length) are filtered out."""
         mock_completion.return_value = ChannelExtractionResult(

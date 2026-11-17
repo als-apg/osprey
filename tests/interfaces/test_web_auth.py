@@ -15,9 +15,11 @@ import asyncio
 import hashlib
 import json
 import os
+import stat
 import sys
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -31,6 +33,7 @@ from osprey.interfaces.web_auth import (
     DEFAULT_SESSION_LIFETIME,
     OPERATOR_SECRET_ENV,
     PANEL_TOKEN_ENV,
+    PROJECT_PANEL_TOKEN_FILE,
     ROSTER_ACCEPT_ENV,
     ROSTER_OWNERS_ENV,
     ROSTER_SECRET_ENV_PREFIX,
@@ -43,7 +46,9 @@ from osprey.interfaces.web_auth import (
     get_web_credentials,
     mint_secret,
     peek_supplied_panel_token,
+    read_project_panel_token,
     reset_web_credentials,
+    share_panel_token_with_project,
 )
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS, ApplicationPanel, PanelRegistry
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
@@ -173,6 +178,151 @@ def test_single_user_shape_mints_both_credentials() -> None:
     assert len(credentials.operator_secret) == _MINTED_LENGTH
     assert len(credentials.panel_token) == _MINTED_LENGTH
     assert credentials.operator_secret != credentials.panel_token
+
+
+# ---------------------------------------------------------------------------
+# Population: the panel token a project's launcher-less processes share
+# ---------------------------------------------------------------------------
+
+
+def _token_file(root) -> Path:
+    return root / PROJECT_PANEL_TOKEN_FILE
+
+
+def test_two_processes_sharing_with_one_project_hold_one_panel_token(tmp_path) -> None:
+    """Each mints its own operator secret; the panel token is the project's."""
+    share_panel_token_with_project(tmp_path)
+    first = get_web_credentials()
+    reset_web_credentials()  # a second process of the same project
+    share_panel_token_with_project(tmp_path)
+    second = get_web_credentials()
+
+    assert first.panel_token == second.panel_token == read_project_panel_token(tmp_path)
+    assert len(first.panel_token) == _MINTED_LENGTH
+    assert first.operator_secret != second.operator_secret
+    assert first.panel_token not in (first.operator_secret, second.operator_secret)
+
+
+def test_the_shared_token_file_is_owner_only_and_left_alone(tmp_path) -> None:
+    share_panel_token_with_project(tmp_path)
+    get_web_credentials()
+
+    assert stat.S_IMODE(_token_file(tmp_path).stat().st_mode) == 0o600
+    assert [entry.name for entry in tmp_path.iterdir()] == [PROJECT_PANEL_TOKEN_FILE]
+
+
+def test_a_process_that_did_not_ask_shares_nothing(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    credentials = get_web_credentials()
+
+    assert len(credentials.panel_token) == _MINTED_LENGTH
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("carrier", [OPERATOR_SECRET_ENV, PANEL_TOKEN_ENV])
+def test_a_process_a_launcher_handed_a_credential_keeps_its_own(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, carrier: str
+) -> None:
+    """What a launcher supplied stands, and its process writes no shared token."""
+    monkeypatch.setenv(carrier, "handed-in")
+    share_panel_token_with_project(tmp_path)
+
+    credentials = get_web_credentials()
+
+    assert not _token_file(tmp_path).exists()
+    assert "handed-in" in (credentials.operator_secret, credentials.panel_token)
+
+
+def test_sharing_after_the_credentials_are_settled_changes_nothing(tmp_path) -> None:
+    """A token this process may already have passed on is never swapped."""
+    settled = get_web_credentials().panel_token
+
+    share_panel_token_with_project(tmp_path)
+
+    assert get_web_credentials().panel_token == settled
+    assert not _token_file(tmp_path).exists()
+
+
+def test_reset_forgets_the_project_to_share_with(tmp_path) -> None:
+    share_panel_token_with_project(tmp_path)
+    reset_web_credentials()
+
+    get_web_credentials()
+
+    assert not _token_file(tmp_path).exists()
+
+
+def test_reading_the_shared_token_creates_nothing(tmp_path) -> None:
+    assert read_project_panel_token(tmp_path) is None
+    assert read_project_panel_token(tmp_path / "absent") is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def _loosened(root: Path) -> None:
+    _token_file(root).write_text("planted", encoding="ascii")
+    _token_file(root).chmod(0o644)
+
+
+def _linked(root: Path) -> None:
+    target = root / "elsewhere"
+    target.write_text("planted", encoding="ascii")
+    target.chmod(0o600)
+    _token_file(root).symlink_to(target)
+
+
+def _oversized(root: Path) -> None:
+    _token_file(root).write_text("x" * 4096, encoding="ascii")
+    _token_file(root).chmod(0o600)
+
+
+def _blank(root: Path) -> None:
+    _token_file(root).write_text("  \n", encoding="ascii")
+    _token_file(root).chmod(0o600)
+
+
+def _directory(root: Path) -> None:
+    _token_file(root).mkdir()
+
+
+@pytest.mark.parametrize("plant", [_loosened, _linked, _oversized, _blank, _directory])
+def test_a_token_file_this_module_did_not_write_is_never_trusted(tmp_path, plant) -> None:
+    """Not read as a bearer, not verified against, and not replaced."""
+    plant(tmp_path)
+    before = _token_file(tmp_path).lstat()
+
+    assert read_project_panel_token(tmp_path) is None
+    share_panel_token_with_project(tmp_path)
+    credentials = get_web_credentials()
+
+    assert len(credentials.panel_token) == _MINTED_LENGTH
+    assert credentials.verify_panel("planted") is False
+    assert _token_file(tmp_path).lstat().st_ino == before.st_ino
+
+
+def test_an_unwritable_project_falls_back_to_a_private_token(tmp_path) -> None:
+    share_panel_token_with_project(tmp_path / "absent")
+
+    assert len(get_web_credentials().panel_token) == _MINTED_LENGTH
+
+
+def test_processes_starting_together_agree_on_one_shared_token(tmp_path) -> None:
+    tokens: list[str | None] = []
+    barrier = threading.Barrier(8)
+
+    def _start() -> None:
+        barrier.wait()
+        tokens.append(web_auth._ensure_project_panel_token(tmp_path))
+
+    threads = [threading.Thread(target=_start) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(set(tokens)) == 1
+    assert tokens[0] == read_project_panel_token(tmp_path)
+    assert [entry.name for entry in tmp_path.iterdir()] == [PROJECT_PANEL_TOKEN_FILE]
 
 
 # ---------------------------------------------------------------------------

@@ -22,9 +22,12 @@ switch covers the call.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+import os
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
+
+from typing_extensions import override
 
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import (
@@ -105,6 +108,7 @@ class Unresolved:
 
     __slots__ = ()
 
+    @override
     def __repr__(self) -> str:
         return "<unresolved>"
 
@@ -115,9 +119,22 @@ class Unresolved:
 UNRESOLVED = Unresolved()
 
 
-def _is_write_tool(tool_name: str, write_tools: Any) -> bool:
+def _entries(value: object) -> Iterable[object]:
+    """A hook-config list as the hooks iterate it: nothing when unset or empty.
+
+    A value that does not iterate raises :class:`TypeError`, as iterating it
+    would, so :func:`write_target_for_tool` places that write nowhere.
+    """
+    if not value:
+        return ()
+    if not isinstance(value, Iterable):
+        raise TypeError(f"a hook-config list is a {type(value).__name__}, which does not iterate")
+    return value
+
+
+def _is_write_tool(tool_name: str, write_tools: object) -> bool:
     """Whether *tool_name* is covered by *write_tools*: exact names and ``.*`` matchers."""
-    for entry in write_tools or ():
+    for entry in _entries(write_tools):
         if not isinstance(entry, str):
             continue
         if entry == tool_name:
@@ -129,7 +146,7 @@ def _is_write_tool(tool_name: str, write_tools: Any) -> bool:
     return False
 
 
-def _is_write_call(tool_input: Any, short_name: str) -> bool:
+def _is_write_call(tool_input: object, short_name: str) -> bool:
     """Whether this call writes: only a readonly (or modeless) ``execute`` does not."""
     if short_name != _EXECUTE_TOOL:
         return True
@@ -138,7 +155,7 @@ def _is_write_call(tool_input: Any, short_name: str) -> bool:
     return bool(tool_input.get("execution_mode", "readonly") != "readonly")
 
 
-def _short_tool_name(tool_name: str, prefixes: Any) -> str:
+def _short_tool_name(tool_name: str, prefixes: Iterable[object] | None) -> str:
     """*tool_name* without its server prefix; the longest matching prefix wins.
 
     With no prefix matching, the ``mcp__<server>__<tool>`` shape decides, and a
@@ -153,7 +170,7 @@ def _short_tool_name(tool_name: str, prefixes: Any) -> str:
     return tool_name
 
 
-def _hook_prefixes(hook_config: Mapping[str, Any]) -> list[str]:
+def _hook_prefixes(hook_config: Mapping[str, object]) -> list[str]:
     """Every server prefix *hook_config* names."""
     prefixes: list[str] = []
     for key in _PREFIX_KEYS:
@@ -163,7 +180,7 @@ def _hook_prefixes(hook_config: Mapping[str, Any]) -> list[str]:
     return prefixes
 
 
-def _is_facility_tool(tool_name: str, hook_config: Mapping[str, Any]) -> bool:
+def _is_facility_tool(tool_name: str, hook_config: Mapping[str, object]) -> bool:
     """Whether *tool_name* is a write tool the deployment declared, not the framework.
 
     The rendered ``facility_write_tools`` set, plus the ``control_system.write_tools``
@@ -175,28 +192,28 @@ def _is_facility_tool(tool_name: str, hook_config: Mapping[str, Any]) -> bool:
         if _is_write_tool(tool_name, declared):
             return True
     else:
-        for entry in hook_config.get("write_tools") or ():
+        for entry in _entries(hook_config.get("write_tools")):
             if (
                 isinstance(entry, str)
                 and entry.endswith(_MATCHER_WILDCARD)
                 and _is_write_tool(tool_name, [entry])
             ):
                 return True
-    extras = hook_config.get(_FACILITY_EXTRAS_KEY) or ()
+    extras = _entries(hook_config.get(_FACILITY_EXTRAS_KEY))
     return tool_name in [extra for extra in extras if isinstance(extra, str)]
 
 
-def _section(config: Any) -> Any:
+def _section(config: object) -> object:
     return config.get("control_system") if isinstance(config, Mapping) else None
 
 
-def _lane_block(config: Any, lane_key: str) -> Mapping[str, Any]:
+def _lane_block(config: object, lane_key: str) -> Mapping[str, object]:
     services = config.get("services") if isinstance(config, Mapping) else None
     block = services.get(lane_key) if isinstance(services, Mapping) else None
     return block if isinstance(block, Mapping) else {}
 
 
-def _rendered_lanes(config: Any) -> list[tuple[str, str]]:
+def _rendered_lanes(config: object) -> list[tuple[str, str]]:
     """``[(lane key, the target it serves)]`` in render order; lane one always present."""
     baseline = baseline_target(_section(config))
     lanes: list[tuple[str, str]] = []
@@ -211,7 +228,7 @@ def _rendered_lanes(config: Any) -> list[tuple[str, str]]:
     return lanes
 
 
-def _lane_machine(config: Any, tool_input: Any) -> str | Unresolved:
+def _lane_machine(config: object, tool_input: object) -> str | Unresolved:
     """The target the call's lane serves, or :data:`UNRESOLVED`."""
     lanes = _rendered_lanes(config)
     lane = tool_input.get("lane") if isinstance(tool_input, Mapping) else None
@@ -223,7 +240,7 @@ def _lane_machine(config: Any, tool_input: Any) -> str | Unresolved:
 
 
 def _session_machine(
-    config: Any, record_path: Path | None, stamped: bool | None
+    config: object, record_path: Path | None, stamped: bool | None
 ) -> str | Unresolved:
     """The target the session is pointed at, or :data:`UNRESOLVED`.
 
@@ -246,11 +263,11 @@ def _session_machine(
 
 
 def write_target_for_tool(
-    config: Any,
+    config: object,
     tool_name: str,
-    tool_input: Any,
+    tool_input: object,
     *,
-    hook_config: Mapping[str, Any] | None,
+    hook_config: Mapping[str, object] | None,
     short_name: str | None = None,
     record_path: Path | None = None,
     stamped: bool | None = None,
@@ -282,7 +299,7 @@ def write_target_for_tool(
             call is stamped; ``None`` asks this process's environment.
     """
     try:
-        hooks: Mapping[str, Any] = hook_config if isinstance(hook_config, Mapping) else {}
+        hooks: Mapping[str, object] = hook_config if isinstance(hook_config, Mapping) else {}
         write_tools = hooks.get("write_tools", _FALLBACK_WRITE_TOOLS)
         if not _is_write_tool(tool_name, write_tools):
             return None
@@ -295,7 +312,7 @@ def write_target_for_tool(
             return _session_machine(config, record_path, stamped)
         if _is_facility_tool(tool_name, hooks):
             return TARGET_LIVE
-        if short_name in tuple(hooks.get(_LANE_ADDRESSED_KEY) or ()):
+        if short_name in tuple(_entries(hooks.get(_LANE_ADDRESSED_KEY))):
             return _lane_machine(config, tool_input)
         return _session_machine(config, record_path, stamped)
     except Exception:
@@ -306,7 +323,7 @@ def write_target_for_tool(
 def frame_target(
     target: str | None | Unresolved,
     *,
-    state_dir: Any = None,
+    state_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, str] | None:
     """C-FRAME's ``target``: ``{key, machine_kind, kind_words}``, or ``None``.
 

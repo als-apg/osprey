@@ -508,6 +508,17 @@ export function reportLayoutNow() {
 }
 
 /**
+ * Disarm the pending report — the settle window or the backoff before a
+ * resend — so nothing reports after this call until the layout changes again.
+ * For a page that is going away, and for a module graph being torn down: a
+ * report it would have sent describes a dock that no longer exists.
+ */
+export function cancelLayoutReport() {
+  clearTimeout(reportHandle ?? undefined);
+  reportHandle = null;
+}
+
+/**
  * Run `fn` with the echo guard raised: any dockview focus change it causes (a
  * programmatic setActive) is recognised as a server-applied echo and not
  * POSTed back. panel-manager's activateTab wraps its focusPanel() call in this —

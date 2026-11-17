@@ -948,7 +948,9 @@ from osprey.services.virtual_accelerator.serving.model_surface import (
     SURFACE_MODEL_ONLY,
     SURFACE_SERVED,
     WRITES_DISABLED,
+    served_addresses,
 )
+from osprey_connectors.simulation.view import SimulatorView
 
 port, token, gate_pv, instance = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 hostname, view = sys.argv[5], Path(sys.argv[6])
@@ -974,7 +976,6 @@ def read(name):
 
 
 served_models = read("served_models.json")["models"]
-addresses = read("addresses.json")
 owners = {str(c["address"]): str(c.get("owner")) for c in read("variables.json")["channels"]}
 
 ctx = Context("pva")
@@ -1027,11 +1028,13 @@ for entry in info["variables"]:
 if set(by_surface) - {SURFACE_SERVED, SURFACE_MODEL_ONLY}:
     raise SystemExit(f"FATAL: info names surfaces {sorted(by_surface)}")
 served_names = [entry["name"] for entry in by_surface.get(SURFACE_SERVED, [])]
-expected = [*addresses["channels"], *addresses["status"]]
+# The view on disk, composed by the function the server composes it with: its
+# channels, its status addresses and its IOC health addresses.
+expected = served_addresses(SimulatorView.open(view))
 if served_names != expected:
     raise SystemExit(
         f"FATAL: info lists {len(served_names)} served names; the view's addresses.json "
-        f"lists {len(expected)} channels and status addresses"
+        f"lists {len(expected)} served addresses"
     )
 model_variables = {entry["name"]: entry for entry in by_surface.get(SURFACE_MODEL_ONLY, [])}
 strays = sorted(

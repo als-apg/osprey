@@ -2582,7 +2582,8 @@ class TestOperatorChatStreamParity:
                 "truncated": False,
                 "refusal": None,
             },
-            {"type": "system", "subtype": "init", "session_id": "abc"},
+            # The init names no model, so it carries the one the answer above named.
+            {"type": "system", "subtype": "init", "session_id": "abc", "model": "claude-test"},
             {
                 "type": "result",
                 "is_error": False,
@@ -2685,6 +2686,64 @@ class TestTheConversationMoves:
         await session.cancel()
 
         assert client.interrupt_calls == calls
+
+
+#: Where the session resolves the deployment's default model.
+_DEFAULT_MODEL = "osprey.interfaces.web_terminal.operator_session.resolve_default_model"
+
+
+class TestTheModelTheChatNames:
+    """The session names the model that answers: in its ``hello`` and on the init frame."""
+
+    @pytest.mark.asyncio
+    async def test_before_any_turn_the_hello_names_the_deployment_default(self):
+        with patch(_DEFAULT_MODEL, return_value="claude-sonnet-4-5") as resolve:
+            async with _started_session(_ScriptedClient()) as session:
+                _feed, hello = session.subscribe()
+        assert hello["model"] == "claude-sonnet-4-5"
+        assert resolve.call_args.args == (Path("/tmp"),)
+
+    @pytest.mark.asyncio
+    async def test_a_default_that_cannot_be_resolved_names_no_model(self):
+        with patch(_DEFAULT_MODEL, side_effect=RuntimeError("no config")):
+            async with _started_session(_ScriptedClient()) as session:
+                _feed, hello = session.subscribe()
+        assert hello["model"] is None
+
+    @pytest.mark.asyncio
+    async def test_the_init_frame_and_the_next_hello_name_the_model_the_child_reports(self):
+        client = _ScriptedClient(
+            [
+                system_message("init", {"session_id": "s", "model": "claude-opus-4-6"}),
+                assistant_message([TextBlock("hi")]),
+                result_message(),
+            ]
+        )
+        with patch(_DEFAULT_MODEL, return_value="claude-sonnet-4-5"):
+            async with _started_session(client) as session:
+                frames = await collect_turn(session)
+                _feed, hello = session.subscribe()
+        (init,) = [f for f in frames if f["type"] == "system"]
+        assert init["model"] == "claude-opus-4-6"
+        assert hello["model"] == "claude-opus-4-6"
+
+    @pytest.mark.asyncio
+    async def test_an_init_with_no_model_keeps_the_default_until_the_first_answer(self):
+        client = _ScriptedClient(
+            [
+                system_message("init", {"session_id": "s"}),
+                assistant_message([TextBlock("hi")]),
+                result_message(),
+            ]
+        )
+        with patch(_DEFAULT_MODEL, return_value="claude-sonnet-4-5"):
+            async with _started_session(client) as session:
+                frames = await collect_turn(session)
+                _feed, hello = session.subscribe()
+        (init,) = [f for f in frames if f["type"] == "system"]
+        assert init["model"] == "claude-sonnet-4-5"
+        # The answer's own model (``assistant_message`` names "claude-test").
+        assert hello["model"] == "claude-test"
 
 
 def test_the_operator_session_module_imports_nothing_from_the_agent_sdk():

@@ -221,6 +221,36 @@ def test_enter_submits_the_form_and_the_tab_shows_the_osprey_mark() -> None:
     assert f'<link rel="icon" type="image/svg+xml" href="{favicon_data_uri()}">' in response.text
 
 
+def test_the_submit_button_goes_busy_and_the_form_still_posts_without_script() -> None:
+    """The frame's script marks the button busy on submit, drops a second
+    submit and restores the button on a back/forward-cache restore; the form
+    itself stays a plain POST."""
+    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": "/u/alice/"})
+    body = response.text
+
+    assert (
+        '<button class="login-submit" type="submit"\n'
+        '              data-busy-label="Unlocking terminal&hellip;">Unlock terminal</button>'
+    ) in body
+    assert f'<form method="post" action="{LOGIN_PATH}">' in body
+    script = body[body.index("<script>") :]
+    assert 'document.addEventListener("submit"' in script
+    assert 'button.setAttribute("aria-busy", "true");' in script
+    assert "button.disabled = busy;" in script
+    assert "event.preventDefault();" in script
+    assert 'window.addEventListener("pageshow"' in script
+    assert "if (!event.persisted) return;" in script
+    # The page-ready mark stays the script's last statement.
+    assert script.rstrip().endswith(
+        'document.documentElement.setAttribute("data-page-ready", "true");\n'
+        "  </script>\n</body>\n</html>"
+    )
+    # The spinner is CSS only and holds still under reduced motion.
+    style = body[body.index("<style>") : body.index("</style>")]
+    assert '.login-submit[aria-busy="true"]::before' in style
+    assert "@media (prefers-reduced-motion: reduce)" in style
+
+
 def test_page_is_never_cached() -> None:
     """A shared control-room browser must not re-serve a previous prompt."""
     response = _client().get(LOGIN_PATH, params={"user": "alice", "next": ""})

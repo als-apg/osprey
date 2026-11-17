@@ -245,7 +245,7 @@ const DESTRUCTIVE = new Set([
 /**
  * @typedef {'sidebar' | 'workspace-sidebar' | 'workspace-dock' | 'tile' | 'content'} Layer
  * @typedef {{name: string, layer: Layer, items: Item[], railEntry?: boolean,
- *   sessionsRowTileless?: boolean, offRail?: boolean}} Place
+ *   sessionsRowTileless?: boolean, offRail?: boolean, opensInNewSession?: boolean}} Place
  */
 
 /** Every label in a menu, submenus flattened. @param {Item[]} items @returns {string[]} */
@@ -277,8 +277,14 @@ function row(items, label) {
   return hit;
 }
 
+/** The row that starts a session holding one pane; see {@link layerViolations}. */
+const NEW_SESSION = 'Open in new session';
+
 /**
- * The Layer rule's violations at one place.
+ * The Layer rule's violations at one place. "Open in new session" is no dock
+ * verb: it acts on no tile, and starts a session that holds the pane. It is
+ * legal where a place flags `opensInNewSession` (the docked tile bar, the
+ * rail entry of a panel that started, an artifact row) and nowhere else.
  * @param {Place} place
  * @returns {string[]}
  */
@@ -302,6 +308,9 @@ function layerViolations(place) {
     }
     if (label === 'Reset layout' && !place.layer.startsWith('workspace')) {
       out.push(`Reset layout at ${place.name}`);
+    }
+    if (label === NEW_SESSION && !place.opensInNewSession) {
+      out.push(`"${NEW_SESSION}" at ${place.name}`);
     }
   }
   return out;
@@ -520,18 +529,21 @@ function everyPlace() {
     name: 'rail entry (docked)',
     layer: 'sidebar',
     railEntry: true,
+    opensInNewSession: true,
     items: policy.buildServiceMenuItems('svc'),
   });
   out.push({
     name: 'rail entry (tile closed)',
     layer: 'sidebar',
     railEntry: true,
+    opensInNewSession: true,
     items: policy.buildServiceMenuItems('closed'),
   });
   out.push({
     name: 'rail entry (detached)',
     layer: 'sidebar',
     railEntry: true,
+    opensInNewSession: true,
     items: policy.buildServiceMenuItems('popped'),
   });
   out.push({
@@ -587,7 +599,11 @@ function everyPlace() {
   out.push({
     name: 'artifact row',
     layer: 'sidebar',
-    items: verbs.artifactMenuItems(PLOT, { open: () => t.artifact.click() }),
+    opensInNewSession: true,
+    items: verbs.artifactMenuItems(PLOT, {
+      open: () => t.artifact.click(),
+      newSession: () => {},
+    }),
   });
   out.push({ name: 'tree group', layer: 'sidebar', items: treeMenus.groupMenuItems(t.group) });
   out.push({ name: 'pinned heading', layer: 'sidebar', items: pins.headMenuItems(pinnedHead()) });
@@ -615,10 +631,16 @@ function everyPlace() {
     items: dockMenus.buildEmptyDockItems(document),
   });
   // ---- Tile places ----
-  out.push({ name: 'service tile bar', layer: 'tile', items: policy.buildTileMenuItems('svc') });
+  out.push({
+    name: 'service tile bar',
+    layer: 'tile',
+    opensInNewSession: true,
+    items: policy.buildTileMenuItems('svc'),
+  });
   out.push({
     name: 'service tile bar (off-rail)',
     layer: 'tile',
+    opensInNewSession: true,
     offRail: true,
     items: policy.buildTileMenuItems('loner'),
   });
@@ -644,6 +666,7 @@ function everyPlace() {
   out.push({
     name: 'service tile bar (maximized)',
     layer: 'tile',
+    opensInNewSession: true,
     items: policy.buildTileMenuItems('svc'),
   });
   dock.maximizedTileKey.mockImplementation(() => null);
@@ -719,6 +742,24 @@ describe('the Layer rule holds at every shell place', () => {
     expect(
       layerViolations({ name: 'x', layer: 'content', items: [{ label: 'Maximize' }] })
     ).toHaveLength(1);
+  });
+
+  test('Open in new session is in every place that flags it, and in no other', () => {
+    for (const place of everyPlace()) {
+      const has = allLabels(place.items).includes(NEW_SESSION);
+      expect(has, place.name).toBe(Boolean(place.opensInNewSession));
+    }
+    expect(
+      layerViolations({ name: 'x', layer: 'tile', items: [{ label: NEW_SESSION }] })
+    ).toHaveLength(1);
+    expect(
+      layerViolations({
+        name: 'x',
+        layer: 'sidebar',
+        opensInNewSession: true,
+        items: [{ label: NEW_SESSION }],
+      })
+    ).toEqual([]);
   });
 });
 

@@ -361,8 +361,8 @@ def _composition_provider() -> tuple[str, dict[str, Any], dict[str, Any]]:
     provider silently bills the wrong account.
 
     Raises:
-        HTTPException: 503 when no provider is configured or the provider is
-            absent from ``api.providers``.
+        HTTPException: 503 when no provider is configured, the configured one
+            is not a name, or the provider is absent from ``api.providers``.
     """
     from osprey.models.config import get_provider_config
     from osprey_connectors.config import get_config_value
@@ -379,6 +379,15 @@ def _composition_provider() -> tuple[str, dict[str, Any], dict[str, Any]]:
                 "No provider configured for logbook composition. Set "
                 "logbook.composition.provider in config.yml (it falls back to "
                 "claude_code.provider) to a provider declared under api.providers."
+            ),
+        )
+    if not isinstance(provider, str):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The logbook composition provider must be a provider name, got "
+                f"{type(provider).__name__}. Check logbook.composition.provider and "
+                "claude_code.provider in config.yml."
             ),
         )
 

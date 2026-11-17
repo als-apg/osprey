@@ -347,10 +347,20 @@ def build_lint_view(
     *,
     profile_root: Path | None = None,
     dispatch_tier: str | None = None,
+    provider: str | None = None,
+    pipeline: str | None = None,
+    ariel_server_on: bool = False,
+    provider_catalog: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The config the profile lint judges: the ``config:`` block as the build renders it.
 
-    Four contributions over the profile's own entries, each one the build
+    This is the one mirror of what the build derives from a profile. The
+    producer of every derived key is the build (the framework template
+    ``templates/project/config.yml.j2`` and the injectors); a reader that has no
+    render reads this view, and ``tests/cli/test_inner_call_key_warnings.py``
+    renders the template and holds the template-written keys here to it.
+
+    Five contributions over the profile's own entries, each one the build
     also writes into ``build/config.yml``:
 
     - what the ``deploy:`` block contributes (:func:`deploy_config_overrides`);
@@ -364,7 +374,15 @@ def build_lint_view(
       before any render exists;
     - ``dispatch.tier`` as ``services.dispatch_worker.tier``, the key the build
       writes it under, so the lint names the dispatch tier among the renders
-      the deployment serves by one key at both altitudes.
+      the deployment serves by one key at both altitudes;
+    - the keys that say which features call a model, laid in only when the
+      caller hands over the profile fields the template writes them from:
+      ``claude_code.provider`` from *provider*; with *ariel_server_on*,
+      ``logbook.composition.provider`` and the ARIEL semantic processor's
+      ``provider`` from the same field; ``channel_finder.pipeline_mode`` from
+      *pipeline*; ``api.providers`` from *provider_catalog*. ``osprey validate``
+      reads them through :func:`osprey.models.inner_calls.missing_key_warnings`;
+      the web lint does not pass them and sees the view it always saw.
 
     It never lays in ``control_system.login_tiers``: the build stages that map
     only into the shared containers' configs, never into the ``config.yml`` this
@@ -381,6 +399,12 @@ def build_lint_view(
             projection lists; ``None`` projects no render.
         dispatch_tier: The profile's ``dispatch.tier``, or ``None`` when it
             sets none (nothing is written then, as the build writes nothing).
+        provider: The profile's ``provider:``.
+        pipeline: The channel-finder paradigm the render names; ``None`` when
+            it renders no ``channel_finder`` block.
+        ariel_server_on: Whether the ARIEL server resolves enabled, the gate
+            the template puts on its two ARIEL-dependent blocks.
+        provider_catalog: The catalog the build renders as ``api.providers``.
 
     Returns:
         A flat bag of the profile's dotted keys with the derived ones laid over.
@@ -395,6 +419,15 @@ def build_lint_view(
             derived_renders(config, project_name, profile_root, dispatch_tier=dispatch_tier)
         )
         view["project_name"] = project_name
+    if provider:
+        view["claude_code.provider"] = provider
+        if ariel_server_on:
+            view["logbook.composition.provider"] = provider
+            view["ariel.enhancement_modules.semantic_processor.provider"] = provider
+    if pipeline:
+        view["channel_finder.pipeline_mode"] = pipeline
+    if provider_catalog is not None:
+        view["api.providers"] = dict(provider_catalog)
     return view
 
 
@@ -566,8 +599,8 @@ def facility_write_warnings(
     PR-5a: a non-empty ``control_system.write_tools`` still gates the tools it
     names; the warning names the per-server key that replaces it.
 
-    Both are refused from :data:`~osprey.cli.build_profile_load.RETIRED_WRITE_KEYS_REFUSED_FROM`;
-    the release that reaches it moves this call to the deploy-aware errors.
+    Both are refused in :data:`~osprey.cli.build_profile_load.RETIRED_WRITE_KEYS_REFUSED_FROM`;
+    that release moves this call to the deploy-aware errors.
 
     Reads the profile's loaded *mcp_servers* (``McpServerDef`` or mappings) and
     the ``claude_code.servers`` specs *config* persists; a server named in both
@@ -607,7 +640,7 @@ def facility_write_warnings(
             "control_system.write_tools is deprecated: use `mcp_servers.<server>.writes` "
             "to name a facility server's write tools. "
             + (f"It still gates {listed} as writes" if listed else "It still gates its tools")
-            + f" until it is refused from OSPREY {RETIRED_WRITE_KEYS_REFUSED_FROM}."
+            + f" until it is refused in {RETIRED_WRITE_KEYS_REFUSED_FROM}."
         )
     return warnings
 
@@ -640,7 +673,7 @@ def _undeclared_write_tool_warnings(name: str, perms: Any, writes: Any, sunset: 
             f"mcp_servers.{name}: tool `{tool}` {reason} but is not in its `writes:` "
             "list, so it is gated as a write the list does not declare. Add it to "
             f"mcp_servers.{name}.writes; a server whose list leaves out such a tool is "
-            f"refused from OSPREY {sunset}."
+            f"refused in {sunset}."
         )
     return warnings
 

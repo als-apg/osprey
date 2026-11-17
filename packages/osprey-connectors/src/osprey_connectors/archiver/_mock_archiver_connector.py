@@ -9,10 +9,12 @@ active scenario set. An address outside the view is refused.
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pandas as pd
+from typing_extensions import override
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     aggregate_long_frame,
@@ -61,14 +63,19 @@ class MockArchiverConnector(ArchiverConnector):
         >>> )
     """
 
-    def __init__(self):
+    #: Samples per second, set by connect().
+    _sample_rate_hz: float
+
+    def __init__(self) -> None:
         self._connected = False
         self._archive: ArchiveComposite | None = None
         self._view: SimulatorView | None = None
         self._state_file: Path | None = None
         self._state_signature: tuple[int, int] | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    # The config block is the archiver extension contract; this backend reads its keys unchecked.
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Build the archive composite of the simulator view.
 
@@ -79,15 +86,15 @@ class MockArchiverConnector(ArchiverConnector):
                   ``data/simulator/`` beside the loaded config.
 
         Raises:
-            ValueError: ``sample_rate_hz`` is not greater than zero.
+            ValueError: ``sample_rate_hz`` is not a number greater than zero.
             RuntimeError: There is no built simulator view, it is from an
                 older build, or a physics model fails to build at the start
                 state.
         """
         # A zero or negative rate would divide by zero later; reject it at
-        # configuration time.
-        sample_rate_hz = config.get("sample_rate_hz", 1.0)
-        if sample_rate_hz <= 0:
+        # configuration time, along with a rate that is not a number at all.
+        sample_rate_hz: object = config.get("sample_rate_hz", 1.0)
+        if not isinstance(sample_rate_hz, int | float) or sample_rate_hz <= 0:
             raise ValueError(f"sample_rate_hz must be > 0 (got {sample_rate_hz})")
         self._sample_rate_hz = sample_rate_hz
 
@@ -155,6 +162,7 @@ class MockArchiverConnector(ArchiverConnector):
                 raise ChannelNotFoundError(channel)
         return archive
 
+    @override
     async def disconnect(self) -> None:
         """Close the archive composite and stop serving."""
         if self._archive is not None:
@@ -163,13 +171,14 @@ class MockArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("Mock archiver connector disconnected")
 
+    @override
     async def get_data(
         self,
         channels: list[str],
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,  # noqa: ARG002 - ArchiverConnector.get_data signature; generated samples never wait on a transport
+        timeout: int | None = None,
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
@@ -233,6 +242,7 @@ class MockArchiverConnector(ArchiverConnector):
 
         return data
 
+    @override
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Mock archiver metadata for a channel of the simulator view.
 
@@ -251,7 +261,12 @@ class MockArchiverConnector(ArchiverConnector):
             description=f"Mock archived channel: {channel}",
         )
 
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
-        """Whether the simulator view holds each channel."""
+    @override
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
+        """Whether the simulator view holds each channel.
+
+        Raises:
+            RuntimeError: If the archiver is not connected.
+        """
         served = set(self._current().addresses)
         return {channel: channel in served for channel in channels}

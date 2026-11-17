@@ -121,6 +121,7 @@ function settleBootLayout() {
 // import next to the dock-iframe one below for the same freshness reason.
 const JS_DIR = '../../../src/osprey/interfaces/web_terminal/static/js';
 const TERMINAL_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
+const DOCK_SYNC_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/dock-sync.js';
 const SESSIONS_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sessions.js';
 const { restartTerminal, startTerminal, focusTerminal, startNewSession } = vi.hoisted(() => ({
   restartTerminal: vi.fn(async () => {}),
@@ -308,7 +309,7 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (testWatchdog) clearTimeout(testWatchdog);
   testWatchdog = null;
   const elapsed = performance.now() - testStarted;
@@ -318,6 +319,9 @@ afterEach(() => {
     );
   }
 
+  // A layout change in the test armed dock-sync's settle window; with the fetch
+  // stub gone, that report would reach the next test as an unstubbed request.
+  (await import(DOCK_SYNC_PATH)).cancelLayoutReport();
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute('data-panel-labels');
   document.body.innerHTML = '';
@@ -3114,7 +3118,13 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('ariel'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['Open', 'Open in new window', 'Move to', 'Remove from rail']);
+    expect(menuLabels()).toEqual([
+      'Open',
+      'Open in new window',
+      'Open in new session',
+      'Move to',
+      'Remove from rail',
+    ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Logbook actions');
   });
 
@@ -3127,6 +3137,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Focus tile',
       'Open in a new tile',
       'Open in new window',
+      'Open in new session',
       'Move to',
       'Remove from rail',
     ]);
@@ -3168,6 +3179,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
       'Restart server',
       'Open',
       'Open in new window',
+      'Open in new session',
       'Move to',
       'Remove from rail',
     ]);

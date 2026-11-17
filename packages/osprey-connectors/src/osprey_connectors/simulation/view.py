@@ -26,30 +26,51 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Final, Literal, overload
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import (
+        AddressesDocument,
+        ChannelRecord,
+        ModelEntry,
+        ScenarioRecord,
+        ScenariosDocument,
+        SeedRecord,
+        SeedsDocument,
+        ServedModelsDocument,
+        VariablesDocument,
+        WiringRecord,
+    )
 
 __all__ = [
     "ADDRESSES_FILE",
     "ADDRESSES_SCHEMA",
     "COMMAND_MARK",
     "DECKS_DIR",
+    "ENGINEER",
     "ENGINE_ROLES",
+    "HEARTBEAT",
+    "IOC_HEALTH_SIGNALS",
     "MARKS",
     "MONITOR",
     "OUTPUT",
     "PERIODIC",
+    "PERIODIC_IOC_HEALTH",
     "PLANES",
     "READBACK",
     "REFRESH",
     "SCENARIOS_DIR",
     "SCENARIOS_FILE",
     "SCENARIOS_SCHEMA",
+    "SERVED_SIGNAL_PROPERTY",
     "SCHEMAS",
     "SEEDS_FILE",
     "SEEDS_SCHEMA",
     "SERVED_MODELS_FILE",
     "SERVED_MODELS_SCHEMA",
     "SETPOINT",
+    "STATUS_SIGNAL",
+    "UPTIME",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
     "VIEW_RELPATH",
@@ -64,15 +85,17 @@ __all__ = [
 #: The view's directory under a render.
 VIEW_RELPATH = PurePosixPath("data/simulator")
 
-SERVED_MODELS_FILE = "served_models.json"
+#: The file names are ``Final`` so that :meth:`SimulatorView.document` types
+#: each one's document.
+SERVED_MODELS_FILE: Final = "served_models.json"
 SERVED_MODELS_SCHEMA = "osprey.facility.served_models/1"
-ADDRESSES_FILE = "addresses.json"
+ADDRESSES_FILE: Final = "addresses.json"
 ADDRESSES_SCHEMA = "osprey.facility.addresses/1"
-VARIABLES_FILE = "variables.json"
+VARIABLES_FILE: Final = "variables.json"
 VARIABLES_SCHEMA = "osprey.facility.simulator/4"
-SEEDS_FILE = "seeds.json"
+SEEDS_FILE: Final = "seeds.json"
 SEEDS_SCHEMA = "osprey.facility.seeds/2"
-SCENARIOS_FILE = "scenarios.json"
+SCENARIOS_FILE: Final = "scenarios.json"
 SCENARIOS_SCHEMA = "osprey.facility.scenarios/3"
 #: The directory holding a byte copy of each deck-bearing model's deck.
 DECKS_DIR = "decks"
@@ -120,13 +143,27 @@ COMMAND_MARK = "command"
 #: The marks a wiring record's description may set.
 MARKS = (COMMAND_MARK,)
 
+#: The signal of a physics model's status address, ``<code>:SIM:<model>:STATUS``.
+STATUS_SIGNAL = "STATUS"
+HEARTBEAT = "HEARTBEAT"
+UPTIME = "UPTIME"
+ENGINEER = "ENGINEER"
+#: The signals of a model's IOC health addresses, ``<code>:SIM:<model>:<signal>``,
+#: in the order a view lists them.
+IOC_HEALTH_SIGNALS = (HEARTBEAT, UPTIME, ENGINEER)
+#: The IOC health signals each periodic pass publishes.
+PERIODIC_IOC_HEALTH = (HEARTBEAT, UPTIME)
+#: The directory property the simulator sets on each status and IOC health row,
+#: valued with that row's signal; channel rows carry none.
+SERVED_SIGNAL_PROPERTY = "signal"
+
 #: The text a missing view reports.
 _NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
 
 #: The keys a wiring record's description adds.
 _DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
 #: The key listing the marks a wiring record carries; absent when it carries none.
-_MARKS_KEY = "marks"
+_MARKS_KEY: Final = "marks"
 
 
 class NoSimulatorView(LookupError):
@@ -137,7 +174,11 @@ class ViewSchemaError(ValueError):
     """A view file's ``schema`` is not the one this OSPREY reads, or its shape breaks that schema."""
 
 
-def _freeze(value: Any) -> Any:
+@overload
+def _freeze(value: Mapping[str, object]) -> Mapping[str, object]: ...
+@overload
+def _freeze(value: object) -> object: ...
+def _freeze(value: object) -> object:
     """A read-only copy of a JSON value: mappings as proxies, lists as tuples."""
     if isinstance(value, Mapping):
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
@@ -146,7 +187,7 @@ def _freeze(value: Any) -> Any:
     return value
 
 
-def _schema_error(path: Path, found: Any, expected: str) -> ViewSchemaError:
+def _schema_error(path: Path, found: object, expected: str) -> ViewSchemaError:
     return ViewSchemaError(
         f"{path} is schema {found!r}; this OSPREY reads {expected!r}: rebuild with osprey build"
     )
@@ -182,21 +223,22 @@ class Channel:
     unit: str | None
     description: str | None
     writable: bool
-    value_range: tuple[Any, ...] | None
+    value_range: tuple[float, float] | None
     owner: str
     on: Mapping[str, str] | None
-    options: tuple[Any, ...] | None
+    options: tuple[str, ...] | None
     shape: tuple[int, ...] | None
     precision: int | None
 
     @classmethod
-    def from_entry(cls, entry: Mapping[str, Any]) -> Channel:
+    def from_entry(cls, entry: ChannelRecord) -> Channel:
         """Read one channel entry of ``variables.json``.
 
         Raises:
             ViewSchemaError: the entry lacks a key every channel carries.
         """
         try:
+            on = entry["on"]
             return cls(
                 address=str(entry["address"]),
                 role=entry["role"],
@@ -205,11 +247,11 @@ class Channel:
                 unit=entry["unit"],
                 description=entry["description"],
                 writable=bool(entry["writable"]),
-                value_range=_freeze(entry["value_range"]),
+                value_range=_bounds(entry["value_range"]),
                 owner=entry["owner"],
-                on=_freeze(entry["on"]),
-                options=_freeze(entry.get("options")),
-                shape=_freeze(entry.get("shape")),
+                on=None if on is None else MappingProxyType(dict(on)),
+                options=tuple(entry["options"]) if "options" in entry else None,
+                shape=tuple(entry["shape"]) if "shape" in entry else None,
                 precision=entry.get("precision"),
             )
         except KeyError as missing:
@@ -249,11 +291,11 @@ class Binding:
     plane: str | None
     refresh: str
     element: str | None
-    record: Mapping[str, Any]
+    record: Mapping[str, object]
     marks: frozenset[str] = frozenset()
 
     @classmethod
-    def from_record(cls, model: str, record: Mapping[str, Any]) -> Binding:
+    def from_record(cls, model: str, record: WiringRecord) -> Binding:
         """Read one wiring record of ``variables.json``.
 
         Raises:
@@ -301,10 +343,10 @@ class Model:
     name: str
     engine: str | None
     served: bool
-    settings: Mapping[str, Any]
+    settings: Mapping[str, object]
     deck: Path | None
     bindings: tuple[Binding, ...]
-    inputs: tuple[Mapping[str, Any], ...] = ()
+    inputs: tuple[Mapping[str, object], ...] = ()
 
 
 class SimulatorView:
@@ -324,8 +366,8 @@ class SimulatorView:
         self.path = Path(path)
         parts = PurePosixPath(*self.path.parts[-len(VIEW_RELPATH.parts) :])
         self.render_root = self.path.parents[1] if parts == VIEW_RELPATH else None
-        self._raw: dict[str, dict[str, Any]] = {}
-        self._documents: dict[str, Mapping[str, Any]] = {}
+        self._raw: dict[str, Mapping[str, object]] = {}
+        self._documents: dict[str, Mapping[str, object]] = {}
         self._models: tuple[Model, ...] | None = None
         self._channel_records: Mapping[str, Channel] | None = None
         self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
@@ -381,11 +423,37 @@ class SimulatorView:
         except NoSimulatorView:
             return None
 
-    def document(self, name: str) -> Mapping[str, Any]:
+    # A file of the view reaches a reader only through ``_parsed``, which
+    # refuses one whose ``schema`` is not a schema this OSPREY reads, and
+    # ``osprey build`` writes each file of a schema to that schema's shape: the
+    # overloads below state that shape, the records of
+    # :mod:`osprey_connectors.simulation.records`, for each file by name. The
+    # facility schema leaves a scenario's ``archiver`` events free-form; the
+    # build checks each one with ``osprey.facility.scenarios.check_scenario_events``
+    # before it writes ``scenarios.json``, and ``ArchiverEvent`` states what
+    # that check guarantees.
+    @overload
+    def document(self, name: Literal["served_models.json"]) -> ServedModelsDocument: ...
+    @overload
+    def document(self, name: Literal["addresses.json"]) -> AddressesDocument: ...
+    @overload
+    def document(self, name: Literal["variables.json"]) -> VariablesDocument: ...
+    @overload
+    def document(self, name: Literal["seeds.json"]) -> SeedsDocument: ...
+    @overload
+    def document(self, name: Literal["scenarios.json"]) -> ScenariosDocument: ...
+    @overload
+    def document(self, name: str) -> Mapping[str, object]: ...
+    def document(self, name: str) -> Mapping[str, object]:
         """One view file, parsed once and read-only.
 
         Args:
             name: The file's name, one of :data:`SCHEMAS`.
+
+        Returns:
+            The file's document, typed by its record in
+            :mod:`osprey_connectors.simulation.records` when ``name`` is one of
+            the view's file-name constants.
 
         Raises:
             ViewSchemaError: the file's ``schema`` is absent or neither
@@ -395,12 +463,19 @@ class SimulatorView:
             self._documents[name] = _freeze(self._parsed(name))
         return self._documents[name]
 
-    def _parsed(self, name: str) -> dict[str, Any]:
+    @overload
+    def _parsed(self, name: Literal["variables.json"]) -> VariablesDocument: ...
+    @overload
+    def _parsed(self, name: str) -> Mapping[str, object]: ...
+    def _parsed(self, name: str) -> Mapping[str, object]:
+        """One view file as parsed, not frozen; refused when its ``schema`` is not read here."""
         if name not in self._raw:
             path = self.path / name
-            parsed = json.loads(path.read_text(encoding="utf-8"))
+            parsed: object = json.loads(path.read_text(encoding="utf-8"))
             expected = SCHEMAS[name]
-            found = parsed.get("schema") if isinstance(parsed, dict) else None
+            if not isinstance(parsed, dict):
+                raise _schema_error(path, None, expected)
+            found = parsed.get("schema")
             if found != expected and found not in _ALSO_READ.get(name, ()):
                 raise _schema_error(path, found, expected)
             self._raw[name] = parsed
@@ -414,12 +489,11 @@ class SimulatorView:
     def models(self) -> tuple[Model, ...]:
         """Every model of the facility file, sorted by name."""
         if self._models is None:
-            self._models = tuple(
-                self._model(entry) for entry in self._parsed(VARIABLES_FILE)["models"]
-            )
+            entries = self._parsed(VARIABLES_FILE)["models"]
+            self._models = tuple(self._model(entry) for entry in entries)
         return self._models
 
-    def _model(self, entry: Mapping[str, Any]) -> Model:
+    def _model(self, entry: ModelEntry) -> Model:
         name = str(entry["name"])
         engine = entry.get("engine")
         deck = entry.get("deck")
@@ -466,19 +540,47 @@ class SimulatorView:
             {
                 model.name: address
                 for model in self.physics_models()
-                if (address := f"{self.code}:SIM:{model.name}:STATUS") in listed
+                if (address := f"{self.code}:SIM:{model.name}:{STATUS_SIGNAL}") in listed
             }
+        )
+
+    def ioc_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
+        """Each listed model's IOC health addresses by signal, ``{model: {signal: address}}``.
+
+        An address is ``<code>:SIM:<model>:<signal>`` with ``<signal>`` one of
+        :data:`IOC_HEALTH_SIGNALS`; each model's signals keep the list's order.
+        ``ioc_health`` is optional under :data:`ADDRESSES_SCHEMA`: a view from
+        a build without it yields an empty mapping. Unlike the status
+        addresses, it lists the ``texture`` model too.
+
+        Raises:
+            ViewSchemaError: a listed entry is not such an address.
+        """
+        listed = self.document(ADDRESSES_FILE).get("ioc_health", ())
+        if not listed:
+            return MappingProxyType({})
+        prefix = f"{self.code}:SIM:"
+        by_model: dict[str, dict[str, str]] = {}
+        for address in listed:
+            model, _, signal = str(address).removeprefix(prefix).rpartition(":")
+            if not model or not str(address).startswith(prefix) or signal not in IOC_HEALTH_SIGNALS:
+                raise ViewSchemaError(
+                    f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
+                    f"which is not {prefix}<model>:<signal> with <signal> one of "
+                    f"{', '.join(IOC_HEALTH_SIGNALS)}: rebuild with osprey build"
+                )
+            by_model.setdefault(model, {})[signal] = str(address)
+        return MappingProxyType(
+            {model: MappingProxyType(signals) for model, signals in by_model.items()}
         )
 
     def _channels(self) -> Mapping[str, Channel]:
         if self._channel_records is None:
+            entries = self._parsed(VARIABLES_FILE)["channels"]
             self._channel_records = MappingProxyType(
                 {
                     channel.address: channel
-                    for channel in (
-                        Channel.from_entry(entry)
-                        for entry in self._parsed(VARIABLES_FILE)["channels"]
-                    )
+                    for channel in (Channel.from_entry(entry) for entry in entries)
                 }
             )
         return self._channel_records
@@ -533,18 +635,17 @@ class SimulatorView:
                 return binding
         return None
 
-    def seed(self, address: str) -> Mapping[str, Any] | None:
+    def seed(self, address: str) -> SeedRecord | None:
         """The seed record of the channel at ``address``, or ``None``."""
-        seed: Mapping[str, Any] | None = self.document(SEEDS_FILE)["seeds"].get(address)
-        return seed
+        return self.document(SEEDS_FILE)["seeds"].get(address)
 
-    def scenarios(self) -> tuple[Mapping[str, Any], ...]:
+    def scenarios(self) -> tuple[ScenarioRecord, ...]:
         """Every scenario of ``scenarios.json``, sorted by name.
 
         Raises:
             ViewSchemaError: A scenario's ``still`` is not a list of addresses.
         """
-        scenarios: tuple[Mapping[str, Any], ...] = self.document(SCENARIOS_FILE)["scenarios"]
+        scenarios = tuple(self.document(SCENARIOS_FILE)["scenarios"])
         for scenario in scenarios:
             still = scenario.get("still")
             if still is not None and not (
@@ -584,6 +685,14 @@ class SimulatorView:
     def scenario_dir(self, name: str) -> Path:
         """The view's copy of a scenario's attached files, ``scenarios/<name>/``."""
         return self.path / SCENARIOS_DIR / name
+
+
+def _bounds(value_range: Sequence[float] | None) -> tuple[float, float] | None:
+    """A channel entry's ``value_range`` as ``(min, max)``; the build writes both or ``None``."""
+    if value_range is None:
+        return None
+    low, high = value_range
+    return low, high
 
 
 def _on_nodes(channel: Channel | None) -> tuple[str, ...]:

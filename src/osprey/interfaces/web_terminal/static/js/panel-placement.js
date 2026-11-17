@@ -142,6 +142,28 @@ export function openPanelBeside(panelId) {
 }
 
 /**
+ * Open a panel as a NEW tile on the LEFT of the Agent tile, so the Agent
+ * pane stays on the right — a new session's workspace. The reveal tail is
+ * {@link openPanelBeside}'s. With the Agent pane not docked (closed, or in its
+ * own window) there is no tile to place against: the plain open runs.
+ * @param {string} panelId
+ */
+export function openPanelLeftOfAgent(panelId) {
+  const holder = getLayoutHolder();
+  const agentTile =
+    holder && panelId !== TERMINAL_RAIL_ID && !isDetached(TERMINAL_KEY)
+      ? (tileOf(holder.layout ?? null, TERMINAL_KEY)?.tile ?? null)
+      : null;
+  if (agentTile === null) {
+    openPanelBeside(panelId);
+    return;
+  }
+  const wasOnScreen = hasDockedTile(panelId);
+  dockPanelAt(panelId, ctx().label(panelId), { referenceTile: agentTile, direction: 'left' });
+  revealOpenedPanel(panelId, wasOnScreen);
+}
+
+/**
  * The tile a service panel is shown in, read off the layout holder; null when
  * it holds no tile (or there is no holder). A service tile bar's own tile.
  * @param {string} panelId

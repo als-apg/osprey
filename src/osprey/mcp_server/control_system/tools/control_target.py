@@ -25,9 +25,10 @@ without it rather than a guess.
 
 The switch
 ----------
-The target is the DEPLOYMENT's, held in one control-context record, and only
-that record's owner writes it. So this tool no longer switches anything: it
-asks for a switch and reports what the record says came of it.
+The target belongs to the LOGIN, not to the deployment: each login holds its
+own control-context record, and only that record's owner writes it. So this
+tool no longer switches anything: it asks for a switch and reports what the
+login's record says came of it.
 
 Two paths, one answer. When this server owns the record it takes the verdict
 from :func:`~osprey.mcp_server.control_system.target_eligibility.evaluate_switch`
@@ -46,15 +47,15 @@ eligibility, then reachability — is documented there, and the tool's whole job
 with a refusal is to report it in the words the gate chose.
 
 What is left for this tool to wait for is its own connector host. The record
-moving is the deployment's answer; the reconcile loop is what brings this
+moving is the login's answer; the reconcile loop is what brings this
 server's child to it, and until that lands the session's tools are still
 talking to the previous target. So an applied terminus is followed by a bounded
 wait on this server's own report — bounded by the spawn, probe and drain
 timeouts this process holds, which is why the bound is computed here and never
 guessed by a reader.
 
-A deployment that has not settled refuses rather than queues: while any live
-server is still applying a generation, a second terminus would overwrite the
+A login that has not settled refuses rather than queues: while any of its live
+servers is still applying a generation, a second terminus would overwrite the
 answer to the gesture somebody is still watching for. That refusal names the
 pids so an operator can see which server to wait for.
 
@@ -154,15 +155,15 @@ __all__ = [
 
 # -- machine-readable refusal reasons ---------------------------------------
 
-#: The server context this tool reads its deployment from is not initialized.
+#: The server context this tool reads its configuration from is not initialized.
 REASON_CONTEXT_UNAVAILABLE = "context_unavailable"
-#: No control-context record: nothing holds this deployment's target.
+#: No control-context record: nothing holds this login's target.
 REASON_RECORD_UNAVAILABLE = "control_context_unavailable"
-#: A live server is still applying the generation the deployment is on, so no
-#: answer can be written without overwriting the one it will produce.
+#: A live server of this login is still applying the generation the login is
+#: on, so no answer can be written without overwriting the one it will produce.
 REASON_SWITCH_IN_PROGRESS = "switch_in_progress"
 #: A request was filed and no owner took it. The record's owner is named, so an
-#: operator can tell "nobody owns this deployment" from "the owner is wedged".
+#: operator can tell "nobody owns this login's record" from "the owner is wedged".
 REASON_REQUEST_NOT_CONSUMED = "request_not_consumed"
 #: The switch was granted and this server's connector host did not reach it
 #: within the bound its own spawn, probe and drain timeouts imply.
@@ -304,7 +305,7 @@ def target_rows(
 
     Args:
         config: The full rendered config mapping.
-        control_target: The target the deployment is on right now.
+        control_target: The target this login is on right now.
         baseline: The target this deployment's own config selects.
         probe_snapshot: :meth:`EndpointProber.snapshot`'s output, or ``None``
             when no prober is running — in which case rows carry the derived
@@ -424,7 +425,7 @@ def _writes_permitted(config: Any, target: str) -> bool:
 
 @mcp.tool()
 async def control_target() -> str:
-    """Report which control system this deployment is pointed at, and what else it could be.
+    """Report which control system this login is pointed at, and what else it could be.
 
     Read-only and side-effect-free: nothing is spawned, connected to or
     written. Ask this before proposing a switch — it says, per target, whether
@@ -489,9 +490,9 @@ async def control_target() -> str:
         {
             "status": "success",
             "description": (
-                f"The deployment is on the {status['target']!r} target "
+                f"This login is on the {status['target']!r} target "
                 f"(generation {status['generation']}); "
-                f"deployment baseline is {status['baseline_target']!r}."
+                f"the deployment baseline is {status['baseline_target']!r}."
             ),
             "summary": {
                 "target": status["target"],
@@ -532,7 +533,7 @@ async def control_target() -> str:
 #: otherwise write into the same request slot — the second replacing the first,
 #: leaving the first watching for a ``request_id`` no file carries any more —
 #: and would then poll one record for two different answers. The second caller
-#: waits and re-reads: by the time it runs the deployment may already be where
+#: waits and re-reads: by the time it runs the login may already be where
 #: it wanted to go, which is the no-mint answer rather than a second switch.
 _SWITCH_LOCK = asyncio.Lock()
 
@@ -554,8 +555,8 @@ def _now_iso() -> str:
 
 def _no_record_message() -> str:
     return (
-        "This deployment has no control-context record, so there is no target of record to "
-        "read or change."
+        "This login has no control-context record, so there is no target of record to read "
+        "or change."
     )
 
 
@@ -566,7 +567,7 @@ def _gate(
 
     The inputs are gathered here because the gate opens no file: the record's
     target rather than this manager's, because the answer is written into the
-    record and it is the record the deployment routes by; and the write
+    record and it is the record the login routes by; and the write
     verdict for *wanted*, so a target whose switch is off is not refused for a
     gateway role the child would never have selected.
     """
@@ -585,7 +586,7 @@ def _gate(
 async def _refuse_switch_in_progress(
     record: control_context.ControlContext, wanted: str, reports: Any
 ) -> NoReturn:
-    """Today's refusal shape for a deployment that has not settled yet.
+    """Today's refusal shape for a login that has not settled yet.
 
     No record is written and no request is left behind: a terminus written now
     would overwrite the answer to the gesture still in flight, which is the one
@@ -601,7 +602,7 @@ async def _refuse_switch_in_progress(
             f"pid {named}, so this one was not filed."
         ),
         suggestions=[
-            "Nothing was changed: the deployment is still on the target it was on.",
+            "Nothing was changed: this login is still on the target it was on.",
             "Wait for the control-target chip to settle, then ask for the switch again.",
         ],
         details={
@@ -650,7 +651,7 @@ async def _record_write_failed(from_target: str, wanted: str) -> NoReturn:
         to_target=wanted,
         message="The control-context record could not be updated, so the target was not changed.",
         suggestions=[
-            "Nothing was changed: the deployment is still on the target it was on.",
+            "Nothing was changed: this login is still on the target it was on.",
             "Check that the agent-data directory is writable, then ask for the switch again.",
         ],
         details={"target": wanted, "reason": REASON_INTERNAL_ERROR},
@@ -804,7 +805,7 @@ async def _poll_for_the_terminus(
 
     Two ways this ends without an answer, and both withdraw the request rather
     than leave it for an owner to apply into a session that has stopped
-    watching. The deployment stops being converged — a switch somebody else
+    watching. The login stops being converged — a switch somebody else
     asked for landed first — or no owner takes this one within
     :data:`OWNER_TICKS_BEFORE_UNCONSUMED` ticks, which names the process that
     should have consumed it.
@@ -839,8 +840,8 @@ async def _poll_for_the_terminus(
             f"control context is owned by {named}, and the target was not changed."
         ),
         suggestions=[
-            "Nothing was changed: the deployment is still on the target it was on.",
-            f"Check that {named} is still serving this deployment, then ask for the switch again.",
+            "Nothing was changed: this login is still on the target it was on.",
+            f"Check that {named} is still serving this login, then ask for the switch again.",
         ],
         details={
             "target": wanted,
@@ -924,7 +925,7 @@ async def _await_the_swap(
 ) -> str:
     """Wait for THIS server to reach the generation the record now names.
 
-    The record moving is the deployment's answer; it is not yet this server's
+    The record moving is the login's answer; it is not yet this server's
     connector. The reconcile loop picks the new generation up within a tick and
     publishes ``applying`` before its first await, and the swap that follows is
     bounded by the spawn, probe and drain timeouts this process holds — which
@@ -979,11 +980,11 @@ async def _swap_failed(
     *,
     incomplete: bool = False,
 ) -> NoReturn:
-    """This server did not reach the generation the deployment is on.
+    """This server did not reach the generation its login is on.
 
     Reported as a failure and not as a refusal: the switch was granted, the
     record moved, and it is this server's connector host that did not follow.
-    The record is left exactly as it is — the deployment's target of record is
+    The record is left exactly as it is — the login's target of record is
     not this server's to revoke, and the next reconcile tick tries again.
     """
     reason = str(block.get("reason") or "") or REASON_SWAP_INCOMPLETE
@@ -998,7 +999,7 @@ async def _swap_failed(
         ERROR_FAILED,
         detail,
         [
-            "The deployment's target of record has moved; this server's connector host has "
+            "This login's target of record has moved; this server's connector host has "
             "not followed it.",
             "Check this server's log for the launch failure, then ask for the switch again.",
         ],
@@ -1041,7 +1042,7 @@ def _binding_payload(
 
 
 def _already_there(record: control_context.ControlContext, hosts: Any) -> str:
-    """The no-mint answer: the deployment is already where the caller asked.
+    """The no-mint answer: the login is already where the caller asked.
 
     The same answer the owner writes for a request naming the target of record,
     and it has to be the same one: a generation bumped for a switch that did
@@ -1063,7 +1064,7 @@ def _already_there(record: control_context.ControlContext, hosts: Any) -> str:
 
 @mcp.tool()
 async def control_target_set(target: str) -> str:
-    """Point this deployment's control-system tools at a different target.
+    """Point this login's control-system tools at a different target.
 
     Targets are ``live`` (the machine this deployment's facility authored),
     ``va`` (the virtual accelerator it deploys) and ``standin`` (the live
@@ -1073,20 +1074,22 @@ async def control_target_set(target: str) -> str:
     authority on which: a target absent from that roster is not switchable
     here, whatever this list names.
 
-    The target belongs to the DEPLOYMENT and not to this session: every window,
-    notebook kernel and sandbox on it moves too. The control-context record's
-    owner is the only process that changes it, so this tool either writes the
-    answer itself — when this server owns the record — or asks the owner for it
-    and waits for the answer to appear in the record.
+    The target belongs to the LOGIN, not to this session and not to the
+    deployment: every window, notebook kernel and sandbox of this login moves
+    too, and other logins keep their own targets. Each login holds one
+    control-context record, and its owner is the only process that changes it,
+    so this tool either writes the answer itself — when this server owns the
+    record — or asks the owner for it and waits for the answer to appear in the
+    record.
 
-    Refused when: the run is read-only; an execution is in flight anywhere on
-    this deployment, in which case the refusal names the busy client; the
+    Refused when: the run is read-only; an execution is in flight anywhere under
+    this login, in which case the refusal names the busy client; the
     destination is not available — already active, unconfigured, or short of the
     posture that target requires; or the live servers have measured the
-    destination unreachable. A deployment that has not settled on its current
-    generation answers ``switch_in_progress`` naming the servers still applying,
-    and nothing is filed. Asking for the target the deployment is already on is
-    not a switch at all: it is answered where it stands, and mints no
+    destination unreachable. A login whose servers have not all settled on its
+    current generation answers ``switch_in_progress`` naming the servers still
+    applying, and nothing is filed. Asking for the target the login is already
+    on is not a switch at all: it is answered where it stands, and mints no
     generation.
 
     Args:
@@ -1120,7 +1123,7 @@ async def _switch(wanted: str) -> str:
         )
 
     # Read after the lock, not before it: the caller that waited answers about
-    # the deployment as it is now, and the switch it was queued behind may be
+    # the login as it is now, and the switch it was queued behind may be
     # the very one it wanted.
     record = control_context.read_record()
     if record is None:

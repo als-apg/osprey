@@ -12,7 +12,8 @@
  *               Copy ID · Delete… (disabled on the active one)
  *   Group head  Collapse / Expand · Collapse others
  *   Run         artifact-verbs.js's run rows
- *   Artifact    artifact-verbs.js's artifact rows, Open being the row's click
+ *   Artifact    artifact-verbs.js's artifact rows, Open being the row's click,
+ *               then Open in new session: the artifact as a tile in a new session
  *
  * The pinned group's heading has its own menu (sidebar-session-pins.js).
  *
@@ -34,12 +35,16 @@
 /** @returns {Promise<typeof import('./session-model.js')>} */
 const sessionModel = () => import('./session-model.js');
 
+/** @returns {Promise<typeof import('./tile-new-session.js')>} lazy for the same reason */
+const newSessionAction = () => import('./tile-new-session.js');
+
 import { withPrefix } from './api.js';
 import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { openContextMenu } from './panel-context-menu.js';
 import { heldEntry } from './sidebar-artifact-listing.js';
 import { artifactsByItem } from './sidebar-session-view.js';
 import { artifactMenuItems, copyText, runMenuItems } from './artifact-verbs.js';
+import { titleOf } from './sidebar-artifact-rows.js';
 import { showConfirm } from './posture-confirm.js';
 import { setSessionPinned, showPinnedItem } from './sidebar-session-pins.js';
 
@@ -365,7 +370,13 @@ export function menuFor(target) {
     return { row, label: 'Run actions', items: runMenuItems(execId, entry) };
   }
   const open = () => row.click();
-  return { row, label: 'Artifact actions', items: artifactMenuItems(entry, { open }) };
+  // The row's entry as the drag-to-tile path holds it: a run's part has none.
+  const held = heldEntry(row.dataset.id);
+  const newSession = () =>
+    void newSessionAction().then((m) =>
+      m.openArtifactInNewSession({ id: entry.id, entry: held, title: titleOf(entry) })
+    );
+  return { row, label: 'Artifact actions', items: artifactMenuItems(entry, { open, newSession }) };
 }
 
 /**

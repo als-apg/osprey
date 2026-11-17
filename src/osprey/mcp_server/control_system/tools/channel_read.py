@@ -48,6 +48,9 @@ def _config_int(path: str, default: int) -> int:
         logger.warning("Ignoring boolean %s=%r; using %d", path, raw, default)
         return default
 
+    if not isinstance(raw, int | float | str | bytes):
+        logger.warning("Ignoring non-integer %s=%r; using %d", path, raw, default)
+        return default
     try:
         value = int(raw)
     except (TypeError, ValueError):

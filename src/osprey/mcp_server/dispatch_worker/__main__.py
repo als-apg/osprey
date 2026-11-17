@@ -30,6 +30,18 @@ def main() -> None:
     # runs this worker is about to start. See ``credentials``.
     worker_credentials()
 
+    # On the bus the worker connects to the dispatcher and opens no port.
+    from osprey.dispatch.bus.settings import worker_settings
+
+    bus = worker_settings()
+    if bus is not None:
+        import asyncio
+
+        from osprey.mcp_server.dispatch_worker import bus_adapter
+
+        asyncio.run(bus_adapter.serve(bus))
+        return
+
     port = os.environ.get("DISPATCH_WORKER_PORT") or default_port(
         "worker", 1, base=resolve_port_base(load_osprey_config())
     )

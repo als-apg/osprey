@@ -105,7 +105,9 @@ Where a watchdog has flagged the session, the hook's verdict (gate 2), the serve
 the connector (gate 4) each refuse the write with ``session_held``, and so does a CANOPY
 panel's connector for a click (:ref:`architecture-safety-chain-panel-write`). The terminal's
 panel proxy refuses an application panel's write, before it reaches the container: the
-agent's, which names its session, and the operator's. The approval prompt does
+agent's, which names its session, and the operator's. A write is a write method over HTTP and
+any frame the browser sends over a websocket, which the proxy then closes; what the
+application sends the browser keeps flowing. The approval prompt does
 not answer a flag, so a write approved while the flag is open is refused at the server. See
 :ref:`Safety watchdogs <architecture-safety-watchdogs>`.
 

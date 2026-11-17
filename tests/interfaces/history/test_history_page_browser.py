@@ -626,4 +626,6 @@ def test_every_page_loads_its_assets_under_the_prefix(
         "/history/static/history.css",
         "/history/static/history.js",
     } <= loaded
-    assert [entry for entry in assets if entry[0] != 200] == []
+    # A later page revalidates what an earlier one fetched: 304 is a file that
+    # loaded, from the browser's copy.
+    assert [entry for entry in assets if entry[0] not in (200, 304)] == []

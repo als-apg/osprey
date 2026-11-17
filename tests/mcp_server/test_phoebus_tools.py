@@ -30,6 +30,13 @@ def _fn(name):
     return get_tool_fn(getattr(bridge_tools, name))
 
 
+def _register_macro_panel(tmp_path, monkeypatch, macros=("IOC",), name="osprey_demo"):
+    """Register *name* in the long form, declaring *macros* as the names it takes."""
+    _register_panels(
+        tmp_path, monkeypatch, {name: {"file": f"/path/{name}.bob", "macros": list(macros)}}
+    )
+
+
 def _register_demo_panel(tmp_path, monkeypatch, name="osprey_demo"):
     """Register a phoebus panel in a temp config.yml and point OSPREY_CONFIG at it.
 
@@ -451,6 +458,281 @@ async def test_open_panel_unreachable(tmp_path, monkeypatch):
     with patch(f"{_MOD}._http_post_open", side_effect=urllib.error.URLError("refused")):
         with assert_raises_error(error_type="phoebus_unreachable"):
             await _fn("phoebus_open_panel")(name="osprey_demo")
+
+
+async def test_open_panel_forwards_macros(tmp_path, monkeypatch):
+    """A macros mapping goes to the bridge as the /open body's "macros" field."""
+    _register_macro_panel(tmp_path, monkeypatch, macros=("IOC", "HOST", "N"))
+
+    macros = {"IOC": "injbpm", "HOST": "ioc-host-1.example", "N": "07"}
+    body = {"id": "d-7", "resource": "/path/osprey_demo.bob", "ready": True, "macros": macros}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        result = await _fn("phoebus_open_panel")(name="osprey_demo", macros=macros, focus=False)
+
+    posted = mock_open.call_args.args[0]
+    assert posted == {"resource": "/path/osprey_demo.bob", "macros": macros}
+    data = extract_response_dict(result)
+    assert data["handle"] == "handle:d-7"
+    assert data["macros"] == macros
+
+
+@pytest.mark.parametrize("macros", [None, {}])
+async def test_open_panel_without_macros_sends_the_old_body(tmp_path, monkeypatch, macros):
+    """No macros: the body is the one a bridge without macro support was sent."""
+    _register_macro_panel(tmp_path, monkeypatch)
+
+    body = {"id": "d-8", "resource": "/path/osprey_demo.bob", "ready": True}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        result = await _fn("phoebus_open_panel")(name="osprey_demo", macros=macros, focus=False)
+
+    assert mock_open.call_args.args[0] == {"resource": "/path/osprey_demo.bob"}
+    assert "macros" not in extract_response_dict(result)
+
+
+@pytest.mark.parametrize(
+    ("macros", "named"),
+    [
+        ("IOC=injbpm", "mapping"),
+        ([("IOC", "injbpm")], "mapping"),
+        ({"IOC": 3}, "'IOC'"),
+        ({"IOC": None}, "'IOC'"),
+        ({"IOC": {"nested": "x"}}, "'IOC'"),
+        ({"": "injbpm"}, "name"),
+        ({7: "injbpm"}, "name"),
+        ({"1ST": "v"}, "name"),
+        ({"IOC NAME": "v"}, "name"),
+        ({"$(X)": "v"}, "name"),
+        ({"A.B": "v"}, "name"),
+        ({"IOC\n": "v"}, "name"),
+        ({"IOC": ""}, "plain token"),
+        ({"IOC": "$(HOME)"}, "plain token"),
+        ({"IOC": "a${USER}"}, "plain token"),
+        ({"IOC": "../other"}, "plain token"),
+        ({"IOC": "/etc"}, "plain token"),
+        ({"IOC": "sub\\panel"}, "plain token"),
+        ({"IOC": ".."}, "plain token"),
+        ({"IOC": "a..b"}, "plain token"),
+        ({"IOC": "SR01:BPM"}, "plain token"),
+        ({"IOC": "ioc host"}, "plain token"),
+        ({"IOC": "ioc\thost"}, "plain token"),
+        ({"IOC": "ioc\x00"}, "plain token"),
+        ({"IOC": "a%2Fb"}, "plain token"),
+        ({"IOC": "a&B=c"}, "plain token"),
+        ({"IOC": "a#x"}, "plain token"),
+        ({"IOC": "a?x"}, "plain token"),
+        ({"IOC": "a=b"}, "plain token"),
+        ({"IOC": "\uff04(HOME)"}, "plain token"),
+        ({"IOC": "a\uff0fb"}, "plain token"),
+        ({"IOC": "SR01\uff1aBPM"}, "plain token"),
+        ({"IOC": "inj\u200bbpm"}, "plain token"),
+        ({"IOC": "inj\u202ebpm"}, "plain token"),
+        ({"IOC": "a*"}, "plain token"),
+        ({"IOC": "~user"}, "plain token"),
+        ({"IOC": "a'b"}, "plain token"),
+        ({"IOC": 'a"b'}, "plain token"),
+        ({"IOC": "<x>"}, "plain token"),
+        ({"IOC": ".hidden"}, "plain token"),
+        ({"IOC": "-flag"}, "plain token"),
+        ({"IOC": "_x"}, "plain token"),
+        ({"IOC": "injbpm\n"}, "plain token"),
+        ({"IOC": "caf\u00e9"}, "plain token"),
+        ({"IOC": "ok", "DIR": "a/b"}, "'DIR'"),
+    ],
+)
+async def test_open_panel_rejects_malformed_macros(tmp_path, monkeypatch, macros, named):
+    """Malformed macros are refused here, before the bridge is contacted."""
+    _register_macro_panel(tmp_path, monkeypatch, macros=("IOC", "DIR"))
+
+    with patch(f"{_MOD}._http_post_open") as mock_open:
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros=macros)
+    assert named in ctx["envelope"]["error_message"]
+    mock_open.assert_not_called()
+
+
+@pytest.mark.parametrize("value", ["injbpm", "ioc-host-1.example", "07", "SR01C_BPM1", "a.b", "x"])
+async def test_open_panel_accepts_plain_macro_values(tmp_path, monkeypatch, value):
+    """A plain token (IOC name, host name, number) is forwarded unchanged."""
+    _register_macro_panel(tmp_path, monkeypatch)
+
+    body = {
+        "id": "d-9",
+        "resource": "/path/osprey_demo.bob",
+        "ready": True,
+        "macros": {"IOC": value},
+    }
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        await _fn("phoebus_open_panel")(name="osprey_demo", macros={"IOC": value}, focus=False)
+
+    assert mock_open.call_args.args[0]["macros"] == {"IOC": value}
+
+
+async def test_open_panel_refuses_a_bridge_too_old_for_macros(tmp_path, monkeypatch):
+    """No "macros" echo: the bridge ignored them, so the open is not a success."""
+    _register_macro_panel(tmp_path, monkeypatch)
+
+    body = {"id": "d-5", "resource": "/path/osprey_demo.bob", "ready": True}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)):
+        with assert_raises_error(error_type="not_supported") as ctx:
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros={"IOC": "injbpm"})
+    envelope = ctx["envelope"]
+    assert "too old for macros" in envelope["error_message"]
+    assert envelope["details"] == {
+        "handle": "handle:d-5",
+        "sent": {"IOC": "injbpm"},
+        "applied": None,
+    }
+
+
+async def test_open_panel_refuses_macros_the_bridge_applied_differently(tmp_path, monkeypatch):
+    """An echo that differs from what was sent is refused, with both in the details."""
+    _register_macro_panel(tmp_path, monkeypatch)
+
+    body = {"id": "d-6", "resource": "/p.bob", "ready": True, "macros": {"IOC": "other"}}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)):
+        with assert_raises_error(error_type="not_supported") as ctx:
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros={"IOC": "injbpm"})
+    assert ctx["envelope"]["details"]["applied"] == {"IOC": "other"}
+
+
+async def test_open_panel_macros_rejected_by_bridge(tmp_path, monkeypatch):
+    """The bridge's verdict on a macro name reaches the caller with its text."""
+    _register_macro_panel(tmp_path, monkeypatch)
+
+    with patch(
+        f"{_MOD}._http_post_open",
+        return_value=(400, {"error": "Invalid macro name 'xmlns'", "status": 400}),
+    ):
+        with assert_raises_error(error_type="phoebus_open_failed") as ctx:
+            await _fn("phoebus_open_panel")(name="osprey_demo", macros={"IOC": "v"})
+    assert "Invalid macro name" in ctx["envelope"]["error_message"]
+    assert any("macro" in hint for hint in ctx["envelope"]["suggestions"])
+
+
+# ── declared macros ─────────────────────────────────────────────────────────
+def _register_bpm_and_orbit(tmp_path, monkeypatch):
+    """``bpm`` declares IOC (long form); ``orbit`` is the short form and declares none."""
+    _register_panels(
+        tmp_path,
+        monkeypatch,
+        {"bpm": {"file": "/path/bpm.bob", "macros": ["IOC"]}, "orbit": "/path/orbit.bob"},
+    )
+
+
+async def test_open_panel_with_a_declared_macro_opens(tmp_path, monkeypatch):
+    _register_bpm_and_orbit(tmp_path, monkeypatch)
+
+    body = {"id": "d-1", "resource": "/path/bpm.bob", "ready": True, "macros": {"IOC": "injbpm"}}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        result = await _fn("phoebus_open_panel")(name="bpm", macros={"IOC": "injbpm"}, focus=False)
+
+    assert mock_open.call_args.args[0] == {"resource": "/path/bpm.bob", "macros": {"IOC": "injbpm"}}
+    assert extract_response_dict(result)["macros"] == {"IOC": "injbpm"}
+
+
+async def test_open_panel_refuses_an_undeclared_macro(tmp_path, monkeypatch):
+    """The refusal names the panel and the macros it does declare."""
+    _register_bpm_and_orbit(tmp_path, monkeypatch)
+
+    with patch(f"{_MOD}._http_post_open") as mock_open:
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await _fn("phoebus_open_panel")(name="bpm", macros={"TYPE": "other"})
+    envelope = ctx["envelope"]
+    assert "'bpm'" in envelope["error_message"] and "TYPE" in envelope["error_message"]
+    assert "declares IOC" in envelope["error_message"]
+    assert envelope["details"] == {"panel": "bpm", "declared": ["IOC"], "undeclared": ["TYPE"]}
+    mock_open.assert_not_called()
+
+
+async def test_open_panel_refuses_a_declared_macro_beside_an_undeclared_one(tmp_path, monkeypatch):
+    _register_bpm_and_orbit(tmp_path, monkeypatch)
+
+    with patch(f"{_MOD}._http_post_open") as mock_open:
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await _fn("phoebus_open_panel")(name="bpm", macros={"IOC": "injbpm", "TYPE": "x"})
+    assert ctx["envelope"]["details"]["undeclared"] == ["TYPE"]
+    mock_open.assert_not_called()
+
+
+async def test_open_panel_short_form_takes_no_macros(tmp_path, monkeypatch):
+    """A panel registered as name: file declares none, so any macro is refused."""
+    _register_bpm_and_orbit(tmp_path, monkeypatch)
+
+    with patch(f"{_MOD}._http_post_open") as mock_open:
+        with assert_raises_error(error_type="validation_error") as ctx:
+            await _fn("phoebus_open_panel")(name="orbit", macros={"IOC": "injbpm"})
+    envelope = ctx["envelope"]
+    assert "'orbit'" in envelope["error_message"]
+    assert "declares no macros" in envelope["error_message"]
+    assert envelope["details"]["declared"] == []
+    mock_open.assert_not_called()
+
+
+@pytest.mark.parametrize("panel", ["bpm", "orbit"])
+async def test_open_panel_both_forms_open_without_macros(tmp_path, monkeypatch, panel):
+    """The short form keeps working, and the long form opens its ``file``."""
+    _register_bpm_and_orbit(tmp_path, monkeypatch)
+
+    body = {"id": "d-2", "resource": f"/path/{panel}.bob", "ready": True}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        await _fn("phoebus_open_panel")(name=panel, focus=False)
+
+    assert mock_open.call_args.args[0] == {"resource": f"/path/{panel}.bob"}
+
+
+async def test_open_panel_long_form_relative_file_resolves_like_the_short_form(
+    tmp_path, monkeypatch
+):
+    _register_panels(tmp_path, monkeypatch, {"bpm": {"file": "screens/bpm.bob", "macros": []}})
+
+    body = {"id": "d-3", "resource": "x", "ready": True}
+    with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
+        await _fn("phoebus_open_panel")(name="bpm", focus=False)
+
+    assert mock_open.call_args.args[0]["resource"] == str(
+        (tmp_path / "screens" / "bpm.bob").resolve()
+    )
+
+
+@pytest.mark.parametrize(
+    ("entry", "named"),
+    [
+        ({"macros": ["IOC"]}, "'file'"),
+        ({"file": "/p.bob", "macros": "IOC"}, "list of macro names"),
+        ({"file": "/p.bob", "macros": {"IOC": "inj.*"}}, "list of macro names"),
+        ({"file": "/p.bob", "macros": ["1ST"]}, "macro name"),
+        ({"file": "/p.bob", "values": ["x"]}, "unknown key"),
+        (["/p.bob"], "display-file path"),
+    ],
+)
+async def test_open_panel_refuses_a_malformed_registry_entry(tmp_path, monkeypatch, entry, named):
+    _register_panels(tmp_path, monkeypatch, {"bpm": entry})
+
+    with patch(f"{_MOD}._http_post_open") as mock_open:
+        with assert_raises_error(error_type="configuration_error") as ctx:
+            await _fn("phoebus_open_panel")(name="bpm")
+    assert named in ctx["envelope"]["error_message"]
+    assert ctx["envelope"]["details"] == {"key": "phoebus.panels.bpm"}
+    mock_open.assert_not_called()
+
+
+async def test_unknown_panel_lists_each_panels_declared_macros(tmp_path, monkeypatch):
+    _register_bpm_and_orbit(tmp_path, monkeypatch)
+
+    with assert_raises_error(error_type="unknown_panel") as ctx:
+        await _fn("phoebus_open_panel")(name="nope")
+    assert "['bpm (macros: IOC)', 'orbit']" in ctx["envelope"]["suggestions"][0]
+
+
+async def test_panel_lookup_reports_declared_macros(tmp_path, monkeypatch):
+    """The lookup answers with the macros the panel takes; none declared, no key."""
+    _register_bpm_and_orbit(tmp_path, monkeypatch)
+
+    bpm = extract_response_dict(await _fn("phoebus_panel_lookup")(path="/path/bpm.bob"))
+    orbit = extract_response_dict(await _fn("phoebus_panel_lookup")(path="/path/orbit.bob"))
+
+    assert bpm["openable"] is True and bpm["name"] == "bpm" and bpm["macros"] == ["IOC"]
+    assert orbit["openable"] is True and orbit["name"] == "orbit" and "macros" not in orbit
 
 
 # ── panel_lookup ────────────────────────────────────────────────────────────

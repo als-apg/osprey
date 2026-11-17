@@ -555,8 +555,8 @@ export function initChat(containerId = 'operator-container') {
         // A closed feed can still hand over a frame it had already read.
         if (feed === mine && boundKey === key) follower.frame(frame);
       },
-      onNoAgent: () => {
-        if (feed === mine && boundKey === key) follower.noAgent();
+      onNoAgent: (model) => {
+        if (feed === mine && boundKey === key) follower.noAgent(model);
       },
     });
     feed = mine;

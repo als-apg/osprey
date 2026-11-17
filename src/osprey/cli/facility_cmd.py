@@ -66,7 +66,7 @@ neither a repo nor an export.
 
 ``osprey facility import list FILE`` writes a CSV channel list as the list
 layer's sources, ``data/facility/imported/list/channels.yaml`` and, when a row
-states a device's ``s``, ``devices.yaml`` beside it. It writes channel and device
+names a device, ``devices.yaml`` beside it. It writes channel and device
 records. Every row the layer refuses prints one ``source-invalid`` line on
 stderr, and the verb then writes no layer file and exits 1.
 
@@ -1031,14 +1031,17 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
       model        the model whose deck s is measured in
     A file without an address column holds one address per line.
 
-    Each device a row states s for is written with its s and model to
-    devices.yaml beside the channels. First replaces a bundled facility, saying
-    so in one line, refuses hand-written channel and device records, and seeds
-    the knowledge stub. Exits 1 and writes no layer file when a row names both a device and a place, states an
-    unknown role, has no address or repeats one, states s or model with no
-    device or an s that is not a number, when two rows state different
-    positions for one device, when the header names an unknown column, or
-    while the profile does not resolve.
+    Each device a row names is written to devices.yaml beside the channels,
+    with its s and model where a row states them. A misspelt device cell makes
+    a device of its own: when other sources declare devices too, the import
+    prints a line naming those only this list declares. First replaces a
+    bundled facility, saying so in one line, refuses hand-written channel and
+    device records, and seeds the knowledge stub. Exits 1 and writes no layer
+    file when a row names both a device and a place, states an unknown role,
+    has no address or repeats one, states s or model with no device or an s
+    that is not a number, when two rows state different positions for one
+    device, when the header names an unknown column, or while the profile does
+    not resolve.
     """
     from osprey.facility.layers.list import import_list as run_import
     from osprey_connectors.errors import BuildProfileError

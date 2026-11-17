@@ -137,6 +137,18 @@ def pytest_collection_finish():
 # that guard's snapshot window has to be session-scoped rather than merely
 # declared earlier.
 
+#: The project-config variables :func:`restore_environ` clears on the way in.
+RUN_CONFIG_ENV_VARS = ("OSPREY_CONFIG", "CONFIG_FILE")
+
+#: The session-posture variables :func:`session_posture_leak_guard` clears.
+SESSION_POSTURE_ENV_VARS = (
+    "OSPREY_EXECUTION_MODE",
+    "OSPREY_POSTURE_SESSION",
+    "OSPREY_AGENT_DATA_ROOT",
+    "OSPREY_CONTROL_CONTEXT_DIR",
+    "OSPREY_CONTROL_CONTEXT_TREE",
+)
+
 
 @pytest.fixture(autouse=True, scope="function")
 def restore_environ():
@@ -158,8 +170,8 @@ def restore_environ():
     """
     saved = dict(os.environ)
 
-    os.environ.pop("OSPREY_CONFIG", None)
-    os.environ.pop("CONFIG_FILE", None)
+    for name in RUN_CONFIG_ENV_VARS:
+        os.environ.pop(name, None)
 
     try:
         yield
@@ -231,13 +243,7 @@ def session_posture_leak_guard(monkeypatch):
         ``_no_session_posture`` would delete the variables before that snapshot was
         taken, and the restore would then drop them for the rest of the session.
     """
-    for anchor in (
-        "OSPREY_EXECUTION_MODE",
-        "OSPREY_POSTURE_SESSION",
-        "OSPREY_AGENT_DATA_ROOT",
-        "OSPREY_CONTROL_CONTEXT_DIR",
-        "OSPREY_CONTROL_CONTEXT_TREE",
-    ):
+    for anchor in SESSION_POSTURE_ENV_VARS:
         monkeypatch.delenv(anchor, raising=False)
     yield
 

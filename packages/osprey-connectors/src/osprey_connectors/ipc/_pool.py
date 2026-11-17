@@ -212,16 +212,16 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypeVar
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
 from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult
-from osprey_connectors.errors import ConnectorUnavailableError
+from osprey_connectors.errors import ConnectorUnavailableError, RecoveryRecord
 from osprey_connectors.ipc._host import START_PHASES
 from osprey_connectors.ipc._launch import (
     AttributedReader,
@@ -233,6 +233,7 @@ from osprey_connectors.ipc._launch import (
 from osprey_connectors.ipc._proxy import (
     ChildUnresponsiveError,
     ConnectorHostProxy,
+    _expect,
     raised_by_child,
 )
 from osprey_connectors.ipc._verification import (
@@ -256,6 +257,7 @@ __all__ = [
     "ConnectorHostError",
     "ConnectorHostLostError",
     "ConnectorHostPool",
+    "ConnectorHostSlowCallError",
     "ConnectorHostStartError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
@@ -265,6 +267,15 @@ __all__ = [
 # Named for the public namespace, not this private module, so a logging config
 # keyed on the name keeps matching whatever the module is called.
 logger = logging.getLogger("osprey_connectors.ipc.pool")
+
+_T = TypeVar("_T")
+
+
+class _ProxyMethod(Protocol):
+    """A :class:`ConnectorHostProxy` method as :meth:`ConnectorHostPool._invoke` calls it."""
+
+    def __call__(self, *args: object, **kwargs: object) -> Awaitable[object]: ...
+
 
 #: The one execution mode a key may carry besides ``None``.
 READONLY = "readonly"
@@ -300,7 +311,20 @@ _WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_c
 
 #: ``(target, execution_mode)``, or ``(target, execution_mode, owner,
 #: authorization)`` for a key that names an owner or an authorization.
-_Key = tuple[Any, ...]
+_Key = tuple[str, str | None] | tuple[str, str | None, str | None, str | None]
+
+
+def _optional_name(name: str, value: object) -> str | None:
+    """*value* stripped, or ``None`` for ``None``; a non-string or blank one is refused.
+
+    Raises:
+        ValueError: *value* is not ``None`` and not a non-blank string.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be None or a non-blank name, got {value!r}")
+    return value.strip()
 
 
 def _make_key(target: str, mode: str | None, owner: str | None, authorization: str | None) -> _Key:
@@ -357,7 +381,7 @@ class ConnectorHostError(ConnectorUnavailableError):
         target: str,
         execution_mode: str | None,
         pid: int | None,
-        recovery: tuple[dict[str, str], ...] = (),
+        recovery: tuple[RecoveryRecord, ...] = (),
     ) -> None:
         super().__init__(message, recovery=recovery)
         self.target = target
@@ -494,7 +518,7 @@ class ConnectorHostLostError(ConnectorHostError):
         pid: int | None,
         cause: str,
         returncode: int | None,
-        recovery: tuple[dict[str, str], ...] = (),
+        recovery: tuple[RecoveryRecord, ...] = (),
     ) -> None:
         super().__init__(
             message,
@@ -509,6 +533,19 @@ class ConnectorHostLostError(ConnectorHostError):
 
 class ConnectorHostUnresponsiveError(ConnectorHostLostError, TimeoutError):
     """The child missed a call's deadline and then a ping, and was killed."""
+
+
+class ConnectorHostSlowCallError(TimeoutError):
+    """The child missed a call's deadline but still answered a ping, and was kept.
+
+    Not a :class:`ConnectorHostLostError`: the connector is not gone, and the
+    call may yet complete in the child. ``recovery`` holds the supervisor's
+    ``child_kept`` record, as on :class:`ConnectorUnavailableError`.
+    """
+
+    def __init__(self, message: str, *, recovery: Sequence[RecoveryRecord] = ()) -> None:
+        super().__init__(message)
+        self.recovery: tuple[RecoveryRecord, ...] = tuple(recovery)
 
 
 class ConnectorHostWriteTimeoutError(ConnectorHostLostError, TimeoutError):
@@ -532,10 +569,10 @@ class ConnectorHostWriteTimeoutError(ConnectorHostLostError, TimeoutError):
 @dataclass
 class _PoolChild:
     key: _Key
-    process: Any
+    process: asyncio.subprocess.Process
     proxy: ConnectorHostProxy
     reader: AttributedReader
-    report: dict[str, Any]
+    report: dict[str, object]
     #: Set once the pool has decided to drop this child, to the cause it named.
     retired: str | None = None
     #: The one teardown of this child, shared by everyone who asks for it.
@@ -648,7 +685,7 @@ class ConnectorHostPool:
 
     def __init__(
         self,
-        control_system: Mapping[str, Any],
+        control_system: Mapping[str, object],
         *,
         config_file: str | PathLike[str] | None = None,
         python: str = sys.executable,
@@ -659,7 +696,7 @@ class ConnectorHostPool:
         terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
         kill_on_write_timeout: bool = False,
     ) -> None:
-        self._section = copy.deepcopy(dict(control_system))
+        self._section: dict[str, object] = copy.deepcopy(dict(control_system))
         self._config_file = str(Path(config_file).resolve()) if config_file else None
         self._python = python
         self._start_timeout_s = start_timeout_s
@@ -710,15 +747,10 @@ class ConnectorHostPool:
         """
         if execution_mode not in (None, READONLY):
             raise ValueError(f"execution_mode must be None or {READONLY!r}, got {execution_mode!r}")
-        for name, value in (("owner", owner), ("authorization", authorization)):
-            if value is not None and (not isinstance(value, str) or not value.strip()):
-                raise ValueError(f"{name} must be None or a non-blank name, got {value!r}")
-        key = _make_key(
-            target,
-            execution_mode,
-            owner.strip() if owner is not None else None,
-            authorization.strip() if authorization is not None else None,
-        )
+        # Both are refused before either is used, owner first.
+        owner_name = _optional_name("owner", owner)
+        authorization_name = _optional_name("authorization", authorization)
+        key = _make_key(target, execution_mode, owner_name, authorization_name)
         await self._ensure(key)
         return PooledConnector(self, key)
 
@@ -750,17 +782,28 @@ class ConnectorHostPool:
     async def __aenter__(self) -> ConnectorHostPool:
         return self
 
-    async def __aexit__(self, *exc_info: Any) -> None:
+    async def __aexit__(self, *exc_info: object) -> None:
         await self.close()
 
     # -- calls -------------------------------------------------------------
 
-    async def _invoke(self, key: _Key, method: str, *args: Any, **kwargs: Any) -> Any:
-        """Run one call on *key*'s child. Never retried."""
+    async def _invoke(self, key: _Key, method: str, *args: object, **kwargs: object) -> object:
+        """Run the proxy method named *method* on *key*'s child. Never retried."""
+
+        async def call(proxy: ConnectorHostProxy) -> object:
+            bound: _ProxyMethod = getattr(proxy, method)
+            return await bound(*args, **kwargs)
+
+        return await self._call(key, method, call)
+
+    async def _call(
+        self, key: _Key, method: str, call: Callable[[ConnectorHostProxy], Awaitable[_T]]
+    ) -> _T:
+        """Run *call*, the proxy's *method*, on *key*'s child. Never retried."""
         child = await self._ensure(key)
         ticket = self._policy.begin()
         try:
-            return await getattr(child.proxy, method)(*args, **kwargs)
+            return await call(child.proxy)
         except ChildUnresponsiveError as exc:
             if child.retired is not None:
                 # Another call already retired this child; its cause stands.
@@ -803,20 +846,19 @@ class ConnectorHostPool:
         if record is None:
             return
         if record.action is RecoveryAction.CHILD_KEPT:
-            slow = TimeoutError(
+            raise ConnectorHostSlowCallError(
                 f"The connector-host child (pid {child.pid}) serving {_label(child.key)} did not "
                 f"answer {method!r} in time ({exc}), but it still answers a ping, so it was "
-                "left running. The call may yet complete in the child; it was not retried."
-            )
-            slow.recovery = (record.as_dict(),)  # type: ignore[attr-defined]
-            raise slow from exc
+                "left running. The call may yet complete in the child; it was not retried.",
+                recovery=(record.as_dict(),),
+            ) from exc
         cause = child.retired or CAUSE_EXITED
         reason = self._replaced_reason(child, method, exc, cause)
         raise self._lost(child, reason, cause, method, recovery=(record.as_dict(),)) from exc
 
     async def _recovered(
         self, child: _PoolChild, method: str, exc: BaseException, ticket: int
-    ) -> tuple[dict[str, str], ...]:
+    ) -> tuple[RecoveryRecord, ...]:
         """The record of the recovery that replaced a retired child; none when the pool stopped it."""
         if child.retired == CAUSE_STOPPED:
             return ()
@@ -884,7 +926,7 @@ class ConnectorHostPool:
         cause: str,
         method: str,
         *,
-        recovery: tuple[dict[str, str], ...] = (),
+        recovery: tuple[RecoveryRecord, ...] = (),
     ) -> ConnectorHostLostError:
         target, mode, _owner, _authorization = _key_parts(child.key)
         error_class: type[ConnectorHostLostError] = ConnectorHostLostError
@@ -933,6 +975,10 @@ class ConnectorHostPool:
                 "drive it from that loop only"
             )
 
+    def _is_closed(self) -> bool:
+        """Whether :meth:`close` has run, read afresh: it can run while a call awaits."""
+        return self._closed
+
     async def _ensure(self, key: _Key) -> _PoolChild:
         self._check_loop()
         if self._closed:
@@ -955,7 +1001,7 @@ class ConnectorHostPool:
                     CAUSE_EXITED,
                 )
             child = await self._start(key)
-            if self._closed:
+            if self._is_closed():
                 # close() ran while this child was starting; it waits on this
                 # lock, so stopping the child here is what it is waiting for.
                 await self._stop(child)
@@ -984,7 +1030,7 @@ class ConnectorHostPool:
         """
         target, mode, _owner, _authorization = _key_parts(key)
         readonly = mode == READONLY
-        section = resolve_env_vars(copy.deepcopy(self._section))
+        section: dict[str, object] = resolve_env_vars(copy.deepcopy(self._section))
         # Derived once, so the config refusal and the post-connect verification
         # judge the same posture snapshot.
         derivation, readonly_run, writes = self._derive(key, section)
@@ -1034,6 +1080,8 @@ class ConnectorHostPool:
             if process is None:
                 marks.close()
 
+        # spawn_host attaches both pipes.
+        assert process.stdout is not None and process.stdin is not None
         reader = AttributedReader(process.stdout)
         proxy = ConnectorHostProxy(
             reader,
@@ -1043,7 +1091,7 @@ class ConnectorHostPool:
         )
         child = _PoolChild(key=key, process=process, proxy=proxy, reader=reader, report={})
         pid = child.pid
-        init: dict[str, Any] = {"control_system": section, "target": target}
+        init: dict[str, object] = {"control_system": section, "target": target}
         if self._config_file:
             init["config_file"] = self._config_file
         if readonly:
@@ -1061,9 +1109,10 @@ class ConnectorHostPool:
                 phases=phases,
             )
 
-        try:
+        async def init_report() -> object:
+            """The child's reply to its init frame; a silent or lost child is a start failure."""
             try:
-                report = await proxy.supervisor_request("init", init, self._start_timeout_s)
+                return await proxy.supervisor_request("init", init, self._start_timeout_s)
             except ChildUnresponsiveError as exc:
                 raise failure(
                     STAGE_INIT, f"did not answer its init frame within {self._start_timeout_s}s."
@@ -1086,6 +1135,8 @@ class ConnectorHostPool:
                 exc.add_note(f"raised by the connector-host child (pid {pid}) for {_label(key)}")
                 raise
 
+        try:
+            report = await init_report()
             if not isinstance(report, dict):
                 raise failure(
                     STAGE_INIT,
@@ -1115,7 +1166,9 @@ class ConnectorHostPool:
         )
         return child
 
-    def _derive(self, key: _Key, section: dict[str, Any]) -> tuple[TargetDerivation, bool, bool]:
+    def _derive(
+        self, key: _Key, section: Mapping[str, object]
+    ) -> tuple[TargetDerivation, bool, bool]:
         """The derivation for *key*, and the ``(readonly_run, writes)`` it was taken under.
 
         That posture is what the child will select its gateway on, and the
@@ -1135,7 +1188,7 @@ class ConnectorHostPool:
         )
         return derivation, readonly_run, writes
 
-    def _key_writes_allowed(self, section: dict[str, Any], key: _Key) -> bool:
+    def _key_writes_allowed(self, section: Mapping[str, object], key: _Key) -> bool:
         """:meth:`_writes_allowed` for *key*; a two-part key asks it with two arguments."""
         target, _mode, owner, authorization = _key_parts(key)
         if owner is None and authorization is None:
@@ -1144,7 +1197,7 @@ class ConnectorHostPool:
 
     @staticmethod
     def _writes_allowed(
-        section: dict[str, Any],
+        section: Mapping[str, object],
         target: str,
         owner: str | None = None,
         authorization: str | None = None,
@@ -1165,10 +1218,10 @@ class ConnectorHostPool:
     def _writes_moved(
         self,
         key: _Key,
-        section: dict[str, Any],
+        section: Mapping[str, object],
         readonly_run: bool,
         writes: bool,
-        report: dict[str, Any],
+        report: dict[str, object],
     ) -> bool:
         """Whether a writes mismatch in *report* is a switch that moved, not a disagreement.
 
@@ -1182,7 +1235,7 @@ class ConnectorHostPool:
         return self._key_writes_allowed(section, key) is not writes
 
     def _config_refusal(
-        self, key: _Key, section: dict[str, Any], derivation: TargetDerivation
+        self, key: _Key, section: Mapping[str, object], derivation: TargetDerivation
     ) -> str | None:
         """Why *key* must not be spawned at all, from config alone, or ``None``.
 
@@ -1254,8 +1307,8 @@ class ConnectorHostPool:
         derivation: TargetDerivation,
         readonly_run: bool,
         writes: bool,
-        report: dict[str, Any],
-        failure: Any,
+        report: dict[str, object],
+        failure: Callable[[str, str], ConnectorHostStartError],
     ) -> None:
         """Refuse a child whose report is not what this process derives."""
         verification = verify_host_report(
@@ -1317,7 +1370,7 @@ class ConnectorHostPool:
             child.teardown = self._track(self._orderly_stop(child))
         await asyncio.shield(child.teardown)
 
-    def _track(self, teardown: Any) -> asyncio.Task[None]:
+    def _track(self, teardown: Coroutine[object, object, None]) -> asyncio.Task[None]:
         """Run a teardown as its own task, so a cancelled caller cannot cut it short."""
         task: asyncio.Task[None] = asyncio.get_running_loop().create_task(teardown)
         self._teardowns.add(task)
@@ -1381,7 +1434,7 @@ class PooledConnector:
         return child.pid if child is not None and child.usable() else None
 
     @property
-    def report(self) -> dict[str, Any]:
+    def report(self) -> dict[str, object]:
         """The current child's post-connect report, empty when none is running."""
         child = self._pool._children.get(self._key)
         return dict(child.report) if child is not None and child.usable() else {}
@@ -1389,44 +1442,46 @@ class PooledConnector:
     async def read_channel(
         self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
-        result: ChannelValue = await self._pool._invoke(
-            self._key, "read_channel", channel_address, timeout
+        return await self._pool._call(
+            self._key, "read_channel", lambda proxy: proxy.read_channel(channel_address, timeout)
         )
-        return result
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
-        result: dict[str, ChannelValue] = await self._pool._invoke(
-            self._key, "read_multiple_channels", channel_addresses, timeout
+        return await self._pool._call(
+            self._key,
+            "read_multiple_channels",
+            lambda proxy: proxy.read_multiple_channels(channel_addresses, timeout),
         )
-        return result
 
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
-        result: ChannelWriteResult = await self._pool._invoke(
-            self._key, "write_channel", channel_address, value, timeout, confirm
+        return await self._pool._call(
+            self._key,
+            "write_channel",
+            lambda proxy: proxy.write_channel(channel_address, value, timeout, confirm),
         )
-        return result
 
     async def write_multiple_channels(
         self,
-        operations: list[tuple[str, Any]],
+        operations: Sequence[tuple[str, object]],
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
-        result: list[ChannelWriteResult] = await self._pool._invoke(
-            self._key, "write_multiple_channels", operations, timeout, confirm
+        return await self._pool._call(
+            self._key,
+            "write_multiple_channels",
+            lambda proxy: proxy.write_multiple_channels(operations, timeout, confirm),
         )
-        return result
 
     async def write_channel_checked(
-        self, channel_address: str, value: Any, **kwargs: Any
+        self, channel_address: str, value: object, **kwargs: object
     ) -> ChannelWriteResult:
         """Write, and raise unless the write came back confirmed or unrequested.
 
@@ -1435,14 +1490,17 @@ class PooledConnector:
         that was sent but not confirmed. ``confirm`` and ``timeout`` pass
         through to :meth:`write_channel`.
         """
-        result: ChannelWriteResult = await self._pool._invoke(
+        # The proxy's own write_channel_checked is the base class's function,
+        # bound by name: it is typed for a ControlSystemConnector, not the proxy.
+        result = await self._pool._invoke(
             self._key, "write_channel_checked", channel_address, value, **kwargs
         )
-        return result
+        return _expect(result, ChannelWriteResult, "write_channel_checked")
 
     async def validate_channel(self, channel_address: str) -> bool:
-        result: bool = await self._pool._invoke(self._key, "validate_channel", channel_address)
-        return result
+        return await self._pool._call(
+            self._key, "validate_channel", lambda proxy: proxy.validate_channel(channel_address)
+        )
 
     async def disconnect(self) -> None:
         """Stop this key's child. A later call on this handle starts a fresh one.

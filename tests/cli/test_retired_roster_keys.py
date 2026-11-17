@@ -412,33 +412,15 @@ def test_file_reads_go_through_the_rewrite(tmp_path: Path, caplog):
 
 
 def test_the_rewrite_window_is_still_open():
-    """The release that reaches the window's end must drop the rewrite.
+    """The first stable release after the last reading line must drop the rewrite.
 
     This test fails on that release: remove ``_normalize_retired_roster_keys``
     (and this test with it) so the retired spellings are refused outright.
     """
-    from packaging.version import Version
-
-    from osprey.cli.build_profile_load import RETIRED_ROSTER_KEYS_REFUSED_FROM
+    from osprey.cli.build_profile_load import retired_spellings_window_open
     from osprey.version import get_release_version
 
-    assert Version(get_release_version()) < Version(RETIRED_ROSTER_KEYS_REFUSED_FROM)
-
-
-def test_the_window_closes_two_minors_after_the_vocabulary_release():
-    from packaging.version import Version
-
-    from osprey.cli.build_profile_load import (
-        _PROFILE_SCHEMA_MIN_OSPREY,
-        RETIRED_ROSTER_KEYS_REFUSED_FROM,
-    )
-
-    floor = Version(_PROFILE_SCHEMA_MIN_OSPREY)
-    end = Version(RETIRED_ROSTER_KEYS_REFUSED_FROM)
-    assert end > floor
-    # Two minors since the owner's 2026-11-02 ruling (was one).
-    assert (end.major, end.minor) == (floor.major, floor.minor + 2)
-    assert end.micro == 0
+    assert retired_spellings_window_open(get_release_version())
 
 
 def test_a_final_release_is_not_below_the_vocabulary_floor():

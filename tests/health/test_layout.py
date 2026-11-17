@@ -96,6 +96,39 @@ def test_machine_rows_are_annotated_but_not_drawn():
     assert rows[0]["layer"] == "machine"
 
 
+def test_pv_directory_rows_land_on_one_data_tile():
+    rows = [
+        _row(
+            "pv_directory.directory",
+            "pv_directory",
+            message="directory: properties route answered: 12 property names",
+            value="properties route answered: 12 property names",
+        ),
+        _row(
+            "pv_directory.alarm_log",
+            "pv_directory",
+            "warning",
+            message="alarm logger: the service answered a login page",
+        ),
+        _row(
+            "pv_directory.alarm_feed",
+            "pv_directory_alarm_feed",
+            message="alarm feed: read 3 messages; last contact 0 s ago",
+            value="read 3 messages; last contact 0 s ago",
+        ),
+    ]
+    tile = _components(build_layers(rows, {}))["pv-directory"]
+
+    assert tile["rows"] == [0, 1, 2]
+    assert tile["status"] == "warning"
+    assert tile["issue"] == "alarm logger: the service answered a login page"
+    assert [row["layer"] for row in rows] == ["data"] * 3
+    assert [row["label"] for row in rows] == ["directory", "alarm logger", "alarm feed"]
+    assert rows[1]["display"] == "the service answered a login page"
+    assert rows[2]["display"] == "read 3 messages; last contact 0 s ago"
+    assert _components(build_layers([rows[0], rows[2]], {}))["pv-directory"]["fact"] == "2 / 2"
+
+
 def test_an_undeclared_category_gets_its_own_facility_tile():
     rows = [_row("beamline_check", "beamline_x")]
     layers = build_layers(rows, {})

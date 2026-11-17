@@ -58,6 +58,21 @@ BUILTIN_PANEL_ORDER: tuple[str, ...] = (
 )
 
 
+#: The panel that shows which login opens which panel.
+ROSTER_PANEL_ID = "roster"
+
+#: Panels ``osprey build`` writes into the render as a page, id to label. Such a
+#: panel has no server behind it: the build writes a static bundle under
+#: :data:`BUILD_PANELS_DIRNAME` in a render that selects the id, and the web
+#: terminal serves the bundle from disk. A profile that gives the same id a
+#: ``web.panels.<id>.url`` keeps its own panel, and the build writes nothing.
+BUILD_PANELS: dict[str, str] = {ROSTER_PANEL_ID: "Roster"}
+
+#: Where a render keeps the bundles of its :data:`BUILD_PANELS`, relative to the
+#: project directory: one directory per panel id.
+BUILD_PANELS_DIRNAME = ".osprey/panels"
+
+
 def in_catalog_order(panel_ids: Iterable[str]) -> list[str]:
     """*panel_ids* as a list in :data:`BUILTIN_PANEL_ORDER`, without duplicates.
 
@@ -165,11 +180,13 @@ def panel_label(panel_id: str, panels_config: object = None) -> str:
 
     Returns:
         ``web.panels.<panel_id>.label`` when the block writes one, else the
-        registry's label for a built-in, else the id in capitals.
+        registry's label for a built-in or for a panel the build writes, else
+        the id in capitals.
     """
     return (
         _authored_text(panels_config, panel_id, "label")
         or BUILTIN_PANEL_LABELS.get(panel_id)
+        or BUILD_PANELS.get(panel_id)
         or panel_id.upper()
     )
 

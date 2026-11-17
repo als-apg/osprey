@@ -17,6 +17,12 @@
 
   <!-- Styles -->
   <link rel="stylesheet" href="/static/css/channel-finder.css">
+  <link rel="stylesheet" href="/static/css/severity.css">
+  <link rel="stylesheet" href="/static/css/allpvs.css">
+  <link rel="stylesheet" href="/static/css/alarms.css">
+  <link rel="stylesheet" href="/static/css/archive.css">
+  <link rel="stylesheet" href="/static/css/pv-page.css">
+  <link rel="stylesheet" href="/static/css/ioc-page.css">
 </head>
 <body>
   <!-- The panel root: the size container named `panel` that the toolbar's
@@ -33,7 +39,6 @@
                 aria-label="Show sidebar" disabled></button>
         <div class="osprey-seg" id="cf-views" role="group" aria-label="View">
           <button type="button" data-view="explore" aria-pressed="true">Explore</button>
-          <button type="button" data-view="feedback" aria-pressed="false">Feedback</button>
         </div>
       </div>
       <div class="osprey-panel-toolbar__end">
@@ -66,8 +71,6 @@
       </div>
     </div>
   </div>
-
-  <div class="toast-container" id="toast-container"></div>
 
   <script type="module" src="/static/js/app.js"></script>
 </body>

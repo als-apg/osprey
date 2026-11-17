@@ -60,7 +60,7 @@ def test_a_save_launches_the_gallery_by_default(agent_data_root, save):
         entry = save(store)
 
     assert store.get_entry(entry.id) is not None
-    launch.assert_called_once_with("artifact")
+    launch.assert_called_once_with("artifact", share_panel_token=True)
 
 
 @SAVES

@@ -1,46 +1,15 @@
 // @ts-check
 /**
- * Regression for the feedback toolbar's button order (feedback.js _renderList).
- *
- * `.fb-toolbar` lays its right cluster out against the toolbar's right edge
- * (space-between), so a member's arrival moves everything BEFORE it and
- * nothing after it. Clear All is the conditional member — it renders only
- * while entries exist — and it used to come LAST, which shoved the persistent
- * `+ Add Entry` / `Export` pair sideways on the very click that created the
- * first entry. It must be contributed FIRST, so it comes and goes in the
- * slack to the pair's left.
+ * The Feedback view's entries actions keep their places (feedback.js
+ * _renderList, DESIGN.md §12.1): New entry, Export and Clear all sit in the
+ * section header in that order whether or not entries exist. Clear all is
+ * disabled, never removed, while there is nothing to clear, so the first entry
+ * moves no button.
  *
  *   npx vitest run tests/interfaces/channel_finder/feedback-toolbar-order.test.mjs
  */
 
 import { test, expect, vi, afterEach } from 'vitest';
-
-// feedback.js's import graph reaches app.js, whose init GETs the pipeline info
-// at import time. Nothing serves this environment, so that request is answered
-// here — from `vi.hoisted`, which runs before the static import below is
-// evaluated and therefore before the GET is made. Any other URL is a dependency
-// this file has not declared, and fails loudly. Each test re-stubs `fetch` for
-// the endpoints it drives (see `stubFeedbackApi`).
-vi.hoisted(() => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (/** @type {string} */ url) => {
-      if (url !== '/api/info') throw new Error(`unstubbed fetch: ${url}`);
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          pipeline_type: 'hierarchical',
-          metadata: {},
-          available_pipelines: ['hierarchical'],
-          db_path: null,
-          tools: [],
-          graph_store: null,
-        }),
-      };
-    })
-  );
-});
 
 import {
   mountFeedback,
@@ -78,44 +47,43 @@ function stubFeedbackApi(entries) {
 async function mountAndSettle(container) {
   mountFeedback(container);
   await vi.waitFor(() => {
-    expect(container.querySelector('#fb-add-btn'), 'toolbar rendered').not.toBeNull();
+    expect(
+      container.querySelector('[data-action="new"]'),
+      'section header rendered'
+    ).not.toBeNull();
   });
 }
 
-test('with entries, Clear All renders BEFORE the persistent Add/Export pair', async () => {
-  document.body.innerHTML = '<div id="fb-root"></div>';
-  const container = /** @type {HTMLElement} */ (document.getElementById('fb-root'));
+/**
+ * The header's buttons as `action:disabled`.
+ * @param {HTMLElement} container
+ */
+function actions(container) {
+  const head = /** @type {HTMLElement} */ (container.querySelector('.fb-section-head'));
+  return Array.from(head.querySelectorAll('button')).map(
+    (b) => `${b.dataset.action}:${b.disabled ? 'disabled' : 'enabled'}`
+  );
+}
 
-  stubFeedbackApi([
-    {
-      key: 'k1',
-      query: 'q',
-      facility: 'als',
-      success_count: 1,
-      failure_count: 0,
-      last_activity: '2026-01-01T00:00:00Z',
-    },
-  ]);
-  await mountAndSettle(container);
+const ENTRY = {
+  key: 'k1',
+  query: 'q',
+  facility: 'als',
+  success_count: 1,
+  failure_count: 0,
+  last_activity: '2026-01-01T00:00:00Z',
+};
 
-  const cluster = /** @type {HTMLElement} */ (container.querySelector('.fb-toolbar-right'));
-  const ids = Array.from(cluster.querySelectorAll('button')).map((b) => b.id);
-  expect(ids).toEqual(['fb-clear-btn', 'fb-add-btn', 'fb-export-btn']);
-});
-
-test('with no entries, Add/Export sit exactly where they sit with entries', async () => {
-  // The invariant behind the order: the persistent pair's position in the
-  // cluster must not depend on whether the conditional member exists. Child
-  // order is the mechanism; this asserts the consequence — the pair is the
-  // cluster's tail in both states.
+test('New entry, Export and Clear all keep their positions when the first entry arrives', async () => {
   document.body.innerHTML = '<div id="fb-root"></div>';
   const container = /** @type {HTMLElement} */ (document.getElementById('fb-root'));
 
   stubFeedbackApi([]);
   await mountAndSettle(container);
+  expect(actions(container)).toEqual(['new:enabled', 'export:enabled', 'clear:disabled']);
 
-  const cluster = /** @type {HTMLElement} */ (container.querySelector('.fb-toolbar-right'));
-  const ids = Array.from(cluster.querySelectorAll('button')).map((b) => b.id);
-  expect(ids).toEqual(['fb-add-btn', 'fb-export-btn']);
-  expect(container.querySelector('#fb-clear-btn')).toBeNull();
+  stubFeedbackApi([ENTRY]);
+  await mountAndSettle(container);
+  await vi.waitFor(() => expect(container.querySelector('.fb-table-row')).not.toBeNull());
+  expect(actions(container)).toEqual(['new:enabled', 'export:enabled', 'clear:enabled']);
 });

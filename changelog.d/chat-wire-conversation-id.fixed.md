@@ -1,1 +1,0 @@
-The chat client's wire no longer carries the agent's conversation id: `system` frames are reduced, like `result` and `context`, to the fields the chat draws, declared once per frame type and checked against what `chat-system.js` reads.

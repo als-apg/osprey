@@ -8,9 +8,11 @@ framework's, in ``osprey.utils.workspace``.
 """
 
 import logging
+import os
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+
+from osprey_connectors._contract_types import ContractAny
 
 __all__ = [
     "BUILD_DIR_NAME",
@@ -80,7 +82,7 @@ _SIMULATION_STATE_DIR_NAME = "simulation"
 SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
 
 
-def dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
+def dotted_config_str(config: Mapping[str, object] | None, key: str) -> str | None:
     """Read a dotted config key, or ``None`` if it does not name a real string.
 
     ``None`` is returned for every way the key can fail to answer — a missing
@@ -99,7 +101,7 @@ def dotted_config_str(config: Mapping[str, Any] | None, key: str) -> str | None:
         config: Loaded config mapping, or ``None``.
         key: Dotted path, e.g. ``simulation.state_dir``.
     """
-    value: Any = config or {}
+    value: object = config or {}
     for part in key.split("."):
         if not isinstance(value, Mapping) or part not in value:
             return None
@@ -127,7 +129,7 @@ def rendered_config_path(repo_root: Path | str) -> Path:
     return Path(repo_root) / RENDERED_CONFIG_RELPATH
 
 
-def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
+def agent_data_base_dir(config: Mapping[str, object] | None) -> str:
     """Read the agent-data root out of an already-loaded config mapping.
 
     ``agent_data.base_dir`` is the only key that names this directory. Callers
@@ -148,7 +150,7 @@ def agent_data_base_dir(config: Mapping[str, Any] | None) -> str:
     return str(section.get("base_dir") or DEFAULT_AGENT_DATA_BASE_DIR)
 
 
-def resolve_simulation_state_dir(config: Mapping[str, Any] | None, project_root: Path) -> Path:
+def resolve_simulation_state_dir(config: Mapping[str, object] | None, project_root: Path) -> Path:
     """Resolve the directory holding the mutable ``active_scenarios`` state file.
 
     The state file is the one piece of simulation state that changes after a
@@ -223,22 +225,31 @@ def resolve_config_path() -> Path:
     return rendered if rendered.is_file() else cwd / "config.yml"
 
 
-def load_osprey_config() -> dict:
+# The values are the YAML parse's, which every consumer reads by the shape its
+# own config has.
+def load_osprey_config() -> dict[str, ContractAny]:
     """Load OSPREY configuration (delegates to ConfigBuilder singleton).
 
     Delegates to the framework's ``ConfigBuilder`` so that ``${VAR:-default}``
     environment-variable placeholders are resolved consistently.
 
-    The file is the one :func:`resolve_config_path` names.
+    The file is the one :func:`resolve_config_path` names. It becomes the
+    default config unless ``CONFIG_FILE`` or a
+    :func:`~osprey_connectors.config.config_anchored_at` scope chose that
+    default, neither of which this resolution consults: the lookups that name
+    no config keep reading the file the process was pointed at.
 
     Returns:
         Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.
     """
     config_path = resolve_config_path()
     try:
-        from osprey_connectors.config import get_config_builder
+        from osprey_connectors import config as config_module
 
-        builder = get_config_builder(config_path=str(config_path), set_as_default=True)
+        pinned = config_module._default_config is not None and config_module._default_pinned
+        builder = config_module.get_config_builder(
+            config_path=str(config_path), set_as_default=not pinned
+        )
         return builder.raw_config
     except (FileNotFoundError, Exception):
         return {}
@@ -257,6 +268,7 @@ def reset_config_cache() -> None:
 
     config_module._default_config = None
     config_module._default_configurable = None
+    config_module._default_pinned = False
     config_module._config_cache.clear()
     config_module._tz_fallback_warned = False
 
@@ -279,7 +291,7 @@ def repo_root_for_config(config_path: Path | str) -> Path:
     return parent.parent if parent.name == BUILD_DIR_NAME else parent
 
 
-def resolve_project_root(config: Mapping[str, Any] | None = None) -> Path:
+def resolve_project_root(config: Mapping[str, object] | None = None) -> Path:
     """Resolve the repo root that relative configured paths anchor against.
 
     ``project_root`` names the deployment repo — the directory holding
@@ -357,7 +369,7 @@ def resolve_agent_data_root() -> Path:
     return resolved
 
 
-def resolve_shared_data_root(config: Mapping[str, Any] | None = None) -> Path:
+def resolve_shared_data_root(config: Mapping[str, object] | None = None) -> Path:
     """Resolve the agent data root WITHOUT session-path isolation.
 
     Use for stores whose data must be visible to long-lived daemons
@@ -392,7 +404,11 @@ def resolve_path(path_str: str) -> Path:
     from osprey_connectors.config import get_config_builder
 
     config_builder = get_config_builder()
-    project_root = Path(config_builder.get("project_root"))
+    configured = config_builder.get("project_root")
+    if not isinstance(configured, str | os.PathLike):
+        # The TypeError ``Path(configured)`` raised, named.
+        raise TypeError(f"'project_root' must be a path, got {type(configured).__name__}")
+    project_root = Path(configured)
     path = Path(path_str)
     if path.is_absolute():
         return path

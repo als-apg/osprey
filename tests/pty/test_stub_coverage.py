@@ -42,6 +42,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._coverage_handoff import without_coverage_handoff
 from tests.pty.conftest import StubRuntime, repo_root, stub_runtime_dir
 from tests.pty.stub_runtime import _stub_main
 
@@ -298,10 +299,6 @@ def scan_deployment() -> list[_Seam]:
 # ---------------------------------------------------------------------------
 
 
-#: What ``[tool.coverage.run] patch = ["subprocess"]`` sets for child processes.
-_COVERAGE_HANDOFF = frozenset({"COVERAGE_PROCESS_CONFIG", "COVERAGE_PROCESS_START"})
-
-
 @pytest.fixture(scope="module")
 def discovered_seams() -> list[_Seam]:
     """The scan, once — it parses the whole package."""
@@ -315,7 +312,7 @@ def _run_stub(argv: list[str], stub: StubRuntime, cwd: Path) -> subprocess.Compl
     ``tests/``, which coverage omits, so a measured child would pay coverage's
     start-up and data-file write on every one of these spawns for nothing.
     """
-    env = {key: value for key, value in stub.env().items() if key not in _COVERAGE_HANDOFF}
+    env = without_coverage_handoff(stub.env())
     return subprocess.run(
         ["docker", *argv],
         cwd=cwd,

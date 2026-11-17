@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 [project]
 name = "osprey-connectors"
 dynamic = ["version"]
-description = "Control-system and archiver connectors for OSPREY"
+description = "Lean connectors to a control system and the read-only services beside it"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "BSD-3-Clause"}
@@ -18,6 +18,9 @@ dependencies = [
     "numpy>=2.2.6",
     "pandas>=2.2.3",
     "python-dateutil>=2.9.0",
+    # `typing_extensions.override` marks a method that overrides its base on
+    # Python 3.11, where `typing.override` does not exist yet.
+    "typing-extensions>=4.4.0",
     # Channel Access client for the EPICS connector. Pure Python on top of
     # epicscorelibs, which ships a libca per architecture.
     "aioca>=2.1",
@@ -40,6 +43,11 @@ dependencies = [
     # one lume-base, and the model modules are written against this release.
     "lume-base==0.5.0",
 ]
+
+[project.optional-dependencies]
+# The Phoebus alarm-server backend's Kafka client, imported on start: without it
+# that backend answers unavailable naming this extra.
+alarm-state = ["aiokafka>=0.12"]
 
 [project.urls]
 Documentation = "https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors.html"
@@ -96,7 +104,7 @@ raw-options = { root = "../..", version_scheme = "post-release", scm = { git = {
 # follows it, and neither may name a release with no tag. The 2026.9.0 betas
 # are superseded at the cut-over rather than supported, so both start empty.
 [tool.osprey-connectors.compat]
-frameworks = []
+frameworks = ["2026.11.0"]
 retired = []
 # Tests of the framework (Lane B) and of a release's own suite (the nightly)
 # that read the connectors' source tree as text rather than drive the
@@ -111,6 +119,7 @@ source-text-tests = [
     "tests/connectors/test_public_api.py::test_a_lazy_namespace_maps_what_it_lists",
     "tests/connectors/test_public_api.py::test_every_listed_name_is_there",
     "tests/connectors/test_public_api.py::test_every_name_a_public_module_defines_is_listed_or_private",
+    "tests/connectors/test_public_api.py::test_every_private_top_level_module_is_protected",
     "tests/connectors/test_public_api.py::test_every_top_level_module_has_a_layer",
     "tests/connectors/test_public_api.py::test_public_signatures_name_only_public_types",
     "tests/connectors/test_safety_file_single_home.py::test_no_file_is_replaced_by_a_hand_rolled_rename",

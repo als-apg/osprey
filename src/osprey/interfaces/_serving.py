@@ -96,6 +96,25 @@ def listening_socket(host: str, port: int) -> socket.socket:
     return sock
 
 
+def unix_listening_socket(path: str) -> socket.socket:
+    """Bind and listen on the AF_UNIX socket *path*, and return the socket.
+
+    :func:`listening_socket` for a local socket a parent holds for a child it
+    starts. The caller owns *path*'s directory and its mode.
+
+    Raises:
+        OSError: If *path* cannot be bound, an existing file among them.
+    """
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.bind(path)
+        sock.listen(_BACKLOG)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
 def wait_for_port(port: int, timeout: float = 10.0) -> None:
     """Block until the server accepts TCP connections, or raise RuntimeError."""
     deadline = time.monotonic() + timeout

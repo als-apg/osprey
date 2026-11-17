@@ -248,12 +248,58 @@ jobs:
           "osprey-framework[optimizer] @ file://$FRAMEWORK_WHEEL" --find-links /tmp/sibling
         /tmp/optimizer-check/bin/python -c "import osprey, osprey_optimizer.models.api, osprey_optimizer.environments.spec"
 
+  verify-connectors-floor:
+    name: Verify Every Connectors Import Resolves At The Floor
+    needs: [build]
+    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    # verify-pypi-resolvable proves the floor is published; this proves the
+    # floor is enough. Between releases main may import connectors code no
+    # release carries yet, behind an `except ImportError` stand-in that keeps
+    # the framework running at the floor with that feature switched off. A
+    # published framework resolves the floor on every install that already has
+    # it, so a tag refuses while any such import is still unpublished: release
+    # osprey-connectors, raise the floor, then tag.
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Download distribution artifacts
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+      with:
+        name: python-package-distributions
+        path: dist/
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+
+    - name: Install the built wheels with the floor connectors
+      # pyaml-cs-osprey without its dependencies: the scan reads its source and
+      # resolves only osprey_connectors names, so pyAML is not needed here.
+      run: |
+        FLOOR=$(python3 scripts/ci/connectors_compat_matrix.py floor)
+        echo "floor: osprey-connectors==$FLOOR"
+        uv venv /tmp/floor-check
+        uv pip install --python /tmp/floor-check/bin/python \
+          ./dist/osprey_framework-*.whl "osprey-connectors==$FLOOR"
+        uv pip install --python /tmp/floor-check/bin/python --no-deps \
+          ./dist/pyaml_cs_osprey-*.whl
+
+    - name: Scan the built framework for connectors names the floor lacks
+      run: >-
+        /tmp/floor-check/bin/python -I
+        packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py
+        --release --package osprey --package pyaml_cs_osprey
+
   publish-to-pypi:
     name: Publish to PyPI
     # `verify-full-ci` already gates `build`, so this repeats it — deliberately.
     # The publish is the one step nobody can take back, and a future edit that
     # re-wires the chain above must not be able to un-gate it silently.
-    needs: [verify-full-ci, build, validate-install-docs, verify-pypi-resolvable]
+    needs: [verify-full-ci, build, validate-install-docs, verify-pypi-resolvable, verify-connectors-floor]
     if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment:

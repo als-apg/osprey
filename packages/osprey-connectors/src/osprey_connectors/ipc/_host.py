@@ -36,7 +36,7 @@ whose kwargs are::
     {
       "control_system": {...},          # the full control_system config section
       "target": "live" | "va",          # the control target, never defaulted
-      "config_file": "/abs/config.yml", # optional: what CONFIG_FILE to read
+      "config_file": "/abs/config.yml", # optional: the config file to read
       "execution_mode": "readonly"      # optional: restrict this child to reads
     }
 
@@ -201,12 +201,17 @@ import sys
 import threading
 import time
 from collections import deque
-from typing import Any
+from typing import TYPE_CHECKING, Protocol, SupportsFloat, TypedDict
 
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._exceptions import decode_exception, encode_exception
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Mapping
+
+    from osprey_connectors.control_system._base import ChannelValue, ControlSystemConnector
 
 __all__ = [
     "EXIT_INIT_FAILED",
@@ -414,7 +419,7 @@ def _save_coverage() -> None:
 # --------------------------------------------------------------------------
 
 
-def _installed_endpoint() -> tuple[str | None, str | None, Any]:
+def _installed_endpoint() -> tuple[str | None, str | None, int | str | None]:
     """The CA endpoint currently installed in the environment.
 
     Read *after* ``connect()`` and after the startup scrub, so whatever is
@@ -437,7 +442,7 @@ def _installed_endpoint() -> tuple[str | None, str | None, Any]:
     return None, None, None
 
 
-def _as_port(value: str | None) -> Any:
+def _as_port(value: str | None) -> int | str | None:
     """A port as the int it usually is, or verbatim when it is not one."""
     if value is None or value == "":
         return None
@@ -475,13 +480,13 @@ def _writes_enabled_input() -> bool:
     from osprey_connectors.types import tier_allows
 
     try:
-        section = get_config_value("control_system", {})
+        section: object = get_config_value("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
     return tier_allows(section)
 
 
-def _selection_writes_enabled(connector: Any) -> bool:
+def _selection_writes_enabled(connector: ControlSystemConnector) -> bool:
     """The write posture ``connect()`` actually selected this child's gateway on.
 
     The connector instance's own property rather than a second derivation from
@@ -512,20 +517,20 @@ def _named_authorization() -> str | None:
     return named_authorization()
 
 
-def _rule_role(gateways: dict[str, Any], writes_enabled: bool, readonly_run: bool) -> str | None:
+def _rule_role(gateways: dict[str, object], writes_enabled: bool, readonly_run: bool) -> str | None:
     """The gateway role ``connect()`` selects, given its inputs; ``None`` with no gateways.
 
-    The rule itself is :func:`osprey_connectors.ipc._verification._selected_role`,
+    The rule itself is :func:`osprey_connectors.control_system._gateway_role._selected_role`,
     the one place it lives: this only adds that an empty table selects nothing.
     """
-    from osprey_connectors.ipc._verification import _selected_role
+    from osprey_connectors.control_system._gateway_role import _selected_role
 
     if not gateways:
         return None
     return _selected_role(gateways, writes_enabled=writes_enabled, readonly_run=readonly_run)
 
 
-def _endpoint_matches(gateway: Any, mode: str | None, host: str | None, port: Any) -> bool:
+def _endpoint_matches(gateway: object, mode: str | None, host: str | None, port: object) -> bool:
     """Whether a gateway block describes the endpoint that was installed.
 
     A block with no ``port`` matches on address and mode alone: an unset port
@@ -546,10 +551,10 @@ def _endpoint_matches(gateway: Any, mode: str | None, host: str | None, port: An
 
 
 def _installed_role(
-    gateways: dict[str, Any],
+    gateways: dict[str, object],
     mode: str | None,
     host: str | None,
-    port: Any,
+    port: object,
     writes_enabled: bool,
     readonly_run: bool,
 ) -> str | None:
@@ -572,11 +577,55 @@ def _installed_role(
     return matched[0] if len(matched) == 1 else None
 
 
+class _PostConnectReport(TypedDict):
+    """The post-connect report, as this child writes it (see the module docstring)."""
+
+    selected_role: str | None
+    mode: str | None
+    host: str | None
+    port: int | str | None
+    _epics_configured: bool
+    connector_type: str
+    transport: str | None
+    target: str
+    writes_enabled: bool
+    readonly_run: bool
+    authorization: str | None
+    epics_env: dict[str, str]
+    pid: int
+
+
+def _init_block(value: object, where: str) -> Mapping[str, object]:
+    """A nested block of the init payload's section: empty when unset, refused when no mapping.
+
+    Raises:
+        ValueError: *value* is set but is not a mapping.
+    """
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"connector host init: {where} must be a mapping, not a {type(value).__name__}"
+        )
+    return value
+
+
 def _post_connect_report(
-    connector: Any, connector_type: str, target: str, section: dict[str, Any]
-) -> dict[str, Any]:
-    """Describe what ``connect()`` configured, for the parent to verify."""
-    connector_block = (section.get("connector") or {}).get(connector_type) or {}
+    connector: ControlSystemConnector,
+    connector_type: str,
+    target: str,
+    section: Mapping[str, object],
+) -> _PostConnectReport:
+    """Describe what ``connect()`` configured, for the parent to verify.
+
+    Raises:
+        ValueError: The section's ``connector`` block, or its block for
+            *connector_type*, is set but is not a mapping.
+    """
+    connectors = _init_block(section.get("connector"), "control_system.connector")
+    connector_block = _init_block(
+        connectors.get(connector_type), f"control_system.connector.{connector_type}"
+    )
     gateways = connector_block.get("gateways") or {}
     if not isinstance(gateways, dict):
         gateways = {}
@@ -620,8 +669,8 @@ def _post_connect_report(
 
 
 async def _build_connector(
-    payload: dict[str, Any], marks: _StartMarks | None = None
-) -> tuple[Any, dict[str, Any]]:
+    payload: dict[str, object], marks: _StartMarks | None = None
+) -> tuple[ControlSystemConnector, _PostConnectReport]:
     """Apply the init payload and bring up the connector it describes.
 
     Args:
@@ -649,7 +698,12 @@ async def _build_connector(
         # The connector reads writes_enabled and the limits database — the home
         # of the per-channel confirm policy — from the project config, so the
         # child must be pointed at the same file the parent resolved against.
+        # Both names: the default config reads CONFIG_FILE, but
+        # resolve_config_path (behind every data-root lookup) reads only
+        # OSPREY_CONFIG, which this child would otherwise inherit from the
+        # parent's environment.
         os.environ["CONFIG_FILE"] = str(config_file)
+        os.environ["OSPREY_CONFIG"] = str(config_file)
     if payload.get("execution_mode") == "readonly":
         # Restriction only: an inherited readonly claim is never cleared here.
         os.environ[POSTURE_ENV_VAR] = SANDBOX_MODE
@@ -658,6 +712,8 @@ async def _build_connector(
     from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
 
     connector_type = types.resolve_target(section, target)
+    # resolve_target refuses anything but one of the target names.
+    target = str(target)
     register_builtin_connectors()
     if marks is not None:
         marks.mark("imports")
@@ -685,7 +741,7 @@ async def _build_connector(
     if marks is not None:
         marks.mark("connected")
 
-    report = _post_connect_report(connector, connector_type, str(target), section)
+    report = _post_connect_report(connector, connector_type, target, section)
     logger.warning(
         "connector host: serving target %r as %r (role=%r mode=%r %s:%s)",
         target,
@@ -709,9 +765,9 @@ class _FrameStream:
     def __init__(self, reader: asyncio.StreamReader) -> None:
         self._reader = reader
         self._parser = frames.FrameReader()
-        self._ready: deque[Any] = deque()
+        self._ready: deque[frames.RequestFrame | frames.ResultFrame | frames.ErrorFrame] = deque()
 
-    async def next(self) -> Any:
+    async def next(self) -> frames.RequestFrame | frames.ResultFrame | frames.ErrorFrame | None:
         """The next frame, or ``None`` once the pipe reaches EOF."""
         while not self._ready:
             chunk = await self._reader.read(_READ_CHUNK_BYTES)
@@ -767,8 +823,8 @@ def _error_frame(request_id: str, exc: BaseException) -> bytes:
 
 
 async def _spawn_probe(
-    connector: Any, channel: str, timeout: float | None = DEFAULT_PROBE_TIMEOUT_S
-) -> Any:
+    connector: ControlSystemConnector, channel: object, timeout: object = DEFAULT_PROBE_TIMEOUT_S
+) -> ChannelValue:
     """Read one named channel under a hard bound.
 
     Args:
@@ -784,6 +840,7 @@ async def _spawn_probe(
         The channel's :class:`ChannelValue`.
 
     Raises:
+        TypeError: The channel is not an address, or the bound is not a number.
         ValueError: The bound is not a positive number.
         TimeoutError: The read did not finish inside the bound. The message
             always names the channel and the bound, because the two bounds race
@@ -792,7 +849,14 @@ async def _spawn_probe(
             layers up, as a switch refusal ending in ": ." that names nothing
             the operator could act on.
     """
-    bound = DEFAULT_PROBE_TIMEOUT_S if timeout is None else float(timeout)
+    if not isinstance(channel, str):
+        raise TypeError(f"spawn_probe channel must be a channel address, got {channel!r}")
+    if timeout is None:
+        bound = DEFAULT_PROBE_TIMEOUT_S
+    elif isinstance(timeout, str | SupportsFloat):
+        bound = float(timeout)
+    else:
+        raise TypeError(f"spawn_probe timeout must be a number, got {timeout!r}")
     if bound <= 0:
         raise ValueError(f"spawn_probe timeout must be positive, got {timeout!r}")
     try:
@@ -804,21 +868,38 @@ async def _spawn_probe(
         raise TimeoutError(f"{reason}: {exc}" if str(exc) else reason) from exc
 
 
-async def _invoke(connector: Any, method: str, kwargs: dict[str, Any]) -> Any:
-    """Run one request against the connector."""
+class _ServedMethod(Protocol):
+    """A :data:`PROXY_METHODS` member as the child calls it: keywords in, an awaitable out."""
+
+    def __call__(self, **kwargs: object) -> Awaitable[object]: ...
+
+
+async def _invoke(connector: ControlSystemConnector, method: object, kwargs: object) -> object:
+    """Run one request against the connector.
+
+    *method* and *kwargs* are the request frame's, unvalidated: a bad one is
+    refused here, in that request's error frame.
+    """
     if method == "ping":
         return os.getpid()
+    if not isinstance(kwargs, dict):
+        raise TypeError(
+            f"connector host request kwargs are a {type(kwargs).__name__}, not a mapping"
+        )
     if method == "spawn_probe":
         return await _spawn_probe(connector, **kwargs)
-    if method in PROXY_METHODS:
-        return await getattr(connector, method)(**kwargs)
+    if isinstance(method, str) and method in PROXY_METHODS:
+        served: _ServedMethod = getattr(connector, method)
+        return await served(**kwargs)
     raise ValueError(
         f"connector host does not serve {method!r}; it serves "
         f"{', '.join((*PROXY_METHODS, 'spawn_probe', 'ping'))}"
     )
 
 
-async def _dispatch(connector: Any, frame: Any, writer: _FrameWriter) -> None:
+async def _dispatch(
+    connector: ControlSystemConnector, frame: frames.RequestFrame, writer: _FrameWriter
+) -> None:
     """Serve one request and write exactly one reply for it."""
     try:
         payload = frames.encode_result(
@@ -830,7 +911,9 @@ async def _dispatch(connector: Any, frame: Any, writer: _FrameWriter) -> None:
     await writer.send(payload)
 
 
-async def _serve(connector: Any, stream: _FrameStream, writer: _FrameWriter) -> int:
+async def _serve(
+    connector: ControlSystemConnector, stream: _FrameStream, writer: _FrameWriter
+) -> int:
     """Dispatch requests until the pipe closes or a disconnect is served."""
     inflight: set[asyncio.Task[None]] = set()
     while True:
@@ -879,19 +962,24 @@ async def _run(channel_fd: int, marks: _StartMarks) -> int:
         return EXIT_OK
     marks.mark("init")
     if not isinstance(init, frames.RequestFrame) or init.method != INIT_METHOD:
-        request_id = getattr(init, "request_id", "init")
+        got = init.method if isinstance(init, frames.RequestFrame) else type(init).__name__
         await writer.send(
             _error_frame(
-                request_id,
+                init.request_id,
                 ConnectionError(
                     f"connector host expected a {INIT_METHOD!r} request as its first frame, "
-                    f"got {getattr(init, 'method', type(init).__name__)!r}"
+                    f"got {got!r}"
                 ),
             )
         )
         return EXIT_INIT_FAILED
 
     try:
+        if not isinstance(init.kwargs, dict):
+            raise TypeError(
+                f"connector host {INIT_METHOD!r} kwargs are a {type(init.kwargs).__name__}, "
+                "not a mapping"
+            )
         connector, report = await _build_connector(init.kwargs, marks)
     except Exception as exc:
         logger.warning("connector host: connect failed: %r", exc)

@@ -1,1 +1,0 @@
-A deployment package registers a measurement kind through the `osprey.facility.kinds` entry-point group; the five built-in pyAML kinds are declared the same way, and the measure tool, the approval prompt and the pyaml-tools skill read every kind from what the build writes into the facts.

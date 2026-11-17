@@ -167,6 +167,11 @@ BENCHMARKS_JOB = "benchmarks"
 BENCHMARKS_TEST_FILE = "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py"
 TIER2_JOB = BENCHMARKS_JOB
 TIER2_DIR = "tests/e2e/tier2"
+#: Tier 2 files that deploy a stack and run on the benchmark board only.
+TIER2_BOARD_ONLY_FILES = (
+    "tests/e2e/tier2/test_chart_value_reading.py",
+    "tests/e2e/tier2/test_pv_directory_agentic.py",
+)
 FLOOR_JOB = "dependency-floor"
 NEXTCLOUD_JOB = "nextcloud-talk-bridge-e2e"
 NEXTCLOUD_TEST_FILE = "tests/e2e/test_nextcloud_talk_bridge_e2e.py"
@@ -776,6 +781,127 @@ def test_unit_test_job_installs_required_extras__mutation_drops_extra() -> None:
     step["run"] = step["run"].replace(" --extra virtual-accelerator", "")
     with pytest.raises(AssertionError):
         test_unit_test_job_installs_required_extras(mutated)
+
+
+# ---------------------------------------------------------------------------
+# rest-b starts its container images' pulls, and fetches the n10s jar, before pytest
+# ---------------------------------------------------------------------------
+
+PREPULL_STEP = "Start pulling the container suites' images"
+N10S_UNIT_STEP = "Fetch the pinned neosemantics (n10s) jar for the graph suites"
+#: The cell that runs the testcontainers suites (the `docker` xdist group).
+CONTAINER_SHARD_IF = "matrix.shard == 'rest-b'"
+_PREPULL_LOOKUP = re.compile(r"uv run python -c '([^']+)'")
+#: A pull that runs in the background with every output stream sent to a file: a
+#: job still holding the step's stdout or stderr would hold the step until it ends.
+_BACKGROUND_PULL = re.compile(r"docker pull[^\n]*\n(?:.*\n)*?\s*\) >> \S+ 2>&1 < /dev/null &\n")
+
+
+#: Where each container fixture of rest-b names its image. Read from source, not
+#: imported: this module runs where no engine is (test_check.py holds that).
+PREPULLED_IMAGE_CONSTANTS = (
+    ("tests/_graphdb_container.py", "NEO4J_IMAGE"),
+    ("tests/_mongo_container.py", "MONGO_IMAGE"),
+    ("tests/_session_database.py", "SHIPPED_POSTGRES_IMAGE"),
+    ("tests/integration/test_tiled_export.py", "TILED_IMAGE"),
+)
+
+
+def _prepull_images(wf: dict[str, Any]) -> list[str]:
+    """What the pre-pull step's reference lookup prints, run on this checkout."""
+    run = _find_named_step(wf, UNIT_TEST_JOB, PREPULL_STEP)["run"]
+    found = _PREPULL_LOOKUP.findall(run)
+    assert len(found) == 1, f"expected one `uv run python -c` lookup in {PREPULL_STEP!r}: {found}"
+    out = subprocess.run(
+        [sys.executable, "-c", found[0]],
+        cwd=CI_YML.parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    assert out.returncode == 0, f"the image lookup fails on this checkout:\n{out.stderr}"
+    return out.stdout.split()
+
+
+def _before_the_unit_tests(wf: dict[str, Any], step_name: str) -> None:
+    names = _step_names(wf, UNIT_TEST_JOB)
+    assert step_name in names, f"the unit job has no {step_name!r} step"
+    at = names.index(step_name)
+    assert names.index("Install dependencies") < at < names.index("Run unit tests"), (
+        f"{step_name!r} must run after `uv sync` (it reads through `uv run`) and before the tests"
+    )
+    step = _find_named_step(wf, UNIT_TEST_JOB, step_name)
+    assert step.get("if") == CONTAINER_SHARD_IF, (
+        f"{step_name!r} belongs to the cell that runs the container suites: if {CONTAINER_SHARD_IF}"
+    )
+
+
+def test_rest_b_starts_pulling_its_container_fixtures_images_before_its_tests(
+    workflow: dict[str, Any],
+) -> None:
+    """Each testcontainers fixture pulls its image on first use, on the one worker
+    the `docker` group runs on. The step starts those pulls before pytest, from
+    the fixtures' own constants, and never waits for them."""
+    _before_the_unit_tests(workflow, PREPULL_STEP)
+    assert sorted(_prepull_images(workflow)) == sorted(
+        _module_constant(REPO_ROOT / path, name) for path, name in PREPULLED_IMAGE_CONSTANTS
+    )
+    run = _find_named_step(workflow, UNIT_TEST_JOB, PREPULL_STEP)["run"]
+    assert _BACKGROUND_PULL.search(run), (
+        "each pull must run in the background with stdout, stderr and stdin off the step's own"
+    )
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        pytest.param(
+            [
+                (" from tests.integration.test_tiled_export import TILED_IMAGE;", ""),
+                (", TILED_IMAGE)", ")"),
+            ],
+            id="drops-an-image",
+        ),
+        pytest.param([(" 2>&1 < /dev/null &", " 2>&1 < /dev/null")], id="waits-for-each-pull"),
+        pytest.param([(" >> ci-diag/image-prepull.log 2>&1", "")], id="holds-the-step-output"),
+    ],
+)
+def test_rest_b_starts_pulling__mutation(edits: list[tuple[str, str]]) -> None:
+    mutated = _load_workflow()
+    step = _find_named_step(mutated, UNIT_TEST_JOB, PREPULL_STEP)
+    for old, new in edits:
+        assert old in step["run"]
+        step["run"] = step["run"].replace(old, new)
+    with pytest.raises(AssertionError):
+        test_rest_b_starts_pulling_its_container_fixtures_images_before_its_tests(mutated)
+
+
+def test_rest_b_starts_pulling__mutation_after_the_tests() -> None:
+    mutated = _load_workflow()
+    steps = _jobs(mutated)[UNIT_TEST_JOB]["steps"]
+    step = _find_named_step(mutated, UNIT_TEST_JOB, PREPULL_STEP)
+    steps.remove(step)
+    steps.append(step)
+    with pytest.raises(AssertionError):
+        test_rest_b_starts_pulling_its_container_fixtures_images_before_its_tests(mutated)
+
+
+def test_rest_b_fetches_the_n10s_jar_before_its_tests(workflow: dict[str, Any]) -> None:
+    """Without the jar the graph session fixture downloads it itself, and a failed
+    download there SKIPS every graph suite; fetched by the job, it reds the step."""
+    _before_the_unit_tests(workflow, N10S_UNIT_STEP)
+    assert (
+        _find_named_step(workflow, UNIT_TEST_JOB, N10S_UNIT_STEP)["run"]
+        == "scripts/ci/fetch_n10s_jar.sh"
+    )
+
+
+def test_rest_b_fetches_the_n10s_jar__mutation_on_every_shard() -> None:
+    mutated = _load_workflow()
+    del _find_named_step(mutated, UNIT_TEST_JOB, N10S_UNIT_STEP)["if"]
+    with pytest.raises(AssertionError):
+        test_rest_b_fetches_the_n10s_jar_before_its_tests(mutated)
 
 
 def test_bluesky_stack_is_a_core_dependency() -> None:
@@ -3125,6 +3251,29 @@ def test_tier2_job_is_dispatch_gated__mutation_runs_on_every_pr() -> None:
         test_tier2_job_is_dispatch_gated_and_lane_ignores_it(mutated)
 
 
+def _tier2_run_text(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, TIER2_JOB, "Run Tier 2 model benchmarks")["run"]
+
+
+def test_tier2_job_leaves_the_stack_benchmarks_to_the_board(workflow: dict[str, Any]) -> None:
+    """A tier-2 file that deploys a stack needs Docker, the VA extra and a host
+    lock the on-demand job does not have; the job ignores each one."""
+    run_text = _tier2_run_text(workflow)
+    missing = [f for f in TIER2_BOARD_ONLY_FILES if f"--ignore={f}" not in run_text]
+    assert missing == [], f"'{TIER2_JOB}' runs board-only stack benchmarks: {missing}"
+
+
+def test_tier2_job_leaves_the_stack_benchmarks_to_the_board__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TIER2_JOB, "Run Tier 2 model benchmarks")
+    board_only = TIER2_BOARD_ONLY_FILES[-1]
+    step["run"] = _drop_lines(
+        step["run"], lambda line: f"--ignore={board_only}" in line, f"no --ignore={board_only}"
+    )
+    with pytest.raises(AssertionError):
+        test_tier2_job_leaves_the_stack_benchmarks_to_the_board(mutated)
+
+
 def _gate_run_text(wf: dict[str, Any]) -> str:
     return _find_named_step(wf, GATE_JOB, "Check all jobs status")["run"]
 
@@ -5429,6 +5578,13 @@ DOCKER_LIFECYCLE_JOB = "multi-user-deploy-lifecycle-e2e[docker]"
 #: Jobs that name a container engine without running one — the gate lists the
 #: Docker lanes in its human-readable status strings.
 NON_CONTAINER_JOBS = {GATE_JOB}
+#: Container jobs whose failure record is their own upload rather than the
+#: capture action, by the step that uploads it. The unit job's containers are
+#: testcontainers fixtures the tests remove themselves; ``_harness/ci_diagnostics.py``
+#: snapshots them at a failure into ``ci-diag/``, and the step named here uploads
+#: that directory whatever the outcome. (Its pre-pull step is where ci.yml first
+#: names the engine for it; the containers were there before.)
+OWN_DIAGNOSTICS_UPLOAD = {UNIT_TEST_JOB: "Upload lane diagnostics"}
 
 
 def _container_jobs(wf: dict[str, Any]) -> set[str]:
@@ -5466,7 +5622,8 @@ def test_every_container_job_captures_diagnostics(workflow: dict[str, Any]) -> N
     missing = sorted(
         name
         for name in _container_jobs(workflow)
-        if _capture_step_index(_lane_jobs(workflow)[name]) is None
+        if name not in OWN_DIAGNOSTICS_UPLOAD
+        and _capture_step_index(_lane_jobs(workflow)[name]) is None
     )
     assert missing == [], (
         f"these jobs run containers but have no '{CAPTURE_STEP}' step: {missing}. "
@@ -5474,6 +5631,20 @@ def test_every_container_job_captures_diagnostics(workflow: dict[str, Any]) -> N
         f"teardown step — or add the job to NON_CONTAINER_JOBS if it only names an "
         f"engine in a status string."
     )
+    for name, step_name in OWN_DIAGNOSTICS_UPLOAD.items():
+        upload = _find_named_step(workflow, name, step_name)
+        assert upload.get("if") == "always()", f"{name}'s {step_name!r} must run whatever failed"
+        assert upload["with"]["path"].rstrip("/") == _capture_upload_dir(), (
+            f"{name}'s {step_name!r} must upload what the failure-time snapshot writes"
+        )
+
+
+def test_every_container_job_captures_diagnostics__mutation_drops_the_own_upload() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[UNIT_TEST_JOB]["steps"]
+    steps.remove(_find_named_step(mutated, UNIT_TEST_JOB, OWN_DIAGNOSTICS_UPLOAD[UNIT_TEST_JOB]))
+    with pytest.raises(AssertionError):
+        test_every_container_job_captures_diagnostics(mutated)
 
 
 def test_every_container_job_captures_diagnostics__mutation_drops_a_lane() -> None:
@@ -9892,6 +10063,25 @@ def test_the_tag_gate_requires_every_dispatch_stack_cell() -> None:
     assert gate.missing_lanes(skipped_job, lanes) == dict.fromkeys(lanes, "no such job in the run")
 
 
+RELEASE_FLOOR_JOB = "verify-connectors-floor"
+
+
+def test_the_floor_scan_blocks_the_publish_and_runs_as_a_release_scan() -> None:
+    """A tag is refused while the framework imports connectors code its floor
+    lacks. Without ``--release`` the scan forgives every such import that has a
+    stand-in, which is the case the job exists to refuse."""
+    release = yaml.safe_load(RELEASE_YML.read_text())
+    assert RELEASE_FLOOR_JOB in release["jobs"]["publish-to-pypi"]["needs"], (
+        f"publish-to-pypi does not wait for {RELEASE_FLOOR_JOB}"
+    )
+    runs = " ".join(step.get("run", "") for step in release["jobs"][RELEASE_FLOOR_JOB]["steps"])
+    assert "scan_framework_imports.py" in runs
+    assert "--release" in runs, "the floor scan forgives imports a stand-in covers"
+    assert "connectors_compat_matrix.py floor" in runs, "the scan is not held to the floor"
+    for package in ("osprey", "pyaml_cs_osprey"):
+        assert f"--package {package}" in runs, f"the floor scan does not read {package}"
+
+
 def test_the_tag_gate_blocks_the_publish() -> None:
     """The gate is only a gate if the jobs that build and publish wait on it."""
     release = yaml.safe_load(RELEASE_YML.read_text())
@@ -14288,9 +14478,15 @@ _SETUP_RUN_RES = (
     ),
 )
 #: The steps of a caller job that prepare or report in ways no pattern above
-#: states, by job and step name; each has its own tests above. None on main: a
-#: caller job a branch adds names its own here.
+#: states, by job and step name; each has its own tests. A caller job a branch
+#: adds names its own here.
 CALLER_SETUP_STEPS: dict[str, tuple[str, ...]] = {
+    # rest-b starts its container images' pulls and fetches the n10s jar before
+    # its tests (test_rest_b_starts_pulling_*, test_rest_b_fetches_the_n10s_jar_*).
+    UNIT_TEST_JOB: (
+        "Start pulling the container suites' images",
+        "Fetch the pinned neosemantics (n10s) jar for the graph suites",
+    ),
     # The canopy-contract job decides whether the change needs the contract,
     # then reads the pins, fetches and installs CANOPY, and copies the verdict
     # into the run summary; each of those has its own tests below.

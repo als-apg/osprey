@@ -56,7 +56,7 @@ CONFIG: dict[str, Any] = {
             },
         },
         *(
-            {"type": "pyaml.bpm.bpm", "name": name, "x_pos": x, "y_pos": y}
+            {"type": "pyaml.diagnostics.bpm.bpm", "name": name, "x_pos": x, "y_pos": y}
             for name, (x, y) in BPM_REFS.items()
         ),
     ],
@@ -174,7 +174,7 @@ def test_every_aggregator_is_new_and_empty() -> None:
 
 def test_three_bpm_aggregators_share_no_devices(no_runtime: list[str]) -> None:
     sr = Accelerator.from_dict(_config())
-    bpms = [sr.live.bpm.get(name) for name in BPM_REFS]
+    bpms = [sr.live.diagnostic.bpm.get(name) for name in BPM_REFS]
     aggregators = sr.live.create_bpm_aggregators(bpms)
     assert len({id(x) for x in aggregators}) == 3
     inner = [_inner_list(agg) for agg in aggregators]
@@ -218,7 +218,7 @@ def test_bpm_array_reads_positions_over_a_connector(
     )
     with patch("osprey.runtime._get_connector", new_callable=AsyncMock) as get:
         get.return_value = connector
-        positions = sr.live.bpms.get("BPMS").positions.get()
+        positions = sr.live.diagnostic.bpms.get("BPMS").positions.get()
     np.testing.assert_allclose(positions, [[1.0e-3, -2.0e-3], [3.0e-3, 4.0e-3]])
 
 

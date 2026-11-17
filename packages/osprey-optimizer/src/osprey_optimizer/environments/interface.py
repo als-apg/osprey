@@ -138,6 +138,11 @@ class _PoolBridge:
                 "The project config has no control_system section, so the optimizer has no "
                 "control target to reach. Set CONFIG_FILE to the deployment's config.yml."
             )
+        if not isinstance(section, dict):
+            raise InterfaceError(
+                "The project config's control_system section must be a mapping, got "
+                f"{type(section).__name__}."
+            )
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
             target=self._loop.run_forever, name="optimizer-connector-pool", daemon=True

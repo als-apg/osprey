@@ -75,8 +75,9 @@ once, and to the parity tests that read the registry.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TypedDict
 
 from osprey_connectors import errors
 from osprey_connectors.errors import (
@@ -105,6 +106,14 @@ _CONTRACT_ROOTS: tuple[type[BaseException], ...] = (
     ConnectorUnavailableError,
     ConnectorInternalError,
 )
+
+
+class ExceptionFrameBody(TypedDict):
+    """The exception frame body: the three keys described above."""
+
+    class_tag: str
+    message: str
+    fields: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -196,7 +205,7 @@ def _registered_tag(exc: BaseException) -> str | None:
     return next((by_class[cls] for cls in type(exc).__mro__ if cls in by_class), None)
 
 
-def exception_fields(exc: BaseException) -> dict[str, Any]:
+def exception_fields(exc: BaseException) -> dict[str, object]:
     """Read the spec's fields off a live exception.
 
     Only the enumerated names are read, and a name the instance does not carry
@@ -210,7 +219,9 @@ def exception_fields(exc: BaseException) -> dict[str, Any]:
     return {name: getattr(exc, name, None) for name in EXCEPTION_SPECS[tag].fields}
 
 
-def reconstruct_exception(class_tag: str, message: str, fields: dict[str, Any]) -> BaseException:
+def reconstruct_exception(
+    class_tag: str, message: str, fields: Mapping[str, object]
+) -> BaseException:
     """Rebuild the real exception, failing closed to ``ConnectorInternalError``.
 
     A tag outside the registry, or a field set the real constructor refuses,
@@ -238,7 +249,7 @@ def reconstruct_exception(class_tag: str, message: str, fields: dict[str, Any]) 
         )
 
 
-def encode_exception(exc: BaseException) -> dict[str, Any]:
+def encode_exception(exc: BaseException) -> ExceptionFrameBody:
     """Render ``exc`` as an exception frame body.
 
     An exception class outside the registry is normalised here, at the child's
@@ -258,7 +269,7 @@ def encode_exception(exc: BaseException) -> dict[str, Any]:
     return {"class_tag": class_tag, "message": str(exc), "fields": exception_fields(exc)}
 
 
-def decode_exception(frame: dict[str, Any]) -> BaseException:
+def decode_exception(frame: ExceptionFrameBody) -> BaseException:
     """Rebuild the exception an exception frame body describes."""
     return reconstruct_exception(
         str(frame.get("class_tag", "")),
