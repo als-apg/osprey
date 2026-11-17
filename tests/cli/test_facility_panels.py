@@ -221,3 +221,15 @@ def test_a_draw_colour_near_a_state_colour_stops_the_command(facility_file, tmp_
     assert result.exit_code == 1 and "too near the state colour MAJOR" in result.output
     checked = _run(facility_file, "check", "--out", str(tmp_path / "out"), "--draw", str(draw))
     assert checked.exit_code == 1 and "too near the state colour MAJOR" in checked.output
+
+
+def test_every_view_kind_of_the_engine_can_be_chosen(facility_file, tmp_path):
+    from osprey.cli.facility_cmd import _PANEL_VIEWS
+    from osprey.facility.panels.view import VIEW_KINDS
+
+    assert tuple(_PANEL_VIEWS) == VIEW_KINDS
+    out = tmp_path / "out"
+    written = _run(facility_file, "write", "--out", str(out), "--kind", "calibration")
+    assert written.exit_code == 0, written.output
+    assert "calibration:" in written.output
+    assert list((out / "calibration").iterdir())

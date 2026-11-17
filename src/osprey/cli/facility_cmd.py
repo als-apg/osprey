@@ -1138,7 +1138,14 @@ def panels_group() -> None:
     """Write operator screens from the built facility, and check a written set."""
 
 
-_PANEL_VIEWS = ("card", "set", "place", "rack", "rollup", "checkout")
+def _panel_views() -> tuple[str, ...]:
+    from osprey.facility.panels.view import VIEW_KINDS
+
+    return VIEW_KINDS
+
+
+#: The view kinds ``--kind`` takes: the engine's own list, so the two cannot drift.
+_PANEL_VIEWS = _panel_views()
 
 
 def _panel_graph(

@@ -400,14 +400,26 @@ def under(graph: PanelGraph, place_id: str) -> Callable[[Target], bool]:
 
     Returns:
         A function true for a target whose thing is the place or a device or
-        place of its contents (:meth:`PanelGraph.contents`). Groups are never
-        under a place.
+        place of its contents (:meth:`PanelGraph.contents`), and for the
+        calibration views of a set with a member there. Other views of a group
+        are never under a place.
 
     Raises:
         KeyError: No such place.
     """
     within = {place_id, *(thing.id for thing in graph.contents(place_id))}
-    return lambda target: target.kind != "group" and target.id in within
+    sets = {
+        thing.id
+        for thing in graph.things()
+        if thing.kind == "group" and any(m.id in within for m in graph.members(thing.id))
+    }
+
+    def test(target: Target) -> bool:
+        if target.kind == "group":
+            return target.view == "calibration" and target.id in sets
+        return target.id in within
+
+    return test
 
 
 # -- drawing --------------------------------------------------------------------------

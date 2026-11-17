@@ -661,3 +661,16 @@ def test_a_channel_a_roll_up_row_opens_is_not_unrolled(panel_graph, tmp_path, mo
     found = check(panel_graph, out)
     assert not [p for p in found if p.kind == "unrolled"]
     assert not [p for p in found if p.kind == "static_rollup"]  # every child opens a screen
+
+
+def test_under_a_place_writes_the_calibration_views_of_sets_with_a_member_there(
+    panel_graph, tmp_path
+):
+    out = tmp_path / "out"
+    write(panel_graph, out, only=under(panel_graph, "XR/XR01"))
+    kinds = {e["kind"] for e in json.loads((out / "index.json").read_text())["screens"]}
+    assert "calibration" in kinds  # XR-QUAD has members in XR/XR01
+    test = under(panel_graph, "XR/XR01")
+    assert not [t for t in targets(panel_graph) if t.view == "set" and test(t)]
+    rack = under(panel_graph, "XR/XR01/RK1")  # no magnet in the rack
+    assert not [t for t in targets(panel_graph) if t.view == "calibration" and rack(t)]
