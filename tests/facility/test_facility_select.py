@@ -109,7 +109,8 @@ def test_monitors_in_plane_scopes_to_the_model(example: tuple[SimulatorView, dic
     view, _ = example
     model = lane_model(view)
     picked = monitors_in_plane(view, "x", 3, model=model)
-    assert all(view.binding(address).model == model for address in picked)  # type: ignore[union-attr]
+    wired = {record.address for record in view.bindings(model=model)}
+    assert set(picked) <= wired
     unscoped = sorted(monitor_addresses(view, plane="x"))[:3]
     assert list(picked) != unscoped, "the example's unscoped run is another model's"
 

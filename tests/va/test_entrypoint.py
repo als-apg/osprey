@@ -33,6 +33,8 @@ VIEW: dict[str, dict[str, Any]] = {
     "served_models.json": {"models": ["SR", "texture"]},
     "addresses.json": {"channels": ["SR:A", "SR:B", "SR:C"], "status": ["ca:SIM:SR:STATUS"]},
     "variables.json": {"code": "ca", "models": [], "channels": []},
+    "seeds.json": {"seeds": {}},
+    "scenarios.json": {"scenarios": []},
 }
 
 RUNNER_MODULE = "osprey.services.virtual_accelerator.serving.runner"
@@ -153,15 +155,17 @@ class TestTheView:
         with pytest.raises(SystemExit, match=str(tmp_path / VIEW_RELPATH.name / ADDRESSES_FILE)):
             entrypoint.main()
 
+    @pytest.mark.parametrize("name", sorted(set(VIEW) - {ADDRESSES_FILE}))
     @pytest.mark.usefixtures("recorded")
-    def test_a_missing_view_file_is_refused_by_its_path(self, served: Path) -> None:
-        variables = served / VIEW_RELPATH.name / VARIABLES_FILE
-        variables.unlink()
+    def test_a_missing_view_file_is_refused_by_its_path(self, served: Path, name: str) -> None:
+        """The process reads every file of the view before it serves, not on first use."""
+        missing = served / VIEW_RELPATH.name / name
+        missing.unlink()
 
         with pytest.raises(SystemExit) as caught:
             entrypoint.main()
 
-        assert str(caught.value.code).startswith(f"FATAL: no simulator view file at {variables}.")
+        assert str(caught.value.code).startswith(f"FATAL: no simulator view file at {missing}.")
 
     @pytest.mark.usefixtures("recorded")
     def test_a_view_file_that_is_not_json_is_refused_by_its_path(self, served: Path) -> None:

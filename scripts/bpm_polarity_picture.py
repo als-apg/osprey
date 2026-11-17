@@ -43,7 +43,8 @@ from typing import Any
 import numpy as np
 
 from osprey.facility.records import FacilityRecords
-from osprey_connectors.simulation.view import VIEW_RELPATH, Binding, SimulatorView
+from osprey_connectors.simulation.records import WiringRecord
+from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_FACILITY = REPO_ROOT / "src/osprey/templates/facilities/example"
@@ -139,12 +140,12 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     ((model_name, polarity),) = reversed_by_model.items()
 
     model = view.model(model_name)
-    if model.deck is None:
+    deck = view.deck_path(model)
+    if deck is None:
         raise ValueError(f"{model_name} names no deck")
-    deck = model.deck
-    settings = model.settings
-    wiring = [binding.record for binding in model.bindings]
-    by_address = {binding.address: binding for binding in model.bindings}
+    settings = model.engine_settings()
+    wiring = [binding.engine_entry() for binding in model.wiring]
+    by_address = {binding.address: binding for binding in model.wiring}
 
     lattice = at.load_lattice(str(deck))
     horizontal = [
@@ -165,9 +166,9 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     start = max((i for i in markers if i < target), default=-1)
     end = min((i for i in markers if i > target), default=len(lattice))
 
-    monitors: list[tuple[int, Binding]] = []
-    correctors: list[tuple[int, Binding]] = []
-    for binding in model.bindings:
+    monitors: list[tuple[int, WiringRecord]] = []
+    correctors: list[tuple[int, WiringRecord]] = []
+    for binding in model.wiring:
         if binding.element is None:
             continue
         is_monitor = binding.engine_role == "monitor" and binding.plane == "x"
@@ -188,7 +189,8 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     monitors.sort(key=lambda item: item[0])
     _, corrector = max(correctors, key=lambda item: item[0])
 
-    curve = curve_from_record((corrector.record.get("calibration") or {}).get("curve"))
+    calibration = corrector.engine_entry().get("calibration") or {}
+    curve = curve_from_record(calibration.get("curve"))
     rad_per_unit = to_physics(curve, 0.5) - to_physics(curve, -0.5)
     if rad_per_unit == 0:
         raise ValueError(f"{corrector.address} has a calibration with no slope")

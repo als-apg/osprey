@@ -9,6 +9,7 @@ build alone: ``scenarios.json`` never carries it.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -22,6 +23,7 @@ from osprey.facility.settings import fill_facility_settings
 from osprey.facility.sources import slot_names
 from osprey.facility.views.simulator import _scenarios_document
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from osprey_connectors.simulation.view import document_bytes
 
 CHANNELS: list[dict[str, Any]] = [{"id": "B:SP", "role": "setpoint"}, {"id": "A:RB"}]
 
@@ -148,7 +150,8 @@ def test_scenarios_json_carries_no_start_key() -> None:
         {"name": "cold", "start": False},
     )
     inputs = SimpleNamespace(records=FacilityRecords(document), served=[])
-    scenarios = _scenarios_document(inputs)["scenarios"]  # type: ignore[arg-type]
+    written = json.loads(document_bytes(_scenarios_document(inputs)))  # type: ignore[arg-type]
+    scenarios = written["scenarios"]
 
     assert {entry["name"] for entry in scenarios} >= {"warm", "cold"}
     assert all("start" not in entry for entry in scenarios)

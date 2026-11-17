@@ -314,7 +314,9 @@ async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
 async def test_the_record_type_comes_from_role_and_value_type(
     tmp_path: Path, role: str, value_type: str, record_type: str
 ) -> None:
-    _write_view(tmp_path, channels=[_channel("T:X", role=role, value_type=value_type)])
+    # A waveform channel states its shape, as the build writes it.
+    shape = {"shape": [4]} if value_type == "waveform" else {}
+    _write_view(tmp_path, channels=[_channel("T:X", role=role, value_type=value_type, **shape)])
     directory = SimulatorDirectory(_spec(), project_dir=tmp_path)
 
     record = await directory.describe("T:X", timeout_s=DEADLINE)

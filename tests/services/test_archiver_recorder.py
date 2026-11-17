@@ -1234,13 +1234,18 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     manifest beside it in the collection is never read as a channel's history.
     """
     from osprey_connectors.archiver._field_names import field_name
-    from osprey_connectors.simulation.archive import SeedReport, _write_manifest
+    from osprey_connectors.simulation.archive import (
+        SeedKnobs,
+        SeedReport,
+        _write_manifest,
+        seed_fingerprint,
+    )
 
     settings, collection, password = archive_collection
     timestamp = datetime(2026, 8, 10, 12, 0, 10, tzinfo=UTC)
     _write_manifest(
         collection,
-        {"schema_version": 2},
+        seed_fingerprint(SeedKnobs(), ["fingerprint"], compression="zstd"),
         seeded_at=timestamp - timedelta(hours=1),
         report=SeedReport(channels=1),
     )

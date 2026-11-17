@@ -16,7 +16,7 @@ from lume.variables import (
     ScalarVariable,
     StrVariable,
 )
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from osprey_connectors.simulation import pulse, series
 from osprey_connectors.simulation.records import (
@@ -104,7 +104,17 @@ def _view() -> tuple[dict[str, Any], dict[str, Any]]:
                 "served": False,
                 "settings": {},
                 "deck": None,
-                "wiring": [{"id": "w1", "address": "P:IDLE:SP", "default": 2.5}],
+                "wiring": [
+                    {
+                        "id": "w1",
+                        "address": "P:IDLE:SP",
+                        "default": 2.5,
+                        "direction": "write",
+                        "engine_role": "setpoint",
+                        "plane": None,
+                        "refresh": "pass",
+                    }
+                ],
             },
             {
                 "name": "served",
@@ -112,7 +122,17 @@ def _view() -> tuple[dict[str, Any], dict[str, Any]]:
                 "served": True,
                 "settings": {},
                 "deck": None,
-                "wiring": [{"id": "w2", "address": "P:SERVED:RB", "default": 9.0}],
+                "wiring": [
+                    {
+                        "id": "w2",
+                        "address": "P:SERVED:RB",
+                        "default": 9.0,
+                        "direction": "read",
+                        "engine_role": "readback",
+                        "plane": None,
+                        "refresh": "pass",
+                    }
+                ],
             },
         ],
         "channels": channels,
@@ -308,15 +328,15 @@ def test_a_writable_setpoint_without_limits_has_no_range():
     assert variable.value_range is None
 
 
-def test_a_one_sided_range_leaves_the_other_side_unbounded():
+def test_a_one_sided_range_is_refused_at_read():
+    """The build writes ``value_range`` only when the limits state both sides."""
     variables, seeds = _view()
     variables["channels"].append(
         _channel("T:HALF:SP", role="setpoint", writable=True, value_range=[None, 3.0])
     )
 
-    variable = _texture(variables, seeds).supported_variables["T:HALF:SP"]
-
-    assert variable.value_range == (-math.inf, 3.0)
+    with pytest.raises(ValidationError, match="channels.16.value_range"):
+        _texture(variables, seeds)
 
 
 def test_a_served_model_keeps_its_channels_and_texture_still_moves_them():

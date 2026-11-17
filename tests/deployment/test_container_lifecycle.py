@@ -3614,10 +3614,10 @@ def test_mismatched_fingerprint_rebuilds_and_reapplies(staged_archiver, tmp_path
     """Changed knobs make the stored coverage wrong, so the base is rebuilt and
     the active scenario set re-applied onto it — otherwise the deployment would
     claim a fault whose history it had just erased."""
-    from osprey_connectors.simulation.archive import SeedState
+    from osprey_connectors.simulation.archive import KnobChange, SeedState
 
     staged_archiver["fingerprint_state"] = SeedState.MISMATCH
-    staged_archiver["differences"] = (("retention_days", 30, 1),)
+    staged_archiver["differences"] = (KnobChange(key="retention_days", stored=30, expected=1),)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     assert staged_archiver["collection"].dropped
@@ -3660,10 +3660,10 @@ def test_keep_archiver_base_suppresses_only_the_mismatch_rebuild(
     silently leave the deployment with no history at all. This is also why
     `rebuild` needs no flag of its own: it always lands on the absent path.
     """
-    from osprey_connectors.simulation.archive import SeedState
+    from osprey_connectors.simulation.archive import KnobChange, SeedState
 
     staged_archiver["fingerprint_state"] = getattr(SeedState, state)
-    staged_archiver["differences"] = (("retention_days", 30, 1),)
+    staged_archiver["differences"] = (KnobChange(key="retention_days", stored=30, expected=1),)
     container_lifecycle.deploy_up(
         str(tmp_path / "config.yml"), detached=True, keep_archiver_base=True
     )

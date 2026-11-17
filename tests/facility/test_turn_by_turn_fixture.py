@@ -141,7 +141,7 @@ def test_the_view_carries_the_rings_inputs(view: SimulatorView) -> None:
 
 def test_the_chains_stored_current_may_be_zero(view: SimulatorView) -> None:
     bindings = {b.address: b for b in view.bindings(model=CHAIN)}
-    assert bindings[CURRENT_SETPOINT].record["engine"]["start"] == 0.0
+    assert bindings[CURRENT_SETPOINT].engine["start"] == 0.0
     band = view.channel(CURRENT_SETPOINT).value_range
     assert band is not None
     assert band[0] == 0
@@ -149,11 +149,11 @@ def test_the_chains_stored_current_may_be_zero(view: SimulatorView) -> None:
 
 def test_the_ring_shot_counter_steps_after_the_ring_charge(view: SimulatorView) -> None:
     bindings = {b.address: b for b in view.bindings(model=CHAIN)}
-    assert bindings[SHOT].record["engine"]["signal"] == "counter"
-    assert bindings[CHARGE].record["engine"]["signal"] == "charge"
-    assert bindings[CURRENT].record["engine"]["signal"] == "current"
+    assert bindings[SHOT].engine["signal"] == "counter"
+    assert bindings[CHARGE].engine["signal"] == "charge"
+    assert bindings[CURRENT].engine["signal"] == "current"
     assert (
-        bindings[SHOT].record["engine"]["offset_s"] > bindings[CHARGE].record["engine"]["offset_s"]
+        bindings[SHOT].engine["offset_s"] > bindings[CHARGE].engine["offset_s"]
     )
 
 
@@ -162,7 +162,7 @@ def test_the_ring_shot_counter_steps_after_the_ring_charge(view: SimulatorView) 
 
 def test_the_ring_carries_every_turn_by_turn_record(view: SimulatorView) -> None:
     signals = {
-        b.address: (b.record["engine"].get("signal"), b.element, b.direction)
+        b.address: (b.engine.get("signal"), b.element, b.direction)
         for b in view.bindings(model=RING)
     }
     assert signals[RF_SWITCH] == ("rf_switch", None, "write")
@@ -208,7 +208,7 @@ def test_the_ring_keeps_its_orbit_monitors_and_correctors(view: SimulatorView) -
         for axis in ("X", "Y"):
             assert bindings[f"SR:DIAG:BPM:{element[3:]}:POSITION:{axis}"].element == element
     correctors = [
-        b for b in bindings.values() if b.record["engine"].get("attribute") == "KickAngle"
+        b for b in bindings.values() if b.engine.get("attribute") == "KickAngle"
     ]
     assert len(correctors) == 288
     setpoints = [b.address for b in correctors if b.engine_role == "setpoint"]

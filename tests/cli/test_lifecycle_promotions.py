@@ -702,7 +702,8 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
         seed_mod,
         "compare_fingerprint",
         lambda collection, fingerprint: seed_mod.FingerprintComparison(
-            state=state["state"], differences=(("retention_days", 5, 7),)
+            state=state["state"],
+            differences=(seed_mod.KnobChange(key="retention_days", stored=5, expected=7),),
         ),
     )
     monkeypatch.setattr(
