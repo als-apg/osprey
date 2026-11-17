@@ -40,6 +40,15 @@ __all__ = [
     "APPEARANCES",
     "BADGE_LETTERS",
     "CONFLICT_MARK",
+    "RING_PROPS",
+    "STATE_DISTANCE",
+    "TAG_PROP",
+    "colour_distance",
+    "coloured",
+    "near_state",
+    "ring",
+    "ring_look",
+    "tag",
     "DISAGREE_MARK",
     "INFERRED_MARK",
     "KINDS",
@@ -457,6 +466,137 @@ def badge(cx: float, cy: float, size: float, kind: str, font: float) -> list[Nod
         "geometry": _geometry(cx - size / 2, cy - size / 2, size, size),
     }
     return [circle, mark]
+
+
+# --- the strip: type colour fills, state rings ---------------------------------
+#: What a state adds around a strip symbol: its ring (``lineColor``,
+#: ``lineStyle``) and the word above the ring (``text``). Normal adds nothing;
+#: no rule adds no ring and dashes the symbol's own outline instead.
+RING_PROPS = ("lineColor", "lineStyle")
+TAG_PROP = "text"
+_RINGS: Mapping[str, Mapping[str, Any]] = MappingProxyType(
+    {
+        "normal": {"lineColor": TRANSPARENT, "lineStyle": "solid", "text": ""},
+        "warn": {"lineColor": ALARM_MINOR, "lineStyle": "solid", "text": "WARNING"},
+        "bad": {"lineColor": ALARM_MAJOR, "lineStyle": "solid", "text": "FAULT"},
+        "unknown": {"lineColor": ALARM_DISCONNECTED, "lineStyle": "dashed", "text": UNKNOWN_MARK},
+        "disagree": {"lineColor": DISAGREE, "lineStyle": "solid", "text": DISAGREE_MARK},
+        "aggregate": {"lineColor": PAGE_TEXT, "lineStyle": "solid", "text": AGGREGATE_MARK},
+        NONE: {"lineColor": TRANSPARENT, "lineStyle": "solid", "text": ""},
+    }
+)
+_RING_WIDTH = 2.5
+_RING_CORNER = 0.3  # the ring's cut corners, in parts of its pad
+
+
+def ring_look(state: str) -> Mapping[str, Any]:
+    """What *state* (one of :data:`APPEARANCES`) sets on a strip symbol's ring and tag."""
+    return _RINGS[state]
+
+
+def coloured(
+    kind: str, x: float, y: float, *, unit: float, fill: str | None = None, dashed: bool = False
+) -> list[Node]:
+    """A strip symbol in its type colour: *fill* (a colour the drawing settings
+    give its kind), else the panel's ground; outlined in the text role, the
+    outline dashed when the thing has no rule. Nothing of it changes with state."""
+    nodes = draw(kind, x, y, unit=unit)
+    for node in nodes:
+        props = node["props"]
+        props["lineColor"] = PAGE_TEXT
+        props["lineStyle"] = "dashed" if dashed else "solid"
+        if node["type"] == "polygon":
+            props["fill"] = True
+            props["fillColor"] = fill if fill is not None else PANEL_BACKGROUND
+    return nodes
+
+
+def ring(left: float, top: float, right: float, bottom: float, pad: float, state: str) -> Node:
+    """The ring around a box, *pad* outside it, with cut corners, in *state*'s look."""
+    c = pad * _RING_CORNER
+    x0, y0, x1, y1 = left - pad, top - pad, right + pad, bottom + pad
+    points = [
+        (x0 + c, y0),
+        (x1 - c, y0),
+        (x1, y0 + c),
+        (x1, y1 - c),
+        (x1 - c, y1),
+        (x0 + c, y1),
+        (x0, y1 - c),
+        (x0, y0 + c),
+    ]
+    node = _polygon(points, fill=False, lineWidth=_RING_WIDTH)
+    for prop in RING_PROPS:
+        node["props"][prop] = _RINGS[state][prop]
+    return node
+
+
+def tag(cx: float, bottom: float, width: float, height: float, font: float, state: str) -> Node:
+    """The word above a ring, centred on *cx*, ending at *bottom*, in *state*'s look."""
+    return {
+        "type": "text-label",
+        "props": {
+            "text": _RINGS[state][TAG_PROP],
+            "fontSize": font,
+            "align": "center",
+            "foregroundColor": PAGE_TEXT,
+            "backgroundColor": TRANSPARENT,
+        },
+        "geometry": _geometry(cx - width / 2, bottom - height, width, height),
+    }
+
+
+# --- colour distance --------------------------------------------------------------
+
+
+def _lab(hex_colour: str) -> tuple[float, float, float]:
+    """CIE L*a*b* (D65) of an ``#rrggbb`` colour."""
+
+    def linear(v: int) -> float:
+        c = v / 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (linear(int(hex_colour[i : i + 2], 16)) for i in (1, 3, 5))
+    x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+    y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+
+    def f(t: float) -> float:
+        return t ** (1 / 3) if t > (6 / 29) ** 3 else t / (3 * (6 / 29) ** 2) + 4 / 29
+
+    fx, fy, fz = f(x), f(y), f(z)
+    return 116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)
+
+
+def colour_distance(a: str, b: str) -> float:
+    """How far apart two ``#rrggbb`` colours look: CIE76 delta E (about 2.3 is the
+    smallest difference an eye sees side by side; 20 and more reads as another colour)."""
+    return math.dist(_lab(a), _lab(b))
+
+
+#: A type colour nearer than this (CIE76 delta E) to a state colour could be read as
+#: that state: about the distance at which two flat fills stop reading as different
+#: colours at a glance, rather than shades of one.
+STATE_DISTANCE = 20.0
+
+#: The state colours a type colour must stay clear of: bad, warn, disagree.
+STATE_ROLES = (ALARM_MAJOR, ALARM_MINOR, DISAGREE)
+
+
+def near_state(
+    colour: str, extra: Mapping[str, Mapping[str, str]] = MappingProxyType({})
+) -> str | None:
+    """The state role whose colour *colour* is within :data:`STATE_DISTANCE` of, or ``None``.
+
+    Each role is taken in both themes: its fallbacks, and the colours *extra*
+    (a theme's ``roles``) gives it.
+    """
+    for state in STATE_ROLES:
+        name = state["$role"]
+        shades = [state["fallback"], state["fallbackDark"], *extra.get(name, {}).values()]
+        if any(colour_distance(colour, shade) < STATE_DISTANCE for shade in shades):
+            return name
+    return None
 
 
 def light(x: float, y: float, size: float, state: str) -> list[Node]:

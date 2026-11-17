@@ -541,7 +541,25 @@ def _live(doc: dict, node: dict, values: dict[str, object]) -> dict:
     return out
 
 
-def test_a_strip_symbol_shows_its_devices_state_live(tmp_path) -> None:
+def _ring(doc: dict, thing: str) -> tuple[dict | None, dict | None]:
+    """A strip symbol's state ring and the word above it (the node after the ring)."""
+    found = nodes(doc)
+    for i, n in enumerate(found):
+        if (
+            n["type"] == "polygon"
+            and n["props"].get("tooltip") == thing
+            and n["props"]["lineWidth"] == 2.5
+        ):
+            return n, found[i + 1]
+    return None, None
+
+
+def _shapes(doc: dict, thing: str) -> list[dict]:
+    shapes, _marks_ = _symbol(doc, thing)
+    return [n for n in shapes if n["props"].get("lineWidth") != 2.5]
+
+
+def test_a_strip_symbols_state_is_a_live_ring_and_word_never_its_fill(tmp_path) -> None:
     channel = "XR01-QF1:Current-RB"
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
@@ -551,60 +569,47 @@ def test_a_strip_symbol_shows_its_devices_state_live(tmp_path) -> None:
             )
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
     view = place_view(graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
-    (element,) = [
-        e
-        for s in view.sections
-        if s.title == "strip"
-        for e in s.items[0].elements
-        if e.thing == "XR01:QF1"
-    ]
-    assert element.channels == (channel,)
-    doc, _ = draw(view, graph)
-    shapes, (mark,) = _symbol(doc, "XR01:QF1")
-    for node in [*shapes, mark]:
-        assert node.get("rules"), node["type"]
-        assert bound(doc, node) == (channel,)
+    doc = stub_render(view, graph, colours={"quadrupole": "#2f9e52"})
+    ring, word = _ring(doc, "XR01:QF1")
+    for node in _shapes(doc, "XR01:QF1"):
+        assert not node.get("rules")  # the fill is static: the type, not the state
+        assert node["props"]["fillColor"] == "#2f9e52"
+        assert node["props"]["lineStyle"] == "solid"
+    assert bound(doc, ring) == (channel,) and bound(doc, word) == (channel,)
     for value, state in ((9, "bad"), (0.5, "warn"), (2, "normal")):
-        for node in shapes:
-            props = symbols.styled(node["type"])
-            assert _live(doc, node, {channel: value}) == {p: symbols.look(state)[p] for p in props}
-        assert _live(doc, mark, {channel: value}) == {"text": symbols.look(state)["text"]}
-    for node in shapes:  # drawn unknown until the channel answers
-        for prop in symbols.styled(node["type"]):
-            assert node["props"][prop] == symbols.look("unknown")[prop]
+        look = symbols.ring_look(state)
+        assert _live(doc, ring, {channel: value}) == {p: look[p] for p in symbols.RING_PROPS}
+        assert _live(doc, word, {channel: value}) == {"text": look["text"]}
+    unknown = symbols.ring_look("unknown")  # drawn unknown until the channel answers
+    assert ring["props"]["lineStyle"] == unknown["lineStyle"] == "dashed"
+    assert word["props"]["text"] == unknown["text"]
 
 
-def test_a_strip_symbol_of_a_device_with_no_rule_is_in_the_none_look(panel_graph) -> None:
+def test_a_strip_symbol_with_no_rule_has_a_dashed_outline_and_no_ring(panel_graph) -> None:
     view = place_view(panel_graph, "XR/XR02", symbols=SYMBOLS, above=ABOVE)
     doc, _ = draw(view, panel_graph)
-    shapes, marks = _symbol(doc, "XR02:SHIELD1")
-    assert shapes and not marks
+    shapes = _shapes(doc, "XR02:SHIELD1")
+    assert shapes and _ring(doc, "XR02:SHIELD1") == (None, None)
     for node in shapes:
         assert not node.get("rules")
-        for prop in symbols.styled(node["type"]):
-            assert node["props"][prop] == symbols.look("none")[prop]
-        assert (
-            node["props"]["fillColor"] != symbols.look("normal")["fillColor"]
-            or not node["props"]["fill"]
-        )
+        assert node["props"]["lineStyle"] == "dashed"
+        assert node["props"]["lineColor"] == symbols.PAGE_TEXT
+        assert node["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # no colour given
 
 
-def test_a_strip_symbol_over_the_rule_limit_takes_the_aggregate_look(
+def test_a_strip_symbol_over_the_rule_limit_takes_the_aggregate_ring(
     panel_graph, monkeypatch
 ) -> None:
     big = StripElement("BIG", None, 1.0, "bend", "beam", None, RULED)
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 0)
     doc, _ = draw(strip_view([big]), panel_graph)
-    shapes, (mark,) = _symbol(doc, "BIG")
-    for node in shapes:
-        assert not node.get("rules")
-        for prop in symbols.styled(node["type"]):
-            assert node["props"][prop] == symbols.look("aggregate")[prop]
-    assert mark["props"]["text"] == symbols.AGGREGATE_MARK
-    assert "aggregate state" in needs(doc)
-
-
-# --------------------------------------------------------------------------- whole documents
+    ring, word = _ring(doc, "BIG")
+    assert not ring.get("rules") and not word.get("rules")
+    look = symbols.ring_look("aggregate")
+    assert {p: ring["props"][p] for p in symbols.RING_PROPS} == {
+        p: look[p] for p in symbols.RING_PROPS
+    }
+    assert word["props"]["text"] == symbols.AGGREGATE_MARK
 
 
 def test_every_fixture_view_renders_with_unique_ids_and_pinned_widgets(panel_graph) -> None:

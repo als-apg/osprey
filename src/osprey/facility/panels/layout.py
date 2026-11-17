@@ -155,6 +155,9 @@ CHIP_HEIGHT = 26
 CHIP_GAP = 8
 CHIP_LIGHT = 12
 LEGEND_ROW = 52
+RING_PAD = 6  # a state ring's distance from its symbol
+TAG_HEIGHT = 16  # the word above a ring
+TAG_WIDTH = 64  # room for the longest word a ring carries, at the small size
 SUMMARY_ROW = 36  # one row of a by-system summary
 SUMMARY_COLUMNS = 2
 PICTURE_SIZE = 260
@@ -282,7 +285,7 @@ _ROWS_NOT_DRAWN = "rows not drawn: the screen holds a table of at most this many
 _CONTESTED = "contested"
 _STRIP_TITLE = "IN BEAM ORDER → · schematic, not to scale"
 _LOOKS_LEGEND = (
-    "grey = normal · amber = warning · red = fault · dashed = unknown · outline = no rule"
+    "fill = component type · red ring = fault · amber ring = warning · dashed = no health rule"
 )
 _LOCATOR_CAPTION = "to scale · position along the beam (m)"
 _NO_RULE_YET = "no health rule yet"
@@ -850,6 +853,19 @@ def engine_length(rule: Ladder) -> int:
     return max(len(text) for text in compiled_rules(rule))
 
 
+def ring_cost(rule: Ladder | str | None) -> tuple[int, frozenset[str]]:
+    """What a strip symbol's ring and tag drawn with *rule* spend of a screen's budget
+    (see :func:`light_cost`)."""
+    if not isinstance(rule, Ladder) or not rule.arms:
+        return 0, frozenset()
+    looks = {state: symbols.ring_look(state) for state in symbols.STATES}
+    rules = sum(
+        bool(light_rule(rule, {s: looks[s][prop] for s in symbols.STATES})["conditions"])
+        for prop in (*symbols.RING_PROPS, symbols.TAG_PROP)
+    )
+    return rules, frozenset(rule.channels)
+
+
 def light_cost(rule: Ladder | str | None) -> tuple[int, frozenset[str]]:
     """What a light drawn with *rule* spends of a screen's budget: its rules that the
     viewer subscribes (those with a condition), and the channels they bind."""
@@ -1091,7 +1107,12 @@ class _Page:
     """The drawing of one view: a cursor that moves down the page."""
 
     def __init__(
-        self, view: View, graph: PanelGraph, screens: Callable[[Target], str], doc_id: str
+        self,
+        view: View,
+        graph: PanelGraph,
+        screens: Callable[[Target], str],
+        doc_id: str,
+        colours: Mapping[str, str] = MappingProxyType({}),
     ) -> None:
         self.view = view
         self.graph = graph
@@ -1102,6 +1123,7 @@ class _Page:
         self.on_card = view.id.view == "card" and view.id.kind == "device"
         self.node_form = False  # a rack over its budget: one light per unit (elevation)
         self.budget = Budget()  # spent by the strip's symbols, chips and summary rows
+        self.colours: Mapping[str, str] = colours  # a symbol's type colour, by symbol name
 
     # -- primitives -----------------------------------------------------------
 
@@ -1761,9 +1783,14 @@ class _Page:
         badges = [p for p in placed if p.lane == "above"]
         levels = stem_levels([p.x for p in badges])
         # the upper lane only when something stands in it
-        above = STRIP_AXIS
+        tags = stem_levels([p.x for p in beam], TAG_WIDTH + STRIP_LABEL_GAP)
+        above = STRIP_AXIS  # room over the axis: rings' words, then badges with theirs
+        if any(p.channels for p in beam):
+            above += RING_PAD + (max(tags) + 1) * TAG_HEIGHT
         if badges:
-            above = (STEM_HIGH if any(levels) else STEM_LOW) + BADGE / 2
+            stem = STEM_HIGH if any(levels) else STEM_LOW
+            ruled = any(p.channels for p in badges)
+            above = max(above, stem + BADGE / 2 + (RING_PAD + TAG_HEIGHT if ruled else 0))
         axis = self.y + above + GAP
         self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], PAGE_TEXT, AXIS_WIDTH)
         for p, level in zip(badges, levels, strict=True):
@@ -1771,9 +1798,9 @@ class _Page:
             cy = axis - (STEM_HIGH if level else STEM_LOW)
             self.line([(x, cy + BADGE / 2), (x, axis)], MUTED_TEXT)
             self.badge(p, x, cy)
-        for p in beam:
+        for p, tag_level in zip(beam, tags, strict=True):
             x = MARGIN + p.x
-            self.symbol(p, x, axis, p.width / symbols.WIDTH_UNITS[p.symbol])
+            self.symbol(p, x, axis, p.width / symbols.WIDTH_UNITS[p.symbol], tag_level)
             if p.link is not None:
                 half = p.width / 2
                 link = replace(p.link, label=p.thing)
@@ -1791,18 +1818,21 @@ class _Page:
             self.y += ROW_GAP
 
     def badge(self, element: strip.Placed, cx: float, cy: float) -> None:
-        """A device off the axis: a circle with its kind's letter, in its live look."""
+        """A device off the axis: a circle with its kind's letter, filled with its
+        type colour, its state ringed (:meth:`marked`)."""
         circle, letter = symbols.badge(cx, cy, BADGE, element.symbol, SMALL_SIZE)
-        circle["props"][_TOOLTIP] = element.thing
-        live, tags = self.symbol_rule(element)
-        if live is None:
-            look = symbols.NONE if not element.channels else "aggregate" if tags else "unknown"
-            for prop in symbols.LIGHT_PROPS:
-                circle["props"][prop] = symbols.look(look)[prop]
-            self.s.add(circle, tags=tags)
-        else:
-            rules = self.look_rules(element.thing, "polygon", live)
-            self.s.add(circle, rules=rules, tags=tags)
+        fill = self.colours.get(element.symbol)
+        circle["props"].update(
+            {
+                "fillColor": fill if fill is not None else PANEL_BACKGROUND,
+                "lineColor": PAGE_TEXT,
+                "lineStyle": "dashed" if not element.channels else "solid",
+                _TOOLTIP: element.thing,
+            }
+        )
+        if fill is not None:  # a letter on a type colour reads in the page's ground
+            letter["props"]["foregroundColor"] = PAGE_BACKGROUND
+        self.marked(element, [circle])
         self.s.add(letter)
         if element.link is not None:
             link = replace(element.link, label=element.thing)
@@ -1815,7 +1845,7 @@ class _Page:
             return None, []
         lights = [describe_light(self.graph, c) for c in element.channels]
         rule = ladder(self.graph, lights, node=True)
-        if isinstance(rule, Ladder) and rule.arms and not self.budget.take([light_cost(rule)]):
+        if isinstance(rule, Ladder) and rule.arms and not self.budget.take([ring_cost(rule)]):
             rule = "aggregate state"
         tags = [_need("state light")]
         if rule == "aggregate state":
@@ -1827,41 +1857,68 @@ class _Page:
             tags.append(_need("label condition"))
         return (rule if rule.arms else None), tags
 
-    def symbol(self, element: strip.Placed, x: float, y: float, unit: float) -> None:
-        """A device's symbol, in the live state of its rule channels.
-
-        The symbol reads the ladder a roll-up node of the device would read: the
-        worst of its channels. With no rule channel it is in the ``none`` look
-        and carries no mark; over the format's limit, or past the screen's
-        budget, it is drawn in the aggregate look.
-        """
-        if not element.channels:
-            for node in symbols.draw(element.symbol, x, y, symbols.NONE, unit=unit):
-                node["props"][_TOOLTIP] = element.thing
-                self.s.add(node)
-            return
-        live, tags = self.symbol_rule(element)
-        aggregate = _AGGREGATE_SYMBOL in tags
-        drawn = symbols.draw(
-            element.symbol, x, y, "aggregate" if aggregate else "unknown", unit=unit
+    def symbol(
+        self, element: strip.Placed, x: float, y: float, unit: float, level: int = 0
+    ) -> None:
+        """A device's symbol: filled with its type colour, never with its state; its
+        state is a ring around it and a word above (:meth:`marked`)."""
+        shapes = symbols.coloured(
+            element.symbol,
+            x,
+            y,
+            unit=unit,
+            fill=self.colours.get(element.symbol),
+            dashed=not element.channels,
         )
-        *shapes, mark = drawn
         for node in shapes:
             node["props"][_TOOLTIP] = element.thing
-            rules = [] if live is None else self.look_rules(element.thing, node["type"], live)
-            self.s.add(node, rules=rules, tags=tags)
-            tags = []  # the needs are recorded once, on the first shape
-        mark["props"][_TOOLTIP] = element.thing
-        rules = [] if live is None else self.look_rules(element.thing, mark["type"], live)
-        self.s.add(mark, rules=rules, tags=[_need("hatched fill")] if rules else [])
+        self.marked(element, shapes, level)
 
-    def look_rules(self, name: str, node_type: str, rule: Ladder) -> list[dict]:
-        """The rules that give a symbol's widget of *node_type* the look of *rule*'s state."""
-        looks = {state: symbols.look(state) for state in symbols.STATES}
-        return [
-            self.s.rule(f"{name} {prop}", prop, rule, {s: looks[s][prop] for s in symbols.STATES})
-            for prop in symbols.styled(node_type)
-        ]
+    def marked(self, element: strip.Placed, shapes: list[dict], level: int = 0) -> None:
+        """*shapes*, and around them the ring and the tag that show the worst state of
+        the element's channels live. A thing with no rule gets neither (its outline is
+        dashed); one whose rule cannot be written or is past the budget gets them in
+        the aggregate or unknown look, with no rules."""
+        for node in shapes:
+            self.s.add(node)
+        if not element.channels:
+            return
+        left = min(n["geometry"]["x"] for n in shapes)
+        top = min(n["geometry"]["y"] for n in shapes)
+        right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in shapes)
+        bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in shapes)
+        live, tags = self.symbol_rule(element)
+        static = "aggregate" if _AGGREGATE_SYMBOL in tags else "unknown"
+        outline = symbols.ring(left, top, right, bottom, RING_PAD, static)
+        outline["props"][_TOOLTIP] = element.thing
+        above = top - RING_PAD - level * TAG_HEIGHT
+        low, high = MARGIN + TAG_WIDTH / 2, MARGIN + STRIP_WIDTH - TAG_WIDTH / 2
+        centre = min(max((left + right) / 2, low), high)  # the word stays on the page
+        word = symbols.tag(centre, above, TAG_WIDTH, TAG_HEIGHT, SMALL_SIZE, static)
+        rules: list[dict] = []
+        word_rules: list[dict] = []
+        if live is not None:
+            looks = {state: symbols.ring_look(state) for state in symbols.STATES}
+            rules = [
+                self.s.rule(
+                    f"{element.thing} ring {prop}",
+                    prop,
+                    live,
+                    {st: looks[st][prop] for st in symbols.STATES},
+                )
+                for prop in symbols.RING_PROPS
+            ]
+            prop = symbols.TAG_PROP
+            word_rules = [
+                self.s.rule(
+                    f"{element.thing} tag",
+                    prop,
+                    live,
+                    {st: looks[st][prop] for st in symbols.STATES},
+                )
+            ]
+        self.s.add(outline, rules=rules, tags=tags)
+        self.s.add(word, rules=word_rules)
 
     def locator(self, beam: Sequence[strip.Placed], extent: tuple[float, float]) -> None:
         """The to-scale bar under a row: its caption, a mark per symbol where the
@@ -1907,8 +1964,19 @@ class _Page:
                 cy = self.y + LEGEND_ROW / 2
             if kind in above:
                 drawn = symbols.badge(x + w / 2, cy, BADGE, kind, SMALL_SIZE)
+                fill = self.colours.get(kind)
+                drawn[0]["props"].update(
+                    {
+                        "fillColor": fill if fill is not None else PANEL_BACKGROUND,
+                        "lineColor": PAGE_TEXT,
+                    }
+                )
+                if fill is not None:
+                    drawn[1]["props"]["foregroundColor"] = PAGE_BACKGROUND
             else:
-                drawn = symbols.draw(kind, x + w / 2, cy, "normal", unit=LEGEND_SYMBOL)[:-1]
+                drawn = symbols.coloured(
+                    kind, x + w / 2, cy, unit=LEGEND_SYMBOL, fill=self.colours.get(kind)
+                )
                 top = min(n["geometry"]["y"] for n in drawn)
                 bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in drawn)
                 for node in drawn:  # a quadrupole sits off its axis: centre it on the row
@@ -2242,12 +2310,11 @@ def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float
     return found
 
 
-def stem_levels(xs: Sequence[float]) -> list[int]:
-    """The stem of each badge at *xs* (in order): the low one, unless its circle would
-    touch the last one there, then the high one; when both would, the level whose last
-    badge is further away."""
+def stem_levels(xs: Sequence[float], room: float = BADGE + BADGE_GAP) -> list[int]:
+    """The level of each of a row of things at *xs* (in order), each *room* wide: the
+    low one, unless it would touch the last one there, then the high one; when both
+    would, the level whose last thing is further away. Badges' stems, rings' tags."""
     last = [-math.inf, -math.inf]
-    room = BADGE + BADGE_GAP
     out = []
     for x in xs:
         level = next((n for n in (0, 1) if x - last[n] >= room), None)
@@ -2287,6 +2354,7 @@ def render(
     graph: PanelGraph,
     screens: Callable[[Target], str],
     doc_id: str,
+    colours: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """The view as a Screen-IR 1.1 document.
 
@@ -2297,8 +2365,11 @@ def render(
             screen's directory.
         doc_id: The document's id; the caller names it, as it names the files
             links open (:func:`osprey.facility.panels.emit.screen_ids`).
+        colours: The fill of each symbol on a strip, by symbol name (the
+            drawing settings' ``colours``); a symbol not named is filled with
+            the panel's ground.
 
     Returns:
         The document, as JSON-ready data. Equal inputs give equal documents.
     """
-    return _Page(view, graph, screens, doc_id).draw()
+    return _Page(view, graph, screens, doc_id, colours).draw()

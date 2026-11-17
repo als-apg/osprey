@@ -133,6 +133,7 @@ def test_draw_json_beside_the_tables_is_the_default(facility_file, tmp_path):
 
     tables = tmp_path / "tables"
     shutil.copytree(PANELS_DIR, tables)
+    (tables / "draw.json").unlink()  # the fixture's own settings; this test writes its own
     result = CliRunner().invoke(
         cli,
         [
@@ -211,3 +212,12 @@ def test_a_part_of_an_excluded_thing_is_counted_as_withheld(tmp_path):
     result = _run(facility, "write", "--out", str(tmp_path / "out"))
     assert result.exit_code == 0, result.output
     assert "1 things withheld as part of an excluded thing" in result.output
+
+
+def test_a_draw_colour_near_a_state_colour_stops_the_command(facility_file, tmp_path):
+    draw = tmp_path / "draw.json"
+    draw.write_text(json.dumps({"colours": {"bend": "#c4162a"}}))  # the bad state's red
+    result = _run(facility_file, "write", "--out", str(tmp_path / "out"), "--draw", str(draw))
+    assert result.exit_code == 1 and "too near the state colour MAJOR" in result.output
+    checked = _run(facility_file, "check", "--out", str(tmp_path / "out"), "--draw", str(draw))
+    assert checked.exit_code == 1 and "too near the state colour MAJOR" in checked.output

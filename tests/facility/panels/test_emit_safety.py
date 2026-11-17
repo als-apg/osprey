@@ -330,3 +330,49 @@ def test_no_name_a_run_can_make_is_longer_than_the_shape_allows(panel_graph):
     assert len(screen_ids(big)[big[0]]) <= emit.ID_MAX
     assert emit._FILE_SHAPE.fullmatch(f"rollup/{'a' * emit.ID_MAX}.screen.json")
     assert not emit._FILE_SHAPE.fullmatch(f"rollup/{'a' * (emit.ID_MAX + 1)}.screen.json")
+
+
+@pytest.mark.parametrize(
+    ("content", "says"),
+    [
+        ({"colours": {"bend": "blue"}}, "not #rrggbb"),
+        ({"colours": {"wiggler": "#4c78d8"}}, "not a symbol of the engine"),
+        ({"colours": {"bend": "#e05454"}}, "too near the state colour MAJOR"),
+        ({"colours": {"bend": "#f5b73d"}}, "too near the state colour MINOR"),
+        ({"colours": {"bend": "#c39bd3"}}, "too near the state colour Disagree"),
+        ({"annotate": {"bpm": ["a", "b", "c"]}}, "more than 2"),
+        ({"annotate": {"wiggler": ["a"]}}, "not a symbol of the engine"),
+    ],
+)
+def test_draw_colours_and_annotations_are_checked(tmp_path, content, says) -> None:
+    path = tmp_path / "draw.json"
+    path.write_text(json.dumps(content))
+    with pytest.raises(emit.EmitError, match=says):
+        emit.load_draw(path)
+
+
+def test_colours_and_annotations_are_part_of_the_draw_digest(tmp_path) -> None:
+    path = tmp_path / "draw.json"
+    digests = set()
+    for content in (
+        {},
+        {"colours": {"bend": "#4c78d8"}},
+        {"colours": {"bend": "#2f9e52"}},
+        {"annotate": {"bpm": ["position_x_readback"]}},
+    ):
+        path.write_text(json.dumps(content))
+        digests.add(emit.load_draw(path).digest)
+    assert len(digests) == 4
+
+
+def test_the_fixture_colours_stand_out_on_both_themes_and_from_every_state() -> None:
+    from osprey.facility.panels import symbols
+    from tests.facility.panels._fixture import PANELS_DIR
+    from tests.facility.panels.test_symbols import _resolved, contrast
+
+    draw = emit.load_draw(PANELS_DIR / "draw.json")
+    assert draw.colours
+    for colour in draw.colours.values():
+        for theme in ("light", "dark"):
+            for ground in (symbols.PAGE_BACKGROUND, symbols.PANEL_BACKGROUND):
+                assert contrast(colour, _resolved(ground, theme)) >= 3, (colour, theme)

@@ -368,3 +368,41 @@ def test_normal_and_none_differ_at_a_glance() -> None:
     # no rule: filled with the ground it stands on, so it reads as an outline
     assert none["fillColor"] == symbols.PANEL_BACKGROUND
     assert normal["fillColor"] == symbols.NORMAL_FILL
+
+
+@pytest.mark.parametrize("fill", [None, "#2f9e52"])
+def test_the_seven_appearances_of_a_strip_symbol_are_told_apart(fill) -> None:
+    def seen(state: str) -> tuple:
+        shapes = symbols.coloured(
+            "quadrupole_f", 0.0, AXIS, unit=UNIT, fill=fill, dashed=state == symbols.NONE
+        )
+        ring = symbols.ring(0, 0, 10, 10, 6, state)
+        word = symbols.tag(5, 0, 64, 16, 11, state)
+        return (
+            tuple(n["props"]["lineStyle"] for n in shapes),
+            tuple(json.dumps(n["props"].get("fillColor")) for n in shapes),
+            ring["props"]["lineColor"]["$role"],
+            ring["props"]["lineStyle"],
+            word["props"]["text"],
+        )
+
+    for a, b in combinations(APPEARANCES, 2):
+        assert seen(a) != seen(b), (fill, a, b)
+    # the fill never says the state
+    assert len({seen(state)[1] for state in APPEARANCES}) == 1
+
+
+def test_a_state_ring_is_heavier_than_an_outline_and_colours_only_by_state() -> None:
+    node = symbols.ring(0, 0, 10, 10, 6, "bad")
+    assert node["props"]["lineWidth"] == 2.5 and node["props"]["fill"] is False
+    assert node["props"]["lineColor"] == symbols.ALARM_MAJOR
+    assert symbols.ring_look("warn")["lineColor"] == symbols.ALARM_MINOR
+    assert symbols.ring_look("disagree")["text"] == symbols.DISAGREE_MARK
+    assert symbols.ring_look("unknown")["lineStyle"] == "dashed"
+    assert symbols.ring_look("normal")["lineColor"] == symbols.TRANSPARENT
+
+
+def test_the_colour_distance_is_cie76_and_the_state_threshold_refuses_reds() -> None:
+    assert symbols.colour_distance("#000000", "#ffffff") == pytest.approx(100, abs=0.1)
+    assert symbols.near_state("#d8453b") == "MAJOR"  # a toned-down red is still a fault
+    assert symbols.near_state("#4c78d8") is None

@@ -63,7 +63,7 @@ from osprey.facility.panels import layout
 from osprey.facility.panels.describe import describe, light, targets
 from osprey.facility.panels.health import supported
 from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
-from osprey.facility.panels.symbols import WIDTH_UNITS
+from osprey.facility.panels.symbols import WIDTH_UNITS, near_state
 from osprey.facility.panels.view import VIEW_KINDS, Node, Target, View
 
 __all__ = [
@@ -159,6 +159,8 @@ class Draw:
     rack_classes: frozenset[str] = frozenset()
     symbols: Mapping[str, str] = field(default_factory=dict)
     above: frozenset[str] = frozenset()
+    colours: Mapping[str, str] = field(default_factory=dict)
+    annotate: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def digest(self) -> str:
@@ -168,6 +170,8 @@ class Draw:
                 "rack_classes": sorted(self.rack_classes),
                 "symbols": sorted(self.symbols.items()),
                 "above": sorted(self.above),
+                "colours": sorted(self.colours.items()),
+                "annotate": sorted((k, list(v)) for k, v in self.annotate.items()),
             },
             sort_keys=True,
         )
@@ -184,13 +188,17 @@ def load_draw(path: Path) -> Draw:
     """Read the drawing settings from a JSON file.
 
     The keys are ``rack_classes`` (place levels that mark a rack), ``symbols``
-    (device class to symbol name) and ``above`` (device classes drawn on the
-    upper lane of a strip; each needs a symbol). All are optional.
+    (device class to symbol name), ``above`` (device classes drawn on the
+    upper lane of a strip; each needs a symbol), ``colours`` (symbol name to
+    the ``#rrggbb`` its strip symbols are filled with) and ``annotate`` (symbol
+    name to at most :data:`MAX_ANNOTATIONS` stated signals whose values a strip
+    shows under its symbols). All are optional.
 
     Raises:
         EmitError: The file is missing or unreadable, is not JSON, holds a key
-            this reader does not know, a value of the wrong type, or a symbol
-            name the engine does not have.
+            this reader does not know, a value of the wrong type, a symbol
+            name the engine does not have, a colour that is no ``#rrggbb`` or
+            that could be read as a state colour (:func:`symbols.near_state`).
     """
     path = Path(path)
     try:
@@ -199,7 +207,7 @@ def load_draw(path: Path) -> Draw:
         raise EmitError(f"{path} cannot be read as {DRAW_FILE}: {error}") from error
     if not isinstance(document, dict):
         raise EmitError(f"{path}: the file must hold one JSON object")
-    unknown = sorted(set(document) - {"rack_classes", "symbols", "above"})
+    unknown = sorted(set(document) - {"rack_classes", "symbols", "above", "colours", "annotate"})
     if unknown:
         raise EmitError(f"{path}: unknown key {', '.join(unknown)}")
     racks = _strings(document.get("rack_classes", []), "rack_classes", path)
@@ -214,11 +222,52 @@ def load_draw(path: Path) -> Draw:
     for cls in above:
         if cls not in symbols:
             raise EmitError(f"{path}: above names {cls}, which has no entry in symbols")
+    known = {*WIDTH_UNITS, "generic"}
+    colours = document.get("colours", {})
+    if not isinstance(colours, dict) or not all(isinstance(v, str) for v in colours.values()):
+        raise EmitError(f"{path}: colours must map symbol names to #rrggbb")
+    theme = _theme_roles()
+    for name, colour in sorted(colours.items()):
+        if name not in known:
+            raise EmitError(f"{path}: colours names {name}, which is not a symbol of the engine")
+        if not _HEX.fullmatch(colour):
+            raise EmitError(f"{path}: the colour of {name} is {colour!r}, not #rrggbb")
+        state = near_state(colour, theme)
+        if state is not None:
+            raise EmitError(
+                f"{path}: the colour of {name}, {colour}, is too near the state colour {state}"
+            )
+    annotate = document.get("annotate", {})
+    if not isinstance(annotate, dict):
+        raise EmitError(f"{path}: annotate must map symbol names to lists of signals")
+    for name, signals in sorted(annotate.items()):
+        _strings(signals, f"annotate {name}", path)
+        if name not in known:
+            raise EmitError(f"{path}: annotate names {name}, which is not a symbol of the engine")
+        if len(signals) > MAX_ANNOTATIONS:
+            raise EmitError(f"{path}: annotate {name} lists more than {MAX_ANNOTATIONS} signals")
     return Draw(
         rack_classes=frozenset(racks),
         symbols=dict(symbols),
         above=frozenset(symbols[cls] for cls in above),
+        colours={name: colour.lower() for name, colour in colours.items()},
+        annotate={name: tuple(signals) for name, signals in annotate.items()},
     )
+
+
+_HEX = re.compile(r"#[0-9a-fA-F]{6}")
+#: The most signals a symbol shows the values of on a strip.
+MAX_ANNOTATIONS = 2
+#: The theme the panels' screens are drawn for, shipped with OSPREY.
+THEME_FILE = Path(__file__).parents[2] / "templates/apps/demo/data/canopy/theme/osprey.json"
+
+
+def _theme_roles() -> Mapping[str, Mapping[str, str]]:
+    """The shipped theme's roles (name to its light and dark colour); none when absent."""
+    try:
+        return json.loads(THEME_FILE.read_text(encoding="utf-8")).get("roles", {})
+    except (OSError, ValueError):
+        return {}
 
 
 # -- ids ------------------------------------------------------------------------------
@@ -353,7 +402,9 @@ def _generate(
         symbols=draw.symbols,
         above=draw.above,
     )
-    document = layout.render(view, graph=graph, screens=screens, doc_id=own[: -len(SCREEN_SUFFIX)])
+    document = layout.render(
+        view, graph=graph, screens=screens, doc_id=own[: -len(SCREEN_SUFFIX)], colours=draw.colours
+    )
     document["metadata"]["description"] += _stamp(graph, draw)
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")

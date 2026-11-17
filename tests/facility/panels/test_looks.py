@@ -116,7 +116,11 @@ def test_a_badge_is_a_circle_of_at_least_14_px_on_a_stem(panel_graph) -> None:
     view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
     doc = stub_render(view, panel_graph)
     (circle,) = [
-        n for n in _nodes(doc) if n["type"] == "polygon" and n["props"].get("tooltip") == "XR01:IP1"
+        n
+        for n in _nodes(doc)
+        if n["type"] == "polygon"
+        and n["props"].get("tooltip") == "XR01:IP1"
+        and len(n["props"]["points"]) > 8  # not its ring
     ]
     assert circle["geometry"]["width"] >= 14 and circle["geometry"]["height"] >= 14
     assert len(circle["props"]["points"]) >= 12  # a circle, not a box

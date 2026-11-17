@@ -45,12 +45,20 @@ class Screens:
         return f"stub/{target.view}{by}-{target.kind}-{name}"
 
 
-def stub_render(view: View, graph: PanelGraph, screens: Screens | None = None) -> dict:
+def stub_render(
+    view: View, graph: PanelGraph, screens: Screens | None = None, colours: dict | None = None
+) -> dict:
     """A view drawn with the stub ``screens``, its document named the stub's way."""
     from osprey.facility.panels.layout import render
 
     screens = Screens() if screens is None else screens
-    return render(view, graph=graph, screens=screens, doc_id=Screens.doc_id(view.id))
+    return render(
+        view,
+        graph=graph,
+        screens=screens,
+        doc_id=Screens.doc_id(view.id),
+        colours=colours or {},
+    )
 
 
 def fixture_views(graph: PanelGraph) -> list[View]:
