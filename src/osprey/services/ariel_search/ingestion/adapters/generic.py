@@ -405,6 +405,13 @@ class GenericJSONAdapter(FacilityAdapter):
                 raise ValueError(
                     f"'when.time' must be an 'HH:MM:SS' string, got {time_str!r}"
                 ) from err
+            if time_of_day.tzinfo is not None:
+                # The facility zone places a relative time; an offset would be
+                # dropped, so the entry would land at another instant than it states.
+                raise ValueError(
+                    f"'when.time' is a local 'HH:MM:SS' time and must not carry a "
+                    f"timezone offset, got {time_str!r}"
+                )
             spec = RelativeTimestamp(days_ago=days_ago, time=time_of_day)
             return resolve_relative_timestamp(spec, now)
         return parse_entry_time(data.get("timestamp"))

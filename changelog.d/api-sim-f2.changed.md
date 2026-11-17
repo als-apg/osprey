@@ -8,5 +8,11 @@ ignored.
 
 An archiver event stating a key its `shape` does not carry (a `width` on a
 `step`, an `until_offset` on a ramp placed by `at`) stops the build. An
-`HH:MM` calendar time in `scenarios.json` reads as before and is written back
-`HH:MM:SS` when the view is rewritten.
+`HH:MM` calendar time (an event's `at_when`/`until_when` or a logbook entry's
+`when`) reads as before, and `osprey build` writes it to `scenarios.json` as
+`HH:MM:SS`.
+
+The generic ARIEL adapter refuses a seed entry whose relative `when.time`
+carries a timezone offset: `osprey ariel ingest` skips that entry with a
+warning naming the time, where it used to drop the offset and file the entry
+at another instant.
