@@ -24,10 +24,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
+from markupsafe import Markup, escape
 
 from osprey.apps.manifest import help_page_refusal, launch_token_env
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces._assets import AssetSet
 from osprey.interfaces.common_middleware import (
     UNSAFE_FORWARDED_VALUE,
     apply_url_prefix,
@@ -147,13 +149,82 @@ def _prefixed(ctx: Context, path: str) -> str:
     template context (see ``compute_url_prefix()``); absolute URLs (e.g. a
     CDN URL from ``vendor_url()`` when not in offline mode) pass through
     unchanged, and an empty prefix is a byte-identical no-op.
+
+    A first-party asset is named by the fingerprint of the app's asset set
+    (``/static/_v/<fingerprint>/…``, see :mod:`osprey.interfaces._assets`), so
+    the browser keeps it until a deploy changes any file and never pairs a new
+    page with an old script.
     """
+    assets = _assets_of(ctx)
+    if assets is not None:
+        path = assets.url(path)
     return apply_url_prefix(ctx.get("url_prefix", ""), path)
+
+
+def _assets_of(ctx: Context) -> AssetSet | None:
+    """The asset set of the app rendering this template, or ``None`` without one."""
+    state = getattr(getattr(ctx.get("request"), "app", None), "state", None)
+    assets = getattr(state, "assets", None)
+    return assets if isinstance(assets, AssetSet) else None
+
+
+#: The mounts whose module specifiers the import map retargets.
+_MODULE_MOUNTS = ("/design-system", "/static")
+
+
+@pass_context
+def _import_map(ctx: Context) -> Markup:
+    """Jinja global: the document's import map, as JSON.
+
+    Root-absolute ``/design-system/`` and ``/static/`` specifiers resolve under
+    the per-user prefix and the asset fingerprint. A relative import from a
+    module that was itself loaded from a fingerprinted URL resolves to a
+    fingerprinted URL already, and an import map also applies to resolved
+    URLs, so each fingerprinted root maps to itself: the longest matching key
+    wins, and without that entry the ``/static/`` key would retarget it a
+    second time. Under a prefix the prefixed plain roots are mapped as well,
+    for a specifier built with ``withPrefix()``.
+
+    One module, one URL: every route to a module lands on the same address, so
+    no module is instantiated twice.
+    """
+    prefix = ctx.get("url_prefix", "")
+    assets = _assets_of(ctx)
+    imports: dict[str, str] = {}
+    for mount in _MODULE_MOUNTS:
+        target = f"{prefix}{assets.root(mount) if assets is not None else mount + '/'}"
+        imports[f"{mount}/"] = target
+        if prefix:
+            imports[f"{prefix}{mount}/"] = target
+        imports[target] = target
+    return Markup(json.dumps({"imports": imports}, indent=2).replace("</", "<\\/"))
+
+
+@pass_context
+def _module_preloads(ctx: Context, *entries: str) -> Markup:
+    """Jinja global: ``<link rel="modulepreload">`` for *entries* and their graph.
+
+    The front end is unbundled, so the browser would otherwise learn of each
+    import level only after fetching the one above it. The links name the whole
+    static graph up front, at the URLs the import map resolves to, and the
+    browser fetches every level in parallel. Empty without an asset set.
+    """
+    assets = _assets_of(ctx)
+    if assets is None:
+        return Markup("")
+    prefix = ctx.get("url_prefix", "")
+    links = (
+        f'<link rel="modulepreload" href="{escape(apply_url_prefix(prefix, assets.url(url)))}">'
+        for url in assets.module_graph(entries)
+    )
+    return Markup("\n  ".join(links))
 
 
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
 templates.env.globals["prefixed"] = _prefixed
+templates.env.globals["import_map"] = _import_map
+templates.env.globals["module_preloads"] = _module_preloads
 templates.env.globals["favicon_url"] = _favicon_url()
 
 logger = __import__("logging").getLogger(__name__)

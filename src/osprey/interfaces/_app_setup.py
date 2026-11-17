@@ -13,13 +13,19 @@ before any route or static asset is reached.
 
 from __future__ import annotations
 
+import os
+from email.utils import formatdate
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
-from starlette.responses import Response
+from starlette.datastructures import Headers
+from starlette.responses import FileResponse, Response
+from starlette.staticfiles import NotModifiedResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from osprey.interfaces._media_types import PinnedTypeStaticFiles
+from osprey.interfaces._assets import AssetSet, etag_matches, split_version
+from osprey.interfaces._media_types import PinnedTypeStaticFiles, asset_media_type
 from osprey.interfaces.common_middleware import (
     ASSET_CORS_HEADERS,
     ExceptionLoggingMiddleware,
@@ -46,10 +52,80 @@ class AssetStaticFiles(PinnedTypeStaticFiles):
     is ever served from one.
     """
 
+    def __init__(
+        self,
+        *,
+        directory: str | os.PathLike[str],
+        assets: AssetSet | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Serve *directory*, caching and compressing by the rules of *assets*.
+
+        Args:
+            directory: The directory to serve.
+            assets: The set this mount belongs to (:mod:`osprey.interfaces._assets`),
+                shared by every mount of one app so they answer to one
+                fingerprint. Omitted, the mount is a set of its own.
+            **kwargs: Passed to ``StaticFiles``.
+        """
+        super().__init__(directory=directory, **kwargs)
+        self._assets = assets if assets is not None else AssetSet({"": os.fspath(directory)})
+
     async def get_response(self, path: str, scope: Scope) -> Response:
-        """Serve *path* with its pinned content type, plus the C-ASSETS header."""
-        response = await super().get_response(path, scope)
+        """Serve *path*, which may name the set's fingerprint, as a C-ASSETS answer.
+
+        ``_v/<fingerprint>/<file>`` is the file itself; the fingerprint only
+        decides how long the browser may keep it. An answer that carries the
+        file, or says it is unchanged, states its own ``Cache-Control``; an
+        error states none and is left to ``NoCacheStaticMiddleware``.
+        """
+        fingerprint, file_path = split_version(path.replace(os.sep, "/"))
+        response = await super().get_response(file_path, scope)
         response.headers.update(ASSET_CORS_HEADERS)
+        if response.status_code in (200, 206, 304):
+            response.headers["Cache-Control"] = self._assets.cache_control(fingerprint)
+        return response
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        """Answer with the file, its gzipped copy, or ``304``, validated by content."""
+        if status_code != 200:
+            return super().file_response(full_path, stat_result, scope, status_code)
+        try:
+            entry = self._assets.compressed(full_path, stat_result)
+        except OSError:
+            return super().file_response(full_path, stat_result, scope, status_code)
+
+        request_headers = Headers(scope=scope)
+        accepted = {
+            coding.split(";", 1)[0].strip().lower()
+            for coding in request_headers.get("accept-encoding", "").split(",")
+        }
+        # A byte range addresses the file itself, never its compressed copy.
+        compress = (
+            entry.compressed is not None and "gzip" in accepted and "range" not in request_headers
+        )
+        headers = {
+            "etag": entry.compressed_etag if compress else entry.etag,
+            "last-modified": formatdate(stat_result.st_mtime, usegmt=True),
+            "vary": "Accept-Encoding",
+        }
+        if etag_matches(request_headers.get("if-none-match"), entry.etag, entry.compressed_etag):
+            return NotModifiedResponse(Headers(headers))
+
+        media_type = asset_media_type(Path(full_path))
+        if compress and entry.compressed is not None:
+            headers["content-encoding"] = "gzip"
+            headers["content-length"] = str(len(entry.compressed))
+            body = b"" if scope["method"] == "HEAD" else entry.compressed
+            return Response(body, media_type=media_type, headers=headers)
+        response = FileResponse(full_path, stat_result=stat_result, media_type=media_type)
+        response.headers.update(headers)
         return response
 
 
@@ -230,11 +306,15 @@ def configure_interface_app(
     design_system_dir = base / "design_system" / "static"
 
     # Mount shared fonts before /static (Starlette matches in declaration order).
-    if fonts_dir.exists():
-        app.mount("/static/fonts", AssetStaticFiles(directory=fonts_dir), name="shared-fonts")
-    if design_system_dir.exists():
-        app.mount(
-            "/design-system", AssetStaticFiles(directory=design_system_dir), name="design-system"
-        )
-    if static_dir.exists():
-        app.mount("/static", AssetStaticFiles(directory=static_dir), name="static")
+    named_mounts = (
+        ("/static/fonts", fonts_dir, "shared-fonts"),
+        ("/design-system", design_system_dir, "design-system"),
+        ("/static", static_dir, "static"),
+    )
+    # One set for the three mounts, so a page names all of them by one
+    # fingerprint (see _assets.py). A template reaches it as app.state.assets.
+    assets = AssetSet({mount: directory for mount, directory, _ in named_mounts})
+    app.state.assets = assets
+    for mount, directory, name in named_mounts:
+        if directory.exists():
+            app.mount(mount, AssetStaticFiles(directory=directory, assets=assets), name=name)
