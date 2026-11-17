@@ -40,6 +40,7 @@ __all__ = [
     "OPTIONAL_FILES",
     "PICTURE_KINDS",
     "PICTURE_VIEWS",
+    "TABLE_FILES",
     "Exclusion",
     "HealthRule",
     "Pair",
@@ -57,6 +58,8 @@ PAIRS = "pairs.csv"
 HEALTH = "health.csv"
 EXCLUDED = "excluded.csv"
 PICTURES = "pictures.csv"
+#: The six rule tables, by file name.
+TABLE_FILES: tuple[str, ...] = (POSITIONS, RECORD_TYPES, PAIRS, HEALTH, EXCLUDED, PICTURES)
 
 #: Each file's columns, in the order the facility repository writes them.
 COLUMNS: Mapping[str, list[str]] = MappingProxyType(

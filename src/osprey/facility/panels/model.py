@@ -35,6 +35,8 @@ one), unless :func:`load_graph` is told which.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -45,6 +47,7 @@ from typing import Any, Literal
 from osprey.facility import FACILITY_FILE
 from osprey.facility.panels.tables import (
     POSITIONS,
+    TABLE_FILES,
     DrawnAs,
     HealthRule,
     Pair,
@@ -229,8 +232,16 @@ class PanelGraph:
     """
 
     def __init__(
-        self, records: FacilityRecords, tables: PanelTables, ring_frame: str | None = None
+        self,
+        records: FacilityRecords,
+        tables: PanelTables,
+        ring_frame: str | None = None,
+        *,
+        content_hash: str | None = None,
     ) -> None:
+        self._records = records
+        self._tables = tables
+        self._content_hash = content_hash
         excluded = {kind: set[str]() for kind in ("thing", "channel", "document")}
         for row in tables.excluded:
             excluded[row.kind].add(row.id)
@@ -409,6 +420,25 @@ class PanelGraph:
         where = f"{kind} " if kind is not None else ""
         raise KeyError(f"the panel graph holds no {where}thing {thing_id!r}")
 
+    @property
+    def content_hash(self) -> str:
+        """The SHA-256 hex digest of what the graph was read from.
+
+        :func:`load_graph` hashes the facility file's bytes and the rule
+        tables' files, so the digest is the same on every machine. A graph
+        built from records and tables directly hashes their canonical text
+        instead, on first use.
+        """
+        if self._content_hash is None:
+            digest = hashlib.sha256()
+            text = json.dumps(
+                self._records.document, sort_keys=True, ensure_ascii=False, default=str
+            )
+            digest.update(text.encode("utf-8"))
+            digest.update(repr(self._tables).encode("utf-8"))
+            self._content_hash = digest.hexdigest()
+        return self._content_hash
+
     def things(self) -> list[Thing]:
         """Every thing: devices, then places, then groups, each in file order."""
         return list(self._things.values())
@@ -539,4 +569,11 @@ def load_graph(facility: Path, panels_dir: Path, *, ring_frame: str | None = Non
     records = FacilityRecords.from_file(path)
     if records is None:
         raise FileNotFoundError(f"no facility file at {path}")
-    return PanelGraph(records, read_tables(panels_dir), ring_frame=ring_frame)
+    tables = read_tables(panels_dir)
+    digest = hashlib.sha256()
+    digest.update(path.read_bytes())
+    for name in TABLE_FILES:
+        digest.update(b"\0" + name.encode("utf-8") + b"\0")
+        table = Path(panels_dir) / name
+        digest.update(table.read_bytes() if table.is_file() else b"")
+    return PanelGraph(records, tables, ring_frame=ring_frame, content_hash=digest.hexdigest())

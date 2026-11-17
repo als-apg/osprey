@@ -8,7 +8,9 @@ the :class:`PanelGraph` every later step reads through;
 say what each screen contains, without layout;
 :mod:`~osprey.facility.panels.strip` arranges a place's devices in beam order;
 :mod:`~osprey.facility.panels.layout` draws a view as a Screen-IR document with
-the symbols and theme roles of :mod:`~osprey.facility.panels.symbols`.
+the symbols and theme roles of :mod:`~osprey.facility.panels.symbols`;
+:mod:`~osprey.facility.panels.emit` writes the screens to disk and checks a
+written set against the model.
 """
 
 from osprey.facility.panels.describe import (
