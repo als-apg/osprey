@@ -1656,7 +1656,9 @@ Absent, the section is simulator-only (below).</p></td>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.settings.auth</span></code></p></td>
 <td><p>The login a proxy in front of the service asks for: <code class="docutils literal notranslate"><span class="pre">token_env</span></code>, or
 <code class="docutils literal notranslate"><span class="pre">username</span></code> with <code class="docutils literal notranslate"><span class="pre">password_env</span></code>, each secret named by environment
-variable. <code class="docutils literal notranslate"><span class="pre">tls.ca_bundle</span></code> is the absolute path of a PEM CA.</p></td>
+variable. <code class="docutils literal notranslate"><span class="pre">tls.ca_bundle</span></code> is the absolute path of a PEM CA. A web
+terminal is handed each variable a block names and each CA file that is
+on the host.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.description_property</span></code></p></td>
 <td><p>The directory property shown as a PV’s description. Default
@@ -1693,17 +1695,35 @@ CSV export. Default <code class="docutils literal notranslate"><span class="pre"
 server’s Kafka topic and needs <code class="docutils literal notranslate"><span class="pre">settings.bootstrap_servers</span></code> and
 <code class="docutils literal notranslate"><span class="pre">settings.topic</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state.replay_file</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state.settings.auth</span></code></p></td>
+<td><p>The login a broker asks for: <code class="docutils literal notranslate"><span class="pre">username</span></code> with <code class="docutils literal notranslate"><span class="pre">password_env</span></code>, sent
+as SASL. <code class="docutils literal notranslate"><span class="pre">mechanism</span></code> names how: <code class="docutils literal notranslate"><span class="pre">PLAIN</span></code> unless it says
+<code class="docutils literal notranslate"><span class="pre">SCRAM-SHA-256</span></code> or <code class="docutils literal notranslate"><span class="pre">SCRAM-SHA-512</span></code>. A login is sent over TLS, verified against
+<code class="docutils literal notranslate"><span class="pre">settings.tls.ca_bundle</span></code> or, without one, the system trust store.
+<code class="docutils literal notranslate"><span class="pre">cleartext:</span> <span class="pre">true</span></code> sends it unencrypted, for a listener that offers
+no TLS: anyone on the network path can then read the password.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.alarm_state.replay_file</span></code></p></td>
 <td><p>The alarm feed on <code class="docutils literal notranslate"><span class="pre">va</span></code>: <code class="docutils literal notranslate"><span class="pre">demo:&lt;name&gt;</span></code> names a feed packaged with
 OSPREY, any other value an <code class="docutils literal notranslate"><span class="pre">.ndjson</span></code> file relative to the project.
 It may be set beside <code class="docutils literal notranslate"><span class="pre">type</span></code>.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.put_log</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pv_directory.put_log</span></code></p></td>
 <td><p>Put history: <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">caputlog</span></code> with <code class="docutils literal notranslate"><span class="pre">settings.url</span></code>.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
+<p><strong>Reading the alarm feed without write access.</strong> A Kafka broker with no
+access control lets every client that reaches it produce, so opening its port
+to OSPREY would let that host forge alarm states and acknowledge alarms. The
+feed needs one right, <code class="docutils literal notranslate"><span class="pre">Read</span></code> on the topic: OSPREY reads with no consumer
+group, commits no offset and never produces. A broker can grant exactly that
+on a second, authenticated listener and leave its existing clients as they
+are: turn on the ACL authorizer, keep the unauthenticated listener’s
+<code class="docutils literal notranslate"><span class="pre">User:ANONYMOUS</span></code> among <code class="docutils literal notranslate"><span class="pre">super.users</span></code>, add a SASL listener on a new port,
+and allow the OSPREY user <code class="docutils literal notranslate"><span class="pre">Read</span></code> on the topic. Open only that port to the
+OSPREY host and name the user under <code class="docutils literal notranslate"><span class="pre">alarm_state.settings.auth</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">pv_directory.caveats</span></code> and each sub-block’s <code class="docutils literal notranslate"><span class="pre">caveats</span></code> are lines shown with
 every answer from that source. A sub-block takes the same <code class="docutils literal notranslate"><span class="pre">settings</span></code> keys as
 the directory. The Kafka client is the <code class="docutils literal notranslate"><span class="pre">alarm-state</span></code> extra
@@ -1737,8 +1757,12 @@ server off
 <span class="w">  </span><span class="nt">alarm_state</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">phoebus_alarm_server</span>
 <span class="w">    </span><span class="nt">settings</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">bootstrap_servers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kafka.example.org:9092</span><span class="w">  </span><span class="c1"># osprey:not-a-port — Kafka&#39;s broker port</span>
+<span class="w">      </span><span class="nt">bootstrap_servers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kafka.example.org:9093</span><span class="w">  </span><span class="c1"># osprey:not-a-port — Kafka&#39;s broker port</span>
 <span class="w">      </span><span class="nt">topic</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Accelerator</span>
+<span class="w">      </span><span class="c1"># A read-only user on the broker&#39;s authenticated listener.</span>
+<span class="w">      </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey</span>
+<span class="w">        </span><span class="nt">password_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ALARM_FEED_PASSWORD</span>
 <span class="w">    </span><span class="c1"># The feed the simulator target replays.</span>
 <span class="w">    </span><span class="nt">replay_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">demo:example-alarms</span>
 <span class="w">  </span><span class="nt">put_log</span><span class="p">:</span>
