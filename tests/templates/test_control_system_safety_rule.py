@@ -27,7 +27,7 @@ from tests._preset_data import create_project_as_built
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES, connector_transport
+from osprey_connectors.connector_types import SET_CONTROL_SYSTEM_TYPES, connector_transport
 
 #: Lines the p4p block must contain, verbatim.
 P4P_LINES = (
@@ -249,7 +249,7 @@ def test_raw_put_lines_say_refused_and_name_write_channel(cs_type):
     assert "the Python executor (`execute`, `execute_file`) refuses it at runtime" in prose
     assert "refuses it at runtime with `RAW_CLIENT_WRITE`" in prose
     assert "A notebook kernel refuses the client library's import itself" in prose
-    assert "`RAW_CLIENT_IMPORT`" in prose
+    assert "`ClientLibraryRefusedError`" in prose
     assert "in readwrite runs too" in prose
     assert "approving the run does not change that" in prose
     assert "`write_channel(address, value)`" in prose

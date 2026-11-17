@@ -33,6 +33,7 @@ from osprey.cli.watchdog_cmd import _MachineSeed
 from osprey.services.watchdog.config import WatchdogDefinition
 from osprey.services.watchdog.definitions import load_profile_watchdogs
 from osprey.services.watchdog.engines.agent import AgentEngine
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._va_in_process_connector import (
     SIMULATOR_VIEW_SETTING,
     VAInProcessConnector,
@@ -144,7 +145,9 @@ async def seeded(build: Path, machine: Mapping[str, Any]) -> AsyncIterator[_Mach
 async def read_channel(build: Path, channel: str) -> float:
     """What a second connector reads, the way a judge's own server would."""
     connector = VAInProcessConnector()
-    await connector.connect({SIMULATOR_VIEW_SETTING: str(build / VIEW_RELPATH)})
+    await connector.connect(
+        ConnectorContext(settings={SIMULATOR_VIEW_SETTING: str(build / VIEW_RELPATH)})
+    )
     try:
         return float((await connector.read_channel(channel)).value)
     finally:

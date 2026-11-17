@@ -17,7 +17,7 @@ def bridges_for_target(target: str) -> Mapping[str, str]:
 
     Args:
         target: A control target, one of
-            :data:`osprey_connectors.types.CONTROL_TARGETS`.
+            :data:`osprey_connectors.connector_types.CONTROL_TARGETS`.
 
     Returns:
         The lanes serving *target*, empty when the deployment runs none.
@@ -28,7 +28,7 @@ def bridges_for_target(target: str) -> Mapping[str, str]:
         lane_declared_target,
         resolve_bridge_url,
     )
-    from osprey_connectors.types import baseline_target
+    from osprey_connectors.targets import baseline_target
     from osprey_connectors.workspace import load_osprey_config
 
     config = load_osprey_config()

@@ -30,8 +30,8 @@ import click
 
 from osprey.cli import output
 from osprey_connectors.config import load_config
+from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import CONTROL_TARGETS
 
 from .repo_resolver import find_repo_root, repo_option
 
@@ -254,13 +254,13 @@ def status_command(repo: Path | None, target: str | None) -> None:
     error otherwise. The command exits 1 when any model failed.
     """
     from osprey.simulation.status import MODEL_FAILED, model_state, target_model_statuses
-    from osprey_connectors.types import (
+    from osprey_connectors.connector_types import (
         STANDIN_TYPES,
         TRANSPORT_IN_PROCESS,
         connector_transport,
         resolve_control_system_type,
-        resolve_target,
     )
+    from osprey_connectors.targets import resolve_target
 
     repo_root, config = _resolve_deployment(repo)
     section = config.get("control_system") or {}

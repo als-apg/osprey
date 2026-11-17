@@ -29,6 +29,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -58,10 +59,9 @@ from osprey.runtime.session import (
     Binding,
     SessionEnvironmentError,
 )
-from osprey_connectors import control_context, posture_store, session_hold, types
-from osprey_connectors.control_system import _base as connector_base
+from osprey_connectors import connector_types, control_context, posture_store, session_hold
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -88,7 +88,7 @@ def write_record(state_dir: Path, *, target="live", generation=3) -> Path:
         control_context.ControlContext(target=target, generation=generation), path=path
     )
     control_context.invalidate_cache()
-    _set_switch_to(path, dict.fromkeys({target} & set(types.CONTROL_TARGETS), "allowed"))
+    _set_switch_to(path, dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed"))
     control_context.invalidate_cache()
     return path
 
@@ -275,8 +275,8 @@ class TestServedProcess:
 # -- what happened before the exit -------------------------------------------------
 
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 
@@ -294,8 +294,8 @@ class _TrackedFake(FakeConnector):
     connected = 0
     connects = 0
 
-    async def connect(self, config):
-        await super().connect(config)
+    async def _open(self, config):
+        await super()._open(config)
         type(self).connected += 1
         type(self).connects += 1
 
@@ -346,7 +346,7 @@ def deployment(tmp_path, monkeypatch):
     _TrackedFake.connected = _TrackedFake.connects = 0
     control_context.invalidate_cache()
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _TrackedFake)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _TrackedFake)
         yield directory, exits
     control_context.invalidate_cache()
 
@@ -455,9 +455,9 @@ class TestBeforeTheExit:
 # -- what the outgoing process says before it leaves --------------------------------
 
 ARMED_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
+    "type": connector_types.VIRTUAL_ACCELERATOR,
     "writes": "allowed",
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 CHANNEL = "SR:QF:01:SP"
@@ -507,7 +507,7 @@ class _HeldMachine(_TrackedFake):
     hold: asyncio.Event | None = None
     writes: list = []
 
-    async def write_channel(self, address, value, **kwargs):
+    async def _write_one(self, address, value, **kwargs):
         type(self).writes.append((address, value))
         hold = type(self).hold
         if hold is not None:
@@ -516,7 +516,7 @@ class _HeldMachine(_TrackedFake):
             address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=value,
+            observed=ChannelValue(address=address, value=value, sampled_at=datetime.now(UTC)),
         )
 
 
@@ -557,13 +557,12 @@ def flip(deployment, monkeypatch):
     record's switch and the real hold store's records, set by each test.
     """
     directory, _ = deployment
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
 
     def get_config_value(path, default=None, _config_path=None):
         return ARMED_SECTION if path == "control_system" else default
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
-    ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _HeldMachine)
+    ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _HeldMachine)
     _HeldMachine.hold, _HeldMachine.writes = None, []
     write_record(directory, target="va", generation=3)
     monkeypatch.setenv(RENDERED_FOR_ENV, "va@3")
@@ -974,7 +973,7 @@ class _ReachMachine(_HeldMachine):
 @pytest.fixture
 def reach(flip):
     """The flip deployment over :class:`_ReachMachine`; yields the state directory."""
-    ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _ReachMachine)
+    ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _ReachMachine)
     return flip
 
 

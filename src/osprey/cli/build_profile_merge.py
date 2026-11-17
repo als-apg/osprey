@@ -26,12 +26,8 @@ from osprey.utils.workspace import (
     RETIRED_LAYER_DIRS,
     RUNTIME_DATA_DIR_NAME,
 )
-from osprey_connectors.types import (
-    configured_targets,
-    resolve_target,
-    tier_allows,
-    tier_writes,
-)
+from osprey_connectors.targets import configured_targets, resolve_target
+from osprey_connectors.write_tier import tier_allows, tier_writes
 
 from . import build_profile_document as _document
 from .build_profile_document import RENDER_KEYS, _read_profile_document, retired_write_origin
@@ -987,7 +983,7 @@ def _pin_write_switches(config: dict[str, Any]) -> dict[str, Any]:
     no such block, because the normalizer has already removed its retired
     leaves (and judged the emptied block).
     """
-    from osprey_connectors.types import WRITES_KEY
+    from osprey_connectors.write_tier import WRITES_KEY
 
     pinned = _drop_write_switches(config)
     pinned[WRITES_KEY] = _SHARED_WRITES
@@ -1060,7 +1056,7 @@ def _judge_shared_posture(
     retired keys arm nothing on a shared login. A document handed in unparsed
     is judged on its retired leaves the same way.
     """
-    from osprey_connectors.types import WRITES_KEY
+    from osprey_connectors.write_tier import WRITES_KEY
 
     from .build_profile_document import retired_write_answer
 

@@ -31,10 +31,12 @@ from canopy.epics.testing import conformance
 from osprey.integrations.canopy import backend as backend_module
 from osprey.integrations.canopy.backend import OspreyPVConnector, PVTargetChanged, PVWriteRefused
 from osprey.runtime import session as session_module
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors.model import evolve
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._fake_connector import FakeConnector, FakeSubscription
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -43,8 +45,8 @@ BACKEND_PATH = "osprey.integrations.canopy.backend:OspreyPVConnector"
 
 #: A deployment whose baseline is the virtual accelerator.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 #: The channels the machine serves, by the conformance kit's kind.
@@ -104,8 +106,8 @@ class _Machine(FakeConnector):
     def active(cls) -> int:
         return sum(len(machine._subscriptions) for machine in cls.live)
 
-    async def connect(self, config):
-        await super().connect(config)
+    async def _open(self, config):
+        await super()._open(config)
         type(self).live.append(self)
 
     async def disconnect(self):
@@ -116,6 +118,7 @@ class _Machine(FakeConnector):
     def _read_value(self, address):
         now = datetime.now(UTC)
         return ChannelValue(
+            address=address,
             value=type(self).store[address],
             sampled_at=now,
             metadata=ChannelMetadata(
@@ -147,15 +150,15 @@ class _Machine(FakeConnector):
     def _notify(self, addresses):
         super()._notify(address for address in addresses if address in type(self).store)
 
-    async def write_channel(self, *args, **kwargs):
+    async def _write_one(self, *args, **kwargs):
         type(self).writes += 1
-        return await super().write_channel(*args, **kwargs)
+        return await super()._write_one(*args, **kwargs)
 
 
 class _RefusingConnector(FakeConnector):
     """A connector whose control system is not there."""
 
-    async def connect(self, config):  # noqa: ARG002 - the connector connect signature
+    async def _open(self, config):  # noqa: ARG002 - the connector connect signature
         raise ConnectionError("no gateway answers")
 
 
@@ -229,7 +232,7 @@ def machine(monkeypatch, state_dir):
     monkeypatch.setenv(backend_module.RENDERED_FOR_ENV, "va@3")
     _Machine.reset()
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Machine)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Machine)
         yield _Machine
     _Machine.reset()
 
@@ -332,7 +335,7 @@ class TestLoading:
         _Machine.reset()
         _Machine.set(SCALAR, 4.5)
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Machine)
+            ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Machine)
             built = make_connector()
             await built.start()
             try:
@@ -356,6 +359,17 @@ class TestGet:
         assert value.severity is AlarmSeverity.NO_ALARM
         assert value.ts_ns > 0
         assert (machine.reads, machine.subscribes) == (1, 0)
+
+    async def test_a_reading_s_alarm_is_the_value_s_severity(self, connector, machine, monkeypatch):
+        """The severity comes from the reading's own alarm, the one place a connector fills it."""
+        plain = machine._read_value
+
+        def alarmed(self, address):
+            return evolve(plain(self, address), alarm=Alarm(status="HIHI", severity=2))
+
+        monkeypatch.setattr(machine, "_read_value", alarmed)
+        value = await connector.get(SCALAR)
+        assert value.severity is AlarmSeverity.MAJOR
 
     async def test_a_subscribed_pv_is_answered_from_its_subscription(self, connector, machine):
         """A monitored PV is read from what its monitor holds, with no read of its own."""
@@ -579,7 +593,9 @@ class TestUnservable:
         write_record(state_dir)
         monkeypatch.setenv(backend_module.RENDERED_FOR_ENV, "va@3")
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _RefusingConnector)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _RefusingConnector
+            )
             built = make_connector(ca_timeout_s=0.3, connect_report_s=5.0)
             await built.start()
             yield built

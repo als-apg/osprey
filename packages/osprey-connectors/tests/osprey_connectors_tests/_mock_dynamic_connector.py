@@ -5,9 +5,17 @@ from osprey_connectors.control_system._base import ControlSystemConnector
 
 
 class MockDynamicConnector(ControlSystemConnector):
-    """Minimal connector used by test_dynamic_connector.py."""
+    """Minimal connector used by test_dynamic_connector.py.
 
-    async def connect(self, config=None):
+    Every send is recorded with whether it was asked to wait for a
+    confirmation, and the channel then holds the value sent.
+    """
+
+    def __init__(self) -> None:
+        self.sends: list[tuple[str, object, bool]] = []
+        self._held: dict[str, object] = {}
+
+    async def _open(self, config=None):
         pass
 
     async def disconnect(self):
@@ -18,35 +26,22 @@ class MockDynamicConnector(ControlSystemConnector):
 
         from osprey_connectors.control_system._base import ChannelValue
 
-        return ChannelValue(value=42, sampled_at=datetime.now(UTC))
-
-    async def write_channel(self, address, value, *, timeout_s=None, confirm=False):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        """Declares its own ``confirm`` default, so a forwarded ``None`` would show."""
-        from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
-
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED if confirm else WriteOutcome.UNREQUESTED,
-            observed_value=value if confirm else None,
+        return ChannelValue(
+            address=address, value=self._held.get(address, 42), sampled_at=datetime.now(UTC)
         )
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return {}
+    async def _send(self, address, value, *, timeout_s, wait):  # noqa: ARG002 - the send hook fixes this signature
+        from osprey_connectors.control_system._base import SendReport
 
-    async def subscribe(self, address, callback):  # noqa: ARG002 - the control-system connector interface fixes this signature
+        self.sends.append((address, value, wait))
+        self._held[address] = value
+        return SendReport()
+
+    async def subscribe(self, address, callback, *, on_connection=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return "sub-1"
 
     async def unsubscribe(self, subscription_id):
         pass
-
-    async def get_metadata(self, address):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        from osprey_connectors.control_system._base import ChannelMetadata
-
-        return ChannelMetadata()
-
-    async def validate_channel(self, address):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return True
 
 
 class RecordingArchiver(ArchiverConnector):

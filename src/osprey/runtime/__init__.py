@@ -38,11 +38,11 @@ Write Outcomes:
 
 Control Target:
     The execution sandbox is launched with a *target stamp* — one of
-    :data:`osprey_connectors.types.CONTROL_TARGETS` — in its environment,
+    :data:`osprey_connectors.connector_types.CONTROL_TARGETS` — in its environment,
     written by :mod:`osprey.mcp_server.python_executor.executor`. That stamp,
     not the config's own ``control_system.type``, decides which connector this
     runtime builds: the type is resolved through
-    :func:`osprey_connectors.types.resolve_target`, so the factory reads
+    :func:`osprey_connectors.targets.resolve_target`, so the factory reads
     ``control_system.connector.<that type>`` and ``connect()`` derives that
     target's gateways here rather than anywhere upstream. An unstamped process
     resolves its connector exactly as it always did.
@@ -91,7 +91,7 @@ if TYPE_CHECKING:
     from osprey_connectors.control_context import ControlContext
     from osprey_connectors.control_system import (
         ChannelLimitsConfig,
-        ControlSystemConnector,
+        ControlSystem,
         LimitsValidator,
     )
     from osprey_connectors.settle import Landing
@@ -344,7 +344,7 @@ def _stop_pool_loop() -> None:
     loop.close()
 
 
-async def _pooled_connector_locked(target: str | None) -> Any:
+async def _pooled_connector_locked(target: str | None) -> "ControlSystem":
     """The pool's connector for *target*, building the pool on first need.
 
     An unstamped cell is served the deployment's baseline target, the machine
@@ -353,7 +353,8 @@ async def _pooled_connector_locked(target: str | None) -> Any:
     """
     global _connector_pool
 
-    from osprey_connectors.types import CONTROL_TARGETS, baseline_target, is_control_target
+    from osprey_connectors.connector_types import CONTROL_TARGETS, is_control_target
+    from osprey_connectors.targets import baseline_target
 
     section = _control_system_section()
     key = target if target is not None else baseline_target(section)
@@ -384,7 +385,7 @@ def _pooled_writes_allowed(target: str | None) -> bool:
     its signature cache: one stat when it has not changed. Never raises.
     """
     from osprey_connectors import posture_store
-    from osprey_connectors.types import baseline_target
+    from osprey_connectors.targets import baseline_target
 
     try:
         section = _control_system_section()
@@ -416,7 +417,7 @@ def _target_connector_config() -> dict[str, Any] | None:
     deployment configured them.
 
     Raises:
-        ValueError: From :func:`~osprey_connectors.types.resolve_target` when
+        ValueError: From :func:`~osprey_connectors.targets.resolve_target` when
             the deployment has not named the machine this target means. It is
             deliberately not caught: falling back to the config's own type would
             answer "which machine am I on" with a different machine.
@@ -426,7 +427,7 @@ def _target_connector_config() -> dict[str, Any] | None:
         return None
 
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.types import resolve_target
+    from osprey_connectors.targets import resolve_target
 
     section = get_config_value("control_system", {})
     if not isinstance(section, dict):
@@ -529,7 +530,7 @@ async def _get_connector():
     stamped onto the instance so the reference monitor inside it reads the
     session posture for the target this run was launched against. An unstamped
     process is built for the deployment's baseline target
-    (:func:`osprey_connectors.types.baseline_target`), the machine the pooled
+    (:func:`osprey_connectors.targets.baseline_target`), the machine the pooled
     path serves it as, so its writes are decided by that machine's switch.
 
     A sandbox reaches the build once and reuses it for its whole life. A
@@ -583,7 +584,7 @@ async def _get_connector():
 
         if _runtime_connector is None:
             from osprey_connectors.factory import ConnectorFactory
-            from osprey_connectors.types import baseline_target
+            from osprey_connectors.targets import baseline_target
 
             config = _target_connector_config()
             if config is None:
@@ -832,7 +833,7 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
     #
     # Then the attempt observer, then write_channel_checked — the reference
     # monitor's denial contract: it raises on a refusal (a connector-level limits
-    # refusal normalised to ChannelWriteBlockedError 'LIMITS'), on a failed
+    # refusal is a ChannelWriteBlockedError 'LIMITS' carrying its violation), on a failed
     # write, AND on a write whose confirming re-read did not hold the setpoint.
     # Calling write_channel directly would let an unconfirmed write return
     # silently and get logged as "Wrote ...".
@@ -870,10 +871,10 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
 
     # Reaching here means the outcome is confirmed, or confirmation was not
     # requested (unrequested) — every other outcome already raised above.
-    if result.observed_value is not None:
+    if result.observed is not None:
         logger.debug(
             f"Wrote {channel_address} = {value} [{result.outcome}, "
-            f"observed {result.observed_value}]"
+            f"observed {result.observed.value}]"
         )
     else:
         logger.debug(f"Wrote {channel_address} = {value} [{result.outcome}]")
@@ -892,8 +893,6 @@ async def _read_channel_async(channel_address: str, **kwargs) -> Any:
 
 async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None) -> list[Any]:
     """Internal async implementation for reading several channels in one call."""
-    from osprey_connectors.errors import ChannelReadFailedError
-
     # Each distinct address is asked for once; a repeated one is answered from
     # the same reading.
     distinct = list(dict.fromkeys(addresses))
@@ -901,40 +900,10 @@ async def _read_channels_async(addresses: "Sequence[str]", timeout: float | None
         return []
 
     connector = await _get_connector()
-    result = await connector.read_multiple_channels(distinct, timeout_s=timeout)
-
-    # A connector drops a channel whose read raised, and the EPICS family
-    # reports a read timeout as a present ``None`` — both are a failed read.
-    failed = [
-        address for address in distinct if address not in result or result[address].value is None
-    ]
-    if failed:
-        causes = await _read_failure_causes(connector, failed, timeout)
-        first_cause = next((causes[address] for address in failed if address in causes), None)
-        raise ChannelReadFailedError(failed, causes=causes) from first_cause
-    return [result[address].value for address in addresses]
-
-
-async def _read_failure_causes(
-    connector: "ControlSystemConnector", failed: list[str], timeout: float | None
-) -> dict[str, BaseException]:
-    """Re-read each failed channel on its own and collect the exception it raises.
-
-    A batch read keeps only which channels failed, not why. The single read
-    raises the connector's own exception, which is what a caller branches on.
-    The re-read only explains the failure: a channel that answers this time is
-    still reported as failed, since the batch it belongs to did not read it.
-    """
-    kwargs = {} if timeout is None else {"timeout_s": timeout}
-    results = await asyncio.gather(
-        *(connector.read_channel(address, **kwargs) for address in failed),
-        return_exceptions=True,
-    )
-    return {
-        address: outcome
-        for address, outcome in zip(failed, results, strict=True)
-        if isinstance(outcome, BaseException)
-    }
+    batch = await connector.read_multiple_channels(distinct, timeout_s=timeout)
+    # Each failed channel carries the error its own read raised.
+    values = batch.raise_for_failures().values
+    return [values[address].value for address in addresses]
 
 
 async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> None:
@@ -950,7 +919,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         _assert_target_pin()
 
         from osprey_connectors.control_system import raise_for_write_results
-        from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+        from osprey_connectors.errors import ChannelWriteBlockedError
 
         connector = await _get_connector()
 
@@ -973,7 +942,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
                     for key, value in kwargs.items()
                 },
             )
-        except (ChannelLimitsViolationError, ChannelWriteBlockedError) as exc:
+        except ChannelWriteBlockedError as exc:
             # A refusal raised partway names the one channel it refused; every
             # other channel's outcome stays unknown.
             if exc.address in channel_values:
@@ -1114,7 +1083,7 @@ def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) ->
         SettleTimeoutError: A readback was not within its bound in time
             (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
         SettleReadError: A readback that cannot be reached, is not a channel,
-            or times out, or one that answered no value
+            or times out
             (:class:`osprey_connectors.settle.SettleReadError`, a
             ``ChannelReadFailedError``); names the readback. A lost connector
             raises its own error.
@@ -1140,10 +1109,10 @@ async def _settle_async(landings: "list[Landing]", timeout_s: float) -> None:
 
 def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
     """One landing per setpoint that has a bound, as the render's facility file states it."""
+    from osprey_connectors.connector_types import is_simulated, resolve_control_system_type
     from osprey_connectors.settle import Landing, settle_bound
     from osprey_connectors.simulation.envelope import motion_envelope
     from osprey_connectors.simulation.records import SeedRecord
-    from osprey_connectors.types import is_simulated, resolve_control_system_type
 
     path, channels = _facility_channels()
     simulated: bool | None = None
@@ -1228,15 +1197,10 @@ def read_channel(channel_address: str, **kwargs) -> Any:
 
     Returns:
         Current value of the channel. An enum-typed channel reads as its
-        integer state index; the matching state names ride on the reading's
-        metadata as ``enum_label`` / ``enum_labels``, which the channel_read
-        tool reports and which this value-only helper does not return.
-
-        ``None`` when the connector reports the reading without a value. The
-        EPICS-family connectors answer a read timeout that way instead of
-        raising, so on those connectors ``None`` here means the channel did
-        not answer. :func:`read_channels` treats the same ``None`` as a failed
-        read and raises ``ChannelReadFailedError``.
+        integer state index; the matching state name rides on the reading as
+        ``enum_label`` and every state name on its metadata as
+        ``enum_labels``, which the channel_read tool reports and which this
+        value-only helper does not return.
 
     Raises:
         RuntimeError: If read operation fails
@@ -1270,10 +1234,13 @@ def read_channels(addresses: "Sequence[str]", *, timeout: float | None = None) -
     Raises:
         TypeError: If ``addresses`` is a single string rather than a sequence
             of addresses
-        ChannelReadFailedError: If any channel could not be read — the
-            connector left it out of its result, or reported its value as
-            ``None``. ``addresses`` on the error names every failed channel;
-            no values are returned for the rest.
+        ChannelReadFailedError: If any channel's own read failed (it cannot
+            be reached, is not a channel, or did not answer in time).
+            ``addresses`` on the error names every failed channel and
+            ``causes`` the error each one's read raised; no values are
+            returned for the rest.
+        ConnectorUnavailableError: The connector's own transport is gone; no
+            channel is reported read or failed.
 
     Examples:
         >>> from osprey.runtime import read_channels

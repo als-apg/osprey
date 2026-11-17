@@ -16,6 +16,7 @@ import math
 import os
 import re
 import threading
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -62,8 +63,13 @@ from osprey.apps.sdk import (
     WriteVerdictView,
 )
 from osprey.interfaces.common_middleware import WebAuthMiddleware
-from osprey_connectors.control_system._base import WriteOutcome
-from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors.control_system._base import ChannelReadBatch, ChannelValue, WriteOutcome
+from osprey_connectors.errors import (
+    ChannelError,
+    ChannelNotFoundError,
+    ChannelUnreachableError,
+    LimitsViolation,
+)
 from osprey_connectors.refusals import REASONS, refusal_phrase
 from tests.hooks.conftest import import_hook
 
@@ -171,6 +177,7 @@ class StandInConnector:
         self.outcomes: dict[str, WriteOutcome] = {}
         #: addr -> what its write raises.
         self.raises: dict[str, Exception] = {}
+        self.violations: dict[str, LimitsViolation] = {}
         #: Setpoints whose readback does not follow a write.
         self.lagging: set[str] = set()
         #: Seconds each write takes.
@@ -181,21 +188,25 @@ class StandInConnector:
         if self.hang:
             await asyncio.sleep(3600)
 
-        async def one(addr: str) -> Any:
+        async def one(addr: str) -> ChannelValue:
             if addr in self.silent:
                 await asyncio.sleep(3600)
-            return SimpleNamespace(value=self.values[addr])
+            return ChannelValue(address=addr, value=self.values[addr], sampled_at=datetime.now(UTC))
 
-        async def bounded(addr: str) -> Any:
-            # The base class bounds each channel on its own and leaves out what times out.
+        async def bounded(addr: str) -> ChannelValue | ChannelError:
+            # The base class bounds each channel on its own and reports what times out.
+            if addr not in self.values:
+                return ChannelNotFoundError(addr)
             try:
                 return await asyncio.wait_for(one(addr), timeout_s)
             except TimeoutError:
-                return None
+                return ChannelUnreachableError(addr, f"{addr} did not answer")
 
-        got = await asyncio.gather(*(bounded(a) for a in addrs if a in self.values))
-        present = [a for a in addrs if a in self.values]
-        return {a: v for a, v in zip(present, got, strict=True) if v is not None}
+        got = dict(zip(addrs, await asyncio.gather(*(bounded(a) for a in addrs)), strict=True))
+        return ChannelReadBatch(
+            values={a: v for a, v in got.items() if isinstance(v, ChannelValue)},
+            failures={a: v for a, v in got.items() if isinstance(v, ChannelError)},
+        )
 
     async def write_channel(self, addr, value, *, timeout_s=None, confirm=None):  # noqa: ARG002
         self.writes.append((addr, value, confirm))
@@ -210,7 +221,12 @@ class StandInConnector:
             if addr not in self.lagging and readback in self.values:
                 self.values[readback] = value
         message = None if outcome in (WriteOutcome.CONFIRMED, WriteOutcome.MISMATCH) else "no"
-        return SimpleNamespace(outcome=outcome, observed_value=value, error_message=message)
+        return SimpleNamespace(
+            outcome=outcome,
+            observed_value=value,
+            error_message=message,
+            limits_violation=self.violations.get(addr),
+        )
 
     async def disconnect(self) -> None:
         if self.refuse_disconnect:
@@ -1899,8 +1915,9 @@ def test_apply_whose_settle_expires_is_partially_applied_with_the_last_readback(
 
 
 def test_apply_stops_at_a_mid_sequence_limits_violation(client, computed, machine) -> None:
-    machine.raises["C3:x:SP"] = ChannelLimitsViolationError(
-        "C3:x:SP", 9.9, "MAX_STEP_EXCEEDED", "step 8.6 exceeds 2.0"
+    machine.outcomes["C3:x:SP"] = WriteOutcome.REFUSED
+    machine.violations["C3:x:SP"] = LimitsViolation(
+        kind="MAX_STEP_EXCEEDED", reason="step 8.6 exceeds 2.0"
     )
     machine.writes.clear()
     plan = _apply(client, computed).json()
@@ -1962,15 +1979,12 @@ def test_apply_never_leaves_the_plan_applying(client, app, computed, monkeypatch
 @pytest.fixture
 def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     seen: list[dict[str, Any]] = []
-    order: list[str] = []
 
     async def create(config, control_target):
-        order.append("create")
-        seen.append({"config": config, "target": control_target, "order": list(order)})
+        seen.append({"config": config, "target": control_target})
         return SimpleNamespace()
 
     monkeypatch.setattr(backend, "_ca_target", None)  # a fresh process: no Channel Access yet
-    monkeypatch.setattr(backend, "register_builtin_connectors", lambda: order.append("register"))
     monkeypatch.setattr(
         backend.ConnectorFactory, "create_control_system_connector", staticmethod(create)
     )
@@ -1986,12 +2000,11 @@ EPICS_SECTION = {
 }
 
 
-def test_bring_up_registers_the_connectors_before_the_factory(monkeypatch, captured) -> None:
+def test_bring_up_builds_the_target_through_the_factory(monkeypatch, captured) -> None:
     monkeypatch.delenv("EPICS_CA_NAME_SERVERS", raising=False)
     monkeypatch.setattr(backend, "_section", lambda: json.loads(json.dumps(EPICS_SECTION)))
     asyncio.run(backend.build_connector("live"))
     [call] = captured
-    assert call["order"] == ["register", "create"]
     assert call["target"] == "live"
     assert "gateways" in call["config"]["connector"]["epics"]
 

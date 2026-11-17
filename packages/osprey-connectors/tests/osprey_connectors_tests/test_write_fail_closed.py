@@ -44,7 +44,7 @@ class TestOneNamePerWrite:
         violation = ChannelLimitsViolationError(
             address="TEST:PV",
             value=999.0,
-            violation_type="max_value",
+            violation_type="MAX_EXCEEDED",
             violation_reason="above max",
         )
         connector = _make_connector(validate_side_effect=violation)
@@ -53,10 +53,11 @@ class TestOneNamePerWrite:
             "osprey_connectors.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            with pytest.raises(ChannelLimitsViolationError) as raised:
-                await connector.write_channel(spelling, 999.0, confirm=False)
+            result = await connector.write_channel(spelling, 999.0, confirm=False)
 
-        assert raised.value is violation
+        assert result.refusal_reason == "LIMITS"
+        assert result.address == "TEST:PV"
+        assert result.limits_violation.reason == "above max"
         connector._limits_validator.validate.assert_called_once()
         (name, value), _kwargs = connector._limits_validator.validate.call_args
         assert (name, value) == ("TEST:PV", 999.0)
@@ -103,16 +104,16 @@ class TestFailClosedValidation:
     @pytest.mark.parametrize(
         ("violation_type", "value", "reason"),
         [
-            ("max_value", 999.0, "above max"),
-            ("max_step", 5.0, "step 5.0 exceeds max_step 1.0"),
+            ("MAX_EXCEEDED", 999.0, "above max"),
+            ("MAX_STEP_EXCEEDED", 5.0, "step 5.0 exceeds max_step 1.0"),
         ],
         ids=["max_value", "max_step"],
     )
-    async def test_limits_violation_propagates_without_caput(self, violation_type, value, reason):
-        """A ChannelLimitsViolationError raised inside the validate+caput offload
-        propagates out of write_channel unchanged, and caput never runs.
+    async def test_limits_violation_refuses_without_caput(self, violation_type, value, reason):
+        """A ChannelLimitsViolationError raised inside the limits check is a
+        LIMITS refusal carrying the violation, and caput never runs.
 
-        ``max_step`` is not skipped by the offload: it raises from the same
+        ``max_step`` is not skipped by the check: it raises from the same
         thread hop a ``max_value`` violation does.
         """
         violation = ChannelLimitsViolationError(
@@ -127,10 +128,11 @@ class TestFailClosedValidation:
             "osprey_connectors.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            with pytest.raises(ChannelLimitsViolationError) as raised:
-                await connector.write_channel("TEST:PV", value, confirm=False)
+            result = await connector.write_channel("TEST:PV", value, confirm=False)
 
-        assert raised.value is violation
+        assert result.refusal_reason == "LIMITS"
+        assert result.limits_violation.kind == violation_type
+        assert result.limits_violation.reason == reason
         connector._limits_validator.validate.assert_called_once()
         assert connector._aioca.puts == []
 

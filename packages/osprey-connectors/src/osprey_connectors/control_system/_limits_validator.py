@@ -11,9 +11,7 @@ from typing import Final, TypeGuard
 
 from pydantic import ValidationError
 
-from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel
-from osprey_connectors.types import (
+from osprey_connectors.limits_posture import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,
     limits_database_required,
@@ -21,6 +19,8 @@ from osprey_connectors.types import (
     target_limits_posture,
     type_limits_posture,
 )
+from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 
 logger = get_logger("limits_validator")
 
@@ -50,21 +50,6 @@ ConfigLookup = Callable[[str, object], object]
 #: agree on how, so the caller that is about to write supplies its own.
 CurrentValueReader = Callable[[str], object]
 
-#: Ceiling on the fresh read a ``max_step`` check makes, in seconds, when the
-#: deployment names none. The check sits in front of a write an operator is
-#: waiting on, so a channel that does not answer must fail closed quickly
-#: rather than hold the write open: running out of budget answers ``None``,
-#: which refuses the write.
-#:
-#: How long that read takes is a property of the facility's control network,
-#: exactly like the connector's own ``timeout_s`` — a gateway two hops away
-#: answers slower than a soft IOC on the same host — so a deployment overrides
-#: it with ``control_system.connector.<type>.step_read_timeout_s``.
-DEFAULT_STEP_READ_TIMEOUT_S = 2.0
-
-#: The per-connector key that overrides it, spelled once so the connector and
-#: the python-executor sandbox cannot read two different names.
-STEP_READ_TIMEOUT_KEY = "step_read_timeout_s"
 
 #: The ``violation_type`` of a write refused because its value is not a finite
 #: real number while the channel has a numeric limit to hold it to.
@@ -203,44 +188,6 @@ def _finite_real_or_reason(value: object) -> tuple[float | None, str | None]:
 def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
     """Whether ``value`` is a JSON object: a ``dict``, whose keys :mod:`json` makes ``str``."""
     return isinstance(value, dict)
-
-
-def step_read_timeout_s(
-    config: Mapping[str, object] | None, connector_type: str | None = None
-) -> float:
-    """The ``max_step`` fresh-read budget one connector block declares.
-
-    Args:
-        config: A connector's own config section — the mapping
-            ``control_system.connector.<type>`` resolves to.
-        connector_type: The type that block belongs to, so a warning names the
-            key an operator has to go and fix. ``None`` leaves the type a
-            placeholder in that message.
-
-    Returns:
-        The declared budget, or :data:`DEFAULT_STEP_READ_TIMEOUT_S` when
-        the block declares none or declares something that is not a positive
-        number. A value that cannot be used is warned about, naming the key and
-        what was found, and then falls back rather than raising: this resolves
-        on the write path, and a typo in a tuning key must not be the thing
-        that takes writes down.
-    """
-    if not isinstance(config, Mapping):
-        return DEFAULT_STEP_READ_TIMEOUT_S
-    declared = config.get(STEP_READ_TIMEOUT_KEY)
-    if declared is None:
-        return DEFAULT_STEP_READ_TIMEOUT_S
-    if isinstance(declared, bool) or not isinstance(declared, int | float) or declared <= 0:
-        logger.warning(
-            "control_system.connector.%s.%s must be a positive number of seconds, "
-            "got %r — falling back to %s",
-            connector_type or "<type>",
-            STEP_READ_TIMEOUT_KEY,
-            declared,
-            DEFAULT_STEP_READ_TIMEOUT_S,
-        )
-        return DEFAULT_STEP_READ_TIMEOUT_S
-    return float(declared)
 
 
 def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
@@ -553,7 +500,7 @@ class LimitsValidator:
             connector_type: The connector type to resolve the posture for, as
                 the config's ``control_system.connector`` table keys it.
             target: The session control target to resolve the posture for, one
-                of :data:`osprey_connectors.types.CONTROL_TARGETS`. A target
+                of :data:`osprey_connectors.connector_types.CONTROL_TARGETS`. A target
                 that does not resolve to a type gets the deployment-wide block,
                 as the write posture does.
 
@@ -602,7 +549,7 @@ class LimitsValidator:
         machine it is deciding about is any of the ones a session here can
         select.
 
-        The fold is :func:`osprey_connectors.types.most_restrictive_limits_posture`'s:
+        The fold is :func:`osprey_connectors.limits_posture.most_restrictive_limits_posture`'s:
         limits checking is on when any reachable target has it on, and the mode
         is ``optional`` only where every reachable target is ``optional``. The
         result names the deployment-wide keys, because no per-type line decides
@@ -651,14 +598,14 @@ class LimitsValidator:
         unset ``enabled`` would take the disabled branch and check nothing.
 
         Whether the database must exist is
-        :func:`~osprey_connectors.types.limits_database_required`, asked of the
+        :func:`~osprey_connectors.limits_posture.limits_database_required`, asked of the
         live config's path. ``optional`` with no path configured needs none:
         the validator enforces over an empty database, so every channel is
         unlisted and written with no limits. A configured path that fails to
         load stays fail-safe whatever the mode.
 
         Args:
-            posture: The resolved posture, from the ``types`` resolver family.
+            posture: The resolved posture, from the ``limits_posture`` resolver family.
 
         Returns:
             An enforcing validator (over an empty database for ``optional``

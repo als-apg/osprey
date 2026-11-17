@@ -124,13 +124,13 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 if TYPE_CHECKING:
+    from osprey_connectors.connector_types import ControlTarget
     from osprey_connectors.control_system import (
         ChannelMetadata,
         ChannelValue,
         ControlSystemConnector,
     )
     from osprey_connectors.posture_store import WriteVerdict
-    from osprey_connectors.types import ControlTarget
 
 logger = get_logger("control_session")
 
@@ -335,15 +335,15 @@ def _fallback_target(section: dict[str, Any]) -> ControlTarget:
     accelerator when the deployment configures one, and the live machine
     otherwise.
     """
-    from osprey_connectors import types
+    from osprey_connectors import connector_types, targets
 
-    target = types.baseline_target(section)
-    if target != types.TARGET_STANDIN:
+    target = targets.baseline_target(section)
+    if target != connector_types.TARGET_STANDIN:
         return target
     connectors = section.get("connector")
-    if isinstance(connectors, dict) and types.VIRTUAL_ACCELERATOR in connectors:
-        return types.TARGET_VA
-    return types.TARGET_LIVE
+    if isinstance(connectors, dict) and connector_types.VIRTUAL_ACCELERATOR in connectors:
+        return connector_types.TARGET_VA
+    return connector_types.TARGET_LIVE
 
 
 #: What names the sessions a process writes for: a zero-argument callable read
@@ -432,7 +432,7 @@ def _bounded_config(
         ValueError: The block's call bound cannot be read; its connector would
             refuse to connect alike.
     """
-    from osprey_connectors.control_system import STEP_READ_TIMEOUT_KEY
+    from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
 
     blocks = section.get("connector")
     blocks = dict(blocks) if isinstance(blocks, Mapping) else {}
@@ -448,7 +448,7 @@ def _bounded_config(
     return config, call_bound_s, write_bound_s
 
 
-async def _warm(connector: Any) -> None:
+async def _warm(connector: ControlSystemConnector) -> None:
     """Start the connector's client context, bounded and never fatal.
 
     The first Channel Access call a process makes loads libca and creates its
@@ -542,9 +542,10 @@ class ControlSession:
     ) -> ControlSession:
         """Bind this process to the deployment's control target.
 
-        Checks the environment, marks the process as a long-lived session,
-        drops inherited ``EPICS_*`` settings, reads the record once, builds and
-        connects the connector for its target, and warms it.
+        Checks the environment, drops inherited ``EPICS_*`` settings, reads
+        the record once, builds and connects the connector for its target
+        (worded as the deployment's when it refuses a readonly write), and
+        warms it.
 
         The connector is built from a copy of its block with ``timeout_s`` =
         T_b and the step-read ceiling = S_b (``osprey.runtime.budget``), so
@@ -572,14 +573,11 @@ class ControlSession:
                 ``fallback`` state and an unbuildable connector the
                 ``unservable`` one.
         """
-        from osprey_connectors import types
-        from osprey_connectors.control_system import mark_long_lived_session
-        from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+        from osprey_connectors import targets
+        from osprey_connectors.factory import ConnectorFactory
 
         check_environment(os.environ)
-        mark_long_lived_session()
         scrub_epics_environment()
-        register_builtin_connectors()
 
         section = _control_system_section()
         if budget is None:
@@ -596,10 +594,12 @@ class ControlSession:
         connector: ControlSystemConnector | None = None
         connector_type: str | None = None
         try:
-            connector_type = types.resolve_target(section, target)
+            connector_type = targets.resolve_target(section, target)
             config, call_bound_s, write_bound_s = _bounded_config(section, connector_type, budget)
+            # A long-lived session runs no script: a readonly refusal on its
+            # connector is the deployment's, worded as in an MCP server.
             connector = await ConnectorFactory.create_control_system_connector(
-                config=config, control_target=target
+                config=config, control_target=target, readonly_wording="deployment"
             )
         except Exception as exc:
             logger.warning(
@@ -1013,9 +1013,9 @@ class ControlSession:
     ) -> SessionWriteResult:
         """The checked write on the bound connector, mapped to the write contract's outcomes."""
         from osprey_connectors.errors import (
-            ChannelLimitsViolationError,
             ChannelWriteBlockedError,
             ChannelWriteFailedError,
+            RefusalReason,
         )
 
         connector = self._connector
@@ -1037,21 +1037,16 @@ class ControlSession:
         except ChannelWriteBlockedError as exc:
             # The connector refused: its reason is a RefusalReason member and
             # its text the operator's words, trailer included. A limits refusal
-            # chains the violation as its cause, whose sentence is the one a
-            # person reads, without the wrapper. The monitor's own posture
-            # refusal means the verdict moved between admission and the door;
-            # it is logged beside the verdict the write was admitted under.
-            if exc.reason == REASON_LIMITS:
-                violation = exc.__cause__
-                text = (
-                    violation.violation_reason or ""
-                    if isinstance(violation, ChannelLimitsViolationError)
-                    else str(exc)
-                )
+            # carries its violation, whose sentence is the one a person reads,
+            # without the wrapper. The monitor's own posture refusal means the
+            # verdict moved between admission and the door; it is logged beside
+            # the verdict the write was admitted under.
+            if exc.reason is RefusalReason.LIMITS:
+                text = exc.violation.reason if exc.violation is not None else str(exc)
                 return SessionWriteResult(
                     outcome=OUTCOME_REFUSED, reason=REASON_LIMITS, message=text.strip()
                 )
-            if exc.reason == "WRITES_DISABLED":
+            if exc.reason is RefusalReason.WRITES_DISABLED:
                 logger.info(
                     "Write to %s refused by the reference monitor (admitted under %s): %s",
                     address,
@@ -1060,7 +1055,7 @@ class ControlSession:
                 )
             return SessionWriteResult(
                 outcome=OUTCOME_REFUSED,
-                reason=str(exc.reason or "VALIDATION_ERROR"),
+                reason=str(exc.reason),
                 message=str(exc).strip(),
             )
         except ChannelWriteFailedError as exc:
@@ -1075,14 +1070,14 @@ class ControlSession:
                 outcome=OUTCOME_CONFIRMED,
                 reason=REASON_WRITE_LANDED,
                 message=MESSAGE_WRITTEN,
-                observed_value=result.observed_value,
+                observed_value=None if result.observed is None else result.observed.value,
             )
-        # ``unrequested``: the connector's confirm policy asked for no re-read.
+        # ``unrequested``: the connector's confirm policy asked for no re-read,
+        # so the result carries no observed reading.
         return SessionWriteResult(
             outcome=OUTCOME_UNCONFIRMED,
             reason=REASON_WRITE_UNCONFIRMED,
             message=MESSAGE_UNCONFIRMED,
-            observed_value=result.observed_value,
         )
 
     def _settle(

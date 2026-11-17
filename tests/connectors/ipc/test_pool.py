@@ -30,16 +30,18 @@ import yaml
 import osprey_connectors
 from osprey_connectors import control_context
 from osprey_connectors import recovery as recovery_module
-from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
     ChannelNotFoundError,
     ChannelReadFailedError,
     ChannelUnreachableError,
+    ChannelWriteBlockedError,
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
     RecoveryAction,
     RecoveryRecord,
+    RefusalReason,
 )
 from osprey_connectors.ipc import _pool as pool_module
 from osprey_connectors.ipc._host import START_PHASES
@@ -798,7 +800,7 @@ async def test_the_pool_and_the_policy_table_agree(
     )
 
     with pytest.raises(BaseException) as caught:
-        await pool._invoke(("live", None), method, "SR:A")
+        await _call_by_name(pool, method, "SR:A")
 
     raised = caught.value
     if step is recovery_module._Step.NONE:
@@ -817,6 +819,11 @@ async def test_the_pool_and_the_policy_table_agree(
     else:
         assert isinstance(raised, ConnectorHostLostError)
         assert child.retired == raised.cause
+
+
+async def _call_by_name(pool, method, *args):
+    """Run the proxy method named *method* on the ``live`` key's child, as the pool does."""
+    return await pool._call(("live", None), method, lambda proxy: getattr(proxy, method)(*args))
 
 
 def _parity_child(pool, monkeypatch, proxy):
@@ -856,10 +863,10 @@ async def test_a_call_whose_deadline_passes_after_its_child_was_replaced_carries
     child = _parity_child(pool, monkeypatch, proxy)
 
     with pytest.raises(ConnectorHostLostError) as replaced:
-        await pool._invoke(("live", None), "read_channel", "SR:A")
+        await _call_by_name(pool, "read_channel", "SR:A")
     proxy.exc = ChildUnresponsiveError("deadline")
     with pytest.raises(ConnectorHostLostError) as bystander:
-        await pool._invoke(("live", None), "read_channel", "SR:B")
+        await _call_by_name(pool, "read_channel", "SR:B")
 
     assert bystander.value.cause == child.retired == replaced.value.cause
     assert "was retired" in str(bystander.value)
@@ -877,7 +884,7 @@ async def test_a_call_whose_deadline_passes_after_the_pool_stopped_its_child_car
     child.retired = pool_module.CAUSE_STOPPED
 
     with pytest.raises(ConnectorHostLostError) as caught:
-        await pool._invoke(("live", None), "read_channel", "SR:A")
+        await _call_by_name(pool, "read_channel", "SR:A")
 
     assert caught.value.cause == "stopped"
     assert caught.value.recovery == ()
@@ -1249,6 +1256,41 @@ def test_a_handle_names_the_key_it_is_bound_to():
     assert (live_ro.target, live_ro.execution_mode) == ("live", "readonly")
 
 
+async def test_a_checked_write_is_one_call_the_pool_names_and_supervises(monkeypatch):
+    """The handle's checked write is one supervised ``write_channel``, held to the
+    denial contract in the parent."""
+    pool = ConnectorHostPool(_section(SLOW))
+    seen = []
+    answers = [
+        ChannelWriteResult.unrequested("SR:SP", 1.0),
+        ChannelWriteResult.refused("SR:SP", 1.0, RefusalReason.CONTROL_SYSTEM_REFUSED, "refused"),
+    ]
+
+    class _Proxy:
+        async def write_channel(self, address, value, *, timeout_s=None, confirm=None):
+            seen.append((address, value, timeout_s, confirm))
+            return answers.pop(0)
+
+    async def call(key, method, run):
+        seen.append((key, method))
+        return await run(_Proxy())
+
+    monkeypatch.setattr(pool, "_call", call)
+    handle = PooledConnector(pool, ("live", None))
+
+    got = await handle.write_channel_checked("SR:SP", 1.0, timeout_s=2.0, confirm=False)
+    with pytest.raises(ChannelWriteBlockedError):
+        await handle.write_channel_checked("SR:SP", 1.0)
+
+    assert got.outcome is WriteOutcome.UNREQUESTED
+    assert seen == [
+        (("live", None), "write_channel"),
+        ("SR:SP", 1.0, 2.0, False),
+        (("live", None), "write_channel"),
+        ("SR:SP", 1.0, None, None),
+    ]
+
+
 async def test_batched_reads_and_writes_reach_the_child_and_come_back_in_order(pools, writable):
     section, config_file, log = writable
     pool = pools(section, config_file=config_file)
@@ -1257,8 +1299,9 @@ async def test_batched_reads_and_writes_reach_the_child_and_come_back_in_order(p
     values = await live.read_multiple_channels(["SR:A", "SR:B"], timeout_s=OK_TIMEOUT_S)
     results = await live.write_multiple_channels([("SR:SP1", 1.0), ("SR:SP2", 2.0)])
 
-    assert sorted(values) == ["SR:A", "SR:B"]
-    assert all(value.value is not None for value in values.values())
+    assert sorted(values.values) == ["SR:A", "SR:B"]
+    assert values.failures == {}
+    assert all(value.value is not None for value in values.values.values())
     assert [(r.address, r.value_written) for r in results] == [
         ("SR:SP1", 1.0),
         ("SR:SP2", 2.0),

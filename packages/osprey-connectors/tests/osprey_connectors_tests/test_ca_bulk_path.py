@@ -40,8 +40,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osprey_connectors.control_system import _epics_bulk
-from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
+from osprey_connectors.control_system import ConnectorContext, _epics_bulk
+from osprey_connectors.control_system._base import Alarm, ChannelMetadata, ChannelValue
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors_tests._epics_fakes import (
@@ -221,8 +221,10 @@ class TestMonitors:
         await drain()
 
         [value] = received
+        assert value.address == NAME
         assert value.value == 7.0
         assert value.sampled_at.timestamp() == 1_750_000_000.0
+        assert value.alarm == Alarm(status="HIGH", severity=1)
         meta = value.metadata
         assert (meta.units, meta.precision) == ("mA", 2)
         assert (meta.display_low, meta.display_high) == (0.0, 500.0)
@@ -230,7 +232,6 @@ class TestMonitors:
         assert (meta.warning_low, meta.warning_high) == (10.0, 400.0)
         assert (meta.alarm_low, meta.alarm_high) == (5.0, 420.0)
         assert meta.writable is True
-        assert (meta.alarm_status, meta.alarm_severity) == ("HIGH", 1)
         assert (meta.raw_metadata["status"], meta.raw_metadata["severity"]) == (4, 1)
 
     async def test_write_access_comes_from_the_channel(self):
@@ -262,9 +263,9 @@ class TestMonitors:
         await drain()
 
         assert received[0].value == 2
-        assert received[0].metadata.enum_label == "FAULT"
+        assert received[0].enum_label == "FAULT"
         assert received[0].metadata.enum_labels == ("OFFLINE", "STANDBY", "FAULT")
-        assert received[0].metadata.alarm_status == "NO_ALARM"
+        assert received[0].alarm.status == "NO_ALARM"
 
     async def test_an_enum_without_labels_still_delivers_the_index(self):
         connector, aioca = bulk_connector()
@@ -276,7 +277,7 @@ class TestMonitors:
         await drain()
 
         assert received[0].value == 1
-        assert received[0].metadata.enum_label is None
+        assert received[0].enum_label is None
         assert received[0].metadata.enum_labels is None
 
     async def test_event_counts_report_every_ctrl_and_time_event(self):
@@ -611,7 +612,9 @@ class TestFailedReopen:
         connector, aioca = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(
+                address=NAME, value=1.0, sampled_at=datetime.now(UTC), metadata=expected
+            )
         )
         monkeypatch.setattr(connector, "read_channel", read)
         await self._dead(monkeypatch, connector, aioca, [])
@@ -623,7 +626,9 @@ class TestFailedReopen:
         connector, aioca = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(
+                address=NAME, value=1.0, sampled_at=datetime.now(UTC), metadata=expected
+            )
         )
         monkeypatch.setattr(connector, "read_channel", read)
         await connector.subscribe(NAME, lambda v: None)  # down: waiters wait for CTRL
@@ -778,10 +783,10 @@ class TestRecords:
         real = EPICSConnector._ca_channel_value.__get__(connector)
         calls = iter([True])
 
-        def flaky(reading, ctrl, writable=None):
+        def flaky(address, reading, ctrl, writable=None):
             if next(calls, False):
                 raise ValueError("unbuildable reading")
-            return real(reading, ctrl, writable)
+            return real(address, reading, ctrl, writable)
 
         monkeypatch.setattr(connector, "_ca_channel_value", flaky)
         _, received = await live(connector, aioca)
@@ -957,7 +962,9 @@ class TestRepoint:
         connector, _ = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(
+                address=NAME, value=1.0, sampled_at=datetime.now(UTC), metadata=expected
+            )
         )
         monkeypatch.setattr(connector, "read_channel", read)
         await connector.subscribe(NAME, lambda v: None)
@@ -999,7 +1006,8 @@ class TestMetadata:
 
         metadata = await connector.get_metadata(f"ca://{NAME}")
 
-        assert metadata.alarm_status == "LOLO"
+        # The value's own metadata: the raw alarm code it was delivered with.
+        assert metadata.raw_metadata["status"] == 5
         assert metadata.units == "mA"
 
     async def test_metadata_of_a_subscribed_address_reads_nothing(self, monkeypatch):
@@ -1027,7 +1035,9 @@ class TestMetadata:
         connector, _ = bulk_connector()
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(
+                address=NAME, value=1.0, sampled_at=datetime.now(UTC), metadata=expected
+            )
         )
         monkeypatch.setattr(connector, "read_channel", read)
 
@@ -1040,7 +1050,9 @@ class TestMetadata:
         connector, _ = bulk_connector(timeout=5.0)
         expected = ChannelMetadata(units="kV")
         read = AsyncMock(
-            return_value=ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=expected)
+            return_value=ChannelValue(
+                address=NAME, value=1.0, sampled_at=datetime.now(UTC), metadata=expected
+            )
         )
         monkeypatch.setattr(connector, "read_channel", read)
         sub_id = await connector.subscribe(NAME, lambda v: None)
@@ -1255,7 +1267,7 @@ async def _connected(args: dict[str, Any], *, name_server: bool = True) -> EPICS
             }
         }
     connector = EPICSConnector()
-    await connector.connect(config)
+    await connector.connect(ConnectorContext(settings=config))
     return connector
 
 
@@ -1270,13 +1282,16 @@ async def _on_ca_loop(connector: EPICSConnector, fn):
 
 def _value_json(value: ChannelValue) -> dict[str, Any]:
     meta = value.metadata
-    out = {"value": value.value}
+    alarm = value.alarm
+    out = {
+        "value": value.value,
+        "alarm_status": None if alarm is None else alarm.status,
+        "alarm_severity": None if alarm is None else alarm.severity,
+        "enum_label": value.enum_label,
+    }
     for field in (
         "units",
         "precision",
-        "alarm_status",
-        "alarm_severity",
-        "enum_label",
         "enum_labels",
         "display_low",
         "display_high",

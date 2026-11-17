@@ -51,7 +51,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.types import TARGET_LIVE
+from osprey_connectors.connector_types import TARGET_LIVE
 from osprey_connectors_tests._harness._ports import reserved_port
 
 # ---------------------------------------------------------------------------

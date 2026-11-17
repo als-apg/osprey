@@ -35,8 +35,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from osprey_connectors.simulator import VIRTUAL_ACCELERATOR_PORT_KEY
-from osprey_connectors.types import TARGET_VA
+from osprey_connectors.connector_types import TARGET_VA
+from osprey_connectors.deployment.simulator import VIRTUAL_ACCELERATOR_PORT_KEY
 
 from .config import ChannelSet, RecorderConfigError, RecorderSettings, read_recording_facts
 from .store import ArchiveWriter
@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 #: A live stand-in beside the simulator is never what this service samples.
 #: The stand-in rehearses the facility's real machine, so the past it is shown
 #: is the real machine's — the archiver appliance, when the deployment names
-#: one (:mod:`osprey_connectors.archive_targets`). The compose entry addresses
+#: one (:mod:`osprey_connectors.deployment.archive_targets`). The compose entry addresses
 #: the ``virtual-accelerator`` service and nothing else.
 RECORDED_TARGET = TARGET_VA
 
@@ -338,9 +338,8 @@ async def _connect() -> ControlSystemConnector:
     may not reach. With no gateway configured, ``connect()`` leaves the
     environment as it stands.
     """
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey_connectors.factory import ConnectorFactory
 
-    register_builtin_connectors()  # idempotent; the factory resolves "epics" through it
     return await ConnectorFactory.create_control_system_connector({"type": "epics"})
 
 

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from osprey_connectors.connector_types import DOOCS
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -22,7 +23,7 @@ from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailab
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._stall import STALL_CEILING_S, Stall
-from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
 # --------------------------------------------------------------------------------------
@@ -33,7 +34,7 @@ _EPOCH_S = 1_700_000_000  # arbitrary fixed timestamp
 _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
-_LIMITS_PATCH = "osprey_connectors.control_system._doocs_connector.LimitsValidator.from_config"
+_LIMITS_PATCH = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
 _TZ_PATCH = "osprey_connectors.config.get_facility_timezone"
 
 # How long an offload test waits on a threading.Event before giving up. It only
@@ -87,13 +88,15 @@ def _structured_write_facts(result):
     the alarm fields, and whether a message is carried at all — the
     ``error_message`` iff-rule, not its sentence.
     """
+    observed = result.observed
+    alarm = None if observed is None else observed.alarm
     return (
         result.outcome,
-        result.observed_value,
+        None if observed is None else observed.value,
         result.refusal_reason,
         result.error_message is not None,
-        result.alarm_status,
-        result.alarm_severity,
+        None if alarm is None else alarm.status,
+        None if alarm is None else alarm.severity,
     )
 
 
@@ -119,7 +122,7 @@ async def connector():
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         yield conn, mock_d4py
         await conn.disconnect()
 
@@ -142,7 +145,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             assert conn._connected is False
-            await conn.connect({})
+            await conn.connect(armed_context())
             assert conn._connected is True
             await conn.disconnect()
 
@@ -152,7 +155,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             with pytest.raises(ImportError, match="doocs4py"):
-                await conn.connect({})
+                await conn.connect(armed_context())
 
     async def test_connect_raises_on_ens_failure(self):
         mock_d4py = _make_doocs4py()
@@ -166,7 +169,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             with pytest.raises(ConnectorUnavailableError, match="ENS") as raised:
-                await conn.connect({})
+                await conn.connect(armed_context())
 
         assert isinstance(raised.value.__cause__, RuntimeError)
 
@@ -183,7 +186,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             with pytest.raises(ConnectorUnavailableError, match=r"within 0\.2s") as raised:
-                await conn.connect({"timeout_s": 0.2})
+                await conn.connect(armed_context(settings={"timeout_s": 0.2}))
             answered_first = not names.returned
 
         assert "ENS" in str(raised.value)
@@ -203,7 +206,7 @@ class TestConnect:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            connect_task = asyncio.create_task(conn.connect({}))
+            connect_task = asyncio.create_task(conn.connect(armed_context()))
             began = await asyncio.to_thread(names.entered.wait, STALL_CEILING_S)
             still_parked = not names.returned
             names.release()
@@ -229,7 +232,7 @@ class TestConnect:
 
             conn = DOOCSConnector()
             with pytest.raises(ValueError, match="control_system.connector.doocs.timeout_s"):
-                await conn.connect({"timeout_s": bad})
+                await conn.connect(armed_context(connector_type=DOOCS, settings={"timeout_s": bad}))
 
         assert conn._connected is False
 
@@ -251,7 +254,16 @@ class TestReadChannel:
         result = await conn.read_channel("FAC/DEV/LOC/PROP")
 
         assert isinstance(result, ChannelValue)
+        assert result.address == "FAC/DEV/LOC/PROP"
         assert result.value == 42.0
+
+    async def test_a_reading_reports_no_alarm_and_no_label(self, connector):
+        """DOOCS reports no alarm state: the reading's alarm is "not reported", never healthy."""
+        conn, _ = connector
+        result = await conn.read_channel("FAC/DEV/LOC/PROP")
+
+        assert result.alarm is None
+        assert result.enum_label is None
 
     async def test_read_sampled_at_is_the_readings_own_in_utc(self, connector):
         conn, _ = connector
@@ -325,7 +337,7 @@ async def _write_with_validator(validator, value=10.0, readback=10.0, **kwargs):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         result = await conn.write_channel("FAC/DEV/LOC/PROP", value, **kwargs)
         await conn.disconnect()
 
@@ -344,7 +356,7 @@ class TestWriteChannel:
         assert isinstance(result, ChannelWriteResult)
         assert result.outcome is WriteOutcome.CONFIRMED
         assert result.value_written == 10.0
-        assert result.observed_value == pytest.approx(10.0)
+        assert result.observed.value == pytest.approx(10.0)
         assert result.error_message is None
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
 
@@ -354,7 +366,7 @@ class TestWriteChannel:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
+        assert result.observed is None
         assert result.error_message is None
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
         mock_d4py.get.assert_not_called()
@@ -368,7 +380,7 @@ class TestWriteChannel:
         assert result.outcome is WriteOutcome.FAILED
         assert "write failed" in result.error_message
         assert "FAC/DEV/LOC/PROP" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         # Nothing was taken, so there is nothing to confirm.
         mock_d4py.get.assert_not_called()
 
@@ -380,7 +392,7 @@ class TestWriteChannel:
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "readback error" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
 
     @pytest.mark.parametrize("readback", [99.0, 10.05], ids=["far", "rounded"])
     async def test_a_readback_that_differs_is_a_mismatch_with_no_message(self, connector, readback):
@@ -418,7 +430,7 @@ class TestWriteChannel:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
             result = await conn.write_channel("FAC/DEV/LOC/PROP", 1.0)
             await conn.disconnect()
 
@@ -484,14 +496,15 @@ class TestNonBlockingOffload:
     """
 
     async def test_validate_and_send_run_off_the_event_loop(self):
-        """Validation and the send run on one thread, and it is not the loop's.
+        """Validation and the send each run off the loop, as two separate steps.
 
         A stand-in for ``max_step``'s blocking fresh read parks inside
         ``validate()`` until this test releases it. Regaining the loop while
         that call is still parked is possible only if it never ran there.
         The thread each fake records says the same thing a second way:
-        ``validate()`` and ``doocs4py.set`` report one thread, and it is not
-        the one the loop runs on.
+        neither ``validate()`` nor ``doocs4py.set`` reports the thread the loop
+        runs on. The check finishes before the set begins: they are two
+        offloads, so a check that outlives its bound sends nothing.
         """
         loop_thread = threading.get_ident()
         entered = threading.Event()  # validate() has begun
@@ -524,7 +537,7 @@ class TestNonBlockingOffload:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
 
             write_task = asyncio.create_task(
                 conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
@@ -541,24 +554,27 @@ class TestNonBlockingOffload:
         assert still_parked, "the loop was regained only after validate() returned"
         assert threads.keys() == {"validate", "set"}
         assert loop_thread not in threads.values()
-        assert len(set(threads.values())) == 1, f"the offload was split: {threads}"
         # The check was still made, and the value still went out.
         validator.validate.assert_called_once()
         assert result.outcome is WriteOutcome.UNREQUESTED
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
 
-    async def test_a_limits_refusal_raised_in_the_offload_sends_nothing(self):
-        """A refusal from the worker thread reaches the caller as itself.
+    async def test_a_limits_refusal_raised_in_the_check_sends_nothing(self):
+        """A refusal from the worker thread reaches the caller as a LIMITS refusal.
 
-        Validation and the send share one offload, so the refusal is raised off
-        the loop and has a thread boundary to cross. It must arrive carrying its
-        LIMITS meaning rather than flattened into a failed write, and the value
-        it refused must never reach ``doocs4py.set``.
+        The limits check runs off the loop, so the refusal has a thread
+        boundary to cross. It must arrive carrying its LIMITS meaning rather
+        than flattened into a failed write, and the value it refused must never
+        reach ``doocs4py.set``.
         """
-        from osprey_connectors.errors import ChannelLimitsViolationError
+        from osprey_connectors.errors import (
+            ChannelLimitsViolationError,
+            LimitsViolation,
+            RefusalReason,
+        )
 
         refusal = ChannelLimitsViolationError(
-            "FAC/DEV/LOC/PROP", 10.0, "max_value", "above the configured ceiling"
+            "FAC/DEV/LOC/PROP", 10.0, "MAX_EXCEEDED", "above the configured ceiling"
         )
         validator = _make_limits_validator()
         validator.validate = MagicMock(side_effect=refusal)
@@ -574,14 +590,14 @@ class TestNonBlockingOffload:
             from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
             conn = DOOCSConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
 
-            with pytest.raises(ChannelLimitsViolationError) as raised:
-                await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
+            result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
 
             await conn.disconnect()
 
-        assert raised.value is refusal
+        assert result.refusal_reason is RefusalReason.LIMITS
+        assert result.limits_violation == LimitsViolation.from_error(refusal)
         mock_d4py.set.assert_not_called()
 
 
@@ -590,7 +606,7 @@ async def _bounded_connector(timeout_s):
     from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
     conn = DOOCSConnector()
-    await conn.connect({"timeout_s": timeout_s})
+    await conn.connect(armed_context(settings={"timeout_s": timeout_s}))
     return conn
 
 
@@ -659,10 +675,15 @@ class TestBoundedCalls:
         assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "within 0.2s" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         assert mock_d4py.get.call_count == 0
 
-    async def test_a_stalled_limits_check_is_unconfirmed(self):
+    async def test_a_stalled_limits_check_is_refused_and_sends_nothing(self):
+        """A check that outlives its bound refuses the write: nothing is sent.
+
+        The check and the set are separate steps, so a check that does not
+        answer in time leaves no set in flight that could still land.
+        """
         validator = _make_limits_validator(confirm=True)
         mock_d4py = _make_doocs4py()
         with (
@@ -679,9 +700,11 @@ class TestBoundedCalls:
             set_calls_at_return = mock_d4py.set.call_count
 
         assert answered_first
-        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "VALIDATION_ERROR"
         assert "within 0.2s" in result.error_message
         assert set_calls_at_return == 0
+        mock_d4py.set.assert_not_called()
 
     async def test_a_stalled_confirming_read_is_unconfirmed(self):
         mock_d4py = _make_doocs4py()
@@ -700,7 +723,7 @@ class TestBoundedCalls:
         assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "within 0.2s" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
 
 
@@ -728,7 +751,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", "DESIRED", confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == "DESIRED"
+        assert result.observed.value == "DESIRED"
         assert result.observed_number is None
         assert result.error_message is None
 
@@ -740,7 +763,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", "DESIRED", confirm=True)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == "OTHER"
+        assert result.observed.value == "OTHER"
         assert result.error_message is None
 
     async def test_sequence_readback_confirms_elementwise(self, connector):
@@ -750,7 +773,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", [1, 2, 3], confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == [1, 2, 3]
+        assert result.observed.value == [1, 2, 3]
 
     async def test_sequence_mismatch_is_a_mismatch(self, connector):
         conn, mock_d4py = connector
@@ -759,7 +782,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", [1, 2, 3], confirm=True)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == [1, 2, 4]
+        assert result.observed.value == [1, 2, 4]
         assert result.error_message is None
 
     async def test_array_readback_confirms_elementwise(self, connector):
@@ -780,7 +803,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value is observed
+        assert result.observed.value is observed
         # The read itself worked; only the comparison has no meaning.
         assert result.error_message is None
 
@@ -792,7 +815,7 @@ class TestNonNumericReadback:
         result = await conn.write_channel("FAC/DEV/LOC/PROP", "ON", confirm=True)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == pytest.approx(1.0)
+        assert result.observed.value == pytest.approx(1.0)
         assert result.error_message is None
 
 
@@ -824,11 +847,12 @@ class TestReadMultipleChannels:
 
         results = await conn.read_multiple_channels(addresses)
 
-        assert set(results.keys()) == set(addresses)
-        for v in results.values():
+        assert set(results.values) == set(addresses)
+        assert results.failures == {}
+        for v in results.values.values():
             assert isinstance(v, ChannelValue)
 
-    async def test_failed_channels_excluded(self, connector):
+    async def test_a_failed_channel_is_reported_with_its_own_error(self, connector):
         conn, mock_d4py = connector
 
         def _side_effect(address):
@@ -840,8 +864,11 @@ class TestReadMultipleChannels:
 
         results = await conn.read_multiple_channels(["FAC/DEV/LOC/OK", "FAC/DEV/LOC/BAD"])
 
-        assert "FAC/DEV/LOC/OK" in results
-        assert "FAC/DEV/LOC/BAD" not in results
+        assert list(results.values) == ["FAC/DEV/LOC/OK"]
+        assert list(results.failures) == ["FAC/DEV/LOC/BAD"]
+        failure = results.failures["FAC/DEV/LOC/BAD"]
+        assert isinstance(failure, ChannelUnreachableError)
+        assert failure.address == "FAC/DEV/LOC/BAD"
 
 
 # --------------------------------------------------------------------------------------
@@ -874,6 +901,8 @@ class TestSubscribe:
         cb.assert_called_once()
         reading = cb.call_args.args[0]
         assert isinstance(reading, ChannelValue)
+        assert reading.address == "FAC/DEV/LOC/PROP"
+        assert reading.alarm is None
         assert reading.metadata.raw_metadata["type"] == "float"
 
     async def test_unsubscribe_removes_subscription(self, connector):

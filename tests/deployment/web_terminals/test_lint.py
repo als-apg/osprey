@@ -27,7 +27,7 @@ from osprey.port_layout import (
 )
 from osprey.services.auth_sidecar.passwords import hash_password
 from osprey.utils.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
-from osprey_connectors.types import WRITES_KEY
+from osprey_connectors.write_tier import WRITES_KEY
 from tests._renders import tier_render
 
 # A second, non-default base whose block the explicit per-family overrides

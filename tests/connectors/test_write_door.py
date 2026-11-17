@@ -5,8 +5,8 @@ through a connector. These tests pin the flag's lifetime: it is closed by
 default, opens only inside :func:`open_door`, restores the prior value on
 exit (including a nested exit and an exit by exception), stays private to
 the thread that opened it, and travels into ``asyncio.to_thread``. The
-base connector opens it around every subclass's own write, and only once
-the write is allowed to run.
+base connector opens it around every subclass's send, and only once the
+write is allowed to run.
 
 The last section holds the door's contract against the armed raw-put block:
 a raw client put passes only inside the door — through a connector's write
@@ -22,14 +22,16 @@ import asyncio
 import sys
 import textwrap
 import threading
+from datetime import UTC, datetime
 from types import ModuleType
 
 import pytest
 
 from osprey.runtime import raw_put_block
 from osprey_connectors.control_system._base import (
-    ChannelWriteResult,
+    ChannelValue,
     ControlSystemConnector,
+    SendReport,
     WriteOutcome,
 )
 from osprey_connectors.control_system.write_door import door_is_open, open_door
@@ -124,24 +126,29 @@ def test_door_opened_inside_to_thread_does_not_leak_back():
 
 
 # ---------------------------------------------------------------------------
-# The base connector opens the door around every subclass's own write
+# The base connector opens the door around every subclass's send
 # ---------------------------------------------------------------------------
 
 
 class _DoorProbe(ControlSystemConnector):
-    """A connector whose writes record whether the door was open when they ran."""
+    """A connector whose sends record whether the door was open when they ran.
+
+    Each send records the door twice: on the event loop, and hopped onto a
+    worker thread, the way a connector's put reaches its client.
+    """
 
     def __init__(self, *, armed: bool, fail: bool = False):
         super().__init__()
         self._armed = armed
         self._fail = fail
         self.seen: list[bool] = []
+        self._sent: dict[str, object] = {}
 
     @property
     def _writes_enabled(self) -> bool:
         return self._armed
 
-    async def connect(self, config):
+    async def _open(self, config):
         pass
 
     async def disconnect(self):
@@ -150,52 +157,31 @@ class _DoorProbe(ControlSystemConnector):
     async def read_channel(self, addr, *, timeout_s=None):
         raise NotImplementedError
 
-    async def write_channel(self, address, value, **kwargs):
+    async def _send(self, address, value, *, timeout_s, wait):  # noqa: ARG002 - the send hook fixes this signature
         self.seen.append(door_is_open())
-        if self._fail:
-            raise RuntimeError("put failed")
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED,
-        )
-
-    async def write_multiple_channels(self, operations, **kwargs):
-        self.seen.append(door_is_open())
-        # The door reaches a connector's put hopped onto a worker thread.
         self.seen.append(await asyncio.to_thread(door_is_open))
         if self._fail:
-            raise RuntimeError("batch failed")
-        return [
-            ChannelWriteResult(
-                address=addr,
-                value_written=val,
-                outcome=WriteOutcome.CONFIRMED,
-            )
-            for addr, val in operations
-        ]
+            raise RuntimeError("put failed")
+        self._sent[address] = value
+        return SendReport()
 
-    async def read_multiple_channels(self, addrs, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return {}
+    async def _confirming_read(self, address, sent, *, timeout_s):  # noqa: ARG002 - the read-back hook fixes this signature
+        return ChannelValue(
+            address=address, value=self._sent[address], sampled_at=datetime.now(UTC)
+        )
 
-    async def subscribe(self, addr, cb):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def subscribe(self, addr, cb, *, on_connection=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return "sub"
 
     async def unsubscribe(self, sub_id):
         pass
-
-    async def get_metadata(self, addr):
-        raise NotImplementedError
-
-    async def validate_channel(self, addr):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return True
 
 
 def test_write_channel_runs_inside_the_open_door():
     probe = _DoorProbe(armed=True)
     result = asyncio.run(probe.write_channel("SR:PV", 1.0))
     assert result.outcome is WriteOutcome.CONFIRMED
-    assert probe.seen == [True]
+    assert probe.seen == [True, True]
     assert door_is_open() is False
 
 
@@ -203,7 +189,7 @@ def test_write_multiple_channels_runs_inside_the_open_door():
     probe = _DoorProbe(armed=True)
     results = asyncio.run(probe.write_multiple_channels([("A", 1), ("B", 2)]))
     assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED] * 2
-    assert probe.seen == [True, True]
+    assert probe.seen == [True] * 4
     assert door_is_open() is False
 
 
@@ -229,12 +215,12 @@ def test_the_door_closes_after_a_write_that_raises():
         with pytest.raises(RuntimeError, match="put failed"):
             await probe.write_channel("SR:PV", 1.0)
         single_after = door_is_open()
-        with pytest.raises(RuntimeError, match="batch failed"):
+        with pytest.raises(RuntimeError, match="put failed"):
             await probe.write_multiple_channels([("A", 1)])
         return single_after, door_is_open()
 
     assert asyncio.run(main()) == (False, False)
-    assert probe.seen == [True, True, True]
+    assert probe.seen == [True] * 4
 
 
 def test_the_door_closes_after_a_successful_write_in_the_same_task():
@@ -327,26 +313,9 @@ class _RawPutConnector(_DoorProbe):
             self._callback()
         return result
 
-    async def write_channel(self, address, value, **kwargs):
+    async def _send(self, address, value, *, timeout_s, wait):  # noqa: ARG002 - the send hook fixes this signature
         await asyncio.to_thread(self._put, address, value)
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.UNREQUESTED,
-        )
-
-    async def write_multiple_channels(self, operations, **kwargs):
-        results = []
-        for address, value in operations:
-            await asyncio.to_thread(self._put, address, value)
-            results.append(
-                ChannelWriteResult(
-                    address=address,
-                    value_written=value,
-                    outcome=WriteOutcome.UNREQUESTED,
-                )
-            )
-        return results
+        return SendReport()
 
 
 def test_raw_put_inside_the_door_reaches_the_client(armed_client):
@@ -374,7 +343,7 @@ def test_write_channel_through_to_thread_passes_and_closes_the_door(armed_client
     connector = _RawPutConnector(armed_client)
 
     async def main():
-        result = await connector.write_channel("SR:PV", 1.0)
+        result = await connector.write_channel("SR:PV", 1.0, confirm=False)
         return result, door_is_open()
 
     result, after = asyncio.run(main())
@@ -389,7 +358,7 @@ def test_write_multiple_channels_through_to_thread_passes_and_closes_the_door(ar
     connector = _RawPutConnector(armed_client)
 
     async def main():
-        results = await connector.write_multiple_channels([("A", 1), ("B", 2)])
+        results = await connector.write_multiple_channels([("A", 1), ("B", 2)], confirm=False)
         return results, door_is_open()
 
     results, after = asyncio.run(main())
@@ -405,7 +374,7 @@ def test_fresh_thread_callback_during_an_in_flight_connector_put_is_refused(arme
         callback=lambda: seen.append(_put_on_fresh_thread(armed_client, "SR:CB")),
     )
 
-    result = asyncio.run(connector.write_channel("SR:PV", 1.0))
+    result = asyncio.run(connector.write_channel("SR:PV", 1.0, confirm=False))
 
     assert result.outcome is WriteOutcome.UNREQUESTED
     assert len(seen) == 1
@@ -418,7 +387,7 @@ def test_inline_callback_during_a_connector_put_passes(armed_client):
     # connector's own put runs in that put's context, so the door is open.
     connector = _RawPutConnector(armed_client, callback=lambda: armed_client.caput("SR:CB", 2))
 
-    asyncio.run(connector.write_channel("SR:PV", 1.0))
+    asyncio.run(connector.write_channel("SR:PV", 1.0, confirm=False))
 
     assert armed_client.calls == [("SR:PV", 1.0), ("SR:CB", 2)]
     assert door_is_open() is False

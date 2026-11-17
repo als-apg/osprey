@@ -24,8 +24,9 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[None]:
     This is the sanctioned way for tests to mutate the factory registries.
     Clearing them directly is destructive: registrations made elsewhere (by
     ``initialize_registry()``, by another test module, by a facility preset)
-    are gone for the rest of the process, and ``register_builtin_connectors``
-    cannot tell a deliberately customized registry from a truncated one.
+    are gone for the rest of the process, and the factory's built-in
+    registration cannot tell a deliberately customized registry from a
+    truncated one.
 
     The restore is total: registrations added inside the block are dropped
     and registrations removed inside it are put back.
@@ -37,7 +38,7 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[None]:
 
     Example:
         >>> with isolated_connector_registries(clear=True):
-        ...     register_builtin_connectors()
+        ...     ConnectorFactory.list_control_systems()
     """
     # Imported here: the harness package is loaded by every conftest, and the
     # factory brings the control-system contract with it.

@@ -54,49 +54,51 @@ class SlowInProcessConnector(VAInProcessConnector):
             await asyncio.sleep(3600)
         return await super().read_channel(address, timeout_s=timeout_s)
 
-    async def write_channel(self, address, value, *, timeout_s=None, confirm=None):
+    async def _write_one(self, address, value, *, timeout_s, confirm):
+        # Past the write guard, before the connector's own checks: where a
+        # connector's write starts.
         log = os.environ.get(WRITE_LOG_ENV)
         if log:
             with open(log, "a", encoding="utf-8") as handle:
                 handle.write(f"{address} {value}\n")
         if address.startswith(SLOW_PREFIX):
             await asyncio.sleep(3600)
-        return await super().write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
+        return await super()._write_one(address, value, timeout_s=timeout_s, confirm=confirm)
 
 
 class FailingConnector(VAInProcessConnector):
     """A connector whose ``connect()`` cannot reach its control system."""
 
-    async def connect(self, config):  # noqa: ARG002 - the base signature
+    async def _open(self, config):  # noqa: ARG002 - the base signature
         raise ConnectionError("pool test: the gateway refused the connection")
 
 
 class HangingConnector(VAInProcessConnector):
     """A connector whose ``connect()`` never returns."""
 
-    async def connect(self, config):  # noqa: ARG002 - the base signature
+    async def _open(self, config):  # noqa: ARG002 - the base signature
         await asyncio.sleep(3600)
 
 
 class SlowStartConnector(VAInProcessConnector):
     """A connector whose ``connect()`` takes a second, then succeeds."""
 
-    async def connect(self, config):
+    async def _open(self, config):
         await asyncio.sleep(1.0)
-        await super().connect(config)
+        await super()._open(config)
 
 
 class TimingOutConnector(VAInProcessConnector):
     """A connector whose ``connect()`` times out reaching its control system."""
 
-    async def connect(self, config):  # noqa: ARG002 - the base signature
+    async def _open(self, config):  # noqa: ARG002 - the base signature
         raise TimeoutError("pool test: the gateway did not answer in time")
 
 
 class ExitingConnector(VAInProcessConnector):
     """A connector whose ``connect()`` ends the child process outright."""
 
-    async def connect(self, config):  # noqa: ARG002 - the base signature
+    async def _open(self, config):  # noqa: ARG002 - the base signature
         os._exit(3)
 
 

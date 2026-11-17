@@ -30,7 +30,7 @@ from osprey.runtime.session import (
     EXIT_TRANSPORT_STALE,
     ControlSession,
 )
-from osprey_connectors import control_context, posture_store, session_hold, types
+from osprey_connectors import connector_types, control_context, posture_store, session_hold
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -40,12 +40,15 @@ from osprey_connectors_tests._harness._control_context_fixtures import _set_swit
 
 #: A deployment whose baseline is the virtual accelerator.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 #: A stand-in with no simulator beside it and no real machine named: ``live`` has no answer.
-STANDIN_ONLY_SECTION = {"type": types.LIVE_STANDIN, "connector": {types.LIVE_STANDIN: {}}}
+STANDIN_ONLY_SECTION = {
+    "type": connector_types.LIVE_STANDIN,
+    "connector": {connector_types.LIVE_STANDIN: {}},
+}
 
 #: How long a watch that must never return is given to return anyway.
 NEVER_S = 3.0
@@ -80,7 +83,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     )
     control_context.invalidate_cache()
     if switch is None:
-        wanted = dict.fromkeys({target} & set(types.CONTROL_TARGETS), "allowed")
+        wanted = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     elif isinstance(switch, Mapping):
         wanted = dict(switch)
     else:
@@ -124,7 +127,7 @@ def mock_va(monkeypatch, state_dir):
     _serve(monkeypatch, VA_SECTION)
     _SpyFake.asked = 0
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _SpyFake)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _SpyFake)
         yield state_dir
 
 
@@ -243,9 +246,9 @@ NARROWED: tuple[str, ...] = ()
 
 #: :data:`VA_SECTION` with the write tier allowed.
 ARMED_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
+    "type": connector_types.VIRTUAL_ACCELERATOR,
     "writes": "allowed",
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 

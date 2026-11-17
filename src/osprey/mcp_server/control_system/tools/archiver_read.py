@@ -15,12 +15,13 @@ from osprey.mcp_server.control_system import target_banner
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
-from osprey_connectors.archive_targets import archive_targets, archive_withheld
 from osprey_connectors.archiver import PROCESSING_MODES, ProcessingMode
+from osprey_connectors.archiver_selection import resolve_archiver_type
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.control_context import published_machine_kind
+from osprey_connectors.deployment.archive_targets import archive_targets, archive_withheld
 from osprey_connectors.refusals import KIND_WORDS
 from osprey_connectors.simulation.values import LABELLED_TYPES, channel_labels
-from osprey_connectors.types import published_machine_kind, resolve_archiver_type
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
 
@@ -290,7 +291,7 @@ def _provenance(
       reading of the state file; a session on the baseline (or with no readable
       state at all) stamps :data:`TARGET_SOURCE_BASELINE`.
     * ``archiver_type`` — the configured archiver type, resolved by the same
-      :func:`~osprey_connectors.types.resolve_archiver_type` the factory uses, so
+      :func:`~osprey_connectors.archiver_selection.resolve_archiver_type` the factory uses, so
       the stamp cannot disagree with what was actually built.
     * ``archiver_backend`` — the connector class that served it. The class name
       and nothing else: an endpoint or connection string would put a host — or a
@@ -534,7 +535,7 @@ async def archiver_read(
 
         # The archive belongs to the machine. One `archiver:` block serves the
         # deployment, and it holds the past of some targets and not others
-        # (osprey_connectors.archive_targets): the facility's appliance for the
+        # (osprey_connectors.deployment.archive_targets): the facility's appliance for the
         # live machine and the stand-in that rehearses it, the deployment's own
         # store for the virtual accelerator. A session on any other target is
         # told it has no archive, never shown another machine's past.

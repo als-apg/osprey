@@ -897,10 +897,9 @@ def _ca_datatype(address: str) -> int:
 #: connector to a target repoints it under the pytest process's own client.
 _CONNECTOR_READ = """
 import asyncio, json, os, sys
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.factory import ConnectorFactory
 
 async def read(payload):
-    register_builtin_connectors()
     connector = await ConnectorFactory.create_control_system_connector(
         payload["section"], control_target="va"
     )

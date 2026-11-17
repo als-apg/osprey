@@ -18,7 +18,7 @@ import pytest
 import osprey_connectors.simulation.composite as composite_module
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.facility._injection_fixture import (
     OFFSETS,
     PARAMETERS,
@@ -71,7 +71,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
 async def _connected(tmp_path: Path) -> VAInProcessConnector:
     connector = VAInProcessConnector()
     view = injection_view(tmp_path / "tree")
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(armed_context(settings=in_process_config(view, response_delay_ms=0)))
     return connector
 
 

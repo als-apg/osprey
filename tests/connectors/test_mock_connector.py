@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import (
     NO_VIEW_MESSAGE,
@@ -24,7 +25,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ConnectorUnavailableError,
 )
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests._archive_composites import held_state_directories
 from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config, served_tree
@@ -50,7 +51,7 @@ class TestVAInProcessConnector:
         connector = VAInProcessConnector()
         config = in_process_config(served_tree(tmp_path), response_delay_ms=0)
 
-        await connector.connect(config)
+        await connector.connect(armed_context(settings=config))
         assert connector._connected is True
 
         await connector.disconnect()
@@ -64,7 +65,9 @@ class TestVAInProcessConnector:
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            )
         )
         assert await connector.validate_channel("A:SP") is True
 
@@ -80,7 +83,9 @@ class TestVAInProcessConnector:
         """A read, a metadata lookup and a reset on a disconnected simulator say it is gone."""
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            )
         )
         await connector.disconnect()
 
@@ -99,7 +104,7 @@ class TestVAInProcessConnector:
         connector = VAInProcessConnector()
 
         with pytest.raises(RuntimeError) as refusal:
-            await connector.connect({"response_delay_ms": 0})
+            await connector.connect(armed_context(settings={"response_delay_ms": 0}))
 
         assert str(refusal.value) == NO_VIEW_MESSAGE
         assert connector._connected is False
@@ -114,7 +119,7 @@ class TestVAInProcessConnector:
         )
         monkeypatch.chdir(render)
         connector = VAInProcessConnector()
-        await connector.connect({"response_delay_ms": 0})
+        await connector.connect(armed_context(settings={"response_delay_ms": 0}))
 
         assert await connector.validate_channel("BEAM:CURRENT") is True
 
@@ -126,7 +131,9 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, readings=["MADE:UP:CHANNEL"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             result = await connector.read_channel("MADE:UP:CHANNEL")
             assert isinstance(result.value, float)
@@ -144,7 +151,9 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, readings=["ANY:CHANNEL"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             result = await connector.read_channel("ANY:CHANNEL")
             assert result.sampled_at.utcoffset() == timedelta(0)
@@ -165,7 +174,9 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, readings=[channel], channels={channel: {"unit": units}})
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             result = await connector.read_channel(channel)
             assert result.metadata.units == units
@@ -181,7 +192,9 @@ class TestVAInProcessConnector:
             "osprey_connectors.config.get_config_value",
             side_effect=writes_enabled_config,
         ):
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             # Write a value
             channel = "TEST:SETPOINT:SP"
@@ -201,7 +214,9 @@ class TestVAInProcessConnector:
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0))
+        )
         puts = []
         monkeypatch.setattr(connector, "_put", lambda *args: puts.append(args))
 
@@ -221,7 +236,9 @@ class TestVAInProcessConnector:
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            )
         )
 
         def silent_refusal(*_args):
@@ -233,7 +250,10 @@ class TestVAInProcessConnector:
 
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
-        assert result.error_message == "Write to 'A:SP' refused by the simulator"
+        assert result.error_message == (
+            "Write to 'A:SP' refused by the control system; no value was written: "
+            "the simulator refused it"
+        )
 
         await connector.disconnect()
 
@@ -243,7 +263,9 @@ class TestVAInProcessConnector:
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            )
         )
 
         result = await connector.write_channel("B:SP", 1.0)
@@ -262,7 +284,9 @@ class TestVAInProcessConnector:
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            )
         )
 
         with pytest.raises(ChannelWriteBlockedError) as blocked:
@@ -281,7 +305,9 @@ class TestVAInProcessConnector:
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(served_tree(tmp_path, ["A:SP"]), response_delay_ms=0)
+            )
         )
 
         def rejecting_set(_values):
@@ -292,7 +318,10 @@ class TestVAInProcessConnector:
         result = await connector.write_channel("A:SP", 1.0)
 
         assert result.outcome is WriteOutcome.REFUSED
-        assert result.error_message == "orbit does not close"
+        assert result.error_message == (
+            "Write to 'A:SP' refused by the control system; no value was written: "
+            "orbit does not close"
+        )
 
         await connector.disconnect()
 
@@ -302,7 +331,9 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, ["TEST:PV"])
         connector = VAInProcessConnector()
         with patch("osprey_connectors.config.get_config_value", return_value=False):
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             result = await connector.write_channel("TEST:PV", 100.0)
             assert result.outcome is WriteOutcome.REFUSED
@@ -319,14 +350,16 @@ class TestVAInProcessConnector:
             channels={"MODE:SP": {"value_type": "enum", "options": ["OFF", "CW", "PULSED"]}},
         )
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0))
+        )
 
         result = await connector.write_channel("MODE:SP", 2)
         reading = await connector.read_channel("MODE:SP")
 
         assert result.outcome is WriteOutcome.CONFIRMED
         assert reading.value == 2
-        assert reading.metadata.enum_label == "PULSED"
+        assert reading.enum_label == "PULSED"
         assert reading.metadata.enum_labels == ("OFF", "CW", "PULSED")
 
         await connector.disconnect()
@@ -352,7 +385,9 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         self._fault(view, {"MAGNET:CURRENT:SP": "stuck"})
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0))
+        )
 
         result = await connector.write_channel("MAGNET:CURRENT:SP", 7.0)
 
@@ -375,15 +410,17 @@ class TestVAInProcessConnector:
         )
         self._fault(view, {"BEAM:CUT": "disconnected"})
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0))
+        )
 
         cut = await connector.read_channel("BEAM:CUT")
         live = await connector.read_channel("BEAM:LIVE")
 
         assert math.isnan(cut.value)
-        assert (cut.metadata.alarm_severity, cut.metadata.alarm_status) == (3, "UDF")
+        assert cut.alarm == Alarm(status="UDF", severity=3)
         assert live.value == pytest.approx(2.0)
-        assert live.metadata.alarm_severity is None
+        assert live.alarm is None
 
         await connector.disconnect()
 
@@ -393,7 +430,9 @@ class TestVAInProcessConnector:
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0))
+        )
         seen = []
         await connector.subscribe("MAGNET:CURRENT:RB", seen.append)
 
@@ -428,7 +467,9 @@ class TestVAInProcessConnector:
         """After a tick of ``simulation.tick_s`` a channel declaring motion fires."""
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            )
         )
         seen = []
         await connector.subscribe("BEAM:NOISY", seen.append)
@@ -444,7 +485,9 @@ class TestVAInProcessConnector:
         """A channel with no motion and an unchanged held value never fires on a tick."""
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            )
         )
         noisy, quiet = [], []
         await connector.subscribe("BEAM:NOISY", noisy.append)
@@ -480,7 +523,9 @@ class TestVAInProcessConnector:
         state.mkdir(parents=True, exist_ok=True)
         (state / "active_scenarios").write_text("thermal\n", encoding="utf-8")
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0))
+        )
         quiet = []
         await connector.subscribe("BEAM:QUIET", quiet.append)
 
@@ -503,7 +548,9 @@ class TestVAInProcessConnector:
         state.mkdir(parents=True, exist_ok=True)
         (state / "active_scenarios").write_text("quiet\n", encoding="utf-8")
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0))
+        )
         noisy = []
         await connector.subscribe("BEAM:NOISY", noisy.append)
 
@@ -522,7 +569,9 @@ class TestVAInProcessConnector:
         assert DEFAULT_TICK_S >= 0.6
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(self._ticking_tree(tmp_path), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(self._ticking_tree(tmp_path), response_delay_ms=0)
+            )
         )
         seen = []
         await connector.subscribe("BEAM:NOISY", seen.append)
@@ -538,7 +587,9 @@ class TestVAInProcessConnector:
         """No callback fires after disconnect."""
         connector = VAInProcessConnector()
         await connector.connect(
-            in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            armed_context(
+                settings=in_process_config(self._ticking_tree(tmp_path, 0.05), response_delay_ms=0)
+            )
         )
         seen = []
         await connector.subscribe("BEAM:NOISY", seen.append)
@@ -556,15 +607,18 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3", "PV:4"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             channels = ["PV:1", "PV:2", "PV:3", "PV:4"]
             results = await connector.read_multiple_channels(channels)
 
-            assert len(results) == len(channels)
+            assert len(results.values) == len(channels)
+            assert results.failures == {}
             for channel in channels:
-                assert channel in results
-                assert results[channel].value is not None
+                assert channel in results.values
+                assert results.values[channel].value is not None
 
             await connector.disconnect()
 
@@ -580,17 +634,35 @@ class TestVAInProcessConnector:
         connector.read_channel = read_channel
 
     @pytest.mark.asyncio
-    async def test_read_multiple_channels_omits_a_failed_read(self, tmp_path):
-        """A read that fails with an ordinary error is left out of the result."""
+    async def test_read_multiple_channels_reports_a_channel_failure(self, tmp_path):
+        """A read that fails for its channel is a failure in the batch, with its error."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
+
+            results = await connector.read_multiple_channels(["PV:1", "NOT:A:PV", "PV:3"])
+
+            assert set(results.values) == {"PV:1", "PV:3"}
+            assert list(results.failures) == ["NOT:A:PV"]
+            assert isinstance(results.failures["NOT:A:PV"], ChannelNotFoundError)
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_read_multiple_channels_raises_an_error_that_is_no_channel_s(self, tmp_path):
+        """A read that fails with an ordinary error fails the whole batch."""
+        view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
+        with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
+            connector = VAInProcessConnector()
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
             self._fail_read_of(connector, "PV:2", RuntimeError("read failed"))
 
-            results = await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
-
-            assert set(results) == {"PV:1", "PV:3"}
+            with pytest.raises(RuntimeError, match="read failed"):
+                await connector.read_multiple_channels(["PV:1", "PV:2", "PV:3"])
             await connector.disconnect()
 
     @pytest.mark.asyncio
@@ -599,7 +671,9 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
             self._fail_read_of(connector, "PV:2", asyncio.CancelledError())
 
             with pytest.raises(asyncio.CancelledError):
@@ -612,7 +686,9 @@ class TestVAInProcessConnector:
         view = served_tree(tmp_path, readings=["ANY:PV:NAME"])
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             assert await connector.validate_channel("ANY:PV:NAME") is True
             assert await connector.validate_channel("RANDOM:CHANNEL") is False
@@ -629,7 +705,9 @@ class TestVAInProcessConnector:
         )
         with patch("osprey_connectors.config.get_config_value", side_effect=writes_enabled_config):
             connector = VAInProcessConnector()
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             metadata = await connector.get_metadata("BEAM:CURRENT")
             assert metadata.units == "mA"
@@ -1017,12 +1095,14 @@ class TestInProcessWriteConfirmationContract:
             channels=channels,
         )
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(view, response_delay_ms=0, **settings))
+        await connector.connect(
+            armed_context(settings=in_process_config(view, response_delay_ms=0, **settings))
+        )
         return connector
 
     @staticmethod
     def _raising_read(message):
-        async def _read(_channel_address):
+        async def _read(_channel_address, _sent, *, timeout_s):  # noqa: ARG001 - the read-back hook's signature
             raise RuntimeError(message)
 
         return _read
@@ -1034,12 +1114,11 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == pytest.approx(42.0)
+        assert result.observed.value == pytest.approx(42.0)
         assert result.error_message is None
         assert result.refusal_reason is None
         # Mock has no alarm metadata to report; "not reported" stays None.
-        assert result.alarm_status is None
-        assert result.alarm_severity is None
+        assert result.observed.alarm is None
 
         await connector.disconnect()
 
@@ -1059,7 +1138,7 @@ class TestInProcessWriteConfirmationContract:
         for _ in range(5):
             result = await connector.write_channel("MAGNET:CURRENT:SP", 42.0)
             assert result.outcome is WriteOutcome.CONFIRMED
-            assert result.observed_value == pytest.approx(42.0)
+            assert result.observed.value == pytest.approx(42.0)
 
         # The ordinary read path is untouched and still noisy.
         noisy = await connector.read_channel("MAGNET:CURRENT:RB")
@@ -1086,7 +1165,7 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == pytest.approx(10.0)
+        assert result.observed.value == pytest.approx(10.0)
         assert result.value_written == pytest.approx(42.0)
         assert result.error_message is None
 
@@ -1100,10 +1179,8 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.observed_value is None
+        assert result.observed is None
         assert "CA disconnected" in result.error_message
-        assert result.alarm_status is None
-        assert result.alarm_severity is None
 
         await connector.disconnect()
 
@@ -1115,7 +1192,7 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, confirm=False)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
+        assert result.observed is None
         assert result.error_message is None
 
         await connector.disconnect()
@@ -1128,7 +1205,7 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", "not-a-number")
 
         assert result.outcome is WriteOutcome.FAILED
-        assert result.observed_value is None
+        assert result.observed is None
         assert result.error_message is not None
 
         await connector.disconnect()
@@ -1136,8 +1213,8 @@ class TestInProcessWriteConfirmationContract:
     async def test_notes_text_does_not_change_the_outcome(self, monkeypatch, tmp_path):
         """Two confirming reads failing differently classify identically.
 
-        The exception text flows into ``notes`` and ``error_message`` and
-        nowhere else — the machine-readable verdict must be identical.
+        The exception text flows into ``error_message`` and nowhere else —
+        the machine-readable verdict must be identical.
         """
         connector = await self._connected_in_process(monkeypatch, tmp_path)
 
@@ -1148,15 +1225,9 @@ class TestInProcessWriteConfirmationContract:
         second = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         def structured(result):
-            return (
-                result.outcome,
-                result.refusal_reason,
-                result.observed_value,
-                result.alarm_status,
-                result.alarm_severity,
-            )
+            return (result.outcome, result.refusal_reason, result.observed)
 
-        assert first.notes != second.notes, "notes should differ"
+        assert first.error_message != second.error_message, "messages should differ"
         assert structured(first) == structured(second)
 
         await connector.disconnect()

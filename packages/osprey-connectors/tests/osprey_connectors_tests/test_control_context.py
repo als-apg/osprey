@@ -19,9 +19,9 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.errors import NaiveDatetimeError, StateUnavailableError
 from osprey_connectors.model import evolve
-from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._paths import REPO_ROOT
 
 # --- fixtures --------------------------------------------------------------

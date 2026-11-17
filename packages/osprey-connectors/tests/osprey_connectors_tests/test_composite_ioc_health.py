@@ -10,6 +10,7 @@ import pytest
 from lume.exceptions import ReadOnlyError
 from lume.variables import IntVariable, ScalarVariable, StrVariable
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.simulation.composite import Composite
@@ -213,7 +214,9 @@ def test_a_signal_this_composite_does_not_serve_is_refused(tmp_path: Path) -> No
 @pytest.fixture
 async def connector(tmp_path: Path):
     connected = VAInProcessConnector()
-    await connected.connect({"simulator_view": str(_view(tmp_path)), "response_delay_ms": 0})
+    await connected.connect(
+        ConnectorContext(settings={"simulator_view": str(_view(tmp_path)), "response_delay_ms": 0})
+    )
     yield connected
     await connected.disconnect()
 

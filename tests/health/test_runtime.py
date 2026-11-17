@@ -39,37 +39,31 @@ def _patch_factory(
     monkeypatch: pytest.MonkeyPatch,
     connector: Any,
     construct_calls: list[Any],
-    register_calls: list[bool],
 ) -> None:
-    """Spy `register_builtin_connectors` + `create_control_system_connector`.
+    """Spy `create_control_system_connector`.
 
-    `HealthRuntime.get_connector` imports both names from
-    ``osprey_connectors.factory`` at call time, so patching the module
-    attributes here intercepts them.
+    `HealthRuntime.get_connector` imports the factory from
+    ``osprey_connectors.factory`` at call time, so patching it there
+    intercepts the build.
     """
 
     async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
         construct_calls.append(config)
         return connector
 
-    def fake_register() -> None:
-        register_calls.append(True)
-
     monkeypatch.setattr(
         factory.ConnectorFactory,
         "create_control_system_connector",
         fake_create,
     )
-    monkeypatch.setattr(factory, "register_builtin_connectors", fake_register)
 
 
 async def test_get_connector_constructs_once_and_disconnects_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     spy = SpyConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     config = {
         "type": "virtual_accelerator",
@@ -85,7 +79,6 @@ async def test_get_connector_constructs_once_and_disconnects_once(
         assert first is spy
         assert second is spy
         assert construct_calls == [config]
-        assert register_calls == [True]
         assert spy.disconnect_calls == 0
 
     # Disconnected exactly once on context exit.
@@ -96,10 +89,9 @@ async def test_never_constructs_connector_when_get_connector_unused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     # A connector that would explode if constructed — it must never be.
     spy = SpyConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     async with HealthRuntime(
         {
@@ -109,9 +101,8 @@ async def test_never_constructs_connector_when_get_connector_unused(
     ):
         pass  # no channel_read-style probe ever asks for a connector
 
-    # Nothing registered, nothing constructed, nothing to disconnect.
+    # Nothing constructed, nothing to disconnect.
     assert construct_calls == []
-    assert register_calls == []
     assert spy.disconnect_calls == 0
 
 
@@ -119,9 +110,8 @@ async def test_disconnect_exception_is_swallowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     spy = _RaisingDisconnectConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     # Context exit must not propagate the disconnect failure.
     async with HealthRuntime(
@@ -139,9 +129,8 @@ async def test_explicit_shutdown_disconnects_once_and_is_idempotent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     spy = SpyConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     runtime = HealthRuntime(
         {
@@ -160,9 +149,8 @@ async def test_get_connector_refuses_after_shutdown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     spy = SpyConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     runtime = HealthRuntime(
         {
@@ -184,16 +172,14 @@ async def test_get_connector_refuses_after_shutdown(
             "connector": {"virtual_accelerator": {"serving": "in_process"}},
         }
     ]
-    assert register_calls == [True]
 
 
 async def test_get_connector_refuses_after_shutdown_without_construction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     spy = SpyConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     # shutdown() closes the runtime even when a connector was never built.
     runtime = HealthRuntime(
@@ -208,16 +194,14 @@ async def test_get_connector_refuses_after_shutdown_without_construction(
         await runtime.get_connector()
 
     assert construct_calls == []
-    assert register_calls == []
 
 
 async def test_flag_transitions_across_lifecycle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     spy = SpyConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     runtime = HealthRuntime(
         {
@@ -244,9 +228,8 @@ async def test_ever_constructed_stays_false_when_get_connector_unused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     spy = SpyConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     async with HealthRuntime(
         {
@@ -266,9 +249,8 @@ async def test_double_shutdown_is_safe_after_construction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     construct_calls: list[Any] = []
-    register_calls: list[bool] = []
     spy = SpyConnector()
-    _patch_factory(monkeypatch, spy, construct_calls, register_calls)
+    _patch_factory(monkeypatch, spy, construct_calls)
 
     runtime = HealthRuntime(
         {
@@ -313,7 +295,6 @@ def _patch_archiver_factory(
         return connector
 
     monkeypatch.setattr(factory.ConnectorFactory, "create_archiver_connector", fake_create)
-    monkeypatch.setattr(factory, "register_builtin_connectors", lambda: None)
 
 
 def _patch_slow_factory(
@@ -338,7 +319,6 @@ def _patch_slow_factory(
         "create_control_system_connector",
         fake_create,
     )
-    monkeypatch.setattr(factory, "register_builtin_connectors", lambda: None)
 
 
 async def test_concurrent_get_connector_constructs_exactly_one(

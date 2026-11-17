@@ -24,6 +24,7 @@ from osprey.facility.layers.mml.mapping import (
     read_mapping,
 )
 from osprey.facility.records import FacilityRecords
+from osprey_connectors.control_system import ConnectorContext
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 SPEAR3 = FIXTURES / "spear3"
@@ -198,7 +199,11 @@ async def test_the_in_process_simulator_serves_measured_tune_as_the_deck_s_tunes
     expected = at.get_optics(built.lattice.deepcopy(), get_chrom=False)[1].tune
 
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(render / "data" / "simulator", response_delay_ms=0))
+    await connector.connect(
+        ConnectorContext(
+            settings=in_process_config(render / "data" / "simulator", response_delay_ms=0)
+        )
+    )
     try:
         assert connector._composite.status(MODEL) == STATUS_OK
         reading = await connector.read_channel("MeasTune")
@@ -209,4 +214,4 @@ async def test_the_in_process_simulator_serves_measured_tune_as_the_deck_s_tunes
     assert served.shape == (3,)
     assert np.all(np.isfinite(served))
     assert served == pytest.approx(expected, abs=1e-12)
-    assert reading.metadata.alarm_severity is None
+    assert reading.alarm is None

@@ -26,17 +26,19 @@ child, and silently coupling the answer to whichever config the parent happens
 to hold. Subclassing would also drag in ``connect()``, ``subscribe()``,
 ``unsubscribe()`` and ``get_metadata()`` as abstract members the proxy has no
 wire method for. Mirroring the signatures gives tools
-substitutability; not inheriting keeps enforcement in exactly one place. A test
-compares the signatures parameter-by-parameter so the mirror cannot drift.
+substitutability; not inheriting keeps enforcement in exactly one place. The
+mirrored surface is :class:`~osprey_connectors.control_system.ControlSystem`,
+the protocol a tool types its connector as; a test compares every handle's
+signatures with it parameter-by-parameter so the mirror cannot drift.
 
 ``subscribe`` is absent on purpose: nothing in the codebase calls it, and a
 proxy method that could not deliver callbacks across the boundary would be a
 lie about the surface.
 
 ``write_channel_checked`` is the one method that is not a wire method. It is
-the base class's own function, bound here unchanged: it only composes
-``write_channel`` — which crosses to the child, where the ``writes_enabled``
-guard and the limits checks run — with
+the base class's own composition, written out here: ``write_channel`` — which
+crosses to the child, where the ``writes_enabled`` guard and the limits checks
+run — held to
 :func:`~osprey_connectors.control_system.raise_for_write_result`, which
 reads the result the child already decided. Running that composition in the
 parent keeps every refusal decision in the child.
@@ -89,9 +91,10 @@ from typing import Protocol, TypeVar
 
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system._base import (
+    ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
-    ControlSystemConnector,
+    raise_for_write_result,
 )
 from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.ipc import _frames as frames
@@ -279,25 +282,22 @@ class ConnectorHostProxy:
         return _expect(reply, ChannelValue, "read_channel")
 
     async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
+        self, addresses: Sequence[str], /, *, timeout_s: float | None = None
+    ) -> ChannelReadBatch:
         """Read many channels in **one** request frame.
 
         The batch crosses the boundary whole rather than as N round trips: the
         child's connector decides how to fan it out, exactly as it would
-        in-process, and one pipe round trip covers the lot.
+        in-process, and one pipe round trip covers the lot. Each failed
+        channel's own error crosses typed inside the batch; an error of the
+        connector itself arrives as the call's error frame and is raised.
         """
         reply = await self._call(
             "read_multiple_channels",
             {"addresses": list(addresses), "timeout_s": timeout_s},
             timeout_s=timeout_s,
         )
-        if not isinstance(reply, dict):
-            raise _unexpected(reply, "read_multiple_channels")
-        return {
-            address: _expect(value, ChannelValue, "read_multiple_channels")
-            for address, value in reply.items()
-        }
+        return _expect(reply, ChannelReadBatch, "read_multiple_channels")
 
     async def write_channel(
         self,
@@ -350,8 +350,18 @@ class ConnectorHostProxy:
             raise _unexpected(reply, "write_multiple_channels")
         return [_expect(item, ChannelWriteResult, "write_multiple_channels") for item in reply]
 
-    #: The base class's own function, not a copy: see the module docstring.
-    write_channel_checked = ControlSystemConnector.write_channel_checked
+    async def write_channel_checked(
+        self,
+        address: str,
+        value: ContractAny,
+        *,
+        timeout_s: float | None = None,
+        confirm: bool | None = None,
+    ) -> ChannelWriteResult:
+        """``write_channel`` held to the denial contract in the parent: see the module docstring."""
+        return raise_for_write_result(
+            await self.write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
+        )
 
     async def validate_channel(self, address: str) -> bool:
         """Whether the channel exists and is reachable, as the child's connector sees it."""

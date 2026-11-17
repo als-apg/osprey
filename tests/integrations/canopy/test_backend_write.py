@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -47,11 +48,10 @@ from osprey.runtime import session as session_module
 from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import SessionWriteResult
 from osprey.services.python_executor.execution.wrapper import armed_contract
-from osprey_connectors import control_context, posture_store, session_hold, types
-from osprey_connectors.control_system import _base as connector_base
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors import connector_types, control_context, posture_store, session_hold
+from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.control_system._limits_validator import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.refusals import refusal_phrase
@@ -64,9 +64,9 @@ BACKEND_PATH = "osprey.integrations.canopy.backend:OspreyPVConnector"
 #: The virtual accelerator with the write tier allowed: with its switch on (the
 #: record :func:`write_record` writes) the write verdict allows.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
+    "type": connector_types.VIRTUAL_ACCELERATOR,
     "writes": "allowed",
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 CHANNEL = "SR:QF:01:SP"
@@ -113,9 +113,9 @@ class _Machine(FakeConnector):
         cls.configs, cls.writes, cls.connected = [], [], 0
         cls.hold = cls.stale = None
 
-    async def connect(self, config):
+    async def _open(self, config):
         type(self).configs.append(dict(config))
-        await super().connect(config)
+        await super()._open(config)
         type(self).connected += 1
 
     async def disconnect(self):
@@ -126,7 +126,7 @@ class _Machine(FakeConnector):
         """The virtual accelerator's key, which its connector inherits from EPICS."""
         return EPICSConnector.channel_key(self, address)  # type: ignore[arg-type]
 
-    async def write_channel(self, address, value, **kwargs):
+    async def _write_one(self, address, value, **kwargs):
         type(self).writes.append((address, value))
         hold = type(self).hold
         if hold is not None:
@@ -135,7 +135,7 @@ class _Machine(FakeConnector):
             address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=value,
+            observed=ChannelValue(address=address, value=value, sampled_at=datetime.now(UTC)),
         )
 
 
@@ -154,7 +154,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     )
     control_context.invalidate_cache()
     if switch is None:
-        switch = dict.fromkeys({target} & set(types.CONTROL_TARGETS), "allowed")
+        switch = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     _set_switch_to(path, switch)
     control_context.invalidate_cache()
 
@@ -210,7 +210,6 @@ def state_dir(tmp_path, monkeypatch, audit_dir, armed, exits):  # noqa: ARG001 -
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
     monkeypatch.chdir(tmp_path)
 
     def get_config_value(path, default=None, _config_path=None):
@@ -228,7 +227,7 @@ def state_dir(tmp_path, monkeypatch, audit_dir, armed, exits):  # noqa: ARG001 -
 @pytest.fixture
 def machine(state_dir):  # noqa: ARG001 - the environment comes first
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Machine)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Machine)
         yield _Machine
 
 
@@ -1016,7 +1015,9 @@ class TestTheStaleExit:
     def stale_machine(self, state_dir):  # noqa: ARG002 - the environment comes first
         _Machine.reset()
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _StaleMachine)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _StaleMachine
+            )
             yield _StaleMachine
 
     async def test_exit_76_does_not_wait_for_a_write_in_flight(

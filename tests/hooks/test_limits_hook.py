@@ -19,7 +19,7 @@ import types
 import pytest
 import yaml
 
-from osprey_connectors.types import most_restrictive_limits_posture, target_limits_posture
+from osprey_connectors.limits_posture import most_restrictive_limits_posture, target_limits_posture
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 
 
@@ -578,7 +578,7 @@ def test_hook_decision_matches_the_framework_resolver(tmp_path, hook_runner, sec
     """The hook and the package resolvers answer one deployment identically.
 
     The hook cannot resolve a posture itself — the rules live in
-    `osprey_connectors.types` and the validator applies them — so what this pins
+    `osprey_connectors.limits_posture` and the validator applies them — so what this pins
     is that the hook asks the right QUESTION for the identity it holds: the
     recorded control target when the state file names one, and the fold across every
     reachable target when it does not. Both expectations are computed from the

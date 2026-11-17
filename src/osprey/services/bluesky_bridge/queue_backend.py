@@ -366,7 +366,7 @@ def _resolve_control_system_type() -> str:
     Channel Access and can never silently be reported as able to move hardware.
     """
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.types import resolve_control_system_type
+    from osprey_connectors.connector_types import resolve_control_system_type
 
     fallback = resolve_control_system_type(None)
     try:
@@ -386,7 +386,7 @@ def _resolve_lane_transport(connector_type: str) -> str | None:
     holds a value no reader accepts: the fail-safe side, which never claims a
     lane can move hardware.
     """
-    from osprey_connectors.types import TRANSPORT_IN_PROCESS, connector_transport
+    from osprey_connectors.connector_types import TRANSPORT_IN_PROCESS, connector_transport
 
     try:
         return connector_transport(_control_system_section(), connector_type)
@@ -405,12 +405,12 @@ def _baseline_lane_target() -> str:
     lane's. Two rules would let a deployment be refused over a mismatch neither
     side really has. The host module itself lives in the controls MCP server, which
     the bridge image does not carry, so this reads the one predicate both of
-    them share — :func:`osprey_connectors.types.baseline_target` — rather than
+    them share — :func:`osprey_connectors.targets.baseline_target` — rather than
     respelling it; a test still pins the two answers equal.
     """
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import targets
 
-    return connector_types.baseline_target(_control_system_section())
+    return targets.baseline_target(_control_system_section())
 
 
 def _control_system_section() -> dict[str, Any]:
@@ -480,7 +480,8 @@ def resolve_lane_connector_type() -> tuple[str, str | None]:
         except on rung 3, where it is the operator-facing sentence naming the
         target the lane declared against the type it actually built.
     """
-    from osprey_connectors.types import EPICS, resolve_target
+    from osprey_connectors.connector_types import EPICS
+    from osprey_connectors.targets import resolve_target
 
     lane = os.environ.get(LANE_ENV) or DEFAULT_LANE
     baseline_type = _resolve_control_system_type()
@@ -682,7 +683,7 @@ class Capability:
         lane: The plan lane this bridge is — its own service key
             (``bluesky``/``bluesky_va``/``bluesky_live``).
         lane_target: The control target that lane serves, one of
-            :data:`~osprey_connectors.types.CONTROL_TARGETS`. Fixed at render time;
+            :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`. Fixed at render time;
             see :func:`resolve_lane_identity` for why it can never be the
             DEPLOYMENT's target.
         lane_degraded: ``None`` on a lane whose declared target resolves to a
@@ -1614,7 +1615,7 @@ class QueueBackend:
         connector than the one plans will actually run against would be a
         capability describing some other lane.
         """
-        from osprey_connectors.types import TRANSPORT_CA, TRANSPORT_IN_PROCESS
+        from osprey_connectors.connector_types import TRANSPORT_CA, TRANSPORT_IN_PROCESS
 
         lane, lane_target = resolve_lane_identity()
         if _resolve_connector_type() is None:

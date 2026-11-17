@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import control_context, limits_posture, posture_store, targets
 from osprey_connectors.posture_store import NO_OWNER, WriteVerdict, backstop_verdict
 from osprey_connectors.refusals import REASONS
 from osprey_connectors_tests._harness import write_control_context
@@ -53,8 +53,9 @@ def blind(monkeypatch):
         (posture_store, "current_owner"),
         (posture_store, "owner_tier_term"),
         (posture_store, "_launch_pin_term"),
-        (types, "resolve_target"),
-        (types, "machine_kind"),
+        (targets, "resolve_target"),
+        (targets, "machine_kind"),
+        (limits_posture, "resolve_target"),
     ):
         monkeypatch.setattr(module, name, _fail(name))
 

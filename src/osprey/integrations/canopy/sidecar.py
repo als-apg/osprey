@@ -116,8 +116,8 @@ from osprey.runtime.session import (
     EXIT_START_REFUSED,
     EXIT_TRANSPORT_STALE,
 )
-from osprey_connectors import control_context, types
-from osprey_connectors.archive_targets import archive_targets
+from osprey_connectors import archiver_selection, connector_types, control_context
+from osprey_connectors.deployment.archive_targets import archive_targets
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
 from osprey_connectors.workspace import repo_root_for_config
@@ -193,8 +193,8 @@ RELAY_CONNECT_RETRY_S = "3"
 MOLE_ARCHIVER_NAME = "osprey"
 MOLE_TIMEOUT_S = "10"
 MOLE_TYPES = {
-    types.MONGODB_ARCHIVER: "osprey.integrations.canopy.mongo_recorder:OspreyMongoRecorderAdapter",
-    types.EPICS_ARCHIVER: "epics_archiver_appliance",
+    connector_types.MONGODB_ARCHIVER: "osprey.integrations.canopy.mongo_recorder:OspreyMongoRecorderAdapter",
+    connector_types.EPICS_ARCHIVER: "epics_archiver_appliance",
 }
 
 #: How long FRONT gets after SIGTERM; it holds nothing to drain.
@@ -317,7 +317,7 @@ def mole_block(config: Mapping[str, Any], target: str | None) -> dict[str, str]:
     """The archiver variables for a DATA bound to *target*, or none.
 
     Rendered only when the deployment's archive holds *target*'s own history
-    (:func:`~osprey_connectors.archive_targets.archive_targets`): the
+    (:func:`~osprey_connectors.deployment.archive_targets.archive_targets`): the
     facility's appliance for ``live`` and the stand-in that rehearses it, the
     deployment's own store for ``va``. A DATA on any other target gets no
     archiver, and answers that it has none, rather than another machine's
@@ -332,11 +332,11 @@ def mole_block(config: Mapping[str, Any], target: str | None) -> dict[str, str]:
     if target is None or target not in archive_targets(config):
         return {}
     section = config.get("archiver")
-    mole_type = MOLE_TYPES.get(types.resolve_archiver_type(section))
+    mole_type = MOLE_TYPES.get(archiver_selection.resolve_archiver_type(section))
     if mole_type is None:
         return {}
     try:
-        settings = types.resolve_archiver_settings(section)
+        settings = archiver_selection.resolve_archiver_settings(section)
         url, extras, key_env = _archiver_address(mole_type, settings)
     except ValueError as exc:
         logger.warning("No archiver for the CANOPY panel: %s", exc)
@@ -372,7 +372,7 @@ def _archiver_address(
 
     raw_url = settings.get("url")
     url = raw_url.strip() if isinstance(raw_url, str) else ""
-    if mole_type == MOLE_TYPES[types.EPICS_ARCHIVER]:
+    if mole_type == MOLE_TYPES[connector_types.EPICS_ARCHIVER]:
         if not url:
             raise ValueError("archiver url is not set")
         return url, {}, None

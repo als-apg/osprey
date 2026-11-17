@@ -23,7 +23,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey_connectors.types import LIMITS_MODE_EXCLUSIVE
+from osprey_connectors.limits_posture import LIMITS_MODE_EXCLUSIVE
 from pyaml_cs_osprey.catalog import parse_reference
 from pyaml_cs_osprey.device import OUTSIDE_A_RUN, OspreyDevice
 from pyaml_cs_osprey.devices import OspreyDeviceList
@@ -241,7 +241,7 @@ def test_limits_violation_maps_to_refused(runtime: _Runtime) -> None:
 
 @pytest.mark.usefixtures("in_run")
 def test_write_failure_names_failing_and_sent_addresses(runtime: _Runtime) -> None:
-    runtime.write_error = ChannelWriteFailedError(SETS[1], "FAILED")
+    runtime.write_error = ChannelWriteFailedError(SETS[1], "failed")
     with pytest.raises(OspreyWriteFailed) as info:
         _list().set([10.0, 20.0, 30.0])
     assert info.value.channel_address == SETS[1]
@@ -454,7 +454,7 @@ class _RefusingConnector(_FailingConnector):
         self._refused = refused
         self._reason = reason
 
-    async def write_channel(self, address: str, value: Any, **kwargs: Any):
+    async def _write_one(self, address: str, value: Any, **kwargs: Any):
         if address == self._refused:
             return ChannelWriteResult(
                 address=address,
@@ -463,7 +463,7 @@ class _RefusingConnector(_FailingConnector):
                 refusal_reason=self._reason,
                 error_message=f"Write to '{address}' refused ({self._reason})",
             )
-        return await super().write_channel(address, value, **kwargs)
+        return await super()._write_one(address, value, **kwargs)
 
 
 @pytest.mark.usefixtures("unvalidated")
@@ -489,7 +489,7 @@ class _UnservedAddressConnector(DictConnector):
         super().__init__(dict.fromkeys(SETS, 0.0))
         self._unserved = unserved
 
-    def _write_precheck(self, address: str, value: Any):
+    def _precheck(self, address: str, value: Any):
         if address != self._unserved:
             return address, None
         return address, ChannelWriteResult(

@@ -113,7 +113,7 @@ LANE_ONE = "bluesky"
 #: The one deliberate exception is the standalone approval hook, deployed into
 #: a project's own venv, which can import nothing from OSPREY at all.
 #:
-#: The keys are :data:`osprey_connectors.types.CONTROL_TARGETS` -- the whole
+#: The keys are :data:`osprey_connectors.connector_types.CONTROL_TARGETS` -- the whole
 #: vocabulary a lane can serve, ``standin`` included, because the live stand-in
 #: is a third machine with a connector block of its own rather than a mode of
 #: ``live``. Restated as literals rather than imported so this stays a leaf

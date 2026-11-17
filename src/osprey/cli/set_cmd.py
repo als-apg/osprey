@@ -33,7 +33,7 @@ from typing import cast
 
 import click
 
-from osprey_connectors.types import TIER_WORDS
+from osprey_connectors.write_tier import TIER_WORDS
 
 from .output import note, report, warn
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
@@ -63,7 +63,7 @@ def _refuse_retired_shorthands(pairs: tuple[str, ...]) -> None:
     before the shared parser sees anything, so the refusal costs no partial
     write: the whole command line is rejected the way a malformed pair is.
     """
-    from osprey_connectors.types import RETIRED_CONTROL_SYSTEM_TYPES, retired_type_message
+    from osprey_connectors.connector_types import RETIRED_CONTROL_SYSTEM_TYPES, retired_type_message
 
     for pair in pairs:
         key, separator, value = pair.partition("=")
@@ -118,7 +118,7 @@ def _rendered_ceiling(repo_root: Path) -> str:
     block holds dotted keys applied in order, so neither the file nor a plain key
     lookup answers this.
     """
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     from .build_profile_merge import _rendered_control_system
     from .build_profile_resolve import resolve_build_profile

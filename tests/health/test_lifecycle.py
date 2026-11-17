@@ -57,14 +57,13 @@ def _patch_factory(
     connector: Any,
     construct_calls: list[Any],
 ) -> None:
-    """Spy `register_builtin_connectors` + `create_control_system_connector`."""
+    """Spy `create_control_system_connector`."""
 
     async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
         construct_calls.append(config)
         return connector
 
     monkeypatch.setattr(factory.ConnectorFactory, "create_control_system_connector", fake_create)
-    monkeypatch.setattr(factory, "register_builtin_connectors", lambda: None)
 
 
 @contextmanager

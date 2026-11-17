@@ -25,7 +25,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey_connectors.control_system import LimitsValidator, mapping_config_lookup
-from osprey_connectors.types import tier_limits_database_targets
+from osprey_connectors.limits_posture import tier_limits_database_targets
 from tests.deployment.test_lane_compose import (
     BLUESKY_PORT,
     CA_NAME_SERVERS_REQUIRED_PREFIX,

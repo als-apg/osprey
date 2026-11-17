@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey_connectors import types
+from osprey_connectors import connector_types
 from osprey_connectors.archiver._base import ArchiverConnector
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._base import ControlSystemConnector
@@ -11,7 +11,6 @@ from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
     ConnectorFactory,
-    register_builtin_connectors,
 )
 from osprey_connectors_tests._harness import isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
@@ -97,7 +96,7 @@ class TestConnectorFactory:
 
         # Create a dummy connector class
         class CustomConnector(ControlSystemConnector):
-            async def connect(self, config):
+            async def _open(self, config):
                 pass
 
             async def disconnect(self):
@@ -106,29 +105,13 @@ class TestConnectorFactory:
             async def read_channel(self, address, *, timeout_s=None):
                 pass
 
-            async def write_channel(
-                self,
-                address,
-                value,
-                *,
-                timeout_s=None,
-                confirm=None,
-            ):
+            async def _send(self, address, value, *, timeout_s, wait):
                 pass
 
-            async def read_multiple_channels(self, addresses, *, timeout_s=None):
-                pass
-
-            async def subscribe(self, address, callback):
+            async def subscribe(self, address, callback, *, on_connection=None):
                 pass
 
             async def unsubscribe(self, subscription_id):
-                pass
-
-            async def get_metadata(self, address):
-                pass
-
-            async def validate_channel(self, address):
                 pass
 
         # Register it
@@ -141,18 +124,18 @@ class TestConnectorFactory:
 # Written out here rather than read from ``_BUILTIN_CONTROL_SYSTEMS`` /
 # ``_BUILTIN_ARCHIVERS``: a name dropped from a tuple must still produce a case.
 _EVERY_BUILTIN_CONTROL_SYSTEM = (
-    types.EPICS,
-    types.VIRTUAL_ACCELERATOR,
-    types.DOOCS,
-    types.TANGO,
-    types.LIVE_STANDIN,
+    connector_types.EPICS,
+    connector_types.VIRTUAL_ACCELERATOR,
+    connector_types.DOOCS,
+    connector_types.TANGO,
+    connector_types.LIVE_STANDIN,
 )
 _EVERY_BUILTIN_ARCHIVER = (
-    types.MOCK_ARCHIVER,
-    types.EPICS_ARCHIVER,
-    types.MONGODB_ARCHIVER,
-    types.DOOCS_ARCHIVER,
-    types.MYA_ARCHIVER,
+    connector_types.MOCK_ARCHIVER,
+    connector_types.EPICS_ARCHIVER,
+    connector_types.MONGODB_ARCHIVER,
+    connector_types.DOOCS_ARCHIVER,
+    connector_types.MYA_ARCHIVER,
 )
 
 
@@ -163,7 +146,7 @@ def _registry_for(name: str) -> dict:
 
 
 class TestBuiltinRegistrationConverges:
-    """``register_builtin_connectors()`` heals a partially-populated registry.
+    """``ConnectorFactory._ensure_builtins()`` heals a partially-populated registry.
 
     The function short-circuits when every name in ``_BUILTIN_CONTROL_SYSTEMS``
     and ``_BUILTIN_ARCHIVERS`` is already registered. A built-in left out of
@@ -178,7 +161,7 @@ class TestBuiltinRegistrationConverges:
         ConnectorFactory._control_system_connectors.clear()
         ConnectorFactory._archiver_connectors.clear()
 
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         registered = set(ConnectorFactory._control_system_connectors) | set(
             ConnectorFactory._archiver_connectors
@@ -195,11 +178,11 @@ class TestBuiltinRegistrationConverges:
         """Every other built-in present, this one missing: the next call adds it."""
         ConnectorFactory._control_system_connectors.clear()
         ConnectorFactory._archiver_connectors.clear()
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
         registry = _registry_for(name)
         expected = registry.pop(name)
 
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         assert registry.get(name) is expected
 
@@ -210,7 +193,7 @@ class TestBuiltinRegistrationConverges:
         swapped for sentinels first: only a call that skips present names
         leaves them in place.
         """
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         class SentinelControlSystem:
             pass
@@ -218,18 +201,60 @@ class TestBuiltinRegistrationConverges:
         class SentinelArchiver:
             pass
 
-        ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] = SentinelControlSystem
-        ConnectorFactory._archiver_connectors[types.MONGODB_ARCHIVER] = SentinelArchiver
+        ConnectorFactory._control_system_connectors[connector_types.LIVE_STANDIN] = (
+            SentinelControlSystem
+        )
+        ConnectorFactory._archiver_connectors[connector_types.MONGODB_ARCHIVER] = SentinelArchiver
         # Force the call past its early return so the per-name guard is what runs.
-        del ConnectorFactory._control_system_connectors[types.EPICS]
+        del ConnectorFactory._control_system_connectors[connector_types.EPICS]
 
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         assert (
-            ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is SentinelControlSystem
+            ConnectorFactory._control_system_connectors[connector_types.LIVE_STANDIN]
+            is SentinelControlSystem
         )
-        assert ConnectorFactory._archiver_connectors[types.MONGODB_ARCHIVER] is SentinelArchiver
-        assert types.EPICS in ConnectorFactory._control_system_connectors
+        assert (
+            ConnectorFactory._archiver_connectors[connector_types.MONGODB_ARCHIVER]
+            is SentinelArchiver
+        )
+        assert connector_types.EPICS in ConnectorFactory._control_system_connectors
+
+
+class TestBuiltinsRegisterOnFirstUse:
+    """No caller registers the built-ins: every build, create and list call does."""
+
+    def test_a_fresh_interpreter_builds_a_builtin_without_registering(self):
+        """Proved where no earlier test can have registered anything."""
+        import subprocess
+        import sys
+
+        code = (
+            "from osprey_connectors.factory import ConnectorFactory;"
+            "assert not ConnectorFactory._control_system_connectors;"
+            "connector, context = ConnectorFactory.build_control_system_connector("
+            "{'type': 'epics', 'connector': {'epics': {'timeout_s': 1.0}}});"
+            "print(type(connector).__name__, context.connector_type)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.split() == ["EPICSConnector", "epics"]
+
+    def test_listing_registers_them(self):
+        ConnectorFactory._control_system_connectors.clear()
+
+        assert set(ConnectorFactory.list_control_systems()) == set(_BUILTIN_CONTROL_SYSTEMS)
+
+    def test_a_registration_under_a_builtin_name_is_kept(self):
+        """The module's own ``virtual_accelerator`` registration survives the first use."""
+        ConnectorFactory.list_control_systems()
+
+        assert ConnectorFactory._control_system_connectors["virtual_accelerator"] is (
+            VAInProcessConnector
+        )
 
 
 class TestBuiltinArchiverRegistration:
@@ -273,23 +298,23 @@ class TestLiveStandinRegistration:
         resolves to ``control_system.connector.live_standin.writes_enabled``
         rather than to the ``epics`` block's.
         """
-        from osprey_connectors import types
+        from osprey_connectors import connector_types
         from osprey_connectors.control_system._epics_connector import EPICSConnector
-        from osprey_connectors.factory import register_builtin_connectors
+        from osprey_connectors.factory import ConnectorFactory
 
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         # No gateways: connect() then touches no EPICS_* environment variable
         # and opens no CA context, so nothing here reaches a network.
         config = {
-            "type": types.LIVE_STANDIN,
-            "connector": {types.LIVE_STANDIN: {"timeout_s": 1.0}},
+            "type": connector_types.LIVE_STANDIN,
+            "connector": {connector_types.LIVE_STANDIN: {"timeout_s": 1.0}},
         }
 
         connector = await ConnectorFactory.create_control_system_connector(config)
 
         assert isinstance(connector, EPICSConnector)
-        assert connector._connector_type == types.LIVE_STANDIN
+        assert connector._connector_type == connector_types.LIVE_STANDIN
         assert connector._timeout == 1.0
 
         await connector.disconnect()
@@ -302,16 +327,19 @@ class TestLiveStandinRegistration:
         instead of the key would look right on one of them and be wrong on the
         other. Pinning the sibling keeps that failure visible.
         """
-        from osprey_connectors import types
-        from osprey_connectors.factory import register_builtin_connectors
+        from osprey_connectors import connector_types
+        from osprey_connectors.factory import ConnectorFactory
 
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         connector = await ConnectorFactory.create_control_system_connector(
-            {"type": types.EPICS, "connector": {types.EPICS: {"timeout_s": 1.0}}}
+            {
+                "type": connector_types.EPICS,
+                "connector": {connector_types.EPICS: {"timeout_s": 1.0}},
+            }
         )
 
-        assert connector._connector_type == types.EPICS
+        assert connector._connector_type == connector_types.EPICS
 
         await connector.disconnect()
 
@@ -336,8 +364,10 @@ class TestArchiverTypeResolution:
             ),
             pytest.param(
                 "hdf5_archiver",
-                "Unknown archiver type: 'hdf5_archiver'. Available types: ['mock_archiver']. "
-                "Use a dotted module path for custom connectors.",
+                # Every built-in is registered on first use, so the list names
+                # them all although this module's registry held only the mock.
+                f"Unknown archiver type: 'hdf5_archiver'. Available types: "
+                f"{list(_BUILTIN_ARCHIVERS)}. Use a dotted module path for custom connectors.",
                 id="unknown-name-lists-available",
             ),
         ],

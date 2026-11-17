@@ -41,9 +41,9 @@ import click
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
 from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, STATE_ZONE_DIRS
+from osprey_connectors.connector_types import CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN
 from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN
 
 from . import output
 from .profile_conventions import BUILD_OUTPUT_DIR, STATE_DIR, convention_for

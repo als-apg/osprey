@@ -37,6 +37,7 @@ from typing import Any
 
 import pytest
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._epics_bulk import normalise_address
@@ -404,14 +405,22 @@ class TestNameServerStorage:
 
         connector = EPICSConnector()
         await connector.connect(
-            {"gateways": {"read_only": {"address": "gw", "port": 5075, "use_name_server": True}}}
+            ConnectorContext(
+                settings={
+                    "gateways": {
+                        "read_only": {"address": "gw", "port": 5075, "use_name_server": True}
+                    }
+                }
+            )
         )
         assert connector._name_server == "gw:5075"
 
-        await connector.connect({"gateways": {"read_only": {"address": "gw", "port": 5064}}})
+        await connector.connect(
+            ConnectorContext(settings={"gateways": {"read_only": {"address": "gw", "port": 5064}}})
+        )
         assert connector._name_server is None
 
-        await connector.connect({})
+        await connector.connect(ConnectorContext())
         assert connector._name_server is None
 
 
@@ -585,7 +594,7 @@ async def _connected(args: dict[str, Any]) -> EPICSConnector:
             "read_only": {"address": "127.0.0.1", "port": args["port"], "use_name_server": True}
         }
     connector = EPICSConnector()
-    await connector.connect(config)
+    await connector.connect(ConnectorContext(settings=config))
     return connector
 
 

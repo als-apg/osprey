@@ -160,19 +160,17 @@ async def test_a_reading_that_is_no_finite_number_never_settles(
     assert f"(last read: {reading})" in str(info.value)
 
 
-async def test_a_readback_that_answers_no_value_is_a_settle_read_error(clock: _Clock) -> None:
+async def test_a_readback_that_reads_none_is_a_value_that_never_settles(clock: _Clock) -> None:
+    # No connector reports a failed read as ``value=None`` any more: a failed
+    # read raises. ``None`` is a reading like any other non-number, never inside.
     connector = _Connector({"Q1:RB": None}, {"Q1:RB": None}, lag=0)
     landing = Landing(setpoint="Q1:SP", readback="Q1:RB", demand=2.0, bound=0.05)
 
-    with pytest.raises(SettleReadError) as info:
-        await settle(connector, [landing], timeout_s=5.0, clock=clock, sleep=clock.sleep)
+    with pytest.raises(SettleTimeoutError) as info:
+        await settle(connector, [landing], timeout_s=0.2, clock=clock, sleep=clock.sleep)
 
-    error = info.value
-    assert error.landing == landing
-    assert error.addresses == ["Q1:RB"]
-    assert error.causes == {}
-    assert "no value" in str(error)
-    assert clock.pauses == []
+    assert info.value.landing == landing
+    assert info.value.last is None
 
 
 async def test_a_readback_read_that_raises_is_a_settle_read_error(clock: _Clock) -> None:

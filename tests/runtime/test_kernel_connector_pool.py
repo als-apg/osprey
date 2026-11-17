@@ -18,6 +18,7 @@ import asyncio
 import inspect
 import os
 import signal
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -29,10 +30,15 @@ import osprey.runtime as runtime
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import (
+    ChannelValue,
+    ChannelWriteResult,
+    ConnectorContext,
+    WriteOutcome,
+)
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import baseline_target, configured_targets, resolve_target
+from osprey_connectors.targets import baseline_target, configured_targets, resolve_target
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from osprey_connectors_tests._write_fakes import arm_switch, turn_switch
 from osprey_connectors_tests.ipc._pool_connectors import WRITE_LOG_ENV
@@ -126,8 +132,9 @@ class _FirstContextConnector:
 
     disconnected: list["_FirstContextConnector"] = []
 
-    async def connect(self, config: dict[str, Any]) -> None:
-        self.server = config["server"]
+    async def connect(self, context: ConnectorContext) -> None:
+        self._control_target = context.control_target
+        self.server = context.settings["server"]
         _FIRST_SERVER.setdefault("server", self.server)
 
     async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout
@@ -186,7 +193,7 @@ class _FakeHandle:
             address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=value,
+            observed=ChannelValue(address=address, value=value, sampled_at=datetime.now(UTC)),
         )
 
     async def write_multiple_channels(self, operations, *, timeout_s=None, confirm=None):

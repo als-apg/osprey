@@ -3,7 +3,7 @@
 import asyncio
 
 from osprey_connectors.errors import ChannelWriteBlockedError
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.factory import ConnectorFactory
 
 CONFIG = {
     "type": "epics",
@@ -17,7 +17,6 @@ CONFIG = {
 
 
 async def main() -> None:
-    register_builtin_connectors()
     connector = await ConnectorFactory.create_control_system_connector(CONFIG)
     try:
         await connector.write_channel_checked("DEMO:SETPOINT", 2.0)

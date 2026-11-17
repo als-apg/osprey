@@ -313,13 +313,13 @@ async def connector_error_handler(
         make_error(error_type, message, suggestions, details=details)
 
 
-def _refusal_suggestions(reasons: Iterable[str | None]) -> list[str]:
+def _refusal_suggestions(reasons: Iterable[object]) -> list[str]:
     """Suggest the remedy of each refusal reason, in order and each sentence once.
 
     The list always ends with the one sentence every refusal carries; a reason
     with no remedy of its own, or none at all, contributes nothing before it.
     """
-    remedies = (ChannelWriteBlockedError.remedy(reason) for reason in reasons)
+    remedies = (reason.remedy if isinstance(reason, RefusalReason) else () for reason in reasons)
     return [
         *dict.fromkeys(sentence for remedy in remedies for sentence in remedy),
         "Do NOT attempt to work around the refusal.",
@@ -451,7 +451,7 @@ def _envelope(
             violation,
         )
     if isinstance(exc, ChannelWriteBlockedError):
-        if exc.reason == ChannelNotFoundError.reason:
+        if exc.reason is RefusalReason.CHANNEL_NOT_FOUND:
             return _not_a_channel(tool_name, exc.address, connector_name)
         # Every refusal put no value on the channel, but who refused decides
         # where the operator goes next: the refuser and the remedy both come
@@ -460,7 +460,7 @@ def _envelope(
         # control-system denial was sent, so its message also names the target
         # that denied it.
         identity = describe_active_target() if connector_name == "control_system" else None
-        refuser = ChannelWriteBlockedError.refuser(exc.reason)
+        refuser = exc.reason.refuser
         suggestions = _refusal_suggestions([exc.reason])
         where = ""
         if exc.reason == RefusalReason.CONTROL_SYSTEM_REFUSED:

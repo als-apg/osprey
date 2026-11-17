@@ -13,18 +13,19 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey_connectors.connector_types import TARGET_LIVE, TARGET_VA
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
-    ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
     WriteOutcome,
 )
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import TARGET_LIVE, TARGET_VA
 from osprey_connectors_tests._write_fakes import (
     RecordingConnector,
     arm_switch,
+    armed_context,
     config_reader,
     writes_enabled_config,
 )
@@ -48,7 +49,7 @@ def armed(switch_on, monkeypatch):
 class _StubConnector(ControlSystemConnector):
     """Minimal concrete subclass for testing base-class properties."""
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def _open(self, config: dict[str, Any]) -> None:
         pass
 
     async def disconnect(self) -> None:
@@ -57,39 +58,24 @@ class _StubConnector(ControlSystemConnector):
     async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         raise NotImplementedError
 
-    async def write_channel(
+    async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool):
+        raise NotImplementedError
+
+    async def subscribe(
         self,
         address: str,
-        value: Any,
+        callback: Callable[[ChannelValue], None],
         *,
-        timeout_s: float | None = None,
-        confirm: bool | None = None,
-    ) -> ChannelWriteResult:
-        raise NotImplementedError
-
-    async def write_multiple_channels(self, operations, **kwargs):
-        raise NotImplementedError
-
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        raise NotImplementedError
-
-    async def subscribe(self, address: str, callback: Callable[[ChannelValue], None]) -> str:
+        on_connection: Callable[[bool], None] | None = None,
+    ) -> str:
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None:
         pass
 
-    async def get_metadata(self, address: str) -> ChannelMetadata:
-        raise NotImplementedError
-
-    async def validate_channel(self, address: str) -> bool:
-        raise NotImplementedError
-
 
 class TestInitSubclassWrapping:
-    """Tests for __init_subclass__ write_channel wrapping."""
+    """Tests for the write guard of the final write methods."""
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("switch_on")
@@ -155,7 +141,9 @@ class TestWritesEnabledProperty:
     def test_a_tier_that_allows_with_the_switch_off_refuses(self, monkeypatch, tmp_path):
         """No record at all is every switch off."""
         arm_switch(monkeypatch, tmp_path / "data", None)
-        monkeypatch.setattr(ControlSystemConnector, "_control_target", TARGET_VA)
+        monkeypatch.setattr(
+            ControlSystemConnector, "_context", ConnectorContext(control_target=TARGET_VA)
+        )
         monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
         assert _StubConnector()._writes_enabled is False
 
@@ -190,7 +178,9 @@ class TestMockWritesDisabledViaBaseClass:
         view = served_tree(tmp_path, ["BEAM:CURRENT"])
         connector = VAInProcessConnector()
         with patch("osprey_connectors.config.get_config_value", return_value=False):
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
@@ -214,7 +204,9 @@ class TestMockWritesDisabledViaBaseClass:
             "osprey_connectors.config.get_config_value",
             side_effect=writes_enabled_config,
         ):
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
@@ -251,7 +243,7 @@ class _TypeSeenConnector(RecordingConnector):
         super().__init__()
         self.type_seen_in_connect: Any = "not connected"
 
-    async def connect(self, config):  # noqa: ARG002 - the control-system connector interface fixes this signature
+    async def _open(self, config):  # noqa: ARG002 - the control-system connector interface fixes this signature
         self.type_seen_in_connect = self._connector_type
 
 
@@ -264,18 +256,20 @@ class TestFactoryTypeStamp:
 
     @pytest.mark.asyncio
     async def test_stamp_is_visible_inside_connect(self):
-        from osprey_connectors import types
+        from osprey_connectors import connector_types
         from osprey_connectors.factory import ConnectorFactory
         from osprey_connectors_tests._harness import isolated_connector_registries
 
         with isolated_connector_registries(clear=True):
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _TypeSeenConnector)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _TypeSeenConnector
+            )
             connector = await ConnectorFactory.create_control_system_connector(
-                {"type": types.VIRTUAL_ACCELERATOR}
+                {"type": connector_types.VIRTUAL_ACCELERATOR}
             )
 
-        assert connector.type_seen_in_connect == types.VIRTUAL_ACCELERATOR
-        assert connector._connector_type == types.VIRTUAL_ACCELERATOR
+        assert connector.type_seen_in_connect == connector_types.VIRTUAL_ACCELERATOR
+        assert connector._connector_type == connector_types.VIRTUAL_ACCELERATOR
 
 
 class TestTheTierIsTargetBlind:
@@ -289,8 +283,7 @@ class TestTheTierIsTargetBlind:
 
     def _stub(self, connector_type: str, target: str | None) -> _StubConnector:
         connector = _StubConnector()
-        connector._connector_type = connector_type
-        connector._control_target = target
+        connector._context = ConnectorContext(connector_type=connector_type, control_target=target)
         return connector
 
     def test_an_allowed_tier_allows_the_switched_machine(self, monkeypatch, tmp_path):

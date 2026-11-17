@@ -68,10 +68,12 @@ from osprey.apps.sdk import (
 )
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_config_value
-from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.connector_types import speaks_channel_access
+from osprey_connectors.control_system import ControlSystem
+from osprey_connectors.errors import ChannelWriteBlockedError
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-from osprey_connectors.types import baseline_target, resolve_target, speaks_channel_access
+from osprey_connectors.targets import baseline_target, resolve_target
 
 _log = logging.getLogger(__name__)
 
@@ -125,7 +127,7 @@ ROW_SEPARATOR = " | "
 NAME_SERVER_ENV = "EPICS_CA_NAME_SERVERS"
 _KEPT_EPICS_ENV = frozenset({NAME_SERVER_ENV, "EPICS_CA_AUTO_ADDR_LIST"})
 
-ConnectorFor = Callable[[str], Awaitable[Any]]
+ConnectorFor = Callable[[str], Awaitable[ControlSystem]]
 
 #: The target this process's Channel Access serves, once a connector to it is built.
 _ca_target: str | None = None
@@ -154,7 +156,7 @@ def _keep_name_server_pair() -> None:
             del os.environ[name]
 
 
-async def build_connector(target: str) -> Any:
+async def build_connector(target: str) -> ControlSystem:
     """A connector for the control target *target*, connected.
 
     Channel Access has one context per process, and each connect points it at its
@@ -183,7 +185,6 @@ async def build_connector(target: str) -> Any:
         connectors = dict(section.get("connector") or {})
         block = {k: v for k, v in (connectors.get(kind) or {}).items() if k != "gateways"}
         config["connector"] = {**connectors, kind: block}
-    register_builtin_connectors()  # idempotent; a fresh process has none registered
     claimed = channel_access and _ca_target is None
     if claimed:
         _ca_target = target  # before the connect, which is what points the context
@@ -772,14 +773,10 @@ def stale_rows(plan: Mapping[str, Any], values: Mapping[str, float | None]) -> l
     return moved
 
 
-async def _write_row(live: Any, row: dict[str, Any]) -> None:
+async def _write_row(live: ControlSystem, row: dict[str, Any]) -> None:
     """Write one row with a confirmed write and record its outcome on it (R5 CC-1)."""
     try:
         result = await live.write_channel(row["setpoint_addr"], row["new"], confirm=True)
-    except ChannelLimitsViolationError as exc:
-        row["outcome"] = REFUSED
-        row["reason"] = f"{exc.violation_type}: {exc.violation_reason}"
-        return
     except ChannelWriteBlockedError as exc:
         row["outcome"] = REFUSED
         row["reason"] = str(exc)
@@ -789,8 +786,11 @@ async def _write_row(live: Any, row: dict[str, Any]) -> None:
         row["reason"] = f"the write raised: {exc}"
         return
     row["outcome"] = str(result.outcome)
+    violation = getattr(result, "limits_violation", None)
     message = getattr(result, "error_message", None)
-    if message:
+    if violation is not None:
+        row["reason"] = f"{violation.kind}: {violation.reason}"
+    elif message:
         row["reason"] = message
 
 
@@ -879,7 +879,7 @@ def create_app(
         from osprey.apps import sdk as default_sdk
 
         sdk = default_sdk
-    connectors: dict[str, Any] = {}
+    connectors: dict[str, ControlSystem] = {}
     # One bring-up per target, shielded so a poll that stops waiting leaves it running
     # for the next poll to reuse instead of abandoning a half-connected connector.
     bringing_up: dict[str, asyncio.Task[Any]] = {}
@@ -907,7 +907,7 @@ def create_app(
             except Exception:  # one bad close must not leave the others open
                 _log.warning("the connector of %s did not close cleanly", target, exc_info=True)
 
-    async def connector(target: str, bound: float | None = None) -> Any:
+    async def connector(target: str, bound: float | None = None) -> ControlSystem:
         """The target's connector; waits at most ``bound`` seconds for its bring-up."""
         if target in connectors:
             return connectors[target]
@@ -990,9 +990,9 @@ def create_app(
     async def read_values(target: str, addrs: list[str]) -> dict[str, float | None]:
         """Each address's finite value, or None; bounded by the connector's call bound.
 
-        The connector bounds each channel by ``bound`` and leaves out the silent ones;
-        the outer guard waits a margin longer, so it fires only when the whole read
-        hangs and one silent channel never nulls the healthy ones.
+        The connector bounds each channel by ``bound`` and reports the silent ones as
+        failed; the outer guard waits a margin longer, so it fires only when the whole
+        read hangs and one silent channel never nulls the healthy ones.
         """
         values: dict[str, float | None] = dict.fromkeys(addrs)
         if not addrs:
@@ -1008,8 +1008,8 @@ def create_app(
             _log.warning("the orbit of %s could not be read: %s", target, exc)
             return values
         for addr in addrs:
-            got = read_back.get(addr) if isinstance(read_back, Mapping) else None
-            values[addr] = _finite(getattr(got, "value", None))
+            got = read_back.values.get(addr)
+            values[addr] = _finite(got.value if got is not None else None)
         return values
 
     app = FastAPI(title=APP_NAME, lifespan=lifespan)

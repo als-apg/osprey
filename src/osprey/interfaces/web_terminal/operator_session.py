@@ -414,7 +414,7 @@ class _RenderFacts:
     ``config`` is ``<project_dir>/config.yml`` and ``hook_config`` the render's
     ``.claude/hooks/hook_config.json``, each ``{}`` when it cannot be read.
     ``tier_allows`` is the tier term of the write verdict
-    (:func:`osprey_connectors.types.tier_allows`) over the config's control
+    (:func:`osprey_connectors.write_tier.tier_allows`) over the config's control
     section; it fails closed with the config.
     """
 
@@ -455,7 +455,7 @@ def _read_render(project_dir: str) -> _RenderFacts:
 
     import yaml
 
-    from osprey_connectors.types import tier_allows
+    from osprey_connectors.write_tier import tier_allows
 
     try:
         config = yaml.safe_load((Path(project_dir) / "config.yml").read_text(encoding="utf-8"))

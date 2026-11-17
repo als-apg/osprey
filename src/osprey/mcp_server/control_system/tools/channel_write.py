@@ -125,8 +125,7 @@ import hashlib
 import json
 import logging
 import os
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.audit.call import note, write_stamps
 from osprey.audit.posture import posture_session
@@ -139,16 +138,20 @@ from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import control_context
 from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.control_system import ControlSystem
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
     ChannelLimitsViolationError,
-    ChannelNotFoundError,
     ChannelWriteBlockedError,
+    RefusalReason,
 )
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict
 from osprey_connectors.refusals import refusal_text
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from osprey_connectors.workspace import load_osprey_config
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ChannelWriteResult
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_write")
 
@@ -201,6 +204,30 @@ OUTCOME_KEY = "outcome"
 #: value on the wire, whether or not it was confirmed afterwards, and is
 #: reported as an executed write.
 UNEXECUTED_OUTCOMES = frozenset({"refused", "failed"})
+
+
+def _result_row(wr: "ChannelWriteResult") -> dict[str, Any]:
+    """One write result as the row this tool serves and keeps.
+
+    The served keys predate the result's nested ``observed`` reading: the
+    re-read's value is ``observed_value``, and its alarm is ``alarm_status`` and
+    ``alarm_severity``.
+    """
+    observed = wr.observed
+    alarm = None if observed is None else observed.alarm
+    return {
+        "channel": wr.address,
+        "value": wr.value_written,
+        OUTCOME_KEY: str(wr.outcome),
+        "refusal_reason": wr.refusal_reason,
+        "error": wr.error_message,
+        "observed_value": _project_observed_value(None if observed is None else observed.value),
+        # Absent alarm fields stay null: "not reported" is deliberately
+        # distinct from a reported healthy severity of 0.
+        "alarm_status": None if alarm is None else alarm.status,
+        "alarm_severity": None if alarm is None else alarm.severity,
+        "notes": wr.notes,
+    }
 
 
 def _project_observed_value(value: object) -> object:
@@ -308,7 +335,7 @@ def _note_attribution() -> None:
     note(**stamps)
 
 
-async def _note_old_values(connector: Any, channels: list[str]) -> None:
+async def _note_old_values(connector: ControlSystem, channels: list[str]) -> None:
     """Note each channel's value before the write, for the ``tool_call`` record. Never raises.
 
     Bounded by :data:`OLD_VALUE_READ_TIMEOUT_S`; a channel that could not be
@@ -321,19 +348,17 @@ async def _note_old_values(connector: Any, channels: list[str]) -> None:
             OLD_VALUE_READ_TIMEOUT_S,
         )
         for channel in channels:
-            value = read.get(channel) if isinstance(read, dict) else None
+            value = read.values.get(channel)
             if value is None:
-                old_values[channel] = {"error": "unread"}
+                failure = read.failures.get(channel)
+                old_values[channel] = {
+                    "error": type(failure).__name__ if failure is not None else "unread"
+                }
                 continue
             # Connectors stamp readings in UTC; the noted stamp stays facility-local.
-            stamp = getattr(value, "sampled_at", None)
             old_values[channel] = {
-                "value": _project_observed_value(getattr(value, "value", None)),
-                "timestamp": (
-                    stamp.astimezone(get_facility_timezone()).isoformat()
-                    if isinstance(stamp, datetime)
-                    else stamp
-                ),
+                "value": _project_observed_value(value.value),
+                "timestamp": value.sampled_at.astimezone(get_facility_timezone()).isoformat(),
             }
     except Exception as exc:
         old_values = {channel: {"error": type(exc).__name__} for channel in channels}
@@ -800,10 +825,10 @@ def _all_refused_headline(results: list[dict]) -> str:
     unattributed: list[str] = []
     for entry in results:
         reason = entry["refusal_reason"]
-        refuser = ChannelWriteBlockedError.refuser(reason)
+        refuser = reason.refuser if isinstance(reason, RefusalReason) else None
         if refuser is not None:
             by_refuser.setdefault(refuser, []).append(entry["channel"])
-        elif reason == ChannelNotFoundError.reason:
+        elif reason is RefusalReason.CHANNEL_NOT_FOUND:
             not_channels.append(entry["channel"])
         else:
             unattributed.append(entry["channel"])
@@ -822,6 +847,23 @@ def _all_refused_headline(results: list[dict]) -> str:
     if unattributed:
         clauses.append(f"refused: {', '.join(unattributed)}")
     return f"{head} — {'; '.join(clauses)}"
+
+
+def _limits_violation_error(result: "ChannelWriteResult") -> ChannelLimitsViolationError:
+    """The limits violation a refused write result carries, as the error the envelope renders."""
+    violation = result.limits_violation
+    if violation is None:
+        raise ValueError(f"the write to {result.address!r} was not refused by the limits")
+    return ChannelLimitsViolationError(
+        result.address,
+        result.value_written,
+        violation.kind,
+        violation.reason,
+        min_value=violation.min_value,
+        max_value=violation.max_value,
+        max_step=violation.max_step,
+        current_value=violation.current_value,
+    )
 
 
 @mcp.tool()
@@ -1074,22 +1116,7 @@ async def channel_write(
         # One list, built once: what the agent reads is what this tool keeps, so
         # a field cannot be present in the bookkeeping and missing from the
         # response.
-        results = [
-            {
-                "channel": wr.address,
-                "value": wr.value_written,
-                OUTCOME_KEY: str(wr.outcome),
-                "refusal_reason": wr.refusal_reason,
-                "error": wr.error_message,
-                "observed_value": _project_observed_value(wr.observed_value),
-                # Absent alarm fields stay null: "not reported" is deliberately
-                # distinct from a reported healthy severity of 0.
-                "alarm_status": wr.alarm_status,
-                "alarm_severity": wr.alarm_severity,
-                "notes": wr.notes,
-            }
-            for wr in connector_results
-        ]
+        results = [_result_row(wr) for wr in connector_results]
 
         outcomes: dict[str, int] = {}
         for entry in results:
@@ -1113,6 +1140,11 @@ async def channel_write(
             # read, and the rows are the only place each write's own fate and
             # text are stated.
             failed = [entry for entry in results if entry[OUTCOME_KEY] == "failed"]
+            if len(connector_results) == 1 and connector_results[0].limits_violation:
+                # A single write the connector's own limits refused (the
+                # max_step check this tool cannot make) is answered with the
+                # limits_violation envelope the tool's pre-check gives.
+                raise _limits_violation_error(connector_results[0])
             if not failed:
                 # Every op was a refusal that put no value on a channel: the
                 # cause is a typed write refusal, not internal_error. Each row
@@ -1130,7 +1162,8 @@ async def channel_write(
                     (
                         entry
                         for entry in causes
-                        if ChannelWriteBlockedError.refuser(entry["refusal_reason"])
+                        if isinstance(entry["refusal_reason"], RefusalReason)
+                        and entry["refusal_reason"].refuser
                     ),
                     causes[0],
                 )

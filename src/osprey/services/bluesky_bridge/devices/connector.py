@@ -36,7 +36,7 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from bluesky.protocols import DataKey, Hints, Location, Reading
 from ophyd_async.core import AsyncStatus, StandardReadable
@@ -46,6 +46,10 @@ from osprey_connectors.settle import Landing, settle, settle_bound
 
 from ._connect import connect_all
 from .specs import ReadableSpec, SettableSpec
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ControlSystem
+    from osprey_connectors.settle import ChannelReader
 
 #: Env var carrying the floor on how close a readback must come to the demand
 #: before ``ConnectorSettable.set()`` calls a move settled. Authored per
@@ -183,7 +187,7 @@ class ConnectorSettable(StandardReadable):
 
     def __init__(
         self,
-        connector: Any,
+        connector: ControlSystem,
         setpoint_pv: str,
         readback_pv: str | None = None,
         name: str = "",
@@ -249,7 +253,7 @@ class ConnectorSettable(StandardReadable):
         if self._readback_pv == self._setpoint_pv and result.outcome == "confirmed":
             # ``confirmed`` means the connector re-read this very channel and
             # found the value sent — that IS the settle, so return on the word,
-            # never on arithmetic over ``observed_value``: the settle tolerance
+            # never on arithmetic over the ``observed`` reading: the settle tolerance
             # is stricter, by default, than the connector's comparison rule
             # (``isclose(rel_tol=1e-6)``), so re-checking a confirmed write here
             # would poll the setpoint just written for the full settle timeout
@@ -386,7 +390,7 @@ class ConnectorReadable(StandardReadable):
     """
 
     def __init__(
-        self, connector: Any, read_pv: str, name: str = "", unit: str | None = None
+        self, connector: ChannelReader, read_pv: str, name: str = "", unit: str | None = None
     ) -> None:
         self._osprey_connector = connector
         self._read_pv = read_pv
@@ -419,7 +423,7 @@ class ConnectorReadable(StandardReadable):
 async def build_devices(
     settables: Sequence[SettableSpec] = (),
     readables: Sequence[ReadableSpec] = (),
-    connector: Any = None,
+    connector: ControlSystem | None = None,
     *,
     simulated: bool = False,
 ) -> dict[str, Any]:

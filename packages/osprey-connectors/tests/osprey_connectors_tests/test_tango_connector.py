@@ -15,18 +15,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from osprey_connectors.connector_types import TANGO
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
 from osprey_connectors.control_system._tango_connector import (
-    _quality_fields,
+    _quality_alarm,
     _split_address,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors_tests._stall import Stall
-from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled
 
 # --------------------------------------------------------------------------------------
@@ -37,7 +39,7 @@ _EPOCH_S = 1_700_000_000  # arbitrary fixed timestamp
 _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
-_LIMITS_PATCH = "osprey_connectors.control_system._tango_connector.LimitsValidator.from_config"
+_LIMITS_PATCH = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
 _TZ_PATCH = "osprey_connectors.config.get_facility_timezone"
 
 _ADDRESS = "sr/power_supply/ps01/Current"
@@ -104,13 +106,15 @@ def _make_tango(proxy=None):
 
 def _structured_write_facts(result):
     """The machine-readable half of a write result — the free text left out."""
+    observed = result.observed
+    alarm = None if observed is None else observed.alarm
     return (
         result.outcome,
-        result.observed_value,
+        None if observed is None else observed.value,
         result.refusal_reason,
         result.error_message is not None,
-        result.alarm_status,
-        result.alarm_severity,
+        None if alarm is None else alarm.status,
+        None if alarm is None else alarm.severity,
     )
 
 
@@ -137,7 +141,7 @@ async def connector():
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         yield conn, proxy
         await conn.disconnect()
 
@@ -171,26 +175,26 @@ class TestSplitAddress:
             _split_address(address)
 
 
-class TestQualityFields:
+class TestQualityAlarm:
     @pytest.mark.parametrize(
         ("quality", "expected"),
         [
-            ("ATTR_VALID", ("NO_ALARM", 0)),
-            ("ATTR_CHANGING", ("CHANGING", 0)),
-            ("ATTR_WARNING", ("WARNING", 1)),
-            ("ATTR_ALARM", ("ALARM", 2)),
-            ("ATTR_INVALID", ("INVALID", 3)),
+            ("ATTR_VALID", Alarm(status="NO_ALARM", severity=0)),
+            ("ATTR_CHANGING", Alarm(status="CHANGING", severity=0)),
+            ("ATTR_WARNING", Alarm(status="WARNING", severity=1)),
+            ("ATTR_ALARM", Alarm(status="ALARM", severity=2)),
+            ("ATTR_INVALID", Alarm(status="INVALID", severity=3)),
         ],
     )
-    def test_known_qualities_map_to_alarm_fields(self, quality, expected):
-        assert _quality_fields(_Quality(quality)) == expected
+    def test_known_qualities_map_to_an_alarm(self, quality, expected):
+        assert _quality_alarm(_Quality(quality)) == expected
 
     def test_none_is_not_reported(self):
         """``None`` means "not reported" — distinct from a healthy reading."""
-        assert _quality_fields(None) == (None, None)
+        assert _quality_alarm(None) is None
 
     def test_unknown_quality_is_named_unknown_with_no_severity(self):
-        assert _quality_fields(_Quality("ATTR_SOMETHING_NEW")) == ("UNKNOWN", None)
+        assert _quality_alarm(_Quality("ATTR_SOMETHING_NEW")) == Alarm(status="UNKNOWN")
 
 
 # --------------------------------------------------------------------------------------
@@ -210,7 +214,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
             assert conn._connected is True
             await conn.disconnect()
 
@@ -220,7 +224,7 @@ class TestConnect:
 
             conn = TangoConnector()
             with pytest.raises(ImportError, match="PyTango"):
-                await conn.connect({})
+                await conn.connect(armed_context())
 
     async def test_connect_raises_on_unreachable_database(self):
         mock_tango = _make_tango()
@@ -234,7 +238,7 @@ class TestConnect:
 
             conn = TangoConnector()
             with pytest.raises(ConnectorUnavailableError, match="TANGO database"):
-                await conn.connect({})
+                await conn.connect(armed_context())
 
     async def test_explicit_tango_host_reaches_that_database(self):
         mock_tango = _make_tango()
@@ -246,7 +250,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({"tango_host": "db.example.org:10000"})
+            await conn.connect(armed_context(settings={"tango_host": "db.example.org:10000"}))
             mock_tango.Database.assert_called_once_with("db.example.org", "10000")
             # ...and unprefixed device names are qualified with it.
             conn._get_proxy("sr/power_supply/ps01")
@@ -266,7 +270,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
             assert conn._timeout_s == 5.0
             await conn.disconnect()
 
@@ -282,7 +286,7 @@ class TestConnect:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({"timeout_s": 2.5})
+            await conn.connect(armed_context(settings={"timeout_s": 2.5}))
             conn._get_proxy("sr/power_supply/ps01")
             proxy.set_timeout_millis.assert_called_once_with(2500)
             await conn.disconnect()
@@ -333,7 +337,7 @@ class TestConnect:
 
             conn = TangoConnector()
             with pytest.raises(ValueError, match=match):
-                await conn.connect(config)
+                await conn.connect(armed_context(connector_type=TANGO, settings=config))
 
         assert conn._connected is False
         mock_tango.Database.assert_not_called()
@@ -372,35 +376,27 @@ class TestReadChannel:
         conn, proxy = connector
         proxy.read_attribute.return_value = _make_attribute(quality="ATTR_ALARM")
         result = await conn.read_channel(_ADDRESS)
-        assert result.metadata.alarm_status == "ALARM"
-        assert result.metadata.raw_metadata["severity"] == 2
+        assert result.address == _ADDRESS
+        assert result.alarm == Alarm(status="ALARM", severity=2)
 
     async def test_healthy_reading_reports_no_alarm_not_nothing(self, connector):
         """A reported healthy reading stays distinct from "not reported"."""
         conn, _ = connector
         result = await conn.read_channel(_ADDRESS)
-        assert result.metadata.alarm_status == "NO_ALARM"
-        assert result.metadata.raw_metadata["severity"] == 0
+        assert result.alarm == Alarm(status="NO_ALARM", severity=0)
 
-    async def test_a_first_class_severity_field_is_populated_when_it_exists(self, connector):
-        """``ChannelMetadata.alarm_severity`` is feature-detected, not assumed.
+    async def test_the_alarm_has_one_source_the_quality(self, connector):
+        """The alarm is the quality's, and raw_metadata keeps only the quality itself.
 
-        The contract may grow the field independently of this connector; a
-        metadata type that carries it gets the severity first-class, and one
-        that does not still carries it in ``raw_metadata``.
+        The severity no longer rides a second time in ``raw_metadata`` for a
+        write path to lift: the reading's ``alarm`` is where every consumer
+        reads it.
         """
-        from osprey_connectors.control_system import _tango_connector as mod
-        from osprey_connectors.control_system._base import ChannelMetadata
-
-        class _MetadataWithSeverity(ChannelMetadata):
-            alarm_severity: int | None = None
-
         conn, proxy = connector
-        proxy.read_attribute.return_value = _make_attribute(quality="ATTR_ALARM")
-        with patch.object(mod, "ChannelMetadata", _MetadataWithSeverity):
-            result = await conn.read_channel(_ADDRESS)
-        assert result.metadata.alarm_severity == 2
-        assert result.metadata.raw_metadata["severity"] == 2
+        proxy.read_attribute.return_value = _make_attribute(quality="ATTR_WARNING")
+        result = await conn.read_channel(_ADDRESS)
+        assert result.alarm == Alarm(status="WARNING", severity=1)
+        assert dict(result.metadata.raw_metadata) == {"quality": "ATTR_WARNING"}
 
     async def test_read_reads_the_named_attribute_on_the_named_device(self, connector):
         conn, proxy = connector
@@ -440,7 +436,7 @@ class TestEnumReadings:
         result = await conn.read_channel(_ADDRESS)
         assert result.value == 1
         assert result.metadata.enum_labels == ("Closed", "Open")
-        assert result.metadata.enum_label == "Open"
+        assert result.enum_label == "Open"
 
     async def test_enum_labels_are_cached_per_attribute(self, connector):
         conn, proxy = connector
@@ -461,7 +457,7 @@ class TestEnumReadings:
         result = await conn.read_channel(_ADDRESS)
         assert result.value == 1
         assert result.metadata.enum_labels is None
-        assert result.metadata.enum_label is None
+        assert result.enum_label is None
 
     async def test_non_enum_reading_carries_no_labels(self, connector):
         conn, proxy = connector
@@ -500,7 +496,7 @@ async def _write_with_validator(
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         result = await conn.write_channel(_ADDRESS, value, **kwargs)
         await conn.disconnect()
         return result, proxy
@@ -513,7 +509,7 @@ class TestWriteChannel:
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert isinstance(result, ChannelWriteResult)
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == 10.0
+        assert result.observed.value == 10.0
         proxy.write_attribute.assert_called_once_with("Current", 10.0)
 
     async def test_mismatch_carries_both_values_and_no_message(self, connector):
@@ -522,7 +518,7 @@ class TestWriteChannel:
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert result.outcome is WriteOutcome.MISMATCH
         assert result.value_written == 10.0
-        assert result.observed_value == 9.7
+        assert result.observed.value == 9.7
         assert result.error_message is None
 
     async def test_a_ramping_readback_is_a_mismatch_not_a_softer_word(self, connector):
@@ -537,8 +533,8 @@ class TestWriteChannel:
         proxy.read_attribute.return_value = _make_attribute(value=3.2, quality="ATTR_CHANGING")
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.alarm_status == "CHANGING"
-        assert result.alarm_severity == 0
+        assert result.observed.alarm.status == "CHANGING"
+        assert result.observed.alarm.severity == 0
 
     async def test_confirmed_write_in_alarm_stays_confirmed(self, connector):
         """Alarm state is reported with the write, never raised on."""
@@ -546,8 +542,8 @@ class TestWriteChannel:
         proxy.read_attribute.return_value = _make_attribute(value=10.0, quality="ATTR_ALARM")
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.alarm_status == "ALARM"
-        assert result.alarm_severity == 2
+        assert result.observed.alarm.status == "ALARM"
+        assert result.observed.alarm.severity == 2
 
     async def test_write_refused_when_writes_disabled(self):
         mock_tango = _make_tango()
@@ -560,7 +556,7 @@ class TestWriteChannel:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
             result = await conn.write_channel(_ADDRESS, 10.0)
             assert result.outcome is WriteOutcome.REFUSED
             assert result.refusal_reason == "WRITES_DISABLED"
@@ -609,19 +605,21 @@ class TestConfirmResolution:
         assert result.outcome is WriteOutcome.CONFIRMED
         assert proxy.read_attribute.call_count == 1
 
-    async def test_limits_violation_propagates(self):
+    async def test_a_limits_violation_is_a_limits_refusal(self):
         from osprey_connectors.errors import ChannelLimitsViolationError
 
         validator = MagicMock()
         validator.validate.side_effect = ChannelLimitsViolationError(
-            _ADDRESS, 1e9, "range", "too big", max_value=200.0
+            _ADDRESS, 1e9, "MAX_EXCEEDED", "too big", max_value=200.0
         )
-        with pytest.raises(ChannelLimitsViolationError):
-            await _write_with_validator(validator, value=1e9)
+        refused, proxy = await _write_with_validator(validator, value=1e9)
+        assert refused.refusal_reason == "LIMITS"
+        assert refused.limits_violation.max_value == 200.0
+        proxy.write_attribute.assert_not_called()
 
 
 class TestNonBlockingOffload:
-    """Validation and the send run in ONE thread offload.
+    """Validation and the send each run in a thread offload, one after the other.
 
     ``max_step`` validation reads the attribute's present value through a
     blocking ``read_attribute``, and both the ``DeviceProxy`` lookup and the
@@ -631,14 +629,15 @@ class TestNonBlockingOffload:
     """
 
     async def test_validate_and_send_run_off_the_event_loop(self):
-        """Validation and the send run on one thread, and it is not the loop's.
+        """Validation and the send each run off the loop, as two separate steps.
 
         A stand-in for ``max_step``'s blocking fresh read parks inside
         ``validate()`` until this test releases it. Regaining the loop while
         that call is still parked is possible only if it never ran there.
         The thread each fake records says the same thing a second way:
         ``validate()``, the ``DeviceProxy`` lookup and ``write_attribute``
-        all report one thread, and it is not the one the loop runs on.
+        report no thread the loop runs on. The lookup and the write share
+        the send's offload; the check is its own, finished before it.
         """
         loop_thread = threading.get_ident()
         entered = threading.Event()  # validate() has begun
@@ -679,7 +678,7 @@ class TestNonBlockingOffload:
             from osprey_connectors.control_system._tango_connector import TangoConnector
 
             conn = TangoConnector()
-            await conn.connect({})
+            await conn.connect(armed_context())
 
             write_task = asyncio.create_task(conn.write_channel(_ADDRESS, 10.0, confirm=False))
             try:
@@ -694,36 +693,29 @@ class TestNonBlockingOffload:
         assert still_parked, "the loop was regained only after validate() returned"
         assert threads.keys() == {"validate", "proxy", "write"}
         assert loop_thread not in threads.values()
-        assert len(set(threads.values())) == 1, f"the offload was split: {threads}"
+        assert threads["proxy"] == threads["write"]
         validator.validate.assert_called_once()
         assert result.outcome is WriteOutcome.UNREQUESTED
         proxy.write_attribute.assert_called_once_with("Current", 10.0)
 
-    async def test_confirm_is_not_resolved_for_a_refused_write(self):
-        """A write that never left is not a confirmation question.
-
-        The policy lookup happens on the branch where the value was actually
-        sent, so a write refused by validation does not ask the limits database
-        whether it should be read back.
-        """
+    async def test_a_check_that_cannot_be_made_sends_nothing(self):
+        """A validation error refuses the write before anything is sent."""
         validator = _make_limits_validator()
         validator.validate.side_effect = RuntimeError("limits database unreachable")
         refused, proxy = await _write_with_validator(validator)
         assert refused.outcome is WriteOutcome.REFUSED
         assert refused.refusal_reason == "VALIDATION_ERROR"
         proxy.write_attribute.assert_not_called()
-        validator.resolve_confirm.assert_not_called()
 
-    async def test_confirm_is_not_resolved_for_a_failed_write(self):
-        """A write the device did not take is not a confirmation question either."""
+    async def test_a_write_the_device_did_not_take_is_not_read_back(self):
+        """A write the device did not take is failed, with no confirming read."""
         validator = _make_limits_validator()
         failed, proxy = await _write_with_validator(
             validator, write_error=RuntimeError("write refused by device")
         )
         assert failed.outcome is WriteOutcome.FAILED
-        assert failed.notes == "TANGO did not take the value"
+        assert "TANGO did not take the value" in failed.error_message
         proxy.read_attribute.assert_not_called()
-        validator.resolve_confirm.assert_not_called()
 
 
 async def _bounded_tango(timeout):
@@ -731,7 +723,7 @@ async def _bounded_tango(timeout):
     from osprey_connectors.control_system._tango_connector import TangoConnector
 
     conn = TangoConnector()
-    await conn.connect({"timeout_s": timeout})
+    await conn.connect(armed_context(settings={"timeout_s": timeout}))
     return conn
 
 
@@ -802,7 +794,7 @@ class TestBoundedCalls:
         assert answered_first
         assert result.outcome is WriteOutcome.UNCONFIRMED
         assert "within 0.2s" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         assert proxy.read_attribute.call_count == 0
 
 
@@ -867,9 +859,9 @@ class TestUnreachableDevice:
         conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
         result = await conn.write_channel(_ADDRESS, 10.0)
         assert result.outcome is WriteOutcome.FAILED
-        assert result.notes == "TANGO did not take the value"
+        assert "TANGO did not take the value" in result.error_message
         assert _ADDRESS in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         proxy.read_attribute.assert_not_called()
 
     async def test_a_device_unreachable_during_validation_refuses_the_write(self):
@@ -899,10 +891,10 @@ class TestReadMultipleChannels:
         conn, _ = connector
         addresses = [_ADDRESS, "sr/power_supply/ps01/Voltage"]
         results = await conn.read_multiple_channels(addresses)
-        assert set(results) == set(addresses)
-        assert all(isinstance(v, ChannelValue) for v in results.values())
+        assert set(results.values) == set(addresses)
+        assert all(isinstance(v, ChannelValue) for v in results.values.values())
 
-    async def test_a_failing_channel_is_dropped_not_fatal(self, connector):
+    async def test_a_failing_channel_is_reported_not_fatal(self, connector):
         conn, proxy = connector
 
         def fail_voltage(attribute):
@@ -912,7 +904,9 @@ class TestReadMultipleChannels:
 
         proxy.read_attribute.side_effect = fail_voltage
         results = await conn.read_multiple_channels([_ADDRESS, "sr/power_supply/ps01/Voltage"])
-        assert list(results) == [_ADDRESS]
+        assert list(results.values) == [_ADDRESS]
+        assert list(results.failures) == ["sr/power_supply/ps01/Voltage"]
+        assert isinstance(results.failures["sr/power_supply/ps01/Voltage"], ChannelUnreachableError)
 
 
 # --------------------------------------------------------------------------------------
@@ -951,8 +945,9 @@ class TestSubscriptions:
         await asyncio.sleep(0)
 
         assert len(received) == 1
+        assert received[0].address == _ADDRESS
         assert received[0].value == 3.14
-        assert received[0].metadata.alarm_status == "WARNING"
+        assert received[0].alarm == Alarm(status="WARNING", severity=1)
 
     async def test_error_events_are_dropped(self, connector):
         conn, proxy = connector
@@ -1008,7 +1003,7 @@ class TestGetMetadata:
         conn, proxy = connector
         proxy.get_attribute_config.side_effect = RuntimeError("config fetch failed")
         metadata = await conn.get_metadata(_ADDRESS)
-        assert metadata.alarm_status == "NO_ALARM"
+        assert metadata.raw_metadata["quality"] == "ATTR_VALID"
 
 
 class TestValidateChannel:

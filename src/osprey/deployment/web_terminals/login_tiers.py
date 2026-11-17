@@ -12,7 +12,7 @@ What is in it:
 * each roster person whose tier no sign-in decides
   (:func:`~osprey.deployment.web_terminals.roster.sign_in_decides_tier`) and whose
   render (:func:`~osprey.deployment.web_terminals.roster.effective_tier`) has a
-  readable staged ``config.yml``, at :func:`~osprey_connectors.types.tier_writes`
+  readable staged ``config.yml``, at :func:`~osprey_connectors.write_tier.tier_writes`
   of that render's ``control_system``;
 * the account running the build (the single-user identity included), at the root
   render's tier — only when it names no roster card.
@@ -38,7 +38,7 @@ from osprey.deployment.web_terminals.roster import (
     roster_entries,
     sign_in_decides_tier,
 )
-from osprey_connectors.types import TierWord
+from osprey_connectors.write_tier import TierWord
 
 #: Where the map is rendered in a shared container's config.
 LOGIN_TIERS_KEY = "login_tiers"
@@ -88,7 +88,7 @@ def build_login_tiers(config: Any, repo_root: Any, *, layer_root: Any) -> dict[s
     """
     from osprey.deployment.compose_generator import _control_tree_build_account
     from osprey_connectors.identity import UNKNOWN_IDENTITY
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     root = as_dict(config)
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))

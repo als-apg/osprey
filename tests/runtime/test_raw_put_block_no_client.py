@@ -93,7 +93,6 @@ def test_refusal_is_a_runtime_error_not_an_import_error():
     error = ClientLibraryRefusedError(package="epics")
     assert isinstance(error, RuntimeError)
     assert not isinstance(error, ImportError)
-    assert error.reason == "RAW_CLIENT_IMPORT"
     assert error.package == "epics"
     assert error.library is None
 

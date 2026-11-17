@@ -25,9 +25,10 @@ from osprey.agent_runner import ResultEvent
 from osprey.mcp_server.dispatch_worker import sdk_runner
 from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import TARGET_LIVE
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import TARGET_LIVE
 from osprey_connectors_tests._harness import (
     REFUSAL_BAN_LIST,
     VERDICT_ENV_VARS,
@@ -93,8 +94,7 @@ def _dispatch_run(monkeypatch, owner: str | None) -> None:
 def _connector() -> RecordingConnector:
     """A connector stamped with the real machine, as the factory stamps one."""
     connector = RecordingConnector()
-    connector._connector_type = "epics"
-    connector._control_target = TARGET_LIVE
+    connector._context = ConnectorContext(connector_type="epics", control_target=TARGET_LIVE)
     return connector
 
 

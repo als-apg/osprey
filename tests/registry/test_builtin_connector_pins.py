@@ -3,7 +3,7 @@
 Three independent tables name the built-in connectors, and each is load-bearing
 because a different consumer reads it:
 
-* ``register_builtin_connectors()`` walks the factory's own
+* ``ConnectorFactory._ensure_builtins()`` walks the factory's own
   ``_BUILTIN_CONTROL_SYSTEMS`` / ``_BUILTIN_ARCHIVERS`` tuples. The MCP
   control-system server, the health runtime and the queueserver startup all
   call it.
@@ -13,9 +13,9 @@ because a different consumer reads it:
   python-executor sandbox runs before any agent code, so a connector missing
   from the provider is a connector no sandbox can build — the factory answers
   ``Unknown control system type`` with a list that simply lacks it.
-* :mod:`osprey_connectors.types` carries the choice lists
-  (``SET_CONTROL_SYSTEM_TYPES``, ``CLI_CONTROL_SYSTEM_TYPES``) — a copy, because ``types`` is imported by the
-  factory and cannot import it back. The ``connector:`` shorthand validates
+* :mod:`osprey_connectors.connector_types` carries the choice lists
+  (``SET_CONTROL_SYSTEM_TYPES``, ``CLI_CONTROL_SYSTEM_TYPES``), read off the
+  same built-in rows the factory's tuples are. The ``connector:`` shorthand validates
   against them, ``osprey init --help`` prints them, and
   ``tests/profiles/test_preset_connector_prose.py`` holds the preset comments
   and the ``osprey config --defaults`` notes to them.
@@ -39,7 +39,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.registry.builtins import FrameworkRegistryProvider
-from osprey_connectors import factory, types
+from osprey_connectors import connector_types, factory
 from osprey_connectors.factory import (
     _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
@@ -77,7 +77,7 @@ class TestBuiltinConnectorParity:
         The direction that bit: a type the factory registers but the provider
         omits is unreachable from ``initialize_registry()``. The other
         direction is a type the registry advertises and
-        ``register_builtin_connectors()`` never heals into a partially
+        ``ConnectorFactory._ensure_builtins()`` never heals into a partially
         populated factory.
         """
         assert _provider_names("control_system") == set(_BUILTIN_CONTROL_SYSTEMS)
@@ -87,7 +87,7 @@ class TestBuiltinConnectorParity:
 
     def test_the_stand_in_is_among_them(self) -> None:
         """Named on its own, so the parity pin cannot go green while empty."""
-        assert types.LIVE_STANDIN in _provider_names("control_system")
+        assert connector_types.LIVE_STANDIN in _provider_names("control_system")
 
     def test_the_stand_in_entry_names_the_epics_connector(self) -> None:
         """Served by ``EPICSConnector``, keyed apart from ``epics``.
@@ -98,26 +98,28 @@ class TestBuiltinConnectorParity:
         out of it. An entry named ``epics`` would hand the stand-in the
         facility's authored block and the facility's arming.
         """
-        entry = _provider_entry(types.LIVE_STANDIN)
+        entry = _provider_entry(connector_types.LIVE_STANDIN)
 
         assert entry.connector_type == "control_system"
         assert entry.module_path == "osprey_connectors.control_system._epics_connector"
         assert entry.class_name == "EPICSConnector"
-        assert entry.name != types.EPICS
+        assert entry.name != connector_types.EPICS
 
     def test_the_provider_entry_loads_the_class_the_factory_registers(self) -> None:
         """The lazy module path/class name pair actually resolves, and to the
-        same class ``register_builtin_connectors()`` puts under that key."""
+        same class ``ConnectorFactory._ensure_builtins()`` puts under that key."""
         import importlib
 
-        entry = _provider_entry(types.LIVE_STANDIN)
+        entry = _provider_entry(connector_types.LIVE_STANDIN)
         loaded = getattr(importlib.import_module(entry.module_path), entry.class_name)
 
         with isolated_connector_registries(clear=True):
-            from osprey_connectors.factory import register_builtin_connectors
+            from osprey_connectors.factory import ConnectorFactory
 
-            register_builtin_connectors()
-            assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is loaded
+            ConnectorFactory._ensure_builtins()
+            assert (
+                ConnectorFactory._control_system_connectors[connector_types.LIVE_STANDIN] is loaded
+            )
 
 
 class TestChoiceListsMatchTheFactoryBuiltins:
@@ -130,7 +132,7 @@ class TestChoiceListsMatchTheFactoryBuiltins:
     """
 
     def test_settable_control_systems_are_the_factory_builtins(self) -> None:
-        assert sorted(types.SET_CONTROL_SYSTEM_TYPES) == sorted(_BUILTIN_CONTROL_SYSTEMS)
+        assert sorted(connector_types.SET_CONTROL_SYSTEM_TYPES) == sorted(_BUILTIN_CONTROL_SYSTEMS)
 
     def test_the_stand_in_is_the_only_builtin_init_does_not_offer(self) -> None:
         """A new built-in that is initable must enter ``CLI_CONTROL_SYSTEM_TYPES``.
@@ -139,15 +141,15 @@ class TestChoiceListsMatchTheFactoryBuiltins:
         materialize" and the manifest note are measured against; only the
         stand-in is settable and not initable.
         """
-        assert set(_BUILTIN_CONTROL_SYSTEMS) - set(types.CLI_CONTROL_SYSTEM_TYPES) == {
-            types.LIVE_STANDIN
+        assert set(_BUILTIN_CONTROL_SYSTEMS) - set(connector_types.CLI_CONTROL_SYSTEM_TYPES) == {
+            connector_types.LIVE_STANDIN
         }
 
 
 class TestRegistryInitializationRegistersTheStandIn:
     """The sandbox path: ``initialize_registry()`` and nothing else.
 
-    ``register_builtin_connectors()`` is deliberately not called here. It is
+    ``ConnectorFactory._ensure_builtins()`` is deliberately not called here. It is
     the other entry point, and calling it would register the stand-in for
     reasons that have nothing to do with the provider — which is the failure
     mode this class exists to catch.
@@ -182,8 +184,11 @@ class TestRegistryInitializationRegistersTheStandIn:
         """The bug: the sandbox's own setup step leaves the type unregistered."""
         from osprey_connectors.control_system._epics_connector import EPICSConnector
 
-        assert types.LIVE_STANDIN in ConnectorFactory.list_control_systems()
-        assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is EPICSConnector
+        assert connector_types.LIVE_STANDIN in ConnectorFactory.list_control_systems()
+        assert (
+            ConnectorFactory._control_system_connectors[connector_types.LIVE_STANDIN]
+            is EPICSConnector
+        )
 
     @pytest.mark.usefixtures("framework_registry")
     def test_every_builtin_control_system_is_registered(self) -> None:
@@ -206,15 +211,15 @@ class TestRegistryInitializationRegistersTheStandIn:
         # and opens no CA context, so nothing here reaches a network.
         connector = await ConnectorFactory.create_control_system_connector(
             {
-                "type": types.LIVE_STANDIN,
-                "connector": {types.LIVE_STANDIN: {"timeout_s": 1.0}},
+                "type": connector_types.LIVE_STANDIN,
+                "connector": {connector_types.LIVE_STANDIN: {"timeout_s": 1.0}},
             },
-            control_target=types.TARGET_STANDIN,
+            control_target=connector_types.TARGET_STANDIN,
         )
 
         assert isinstance(connector, EPICSConnector)
-        assert connector._connector_type == types.LIVE_STANDIN
-        assert connector._control_target == types.TARGET_STANDIN
+        assert connector._connector_type == connector_types.LIVE_STANDIN
+        assert connector._control_target == connector_types.TARGET_STANDIN
 
         await connector.disconnect()
 

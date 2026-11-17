@@ -53,6 +53,8 @@ from osprey_connectors.archiver import address_overrides
 # service does not already pay — it pulls in `osprey_connectors` and the standard
 # library and nothing else, no Channel Access stack, no PVA, no Mongo driver.
 from osprey_connectors.connection import read_connection_settings
+from osprey_connectors.connector_types import TARGET_VA
+from osprey_connectors.deployment.simulator import virtual_accelerator_port
 from osprey_connectors.ipc import derive_endpoints
 from osprey_connectors.simulation.values import is_waveform
 from osprey_connectors.simulation.view import (
@@ -61,8 +63,6 @@ from osprey_connectors.simulation.view import (
     NoSimulatorViewError,
     SimulatorView,
 )
-from osprey_connectors.simulator import virtual_accelerator_port
-from osprey_connectors.types import TARGET_VA
 
 #: Where the compose template mounts the render's simulator view,
 #: ``build/data/simulator``: the same directory the virtual accelerator serves
@@ -378,9 +378,9 @@ def _recorded_target_is_virtual_accelerator(config: dict[str, Any], config_path:
     answered from the mounted config and neither re-derived here:
 
     1. **Did the deployment build a simulator?**
-       :func:`~osprey_connectors.simulator.virtual_accelerator_port` — the
+       :func:`~osprey_connectors.deployment.simulator.virtual_accelerator_port` — the
        same key the archive's attribution reads
-       (:mod:`osprey_connectors.archive_targets`), so the store this recorder
+       (:mod:`osprey_connectors.deployment.archive_targets`), so the store this recorder
        writes is a ``va`` archive exactly when something samples it.
     2. **Does the ``va`` target still land on it?** The endpoint is derived by
        :func:`~osprey_connectors.ipc.derive_endpoints` — the same

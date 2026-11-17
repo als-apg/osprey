@@ -3,7 +3,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.factory import ConnectorFactory
 
 ARCHIVER = {
     "type": "epics_archiver",
@@ -12,7 +12,6 @@ ARCHIVER = {
 
 
 async def main() -> None:
-    register_builtin_connectors()
     archiver = await ConnectorFactory.create_archiver_connector(ARCHIVER)
     try:
         end = datetime.now(UTC)

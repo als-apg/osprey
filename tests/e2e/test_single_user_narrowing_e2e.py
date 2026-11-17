@@ -85,11 +85,11 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.web_terminals.roster import dispatch_tier_name
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
+from osprey_connectors.connector_types import CONTROL_TARGETS, TARGET_VA
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
 from tests.e2e._deploy_support import (
     find_osprey_console_script,
     format_failure,

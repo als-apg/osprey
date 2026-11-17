@@ -25,6 +25,7 @@ import aioca
 import numpy
 import pytest
 
+from osprey_connectors.control_system import Alarm, ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
@@ -35,7 +36,7 @@ from osprey_connectors.control_system._epics_connector import (
     EPICSConnector,
     _ChannelSubscription,
 )
-from osprey_connectors.errors import ChannelUnreachableError
+from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors_tests._epics_fakes import (
     DBR_CHAR,
     DBR_DOUBLE,
@@ -77,7 +78,9 @@ class TestTimeoutKey:
         _patch_writes_enabled(monkeypatch, False)
 
         connector = EPICSConnector()
-        await connector.connect({"timeout_s": 7.5, "gateways": _GATEWAYS})
+        await connector.connect(
+            ConnectorContext(settings={"timeout_s": 7.5, "gateways": _GATEWAYS})
+        )
 
         assert connector._timeout == 7.5
 
@@ -87,7 +90,7 @@ class TestTimeoutKey:
         _patch_writes_enabled(monkeypatch, False)
 
         connector = EPICSConnector()
-        await connector.connect({"gateways": _GATEWAYS})
+        await connector.connect(ConnectorContext(settings={"gateways": _GATEWAYS}))
 
         assert connector._timeout == 5.0
 
@@ -97,9 +100,12 @@ class TestTimeoutKey:
         _patch_writes_enabled(monkeypatch, False)
 
         connector = EPICSConnector()
-        connector._connector_type = "epics"
         with pytest.raises(ValueError, match="renamed to timeout_s"):
-            await connector.connect({"timeout": 7.5, "gateways": _GATEWAYS})
+            await connector.connect(
+                ConnectorContext(
+                    connector_type="epics", settings={"timeout": 7.5, "gateways": _GATEWAYS}
+                )
+            )
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env", "fake_aioca")
@@ -108,9 +114,12 @@ class TestTimeoutKey:
         _patch_writes_enabled(monkeypatch, False)
 
         connector = EPICSConnector()
-        connector._connector_type = "epics"
         with pytest.raises(ValueError, match="control_system.connector.epics.timeout_s"):
-            await connector.connect({"timeout_s": bad, "gateways": _GATEWAYS})
+            await connector.connect(
+                ConnectorContext(
+                    connector_type="epics", settings={"timeout_s": bad, "gateways": _GATEWAYS}
+                )
+            )
 
         assert connector._connected is False
         assert connector._epics_configured is False
@@ -131,7 +140,7 @@ class TestConnect:
 
         connector = EPICSConnector()
         with pytest.raises(ImportError, match="pip install aioca"):
-            await connector.connect({"gateways": {}})
+            await connector.connect(ConnectorContext(settings={"gateways": {}}))
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
@@ -141,7 +150,9 @@ class TestConnect:
         install_fake_aioca(monkeypatch)
 
         connector = EPICSConnector()
-        await connector.connect({"gateways": {"read_only": {"address": "gw", "port": 5070}}})
+        await connector.connect(
+            ConnectorContext(settings={"gateways": {"read_only": {"address": "gw", "port": 5070}}})
+        )
 
         assert connector._ca.pointed_at == [
             {
@@ -160,15 +171,17 @@ class TestConnect:
 
         connector = EPICSConnector()
         await connector.connect(
-            {
-                "gateways": {
-                    "read_only": {
-                        "address": "tunnel.example.com",
-                        "port": 5074,
-                        "use_name_server": True,
+            ConnectorContext(
+                settings={
+                    "gateways": {
+                        "read_only": {
+                            "address": "tunnel.example.com",
+                            "port": 5074,
+                            "use_name_server": True,
+                        }
                     }
                 }
-            }
+            )
         )
 
         assert os.environ["EPICS_CA_NAME_SERVERS"] == "tunnel.example.com:5074"
@@ -184,7 +197,13 @@ class TestConnect:
 
         connector = EPICSConnector()
         await connector.connect(
-            {"gateways": {"read_only": {"address": "gw", "port": 5064, "use_name_server": off}}}
+            ConnectorContext(
+                settings={
+                    "gateways": {
+                        "read_only": {"address": "gw", "port": 5064, "use_name_server": off}
+                    }
+                }
+            )
         )
 
         assert os.environ["EPICS_CA_ADDR_LIST"] == "gw"
@@ -198,7 +217,13 @@ class TestConnect:
 
         connector = EPICSConnector()
         await connector.connect(
-            {"gateways": {"read_only": {"address": "gw", "port": 5064, "use_name_server": on}}}
+            ConnectorContext(
+                settings={
+                    "gateways": {
+                        "read_only": {"address": "gw", "port": 5064, "use_name_server": on}
+                    }
+                }
+            )
         )
 
         assert os.environ["EPICS_CA_NAME_SERVERS"] == "gw:5064"
@@ -212,11 +237,13 @@ class TestConnect:
         connector = EPICSConnector()
         with pytest.raises(ValueError, match="use_name_server"):
             await connector.connect(
-                {
-                    "gateways": {
-                        "read_only": {"address": "gw", "port": 5064, "use_name_server": "maybe"}
+                ConnectorContext(
+                    settings={
+                        "gateways": {
+                            "read_only": {"address": "gw", "port": 5064, "use_name_server": "maybe"}
+                        }
                     }
-                }
+                )
             )
 
         assert "EPICS_CA_ADDR_LIST" not in os.environ
@@ -234,7 +261,9 @@ class TestConnect:
         )
 
         connector = EPICSConnector()
-        await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+        await connector.connect(
+            ConnectorContext(settings={"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+        )
 
         assert connector._limits_validator is sentinel
         assert connector._connected is True
@@ -399,13 +428,16 @@ class TestReadChannel:
         assert formats.count(aioca.FORMAT_CTRL) == 2  # not cached while it fails
 
     @pytest.mark.asyncio
-    async def test_read_multiple_drops_failures(self, monkeypatch):
-        """read_multiple_channels returns only the channels that read successfully."""
-        good = ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata())
+    async def test_read_multiple_reports_each_failure_with_its_own_error(self, monkeypatch):
+        """A channel whose read raised is a failure in the batch, with that error."""
+        good = ChannelValue(
+            address="GOOD", value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata()
+        )
+        unreachable = ChannelUnreachableError("BAD", "nope")
 
         async def fake_read(addr, *, timeout_s=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
             if addr == "BAD":
-                raise ConnectionError("nope")
+                raise unreachable
             return good
 
         connector = _connector()
@@ -413,8 +445,26 @@ class TestReadChannel:
 
         result = await connector.read_multiple_channels(["GOOD", "BAD"])
 
-        assert set(result) == {"GOOD"}
-        assert result["GOOD"] is good
+        assert dict(result.values) == {"GOOD": good}
+        assert dict(result.failures) == {"BAD": unreachable}
+
+    @pytest.mark.asyncio
+    async def test_read_multiple_raises_an_error_that_is_no_channel_s(self, monkeypatch):
+        """A lost transport fails the batch, so recovery replaces the connector."""
+        good = ChannelValue(
+            address="GOOD", value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata()
+        )
+
+        async def fake_read(addr, *, timeout_s=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
+            if addr == "BAD":
+                raise ConnectorUnavailableError("the PVA client context is gone")
+            return good
+
+        connector = _connector()
+        monkeypatch.setattr(connector, "read_channel", fake_read)
+
+        with pytest.raises(ConnectorUnavailableError):
+            await connector.read_multiple_channels(["GOOD", "BAD"])
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +514,7 @@ class TestWriteConfirmation:
         result = await connector.write_channel("SR:CH", 5.0)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == pytest.approx(5.0)
+        assert result.observed.value == pytest.approx(5.0)
         assert result.error_message is None
 
     @pytest.mark.asyncio
@@ -475,7 +525,7 @@ class TestWriteConfirmation:
         result = await connector.write_channel("SR:CH", 5.0)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == pytest.approx(4.7)
+        assert result.observed.value == pytest.approx(4.7)
         # Both numbers are on the result; the raise path names them from there,
         # and an error_message here would suppress that wording.
         assert result.error_message is None
@@ -493,7 +543,7 @@ class TestWriteConfirmation:
         result = await connector.write_channel("SR:CH", 5.0, confirm=True)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.observed_value is None
+        assert result.observed is None
         assert "did not acknowledge" in result.error_message
         assert _reads_after_put(connector) == []
 
@@ -505,7 +555,7 @@ class TestWriteConfirmation:
         result = await connector.write_channel("SR:CH", 5.0)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.observed_value is None
+        assert result.observed is None
         assert "ca timeout" in result.error_message
 
     @pytest.mark.asyncio
@@ -516,7 +566,7 @@ class TestWriteConfirmation:
         result = await connector.write_channel("SR:CH", 5.0)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.observed_value is None
+        assert result.observed is None
         assert "timed out" in result.error_message
 
     @pytest.mark.asyncio
@@ -533,7 +583,7 @@ class TestWriteConfirmation:
         assert result.outcome is WriteOutcome.FAILED
         assert "no value was sent" in result.error_message
         assert "did not connect" in result.error_message
-        assert result.observed_value is None
+        assert result.observed is None
         assert connector._aioca.puts == []
 
     @pytest.mark.asyncio
@@ -577,7 +627,7 @@ class TestWriteConfirmation:
         result = await connector.write_channel("SR:CH", 5.0, confirm=False)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
+        assert result.observed is None
         assert result.error_message is None
         # Not even a read: the channel disagreeing is not this write's verdict.
         assert _reads_after_put(connector) == []
@@ -729,7 +779,7 @@ class TestWriteExactness:
         result = await connector.write_channel("SR:CH", "hello")
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == "hello"
+        assert result.observed.value == "hello"
 
     @pytest.mark.asyncio
     async def test_text_a_char_array_cut_short_is_a_mismatch(self):
@@ -739,7 +789,7 @@ class TestWriteExactness:
         result = await connector.write_channel("SR:CH", "hello")
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == "hel"
+        assert result.observed.value == "hel"
 
 
 @pytest.mark.usefixtures("writes_enabled")
@@ -764,7 +814,9 @@ class TestConfirmingRead:
         """``${VAR:-false}`` resolves to the string ``"false"``; the key still loads."""
         _patch_writes_enabled(monkeypatch, False)
         connector = EPICSConnector()
-        await connector.connect({"fresh_reads": value, "gateways": _GATEWAYS})
+        await connector.connect(
+            ConnectorContext(settings={"fresh_reads": value, "gateways": _GATEWAYS})
+        )
 
         assert connector._fresh_reads is expected
 
@@ -774,11 +826,16 @@ class TestConfirmingRead:
         """A typo is refused rather than read as off, though the key now changes nothing."""
         _patch_writes_enabled(monkeypatch, False)
         connector = EPICSConnector()
-        connector._connector_type = "epics"
 
         with pytest.raises(ValueError, match=r"control_system\.connector\.epics\.fresh_reads"):
             await connector.connect(
-                {"fresh_reads": "ture", "gateways": {"read_only": {"address": "ro", "port": 5064}}}
+                ConnectorContext(
+                    connector_type="epics",
+                    settings={
+                        "fresh_reads": "ture",
+                        "gateways": {"read_only": {"address": "ro", "port": 5064}},
+                    },
+                )
             )
 
     @pytest.mark.asyncio
@@ -822,7 +879,7 @@ class TestConfirmingRead:
         result = await connector.write_channel("SR:CH", "ON")
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == 1
+        assert result.observed.value == 1
 
     @pytest.mark.asyncio
     async def test_the_observed_value_keeps_the_type_the_channel_reports(self):
@@ -832,7 +889,7 @@ class TestConfirmingRead:
         result = await connector.write_channel("SR:CH", "ON")
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == "ON"
+        assert result.observed.value == "ON"
         assert result.observed_number is None
 
 
@@ -908,9 +965,10 @@ class TestWriteFailClosed:
         )
         connector = _write_connector(limits=limits)
 
-        with pytest.raises(ChannelLimitsViolationError):
-            await connector.write_channel("SR:CH", 1.0, confirm=False)
+        result = await connector.write_channel("SR:CH", 1.0, confirm=False)
 
+        assert result.refusal_reason == "LIMITS"
+        assert result.limits_violation.reason == "too big"
         assert connector._aioca.puts == []
 
 
@@ -1177,7 +1235,9 @@ class TestValidateChannelAndMetadata:
     @pytest.mark.asyncio
     async def test_get_metadata_returns_read_metadata(self, monkeypatch):
         meta = ChannelMetadata(units="kV")
-        value = ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=meta)
+        value = ChannelValue(
+            address="SR:CH", value=1.0, sampled_at=datetime.now(UTC), metadata=meta
+        )
         connector = _connector()
         monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=value))
 
@@ -1186,7 +1246,9 @@ class TestValidateChannelAndMetadata:
     @pytest.mark.asyncio
     async def test_validate_channel_probes_with_the_configured_timeout(self, monkeypatch):
         """The probe uses the connector's own ``timeout``, not a literal of its own."""
-        value = ChannelValue(value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata())
+        value = ChannelValue(
+            address="SR:CH", value=1.0, sampled_at=datetime.now(UTC), metadata=ChannelMetadata()
+        )
         read = AsyncMock(return_value=value)
         connector = _connector(timeout=17.0)
         monkeypatch.setattr(connector, "read_channel", read)
@@ -1212,7 +1274,7 @@ class TestValidateChannelAndMetadata:
 class TestChannelAccessAlarmNames:
     """CA reports alarm status as an int; the connector emits the EPICS name.
 
-    ``ChannelMetadata.alarm_status`` is declared ``str | None`` and PVAccess
+    ``Alarm.status`` is declared ``str | None`` and PVAccess
     already emitted names, so the raw CA code was both the wrong type and
     unreadable downstream. The code itself is not lost — it stays in
     ``raw_metadata["status"]`` next to the severity.
@@ -1235,7 +1297,25 @@ class TestChannelAccessAlarmNames:
 
         result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
-        assert result.metadata.alarm_status == name
+        assert result.alarm.status == name
+
+    @pytest.mark.asyncio
+    async def test_the_alarm_comes_from_the_reading_itself(self):
+        """Status and severity both come from the TIME reading, the status by name."""
+        connector = _channel_connector(ca_reading(1.0, status=5, severity=1))
+
+        result = await connector.read_channel("SR:CH", timeout_s=1.0)
+
+        assert result.alarm == Alarm(status="LOLO", severity=1)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("address", ["SR:CH", "ca://SR:CH"])
+    async def test_a_reading_names_the_channel_as_the_caller_did(self, address):
+        connector = _channel_connector(ca_reading(1.0))
+
+        result = await connector.read_channel(address, timeout_s=1.0)
+
+        assert result.address == address
 
     @pytest.mark.asyncio
     async def test_read_keeps_the_raw_code_beside_the_severity(self):
@@ -1243,7 +1323,7 @@ class TestChannelAccessAlarmNames:
 
         result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
-        assert result.metadata.alarm_status == "LOLO"
+        assert result.alarm.status == "LOLO"
         assert result.metadata.raw_metadata["status"] == 5
         assert result.metadata.raw_metadata["severity"] == 1
 
@@ -1254,7 +1334,7 @@ class TestChannelAccessAlarmNames:
 
         result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
-        assert result.metadata.alarm_status == "UNKNOWN"
+        assert result.alarm.status == "UNKNOWN"
         assert result.metadata.raw_metadata["status"] == 99  # raw code still recorded
 
     @pytest.mark.asyncio
@@ -1267,8 +1347,8 @@ class TestChannelAccessAlarmNames:
         time_.fire(ca_reading(7.0, status=4, severity=1))
         await _flush()
 
-        assert received[0].metadata.alarm_status == "HIGH"
-        assert received[0].metadata.alarm_severity == 1
+        assert received[0].alarm.status == "HIGH"
+        assert received[0].alarm.severity == 1
         assert received[0].metadata.raw_metadata["status"] == 4
         assert received[0].metadata.raw_metadata["severity"] == 1
 
@@ -1276,9 +1356,9 @@ class TestChannelAccessAlarmNames:
 class TestReadAlarmSeverity:
     """Reads carry the typed severity, not just the alarm name.
 
-    ``ChannelMetadata.alarm_severity`` follows the write-path convention
-    (``ChannelWriteResult.alarm_severity``): 0 healthy, higher is worse,
-    ``None`` = the control system reported no severity. Before this field the
+    ``Alarm.severity`` is the one convention on a read and on a write's
+    re-read: 0 healthy, higher is worse, ``None`` = the control system
+    reported no severity. Before this field the
     severity reached only ``raw_metadata``, which the ``channel_read`` tool
     never surfaces — so the agent could see MAJOR-vs-MINOR after a write but
     not on the read it based the write on.
@@ -1298,7 +1378,7 @@ class TestReadAlarmSeverity:
 
         result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
-        assert result.metadata.alarm_severity == severity
+        assert result.alarm.severity == severity
 
     @pytest.mark.asyncio
     async def test_an_unreported_severity_reads_as_none(self):
@@ -1306,7 +1386,7 @@ class TestReadAlarmSeverity:
 
         result = await connector.read_channel("SR:CH", timeout_s=1.0)
 
-        assert result.metadata.alarm_severity is None
+        assert result.alarm.severity is None
 
 
 # ---------------------------------------------------------------------------
@@ -1343,7 +1423,7 @@ class TestChannelAccessEnumLabels:
         result = await connector.read_channel("SR:MODE", timeout_s=1.0)
 
         assert result.value == 2  # the index, not "ACQUIRING"
-        assert result.metadata.enum_label == "ACQUIRING"
+        assert result.enum_label == "ACQUIRING"
         assert result.metadata.enum_labels == ("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")
         assert result.metadata.raw_metadata["type"] == "time_enum"
 
@@ -1355,7 +1435,7 @@ class TestChannelAccessEnumLabels:
         result = await connector.read_channel("SR:MODE", timeout_s=1.0)
 
         assert result.value == 0
-        assert result.metadata.enum_label == "OFF"
+        assert result.enum_label == "OFF"
 
     @pytest.mark.asyncio
     async def test_a_non_enum_read_leaves_both_fields_unset(self):
@@ -1366,7 +1446,7 @@ class TestChannelAccessEnumLabels:
 
         assert result.value == 7.25
         assert result.metadata.enum_labels is None
-        assert result.metadata.enum_label is None
+        assert result.enum_label is None
 
     @pytest.mark.asyncio
     async def test_a_failed_label_fetch_still_returns_the_reading(self):
@@ -1381,7 +1461,7 @@ class TestChannelAccessEnumLabels:
 
         assert result.value == 2  # the read is not lost with the labels
         assert result.metadata.enum_labels is None
-        assert result.metadata.enum_label is None
+        assert result.enum_label is None
 
     @pytest.mark.asyncio
     async def test_unreported_labels_leave_the_fields_unset(self):
@@ -1393,7 +1473,7 @@ class TestChannelAccessEnumLabels:
 
         assert result.value == 2
         assert result.metadata.enum_labels is None
-        assert result.metadata.enum_label is None
+        assert result.enum_label is None
 
     @pytest.mark.asyncio
     async def test_an_index_past_the_label_list_keeps_the_list(self):
@@ -1404,7 +1484,7 @@ class TestChannelAccessEnumLabels:
 
         assert result.value == 9
         assert result.metadata.enum_labels == ("OFF", "ON")
-        assert result.metadata.enum_label is None
+        assert result.enum_label is None
 
     @pytest.mark.asyncio
     async def test_subscribe_callback_reports_the_label_from_its_ctrl_event(self):
@@ -1417,7 +1497,7 @@ class TestChannelAccessEnumLabels:
         await _flush()
 
         assert received[0].value == 3
-        assert received[0].metadata.enum_label == "FAULT"
+        assert received[0].enum_label == "FAULT"
         assert received[0].metadata.enum_labels == tuple(_MODES)
 
     @pytest.mark.asyncio
@@ -1431,7 +1511,7 @@ class TestChannelAccessEnumLabels:
         await _flush()
 
         assert received[0].value == 1
-        assert received[0].metadata.enum_label is None
+        assert received[0].enum_label is None
         assert received[0].metadata.enum_labels is None
 
 
@@ -1457,9 +1537,9 @@ class TestConfirmingReadAlarmReporting:
         result = await connector.write_channel("SR:CH", 5.0)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.alarm_status == "NO_ALARM"
-        assert result.alarm_severity == 0
-        assert result.alarm_severity is not None
+        assert result.observed.alarm.status == "NO_ALARM"
+        assert result.observed.alarm.severity == 0
+        assert result.observed.alarm.severity is not None
 
     @pytest.mark.asyncio
     async def test_a_confirmed_write_reports_a_major_alarm_and_still_returns(self):
@@ -1473,8 +1553,8 @@ class TestConfirmingReadAlarmReporting:
         result = await connector.write_channel("SR:CH", 5.0)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.alarm_status == "HIHI"
-        assert result.alarm_severity == 2
+        assert result.observed.alarm.status == "HIHI"
+        assert result.observed.alarm.severity == 2
         assert raise_for_write_result(result) is result
 
     @pytest.mark.asyncio
@@ -1484,8 +1564,8 @@ class TestConfirmingReadAlarmReporting:
         result = await connector.write_channel("SR:CH", 5.0)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.alarm_status == "HIHI"
-        assert result.alarm_severity == 2
+        assert result.observed.alarm.status == "HIHI"
+        assert result.observed.alarm.severity == 2
 
     @pytest.mark.asyncio
     async def test_an_unconfirmed_write_claims_no_alarm_state(self):
@@ -1495,8 +1575,7 @@ class TestConfirmingReadAlarmReporting:
         result = await connector.write_channel("SR:CH", 5.0)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.alarm_status is None
-        assert result.alarm_severity is None
+        assert result.observed is None
 
     @pytest.mark.asyncio
     async def test_notes_text_never_feeds_the_structured_fields(self):
@@ -1514,6 +1593,4 @@ class TestConfirmingReadAlarmReporting:
 
         assert "confirmed NO_ALARM" in result.error_message  # the wording did land
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.alarm_status is None
-        assert result.alarm_severity is None
-        assert result.observed_value is None
+        assert result.observed is None

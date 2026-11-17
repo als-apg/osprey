@@ -37,11 +37,20 @@ A connector is Osprey's single interface to one control system. Subclass
 ``ControlSystemConnector`` from ``osprey_connectors.control_system``
 --- the source lives in
 ``packages/osprey-connectors/src/osprey_connectors/control_system/`` --- and
-return the ``ChannelValue``, ``ChannelMetadata`` and ``ChannelWriteResult``
-models it defines. A write's result carries the ``outcome`` your connector
-determined. Use the shared ``values_match`` helper from the same module to
-compare what you read back against what was sent. That way your connector
-confirms a write exactly as every other one does. Register it with
+return the ``ChannelValue`` and ``ChannelMetadata`` models it defines. A
+reading names the address it was asked for and carries its own ``Alarm`` and
+enum label, filled from your protocol's fields at read time; the metadata holds
+only what describes the channel. The write methods are final: implement ``_send``, which puts one checked value and
+answers with a ``SendReport`` saying whether it went out, and the base class
+runs the write guard, the limits, the confirming read and the ``values_match``
+comparison, and builds every ``ChannelWriteResult``. That way your connector
+words every outcome exactly as every other one does. ``connect()`` is final
+too: implement ``_open(settings)``, which receives your connector's own block
+(``control_system.connector.<type>``). ``connect()`` takes the
+``ConnectorContext`` the factory builds, and it builds the limits validator from
+the deployment's loaded config before it calls ``_open``. The optional protected
+hooks (``_precheck``, ``_confirming_read``, ``_run_check`` and the rest) are
+listed in :ref:`connectors-api-contracts`. Register it with
 ``ConnectorFactory.register_control_system``, or ship it as an
 ``osprey.registry.base.ConnectorRegistration`` passed to
 ``osprey.registry.helpers.extend_framework_registry``. Pinning test:

@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
-from osprey_connectors import control_context, posture_store, refusals, session_hold, types
+from osprey_connectors import control_context, posture_store, refusals, session_hold, write_tier
 from osprey_connectors_tests import _paths
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -343,14 +343,14 @@ def test_switch_position_reads_no_record_as_off_on_both_sides():
 def test_tier_readers_match_the_package(value):
     section = {"writes": value}
 
-    assert reader.tier_writes(section) == types.tier_writes(section)
-    assert reader.tier_allows(section) is types.tier_allows(section)
+    assert reader.tier_writes(section) == write_tier.tier_writes(section)
+    assert reader.tier_allows(section) is write_tier.tier_allows(section)
 
 
 @pytest.mark.parametrize("section", [None, "allowed", [], {}], ids=repr)
 def test_tier_readers_match_the_package_on_a_section_with_no_tier(section):
-    assert reader.tier_writes(section) == types.tier_writes(section) == "never"
-    assert reader.tier_allows(section) is types.tier_allows(section) is False
+    assert reader.tier_writes(section) == write_tier.tier_writes(section) == "never"
+    assert reader.tier_allows(section) is write_tier.tier_allows(section) is False
 
 
 @pytest.mark.usefixtures("case_environment")
@@ -504,7 +504,7 @@ def test_restated_store_names_match_the_package():
 
 
 def test_tier_words_match_the_package():
-    assert (reader.TIER_NEVER, reader.TIER_ASKED, reader.TIER_ALLOWED) == types.TIER_WORDS
+    assert (reader.TIER_NEVER, reader.TIER_ASKED, reader.TIER_ALLOWED) == write_tier.TIER_WORDS
     # The order is the ceiling's rank: ``min`` on it is the cap.
     assert reader._LOGIN_TIERS == posture_store._LOGIN_TIERS == ("never", "asked", "allowed")
 

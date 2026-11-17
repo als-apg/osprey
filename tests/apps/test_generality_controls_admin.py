@@ -26,7 +26,7 @@ import osprey
 from osprey.cli.templates.preset_data import FACILITIES_DIRNAME, FACILITY_DATA_DIRNAME
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.profiles.web_panels import panel_spec_enabled
-from osprey_connectors.types import tier_writes
+from osprey_connectors.write_tier import tier_writes
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 FIXTURES = Path(__file__).parent / "fixtures"

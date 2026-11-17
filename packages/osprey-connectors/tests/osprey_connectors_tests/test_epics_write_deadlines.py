@@ -39,7 +39,7 @@ import aioca
 import pytest
 
 from osprey_connectors.control_system import _epics_connector
-from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._base import SendReport, WriteOutcome
 from osprey_connectors.control_system._ca_loop import CaLoop
 from osprey_connectors.control_system._epics_connector import (
     WRITE_THREAD_PREFIX,
@@ -513,7 +513,7 @@ class TestConfirmingRead:
         result, elapsed = await _timed_write(clock, connector, "SR:VALVE", 1, confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == 1
+        assert result.observed.value == 1
         assert record.ctrl_fetches == 1
         assert elapsed == pytest.approx(T)
 
@@ -538,7 +538,7 @@ class TestConfirmingRead:
 
         assert record.puts == ["ON"]
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == 1
+        assert result.observed.value == 1
         assert record.ctrl_fetches == 1
 
     @pytest.mark.asyncio
@@ -550,7 +550,7 @@ class TestConfirmingRead:
         result = await connector.write_channel("SR:CH", 2.0, confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.alarm_severity == 0
+        assert result.observed.alarm.severity == 0
         assert record.ctrl_fetches == 0
         assert ("caget", "SR:CH", aioca.FORMAT_CTRL) not in fake.calls
 
@@ -560,7 +560,7 @@ class TestConnectionEvidence:
     async def test_a_confirming_read_records_its_connection_for_stale_detection(self, clock):
         connector = _connector(TimingAioca(clock, SR_CH=_Record()))
 
-        await connector._confirming_read("SR:CH", T)
+        await connector._confirming_read("SR:CH", SendReport(), timeout_s=T)
 
         assert "SR:CH" in connector._one_shot_connected
         assert "SR:CH" not in connector._connect_failures

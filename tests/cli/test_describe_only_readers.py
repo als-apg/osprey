@@ -23,7 +23,7 @@ from osprey.deployment.web_terminals.roster import (
     launch_token_writes_key,
 )
 from osprey.utils.workspace import TIERS_DIRNAME
-from osprey_connectors.types import WRITES_KEY
+from osprey_connectors.write_tier import WRITES_KEY
 from tests._renders import tier_render
 
 # ---------------------------------------------------------------------------

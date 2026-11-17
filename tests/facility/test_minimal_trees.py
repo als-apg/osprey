@@ -31,7 +31,7 @@ from click.testing import CliRunner, Result
 from osprey.facility.settings import NO_READBACK_WARNING
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors.simulation import TEXTURE
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -387,7 +387,7 @@ async def _served(project: BuiltProject) -> Any:
 
     connector = VAInProcessConnector()
     view = project.build_dir / "data" / "simulator"
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(armed_context(settings=in_process_config(view, response_delay_ms=0)))
     return connector
 
 
@@ -453,7 +453,7 @@ async def test_als_shaped_namespace_round_trip(
 
         seeded = [await connector.read_channel(a) for a in (SR_READBACK, BTS_READBACK)]
         assert [reading.value for reading in seeded] == [12.5, 0.25]
-        assert [reading.metadata.alarm_severity for reading in seeded] == [None, None]
+        assert [reading.alarm for reading in seeded] == [None, None]
 
         sr_write = await connector.write_channel(SR_SETPOINT, 13.0)
         sr_echo = await connector.read_channel(SR_READBACK)

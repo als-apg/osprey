@@ -9,7 +9,7 @@ the whole job of this module.
 returns ``control_system.type`` verbatim, so naming the class there makes it a
 real, servable live target — and ``va`` reaches :class:`VaConnector` through the
 registry name ``virtual_accelerator``, which a scratch ``sitecustomize`` on the
-child's ``PYTHONPATH`` registers before ``register_builtin_connectors()`` runs
+child's ``PYTHONPATH`` registers before ``ConnectorFactory._ensure_builtins()`` runs
 (that function never replaces an existing registration). Neither class imports a
 control-system client library, so a child running either one touches no gateway.
 
@@ -28,16 +28,17 @@ about an exact number.
   channel therefore fails, which is the routing claim stated negatively.
 * :data:`SLOW_CHANNEL` — blocks far longer than any deadline the suite uses, so
   a read can be caught in flight and the child killed underneath it.
-* :data:`LIMITS_CHANNEL` — writing it raises a fully populated
-  :class:`~osprey_connectors.errors.ChannelLimitsViolationError`. Every field is
-  set, including ``max_step`` and ``current_value``, which no naturally
-  occurring violation populates without a readback; a field that crossed the
-  process boundary as another field's value is then visible as a failure rather
-  than hidden behind a default.
+* :data:`LIMITS_CHANNEL` — the limits these connectors check against refuse a
+  write to it with a fully populated
+  :class:`~osprey_connectors.errors.ChannelLimitsViolationError`, which comes
+  back as a ``refused`` result carrying its violation. Every field is set,
+  including ``max_step`` and ``current_value``, which no naturally occurring
+  violation populates without a readback; a field that crossed the process
+  boundary as another field's value is then visible as a failure rather than
+  hidden behind a default.
 
-Writes reach that raise only on a deployment whose config says
-``control_system.writes_enabled: true`` — the base class's guard returns a
-blocked *result* otherwise and this module's ``write_channel`` is never entered.
+Writes reach those limits only on a deployment whose config allows writes —
+the base class's guard returns a blocked *result* otherwise.
 """
 
 from __future__ import annotations
@@ -49,9 +50,8 @@ from typing import Any
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
     ChannelValue,
-    ChannelWriteResult,
     ControlSystemConnector,
-    WriteOutcome,
+    SendReport,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelUnreachableError
 
@@ -75,7 +75,7 @@ BATCH_CHANNELS = [f"PAIR:BATCH:{index}" for index in range(6)]
 SLOW_CHANNEL = "PAIR:SLOW"
 SLOW_SECONDS = 120.0
 
-#: Writing this raises the limits violation below.
+#: Writing this is refused by the limits violation below.
 LIMITS_CHANNEL = "PAIR:LIMITED:SP"
 
 #: The value each connector answers :data:`SHARED_CHANNEL` with.
@@ -106,6 +106,24 @@ def make_limits_violation() -> ChannelLimitsViolationError:
     return ChannelLimitsViolationError(value=fields.pop("attempted_value"), **fields)
 
 
+class _Limits:
+    """The limits a pair connector checks a write against: :data:`LIMITS_CHANNEL` is refused.
+
+    Every write is left unconfirmed by policy: these connectors read back
+    constants, so a confirming read would prove nothing about the write.
+    """
+
+    def validate(self, address: str, value: Any, *, read_current: Any = None) -> None:  # noqa: ARG002 - the validator's signature
+        if address == LIMITS_CHANNEL:
+            raise make_limits_violation()
+
+    def resolve_confirm(self, address: str) -> bool:  # noqa: ARG002 - the validator's signature
+        return False
+
+    def measures_step(self, address: str) -> bool:  # noqa: ARG002 - the validator's signature
+        return False
+
+
 class _PairConnector(ControlSystemConnector):
     """One half of the pair: constant values, offset by :attr:`seed`."""
 
@@ -116,7 +134,7 @@ class _PairConnector(ControlSystemConnector):
     #: The probe channel this target — and only this target — serves.
     probe_channel: str = ""
 
-    async def connect(self, config: dict[str, Any] | None = None) -> None:
+    async def _open(self, config: dict[str, Any] | None = None) -> None:
         self.connected_config = dict(config or {})
 
     async def disconnect(self) -> None:
@@ -147,41 +165,26 @@ class _PairConnector(ControlSystemConnector):
         if address == SLOW_CHANNEL:
             await asyncio.sleep(SLOW_SECONDS)
         return ChannelValue(
+            address=address,
             value=self.value_for(address),
             sampled_at=datetime.now(UTC),
             metadata=ChannelMetadata(units="mA"),
         )
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
-        readings = await asyncio.gather(
-            *(self.read_channel(address, timeout_s=timeout_s) for address in addresses),
-            return_exceptions=True,
-        )
-        return {
-            address: reading
-            for address, reading in zip(addresses, readings, strict=True)
-            if isinstance(reading, ChannelValue)
-        }
+    def _validator(self) -> Any:
+        return _Limits()
 
-    async def write_channel(
+    async def _send(
         self,
-        address: str,
-        value: Any,
+        address: str,  # noqa: ARG002 - the send hook fixes this signature
+        value: Any,  # noqa: ARG002 - the send hook fixes this signature
         *,
-        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
-        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
-    ) -> ChannelWriteResult:
-        if address == LIMITS_CHANNEL:
-            raise make_limits_violation()
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.UNREQUESTED,
-        )
+        timeout_s: float,  # noqa: ARG002 - the send hook fixes this signature
+        wait: bool,  # noqa: ARG002 - the send hook fixes this signature
+    ) -> SendReport:
+        return SendReport()
 
-    async def subscribe(self, address: str, callback: Any) -> str:
+    async def subscribe(self, address: str, callback: Any, *, on_connection: Any = None) -> str:
         raise NotImplementedError("the pair connectors serve reads and writes only")
 
     async def unsubscribe(self, subscription_id: str) -> None:

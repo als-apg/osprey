@@ -32,7 +32,7 @@ from osprey.integrations.canopy.mongo_recorder import (
     map_mongo_error,
 )
 from osprey.integrations.canopy.sidecar import MOLE_TYPES
-from osprey_connectors import types
+from osprey_connectors import connector_types
 
 PV_A = "BTS:DIAG:BPM:01:POSITION:X"
 PV_B = "BTS:DIAG:BPM:02:POSITION:X"
@@ -80,7 +80,7 @@ async def make_adapter() -> AsyncIterator[Make]:
 
 
 def test_canopy_resolves_the_type_the_sidecar_renders() -> None:
-    assert MOLE_TYPES[types.MONGODB_ARCHIVER] == RECORDER_TYPE
+    assert MOLE_TYPES[connector_types.MONGODB_ARCHIVER] == RECORDER_TYPE
     assert _resolve_adapter_class(RECORDER_TYPE) is OspreyMongoRecorderAdapter
 
 

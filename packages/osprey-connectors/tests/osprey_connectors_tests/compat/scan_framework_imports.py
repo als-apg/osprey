@@ -24,7 +24,7 @@ one of:
   module;
 * an attribute read through a name an import bound to a connectors module --
   ``import osprey_connectors.settle as step`` then ``step.settle``, ``from
-  osprey_connectors import types as t`` then ``t.MOCK``, or ``import
+  osprey_connectors import connector_types as t`` then ``t.MOCK``, or ``import
   osprey_connectors.a`` then ``osprey_connectors.a.X``: each step of the chain
   must resolve, through submodules, up to the first name that is not a module.
   What is read off a name ``from`` bound to something other than a module (a

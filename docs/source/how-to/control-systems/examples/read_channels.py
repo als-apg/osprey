@@ -2,7 +2,7 @@
 
 import asyncio
 
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.factory import ConnectorFactory
 
 CONFIG = {
     "type": "epics",
@@ -16,15 +16,14 @@ CONFIG = {
 
 
 async def main() -> None:
-    register_builtin_connectors()  # registers the built-in type names; idempotent
     connector = await ConnectorFactory.create_control_system_connector(CONFIG)
     try:
         reading = await connector.read_channel("DEMO:READBACK")
         print(reading.value, reading.metadata.units)
 
-        values = await connector.read_multiple_channels(["DEMO:SETPOINT", "DEMO:MODE"])
-        for address, channel in values.items():
-            print(address, channel.value, channel.metadata.enum_label)
+        batch = await connector.read_multiple_channels(["DEMO:SETPOINT", "DEMO:MODE"])
+        for address, channel in batch.raise_for_failures().values.items():
+            print(address, channel.value, channel.enum_label)
     finally:
         await connector.disconnect()
 

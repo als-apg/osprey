@@ -136,7 +136,7 @@ def _lanes(inputs: ViewInputs) -> list[tuple[str, bool, float]]:
     """
     from osprey.bluesky_bridge_connection import LANE_KEYS, LANE_ONE, SECOND_LANE_KEYS
     from osprey.services.bluesky_bridge.devices.connector import DEFAULT_SETTLE_TOLERANCE
-    from osprey_connectors.types import is_simulated, resolve_control_system_type
+    from osprey_connectors.connector_types import is_simulated, resolve_control_system_type
 
     services = inputs.rendered_config.get("services")
     lanes: list[tuple[str, bool, float]] = []

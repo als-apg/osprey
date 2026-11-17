@@ -88,7 +88,7 @@ import yaml
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
 from osprey.facility.records import FacilityRecords
 from osprey_connectors import posture_store
-from osprey_connectors.types import TARGET_VA
+from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (

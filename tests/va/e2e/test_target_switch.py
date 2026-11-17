@@ -19,7 +19,7 @@ gives the deployment one target each:
 
 That makes ``control_system.type: epics`` the deployment's own type, so ``live``
 is its baseline, ``va`` is the other target, and
-:func:`~osprey_connectors.types.switch_capable` holds. The ``live`` end is a
+:func:`~osprey_connectors.targets.switch_capable` holds. The ``live`` end is a
 simulator wearing the live target's connector type, which is exactly what the
 e2e harness can honestly provide: what it gives these tests is a *second real CA
 endpoint under the harness's control*, which is the property every scenario here

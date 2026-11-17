@@ -12,17 +12,17 @@ import copy
 
 import pytest
 
-from osprey_connectors.archive_targets import APPLIANCE_TARGETS, archive_targets
-from osprey_connectors.service_answers import BackendSpec
-from osprey_connectors.service_targets import service_targets
-from osprey_connectors.simulator import has_simulator
-from osprey_connectors.types import (
+from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     EPICS_ARCHIVER,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
 )
+from osprey_connectors.deployment.archive_targets import APPLIANCE_TARGETS, archive_targets
+from osprey_connectors.deployment.simulator import has_simulator
+from osprey_connectors.service_answers import BackendSpec
+from osprey_connectors.service_targets import service_targets
 
 KINDS = ("directory", "alarm_log", "alarm_state", "put_log")
 SERVED_VA = {"services": {"virtual_accelerator": {"port": 5064}}}

@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.artifacts.app import create_app
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.stores.artifact_store import get_artifact_store, initialize_artifact_store
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from tests.mcp_server._channel_read import config_patch
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
@@ -32,12 +33,13 @@ def _channel_value(value, color_mode=None):
     """A real ChannelValue, so the tool sees the dataclass it sees in production."""
     raw = {"color_mode": color_mode} if color_mode is not None else {}
     return ChannelValue(
+        address=ADDRESS,
         value=value,
         sampled_at=datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
+        alarm=Alarm(status="NO_ALARM"),
         metadata=ChannelMetadata(
             units="counts",
             precision=0,
-            alarm_status="NO_ALARM",
             description="Camera frame",
             raw_metadata=raw,
         ),

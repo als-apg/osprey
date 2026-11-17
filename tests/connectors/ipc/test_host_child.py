@@ -7,7 +7,7 @@ first, whether it dies when it should, and whether a failed request takes it
 down with it. Nothing is stubbed out on the far side.
 
 The child is pointed at the mock connector through its dotted class path, which
-:func:`osprey_connectors.types.resolve_target` returns verbatim for ``live``
+:func:`osprey_connectors.targets.resolve_target` returns verbatim for ``live``
 (the mock is not one of the *simulated* type names, so it is treated as a
 deployment's own control system). That runs the entire real path — resolver,
 factory, ``connect()`` — with no EPICS, no gateway and no network.
@@ -43,6 +43,7 @@ import yaml
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -424,8 +425,9 @@ def test_a_batched_read_of_n_channels_is_one_round_trip(ready_child):
     frame = ready_child.next_frame()
 
     assert frame.request_id == request_id
-    assert sorted(frame.value) == sorted(channels)
-    assert all(isinstance(value, ChannelValue) for value in frame.value.values())
+    assert sorted(frame.value.values) == sorted(channels)
+    assert frame.value.failures == {}
+    assert all(isinstance(value, ChannelValue) for value in frame.value.values.values())
     # One request in, one result out: the fan-out happened inside the child.
     ready_child.quiet()
 
@@ -1030,8 +1032,9 @@ def _posture_carrier(connector_type, control_target, *, epics_configured=False):
     the type and target the factory stamps on whatever it builds.
     """
     connector = VAInProcessConnector()
-    connector._connector_type = connector_type
-    connector._control_target = control_target
+    connector._context = ConnectorContext(
+        connector_type=connector_type, control_target=control_target
+    )
     connector._epics_configured = epics_configured
     return connector
 

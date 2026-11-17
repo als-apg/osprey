@@ -104,7 +104,7 @@ Which targets a deployment has (a second question, answered from config)
 Hooks that gate writes need two answers identity alone cannot give: which
 connector type does a target select here, and which targets can a session on
 this deployment reach at all? Both are config questions, and their authority is
-``osprey_connectors.types``. Hooks cannot import it, so :func:`target_type` and
+``osprey_connectors.targets``. Hooks cannot import it, so :func:`target_type` and
 :func:`session_types` restate it here in stdlib terms, once, for every hook that
 asks: two hooks mirroring the same rules separately is two ways for one
 deployment to be described.
@@ -122,7 +122,7 @@ The mirrored rules, on the ``control_system:`` section:
 
 A caller holding no target of its own asks which targets a session on THIS
 deployment can reach. :func:`session_types` answers it, restating the
-reachable set of ``osprey_connectors.types.most_restrictive_limits_posture`` —
+reachable set of ``osprey_connectors.limits_posture.most_restrictive_limits_posture`` —
 the deployment's CONFIGURED targets where it renders the target switch, and
 otherwise the single type ``control_system.type`` builds, read by TYPE under
 the baseline target that names it. Iterating the target vocabulary instead
@@ -147,7 +147,7 @@ drives one case table through both.
 **1. The tier.** :func:`tier_writes` reads ``control_system.writes``: only the
 literals ``asked`` and ``allowed`` arm. A section that states no tier is
 ``never``; a retired ``writes_enabled`` leaf, flat or in a connector block, is
-never read, in step with the package's ``types.tier_writes``. The tier is a
+never read, in step with the package's ``write_tier.tier_writes``. The tier is a
 ceiling on the position as well: an allowed verdict's ``position`` is the stored
 word capped by it (by the owner's rung under a bound tree).
 
@@ -958,7 +958,7 @@ def _baseline_target(section):
 def _switch_capable(section):
     """Whether this deployment gives a session more than one target to point at.
 
-    The stdlib restatement of ``osprey_connectors.types.switch_capable``: at
+    The stdlib restatement of ``osprey_connectors.targets.switch_capable``: at
     least two targets are configured (:func:`_configured_targets`, the same
     enumeration every roster walks).
 
@@ -974,7 +974,7 @@ def _switch_capable(section):
 def _configured_targets(section):
     """The targets a session on this deployment can actually be POINTED at.
 
-    The stdlib restatement of ``osprey_connectors.types.configured_targets``:
+    The stdlib restatement of ``osprey_connectors.targets.configured_targets``:
     the deployment's baseline first — a session sits on it whether or not the
     config wrote a block for the connector ``control_system.type`` builds — then
     every other target in :data:`CONTROL_TARGETS` order whose type resolves and
@@ -1009,7 +1009,7 @@ def session_types(section):
     """``{target: connector type}`` for the targets a session here can REACH.
 
     The stdlib restatement of the reachable-target rule of
-    ``osprey_connectors.types.most_restrictive_limits_posture``, and what a
+    ``osprey_connectors.limits_posture.most_restrictive_limits_posture``, and what a
     caller with no target of its own iterates instead of the target vocabulary. Every :func:`_configured_targets` target
     on a deployment that renders the switch; otherwise the one type
     ``control_system.type`` builds, under the baseline target that names it — by
@@ -1111,7 +1111,7 @@ LAUNCH_POSTURE_ALL_TARGETS = "*"
 RECORD_READ_LIMIT = 64 * 1024
 
 #: The tier key's leaf, its three values, and the login→tier map's leaf. Mirror
-#: ``types._WRITES_LEAF``/``_TIER_*`` and ``posture_store._LOGIN_TIERS_LEAF``.
+#: ``write_tier._WRITES_LEAF``/``_TIER_*`` and ``posture_store._LOGIN_TIERS_LEAF``.
 WRITES_LEAF = "writes"
 TIER_NEVER = "never"
 TIER_ASKED = "asked"
@@ -1129,11 +1129,11 @@ SWITCH_ALLOWED = "allowed"
 _SWITCH_LEGACY_ON = "on"
 
 #: The kind of machine each target names by its name alone. Mirrors
-#: ``types._MACHINE_KINDS``: ``standin`` is ``real`` by name, and only the
+#: ``targets._MACHINE_KINDS``: ``standin`` is ``real`` by name, and only the
 #: published report (:func:`published_machine_kind`) calls it the rehearsal.
 _MACHINE_KINDS = {TARGET_LIVE: "real", TARGET_STANDIN: "real", TARGET_VA: "simulator"}
 
-#: The report key a target's published kind sits under. Mirrors ``types._MACHINE_KIND_KEY``.
+#: The report key a target's published kind sits under. Mirrors ``control_context._MACHINE_KIND_KEY``.
 _MACHINE_KIND_KEY = "machine_kind"
 
 # What makes an owner name unusable as one directory of the tree. Mirrors
@@ -1351,7 +1351,7 @@ class WriteVerdict:
 def tier_writes(section):
     """The login tier's write ceiling: ``never``, ``asked`` or ``allowed``. Never raises.
 
-    Mirrors ``types.tier_writes``: only the literals ``"asked"`` and ``"allowed"``
+    Mirrors ``write_tier.tier_writes``: only the literals ``"asked"`` and ``"allowed"``
     in the ``writes`` leaf arm, matched exactly. An absent leaf, any other value
     (the switch's retired ``"on"`` among them), and a section that is not a mapping
     are ``never``; the retired ``writes_enabled`` leaves are not read.
@@ -1370,7 +1370,7 @@ def tier_allows(section):
 def machine_kind(section, target):
     """The kind of machine *target* names here, or ``None`` when it does not resolve.
 
-    Mirrors ``types.machine_kind``; :func:`target_type` is ``None`` exactly where
+    Mirrors ``targets.machine_kind``; :func:`target_type` is ``None`` exactly where
     the package's ``resolve_target`` raises. Never raises.
     """
     try:
@@ -1384,7 +1384,7 @@ def machine_kind(section, target):
 def published_machine_kind(target, *, state_dir=None, hook_input=None):
     """The kind of machine *target* is, as the controls server publishes it.
 
-    Mirrors ``types.published_machine_kind``: ``standin`` is ``rehearsal`` only
+    Mirrors ``control_context.published_machine_kind``: ``standin`` is ``rehearsal`` only
     when the first live server's report says so for it — no live report, no
     key, or any other value reads ``real``. Every other target answers from the
     name table (``va`` the simulator, ``live`` and anything unknown the real

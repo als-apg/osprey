@@ -249,7 +249,7 @@ def check_control_context_golden(fixtures: Path = FIXTURES) -> str:
 def check_switch_golden(fixtures: Path = SWITCH_ON_FIXTURES) -> None:
     """The golden record spelling ``"on"`` reads as one machine at ``asked``."""
     from osprey_connectors import control_context
-    from osprey_connectors.types import CONTROL_TARGETS
+    from osprey_connectors.connector_types import CONTROL_TARGETS
 
     raw = json.loads((fixtures / control_context.RECORD_FILENAME).read_text(encoding="utf-8"))
     record = control_context.parse_record(raw)
@@ -294,9 +294,9 @@ def defaulted_posture(posture: dict[str, str]) -> dict[str, str]:
 
     An absent machine already reads as ``sandbox`` to every reader; the normal
     form only writes that default out, for every machine in
-    :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+    :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`.
     """
-    from osprey_connectors.types import CONTROL_TARGETS
+    from osprey_connectors.connector_types import CONTROL_TARGETS
 
     return {**dict.fromkeys(CONTROL_TARGETS, "sandbox"), **posture}
 

@@ -35,7 +35,7 @@ from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
 from osprey.services.code_review.settings import DEFAULT_PROMPT
 from osprey_connectors.archiver._mya_archiver_connector import _REQUIRED_CLIENT
-from osprey_connectors.types import retired_type_message
+from osprey_connectors.connector_types import retired_type_message
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOW_TO = REPO_ROOT / "docs/source/how-to"

@@ -25,8 +25,8 @@ class FakeChannelValue:
 class _FakeWriteResult:
     """Stand-in for a ``ChannelWriteResult`` returned by ``write_channel_checked``.
 
-    Only the fields the device reads: the single owned ``outcome`` word and the
-    ``observed_value`` the confirming re-read returned. ``write_channel_checked``
+    The single owned ``outcome`` word the device reads, and the ``observed``
+    reading the confirming re-read returned. ``write_channel_checked``
     only ever returns ``confirmed`` or ``unrequested`` — every other outcome
     raises before the device sees a result.
     """
@@ -34,7 +34,7 @@ class _FakeWriteResult:
     address: str
     value_written: Any
     outcome: str = "confirmed"
-    observed_value: Any = None
+    observed: FakeChannelValue | None = None
 
 
 class FakeConnector:
@@ -79,5 +79,5 @@ class FakeConnector:
             address,
             value,
             outcome=self.write_outcome,
-            observed_value=self.readbacks.get(address),
+            observed=FakeChannelValue(value=self.readbacks.get(address)),
         )

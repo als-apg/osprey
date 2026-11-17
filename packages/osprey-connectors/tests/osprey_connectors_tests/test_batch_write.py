@@ -32,6 +32,7 @@ from osprey_connectors_tests._epics_fakes import (
     writes_enabled,  # noqa: F401 - fixture, used by name
 )
 from osprey_connectors_tests._fake_connector import FakeConnector
+from osprey_connectors_tests._write_fakes import armed_context
 
 ECA_DISCONN = 192
 ECA_NOWTACCESS = 376
@@ -59,7 +60,7 @@ def _outcomes(results) -> list[tuple[str, WriteOutcome, RefusalReason | None]]:
 @pytest.fixture
 async def fake():
     connector = FakeConnector()
-    await connector.connect({})
+    await connector.connect(armed_context())
     connector._limits_validator = _validator(
         A={"max_value": 10.0}, B={"max_value": 10.0}, C={"max_value": 10.0, "max_step": 3.0}
     )
@@ -197,7 +198,7 @@ class TestBaseBatch:
     @staticmethod
     def _after_the_first_write(fake, monkeypatch, happen) -> None:
         """Have ``happen`` run once the batch's first write has been sent."""
-        send = type(fake)._unguarded_write_channel
+        send = type(fake)._write_one
         sent: list[str] = []
 
         async def sending(self, address, value, **kwargs):
@@ -207,7 +208,7 @@ class TestBaseBatch:
             sent.append(address)
             return result
 
-        monkeypatch.setattr(type(fake), "_unguarded_write_channel", sending)
+        monkeypatch.setattr(type(fake), "_write_one", sending)
 
     async def test_an_explicit_confirm_reaches_every_channel(self, fake):
         results = await fake.write_multiple_channels([("A", 1.0), ("B", 2.0)], confirm=False)
@@ -288,7 +289,7 @@ class TestEpicsBatch:
         results = await connector.write_multiple_channels([("A", 1.0), ("B", 2.0)])
 
         assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED, WriteOutcome.MISMATCH]
-        assert results[1].observed_value == 5.0
+        assert results[1].observed.value == 5.0
 
     async def test_one_limits_refusal_puts_nothing(self):
         aioca = FakeAioca(_channels(A=1.0, B=1.0, C=1.0))
@@ -438,15 +439,16 @@ class TestEpicsBatch:
 
 def test_a_refused_batch_raises_for_the_refused_write_not_one_it_held_back():
     from osprey_connectors.control_system import ChannelWriteResult, raise_for_write_results
-    from osprey_connectors.errors import ChannelWriteBlockedError
+    from osprey_connectors.errors import ChannelWriteBlockedError, LimitsViolation
 
     def refused(address, reason):
-        return ChannelWriteResult(
-            address=address,
-            value_written=1.0,
-            outcome=WriteOutcome.REFUSED,
-            refusal_reason=reason,
-            error_message=f"{address}: {reason}",
+        limits = LimitsViolation(kind="MAX_EXCEEDED", reason="above max")
+        return ChannelWriteResult.refused(
+            address,
+            1.0,
+            RefusalReason(reason),
+            f"{address}: {reason}",
+            limits=limits if reason == "LIMITS" else None,
         )
 
     results = [refused("A", "BATCH_REFUSED"), refused("B", "LIMITS"), refused("C", "BATCH_REFUSED")]

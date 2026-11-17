@@ -584,7 +584,7 @@ def _arm_queue_owner(repo: Path) -> None:
     import yaml
 
     from osprey.deployment.compose_generator import ensure_control_target_dir
-    from osprey_connectors.types import TARGET_VA
+    from osprey_connectors.connector_types import TARGET_VA
     from tests.e2e.sdk_helpers import render_dir, set_switch_in_record
 
     config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
@@ -1474,7 +1474,7 @@ def _switch_on_for_this_login() -> None:
     :func:`_stage_the_queue_tools` bound for this test alone.
     """
     from osprey_connectors import control_context
-    from osprey_connectors.types import baseline_target
+    from osprey_connectors.targets import baseline_target
 
     target = baseline_target({"writes": "allowed"})
     control_context.invalidate_cache()

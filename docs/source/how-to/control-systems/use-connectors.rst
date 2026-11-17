@@ -82,16 +82,20 @@ The examples on this page are files the test suite runs against a soft IOC and
 a built simulator view.
 
 A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
-index, with the state names alongside it in the metadata: ``value`` is the
-index, ``metadata.enum_label`` the name of that state and
+index, with the state names alongside it: ``value`` is the index,
+``enum_label`` the name of that state, and the channel's
 ``metadata.enum_labels`` every state name in order. A read of a four-state
 channel in its third state gives:
 
 .. code-block:: text
 
    value                = 2
-   metadata.enum_label  = 'ACQUIRING'
+   enum_label           = 'ACQUIRING'
    metadata.enum_labels = ('OFFLINE', 'STANDBY', 'ACQUIRING', 'FAULT')
+
+The reading's alarm state rides on it the same way, as ``alarm`` (an ``Alarm``
+with a ``status`` name and a ``severity``), and is ``None`` where the control
+system reports none.
 
 Everything below is configuration only — which machine sits behind that API.
 
@@ -234,7 +238,8 @@ Pick a control system
 
       A read that does not answer within ``timeout_s`` (or the call's own
       timeout) raises ``ChannelUnreachableError`` naming the property, as an
-      EPICS read does. A set that does not return within it
+      EPICS read does. A limits check that does not finish within it refuses
+      the write with nothing sent. A set that does not return within it
       is reported ``unconfirmed``, because the value may still arrive. A
       ``timeout_s`` that is not a positive number of seconds is refused when
       the connector connects.

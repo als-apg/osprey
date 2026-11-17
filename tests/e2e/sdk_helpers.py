@@ -43,7 +43,8 @@ from osprey.port_layout import BLOCK_SIZE
 from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
-from osprey_connectors.types import WRITES_KEY, baseline_target
+from osprey_connectors.targets import baseline_target
+from osprey_connectors.write_tier import WRITES_KEY
 from osprey_connectors_tests._harness import ci_diagnostics
 from tests.e2e import refusals
 from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
@@ -395,7 +396,7 @@ def init_project(
     build would leave every ``archiver_read`` failing at connect for want of a
     store — and, before that, for want of the password ``osprey up``
     mints. Pinning the mock archiver beside the simulator in process is not a
-    way around the pairing rule in :mod:`osprey_connectors.honesty` but the
+    way around the pairing rule in :mod:`osprey.deployment.honesty` but the
     case it explicitly allows: the simulator in process has no recorder, so a
     synthesized archive is the only one it can have, and nothing lies. Tests
     that want recorded history deploy a store of their own.
@@ -583,7 +584,7 @@ def set_writes_tier(repo: Path, tier: str = WRITES_TIER_ALLOWED) -> None:
     """Spell ``control_system.writes: <tier>`` in the repo's profile and rebuild.
 
     Takes the REPO ROOT. The edit lands in the SOURCE zone (``profile.yml``'s
-    ``config:`` block, under the dotted :data:`~osprey_connectors.types.WRITES_KEY`
+    ``config:`` block, under the dotted :data:`~osprey_connectors.write_tier.WRITES_KEY`
     the presets use), and ``osprey build`` then renders it — the same two steps
     a deployer takes, so the render, its ``settings.json`` and the hook config
     all read one tier. Any other spelling of the same leaf already in the block

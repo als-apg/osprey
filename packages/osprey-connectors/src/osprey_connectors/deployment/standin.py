@@ -15,14 +15,14 @@ One predicate lives here. :func:`live_standin_active` asks about **an
 endpoint, right now** — is the stand-in container actually up where a
 ``standin`` session would dial? It may not be re-derived by a caller. **A
 guard that re-implements what the reader resolves can disagree, and the
-disagreement is a bypass** — the same reason :mod:`osprey_connectors.types`
-owns the target resolvers and :mod:`osprey_connectors.honesty` owns the
-archiver pairing.
+disagreement is a bypass** — the same reason :mod:`osprey_connectors.targets`
+owns the target resolvers and the framework's ``osprey.deployment.honesty``
+owns the archiver pairing.
 
 Nothing here is about the archive. The stand-in has no store of its own: it
 rehearses the facility's real machine and is shown that machine's past, while
 the deployment's own store is the virtual accelerator's — see
-:mod:`osprey_connectors.archive_targets`, which decides whose history an
+:mod:`osprey_connectors.deployment.archive_targets`, which decides whose history an
 ``archiver:`` block holds, and reads no stand-in key to do so.
 
 ``live_standin_active`` — the ``standin`` target's deployed-container gate

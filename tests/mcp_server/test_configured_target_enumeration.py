@@ -1,9 +1,9 @@
 """Enumerators walk the targets a deployment configures, not the vocabulary.
 
-``osprey_connectors.types.CONTROL_TARGETS`` is the list of machines that *can*
+``osprey_connectors.connector_types.CONTROL_TARGETS`` is the list of machines that *can*
 exist — it grew a third name when the live stand-in became a target of its own.
 Anything that enumerates targets *for a deployment* has to walk
-:func:`~osprey_connectors.types.configured_targets` instead, or widening the
+:func:`~osprey_connectors.targets.configured_targets` instead, or widening the
 vocabulary silently grows a ``standin`` row, probe and posture on every
 deployment that stands no soft IOC up: a machine that is not there, described as
 if it were.

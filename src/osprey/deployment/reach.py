@@ -510,7 +510,7 @@ def _target_configured(config: Mapping[str, Any], target: str) -> bool:
     """Whether *config* carries the connector a session *target* is served by.
 
     The whole-config spelling of
-    :func:`~osprey_connectors.types.target_configured`, which is where the
+    :func:`~osprey_connectors.targets.target_configured`, which is where the
     question is answered: the connector type the target selects HERE, and
     whether that type's own ``control_system.connector.<type>`` block is
     written. Delegated rather than restated because the runtime enumerates a
@@ -527,7 +527,7 @@ def _target_configured(config: Mapping[str, Any], target: str) -> bool:
     deployment saying it has no virtual accelerator while its VA block, its VA
     service and its VA lane are all right there.
     """
-    from osprey_connectors.types import target_configured
+    from osprey_connectors.targets import target_configured
 
     return target_configured(as_dict(config).get("control_system"), target)
 
@@ -547,7 +547,8 @@ def _va_connector_on(config: Mapping[str, Any]) -> bool:
     process lives inside the process that asks, so there is no container port
     for a session to dial and none is projected.
     """
-    from osprey_connectors.types import TARGET_VA, resolve_target, talks_to_network
+    from osprey_connectors.connector_types import TARGET_VA, talks_to_network
+    from osprey_connectors.targets import resolve_target
 
     if not _target_configured(config, TARGET_VA):
         return False
@@ -562,7 +563,7 @@ def _live_standin_on(config: Mapping[str, Any]) -> bool:
     """Whether this render has a connector pointed at the deployment's stand-in.
 
     The first conjunct is the deployment's own statement that it stood one up,
-    read through :func:`osprey_connectors.standin.live_standin_port` so the
+    read through :func:`osprey_connectors.deployment.standin.live_standin_port` so the
     build, the roster's label and the recorder's gate all decide it from one
     reading of one key.
 
@@ -581,8 +582,8 @@ def _live_standin_on(config: Mapping[str, Any]) -> bool:
     refusing that render would refuse the projection that makes the label
     honest.
     """
-    from osprey_connectors.standin import live_standin_port
-    from osprey_connectors.types import TARGET_STANDIN
+    from osprey_connectors.connector_types import TARGET_STANDIN
+    from osprey_connectors.deployment.standin import live_standin_port
 
     if live_standin_port(config) is None:
         return False
@@ -770,7 +771,7 @@ def _va_dial(config: Mapping[str, Any]) -> Dial | None:
     # fill_gateway_ports' rule: an explicit gateway port wins, else the port
     # the deployment publishes, else the connector's default — on the
     # gateway's own address.
-    from osprey_connectors.types import DEFAULT_VA_PORT
+    from osprey_connectors.connector_types import DEFAULT_VA_PORT
 
     published = dotted_get(config, "services.virtual_accelerator.port") or DEFAULT_VA_PORT
     gateways = as_dict(dotted_get(config, "control_system.connector.virtual_accelerator.gateways"))
@@ -813,7 +814,7 @@ def _live_standin_dial(config: Mapping[str, Any]) -> Dial | None:
     described by describing ``live`` as something other than what the facility
     authored.
     """
-    from osprey_connectors.types import LIVE_STANDIN
+    from osprey_connectors.connector_types import LIVE_STANDIN
 
     gateway = as_dict(
         dotted_get(config, f"control_system.connector.{LIVE_STANDIN}.gateways.read_only")
@@ -1185,7 +1186,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # UNGATED, alone among the service ports here. An attached or render
         # render carries `services: {}` except for the keys projected into it,
         # and this port is not only how a client dials the stand-in: it is the
-        # whole evidence `osprey_connectors.standin.live_standin_active` reads
+        # whole evidence `osprey_connectors.deployment.standin.live_standin_active` reads
         # to decide whether the endpoint the deployment is on really is this
         # deployment's own stand-in container. A gate would withhold it from
         # exactly the renders a multi-user deployment hands its operators, and
@@ -1213,7 +1214,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # it has to travel either. It is a host-side writer that samples the
         # virtual accelerator into the deployment's store; whose history that
         # store holds is a fact about the control system the render already
-        # carries (`osprey_connectors.archive_targets`), not about the recorder.
+        # carries (`osprey_connectors.deployment.archive_targets`), not about the recorder.
         note="a host-side writer; a render reads the store, not the recorder",
     ),
     "dispatch_worker": ReachContract(

@@ -42,6 +42,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
 )
+from osprey_connectors.connector_types import VIRTUAL_ACCELERATOR
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
@@ -54,7 +55,6 @@ from osprey_connectors.ipc._verification import (
     verify_host_report,
 )
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from osprey_connectors_tests._harness import isolated_connector_registries, state_dir_under
 from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config
@@ -2258,7 +2258,6 @@ class TestNonCapableDeploymentIsUntouched:
         context = ControlSystemContext()
         context._config = MCPServerConfig(raw=raw, config_path=None)
         # What initialize() does, minus reading the deployment's config.yml.
-        context._register_connector_types()
         context._connectors["control_system"] = ConnectorEntry(
             config=raw["control_system"], connector_type="control_system"
         )

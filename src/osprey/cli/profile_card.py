@@ -92,13 +92,13 @@ def _document_tier(config: Any) -> str | None:
     """The tier one ``config:`` block states, read as the build reads it.
 
     ``control_system.writes`` when the block spells it (any spelling, deeper
-    key winning), through :func:`~osprey_connectors.types.tier_writes` so only
+    key winning), through :func:`~osprey_connectors.write_tier.tier_writes` so only
     the literal ``asked`` and ``allowed`` arm; else what its retired ``writes_enabled``
     leaves amount to (:func:`~.build_profile_document.retired_write_answer`,
     the rewrite the normalizer applies — a layer handed to the card may be a
     raw parse); else ``None``, a block that says nothing about the posture.
     """
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     from .build_profile_document import retired_write_answer
     from .build_profile_emit import effective_config_subtree
@@ -125,7 +125,7 @@ def _write_rights(
     write, so there is no per-target answer to print. The word is the ceiling
     the slider stops at: ``asked`` or ``allowed``.
     """
-    from osprey_connectors.types import tier_allows
+    from osprey_connectors.write_tier import tier_allows
 
     tier = _document_tier(layer_deltas.get(render, {}).get("config"))
     if tier is None:

@@ -34,8 +34,8 @@ from osprey.registry.mcp import framework_mixed_read_write_tools, framework_writ
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey.utils.workspace import STATE_DIR_RELPATH
 from osprey_connectors import posture_store, session_hold
+from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -423,10 +423,11 @@ def test_the_sandbox_child_keeps_the_session_and_the_store():
 
 _WRITE_SCRIPT = """
 import osprey.runtime as runtime
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors_tests._write_fakes import RecordingConnector
 
 connector = RecordingConnector()
-connector._control_target = runtime._stamped_target()
+connector._context = ConnectorContext(control_target=runtime._stamped_target())
 
 
 async def _get_connector():

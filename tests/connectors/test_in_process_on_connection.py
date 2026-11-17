@@ -8,6 +8,7 @@ live here.
 
 from __future__ import annotations
 
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -15,7 +16,7 @@ from tests.facility.served_tree import in_process_config, served_tree
 async def _connected(tmp_path) -> VAInProcessConnector:
     view = served_tree(tmp_path, {"SR:CH:SP": None})
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(ConnectorContext(settings=in_process_config(view, response_delay_ms=0)))
     return connector
 
 

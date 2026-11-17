@@ -6,21 +6,25 @@ It awaits the connector-agnostic write_channel and collapses the six
 
 - ``refused`` -> raises ChannelWriteBlockedError, carrying the refusal_reason;
 - ``failed`` / ``mismatch`` / ``unconfirmed`` -> raises ChannelWriteFailedError
-  under that same word, uppercased;
+  under that same outcome;
 - a native CA-layer ConnectionError/TimeoutError -> propagates unchanged;
 - ``confirmed`` (in any alarm state) and ``unrequested`` -> return the
   ChannelWriteResult untouched.
 
 The verdict is read off ``result.outcome`` alone — nothing here re-derives one.
 The helper lives on the base class and speaks only the generic interface, so a
-minimal in-file fake connector exercises it without any EPICS/DOOCS machinery.
+minimal in-file fake connector exercises it without any EPICS/DOOCS machinery:
+its instance answers ``write_channel`` with a canned result, which the final
+method's class-level guard does not see, so every outcome word can be served.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -28,19 +32,19 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
 )
 from osprey_connectors.errors import (
-    ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    LimitsViolation,
 )
 
 
 class _FakeConnector(ControlSystemConnector):
-    """Minimal concrete connector whose write_channel returns a canned result.
+    """Minimal concrete connector whose instance write_channel returns a canned result.
 
-    write_channel returns ``self._canned_result`` or, if ``self._canned_exc`` is
-    set, raises it. Writes are forced enabled so the base __init_subclass__ guard
-    passes straight through to our stub (this test targets write_channel_checked,
-    not the writes-disabled guard). Every other abstract method is an unused stub.
+    ``write_channel`` returns ``self._canned_result`` or, if ``self._canned_exc``
+    is set, raises it: an instance attribute, standing in for the final method
+    so this test targets write_channel_checked, not the pipeline. Every abstract
+    method is an unused stub.
     """
 
     def __init__(
@@ -51,41 +55,28 @@ class _FakeConnector(ControlSystemConnector):
         self._canned_result = result
         self._canned_exc = exc
 
-    @property
-    def _writes_enabled(self) -> bool:
-        return True
+        async def write_channel(address: str, value: Any, **kwargs: Any) -> ChannelWriteResult:  # noqa: ARG001 - write_channel's signature
+            if self._canned_exc is not None:
+                raise self._canned_exc
+            assert self._canned_result is not None
+            return self._canned_result
 
-    async def write_channel(
-        self,
-        address: str,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        value: Any,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        *,
-        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-    ) -> ChannelWriteResult:
-        if self._canned_exc is not None:
-            raise self._canned_exc
-        return self._canned_result
+        self.write_channel = write_channel  # type: ignore[method-assign]
 
     # --- Unused abstract-method stubs -------------------------------------
-    async def connect(self, config: dict[str, Any]) -> None: ...
+    async def _open(self, config: dict[str, Any]) -> None: ...
     async def disconnect(self) -> None: ...
     async def read_channel(self, address: str, *, timeout_s: float | None = None) -> ChannelValue:
         raise NotImplementedError
 
-    async def read_multiple_channels(
-        self, addresses: list[str], *, timeout_s: float | None = None
-    ) -> dict[str, ChannelValue]:
+    async def _send(self, address, value, *, timeout_s, wait):
         raise NotImplementedError
 
-    async def subscribe(self, address, callback) -> str:
+    async def subscribe(self, address, callback, *, on_connection=None) -> str:
         raise NotImplementedError
 
     async def unsubscribe(self, subscription_id: str) -> None: ...
     async def get_metadata(self, address: str) -> ChannelMetadata:
-        raise NotImplementedError
-
-    async def validate_channel(self, address: str) -> bool:
         raise NotImplementedError
 
 
@@ -98,6 +89,11 @@ def _result(**overrides) -> ChannelWriteResult:
     }
     base.update(overrides)
     return ChannelWriteResult(**base)
+
+
+def _observed(value: Any, *, alarm: Alarm | None = None) -> ChannelValue:
+    """The confirming re-read a result reports."""
+    return ChannelValue(address="TEST:PV", value=value, sampled_at=datetime.now(UTC), alarm=alarm)
 
 
 class TestRefusals:
@@ -134,24 +130,25 @@ class TestRefusals:
             _result(outcome=WriteOutcome.REFUSED, error_message="refused")
 
     @pytest.mark.asyncio
-    async def test_limits_violation_normalized_to_blocked(self):
-        """write_channel RAISES ChannelLimitsViolationError -> helper normalizes
-        it to ChannelWriteBlockedError(reason="LIMITS") with the original chained.
-        """
-        violation = ChannelLimitsViolationError(
-            address="TEST:PV",
-            value=999.0,
-            violation_type="max_value",
-            violation_reason="above max",
+    async def test_a_limits_refusal_raises_blocked_with_its_violation(self):
+        """A LIMITS result raises ChannelWriteBlockedError carrying the result's violation."""
+        violation = LimitsViolation(kind="MAX_EXCEEDED", reason="above max", max_value=10.0)
+        connector = _FakeConnector(
+            result=_result(
+                outcome=WriteOutcome.REFUSED,
+                value_written=999.0,
+                refusal_reason="LIMITS",
+                error_message="refused by the limits",
+                limits_violation=violation,
+            )
         )
-        connector = _FakeConnector(exc=violation)
 
         with pytest.raises(ChannelWriteBlockedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 999.0)
 
         assert excinfo.value.reason == "LIMITS"
         assert excinfo.value.address == "TEST:PV"
-        assert excinfo.value.__cause__ is violation
+        assert excinfo.value.violation == violation
 
 
 class TestFailures:
@@ -169,7 +166,6 @@ class TestFailures:
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "FAILED"
         assert excinfo.value.outcome is WriteOutcome.FAILED
         assert excinfo.value.address == "TEST:PV"
         assert "Failed to write TEST:PV" in str(excinfo.value)
@@ -181,14 +177,13 @@ class TestFailures:
             result=_result(
                 outcome=WriteOutcome.MISMATCH,
                 value_written=42.0,
-                observed_value=41.0,
+                observed=_observed(41.0),
             )
         )
 
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "MISMATCH"
         assert excinfo.value.outcome is WriteOutcome.MISMATCH
         assert excinfo.value.value_written == 42.0
         assert excinfo.value.observed_value == 41.0
@@ -207,7 +202,6 @@ class TestFailures:
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "UNCONFIRMED"
         assert excinfo.value.outcome is WriteOutcome.UNCONFIRMED
         assert excinfo.value.observed_value is None
         assert "confirming read failed to connect" in str(excinfo.value)
@@ -223,7 +217,7 @@ class TestFailures:
         connector = _FakeConnector(
             result=_result(
                 outcome=WriteOutcome.MISMATCH,
-                observed_value=41.0,
+                observed=_observed(41.0),
                 notes="cannot be compared",
             )
         )
@@ -231,7 +225,7 @@ class TestFailures:
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "MISMATCH"
+        assert excinfo.value.outcome is WriteOutcome.MISMATCH
         assert "cannot be compared" not in str(excinfo.value)
 
 
@@ -258,7 +252,7 @@ class TestReturns:
 
     @pytest.mark.asyncio
     async def test_confirmed_returns_result(self):
-        result = _result(outcome=WriteOutcome.CONFIRMED, observed_value=42.0)
+        result = _result(outcome=WriteOutcome.CONFIRMED, observed=_observed(42.0))
         connector = _FakeConnector(result=result)
 
         returned = await connector.write_channel_checked("TEST:PV", 42.0)
@@ -270,16 +264,15 @@ class TestReturns:
         """Alarm state is reported with the write, never a reason to raise."""
         result = _result(
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=42.0,
-            alarm_status="HIHI",
-            alarm_severity=2,
+            observed=_observed(42.0, alarm=Alarm(status="HIHI", severity=2)),
         )
         connector = _FakeConnector(result=result)
 
         returned = await connector.write_channel_checked("TEST:PV", 42.0)
 
         assert returned is result
-        assert returned.alarm_severity == 2
+        assert returned.observed is not None and returned.observed.alarm is not None
+        assert returned.observed.alarm.severity == 2
 
     @pytest.mark.asyncio
     async def test_unrequested_returns_result(self):

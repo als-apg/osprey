@@ -56,14 +56,10 @@ from osprey.services.auth_sidecar.identity_headers import (
     canonical_identity,
 )
 from osprey_connectors import yaml_loader
+from osprey_connectors.archiver_selection import archiver_settings_key, resolve_archiver_settings
 from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
-from osprey_connectors.types import (
-    WRITES_KEY,
-    archiver_settings_key,
-    resolve_archiver_settings,
-    tier_allows,
-)
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_connectors.write_tier import WRITES_KEY, tier_allows
 
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
@@ -517,7 +513,7 @@ def config_needs_launch_token_for(config: Any, lane: str) -> bool:
     * **This render carries the lane** (:func:`_config_renders_lane`). An
       undeclared second lane has no bridge to arm, so it entitles nothing.
     * **The render's tier allows writes**
-      (:func:`~osprey_connectors.types.tier_allows` of its ``control_system``
+      (:func:`~osprey_connectors.write_tier.tier_allows` of its ``control_system``
       section) — ``control_system.writes`` is ``asked`` or ``allowed``, the
       literal strings and nothing else. ``never``, silence and every other value
       arm nothing, which is the read-only tier's whole boundary.
@@ -544,7 +540,7 @@ def config_needs_launch_token_for(config: Any, lane: str) -> bool:
 def launch_token_writes_key(config: Any, lane: str) -> str:
     """The config key an operator sets to change ``lane``'s token entitlement.
 
-    :data:`~osprey_connectors.types.WRITES_KEY` for every lane: the login tier
+    :data:`~osprey_connectors.write_tier.WRITES_KEY` for every lane: the login tier
     is the one posture a render has, and it does not vary by the machine a lane
     drives. Kept per lane so a refusal can still say which lane's token it is
     about; ``config`` and ``lane`` do not change the answer.

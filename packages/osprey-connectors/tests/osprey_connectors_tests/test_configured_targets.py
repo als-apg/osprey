@@ -29,7 +29,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.types import (
+from osprey_connectors.connector_types import (
     EPICS,
     IN_PROCESS,
     LIVE_STANDIN,
@@ -37,10 +37,8 @@ from osprey_connectors.types import (
     TARGET_STANDIN,
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
-    configured_targets,
-    switch_capable,
-    target_configured,
 )
+from osprey_connectors.targets import configured_targets, switch_capable, target_configured
 
 #: A simulator block as the shipped preset authors it — a real leaf, so the
 #: block is configured, and nothing in it is about writes.

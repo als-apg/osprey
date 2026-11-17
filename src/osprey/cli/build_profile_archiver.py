@@ -35,11 +35,11 @@ import difflib
 from dataclasses import dataclass, fields
 from typing import Any
 
+from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, invents_history, pairing_in_profile
 from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
 from osprey_connectors.connection import ENV_NAME_RE
-from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, invents_history, pairing_in_profile
-from osprey_connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
+from osprey_connectors.connector_types import MONGODB_ARCHIVER, resolve_control_system_type
 
 #: Block compressors ``mongod`` accepts for a WiredTiger collection. The value
 #: reaches the container as a command flag and the collection inherits it at
@@ -468,10 +468,10 @@ def va_mock_archiver_errors(config: Any) -> list[str]:
     folded in — so what is checked is the pairing the rendered project will
     actually carry, not the one any single layer happened to author. Both the
     dotted and the nested spelling are read, and a disagreement between them
-    fails closed; see :func:`~osprey_connectors.honesty.pairing_in_profile`.
+    fails closed; see :func:`~osprey.deployment.honesty.pairing_in_profile`.
 
     The rule covers every machine a deployment stands up for itself
-    (:data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`), so the message
+    (:data:`~osprey_connectors.connector_types.INVENTED_HISTORY_TYPES`), so the message
     names the one this profile selected rather than assuming the virtual
     accelerator: a facility baselining on the live stand-in is told about the
     stand-in, which is the only type its `config:` block actually carries.

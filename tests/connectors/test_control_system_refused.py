@@ -32,7 +32,7 @@ from osprey_connectors.control_system._base import (
     WriteOutcome,
     raise_for_write_result,
 )
-from osprey_connectors.errors import ChannelWriteBlockedError, RefusalReason
+from osprey_connectors.errors import ChannelWriteBlockedError, LimitsViolation, RefusalReason
 from osprey_connectors_tests._epics_fakes import ECA_NOWTACCESS
 from osprey_connectors_tests._write_fakes import arm_switch, make_mock_epics_connector
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config
@@ -43,6 +43,10 @@ CHANNEL = "TEST:MAG:PS:SP"
 
 #: The outcomes whose result must carry a message, as ChannelWriteResult documents.
 _MESSAGE_OUTCOMES = {WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED}
+
+
+#: What the limits said of a refused value, as a ``LIMITS`` refusal carries it.
+_VIOLATION = LimitsViolation(kind="MAX_EXCEEDED", reason="above max", max_value=0.5)
 
 
 @pytest.fixture(autouse=True)
@@ -93,8 +97,8 @@ class TestConnectorRefusal:
         result = await _write(connector)
 
         assert (
-            f"Write to '{CHANNEL}' refused by the control system (access security); "
-            "no value was written" in result.error_message
+            f"Write to '{CHANNEL}' refused by the control system; no value was written: "
+            "access security denied it" in result.error_message
         )
         # The control system's own words survive into the message.
         assert "Write access denied" in result.error_message
@@ -137,6 +141,7 @@ class TestResultInvariants:
             outcome="refused",
             refusal_reason=reason.value,
             error_message="refused",
+            limits_violation=_VIOLATION if reason is RefusalReason.LIMITS else None,
         )
 
         assert result.refusal_reason is reason
@@ -167,6 +172,7 @@ class TestResultInvariants:
             outcome=outcome,
             refusal_reason=reason,
             error_message="message" if needs_message else None,
+            limits_violation=_VIOLATION if reason is not None else None,
         )
         assert bool(built.error_message) is needs_message
 
@@ -209,12 +215,10 @@ class TestDenialContract:
                 error_message=f"Write to '{CHANNEL}' refused",
             )
 
-    def test_a_bare_refusal_exception_names_no_reason_and_no_refuser(self):
-        """The exception itself still takes no reason, and then guesses none."""
-        err = ChannelWriteBlockedError(CHANNEL, None)
-
-        assert err.reason is None
-        assert str(err) == f"Write to '{CHANNEL}' refused"
+    def test_a_refusal_exception_takes_no_missing_reason(self):
+        """The exception names its reason too: one that names none cannot be built."""
+        with pytest.raises(ValueError):
+            ChannelWriteBlockedError(CHANNEL, None)
 
     def test_bare_construction_does_not_misattribute_the_refusal(self):
         """With no message passed, the default text still names the right refuser."""
@@ -279,17 +283,6 @@ class TestEnvelopeRendering:
         ]
 
     @pytest.mark.asyncio
-    async def test_unknown_reason_envelope_names_no_refuser(self):
-        envelope = await _render(ChannelWriteBlockedError(CHANNEL, "SOMETHING_ELSE"))
-
-        assert envelope["error_type"] == "write_refused"
-        assert envelope["error_message"] == (
-            f"Write refused during channel_write: Write to '{CHANNEL}' refused (SOMETHING_ELSE)"
-        )
-        assert envelope["suggestions"] == ["Do NOT attempt to work around the refusal."]
-        assert envelope["details"] == {"channel": CHANNEL, "reason": "SOMETHING_ELSE"}
-
-    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "reason", [r for r in RefusalReason if r is not RefusalReason.CHANNEL_NOT_FOUND]
     )
@@ -311,6 +304,7 @@ def _write_result_stub(channel, reason):
         outcome=WriteOutcome.REFUSED,
         refusal_reason=reason,
         error_message=f"Write to '{channel}' refused",
+        limits_violation=_VIOLATION if reason == RefusalReason.LIMITS else None,
     )
 
 

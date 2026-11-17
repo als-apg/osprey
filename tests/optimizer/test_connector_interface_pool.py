@@ -9,11 +9,13 @@ optimizer.
 import asyncio
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 
+from osprey_connectors.control_system import ChannelReadBatch
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_optimizer.environments import interface as iface_module
 from osprey_optimizer.environments.connector_env import ConnectorEnvironment
@@ -308,7 +310,7 @@ class _KeyedBridge:
 
         class _Connector:
             async def read_multiple_channels(self, _names, **_kwargs):
-                return {}
+                return ChannelReadBatch()
 
             async def write_multiple_channels(self, operations, **_kwargs):
                 bridge.calls.append(list(operations))
@@ -424,11 +426,49 @@ def test_any_other_refusal_keeps_its_verdict_reason_and_leaves_the_authority_sta
 
 
 def test_a_limits_refusal_out_of_the_batch_is_a_refusal():
-    from osprey_connectors.errors import ChannelLimitsViolationError
+    from osprey_connectors.control_system import ChannelWriteResult
+    from osprey_connectors.errors import LimitsViolation, RefusalReason
 
-    exc = ChannelLimitsViolationError(
-        address="A:SP", value=9.0, violation_type="MAX_EXCEEDED", violation_reason="max"
-    )
+    def refused(operations):
+        return [
+            ChannelWriteResult.refused(
+                address,
+                value,
+                RefusalReason.LIMITS,
+                f"Write to '{address}' refused by the limits (MAX_EXCEEDED): max",
+                limits=LimitsViolation(kind="MAX_EXCEEDED", reason="max"),
+            )
+            for address, value in operations
+        ]
+
     with pytest.raises(WriteRefusedError) as caught:
-        ConnectorInterface("live", bridge=_KeyedBridge(exc=exc)).set_values({"A:SP": 9.0})
+        ConnectorInterface("live", bridge=_KeyedBridge(results=refused)).set_values({"A:SP": 9.0})
     assert caught.value.reason == "LIMITS"
+
+
+def test_a_reading_s_severity_is_its_alarm_and_its_status_the_raw_code():
+    """The severity comes from the reading's alarm, the one place every connector fills.
+
+    A virtual-accelerator channel of a failed model reports ``UDF`` severity 3 on its
+    alarm and nothing in ``raw_metadata``, so it reaches the optimizer too. The status
+    stays the integer code the control system reported, which ``PVReading`` holds.
+    """
+    from osprey_connectors.control_system import Alarm, ChannelMetadata, ChannelValue
+    from osprey_optimizer.environments.interface import _reading
+
+    stamp = datetime(2026, 11, 16, 8, 0, tzinfo=UTC)
+    failed = ChannelValue(
+        address="SR:A", value=1.0, sampled_at=stamp, alarm=Alarm(status="UDF", severity=3)
+    )
+    ca = ChannelValue(
+        address="SR:B",
+        value=2.0,
+        sampled_at=stamp,
+        alarm=Alarm(status="HIHI", severity=2),
+        metadata=ChannelMetadata(raw_metadata={"status": 3, "severity": 2}),
+    )
+    silent = ChannelValue(address="SR:C", value=3.0, sampled_at=stamp)
+
+    assert (_reading(failed).severity, _reading(failed).status) == (3, None)
+    assert (_reading(ca).severity, _reading(ca).status) == (2, 3)
+    assert (_reading(silent).severity, _reading(silent).status) == (None, None)

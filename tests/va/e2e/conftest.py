@@ -610,10 +610,9 @@ async def connect_va(**config_overrides: Any):
     The connector is registered for automatic disconnect after the test (see
     ``_disconnect_va_connectors``); callers need no try/finally of their own.
     """
-    from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
-    from osprey_connectors.types import TARGET_VA
+    from osprey_connectors.connector_types import TARGET_VA
+    from osprey_connectors.factory import ConnectorFactory
 
-    register_builtin_connectors()
     # Stamped with the machine it writes to, as a controls server's factory call
     # stamps it: the write verdict is per target, and an unstamped connector
     # names no machine and is refused before its tier is read.
@@ -635,7 +634,7 @@ def va_switch_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path | None
     change the verdict cleared. A test that serves ``writes: never`` still
     refuses — the tier is read first.
     """
-    from osprey_connectors.types import TARGET_VA
+    from osprey_connectors.connector_types import TARGET_VA
     from osprey_connectors_tests._write_fakes import arm_switch
 
     return arm_switch(monkeypatch, tmp_path / "armed-data", TARGET_VA, stamp=False)

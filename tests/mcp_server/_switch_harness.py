@@ -6,7 +6,7 @@ simulator's dotted path gives a real, servable ``live``. ``va`` always resolves 
 ``virtual_accelerator`` type, which is a registry name rather than a path — so
 the children are launched with a scratch directory on their ``PYTHONPATH``
 holding a ``sitecustomize`` that registers a fixture variant under that name
-before the child's own ``register_builtin_connectors()`` runs (which never
+before the child's own ``ConnectorFactory._ensure_builtins()`` runs (which never
 replaces an existing registration). The result is two genuinely different
 targets, each with its own connector block and probe channel, neither of which
 touches Channel Access.
@@ -45,7 +45,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.types import EPICS
+from osprey_connectors.connector_types import EPICS
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
@@ -119,7 +119,7 @@ import asyncio
 import os
 
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import SendReport
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors.ipc._verification import _selected_role
@@ -136,8 +136,8 @@ class FixtureConnector(VAInProcessConnector):
     #: gateway at all.
     _gateway_role = None
 
-    async def connect(self, config):
-        await super().connect(config)
+    async def _open(self, config):
+        await super()._open(config)
         gateways = config.get("gateways") or {}
         try:
             armed = self._writes_enabled
@@ -165,16 +165,12 @@ class FixtureConnector(VAInProcessConnector):
             await asyncio.sleep(SLOW_SECONDS)
         return await super().read_channel(address, timeout_s=timeout_s)
 
-    async def write_channel(self, address, value, *, timeout_s=None, **kwargs):
+    async def _send(self, address, value, *, timeout_s, wait):
         if self._gateway_role != WRITE_ROLE:
-            return ChannelWriteResult(
-                address=address,
-                value_written=value,
-                outcome=WriteOutcome.REFUSED,
-                refusal_reason="CONTROL_SYSTEM_REFUSED",
-                error_message="the read-only gateway refused the write",
+            return SendReport(
+                fault="cs_refused", detail="the read-only gateway refused the write"
             )
-        return await super().write_channel(address, value, timeout_s=timeout_s, **kwargs)
+        return await super()._send(address, value, timeout_s=timeout_s, wait=wait)
 
 
 class VirtualAcceleratorFixtureConnector(FixtureConnector):
@@ -186,16 +182,16 @@ class VirtualAcceleratorFixtureConnector(FixtureConnector):
     the port the parent's derivation expects.
     """
 
-    async def connect(self, config):
+    async def _open(self, config):
         from osprey_connectors.control_system._va_connector import fill_gateway_ports
 
-        await super().connect(fill_gateway_ports(config))
+        await super()._open(fill_gateway_ports(config))
 '''
 
 SITECUSTOMIZE = '''\
 """Register the fixture connector as this deployment's virtual accelerator.
 
-``register_builtin_connectors()`` never replaces an existing registration, so a
+``ConnectorFactory._ensure_builtins()`` never replaces an existing registration, so a
 child started with this directory on its PYTHONPATH builds the fixture
 connector for target 'va' and runs the whole real path — resolver, factory,
 connect() — with no EPICS anywhere.

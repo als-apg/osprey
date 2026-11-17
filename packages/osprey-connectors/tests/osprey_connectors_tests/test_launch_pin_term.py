@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors import posture_store
-from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors.connector_types import CONTROL_TARGETS
 
 ENV = posture_store.LAUNCH_POSTURE_ENV_VAR
 

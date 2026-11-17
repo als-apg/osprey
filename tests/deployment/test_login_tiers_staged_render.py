@@ -336,7 +336,7 @@ def _shared_app_cards(web_terminals: dict[str, Any]) -> set[str]:
 
 def _own_render_writes(repo: Path, web_terminals: dict[str, Any]) -> dict[str, str]:
     """Each person's own render's ``tier_writes``, whatever sign-in later decides."""
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     roles = (web_terminals.get("authorization") or {}).get("roles") or {}
     renders = web_terminals["renders"]
@@ -356,7 +356,7 @@ def _own_render_writes(repo: Path, web_terminals: dict[str, Any]) -> dict[str, s
 
 def _expected_map(repo: Path, build_account: str) -> dict[str, str]:
     """The map the roster in ``build/config.yml`` and the renders on disk call for."""
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     root = _load(repo / "build" / "config.yml")
     web_terminals = root["modules"]["web_terminals"]
@@ -421,7 +421,7 @@ def _expected_staged_render(repo: Path, service: str, case: Case) -> dict[str, A
 
 def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
     """Every tree-bound container's staged config under *staged_root* obeys the contract."""
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     build = repo / "build"
     services = _tree_bound_services(build / "services")

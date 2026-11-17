@@ -18,6 +18,7 @@ from osprey_connectors.control_system._va_in_process_connector import VAInProces
 from osprey_connectors_tests._write_fakes import (
     ARMED_SECTION,
     arm_switch,
+    armed_context,
     writes_enabled_config,
 )
 from tests.facility.served_tree import in_process_config, served_tree
@@ -94,7 +95,11 @@ async def _connected_mock(monkeypatch, tmp_path, limits_file=None, **extra):
 
     connector = VAInProcessConnector()
     await connector.connect(
-        in_process_config(served_tree(tmp_path / "served", WRITTEN), response_delay_ms=0)
+        armed_context(
+            settings=in_process_config(
+                served_tree(tmp_path / "served", WRITTEN), response_delay_ms=0
+            )
+        )
     )
     return connector
 
@@ -150,7 +155,7 @@ class TestConfirmResolution:
         result = await connector.write_channel("PLAIN:CHANNEL", 50.0)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
+        assert result.observed is None
 
         await connector.disconnect()
 
@@ -248,7 +253,7 @@ class TestExplicitConfirmOverridesTheDatabase:
         result = await connector.write_channel("BLIND:CHANNEL", 50.0, confirm=True)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value is not None
+        assert result.observed is not None
 
         await connector.disconnect()
 
@@ -366,7 +371,9 @@ class TestWritesDisabledOutranksConfirmation:
         view = served_tree(tmp_path, ["TEST:CHANNEL"])
         connector = VAInProcessConnector()
         with patch("osprey_connectors.config.get_config_value", return_value=False):
-            await connector.connect(in_process_config(view, response_delay_ms=0))
+            await connector.connect(
+                armed_context(settings=in_process_config(view, response_delay_ms=0))
+            )
 
             result = await connector.write_channel("TEST:CHANNEL", 100.0, confirm=False)
 

@@ -12,18 +12,20 @@ writes to, and the login's switch turned on for that machine in its record.
 """
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 from osprey_connectors import control_context
+from osprey_connectors.connector_types import TARGET_VA
+from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
-    ChannelWriteResult,
+    ChannelValue,
     ControlSystemConnector,
-    WriteOutcome,
+    SendReport,
 )
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector
 from osprey_connectors_tests._harness._control_context_fixtures import (
     isolate_verdict_environment,
@@ -65,6 +67,16 @@ def config_reader(section: dict[str, Any]) -> Callable[..., Any]:
     return _get
 
 
+def armed_context(**fields: Any) -> ConnectorContext:
+    """The context a test connects a connector with, naming the stamped machine.
+
+    The target is the one the class default context names: the machine
+    :func:`arm_switch` (or a test's own patch of that default) stamped, or
+    ``None`` when nothing is stamped. *fields* are the context's other fields.
+    """
+    return ConnectorContext(control_target=ControlSystemConnector._context.control_target, **fields)
+
+
 def arm_switch(
     monkeypatch: Any,
     root: Path,
@@ -80,10 +92,10 @@ def arm_switch(
     ownerless record whose switch is ``{target: "asked"}`` through the person's
     gesture. ``None`` writes no record at all: every switch off.
 
-    *stamp* sets the class default of ``_control_target`` to *target*, so a
-    connector built directly rather than through the factory writes to that
-    machine. A test about the unstamped connector passes ``stamp=False`` or
-    sets ``connector._control_target = None`` itself.
+    *stamp* sets the class default context to one naming *target*, so a
+    connector that was never connected writes to that machine, and one a test
+    connects with :func:`armed_context` does too. A test about the unstamped
+    connector passes ``stamp=False``.
 
     The tier is not set here: serve a section that allows writes
     (:data:`ARMED_SECTION`, :func:`writes_enabled_config`) through
@@ -94,7 +106,9 @@ def arm_switch(
     """
     isolate_verdict_environment(monkeypatch, root)
     if stamp:
-        monkeypatch.setattr(ControlSystemConnector, "_control_target", target)
+        monkeypatch.setattr(
+            ControlSystemConnector, "_context", ConnectorContext(control_target=target)
+        )
     if target is None:
         return None
     return write_control_context(root, target=target, owned_by=None, switch={target: "asked"})
@@ -123,16 +137,15 @@ def turn_switch(target: str, state: str) -> None:
 class RecordingConnector(ControlSystemConnector):
     """A connector that records the writes the base-class guard let through.
 
-    The abstract signature verbatim (``confirm`` included): a stand-in whose
-    signature has drifted from the base class is wrapped by the same guard but
-    exercises a call shape no real connector has. Every write it receives
-    comes back ``CONFIRMED``.
+    Every write that reaches its send is recorded and holds the value sent, so
+    it comes back ``CONFIRMED``.
     """
 
     def __init__(self) -> None:
         self.writes: list[tuple[str, Any]] = []
+        self._held: dict[str, Any] = {}
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def _open(self, config: dict[str, Any]) -> None:
         pass
 
     async def disconnect(self) -> None:
@@ -141,38 +154,21 @@ class RecordingConnector(ControlSystemConnector):
     async def read_channel(self, address: str, *, timeout_s: float | None = None):
         raise NotImplementedError
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):
-        raise NotImplementedError
-
-    async def write_channel(
-        self,
-        address: str,
-        value: Any,
-        *,
-        timeout_s: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
-    ) -> ChannelWriteResult:
+    async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool) -> SendReport:  # noqa: ARG002 - the send hook fixes this signature
         self.writes.append((address, value))
-        return ChannelWriteResult(
-            address=address,
-            value_written=value,
-            outcome=WriteOutcome.CONFIRMED,
+        self._held[address] = value
+        return SendReport()
+
+    async def _confirming_read(self, address: str, sent: SendReport, *, timeout_s: float):  # noqa: ARG002 - the read-back hook fixes this signature
+        return ChannelValue(
+            address=address, value=self._held[address], sampled_at=datetime.now(UTC)
         )
 
-    async def write_multiple_channels(self, operations, *, timeout_s=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return [await self.write_channel(addr, val) for addr, val in operations]
-
-    async def subscribe(self, address, callback):
+    async def subscribe(self, address, callback, *, on_connection=None):
         raise NotImplementedError
 
     async def unsubscribe(self, address):
         raise NotImplementedError
-
-    async def get_metadata(self, address):
-        raise NotImplementedError
-
-    async def validate_channel(self, address) -> bool:  # noqa: ARG002 - the control-system connector interface fixes this signature
-        return True
 
 
 def make_mock_epics_connector(

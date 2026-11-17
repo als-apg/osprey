@@ -25,13 +25,9 @@ from osprey.facility.settings import (
     SERVED_PROBE_KEYS,
     fill_facility_settings,
 )
+from osprey_connectors.connector_types import LIVE_STANDIN, TARGET_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.simulation import TEXTURE
-from osprey_connectors.types import (
-    LIVE_STANDIN,
-    TARGET_STANDIN,
-    VIRTUAL_ACCELERATOR,
-    configured_targets,
-)
+from osprey_connectors.targets import configured_targets
 from tests._builds import BuiltProject, init_project, run_build
 
 VA_PROBE_KEY = SERVED_PROBE_KEYS[0]

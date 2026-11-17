@@ -35,7 +35,6 @@ from osprey.cli.set_cmd import set as set_cmd
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
-    register_builtin_connectors,
 )
 from osprey_connectors_tests._harness import isolated_connector_registries
 from tests._builds import BuiltProject, copy_build
@@ -114,7 +113,7 @@ def served_in_process_repo(
 def clean_connector_factory():
     """Isolate ConnectorFactory global state across tests.
 
-    The registries start empty so ``register_builtin_connectors()`` is
+    The registries start empty so ``ConnectorFactory._ensure_builtins()`` is
     observed doing the registration; snapshot/restore brackets the clear so
     registrations made elsewhere in the process survive teardown.
     """
@@ -179,7 +178,6 @@ class TestServingInProcessEngagesTheConnector:
         reads build/config.yml directly, so it hands the connector that view
         itself, from the repo root.
         """
-        register_builtin_connectors()
         cs_config = _load_config(served_in_process_repo)["control_system"]
         assert cs_config["type"] == "virtual_accelerator"
 

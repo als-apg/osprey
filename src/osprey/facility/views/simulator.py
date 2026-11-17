@@ -266,11 +266,8 @@ def ioc_health_addresses(code: str, model: str) -> list[str]:
 
 def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
     """Whether a setpoint without a limits record is writable on the simulated target."""
-    from osprey_connectors.types import (
-        LIMITS_MODE_OPTIONAL,
-        resolve_control_system_type,
-        type_limits_posture,
-    )
+    from osprey_connectors.connector_types import resolve_control_system_type
+    from osprey_connectors.limits_posture import LIMITS_MODE_OPTIONAL, type_limits_posture
 
     section = rendered_config.get("control_system") or {}
     posture = type_limits_posture(section, resolve_control_system_type(section))

@@ -12,7 +12,7 @@ Two independent gates, each defense-in-depth against a different failure:
 - :func:`_assert_limits_readable_if_writable` — a STARTUP guard. Refuses to
   bring the bridge up in the one unsafe posture: a write tier that allows
   writes on a lane that is not degraded + a limits database required for the
-  target THIS LANE serves (:func:`osprey_connectors.types.limits_database_required`)
+  target THIS LANE serves (:func:`osprey_connectors.limits_posture.limits_database_required`)
   + the limits database unreadable. Fail-OPEN by design (see its docstring):
   every other combination starts normally.
 - :func:`_validate_launchable_request` — a per-ENQUEUE gate. Refuses to enqueue
@@ -79,7 +79,7 @@ def _assert_limits_readable_if_writable() -> None:
     path is complete rather than incomplete.
 
     Whether this lane's limits posture needs the database at all is
-    :func:`osprey_connectors.types.limits_database_required`, the predicate
+    :func:`osprey_connectors.limits_posture.limits_database_required`, the predicate
     the connector's validator, the compose mount and the build
     also ask: limits checking on, and a mode other than ``optional``
     or a path configured. ``optional`` with no path configured needs none —
@@ -126,7 +126,7 @@ def _assert_limits_readable_if_writable() -> None:
             secret value.
     """
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.types import target_limits_posture
+    from osprey_connectors.limits_posture import target_limits_posture
 
     from .queue_backend import lane_tier_allows, resolve_lane_identity
 
@@ -159,7 +159,7 @@ def _assert_limits_readable_if_writable() -> None:
         LIMITS_DATABASE_CONFIG_KEY,
         LimitsValidator,
     )
-    from osprey_connectors.types import limits_database_required
+    from osprey_connectors.limits_posture import limits_database_required
 
     try:
         configured = LimitsValidator.configured_database_path()

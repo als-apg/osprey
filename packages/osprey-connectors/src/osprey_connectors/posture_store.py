@@ -140,22 +140,13 @@ from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast, get_args
 from typing_extensions import override
 
 from osprey_connectors import session_hold
+from osprey_connectors.connector_types import CONTROL_TARGETS, MachineKind, is_control_target
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.types import (
-    CONTROL_TARGETS,
-    TIER_WORDS,
-    MachineKind,
-    TierWord,
-    is_control_target,
-    machine_kind,
-    published_machine_kind,
-    resolve_target,
-    tier_allows,
-    tier_writes,
-)
+from osprey_connectors.targets import machine_kind, resolve_target
 from osprey_connectors.workspace import resolve_shared_data_root
+from osprey_connectors.write_tier import TIER_WORDS, TierWord, tier_allows, tier_writes
 
 if TYPE_CHECKING:
     # ``control_context`` imports this module at load time.
@@ -252,7 +243,7 @@ ArmedPosition = Literal["asked", "allowed"]
 #: The wire format is one ``"<target>=<posture>"`` pair and nothing else:
 #:
 #: * ``<target>`` is the control target the run was stamped against — a member
-#:   of :data:`~osprey_connectors.types.CONTROL_TARGETS` — or
+#:   of :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` — or
 #:   :data:`_LAUNCH_POSTURE_ALL_TARGETS` when the executor could not identify
 #:   one, in which case the pin covers every target;
 #: * ``<posture>`` is :data:`POSTURE_SANDBOX` or :data:`POSTURE_WRITES`.
@@ -1015,7 +1006,7 @@ def _launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadabl
     Reads :data:`LAUNCH_POSTURE_ENV_VAR` on every call and answers, for *target*:
 
     * ``"none"`` — no stamp (absent or blank), or a ``<t>=writes`` stamp whose
-      ``<t>`` is a member of :data:`~osprey_connectors.types.CONTROL_TARGETS` or
+      ``<t>`` is a member of :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` or
       :data:`_LAUNCH_POSTURE_ALL_TARGETS`, or a ``<t>=sandbox`` stamp naming a
       different target than *target*;
     * ``"pinned"`` — a ``<t>=sandbox`` stamp with ``<t>`` equal to *target*, or
@@ -1125,7 +1116,7 @@ def write_ceiling(
     """The highest position a write by *owner* runs at: the verdict's ceiling.
 
     Under a bound tree the owner's rung (:func:`owner_tier_term`), otherwise
-    :func:`~osprey_connectors.types.tier_writes` of *section*. The ceiling caps
+    :func:`~osprey_connectors.write_tier.tier_writes` of *section*. The ceiling caps
     an allowed verdict's ``position`` and refuses nothing itself; the tier and
     rung terms of :func:`write_verdict` do that. *tree_bound* answers for a
     process other than this one (``None``: :func:`_tree_is_bound`). Never raises.
@@ -1212,7 +1203,7 @@ def write_verdict(
 
     1. ``readonly_run`` — the run is read-only (``OSPREY_EXECUTION_MODE``).
     2. ``tier_never`` — the section's tier does not allow writes
-       (:func:`~osprey_connectors.types.tier_allows`).
+       (:func:`~osprey_connectors.write_tier.tier_allows`).
     3. ``target_unknown`` — *target* does not resolve in this deployment.
     4. ``owner_unknown`` — the owner ladder (:func:`current_owner`) yields
        :data:`NO_OWNER` or anything that is not a non-empty name. A write with
@@ -1243,7 +1234,7 @@ def write_verdict(
        *ignore_launch_pin*, for a caller that reports the pin on its own.
 
     An allowed verdict's ``position`` is the lower of the stored position and
-    :func:`write_ceiling`: :func:`~osprey_connectors.types.tier_writes` of
+    :func:`write_ceiling`: :func:`~osprey_connectors.write_tier.tier_writes` of
     *section* on a host (term 2), the owner's rung under a bound tree (term 5).
     The ceiling adds no refusal.
 
@@ -1317,6 +1308,10 @@ def _verdict_kind(section: object, target: object) -> MachineKind | None:
     """
     if not is_control_target(target):
         return None
+    # Imported here, not at module scope: ``control_context`` imports THIS
+    # module, and the published kind is read beside its report reader.
+    from osprey_connectors.control_context import published_machine_kind
+
     try:
         return None if machine_kind(section, target) is None else published_machine_kind(target)
     except Exception:  # the kind is a word in a refusal; it must not decide one
@@ -1329,7 +1324,7 @@ def backstop_verdict(section: object) -> WriteVerdict:
 
     The floor under every write path that cannot be traced to one machine: it
     refuses ``readonly_run`` (``OSPREY_EXECUTION_MODE``), then ``tier_never``
-    (:func:`~osprey_connectors.types.tier_allows`), in the same order as the
+    (:func:`~osprey_connectors.write_tier.tier_allows`), in the same order as the
     first two terms of :func:`write_verdict`, and otherwise allows. It is blind
     by design — it resolves no target, asks no owner and opens no record, so a
     switch position never changes its answer and it reports none.

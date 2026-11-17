@@ -64,8 +64,8 @@ from osprey.deployment.web_terminals.roster import (
     settings_json_is_rendered,
 )
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, merge_chain, parse_dotenv_file
-from osprey_connectors.types import WRITES_KEY
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_connectors.write_tier import WRITES_KEY
 
 #: Filename of the rendered web-stack compose file, as
 #: :func:`~osprey.deployment.web_terminals.render.render_web_terminals` keys it.

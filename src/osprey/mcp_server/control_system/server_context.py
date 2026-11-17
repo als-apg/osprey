@@ -91,16 +91,17 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
-from osprey_connectors.control_system import ControlSystemConnector
+from osprey_connectors.connector_types import ControlTarget
+from osprey_connectors.control_system import ControlSystem, ControlSystemConnector
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
 from osprey_connectors.ipc import DEFAULT_PING_TIMEOUT_S, ChildUnresponsiveError, ConnectorHostProxy
 from osprey_connectors.model import evolve
-from osprey_connectors.types import ControlTarget, configured_targets, tier_allows
+from osprey_connectors.targets import configured_targets
+from osprey_connectors.write_tier import tier_allows
 
 __all__ = [
     "ConnectorEntry",
     "ConnectorHostManager",
-    "ConnectorHostProxy",
     "ControlSystemContext",
     "MCPServerConfig",
     "NoConnectorHostError",
@@ -359,10 +360,7 @@ class ControlSystemContext:
         self._config = self._load_config()
         logger.info("ControlSystemContext: config loaded from %s", self._config.config_path)
 
-        # 2. Register connector types with ConnectorFactory
-        self._register_connector_types()
-
-        # 3. Pre-populate connector entries (not connected yet — lazy)
+        # 2. Pre-populate connector entries (not connected yet — lazy)
         self._connectors["control_system"] = ConnectorEntry(
             config=self._config.control_system,
             connector_type="control_system",
@@ -372,7 +370,7 @@ class ControlSystemContext:
             connector_type="archiver",
         )
 
-        # 4. Validate config: warnings for the misconfigurations a tool can
+        # 3. Validate config: warnings for the misconfigurations a tool can
         #    still work around, and one hard refusal for the pairing no tool can
         #    (see _validate).
         self._validate()
@@ -635,21 +633,15 @@ class ControlSystemContext:
         )
 
     @overload
-    async def _get_connector(
-        self, name: Literal["control_system"]
-    ) -> ControlSystemConnector | ConnectorHostProxy: ...
+    async def _get_connector(self, name: Literal["control_system"]) -> ControlSystem: ...
 
     @overload
     async def _get_connector(self, name: Literal["archiver"]) -> ArchiverConnector: ...
 
     @overload
-    async def _get_connector(
-        self, name: str
-    ) -> ControlSystemConnector | ArchiverConnector | ConnectorHostProxy: ...
+    async def _get_connector(self, name: str) -> ControlSystem | ArchiverConnector: ...
 
-    async def _get_connector(
-        self, name: str
-    ) -> ControlSystemConnector | ArchiverConnector | ConnectorHostProxy:
+    async def _get_connector(self, name: str) -> ControlSystem | ArchiverConnector:
         """Resolve the connector serving *name* now: lazily built, or the live child's proxy."""
         entry = self._connectors.get(name)
         if entry is None:
@@ -779,13 +771,6 @@ class ControlSystemContext:
 
         return MCPServerConfig(raw=raw, config_path=config_path)
 
-    @staticmethod
-    def _register_connector_types() -> None:
-        """Register all connector types with ConnectorFactory."""
-        from osprey_connectors.factory import register_builtin_connectors
-
-        register_builtin_connectors()
-
     def _validate(self) -> None:
         """Warn about common misconfigurations, and refuse the one that lies.
 
@@ -830,7 +815,7 @@ class ControlSystemContext:
         """Abort startup on a machine with no recorded past and a synthesizing
         archiver.
 
-        Judged by :func:`~osprey_connectors.honesty.pairing_in_rendered_config`,
+        Judged by :func:`~osprey.deployment.honesty.pairing_in_rendered_config`,
         which resolves both keys through *nested sections only* — exactly as
         :attr:`MCPServerConfig.control_system` and :attr:`MCPServerConfig.archiver`
         do a few lines above, and exactly as the factory then reads what they
@@ -838,13 +823,13 @@ class ControlSystemContext:
         guards would not be a guard; the divergence would be the way through.
 
         The refused machine is *named* rather than assumed: the pairing covers
-        every type in :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`,
+        every type in :data:`~osprey_connectors.connector_types.INVENTED_HISTORY_TYPES`,
         so a deployment baselined on the live stand-in is told about the
         stand-in and not sent looking for a virtual accelerator its
         ``control_system:`` section does not name.
         """
-        from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-        from osprey_connectors.types import MONGODB_ARCHIVER, resolve_control_system_type
+        from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+        from osprey_connectors.connector_types import MONGODB_ARCHIVER, resolve_control_system_type
 
         pairing = pairing_in_rendered_config(self.config.raw)
         if not pairing.is_invented_history:

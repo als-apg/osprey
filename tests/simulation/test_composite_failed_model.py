@@ -37,7 +37,7 @@ from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, Composite
 from osprey_connectors.simulation.view import SCHEMAS
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests._by_path import load_module
 from tests._simulator_view import view_channel
 from tests.simulation.conftest import stage_built_simulator_view
@@ -65,7 +65,9 @@ def _no_model_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 async def _connected(view: Path) -> VAInProcessConnector:
     connector = VAInProcessConnector()
-    await connector.connect({"simulator_view": str(view), "response_delay_ms": 0})
+    await connector.connect(
+        armed_context(settings={"simulator_view": str(view), "response_delay_ms": 0})
+    )
     return connector
 
 
@@ -177,7 +179,7 @@ async def test_a_solve_that_raises_fails_sr_and_leaves_the_texture(
         for address in failed_texture
     )
     assert math.isnan(reading.value)
-    assert reading.metadata.alarm_severity == 3
+    assert reading.alarm.severity == 3
     assert model_status(connector, "SR") == str(error)
     assert failed.get(SR_STATUS) == str(error)
     await connector.disconnect()
@@ -221,7 +223,10 @@ async def test_a_live_quadrupole_write_that_destabilises_the_orbit_is_refused(
 
     assert result.outcome is WriteOutcome.REFUSED
     assert raised
-    assert result.error_message == str(raised[-1])
+    assert result.error_message == (
+        f"Write to '{result.address}' refused by the control system; no value was written: "
+        f"{raised[-1]}"
+    )
     assert composite.held(setpoints) == before
     assert model_status(connector, "SR") == "ok"
     assert not journal.exists()
@@ -234,6 +239,12 @@ LINE_SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "facility_demo" 
 
 #: A single-pass loss: the element index, its ``FamName`` and the turn.
 LOST = re.compile(r"^lost at element \d+ \(\w+\) turn 0: ")
+
+#: A write the composite refused because the beam was lost.
+LOST_WRITE = re.compile(
+    r"^Write to '[^']+' refused by the control system; no value was written: "
+    r"lost at element \d+ \(\w+\) turn 0: "
+)
 
 
 LINE = load_module("_line", LINE_SOURCE)
@@ -262,7 +273,7 @@ async def test_a_live_line_corrector_write_that_loses_the_beam_is_refused(
 
     assert result.outcome is WriteOutcome.REFUSED
     assert result.error_message is not None
-    assert LOST.match(result.error_message), result.error_message
+    assert LOST_WRITE.match(result.error_message), result.error_message
     assert composite.held([corrector]) == before
     assert model_status(connector, "LINE") == "ok"
     await connector.disconnect()

@@ -1,7 +1,7 @@
 """The connector and archiver types the root presets name in prose.
 
 A preset is a static document: it cannot render its "the alternatives are ..."
-comment from :mod:`osprey_connectors.types`, so the enumeration is hand-kept and
+comment from :mod:`osprey_connectors.connector_types`, so the enumeration is hand-kept and
 goes stale silently the moment a connector is added or removed. These tests are
 the pin that makes that loud.
 
@@ -37,8 +37,11 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors.factory import BUILTIN_CONNECTORS
-from osprey_connectors.types import CLI_CONTROL_SYSTEM_TYPES, SET_CONTROL_SYSTEM_TYPES
+from osprey_connectors.connector_types import (
+    BUILTIN_CONNECTORS,
+    CLI_CONTROL_SYSTEM_TYPES,
+    SET_CONTROL_SYSTEM_TYPES,
+)
 
 PRESET_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "profiles" / "presets"
 

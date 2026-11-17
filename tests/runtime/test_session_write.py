@@ -21,6 +21,7 @@ import logging
 import os
 import threading
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -29,13 +30,12 @@ from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey.runtime import session as session_module
 from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import ControlSession
-from osprey_connectors import control_context, posture_store, types
-from osprey_connectors.control_system import _base as connector_base
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
-    ChannelLimitsViolationError,
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
+    LimitsViolation,
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
@@ -48,9 +48,9 @@ from tests._audit_capture import capture_audit_bodies
 #: The virtual accelerator with the write tier allowed: with its switch on (the
 #: record :func:`write_record` writes by default) the write verdict allows.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
+    "type": connector_types.VIRTUAL_ACCELERATOR,
     "writes": "allowed",
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 #: The section the refusal-wording tests serve: the same tier-allowed render, so
 #: a refusal is worded from the verdict's own reason.
@@ -65,7 +65,10 @@ def phrase(reason: str) -> str:
     return refusal_phrase(reason, "simulator")
 
 
-STANDIN_ONLY_SECTION = {"type": types.LIVE_STANDIN, "connector": {types.LIVE_STANDIN: {}}}
+STANDIN_ONLY_SECTION = {
+    "type": connector_types.LIVE_STANDIN,
+    "connector": {connector_types.LIVE_STANDIN: {}},
+}
 
 CHANNEL = "SR:QF:01:SP"
 ORIGIN = {"screen": "sr/overview", "rev": "r7"}
@@ -101,7 +104,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     )
     control_context.invalidate_cache()
     if switch is None:
-        wanted = dict.fromkeys({target} & set(types.CONTROL_TARGETS), "allowed")
+        wanted = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     elif isinstance(switch, Mapping):
         wanted = dict(switch)
     else:
@@ -138,7 +141,6 @@ def state_dir(tmp_path, monkeypatch, audit_dir):  # noqa: ARG001 - captures the 
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_module, "_MARGIN_S", MARGIN_S)
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
     control_context.invalidate_cache()
     yield directory
     control_context.invalidate_cache()
@@ -149,7 +151,7 @@ def va(monkeypatch, state_dir):
     _serve(monkeypatch, VA_SECTION)
     _Connector.disconnects = 0
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Connector)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Connector)
         yield state_dir
 
 
@@ -165,11 +167,26 @@ def connector_answers(monkeypatch, behaviour):
     return calls
 
 
+def _observed(value):
+    """The confirming re-read of :data:`CHANNEL` a result reports."""
+    return ChannelValue(address=CHANNEL, value=value, sampled_at=datetime.now(UTC))
+
+
 def returns(outcome, **fields):
     async def behaviour(address, value):
         return ChannelWriteResult(address=address, value_written=value, outcome=outcome, **fields)
 
     return behaviour
+
+
+def refused_by_limits(reason, message="refused by the limits"):
+    """The connector's LIMITS refusal, carrying a violation whose sentence is *reason*."""
+    return returns(
+        WriteOutcome.REFUSED,
+        refusal_reason="LIMITS",
+        error_message=message,
+        limits_violation=LimitsViolation(kind="MAX_EXCEEDED", reason=reason),
+    )
 
 
 def raises(exc):
@@ -223,17 +240,15 @@ CONNECTOR_ROWS = [
         "chip says no",
     ),
     (
-        "7-raised",
-        raises(
-            ChannelLimitsViolationError(CHANNEL, 9.0, "MAX_VALUE", "9.0 is above the limit 5.0")
-        ),
+        "7-violation",
+        refused_by_limits("9.0 is above the limit 5.0"),
         "refused",
         "LIMITS",
         "9.0 is above the limit 5.0",
     ),
     (
         "7-returned",
-        returns(WriteOutcome.REFUSED, refusal_reason="LIMITS", error_message="step too large"),
+        refused_by_limits("step too large", message="Write refused: step too large"),
         "refused",
         "LIMITS",
         "step too large",
@@ -262,14 +277,14 @@ CONNECTOR_ROWS = [
     ),
     (
         "10",
-        returns(WriteOutcome.CONFIRMED, observed_value=1.5),
+        returns(WriteOutcome.CONFIRMED, observed=_observed(1.5)),
         "confirmed",
         "write_landed",
         "written",
     ),
     (
         "11",
-        returns(WriteOutcome.MISMATCH, observed_value=1.25),
+        returns(WriteOutcome.MISMATCH, observed=_observed(1.25)),
         "mismatch",
         "write_unconfirmed",
         "written; the channel holds 1.25",
@@ -304,7 +319,7 @@ CONNECTOR_ROWS = [
     ),
     (
         "14-failed-no-outcome",
-        raises(ChannelWriteFailedError(CHANNEL, "FAILED")),
+        raises(ChannelWriteFailedError(CHANNEL, "failed")),
         "unknown",
         "write_unconfirmed",
         "outcome unknown — check the readback",
@@ -348,7 +363,9 @@ class TestConnectorRows:
         await session.close()
 
     async def test_a_mismatch_names_the_whole_observed_value(self, va, monkeypatch):
-        connector_answers(monkeypatch, returns(WriteOutcome.MISMATCH, observed_value="x" * 400))
+        connector_answers(
+            monkeypatch, returns(WriteOutcome.MISMATCH, observed=_observed("x" * 400))
+        )
         write_record(va)
         session = await opened()
 
@@ -361,9 +378,7 @@ class TestConnectorRows:
     async def test_an_empty_osprey_message_is_left_empty_for_the_adapter(
         self, va, audit_dir, monkeypatch
     ):
-        connector_answers(
-            monkeypatch, raises(ChannelLimitsViolationError(CHANNEL, 9.0, "MAX_VALUE", "   "))
-        )
+        connector_answers(monkeypatch, refused_by_limits("   "))
         write_record(va)
         session = await opened()
 
@@ -418,14 +433,14 @@ class TestConnectorRows:
             raises(ChannelWriteBlockedError(CHANNEL, "VALIDATION_ERROR", message="v" * 2000)),
             raises(ChannelWriteBlockedError(CHANNEL, "CONTROL_SYSTEM_REFUSED", message="c" * 2000)),
             raises(ChannelWriteBlockedError(CHANNEL, "LIMITS", message="l" * 2000)),
-            raises(ChannelLimitsViolationError(CHANNEL, 9.0, "MAX_VALUE", "m" * 2000)),
+            refused_by_limits("m" * 2000),
             returns(
                 WriteOutcome.REFUSED,
                 refusal_reason="CONTROL_SYSTEM_REFUSED",
                 error_message="r" * 2000,
             ),
         ],
-        ids=["validation", "control-system", "limits-blocked", "limits-raised", "returned"],
+        ids=["validation", "control-system", "limits-blocked", "limits-returned", "returned"],
     )
     async def test_every_relayed_refusal_text_is_carried_whole(self, va, monkeypatch, behaviour):
         connector_answers(monkeypatch, behaviour)

@@ -68,10 +68,13 @@ import threading
 import time
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.runtime import _run_state
 from osprey.runtime._run_state import ActionContext
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ControlSystemConnector, WriteOutcome
 
 __all__ = [
     "ENV_CONTROL_IDENTITY",
@@ -315,7 +318,7 @@ def guarded_run_target(target: str | None) -> str:
             stamp (:data:`osprey.runtime.ENV_CONTROL_TARGET`). An absent stamp
             and the executor's ``baseline`` both mean the deployment's own
             baseline target, and resolve to the name
-            :func:`osprey_connectors.types.baseline_target` gives the resolved
+            :func:`osprey_connectors.targets.baseline_target` gives the resolved
             config's ``control_system`` section.
 
     Returns:
@@ -325,7 +328,8 @@ def guarded_run_target(target: str | None) -> str:
         GuardedRunDirError: If the name is not one of the control targets,
             which would otherwise become a directory of its own.
     """
-    from osprey_connectors.types import CONTROL_TARGETS, baseline_target
+    from osprey_connectors.connector_types import CONTROL_TARGETS
+    from osprey_connectors.targets import baseline_target
 
     if target is None:
         from osprey.runtime import ENV_CONTROL_TARGET
@@ -492,7 +496,7 @@ def target_limits_off(target: str) -> bool:
     """Whether limits checking is explicitly off for the control target *target*.
 
     The target's limits posture
-    (:func:`osprey_connectors.types.target_limits_posture`, the one reader the
+    (:func:`osprey_connectors.limits_posture.target_limits_posture`, the one reader the
     hook, the executor and the tool layer share) over the resolved config's
     ``control_system`` section: off only when the posture is complete and
     states ``enabled: false``. Silence and an unreadable block are not off.
@@ -503,7 +507,7 @@ def target_limits_off(target: str) -> bool:
     Returns:
         ``True`` only for a complete posture with ``enabled`` ``False``.
     """
-    from osprey_connectors.types import target_limits_posture
+    from osprey_connectors.limits_posture import target_limits_posture
     from osprey_connectors.workspace import load_osprey_config
 
     section = load_osprey_config().get("control_system")
@@ -798,7 +802,12 @@ def _facility_commands() -> frozenset[str]:
     return frozenset(commands)
 
 
-def _admit(connector: Any, batch: list[str], value: Any, context: ActionContext | None) -> None:
+def _admit(
+    connector: ControlSystemConnector,
+    batch: list[str],
+    value: Any,
+    context: ActionContext | None,
+) -> None:
     """Refuse the batch unless every condition :func:`command_write` names holds.
 
     Raises:
@@ -909,7 +918,9 @@ def _audit(
         logging.getLogger(__name__).warning("Could not record a command write", exc_info=True)
 
 
-async def command_write(connector: Any, addresses: Sequence[str], value: Any) -> list[str]:
+async def command_write(
+    connector: ControlSystemConnector, addresses: Sequence[str], value: Any
+) -> list[str]:
     """Fire *value* at every command in *addresses* on *connector*, in one batch.
 
     A command is a setpoint whose write acts and holds no setting (arming a
@@ -983,11 +994,7 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
         _phase_for_outcome,
     )
     from osprey_connectors.control_system import raise_for_write_results
-    from osprey_connectors.errors import (
-        ChannelError,
-        ChannelLimitsViolationError,
-        ChannelWriteBlockedError,
-    )
+    from osprey_connectors.errors import ChannelError, ChannelWriteBlockedError
 
     batch = list(addresses)
     with _run_state.LOCK:
@@ -1006,11 +1013,11 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
         )
     except BaseException as exc:
         # A refusal raised partway names the one command it refused; every
-        # other command's outcome is unknown and may have gone out.
+        # other command's outcome is unknown and may have gone out. A limits
+        # refusal is never raised here: the batch answers it as a result.
         refused = (
             exc.address
-            if isinstance(exc, ChannelLimitsViolationError | ChannelWriteBlockedError)
-            and exc.address in batch
+            if isinstance(exc, ChannelWriteBlockedError) and exc.address in batch
             else None
         )
         if refused is not None:
@@ -1024,7 +1031,7 @@ async def command_write(connector: Any, addresses: Sequence[str], value: Any) ->
         _notify_outcome(result.address, result.outcome)
     # The results come back in batch order, one per command; a command with no
     # result has an unknown outcome and may have gone out.
-    outcomes = [result.outcome for result in results]
+    outcomes: list[WriteOutcome | None] = [result.outcome for result in results]
     outcomes += [None] * (len(batch) - len(outcomes))
     fired = [
         address

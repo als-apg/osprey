@@ -138,7 +138,8 @@ Every write ends in exactly one of six outcomes:
      - Nothing was written. A gate stopped the write before it left OSPREY --
        write posture, a limit, a channel marked not writable, an address that
        is not a channel of the facility -- and ``refusal_reason`` names which
-       one.
+       one. A limits refusal also carries ``limits_violation``: the kind of
+       violation, its reason and the bounds the value was judged by.
    * - ``failed``
      - The value was sent and the control system did not take it.
    * - ``confirmed``
@@ -152,11 +153,13 @@ Every write ends in exactly one of six outcomes:
    * - ``unrequested``
      - Confirmation is switched off for this channel; nothing was checked.
 
-Beside the outcome, the result carries ``observed_value`` (what the re-read
-returned), ``alarm_status`` and ``alarm_severity`` (the channel's alarm state,
-which is reported with the write and is never itself a reason to fail one), and
-``notes`` -- a short display line such as ``observed 2.4, sent 2.5`` that is
-there to be shown, not parsed.
+Beside the outcome, a ``confirmed`` or ``mismatch`` result carries ``observed``,
+the re-read itself: its value, its stamp and its ``alarm`` (the channel's alarm
+state, which is reported with the write and is never itself a reason to fail
+one). Every result may carry ``notes`` -- a short display line such as
+``observed 2.4, sent 2.5`` that is there to be shown, not parsed. The
+``channel_write`` MCP tool serves the re-read as ``observed_value``,
+``alarm_status`` and ``alarm_severity``.
 
 **In Python, anything short of a confirmation raises.**
 ``osprey.runtime.write_channel`` raises ``ChannelWriteBlockedError`` on
@@ -215,9 +218,11 @@ refused whole (``VALIDATION_ERROR`` on the repeated writes). The write verdict
 is asked again right before the send: a switch turned off, a hold or a stop
 that arrived during the checks refuses every write not yet sent.
 
-A batch does not raise ``ChannelLimitsViolationError``; a limits refusal is a
-``refused`` row with reason ``LIMITS``. The EPICS connector sends the puts of a
-batch together; the other connectors send them in the order given.
+A write never raises ``ChannelLimitsViolationError``: a limits refusal is a
+``refused`` result with reason ``LIMITS``, on a single write as in a batch, and
+``write_channel_checked`` raises it as ``ChannelWriteBlockedError`` carrying the
+violation. The EPICS connector sends the puts of a batch together; the other
+connectors send them in the order given.
 
 A caller that must not proceed on a batch passes its results to
 ``raise_for_write_results()``, which raises for a refused write before the
@@ -549,10 +554,10 @@ kernel refuses to load a client library at all
 (:ref:`what a cell may load <notebooks-write-channel>`), so the door opens
 only in the processes that hold a connector. A connector marks its own put by
 holding the **write door** open around it. The base class does that for every
-connector: it wraps ``write_channel`` and ``write_multiple_channels`` --- the
-latter is what ``write_channels`` reaches --- and, after the verdict has
-allowed the write, opens the door around the original method. A refused write
-never opens it.
+connector: its ``write_channel`` and ``write_multiple_channels`` --- the
+latter is what ``write_channels`` reaches --- are final, and, after the verdict
+has allowed the write, open the door around the connector's checks and its
+``_send``. A refused write never opens it.
 
 The door is a context variable
 (``osprey_connectors.control_system.write_door``), so it reaches only code
@@ -576,8 +581,9 @@ refused the same way.
 The door records who is making a put; it does not decide whether the put is
 allowed. The connector's own gates below do that. One path holds the door
 open for code that is not a shipped connector's own put, and is accepted as a
-**cooperative bypass**: a connector subclass written by the user is wrapped
-like a shipped one, so its ``write_channel`` puts inside the open door.
+**cooperative bypass**: a connector subclass written by the user writes
+through the same final methods as a shipped one, so its ``_send`` puts inside
+the open door.
 
 ``osprey_connectors`` imports nothing from ``osprey`` for this. The door
 module is standard-library only, because the guard that reads it runs in
@@ -593,8 +599,12 @@ Limits Checking
 
 
 When enabled, every ``write_channel()`` call is validated against the limits
-database before the write reaches hardware. The database format is the
-per-channel configuration above.
+database before the write reaches hardware, on every connector: the base class
+checks against the validator the connector loaded, or, for a connector that
+loaded none, the one the deployment's loaded config gives its type. A check
+that cannot be made, or that does not finish within the write's timeout,
+refuses the write with nothing sent. The database format is the per-channel
+configuration above.
 
 Limits are optional, and ``mode`` chooses between two ways of using the
 database:

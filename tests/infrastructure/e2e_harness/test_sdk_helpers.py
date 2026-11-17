@@ -22,7 +22,7 @@ from osprey.agent_runner.project_paths import claude_project_dir
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from tests.e2e import _queue_drive, sdk_helpers
 from tests.e2e.sdk_helpers import (
     HOOK_ATTACHMENT_PREFIX,

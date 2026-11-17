@@ -73,9 +73,12 @@ import math
 import os
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey_connectors.errors import ChannelWriteBlockedError
+
+if TYPE_CHECKING:
+    from osprey_connectors.control_system import ControlSystem
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.preflight")
 
@@ -229,7 +232,7 @@ def _ordered_unique(addresses: Iterable[str]) -> tuple[str, ...]:
     return tuple(seen)
 
 
-async def _probe_one(connector: Any, address: str, timeout_s: float) -> bool:
+async def _probe_one(connector: ControlSystem, address: str, timeout_s: float) -> bool:
     """Probe one address, bounded by ``timeout_s``.
 
     Any failure mode the connector can produce — a false return, a timeout, a
@@ -247,7 +250,7 @@ async def _probe_one(connector: Any, address: str, timeout_s: float) -> bool:
 
 
 async def probe_addresses(
-    connector: Any,
+    connector: ControlSystem,
     addresses: Iterable[str],
     *,
     timeout_s: float = PROBE_TIMEOUT_S,
@@ -268,8 +271,8 @@ async def probe_addresses(
     reached rather than losing it or asserting something about it.
 
     Args:
-        connector: Any OSPREY control-system connector — the only thing asked
-            of it is ``async validate_channel(address) -> bool``.
+        connector: Any OSPREY control-system connector handle — the only
+            thing asked of it is ``async validate_channel(address) -> bool``.
         addresses: Addresses a run is about to touch. Blank entries and
             duplicates are dropped; first-seen order is preserved.
         timeout_s: Seconds each individual probe is given, on both the first
@@ -527,7 +530,7 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
         skipped = f"{type(connector).__name__} exposes no validate_channel probe"
     elif not addresses:
         skipped = "no declared device exposes a control-system address"
-    if skipped is not None:
+    if skipped is not None or connector is None:
         if declared:
             logger.warning(
                 "preflight: running plan %r without a reachability pre-flight — %s",

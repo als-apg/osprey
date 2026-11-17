@@ -33,15 +33,16 @@ from osprey.apps.sdk import (
     verify_launch_token,
 )
 from osprey_connectors.config import get_config_value
+from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.errors import (
     ChannelError,
     ChannelReadFailedError,
     ChannelWriteBlockedError,
     ConnectorUnavailableError,
 )
-from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
+from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
-from osprey_connectors.types import baseline_target, resolve_target, speaks_channel_access
+from osprey_connectors.targets import baseline_target, resolve_target
 from scaffold_app import APP_NAME, CHANNEL_KEY, CHANNEL_SETTING, STATE_ROUTE, WRITE_ROUTE
 
 #: Where the deployment hands this application its rendered ``apps.<name>.config``.
@@ -110,7 +111,6 @@ async def build_connector(target: str) -> Any:
         connectors = dict(section.get("connector") or {})
         block = {k: v for k, v in (connectors.get(kind) or {}).items() if k != "gateways"}
         config["connector"] = {**connectors, kind: block}
-    register_builtin_connectors()  # idempotent; a fresh process has none registered
     claimed = channel_access and _ca_target is None
     if claimed:
         _ca_target = target  # before the connect, which is what points the context

@@ -40,8 +40,8 @@ from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
 from osprey.runtime import session as session_module
 from osprey.runtime.session import EXIT_BINDING_MOVED, EXIT_START_REFUSED, EXIT_TRANSPORT_STALE
 from osprey.services.python_executor.write_surface import _ARMED_CHECKED
-from osprey_connectors import control_context, posture_store, types
-from osprey_connectors.control_system import _base as connector_base
+from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.factory import ConnectorFactory
@@ -61,8 +61,8 @@ CHILD_TIMEOUT_S = 120.0
 ORPHAN_BOUND_S = 15.0
 
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 
@@ -238,12 +238,12 @@ class _ScriptedFake(FakeConnector):
     def _read_value(self, address: str) -> ChannelValue:
         reading = super()._read_value(address)
         if address == "ALARMED":
-            return evolve(reading, metadata=ChannelMetadata(alarm_severity=2, alarm_status="HIHI"))
+            return evolve(reading, alarm=Alarm(status="HIHI", severity=2))
         if address == "CURRENT":
             return evolve(reading, metadata=ChannelMetadata(units="mA", precision=3))
         if address == "MODE":
             return evolve(
-                reading, metadata=ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
+                reading, enum_label="On", metadata=ChannelMetadata(enum_labels=["Off", "On"])
             )
         return reading
 
@@ -254,18 +254,20 @@ class _ScriptedFake(FakeConnector):
             # A PVA read's shape: a worker thread for the whole read.
             await asyncio.to_thread(type(self).rendezvous.wait)
         if address == "HUGE":
-            return ChannelValue(value=[0.0] * 100_000, sampled_at=datetime.now(UTC))
+            return ChannelValue(
+                address=address, value=[0.0] * 100_000, sampled_at=datetime.now(UTC)
+            )
         if address == "NO_TIMESTAMP":
             reading = await super().read_channel(address, timeout_s=timeout_s)
             # A reading no connector can build: skips the record's validation.
             return ChannelValue.model_construct(
-                value=reading.value, sampled_at=None, metadata=reading.metadata
+                address=address, value=reading.value, sampled_at=None, metadata=reading.metadata
             )
         return await super().read_channel(address, timeout_s=timeout_s)
 
-    async def write_channel(self, *args: Any, **kwargs: Any):
+    async def _write_one(self, *args: Any, **kwargs: Any):
         type(self).writes += 1
-        return await super().write_channel(*args, **kwargs)
+        return await super()._write_one(*args, **kwargs)
 
 
 @pytest.fixture
@@ -295,7 +297,6 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
-    monkeypatch.setattr(connector_base, "_long_lived_session", False)
     # The block and the watcher are process-wide; each has its own test below.
     monkeypatch.setattr(child_module, "_arm_raw_put_block", lambda: None)
     monkeypatch.setattr(child_module, "_start_parent_watcher", lambda *_: None)
@@ -303,7 +304,7 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
     monkeypatch.setattr(_ScriptedFake, "writes", 0)
     _write_record(state_dir)
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _ScriptedFake)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _ScriptedFake)
         yield state_dir
     control_context.invalidate_cache()
 
@@ -795,9 +796,9 @@ class _DeadlineAioca(FakeAioca):
 #: A deployment whose live machine is EPICS behind a name server, the shape whose
 #: transport can go stale; its calls would take the connector's 5 s default.
 EPICS_SECTION = {
-    "type": types.EPICS,
+    "type": connector_types.EPICS,
     "connector": {
-        types.EPICS: {
+        connector_types.EPICS: {
             "gateways": {"read_only": {"address": "gw", "port": 5075, "use_name_server": True}}
         }
     },
@@ -873,9 +874,9 @@ WRITE_GATEWAY = {"address": "write-gw", "port": 5084}
 def _epics_section(**gateways: dict[str, Any]) -> dict[str, Any]:
     """A live EPICS machine whose write tier allows writes, so only the switch decides."""
     return {
-        "type": types.EPICS,
+        "type": connector_types.EPICS,
         "writes": "allowed",
-        "connector": {types.EPICS: {"gateways": gateways}},
+        "connector": {connector_types.EPICS: {"gateways": gateways}},
     }
 
 

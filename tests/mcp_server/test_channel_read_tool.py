@@ -4,12 +4,14 @@ Covers: single read, multiple reads, metadata on/off, connection errors,
 unknown channels, and error format compliance.
 """
 
+import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
+from osprey_connectors.control_system import Alarm, ChannelMetadata, ChannelValue
 from osprey_connectors_tests._epics_fakes import (
     DBR_ENUM,
     FakeAioca,
@@ -38,15 +40,15 @@ def _make_channel_value(
     cv.sampled_at = sampled_at
     cv.metadata = MagicMock()
     cv.metadata.units = units
-    cv.metadata.alarm_status = alarm_status
-    cv.metadata.alarm_severity = alarm_severity
+    cv.alarm.status = alarm_status
+    cv.alarm.severity = alarm_severity
     cv.metadata.precision = 3
     cv.metadata.description = "Test channel"
     cv.metadata.display_low = 0.0
     cv.metadata.display_high = 1000.0
     # Default to "not an enum channel", spelled out because a bare MagicMock
     # attribute is truthy and the tool ships these keys only when they are set.
-    cv.metadata.enum_label = enum_label
+    cv.enum_label = enum_label
     cv.metadata.enum_labels = enum_labels
     return cv
 
@@ -458,3 +460,80 @@ async def test_access_details_accounts_for_every_key_on_an_enum_entry(tmp_path, 
     advertised |= set(data["access_details"]["enum_fields_per_entry"]["fields"])
     shipped = set(data["summary"]["readings"]["SR:DIAG:MODE"])
     assert advertised == shipped
+
+
+# -- the served entry, byte for byte ------------------------------------------
+
+#: The entry ``channel_read`` serves for each case, captured from the tool as it
+#: was before a reading carried its own ``alarm`` and ``enum_label``. The served
+#: keys and their order are the contract an agent reads; the record is not.
+_SERVED_ENTRIES = {
+    "plain": (
+        '{"timestamp": "2026-11-16 08:00:00+00:00", "value": 2.5, "units": "mA", "precision": 3, "alarm_status": null, "alarm_severity": null, "description": "beam current"}'
+    ),
+    "healthy": (
+        '{"timestamp": "2026-11-16 08:00:00+00:00", "value": 2.5, "units": "mA", "precision": 3, "alarm_status": "NO_ALARM", "alarm_severity": 0, "description": "beam current"}'
+    ),
+    "alarm": (
+        '{"timestamp": "2026-11-16 08:00:00+00:00", "value": 2.5, "units": "mA", "precision": 3, "alarm_status": "HIHI", "alarm_severity": 2, "description": "beam current"}'
+    ),
+    "status_only": (
+        '{"timestamp": "2026-11-16 08:00:00+00:00", "value": 2.5, "units": "mA", "precision": 3, "alarm_status": "UNKNOWN", "alarm_severity": null, "description": "beam current"}'
+    ),
+    "enum": (
+        '{"timestamp": "2026-11-16 08:00:00+00:00", "value": 1, "units": "mA", "precision": 3, "alarm_status": "NO_ALARM", "alarm_severity": 0, "description": "beam current", "enum_label": "On", "enum_labels": ["Off", "On"]}'
+    ),
+}
+
+_STAMP = datetime(2026, 11, 16, 8, 0, 0, tzinfo=UTC)
+
+
+def _served_case(case: str) -> ChannelValue:
+    alarm = {
+        "plain": None,
+        "healthy": Alarm(status="NO_ALARM", severity=0),
+        "alarm": Alarm(status="HIHI", severity=2),
+        "status_only": Alarm(status="UNKNOWN"),
+        "enum": Alarm(status="NO_ALARM", severity=0),
+    }[case]
+    if case == "enum":
+        return ChannelValue(
+            address="SR:X",
+            value=1,
+            sampled_at=_STAMP,
+            alarm=alarm,
+            enum_label="On",
+            metadata=ChannelMetadata(
+                units="mA", precision=3, description="beam current", enum_labels=("Off", "On")
+            ),
+        )
+    return ChannelValue(
+        address="SR:X",
+        value=2.5,
+        sampled_at=_STAMP,
+        alarm=alarm,
+        metadata=ChannelMetadata(units="mA", precision=3, description="beam current"),
+    )
+
+
+@pytest.mark.parametrize("case", list(_SERVED_ENTRIES))
+async def test_a_reading_entry_is_served_byte_identical(tmp_path, monkeypatch, case):
+    """``alarm_status``, ``alarm_severity`` and ``enum_label`` map from the reading itself."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(
+        "system:\n  timezone: UTC\ncontrol_system:\n  type: virtual_accelerator\n"
+        "  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
+    initialize_server_context()
+    mock_connector = AsyncMock()
+    mock_connector.read_channel.return_value = _served_case(case)
+
+    with patch(
+        "osprey_connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=mock_connector,
+    ):
+        result = await _get_channel_read()(channels=["SR:X"], include_metadata=True)
+
+    data = extract_response_dict(result)
+    assert json.dumps(data["summary"]["readings"]["SR:X"]) == _SERVED_ENTRIES[case]

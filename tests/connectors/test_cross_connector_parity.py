@@ -64,7 +64,7 @@ from osprey_connectors.errors import ChannelUnreachableError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, ca_connector, ca_reading
 from osprey_connectors_tests._stall import Stall
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.connectors._driver_fakes import device_attribute, driven_through, eq_data
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -98,7 +98,7 @@ def _switch_on(monkeypatch, tmp_path):
 class Scenario:
     """One situation a write can land in, and the result every connector owes.
 
-    ``observed_value_set`` and ``error_message_set`` pin the field rule that
+    ``observed_set`` and ``error_message_set`` pin the field rule that
     travels with the outcome word: a mismatch carries what the channel holds
     and *no* message (both numbers are already on the result), while the two
     outcomes that carry nothing to compare carry the reason instead.
@@ -110,7 +110,7 @@ class Scenario:
 
     name: str
     outcome: WriteOutcome
-    observed_value_set: bool
+    observed_set: bool
     error_message_set: bool
     confirming_reads: int
 
@@ -118,35 +118,35 @@ class Scenario:
 VALUE_EQUAL = Scenario(
     name="put_succeeds_value_equal",
     outcome=WriteOutcome.CONFIRMED,
-    observed_value_set=True,
+    observed_set=True,
     error_message_set=False,
     confirming_reads=1,
 )
 VALUE_DIFFERS = Scenario(
     name="put_succeeds_value_differs",
     outcome=WriteOutcome.MISMATCH,
-    observed_value_set=True,
+    observed_set=True,
     error_message_set=False,
     confirming_reads=1,
 )
 READ_RAISES = Scenario(
     name="confirming_read_raises",
     outcome=WriteOutcome.UNCONFIRMED,
-    observed_value_set=False,
+    observed_set=False,
     error_message_set=True,
     confirming_reads=1,
 )
 PUT_FAILS = Scenario(
     name="put_fails",
     outcome=WriteOutcome.FAILED,
-    observed_value_set=False,
+    observed_set=False,
     error_message_set=True,
     confirming_reads=0,
 )
 CONFIRM_DECLINED = Scenario(
     name="confirm_false",
     outcome=WriteOutcome.UNREQUESTED,
-    observed_value_set=False,
+    observed_set=False,
     error_message_set=False,
     confirming_reads=0,
 )
@@ -182,16 +182,16 @@ async def _run_mock(scenario: Scenario, monkeypatch, tmp_path) -> WriteRun:
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(armed_context(settings=in_process_config(view, response_delay_ms=0)))
 
     reads: list[str] = []
     real_confirming_read = connector._confirming_read
 
-    async def counted_read(address):
+    async def counted_read(address, sent, *, timeout_s):
         reads.append(address)
         if scenario is READ_RAISES:
             raise RuntimeError(READ_ERROR)
-        return await real_confirming_read(address)
+        return await real_confirming_read(address, sent, timeout_s=timeout_s)
 
     monkeypatch.setattr(connector, "_confirming_read", counted_read)
 
@@ -283,7 +283,7 @@ async def _run_doocs(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         result = await conn.write_channel(
             "FAC/DEV/LOC/PROP", VALUE_SENT, confirm=_confirm_argument(scenario)
         )
@@ -327,7 +327,7 @@ async def _run_tango(scenario: Scenario, _monkeypatch, _tmp_path) -> WriteRun:
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         result = await conn.write_channel(
             "sr/power_supply/ps01/Current", VALUE_SENT, confirm=_confirm_argument(scenario)
         )
@@ -372,7 +372,7 @@ class TestWriteOutcomeParity:
         """
         run = await _DRIVERS[connector_name](scenario, monkeypatch, tmp_path)
 
-        assert (run.result.observed_value is not None) is scenario.observed_value_set
+        assert (run.result.observed is not None) is scenario.observed_set
         assert (run.result.error_message is not None) is scenario.error_message_set
         # Whatever happened to the write, it was never a refusal.
         assert run.result.refusal_reason is None
@@ -453,7 +453,7 @@ async def _unreachable_doocs(_monkeypatch) -> ReadFailure:
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         failure = await _capture_read_failure(conn, "FAC/DEV/LOC/PROP", UNREACHABLE)
         await conn.disconnect()
 
@@ -469,7 +469,7 @@ async def _unreachable_tango(_monkeypatch) -> ReadFailure:
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         failure = await _capture_read_failure(conn, "sr/power_supply/ps01/Current", UNREACHABLE)
         await conn.disconnect()
 
@@ -537,7 +537,7 @@ async def _reading_mock(monkeypatch, tmp_path) -> ChannelValue:
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     view = served_tree(tmp_path, readings=["TEST:CHANNEL:RB"])
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(armed_context(settings=in_process_config(view, response_delay_ms=0)))
     reading = await connector.read_channel("TEST:CHANNEL:RB")
     await connector.disconnect()
     return reading
@@ -558,7 +558,7 @@ async def _reading_doocs(_monkeypatch, _tmp_path) -> ChannelValue:
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         reading = await conn.read_channel("FAC/DEV/LOC/PROP")
         await conn.disconnect()
 
@@ -575,7 +575,7 @@ async def _reading_tango(_monkeypatch, _tmp_path) -> ChannelValue:
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         reading = await conn.read_channel("sr/power_supply/ps01/Current")
         await conn.disconnect()
 
@@ -636,7 +636,7 @@ async def _stall_doocs(action: str) -> StalledRun:
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({"timeout_s": 0.2})
+        await conn.connect(armed_context(settings={"timeout_s": 0.2}))
         outcome = await _stalled_call(conn, "FAC/DEV/LOC/PROP", action)
         answered_first = not stall.returned
 
@@ -658,7 +658,7 @@ async def _stall_tango(action: str) -> StalledRun:
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({"timeout_s": 0.2})
+        await conn.connect(armed_context(settings={"timeout_s": 0.2}))
         outcome = await _stalled_call(conn, "sr/power_supply/ps01/Current", action)
         answered_first = not stall.returned
 

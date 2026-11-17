@@ -47,7 +47,7 @@ from osprey.integrations.canopy import backend as backend_module
 from osprey.runtime import session as session_module
 from osprey.runtime.session import STATE_BOUND, STATE_FALLBACK, STATE_UNSERVABLE
 from osprey.runtime.session_outcomes import refusal_message
-from osprey_connectors import control_context, posture_store, session_hold, types
+from osprey_connectors import connector_types, control_context, posture_store, session_hold
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.posture_store import WriteVerdict
@@ -66,16 +66,16 @@ FRAME_KEYS = {"type", "timestamp", "backend", "label", "notice", "binding", "rea
 
 #: A deployment whose baseline is the virtual accelerator.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 
 #: The same deployment with the write tier allowed.
 ARMED_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
+    "type": connector_types.VIRTUAL_ACCELERATOR,
     "writes": "allowed",
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 
@@ -112,7 +112,7 @@ def _expected_claim(row: dict, verdict: WriteVerdict) -> dict:
 class _RefusingConnector(FakeConnector):
     """A connector whose control system is not there."""
 
-    async def connect(self, config):  # noqa: ARG002 - the connector connect signature
+    async def _open(self, config):  # noqa: ARG002 - the connector connect signature
         raise ConnectionError("no gateway answers")
 
 
@@ -209,7 +209,9 @@ async def _first_frame(
     *seen*, when given, gets the session's verdict as the socket opened, under ``verdict``.
     """
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, connector_class)
+        ConnectorFactory.register_control_system(
+            connector_types.VIRTUAL_ACCELERATOR, connector_class
+        )
         connector = build_connector(EpicsConfig(backend=BACKEND_PATH, connect_report_s=5.0))
         broker = _broker(connector)
         await broker.start()
@@ -436,7 +438,9 @@ class TestHeartbeatVectors:
         """No socket: an unchanged statement leaves the event clear; a change sets it."""
         _armed(state_dir, monkeypatch)
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, FakeConnector)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, FakeConnector
+            )
             connector = build_connector(EpicsConfig(backend=BACKEND_PATH, connect_report_s=5.0))
             sent = 0
             original = connector.statement_sent

@@ -35,9 +35,13 @@ Against an IOC serving those three records, it prints:
    :language: text
 
 ``create_control_system_connector`` connects before it returns. A state channel
-reads as its integer index, with the state's name in ``metadata.enum_label``.
-``read_multiple_channels`` leaves out a channel that failed to read rather than
-raising, so check the keys of what it returns.
+reads as its integer index, with the state's name in ``enum_label``.
+``read_multiple_channels`` returns a ``ChannelReadBatch``: each channel that
+answered is in its ``values``, and each that failed is in its ``failures``,
+with the error its own read raised. ``raise_for_failures()`` returns the batch
+when every channel answered, and otherwise raises one
+``ChannelReadFailedError`` naming each failed channel. A connector whose
+transport is gone raises its own error instead of returning a batch.
 
 Every connector answers the same methods. To read a DOOCS or Tango control
 system, change ``type`` and its ``connector`` block;

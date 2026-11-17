@@ -16,18 +16,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from osprey_connectors.call_timeout import DEFAULT_STEP_READ_TIMEOUT_S, step_read_timeout_s
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors.control_system._limits_validator import (
-    DEFAULT_STEP_READ_TIMEOUT_S,
-    ChannelLimitsConfig,
-    LimitsValidator,
-    step_read_timeout_s,
-)
+from osprey_connectors.control_system._limits_validator import ChannelLimitsConfig, LimitsValidator
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors_tests._epics_fakes import FakeChannel, ca_connector, ca_reading
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.connectors._driver_fakes import driven_through
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -67,7 +62,11 @@ async def test_the_simulator_reads_its_own_store(monkeypatch, tmp_path):
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
-        in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
+        armed_context(
+            settings=in_process_config(
+                served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0
+            )
+        )
     )
     connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
 
@@ -114,7 +113,7 @@ async def test_the_doocs_connector_reads_with_doocs4py():
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
 
         assert conn.current_value_reader()("FAC/DEV/LOC/PROP") == CURRENT
         doocs4py.get.assert_called_once_with("FAC/DEV/LOC/PROP")
@@ -137,7 +136,7 @@ async def test_the_tango_connector_reads_with_its_device_proxy():
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
 
         assert conn.current_value_reader()("sr/power_supply/ps01/Current") == CURRENT
         proxy.read_attribute.assert_called_once_with("Current")
@@ -159,15 +158,19 @@ async def test_max_step_blocks_an_oversized_step_on_the_simulator(monkeypatch, t
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
-        in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
+        armed_context(
+            settings=in_process_config(
+                served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0
+            )
+        )
     )
     connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
     connector._limits_validator = _step_validator("SIM:CHANNEL:SP", max_step=5.0)
 
-    with pytest.raises(ChannelLimitsViolationError) as exc:
-        await connector.write_channel("SIM:CHANNEL:SP", 90.0)
+    result = await connector.write_channel("SIM:CHANNEL:SP", 90.0)
 
-    assert exc.value.violation_type == "MAX_STEP_EXCEEDED"
+    assert result.refusal_reason == "LIMITS"
+    assert result.limits_violation.kind == "MAX_STEP_EXCEEDED"
     assert connector._composite.held(["SIM:CHANNEL:SP"])["SIM:CHANNEL:SP"] == CURRENT
 
     await connector.disconnect()
@@ -177,7 +180,11 @@ async def test_max_step_lets_a_small_step_through_on_the_simulator(monkeypatch, 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     connector = VAInProcessConnector()
     await connector.connect(
-        in_process_config(served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0)
+        armed_context(
+            settings=in_process_config(
+                served_tree(tmp_path, ["SIM:CHANNEL:SP"]), response_delay_ms=0
+            )
+        )
     )
     connector._composite.set({"SIM:CHANNEL:SP": CURRENT})
     connector._limits_validator = _step_validator("SIM:CHANNEL:SP", max_step=5.0)

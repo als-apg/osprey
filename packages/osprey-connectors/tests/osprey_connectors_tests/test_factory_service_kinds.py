@@ -2,7 +2,7 @@
 
 One kind-keyed pair serves them: ``register_service(kind, name, cls)`` and
 ``create_service(spec)``, which reads ``spec.kind``. The panel and the directory
-MCP server never call ``register_builtin_connectors``, so each create call has to
+MCP server register nothing themselves, so each create call has to
 find its builtins with nothing registered beforehand: that is proved in a fresh
 interpreter, where no earlier test can have done it.
 """
@@ -18,13 +18,9 @@ import pytest
 
 from osprey_connectors import factory
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
+from osprey_connectors.connector_types import BUILTIN_CONNECTORS
 from osprey_connectors.directory import ChannelDirectory
-from osprey_connectors.factory import (
-    _SERVICE_BUILTINS,
-    BUILTIN_CONNECTORS,
-    ConnectorFactory,
-    register_builtin_connectors,
-)
+from osprey_connectors.factory import _SERVICE_BUILTINS, ConnectorFactory
 from osprey_connectors.service_answers import BackendSpec
 from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -127,7 +123,7 @@ def test_the_registry_has_one_entry_per_kind():
 @pytest.mark.parametrize("kind", KINDS)
 def test_registration_fills_each_kind_with_its_rows(kind):
     with isolated_connector_registries(clear=True):
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         assert set(ConnectorFactory._service_backends[kind]) == {
             name for name, row_kind, _ in _EVERY_BUILTIN if row_kind == kind
@@ -170,7 +166,7 @@ def test_registration_heals_a_cleared_kind_and_never_replaces():
         ConnectorFactory._service_backends["put_log"].clear()
         ConnectorFactory.register_service("directory", "channelfinder", _OutOfTreeBackend)
 
-        register_builtin_connectors()
+        ConnectorFactory._ensure_builtins()
 
         assert set(ConnectorFactory._service_backends["put_log"]) == {"caputlog"}
         assert ConnectorFactory._service_backends["directory"]["channelfinder"] is (
@@ -179,7 +175,7 @@ def test_registration_heals_a_cleared_kind_and_never_replaces():
 
 
 def test_the_harness_restores_the_service_registries():
-    register_builtin_connectors()
+    ConnectorFactory._ensure_builtins()
     before = {kind: dict(names) for kind, names in ConnectorFactory._service_backends.items()}
 
     with isolated_connector_registries(clear=True):

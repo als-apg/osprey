@@ -19,7 +19,7 @@ import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.connectors._driver_fakes import driven_through
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -56,7 +56,7 @@ async def _run_mock(monkeypatch, tmp_path) -> WriteRun:
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     view = served_tree(tmp_path, ["TEST:CHANNEL:SP"])
     connector = VAInProcessConnector()
-    await connector.connect(in_process_config(view, response_delay_ms=0))
+    await connector.connect(armed_context(settings=in_process_config(view, response_delay_ms=0)))
     connector._limits_validator = _broken_validator()
 
     put = MagicMock()
@@ -80,7 +80,7 @@ async def _run_doocs(_monkeypatch, _tmp_path) -> WriteRun:
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         conn = DOOCSConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         conn._limits_validator = _broken_validator()
         result = await conn.write_channel("FAC/DEV/LOC/PROP", VALUE_SENT)
         await conn.disconnect()
@@ -104,7 +104,7 @@ async def _run_tango(_monkeypatch, _tmp_path) -> WriteRun:
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         conn = TangoConnector()
-        await conn.connect({})
+        await conn.connect(armed_context())
         conn._limits_validator = _broken_validator()
         result = await conn.write_channel("sr/power_supply/ps01/Current", VALUE_SENT)
         await conn.disconnect()

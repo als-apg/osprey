@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import types
+from osprey_connectors import connector_types
 from osprey_connectors.config import ConfigBuilder, default_config_path, get_config_value
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.workspace import load_osprey_config, resolve_config_path
@@ -27,7 +27,7 @@ from osprey_connectors.workspace import load_osprey_config, resolve_config_path
 ARCHIVER_URL = "https://archiver.example.org:8443"
 
 
-def write_config(path: Path, archiver_type: str = types.EPICS_ARCHIVER) -> Path:
+def write_config(path: Path, archiver_type: str = connector_types.EPICS_ARCHIVER) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         f"archiver:\n  type: {archiver_type}\n  settings:\n    url: {ARCHIVER_URL}\n",
@@ -58,7 +58,7 @@ class RecordingArchiver:
 def facility_archiver(monkeypatch) -> type[RecordingArchiver]:
     RecordingArchiver.settings = None
     monkeypatch.setitem(
-        ConnectorFactory._archiver_connectors, types.EPICS_ARCHIVER, RecordingArchiver
+        ConnectorFactory._archiver_connectors, connector_types.EPICS_ARCHIVER, RecordingArchiver
     )
     return RecordingArchiver
 
@@ -66,7 +66,7 @@ def facility_archiver(monkeypatch) -> type[RecordingArchiver]:
 def test_a_lookup_in_a_project_directory_reads_the_render_under_build(project):
     rendered = write_config(project / "build" / "config.yml")
 
-    assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+    assert get_config_value("archiver.type") == connector_types.EPICS_ARCHIVER
     assert Path(default_config_path()) == rendered
 
 
@@ -89,17 +89,17 @@ def test_a_lookup_reads_the_config_osprey_config_names(tmp_path, monkeypatch):
 
 
 def test_config_file_outranks_the_resolved_path(project, tmp_path, monkeypatch):
-    write_config(project / "build" / "config.yml", types.MOCK_ARCHIVER)
+    write_config(project / "build" / "config.yml", connector_types.MOCK_ARCHIVER)
     handed = write_config(tmp_path / "handed" / "config.yml")
     monkeypatch.setenv("CONFIG_FILE", str(handed))
 
-    assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+    assert get_config_value("archiver.type") == connector_types.EPICS_ARCHIVER
 
 
 def test_a_config_at_the_directory_root_is_still_found(project):
     flat = write_config(project / "config.yml")
 
-    assert get_config_value("archiver.type") == types.EPICS_ARCHIVER
+    assert get_config_value("archiver.type") == connector_types.EPICS_ARCHIVER
     assert Path(default_config_path()) == flat
 
 
@@ -139,7 +139,7 @@ async def test_no_config_refuses_the_archiver_instead_of_building_the_mock(caplo
     with pytest.raises(FileNotFoundError, match="No config.yml found"):
         await ConnectorFactory.create_archiver_connector()
 
-    assert types.MOCK_ARCHIVER not in caplog.text
+    assert connector_types.MOCK_ARCHIVER not in caplog.text
 
 
 @pytest.mark.usefixtures("project")
@@ -157,7 +157,7 @@ async def test_a_config_that_cannot_be_read_refuses_the_archiver(project, caplog
     with pytest.raises(Exception, match="config.yml"):
         await ConnectorFactory.create_archiver_connector()
 
-    assert types.MOCK_ARCHIVER not in caplog.text
+    assert connector_types.MOCK_ARCHIVER not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -170,7 +170,7 @@ async def test_a_render_with_no_archiver_section_still_builds_the_mock(project, 
         async def connect(self, config: dict) -> None:
             built.append(config)
 
-    monkeypatch.setitem(ConnectorFactory._archiver_connectors, types.MOCK_ARCHIVER, Mock)
+    monkeypatch.setitem(ConnectorFactory._archiver_connectors, connector_types.MOCK_ARCHIVER, Mock)
 
     connector = await ConnectorFactory.create_archiver_connector()
 

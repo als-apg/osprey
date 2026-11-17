@@ -1279,7 +1279,7 @@ def test_an_armed_retired_leaf_without_the_tier_key_keeps_the_kill_switch(
 
     The build rewrites a retired leaf to the tier key; a ``config.yml`` edited
     back to the old spelling and regenerated is never rewritten, and the
-    render reads :func:`~osprey_connectors.types.tier_writes`, which has no
+    render reads :func:`~osprey_connectors.write_tier.tier_writes`, which has no
     retired-leaf fallback (rows ``tier-absent-old-armed-flat`` and
     ``tier-absent-old-armed-connector``, ruling D2). So ``channel_write`` stays
     statically denied, in exactly the lists an explicit ``never`` tier puts it.

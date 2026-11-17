@@ -107,6 +107,7 @@ def refuse_a_switched_off_write() -> None:
             WriteVerdict(
                 allowed=False, reason="switch_off", target=_REFUSAL_TARGET, kind=_REFUSAL_KIND
             ),
+            wording="script",
         )
     )
     raise AssertionError("a refused write result must raise")
@@ -188,7 +189,7 @@ def build_plan(devices, params):
 '''
 
 #: What the channel reported back when the value was sent and did not stick.
-_FAILURE_OUTCOME = "MISMATCH"
+_FAILURE_OUTCOME = "mismatch"
 
 
 def _failing_plan(_devices: Any, _params: Any) -> Any:
@@ -646,7 +647,7 @@ def test_a_write_that_failed_rather_than_was_refused_earns_no_line(
     """
     make_plan, logger_name = writing_wrapper
     connector = FakeConnector(readbacks={_CHANNEL: 0.0})
-    connector.write_side_effect = ChannelWriteFailedError(_CHANNEL, "MISMATCH")
+    connector.write_side_effect = ChannelWriteFailedError(_CHANNEL, "mismatch")
     plan_function = make_plan(_device(connector))
 
     with caplog.at_level(logging.WARNING, logger=logger_name):

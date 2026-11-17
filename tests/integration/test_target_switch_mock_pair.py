@@ -50,6 +50,7 @@ import contextlib
 import json
 import os
 import signal
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -66,15 +67,17 @@ from osprey.mcp_server.control_system.server_context import (
     MCPServerConfig,
 )
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
+from osprey.mcp_server.control_system.tools.channel_write import _limits_violation_error
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.control_system._base import ChannelValue
+from osprey_connectors.control_system._base import ChannelValue, ConnectorContext
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
 from osprey_connectors.errors import (
-    ChannelLimitsViolationError,
     ChannelNotFoundError,
     ChannelUnreachableError,
+    LimitsViolation,
+    RefusalReason,
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.ipc import _frames as frames
@@ -125,7 +128,7 @@ CALL_TIMEOUT_S = 10.0
 SITECUSTOMIZE = '''\
 """Register the pair's VA connector as this deployment's virtual accelerator.
 
-``register_builtin_connectors()`` never replaces an existing registration, so a
+``ConnectorFactory._ensure_builtins()`` never replaces an existing registration, so a
 child started with this directory on its PYTHONPATH builds the fixture
 connector for target 'va' and runs the whole real path — resolver, factory,
 connect() — with no EPICS anywhere.
@@ -408,7 +411,7 @@ class TestRoutingFollowsTheActiveTarget:
 
 
 class TestRefusalsCrossTheServingSeam:
-    """A refusal raised in the child is the refusal the operator reads."""
+    """A refusal made in the child is the refusal the operator reads."""
 
     async def test_a_limits_violation_keeps_every_field_and_its_allowed_range(self, pair):
         """Field fidelity, from the child through the seam to the envelope.
@@ -422,15 +425,13 @@ class TestRefusalsCrossTheServingSeam:
         """
         connector = await pair.context.control_system()
 
-        with pytest.raises(ChannelLimitsViolationError) as raised:
-            await connector.write_channel(
-                LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"], timeout_s=CALL_TIMEOUT_S
-            )
+        result = await connector.write_channel(
+            LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"], timeout_s=CALL_TIMEOUT_S
+        )
 
-        exc = raised.value
-        # Identity, not isinstance: a look-alike would take a different branch
-        # in the envelope's except clauses.
-        assert type(exc) is ChannelLimitsViolationError
+        assert result.refusal_reason is RefusalReason.LIMITS
+        assert result.limits_violation == LimitsViolation.from_error(make_limits_violation())
+        exc = _limits_violation_error(result)
         assert {name: getattr(exc, name) for name in LIMITS_FIELDS} == LIMITS_FIELDS
 
         proxied = await envelope_for(exc)
@@ -451,10 +452,10 @@ class TestRefusalsCrossTheServingSeam:
         connector = await pair.context.control_system()
         pid = pair.manager.status()["child_pid"]
 
-        with pytest.raises(ChannelLimitsViolationError):
-            await connector.write_channel(
-                LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"], timeout_s=CALL_TIMEOUT_S
-            )
+        result = await connector.write_channel(
+            LIMITS_CHANNEL, LIMITS_FIELDS["attempted_value"], timeout_s=CALL_TIMEOUT_S
+        )
+        assert result.refusal_reason is RefusalReason.LIMITS
 
         assert value_read(await read_through_the_tool(SHARED_CHANNEL), SHARED_CHANNEL) == LIVE_SEED
         assert pair.manager.status()["child_pid"] == pid
@@ -470,9 +471,8 @@ class TestBatchedReadsCrossOnce:
     have broken. The ``channel_read`` *tool* deliberately does something else:
     it issues N ``read_channel`` frames concurrently — one burst pipelined over
     the single pipe, matched back by request id, not N sequential round trips —
-    because it needs each address's exception first-hand to report per-channel
-    failures, and ``read_multiple_channels`` drops failures silently by
-    contract. Both shapes are correct; only the batched one is asserted here.
+    because it reports each address's own outcome as it arrives. Both shapes
+    are correct; only the batched one is asserted here.
     """
 
     async def test_a_batched_read_is_a_single_request_frame(self, pair):
@@ -493,8 +493,9 @@ class TestBatchedReadsCrossOnce:
 
         assert log.requests == ["read_multiple_channels"]
         assert len(log.replies) == 1
-        assert sorted(readings) == sorted(BATCH_CHANNELS)
-        assert [readings[address].value for address in BATCH_CHANNELS] == [
+        assert sorted(readings.values) == sorted(BATCH_CHANNELS)
+        assert readings.failures == {}
+        assert [readings.values[address].value for address in BATCH_CHANNELS] == [
             LIVE_SEED + index + 1 for index in range(len(BATCH_CHANNELS))
         ]
 
@@ -634,10 +635,10 @@ def _config_reader(section: dict[str, Any], va_port: int):
 class _CapturingConnector:
     """Records the type-specific config block the factory handed ``connect()``."""
 
-    last_config: dict[str, Any] | None = None
+    last_config: Mapping[str, Any] | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
-        type(self).last_config = config
+    async def connect(self, context: ConnectorContext) -> None:
+        type(self).last_config = context.settings
 
     async def disconnect(self) -> None:  # pragma: no cover - cleanup path
         return None

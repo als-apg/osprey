@@ -15,7 +15,7 @@ from tests._preset_data import create_project_as_built
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.types import connector_transport
+from osprey_connectors.connector_types import connector_transport
 
 #: The section words whose connector speaks Channel Access.
 CA_TYPES = ("epics", "virtual_accelerator", "live_standin")

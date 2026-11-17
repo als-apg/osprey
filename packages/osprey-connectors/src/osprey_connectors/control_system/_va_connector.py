@@ -7,12 +7,14 @@ running a containerized PyAT-backed soft-IOC as their control system.
 
 """
 
+from collections.abc import Mapping
+
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.connector_types import DEFAULT_VA_PORT
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import DEFAULT_VA_PORT
 
 logger = get_logger("va_connector")
 
@@ -43,8 +45,8 @@ def resolve_va_gateway_port(config_path: str | None = None) -> object:
 
 
 def fill_gateway_ports(
-    config: dict[str, object], config_path: str | None = None
-) -> dict[str, object]:
+    config: Mapping[str, object], config_path: str | None = None
+) -> Mapping[str, object]:
     """Default-fill every gateway's ``port`` from the deployed VA's port.
 
     Precedence:
@@ -61,7 +63,7 @@ def fill_gateway_ports(
 
     Returns:
         A copy of ``config`` whose gateways all carry a ``port``. The caller's
-        dict is never mutated. Returned unchanged when there is nothing to
+        mapping is never mutated. Returned unchanged when there is nothing to
         fill, so a fully explicit config never reads the config file.
     """
     gateways = config.get("gateways")
@@ -123,18 +125,18 @@ class VirtualAcceleratorConnector(EPICSConnector):
         >>>     }
         >>> }
         >>> connector = VirtualAcceleratorConnector()
-        >>> await connector.connect(config)
+        >>> await connector.connect(ConnectorContext(settings=config))
         >>> value = await connector.read_channel('BEAM:CURRENT')
     """
 
     @override
-    async def connect(self, config: dict[str, ContractAny]) -> None:
+    async def _open(self, settings: Mapping[str, ContractAny]) -> None:
         """
         Configure the EPICS environment against the deployed Virtual Accelerator.
 
         Args:
-            config: Same shape as :meth:`EPICSConnector.connect`, except that
-                a gateway may omit ``port`` to follow
+            settings: Same shape as :meth:`EPICSConnector._open` takes, except
+                that a gateway may omit ``port`` to follow
                 ``services.virtual_accelerator.port``.
         """
-        await super().connect(fill_gateway_ports(config))
+        await super()._open(fill_gateway_ports(settings))
