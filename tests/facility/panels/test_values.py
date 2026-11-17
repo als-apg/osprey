@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 
 import pytest
@@ -253,12 +254,41 @@ def test_each_value_sits_under_its_own_name_and_a_lower_lane_has_a_leader(tmp_pa
         assert vy["geometry"]["y"] == vx["geometry"]["y"] + layout.VALUE_STEP
         if name["geometry"]["y"] > top_lane:  # the lower lane: a leader down to it
             g = name["geometry"]
-            leaders = [
-                n for n in lines
-                if g["x"] <= n["geometry"]["x"] <= g["x"] + g["width"]
-                and n["geometry"]["y"] + n["geometry"]["height"] == g["y"]
-            ]  # fmt: skip
-            assert leaders, shown
+            ends = [_points(n)[-1] for n in lines]
+            assert (centre, g["y"]) in [(pytest.approx(x), pytest.approx(y)) for x, y in ends]
+
+
+def _points(line: dict) -> list[tuple[float, float]]:
+    """A line's points on the screen."""
+    g = line["geometry"]
+    return [(g["x"] + p["x"], g["y"] + p["y"]) for p in line["props"]["points"]]
+
+
+def _crosses(a: tuple[float, float], b: tuple[float, float], box) -> bool:
+    """Whether the axis-parallel segment *a*-*b* runs inside *box* (its edge is outside)."""
+    left, top, right, bottom = box
+    x0, x1 = sorted((a[0], b[0]))
+    y0, y1 = sorted((a[1], b[1]))
+    return x0 < right and x1 > left and y0 < bottom and y1 > top
+
+
+def test_no_leader_runs_through_a_block_of_the_lane_above(tmp_path) -> None:
+    _graph, doc = _crowded_strip(tmp_path)
+    values, names = _strip_parts(doc)
+    shown = _shown(values)
+    blocks = [_box(n) for n in values.values()] + [
+        _box(n) for n in names if n["props"]["text"] in shown
+    ]
+    lane_two = min(n["geometry"]["y"] for n in names if n["props"]["text"] in shown)
+    leaders = [
+        n for n in nodes(doc)
+        if n["type"] == "line" and n["geometry"]["y"] + n["geometry"]["height"] > lane_two
+    ]  # fmt: skip
+    assert leaders
+    for leader in leaders:
+        points = _points(leader)
+        for a, b in itertools.pairwise(points):
+            assert not [box for box in blocks if _crosses(a, b, box)], points
 
 
 def test_value_lanes_keep_a_kind_in_its_lane_and_alternate_only_on_a_collision() -> None:

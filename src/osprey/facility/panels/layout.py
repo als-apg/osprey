@@ -2937,20 +2937,24 @@ class _Page:
         return blocks
 
     def draw_blocks(self, blocks: Mapping[int, _Block], axis: float, top: float) -> float:
-        """*blocks* from *top* down, each lane under the one before; a thin leader from
-        the axis to each block of a lower lane, at its symbol. Returns the bottom."""
+        """*blocks* from *top* down, each lane under the one before, a gap of
+        :data:`ROW_GAP` above each; a thin leader from the axis to each block of a
+        lower lane, at its symbol, jogging into the gap beside a block above it
+        (:func:`leader_path`). Returns the bottom."""
         heights: dict[int, float] = {}
         for block in blocks.values():
             height = (1 + len(block.channels)) * VALUE_STEP
             heights[block.lane] = max(heights.get(block.lane, 0), height)
-        tops, y = {}, top
+        tops, y = {}, top + ROW_GAP
         for lane in sorted(heights):
             tops[lane] = y
             y += heights[lane] + ROW_GAP
         for block in blocks.values():
             y0 = tops[block.lane]
             if block.lane:
-                self.line([(block.cx, axis + STRIP_AXIS), (block.cx, y0)], MUTED_TEXT)
+                above = [(b.left, b.w) for b in blocks.values() if b.lane < block.lane]
+                path = leader_path(block.cx, axis + STRIP_AXIS, y0, tops[0], above)
+                self.line(path, MUTED_TEXT)
             self.text(
                 block.left, y0, block.name, size=STRIP_LABEL_SIZE, w=block.w, h=VALUE_STEP,
                 align="center",
@@ -4281,6 +4285,25 @@ def significant_expression(value: str) -> str:
     down = f"floor({value} * pow(10, -{exponent}) + 0.5) / pow(10, -{exponent})"
     up = f"floor({value} / pow(10, {exponent}) + 0.5) * pow(10, {exponent})"
     return f"0 if {value} == 0 else ({down} if {exponent} < 0 else {up})"
+
+
+def leader_path(
+    cx: float, start: float, end: float, lane_top: float, above: Sequence[tuple[float, float]]
+) -> list[tuple[float, float]]:
+    """A leader's points from *start* down to *end* at *cx*. Where *cx* runs through
+    one of the blocks *above* (``(left, width)``, the lane from *lane_top* down), it
+    jogs in the gap over that lane to the middle of the gap beside the block, nearer
+    side first, runs down there, and jogs back in the gap over its own block."""
+    inside = [(left, w) for left, w in above if left < cx < left + w]
+    if not inside:
+        return [(cx, start), (cx, end)]
+    left, w = inside[0]
+    half = STRIP_LABEL_GAP / 2
+    sides = sorted((left - half, left + w + half), key=lambda x: abs(x - cx))
+    clear = [x for x in sides if not any(a < x < a + b for a, b in above)]
+    jog = (clear or sides)[0]
+    upper, lower = lane_top - ROW_GAP / 2, end - ROW_GAP / 2
+    return [(cx, start), (cx, upper), (jog, upper), (jog, lower), (cx, lower), (cx, end)]
 
 
 def value_lanes(spans: Sequence[tuple[float, float, str]]) -> list[int | None]:
