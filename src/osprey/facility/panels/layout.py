@@ -128,7 +128,8 @@ LINE_WIDTH = 1
 AXIS_WIDTH = 2
 CELL_WIDTH = 110  # a checkout's column
 NAME_WIDTH = 260  # a checkout's first column
-GRID_CELL_WIDTH = 240  # one member of a set overview
+SET_CELL_WIDTH = 112  # one member of a set overview: its value or name and its lights
+SET_ROW_HEAD = 88  # a set overview's row heads: the place, short, or "not placed"
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
 MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 45 px tall
 SYMBOL_UNIT = 20  # one shape unit of a symbol, in px, at scale 1: a bend is 75 px tall
@@ -1926,59 +1927,93 @@ class _Page:
         self.next_row()
 
     def grid(self, grid: Grid) -> None:
-        """A set's members: a row per place, its members across the page in beam order.
-
-        A cell is the member's light, its name as a link and, for the set's
-        primary pair, the readback and a deviation light; nothing in a cell
-        is writable. At most :data:`MAX_TABLE_ROWS` cells are drawn.
-        """
+        """A set's members as an equal grid: a row per place under its short name, the
+        members in beam order under column heads ``#1`` … ``#n``. A cell is the
+        member's readback of the set's primary pair with its deviation light, or its
+        short name, then its light; it opens the member's card and nothing in it is
+        writable. Columns past the page's width go on in a block below, the row
+        heads repeated. At most :data:`MAX_TABLE_ROWS` cells are drawn."""
         tags = (_need("table"),)
-        if grid.signal is not None:
-            heading = f"{grid.signal.replace('_', ' ')}: readback and deviation"
-            self.text(MARGIN, self.y, heading, size=SMALL_SIZE, w=STRIP_WIDTH, tags=tags)
-            self.next_row()
-        height = 2 * ROW + ROW_GAP if grid.signal is not None else ROW
-        drawn = left_out = 0
-        for row in grid.rows:
-            self.ref(MARGIN, self.y, row.label)
-            self.next_row()
-            x = MARGIN + INDENT
-            for cell in row.cells:
-                if drawn >= MAX_TABLE_ROWS:
-                    left_out += 1
-                    continue
-                if x + GRID_CELL_WIDTH > MARGIN + STRIP_WIDTH:
-                    self.y += height + ROW_GAP
-                    x = MARGIN + INDENT
-                self.grid_cell(x, self.y, cell)
-                x += GRID_CELL_WIDTH + GAP
-                drawn += 1
-            self.y += height + ROW_GAP
+        count = sum(len(row.cells) for row in grid.rows)
+        width = max((len(row.cells) for row in grid.rows), default=0)
+        what = f"{grid.signal.replace('_', ' ')}: readback and deviation" if grid.signal else ""
+        line = " · ".join(t for t in (f"{count} members", f"{len(grid.rows)} rows", what) if t)
+        self.text(MARGIN, self.y, line.upper(), size=SMALL_SIZE, fg=MUTED_TEXT, tags=tags)
+        self.next_row()
+        fit = max(1, int((STRIP_WIDTH - SET_ROW_HEAD + GAP) // (SET_CELL_WIDTH + GAP)))
+        drawn = 0
+        left_out = 0
+        for first in range(0, width, fit):
+            columns = range(first, min(first + fit, width))
+            for column in columns:
+                x = self.set_x(column - first)
+                head = f"#{column + 1}"
+                w = text_width(head, SMALL_SIZE)
+                x_head = x + (SET_CELL_WIDTH - w) / 2
+                self.text(x_head, self.y, head, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
+            self.y += ROW
+            for row in grid.rows:
+                cells = row.cells[first : first + fit]
+                label = row.label.label if isinstance(row.label, Link) else row.label.text
+                short = _short(label) if isinstance(row.label, Link) else label
+                w = min(text_width(short, SMALL_SIZE), SET_ROW_HEAD - GAP)
+                self.text(MARGIN, self.y, _cut(short, w, SMALL_SIZE), size=SMALL_SIZE, w=w)
+                if isinstance(row.label, Link):
+                    self.nav(MARGIN, self.y, w, ROW, row.label)
+                for column, cell in enumerate(cells):
+                    if drawn >= MAX_TABLE_ROWS:
+                        left_out += 1
+                        continue
+                    self.grid_cell(self.set_x(column), self.y, cell)
+                    drawn += 1
+                self.y += ROW + ROW_GAP
+            self.y += ROW_GAP
         if left_out:
             self.left_out(left_out)
 
+    def set_x(self, column: int) -> float:
+        """The left edge of a set overview's *column* within its block."""
+        return MARGIN + SET_ROW_HEAD + column * (SET_CELL_WIDTH + GAP)
+
     def grid_cell(self, x0: float, y: float, cell: GridCell) -> None:
-        x = x0
+        """One member: the readback (or the short name), the deviation light, then the
+        member's light at the right end; the whole cell opens its card."""
+        self.box(x0, y, SET_CELL_WIDTH, ROW, fill=FIELD_BACKGROUND)
+        right = x0 + SET_CELL_WIDTH - GAP / 2 - CHIP_LIGHT
+        light_y = y  # a light is centred in a row of the row height
         if cell.channels:
             lights = [describe_light(self.graph, c) for c in cell.channels]
-            x = self.light(x, y, lights, rule=ladder(self.graph, lights, node=True))
+            rule = ladder(self.graph, lights, node=True)
+            self.light(right, light_y, lights, rule=rule, size=CHIP_LIGHT, tile=True)
         else:
-            x = self.no_rule(x, y)
-        room = x0 + GRID_CELL_WIDTH - (x + GAP)
+            self.no_rule(right, light_y, CHIP_LIGHT)
+        end = right - GAP / 2
+        pair = cell.pair
+        if pair is not None and pair.readback is not None:
+            deviation = _tolerance_ladder(pair)
+            if deviation is not None:
+                end -= CHIP_LIGHT
+                light = Light(pair.channel)
+                self.light(end, light_y, [light], rule=deviation, size=CHIP_LIGHT, tile=True)
+                end -= GAP / 2
+            self.field(x0, y, pair.readback, w=end - x0)
+        else:
+            name = self.member_name(cell.member)
+            name = _cut(name, end - x0 - GAP / 2, SMALL_SIZE)
+            w = text_width(name, SMALL_SIZE)
+            self.text(x0 + GAP / 2, y, name, size=SMALL_SIZE, w=min(w, end - x0 - GAP / 2))
         if isinstance(cell.member, Link):
-            self.button(x + GAP, y, cell.member, width=room)
-        else:
-            self.text(x + GAP, y, cell.member.text, w=room)
-        if cell.pair is None or cell.pair.readback is None:
-            return
-        below = y + ROW + ROW_GAP
-        x = self.field(x0, below, cell.pair.readback)
-        x = self.unit(x, below, cell.pair.readback_unit)
-        deviation = _tolerance_ladder(cell.pair)
-        if deviation is not None:
-            x = self.light(x + GAP, below, [Light(cell.pair.channel)], rule=deviation)
-        if cell.pair.inferred:
-            self.mark(x + GAP, below, symbols.INFERRED_MARK)
+            self.nav(x0, y, SET_CELL_WIDTH, ROW, cell.member)
+
+    def member_name(self, member: Link | Fact) -> str:
+        """A member's short name: what ``names.csv`` states, else its id's last part."""
+        if isinstance(member, Fact):
+            return member.text
+        try:
+            short = self.graph.thing(member.target.id, member.target.kind).short_name
+        except KeyError:
+            short = None
+        return short or _short(member.label)
 
     def check_header(self) -> None:
         tags = (_need("table"),)
