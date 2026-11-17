@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 16, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 17, 2026"/>
   </head>
   
   
@@ -1673,11 +1673,15 @@ means readback), <code class="docutils literal notranslate"><span class="pre">pa
 <code class="docutils literal notranslate"><span class="pre">model</span></code> (the model whose deck <code class="docutils literal notranslate"><span class="pre">s</span></code> is measured in), in any order. A file
 whose first row names no <code class="docutils literal notranslate"><span class="pre">address</span></code> column holds one address per line.
 <code class="docutils literal notranslate"><span class="pre">s</span></code> and <code class="docutils literal notranslate"><span class="pre">model</span></code> are the position of the row’s device: for each device a
-row states <code class="docutils literal notranslate"><span class="pre">s</span></code> for, the import writes <code class="docutils literal notranslate"><span class="pre">{id,</span> <span class="pre">s}</span></code>, plus <code class="docutils literal notranslate"><span class="pre">model</span></code> when
+row names, the import writes <code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">s</span></code> where stated and <code class="docutils literal notranslate"><span class="pre">model</span></code> when
 stated, to <code class="docutils literal notranslate"><span class="pre">data/facility/imported/list/devices.yaml</span></code>, and no other
 device field, so the device merges with one another source declares, or is
-created holding only its position. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> places it by the span
-of its model containing <code class="docutils literal notranslate"><span class="pre">s</span></code>. A row that names both a device and a place,
+created holding only its id and position. A list naming no device leaves
+no <code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> places a device with an <code class="docutils literal notranslate"><span class="pre">s</span></code> by the
+span of its model containing it. When <code class="docutils literal notranslate"><span class="pre">records/devices.yaml</span></code> or another
+layer declares devices and a listed device is in none of them, one stderr
+line names it: <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">list:</span> <span class="pre">declared</span> <span class="pre">by</span> <span class="pre">this</span> <span class="pre">list</span> <span class="pre">only:</span> <span class="pre">&lt;ids&gt;</span></code>.
+A row that names both a device and a place,
 states a role other than <code class="docutils literal notranslate"><span class="pre">setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">readback</span></code> or <code class="docutils literal notranslate"><span class="pre">none</span></code>, has no
 address or repeats one, states <code class="docutils literal notranslate"><span class="pre">s</span></code> or <code class="docutils literal notranslate"><span class="pre">model</span></code> with no device, or
 states an <code class="docutils literal notranslate"><span class="pre">s</span></code> that is not a finite number, a row with more cells than

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 16, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 17, 2026"/>
   </head>
   
   
@@ -859,11 +859,11 @@ SR:MAG:QF:01:CURRENT:RB,,,QF01,1.5,A,Focusing quadrupole current readback
 </div>
 <p>The files under <code class="docutils literal notranslate"><span class="pre">imported/list/</span></code> belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
-into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. Each device a row gives an <code class="docutils literal notranslate"><span class="pre">s</span></code> is written to
-<code class="docutils literal notranslate"><span class="pre">imported/list/devices.yaml</span></code>; a <code class="docutils literal notranslate"><span class="pre">model</span></code> column names the model whose deck
-<code class="docutils literal notranslate"><span class="pre">s</span></code> is measured along. A run whose list states no <code class="docutils literal notranslate"><span class="pre">s</span></code> leaves no
-<code class="docutils literal notranslate"><span class="pre">devices.yaml</span></code>, and a device the list then names needs a record of its own,
-such as an <code class="docutils literal notranslate"><span class="pre">add</span></code> fix, or the build stops with <code class="docutils literal notranslate"><span class="pre">reference-missing</span></code>. The
+into <code class="docutils literal notranslate"><span class="pre">fixes.yaml</span></code>. Each device a row names is written to
+<code class="docutils literal notranslate"><span class="pre">imported/list/devices.yaml</span></code>, with its <code class="docutils literal notranslate"><span class="pre">s</span></code> where a row gives one; a
+<code class="docutils literal notranslate"><span class="pre">model</span></code> column names the model whose deck <code class="docutils literal notranslate"><span class="pre">s</span></code> is measured along. A
+misspelt <code class="docutils literal notranslate"><span class="pre">device</span></code> cell makes a device of its own: when other sources declare
+devices too, the import prints a line naming those only the list declares. The
 list import runs the same step as every format: it replaces a bundled facility
 and refuses only hand-written channel and device lists, so it still positions
 a list against your own deck, models and places.</p>
