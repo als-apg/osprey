@@ -141,6 +141,55 @@ def test_transcribe_refuses_when_unavailable(monkeypatch):
         asyncio.run(transcriber_with(FakeModel()).transcribe(b"audio"))
 
 
+# ---- web.voice -------------------------------------------------------------
+
+
+def config_says(monkeypatch, config):
+    """The deployment's config is *config* (or raises it, if an exception)."""
+
+    def load():
+        if isinstance(config, Exception):
+            raise config
+        return config
+
+    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", load)
+
+
+def test_voice_defaults_to_the_button_and_ctrl_space(monkeypatch):
+    config_says(monkeypatch, {})
+    assert speech.voice_settings() == speech.VoiceSettings("button", "Ctrl+Space")
+
+
+@pytest.mark.parametrize("mode", ["mic", "key", "button", "off"])
+def test_voice_mode_is_read_from_web_voice(monkeypatch, mode):
+    config_says(monkeypatch, {"web": {"voice": {"mode": mode}}})
+    assert speech.voice_settings().mode == mode
+
+
+def test_voice_mode_is_read_without_regard_to_case(monkeypatch):
+    config_says(monkeypatch, {"web": {"voice": {"mode": " Mic "}}})
+    assert speech.voice_settings().mode == "mic"
+
+
+def test_an_unknown_voice_mode_warns_and_falls_back_to_the_button(monkeypatch, caplog):
+    config_says(monkeypatch, {"web": {"voice": {"mode": "always-on"}}})
+    assert speech.voice_settings().mode == "button"
+    assert "always-on" in caplog.text
+
+
+def test_the_voice_key_is_read_from_web_voice(monkeypatch):
+    config_says(monkeypatch, {"web": {"voice": {"mode": "key", "key": "Alt+M"}}})
+    assert speech.voice_settings() == speech.VoiceSettings("key", "Alt+M")
+
+
+@pytest.mark.parametrize(
+    "config", [RuntimeError("no config.yml"), {"web": {"voice": "mic"}}, {"web": {"voice": None}}]
+)
+def test_an_unreadable_or_malformed_web_voice_gives_the_defaults(monkeypatch, config):
+    config_says(monkeypatch, config)
+    assert speech.voice_settings() == speech.VoiceSettings()
+
+
 # ---- routes ----------------------------------------------------------------
 
 
@@ -155,10 +204,13 @@ def test_status_route(client, monkeypatch):
     monkeypatch.setattr(
         speech, "status", lambda: speech.SpeechStatus(False, "base.en", "ffmpeg is missing.")
     )
+    monkeypatch.setattr(speech, "voice_settings", lambda: speech.VoiceSettings("mic", "F8"))
     assert client.get("/api/speech/status").json() == {
         "available": False,
         "model": "base.en",
         "reason": "ffmpeg is missing.",
+        "mode": "mic",
+        "key": "F8",
     }
 
 

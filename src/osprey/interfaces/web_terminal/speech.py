@@ -42,6 +42,17 @@ logger = logging.getLogger(__name__)
 #: leaning back or facing away. Set ``OSPREY_SPEECH_MODEL=base.en`` for speed.
 DEFAULT_MODEL = "small.en"
 
+#: How the operator talks to the chat (``web.voice.mode``): ``mic`` toggles
+#: listening for a push-to-talk microphone whose button gates the sound,
+#: ``key`` holds a keyboard key, ``button`` holds the mic icon, ``off`` hides
+#: voice input.
+VOICE_MODES = ("mic", "key", "button", "off")
+DEFAULT_MODE = "button"
+
+#: The key held to talk in ``key`` mode (``web.voice.key``): modifiers and a
+#: key joined by ``+``, parsed by the browser.
+DEFAULT_KEY = "Ctrl+Space"
+
 #: Segments Whisper rates at least this likely to be silence are dropped.
 NO_SPEECH_DROP = 0.6
 
@@ -53,6 +64,42 @@ MAX_CLIP_BYTES = 2 * 1024 * 1024
 def model_name() -> str:
     """The Whisper model to load: ``OSPREY_SPEECH_MODEL``, or the default."""
     return os.environ.get("OSPREY_SPEECH_MODEL", "").strip() or DEFAULT_MODEL
+
+
+@dataclass(frozen=True)
+class VoiceSettings:
+    """How the chat offers voice input (``web.voice``)."""
+
+    mode: str = DEFAULT_MODE
+    key: str = DEFAULT_KEY
+
+
+def voice_settings() -> VoiceSettings:
+    """``web.voice.mode`` and ``web.voice.key`` from the deployment's config.
+
+    An unknown mode warns and falls back to the default, and an unreadable
+    config gives the defaults: a settings mistake never blocks the chat.
+    """
+    try:
+        from osprey_connectors.workspace import load_osprey_config
+
+        voice = load_osprey_config().get("web", {}).get("voice", {})
+    except Exception:
+        logger.warning("Could not read web.voice; using the defaults", exc_info=True)
+        voice = {}
+    if not isinstance(voice, dict):
+        voice = {}
+    mode = str(voice.get("mode", DEFAULT_MODE)).strip().lower()
+    if mode not in VOICE_MODES:
+        logger.warning(
+            "web.voice.mode %r is not one of %s; using %r",
+            mode,
+            ", ".join(VOICE_MODES),
+            DEFAULT_MODE,
+        )
+        mode = DEFAULT_MODE
+    key = str(voice.get("key", DEFAULT_KEY)).strip() or DEFAULT_KEY
+    return VoiceSettings(mode, key)
 
 
 @dataclass(frozen=True)

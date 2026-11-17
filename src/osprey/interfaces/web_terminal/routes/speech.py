@@ -1,7 +1,8 @@
 """Speech-to-text routes for the Simple-view chat's hold-to-talk microphone.
 
 ``GET /api/speech/status`` tells the page whether voice input can work here
-(the mic button is shown only when it can). ``POST /api/speech/transcribe``
+(the mic button is shown only when it can) and how the operator talks to it
+(``web.voice.mode`` and ``web.voice.key``). ``POST /api/speech/transcribe``
 takes one recorded clip as the raw request body and answers ``{"text": ...}``
 for the operator to review in the input box; nothing is sent to the agent from
 here. See :mod:`osprey.interfaces.web_terminal.speech`.
@@ -40,9 +41,17 @@ def _error(status_code: int, message: str) -> JSONResponse:
 
 @router.get("/api/speech/status")
 async def speech_status() -> dict:
-    """Whether hold-to-talk can work here, which model it uses, and if not, why."""
+    """Whether voice input can work here, which model it uses, and if not,
+    why; and the voice mode and key the deployment configures."""
     current = speech.status()
-    return {"available": current.available, "model": current.model, "reason": current.reason}
+    voice = speech.voice_settings()
+    return {
+        "available": current.available,
+        "model": current.model,
+        "reason": current.reason,
+        "mode": voice.mode,
+        "key": voice.key,
+    }
 
 
 @router.post("/api/speech/transcribe")

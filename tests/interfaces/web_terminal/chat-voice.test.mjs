@@ -1,6 +1,7 @@
 // @ts-check
 /**
- * Unit tests for chat-voice.js -- the Simple-view chat's hold-to-talk mic:
+ * Unit tests for chat-voice.js -- the Simple-view chat's mic icon in its
+ * `button` and `key` modes (`mic` mode is in chat-voice-listen.test.mjs):
  *   ./node_modules/.bin/vitest run tests/interfaces/web_terminal/chat-voice.test.mjs
  *
  * The browser's microphone and MediaRecorder are stood in for: the microphone
@@ -19,6 +20,7 @@ import {
   MAX_RECORDING_MS,
   createVoiceInput,
   matchesShortcut,
+  parseShortcut,
   insertAtCursor,
   pickMimeType,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-voice.js';
@@ -73,11 +75,16 @@ let mic;
 /** @type {import('../../../src/osprey/interfaces/web_terminal/static/js/chat-voice.js').VoiceInput[]} */
 let built = [];
 
-/** @param {{ transcript?: string, status?: number, error?: string }} [answer] */
+/**
+ * The server: voice is available in *mode* (with *key*), and a clip is
+ * answered with *transcript*, or refused with *status* and *error*.
+ * @param {{ transcript?: string, status?: number, error?: string, mode?: string, key?: string }} [answer]
+ */
 function serverSays(answer = {}) {
   fetchImpl.mockImplementation(async (/** @type {string} */ url) => {
     if (url.endsWith('/api/speech/status')) {
-      return { ok: true, json: async () => ({ available: true, model: 'base.en' }) };
+      const { mode = 'button', key = 'Ctrl+Space' } = answer;
+      return { ok: true, json: async () => ({ available: true, model: 'base.en', mode, key }) };
     }
     const status = answer.status ?? 200;
     return {
@@ -233,7 +240,7 @@ describe('the hold-to-talk mic', () => {
     const voice = build();
     await hold(voice.button, 100);
     expect(transcribeCalls().length).toBe(0);
-    expect(onError).toHaveBeenCalledWith('Hold Ctrl + Space or the mic button while you speak.');
+    expect(onError).toHaveBeenCalledWith('Hold the mic button while you speak.');
     expect(mic.track.stopped).toBe(true);
   });
 
@@ -320,12 +327,14 @@ describe('the hold-to-talk mic', () => {
   });
 });
 
-describe('the Ctrl + Space shortcut', () => {
+describe('key mode: the Ctrl + Space shortcut', () => {
   /** @param {string} type @param {Record<string, any>} [init] */
   const key = (type, init = {}) =>
     new KeyboardEvent(type, { key: ' ', ctrlKey: true, cancelable: true, bubbles: true, ...init });
 
-  /** Make the mic available, as the server would. */
+  beforeEach(() => serverSays({ transcript: 'read the beam current', mode: 'key' }));
+
+  /** Make the mic available in key mode, as the server would. */
   async function ready(overrides = {}) {
     const voice = build(overrides);
     await voice.checkAvailability();
@@ -419,19 +428,113 @@ describe('the Ctrl + Space shortcut', () => {
     expect(FakeRecorder.made.length).toBe(0);
   });
 
-  test('the button and the input box name the shortcut once voice is available', async () => {
+  test('the icon and the input box name the key once voice is available', async () => {
     // The box keeps its own hint; voice only adds how to talk to it.
     textarea.placeholder = 'Message the agent…';
     const voice = build();
-    expect(voice.button.title).toBe('Hold to talk (Ctrl + Space)');
-    expect(voice.button.getAttribute('aria-keyshortcuts')).toBe('Control+Space');
     expect(textarea.placeholder).toBe('Message the agent…');
     await voice.checkAvailability();
+    expect(voice.mode()).toBe('key');
+    expect(voice.button.title).toBe('Hold Ctrl + Space to talk');
+    expect(voice.button.getAttribute('aria-keyshortcuts')).toBe('Control+Space');
     expect(textarea.placeholder).toBe('Message the agent… (hold Ctrl + Space to talk)');
+  });
+
+  test('the icon only shows the state: holding it records nothing, a click names the key', async () => {
+    const voice = await ready();
+    await hold(voice.button);
+    expect(FakeRecorder.made.length).toBe(0);
+    voice.button.click();
+    expect(onError).toHaveBeenCalledWith('Hold Ctrl + Space to talk.');
+  });
+
+  test('the key the deployment names is the one held, with its own label', async () => {
+    serverSays({ transcript: 'ok', mode: 'key', key: 'Alt+M' });
+    const voice = await ready();
+    expect(voice.button.title).toBe('Hold Alt + M to talk');
+    document.dispatchEvent(key('keydown'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeRecorder.made.length).toBe(0);
+    document.dispatchEvent(key('keydown', { key: 'm', ctrlKey: false, altKey: true }));
+    await vi.advanceTimersByTimeAsync(1_000);
+    document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Alt' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(transcribeCalls().length).toBe(1);
+  });
+
+  test('a key it cannot use falls back to Ctrl + Space, and says so', async () => {
+    serverSays({ mode: 'key', key: 'Enter' });
+    const voice = await ready();
+    expect(voice.button.title).toBe('Hold Ctrl + Space to talk');
+    expect(onError).toHaveBeenCalledWith(
+      'The talk key "Enter" cannot be used here; hold Ctrl + Space instead.'
+    );
+  });
+});
+
+describe('parseShortcut', () => {
+  test.each([
+    ['Ctrl+Space', { key: ' ', ctrl: true, label: 'Ctrl + Space', aria: 'Control+Space' }],
+    ['ctrl + space', { key: ' ', ctrl: true, label: 'Ctrl + Space' }],
+    ['Alt+M', { key: 'M', alt: true, label: 'Alt + M', aria: 'Alt+M' }],
+    ['F8', { key: 'F8', ctrl: false, label: 'F8', aria: 'F8' }],
+    ['Shift+F2', { key: 'F2', shift: true, label: 'Shift + F2' }],
+  ])('%j is understood', (text, expected) => {
+    expect(parseShortcut(text)).toMatchObject(expected);
+  });
+
+  test.each([[''], [null], ['Ctrl'], ['Ctrl+A+B'], ['M'], ['Enter'], ['Ctrl+Escape'], ['Tab']])(
+    '%j is refused',
+    (text) => {
+      expect(parseShortcut(text)).toBeNull();
+    }
+  );
+});
+
+describe('the mode the deployment sets', () => {
+  test('button is the default: the icon is held, and Ctrl + Space does nothing', async () => {
+    textarea.placeholder = 'Message the agent…';
+    const voice = build();
+    await voice.checkAvailability();
+    expect(voice.mode()).toBe('button');
+    expect(textarea.placeholder).toBe('Message the agent… (hold the mic to talk)');
+    const down = new KeyboardEvent('keydown', {
+      key: ' ',
+      ctrlKey: true,
+      cancelable: true,
+    });
+    document.dispatchEvent(down);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(down.defaultPrevented).toBe(false);
+    expect(FakeRecorder.made.length).toBe(0);
+  });
+
+  test('a status without a mode, or with one it does not know, is the button', async () => {
+    fetchImpl.mockResolvedValue({ ok: true, json: async () => ({ available: true }) });
+    const voice = build();
+    await voice.checkAvailability();
+    expect(voice.mode()).toBe('button');
+    fetchImpl.mockResolvedValue({
+      ok: true,
+      json: async () => ({ available: true, mode: 'always-on' }),
+    });
+    const other = build();
+    await other.checkAvailability();
+    expect(other.mode()).toBe('button');
+  });
+
+  test('off hides the icon and leaves the box as it was', async () => {
+    serverSays({ mode: 'off' });
+    textarea.placeholder = 'Message the agent…';
+    const voice = build();
+    expect(await voice.checkAvailability()).toBe(false);
+    expect(voice.button.hidden).toBe(true);
+    expect(textarea.placeholder).toBe('Message the agent…');
   });
 });
 
 test('dispose stops it listening for the shortcut', async () => {
+  serverSays({ mode: 'key' });
   const voice = build();
   await voice.checkAvailability();
   voice.dispose();

@@ -1,17 +1,17 @@
 // @ts-check
 /**
- * Unit tests for chat-voice-listen.js and Listen mode in chat-voice.js -- the
- * Simple-view chat recording whenever a push-to-talk microphone lets sound
- * through:
+ * Unit tests for chat-voice-listen.js and the `mic` mode of chat-voice.js --
+ * the Simple-view chat recording whenever a push-to-talk microphone lets
+ * sound through:
  *   ./node_modules/.bin/vitest run tests/interfaces/web_terminal/chat-voice-listen.test.mjs
  *
  * Sound is stood in for by frames of constant level (an RMS in dBFS), fed
  * straight to the clip cutter or through a stand-in AudioContext. What is
  * pinned: a quiet floor never starts a clip; speech held long enough does,
  * with its lead-in kept; quiet after it ends the clip; a bump is dropped;
- * clips are 16 kHz WAV; with Listen on, a clip's transcript lands in the
- * input box (never sent), and the microphone is released when Listen goes
- * off, after five idle minutes, or when the page is hidden.
+ * clips are 16 kHz WAV; with listening on, a clip's transcript lands in the
+ * input box (never sent), and the microphone is released when the icon is
+ * clicked again, after five idle minutes, or when the page is hidden.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -182,7 +182,7 @@ describe('createClipCutter', () => {
   });
 });
 
-// ---- Listen mode in the voice input ---- //
+// ---- mic mode in the voice input ---- //
 
 /** A microphone stream whose tracks remember being stopped. */
 function fakeStream() {
@@ -229,7 +229,7 @@ class FakeAudioContext {
   }
 }
 
-describe('Listen mode', () => {
+describe('mic mode: listening for a push-to-talk microphone', () => {
   /** @type {HTMLTextAreaElement} */
   let textarea;
   /** @type {ReturnType<typeof vi.fn>} */
@@ -257,11 +257,11 @@ describe('Listen mode', () => {
     return voice;
   }
 
-  /** Build, show the buttons, and turn Listen on. */
+  /** Build, show the icon in mic mode, and click it to start listening. */
   async function listening(overrides = {}) {
     const voice = build(overrides);
     await voice.checkAvailability();
-    voice.listenButton.click();
+    voice.button.click();
     await vi.advanceTimersByTimeAsync(0);
     return {
       voice,
@@ -285,7 +285,7 @@ describe('Listen mode', () => {
       if (url.endsWith('/api/speech/status')) {
         return {
           ok: true,
-          json: async () => ({ available: true, model: 'small.en' }),
+          json: async () => ({ available: true, model: 'small.en', mode: 'mic' }),
         };
       }
       return {
@@ -302,24 +302,24 @@ describe('Listen mode', () => {
     document.body.replaceChildren();
   });
 
-  test('the Listen button shows only when the server can transcribe and the browser has Web Audio', async () => {
+  test('the icon shows in mic mode only when the server can transcribe and the browser has Web Audio', async () => {
     const voice = build();
-    expect(voice.listenButton.hidden).toBe(true);
+    expect(voice.button.hidden).toBe(true);
     await voice.checkAvailability();
-    expect(voice.listenButton.hidden).toBe(false);
+    expect(voice.button.hidden).toBe(false);
 
     const without = build({ AudioContextImpl: undefined });
     vi.stubGlobal('AudioContext', undefined);
     await without.checkAvailability();
     vi.unstubAllGlobals();
-    expect(without.listenButton.hidden).toBe(true);
+    expect(without.button.hidden).toBe(true);
   });
 
-  test('turning Listen on opens the mic without automatic gain and shows it is listening', async () => {
+  test('clicking the icon opens the mic without automatic gain; the icon shows it is listening', async () => {
     const { voice } = await listening();
     expect(getMicrophone).toHaveBeenCalledWith(expect.objectContaining({ autoGainControl: false }));
-    expect(voice.listenButton.dataset.state).toBe('listening');
-    expect(voice.listenButton.getAttribute('aria-pressed')).toBe('true');
+    expect(voice.button.dataset.state).toBe('listening');
+    expect(voice.button.getAttribute('aria-pressed')).toBe('true');
     expect(textarea.placeholder).toMatch(/hold your mic/i);
   });
 
@@ -327,7 +327,7 @@ describe('Listen mode', () => {
     const { voice, ctx } = await listening();
     ctx.play(-Infinity, 1_000);
     ctx.play(-25, 1_500);
-    expect(voice.listenButton.dataset.state).toBe('hearing');
+    expect(voice.button.dataset.state).toBe('hearing');
     ctx.play(-Infinity, 1_000);
     await vi.advanceTimersByTimeAsync(0);
 
@@ -335,14 +335,14 @@ describe('Listen mode', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0][1].headers['Content-Type']).toBe('audio/wav');
     expect(textarea.value).toBe('read the beam current');
-    expect(voice.listenButton.dataset.state).toBe('listening');
+    expect(voice.button.dataset.state).toBe('listening');
   });
 
   test('two clips in a row are transcribed in the order spoken', async () => {
     let n = 0;
     fetchImpl.mockImplementation(async (/** @type {string} */ url) => {
       if (url.endsWith('/api/speech/status'))
-        return { ok: true, json: async () => ({ available: true }) };
+        return { ok: true, json: async () => ({ available: true, mode: 'mic' }) };
       n += 1;
       const text = `part ${n}`;
       return { ok: true, status: 200, json: async () => ({ text }) };
@@ -357,26 +357,39 @@ describe('Listen mode', () => {
     expect(textarea.value).toBe('part 1 part 2');
   });
 
-  test('hold-to-talk is set aside while listening', async () => {
+  test('holding the icon does not record in mic mode, and Ctrl + Space does nothing', async () => {
     const { voice } = await listening();
     voice.button.dispatchEvent(new Event('pointerdown', { cancelable: true }));
+    const down = new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, cancelable: true });
+    document.dispatchEvent(down);
     await vi.advanceTimersByTimeAsync(0);
-    expect(getMicrophone).toHaveBeenCalledTimes(1); // only Listen's
+    expect(down.defaultPrevented).toBe(false);
+    expect(getMicrophone).toHaveBeenCalledTimes(1); // only the listening's
+    expect(voice.button.dataset.state).toBe('listening');
   });
 
-  test('turning Listen off releases the microphone and closes the audio', async () => {
+  test('a locked message box leaves the icon usable, so listening can still be turned off', async () => {
+    const { voice } = await listening();
+    voice.setDisabled(true);
+    expect(voice.button.disabled).toBe(false);
+    voice.button.click();
+    expect(voice.button.dataset.state).toBe('idle');
+    expect(mic.track.stopped).toBe(true);
+  });
+
+  test('clicking the icon again releases the microphone and closes the audio', async () => {
     const { voice, ctx } = await listening();
-    voice.listenButton.click();
+    voice.button.click();
     expect(mic.track.stopped).toBe(true);
     expect(ctx.closed).toBe(true);
-    expect(voice.listenButton.dataset.state).toBe('off');
+    expect(voice.button.dataset.state).toBe('idle');
     expect(textarea.placeholder).not.toMatch(/hold your mic/i);
   });
 
-  test('five minutes without speech turns Listen off and says so', async () => {
+  test('five minutes without speech turns listening off and says so', async () => {
     const { voice } = await listening();
     await vi.advanceTimersByTimeAsync(LISTEN_IDLE_MS);
-    expect(voice.listenButton.dataset.state).toBe('off');
+    expect(voice.button.dataset.state).toBe('idle');
     expect(mic.track.stopped).toBe(true);
     expect(onError).toHaveBeenCalledWith(expect.stringMatching(/five minutes/));
   });
@@ -388,7 +401,7 @@ describe('Listen mode', () => {
     ctx.play(-25, 800);
     ctx.play(-Infinity, 1_000);
     await vi.advanceTimersByTimeAsync(2_000);
-    expect(voice.listenButton.dataset.state).toBe('listening');
+    expect(voice.button.dataset.state).toBe('listening');
   });
 
   test('a hidden page stops listening', async () => {
@@ -402,7 +415,7 @@ describe('Listen mode', () => {
       configurable: true,
       value: false,
     });
-    expect(voice.listenButton.dataset.state).toBe('off');
+    expect(voice.button.dataset.state).toBe('idle');
     expect(mic.track.stopped).toBe(true);
   });
 
@@ -415,10 +428,10 @@ describe('Listen mode', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(transcribeCalls()).toHaveLength(0);
     expect(onError).toHaveBeenCalledWith(expect.stringMatching(/message box is locked/));
-    expect(voice.listenButton.dataset.state).toBe('listening');
+    expect(voice.button.dataset.state).toBe('listening');
   });
 
-  test('a clip after the chat left the front turns Listen off instead', async () => {
+  test('a clip after the chat left the front turns listening off instead', async () => {
     let active = true;
     const { voice, ctx } = await listening({ isActive: () => active });
     active = false;
@@ -427,13 +440,13 @@ describe('Listen mode', () => {
     ctx.play(-Infinity, 1_000);
     await vi.advanceTimersByTimeAsync(0);
     expect(transcribeCalls()).toHaveLength(0);
-    expect(voice.listenButton.dataset.state).toBe('off');
+    expect(voice.button.dataset.state).toBe('idle');
   });
 
-  test('a refused microphone says so and leaves Listen off', async () => {
+  test('a refused microphone says so and leaves listening off', async () => {
     getMicrophone.mockRejectedValueOnce(new Error('NotAllowedError'));
     const { voice } = await listening();
-    expect(voice.listenButton.dataset.state).toBe('off');
+    expect(voice.button.dataset.state).toBe('idle');
     expect(onError).toHaveBeenCalledWith(expect.stringMatching(/microphone could not be opened/));
   });
 
