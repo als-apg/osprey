@@ -59,9 +59,9 @@ from osprey.utils.config_writer import (
     save_config_document,
 )
 from osprey.utils.facility import facility_name as identity_name
-from osprey_connectors import types as connector_types
+from osprey_connectors import connector_types, limits_posture, targets
+from osprey_connectors.deployment.standin import LIVE_STANDIN_PORT_KEY
 from osprey_connectors.logger import get_logger
-from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:
     from osprey.apps.agents import AppAgent
@@ -1005,9 +1005,9 @@ def _inject_dispatch(
 #:
 #: Derived rather than written out: the keys are the types whose transport is
 #: Channel Access, the one the queue worker can build devices over
-#: (:func:`~osprey_connectors.types.speaks_channel_access`), and each value is
+#: (:func:`~osprey_connectors.connector_types.speaks_channel_access`), and each value is
 #: the target that type is the baseline of
-#: (:func:`~osprey_connectors.types.baseline_target`), so a type added to either
+#: (:func:`~osprey_connectors.targets.baseline_target`), so a type added to either
 #: upstream reaches the lane renderer without a second edit here. ``DOOCS``
 #: falls out for the reason it was left out by hand: a lane the worker cannot
 #: execute over is not a lane to render. The simulator served in process keeps
@@ -1020,7 +1020,7 @@ def _inject_dispatch(
 #: gets a lane that says ``standin``, which is what keeps ``live`` meaning the
 #: facility's own machine on the very deployments that run both.
 _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE = {
-    cs_type: connector_types.baseline_target({"type": cs_type})
+    cs_type: targets.baseline_target({"type": cs_type})
     for cs_type in connector_types.SET_CONTROL_SYSTEM_TYPES
     if connector_types.speaks_channel_access({"type": cs_type})
 }
@@ -1163,7 +1163,7 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
             ``None`` when the profile deploys no VA service.
 
     Returns:
-        One of :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+        One of :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`.
 
     Raises:
         BuildProfileError: If the baseline is a control-system type that is not
@@ -1208,13 +1208,13 @@ def _refuse_unknown_lane_targets(config: Any) -> None:
     The one lane-target mistake no runtime signal can repair. A target that
     does not RESOLVE is a deployment that has not described its machine yet,
     and the bridge handles it by falling back to the deployment baseline — but
-    a target that is not one of :data:`~osprey_connectors.types.CONTROL_TARGETS`
+    a target that is not one of :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`
     is a typo, and a typo resolves to the baseline forever while the author goes
     on believing the lane serves what they wrote.
 
     Raises:
         BuildProfileError: A lane block declares a target outside
-            :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+            :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`.
     """
     services = config.get("services") or {}
     if not hasattr(services, "get"):
@@ -1253,7 +1253,7 @@ def _warn_underivable_lane_targets(config: Any, lanes: list[tuple[str, dict[str,
         if target is None:
             continue
         try:
-            connector_types.resolve_target(control_system, target)
+            targets.resolve_target(control_system, target)
         except ValueError:
             logger.warning(
                 "    Lane %s declares the %r target, which this config cannot resolve "
@@ -2565,7 +2565,7 @@ def _inject_limits_database(project_path: Path) -> None:
     section = load_config_document(config_path).get("control_system")
     if not isinstance(section, Mapping):
         return
-    leaf = connector_types.LIMITS_CHECKING_LEAF
+    leaf = limits_posture.LIMITS_CHECKING_LEAF
     block = section.get(leaf)
     connector = section.get("connector")
     per_type = isinstance(connector, Mapping) and any(

@@ -24,8 +24,8 @@ import pytest
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.identity import acting_identity
-from osprey_connectors.types import CONTROL_TARGETS
 from osprey_connectors_tests._harness import write_control_context, write_payload
 
 # --- fixtures --------------------------------------------------------------

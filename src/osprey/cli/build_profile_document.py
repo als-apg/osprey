@@ -29,14 +29,14 @@ import yaml
 from osprey.errors import BuildProfileError
 from osprey.utils.workspace import LAYER_DIR_KINDS, RETIRED_LAYER_DIRS
 from osprey_connectors import yaml_loader
-from osprey_connectors.types import (
-    TIER_WORDS,
+from osprey_connectors.connector_types import resolve_control_system_type
+from osprey_connectors.targets import (
     baseline_target,
     configured_targets,
-    resolve_control_system_type,
     resolve_target,
     switch_capable,
 )
+from osprey_connectors.write_tier import TIER_WORDS
 
 _LOGGER = logging.getLogger(__name__)
 

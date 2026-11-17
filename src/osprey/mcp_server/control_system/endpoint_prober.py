@@ -76,8 +76,9 @@ from typing import Any
 
 from osprey.mcp_server.control_system import target_state
 from osprey.utils.seconds import positive_seconds
+from osprey_connectors.connector_types import ControlTarget, is_control_target
 from osprey_connectors.ipc import MODE_NAME_SERVER, Endpoint, derive_endpoints
-from osprey_connectors.types import ControlTarget, configured_targets, is_control_target
+from osprey_connectors.targets import configured_targets
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,7 @@ class EndpointProber:
                 takes it.
             targets: The control targets to probe. Defaults to the targets this
                 deployment configures
-                (:func:`~osprey_connectors.types.configured_targets`) — never
+                (:func:`~osprey_connectors.targets.configured_targets`) — never
                 every target the connectors package names, which would sweep a
                 ``standin`` soft IOC on deployments that stand none up and
                 report it down forever.
@@ -526,7 +527,7 @@ def _interval_or_default(value: object) -> float:
 def _section(config: Any) -> Any:
     """The ``control_system:`` section of a rendered config, or ``None``.
 
-    :func:`~osprey_connectors.types.configured_targets` takes the section and
+    :func:`~osprey_connectors.targets.configured_targets` takes the section and
     answers a missing or malformed one with the deployment's baseline alone, so
     an unreadable config yields one target to probe rather than a failure.
     """

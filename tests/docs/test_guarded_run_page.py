@@ -30,7 +30,7 @@ from osprey.runtime.guarded_run import (
     lock,
 )
 from osprey.utils.workspace import STATE_DIR_NAME
-from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.workspace import reset_config_cache
 from tests._guarded_run import (
     PLANTED_REFUSED,

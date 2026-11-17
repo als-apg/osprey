@@ -255,7 +255,7 @@ def _login_selection(
     carries ``None``.
     """
     from osprey.cli.build_profile_merge import _rendered_control_system
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     cards = tuple(shared_cards)
     entries = {m.name: profile.apps.get(m.name) for m in manifests}

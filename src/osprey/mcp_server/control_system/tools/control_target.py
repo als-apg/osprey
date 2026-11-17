@@ -128,7 +128,8 @@ from osprey.mcp_server.http import (
 )
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.ipc import derive_endpoints
-from osprey_connectors.types import configured_targets, target_limits_posture
+from osprey_connectors.limits_posture import target_limits_posture
+from osprey_connectors.targets import configured_targets
 
 logger = logging.getLogger("osprey.mcp_server.tools.control_target")
 
@@ -316,7 +317,7 @@ def target_rows(
 
     Returns:
         ``{target: row}`` for every target this deployment configures
-        (:func:`~osprey_connectors.types.configured_targets`), in that
+        (:func:`~osprey_connectors.targets.configured_targets`), in that
         function's order. A target this config never described — most often
         ``standin`` on a deployment that stands up no soft IOC — has no row at
         all, rather than a row saying a machine nobody deployed is unavailable.

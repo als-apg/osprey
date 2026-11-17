@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from osprey_connectors.connector_types import TANGO
 from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import (
     ChannelValue,
@@ -26,7 +27,6 @@ from osprey_connectors.control_system._tango_connector import (
     _split_address,
 )
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
-from osprey_connectors.types import TANGO
 from osprey_connectors_tests._stall import Stall
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled

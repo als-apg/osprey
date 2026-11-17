@@ -68,10 +68,10 @@ from osprey.interfaces.web_terminal.config_view import (
 from osprey.interfaces.web_terminal.routes import websocket as posture_routes
 from osprey_connectors import control_context, posture_store
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import ControlTarget
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system import ControlSystem

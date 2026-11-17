@@ -147,7 +147,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, WriteVerdict
 from osprey_connectors.refusals import refusal_text
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from osprey_connectors.workspace import load_osprey_config
 
 if TYPE_CHECKING:

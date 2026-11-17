@@ -16,7 +16,7 @@ import pytest
 
 from osprey.runtime import session as session_module
 from osprey.runtime.session import ControlSession
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors_tests._fake_connector import FakeConnector
@@ -24,12 +24,15 @@ from osprey_connectors_tests._harness import isolated_connector_registries
 
 #: A deployment whose baseline is the virtual accelerator.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 #: A stand-in with no simulator beside it and no real machine named: ``live`` has no answer.
-STANDIN_ONLY_SECTION = {"type": types.LIVE_STANDIN, "connector": {types.LIVE_STANDIN: {}}}
+STANDIN_ONLY_SECTION = {
+    "type": connector_types.LIVE_STANDIN,
+    "connector": {connector_types.LIVE_STANDIN: {}},
+}
 
 
 def _serve(monkeypatch, section):
@@ -82,7 +85,7 @@ def va_session(config_file, monkeypatch):
     _serve(monkeypatch, VA_SECTION)
     _write_record(config_file.parent / "control_target", target="va")
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, FakeConnector)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, FakeConnector)
         yield config_file
 
 

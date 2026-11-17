@@ -24,7 +24,7 @@ from click.testing import CliRunner
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.cli.set_cmd import set as set_command
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.types import tier_writes
+from osprey_connectors.write_tier import tier_writes
 
 _ROOT_LINE = re.compile(r"^  control_system\.writes: .*\n", re.MULTILINE)
 

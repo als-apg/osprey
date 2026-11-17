@@ -18,8 +18,8 @@ row              ``va``                           ``live`` and ``standin``
 ================ ================================ ==========================
 
 The facility's services belong to the facility's machine and the stand-in
-rehearses that machine, as :mod:`osprey_connectors.archive_targets` has it, so
-the two share :data:`~osprey_connectors.archive_targets.APPLIANCE_TARGETS` and
+rehearses that machine, as :mod:`osprey_connectors.deployment.archive_targets` has it, so
+the two share :data:`~osprey_connectors.deployment.archive_targets.APPLIANCE_TARGETS` and
 a ``standin`` spec is marked ``rehearsal``. A simulator spec carries none of the
 facility's settings, and a facility spec no ``replay_file``. ``replay_file`` is
 passed verbatim: only the framework reads its ``demo:`` spelling.
@@ -35,10 +35,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import get_args
 
-from osprey_connectors.archive_targets import APPLIANCE_TARGETS
+from osprey_connectors.connector_types import (
+    CONTROL_TARGETS,
+    TARGET_STANDIN,
+    TARGET_VA,
+    ControlTarget,
+)
+from osprey_connectors.deployment.archive_targets import APPLIANCE_TARGETS
+from osprey_connectors.deployment.simulator import has_simulator
 from osprey_connectors.service_answers import BackendSpec, ServiceKind
-from osprey_connectors.simulator import has_simulator
-from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, TARGET_VA, ControlTarget
 
 __all__ = ["service_targets"]
 
@@ -60,7 +65,7 @@ def service_targets(config: object) -> dict[str, dict[str, BackendSpec | None]]:
 
     Returns:
         ``{kind: {target: BackendSpec | None}}`` with every target of
-        :data:`~osprey_connectors.types.CONTROL_TARGETS` in every row. With no
+        :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` in every row. With no
         section, every entry is ``None``.
     """
     section = config.get(_SECTION_KEY) if isinstance(config, Mapping) else None

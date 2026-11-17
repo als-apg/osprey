@@ -32,6 +32,7 @@ from typing_extensions import override
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import call_timeout_s
+from osprey_connectors.connector_types import Transport
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import (
     ChannelError,
@@ -42,7 +43,6 @@ from osprey_connectors.errors import (
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.posture_store import WriteVerdict
-from osprey_connectors.types import Transport
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system._limits_validator import (

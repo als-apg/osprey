@@ -38,11 +38,11 @@ Write Outcomes:
 
 Control Target:
     The execution sandbox is launched with a *target stamp* — one of
-    :data:`osprey_connectors.types.CONTROL_TARGETS` — in its environment,
+    :data:`osprey_connectors.connector_types.CONTROL_TARGETS` — in its environment,
     written by :mod:`osprey.mcp_server.python_executor.executor`. That stamp,
     not the config's own ``control_system.type``, decides which connector this
     runtime builds: the type is resolved through
-    :func:`osprey_connectors.types.resolve_target`, so the factory reads
+    :func:`osprey_connectors.targets.resolve_target`, so the factory reads
     ``control_system.connector.<that type>`` and ``connect()`` derives that
     target's gateways here rather than anywhere upstream. An unstamped process
     resolves its connector exactly as it always did.
@@ -353,7 +353,8 @@ async def _pooled_connector_locked(target: str | None) -> "ControlSystem":
     """
     global _connector_pool
 
-    from osprey_connectors.types import CONTROL_TARGETS, baseline_target, is_control_target
+    from osprey_connectors.connector_types import CONTROL_TARGETS, is_control_target
+    from osprey_connectors.targets import baseline_target
 
     section = _control_system_section()
     key = target if target is not None else baseline_target(section)
@@ -384,7 +385,7 @@ def _pooled_writes_allowed(target: str | None) -> bool:
     its signature cache: one stat when it has not changed. Never raises.
     """
     from osprey_connectors import posture_store
-    from osprey_connectors.types import baseline_target
+    from osprey_connectors.targets import baseline_target
 
     try:
         section = _control_system_section()
@@ -416,7 +417,7 @@ def _target_connector_config() -> dict[str, Any] | None:
     deployment configured them.
 
     Raises:
-        ValueError: From :func:`~osprey_connectors.types.resolve_target` when
+        ValueError: From :func:`~osprey_connectors.targets.resolve_target` when
             the deployment has not named the machine this target means. It is
             deliberately not caught: falling back to the config's own type would
             answer "which machine am I on" with a different machine.
@@ -426,7 +427,7 @@ def _target_connector_config() -> dict[str, Any] | None:
         return None
 
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.types import resolve_target
+    from osprey_connectors.targets import resolve_target
 
     section = get_config_value("control_system", {})
     if not isinstance(section, dict):
@@ -529,7 +530,7 @@ async def _get_connector():
     stamped onto the instance so the reference monitor inside it reads the
     session posture for the target this run was launched against. An unstamped
     process is built for the deployment's baseline target
-    (:func:`osprey_connectors.types.baseline_target`), the machine the pooled
+    (:func:`osprey_connectors.targets.baseline_target`), the machine the pooled
     path serves it as, so its writes are decided by that machine's switch.
 
     A sandbox reaches the build once and reuses it for its whole life. A
@@ -583,7 +584,7 @@ async def _get_connector():
 
         if _runtime_connector is None:
             from osprey_connectors.factory import ConnectorFactory
-            from osprey_connectors.types import baseline_target
+            from osprey_connectors.targets import baseline_target
 
             config = _target_connector_config()
             if config is None:
@@ -1108,10 +1109,10 @@ async def _settle_async(landings: "list[Landing]", timeout_s: float) -> None:
 
 def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
     """One landing per setpoint that has a bound, as the render's facility file states it."""
+    from osprey_connectors.connector_types import is_simulated, resolve_control_system_type
     from osprey_connectors.settle import Landing, settle_bound
     from osprey_connectors.simulation.envelope import motion_envelope
     from osprey_connectors.simulation.records import SeedRecord
-    from osprey_connectors.types import is_simulated, resolve_control_system_type
 
     path, channels = _facility_channels()
     simulated: bool | None = None

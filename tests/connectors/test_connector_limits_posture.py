@@ -23,9 +23,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from osprey_connectors.connector_types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.errors import ChannelLimitsViolationError
-from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from tests.facility.served_tree import in_process_config, served_tree
 
 DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"

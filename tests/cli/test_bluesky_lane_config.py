@@ -57,7 +57,7 @@ from osprey.cli.build_profile_schema import (
 )
 from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
-from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors.connector_types import CONTROL_TARGETS
 
 #: Lane 1's bridge port at the layout's own base — what a profile that names no
 #: ``deployment.port_base`` and no ``bluesky.port`` gets. Derived rather than
@@ -751,7 +751,7 @@ def test_a_lane_target_that_names_no_control_target_is_refused(
 
     A target that does not RESOLVE is a deployment that has not described its
     machine yet, and the bridge falls back to the baseline for it. A target
-    that is not one of :data:`~osprey_connectors.types.CONTROL_TARGETS` is a
+    that is not one of :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` is a
     typo, and it would fall back forever while the author went on believing the
     lane served what they wrote.
     Every lane key is swept, not just the ones this build renders: a block left
@@ -933,7 +933,7 @@ def test_the_registry_covers_every_control_target() -> None:
     no lane key here would be a machine no deployment could queue plans on, and
     the build would name the lane ``None``.
     """
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import connector_types
 
     assert set(SECOND_LANE_KEYS) == set(connector_types.CONTROL_TARGETS)
     assert LANE_KEYS == (LANE_ONE, *SECOND_LANE_KEYS.values())

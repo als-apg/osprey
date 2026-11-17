@@ -341,7 +341,7 @@ def _phoebus_drive(staged: Staged) -> Any:
     if not _ladder_pin_honoured(case) or not isinstance(case.section, dict):
         return OUT_OF_DOMAIN
     from osprey.mcp_server.phoebus.tools.bridge_tools import _check_drive_switch
-    from osprey_connectors.types import baseline_target
+    from osprey_connectors.targets import baseline_target
 
     try:
         if baseline_target(case.section) != case.target:

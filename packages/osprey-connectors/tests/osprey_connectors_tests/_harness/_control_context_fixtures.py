@@ -40,9 +40,9 @@ from typing import Any
 import pytest
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import CONTROL_TARGETS, is_control_target
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.safety_file import atomic_replace
-from osprey_connectors.types import CONTROL_TARGETS, is_control_target
 from osprey_connectors_tests._paths import REPO_ROOT
 
 #: The target a record carries when a test does not care which one it is.
@@ -186,7 +186,7 @@ def write_control_context(
         root: The agent-data root. The acting identity's directory below it —
             :func:`state_dir_under` — is created if it does not exist.
         target: The control target the deployment is pointed at. A name that
-            is not a :data:`~osprey_connectors.types.ControlTarget` — which no
+            is not a :data:`~osprey_connectors.connector_types.ControlTarget` — which no
             record can be built with — is written to the field VERBATIM over a
             record built on :data:`DEFAULT_TARGET`, so a suite pinning how the
             reader treats an unknown target reads the real file through the

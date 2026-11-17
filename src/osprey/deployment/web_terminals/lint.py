@@ -126,16 +126,10 @@ from osprey.services.auth_sidecar.roster_env import (
     env_var_suffix_collisions,
 )
 from osprey.utils.workspace import LAYER_DIR_KINDS
+from osprey_connectors.connector_types import TARGET_LIVE, speaks_channel_access
 from osprey_connectors.dotenv import parse_dotenv_file
-from osprey_connectors.types import (
-    TARGET_LIVE,
-    WRITES_KEY,
-    baseline_target,
-    configured_targets,
-    resolve_target,
-    speaks_channel_access,
-    tier_allows,
-)
+from osprey_connectors.targets import baseline_target, configured_targets, resolve_target
+from osprey_connectors.write_tier import WRITES_KEY, tier_allows
 
 # Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
 # listener is `tls.port` and the auth sidecar's is `auth.port`. Neither default
@@ -2651,7 +2645,7 @@ def _resolved_writes(*layers: Any) -> str | None:
 def _layers_allow_writes(*layers: Any) -> bool:
     """Whether a render's config layers resolve to a tier that arms: the word is not ``never``.
 
-    Read through :func:`~osprey_connectors.types.tier_allows`, so silence and any
+    Read through :func:`~osprey_connectors.write_tier.tier_allows`, so silence and any
     value a raw layer carries that is not an arming word read ``never``.
     """
     return tier_allows({"writes": _resolved_writes(*layers)})
@@ -2662,7 +2656,7 @@ def _live_writes_type(section: Any, *, tier_allows_writes: bool) -> str | None:
 
     ``None`` unless all of it holds: the render's login tier allows writes
     (*tier_allows_writes*), ``live`` is one of the section's
-    :func:`~osprey_connectors.types.configured_targets`, and it resolves to a
+    :func:`~osprey_connectors.targets.configured_targets`, and it resolves to a
     real connector type, and a session can be on it. The tier is target-blind,
     so a tier that allows writes allows them on every machine a session can
     reach; what this adds is the machine. A ``live`` that does not resolve — a

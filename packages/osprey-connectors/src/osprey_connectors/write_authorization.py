@@ -156,6 +156,7 @@ from pydantic import (
 )
 
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.connector_types import ControlTarget, is_control_target
 from osprey_connectors.errors import (
     AlreadyApprovedError,
     ConnectorsError,
@@ -168,7 +169,6 @@ from osprey_connectors.model import FrozenModel, Instant, ReadOnlyMapping, evolv
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
-from osprey_connectors.types import ControlTarget, is_control_target
 
 logger = logging.getLogger("osprey_connectors.write_authorization")
 

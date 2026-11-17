@@ -139,9 +139,9 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
 from osprey_connectors import control_context
+from osprey_connectors.connector_types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ChannelLimitsViolationError
-from osprey_connectors.types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_ports

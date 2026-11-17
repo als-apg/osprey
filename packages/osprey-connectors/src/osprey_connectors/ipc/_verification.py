@@ -30,6 +30,15 @@ from collections.abc import Mapping
 from typing import Final, Literal, SupportsIndex, SupportsInt
 
 from osprey_connectors.config import config_flag
+from osprey_connectors.connector_types import (
+    STANDIN_TYPES,
+    TARGET_LIVE,
+    TRANSPORT_IN_PROCESS,
+    VIRTUAL_ACCELERATOR,
+    ControlTarget,
+    Transport,
+    connector_transport,
+)
 from osprey_connectors.control_system._gateway_role import (
     ROLE_PVA,
     ROLE_READ_ONLY,
@@ -41,17 +50,8 @@ from osprey_connectors.control_system._gateway_role import (
 )
 from osprey_connectors.model import FrozenModel, ReadOnlyMapping
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.types import (
-    STANDIN_TYPES,
-    TARGET_LIVE,
-    TRANSPORT_IN_PROCESS,
-    VIRTUAL_ACCELERATOR,
-    ControlTarget,
-    Transport,
-    connector_transport,
-    resolve_target,
-    tier_allows,
-)
+from osprey_connectors.targets import resolve_target
+from osprey_connectors.write_tier import tier_allows
 
 __all__ = [
     "config_section",
@@ -136,7 +136,7 @@ class TargetDerivation(FrozenModel):
     with: EPICS keeps one process-wide context, so exactly one gateway is used.
 
     ``transport`` is the wire the child's connector will speak
-    (:func:`~osprey_connectors.types.connector_transport`), so a child that
+    (:func:`~osprey_connectors.connector_types.connector_transport`), so a child that
     built the other venue of the simulator is refused by what it echoes.
 
     ``gateways_declared`` is :func:`declared_gateways` of the block: only an
@@ -243,7 +243,7 @@ def derive_endpoints(
         target: The control target.
         writes_enabled: Whether writes are armed for *target*. Defaults to
             the deployment's write tier —
-            :func:`~osprey_connectors.types.tier_allows` over the
+            :func:`~osprey_connectors.write_tier.tier_allows` over the
             ``control_system`` section, which is what the connector's write
             verdict reads — never the per-type ``writes_enabled`` key on its
             own; injectable so a caller (or a test) can derive the endpoints of
@@ -262,7 +262,7 @@ def derive_endpoints(
 
     Raises:
         ValueError: Propagated from
-            :func:`~osprey_connectors.types.resolve_target` when the target is
+            :func:`~osprey_connectors.targets.resolve_target` when the target is
             unknown, or is ``live`` on a deployment that has never named its real
             machine, and from :func:`~osprey_connectors.config.config_flag` when a
             ``use_name_server`` spells neither true nor false.

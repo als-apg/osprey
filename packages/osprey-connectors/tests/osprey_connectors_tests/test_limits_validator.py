@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey_connectors.connector_types import EPICS, VIRTUAL_ACCELERATOR
 from osprey_connectors.control_system._limits_validator import (
     LIMITS_DATABASE_CONFIG_KEY,
     ChannelLimitsConfig,
@@ -23,7 +24,7 @@ from osprey_connectors.control_system._limits_validator import (
     mapping_config_lookup,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
-from osprey_connectors.types import EPICS, VIRTUAL_ACCELERATOR, LimitsPosture
+from osprey_connectors.limits_posture import LimitsPosture
 
 
 def _make_validator(tmp_path, db: dict, policy: dict | None = None) -> LimitsValidator:

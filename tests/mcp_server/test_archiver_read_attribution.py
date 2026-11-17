@@ -1,10 +1,10 @@
 """``archiver_read`` serves a session only its own target's archive.
 
 One ``archiver:`` block serves the deployment, and it holds the past of some
-targets and not others (:mod:`osprey_connectors.archive_targets`): the
+targets and not others (:mod:`osprey_connectors.deployment.archive_targets`): the
 facility's appliance for the live machine and the stand-in that rehearses it,
 the deployment's own store for the virtual accelerator. The agent's reader of
-that block asks :func:`~osprey_connectors.archive_targets.archive_withheld`
+that block asks :func:`~osprey_connectors.deployment.archive_targets.archive_withheld`
 before it opens the connector, so a session on ``live`` or ``standin`` is never
 shown the simulator's store and a session on ``va`` is never shown the
 appliance.

@@ -3,7 +3,7 @@
 The limits posture is per connector type, so a deployment running a live
 machine beside a virtual accelerator can hold ``mode: exclusive`` for the one
 and ``mode: optional`` for the other. The piece pinned here is the value that
-carries it: :class:`~osprey_connectors.types.LimitsPosture`
+carries it: :class:`~osprey_connectors.limits_posture.LimitsPosture`
 holds the two leaves *together with the key that answered them*, so a refusal
 sends an operator to the line they actually have to edit rather than to a
 deployment-wide key some per-type block overrides.
@@ -25,16 +25,18 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from osprey_connectors.types import (
+from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     EPICS,
-    LIMITS_CHECKING_LEAF,
-    LIMITS_LEAVES,
     LIVE_STANDIN,
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
+)
+from osprey_connectors.limits_posture import (
+    LIMITS_CHECKING_LEAF,
+    LIMITS_LEAVES,
     LimitsPosture,
     incomplete_limits_blocks,
     limits_database_required,
@@ -676,7 +678,7 @@ class TestTargetLimitsPosture:
         """A single stray ``epics`` block is what ``live`` derives from here.
 
         Deliberately the same derivation
-        :func:`~osprey_connectors.types.resolve_target` performs for write
+        :func:`~osprey_connectors.targets.resolve_target` performs for write
         posture, so a holder that carries a target reads one machine's posture
         and not two. The reachable-set resolver is where such a deployment's
         stray block is ruled out, because there no session can select it.
@@ -1047,7 +1049,7 @@ class TestTierLimitsDatabaseTargets:
         assert TARGET_VA in with_path and TARGET_LIVE in with_path
 
     def test_the_list_follows_the_configured_target_order(self) -> None:
-        from osprey_connectors.types import configured_targets
+        from osprey_connectors.targets import configured_targets
 
         section = {**_va_baseline_deployment(), "writes": "allowed"}
         assert tier_limits_database_targets(section, path_configured=True) == configured_targets(
@@ -1089,7 +1091,7 @@ def _not_a_leaf(connector_type: str, leaf: str) -> str:
 def _unreadable(connector_type: str | None, leaf: str, value: Any) -> str:
     """The line the build refusal is expected to carry for one unreadable leaf.
 
-    Spelled from :meth:`~osprey_connectors.types.LimitsPosture.key` so the test
+    Spelled from :meth:`~osprey_connectors.limits_posture.LimitsPosture.key` so the test
     pins the sentence rather than restating how a key is built.
     """
     key = LimitsPosture(enabled=None, mode=None, connector_type=connector_type).key(leaf)
@@ -1105,7 +1107,7 @@ class TestIncompleteBlocks:
 
     The build and ``osprey validate`` refuse a profile that writes one leaf of a
     ``limits_checking`` block, because half a block is a posture nobody stated:
-    :func:`~osprey_connectors.types.type_limits_posture` answers ``None`` twice
+    :func:`~osprey_connectors.limits_posture.type_limits_posture` answers ``None`` twice
     for it and a write path falls back to a failsafe. This resolver is the
     render-side half of that refusal — it reads the config the build actually
     produced, so a spelling the profile layer could not classify still gets

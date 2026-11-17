@@ -95,14 +95,13 @@ def simulator(
 
 def _served_targets(section: Any) -> list[str]:
     """The simulator targets this deployment serves from a process of its own."""
-    from osprey_connectors.types import (
+    from osprey_connectors.connector_types import (
         TARGET_STANDIN,
         TARGET_VA,
         TRANSPORT_IN_PROCESS,
-        configured_targets,
         connector_transport,
-        resolve_target,
     )
+    from osprey_connectors.targets import configured_targets, resolve_target
 
     try:
         configured = configured_targets(section)

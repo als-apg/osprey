@@ -44,11 +44,11 @@ def _tier_key(section: dict[str, Any]) -> str:
 
     ``control_system.writes`` whenever the render carries it. A hand-written
     render that still spells only the retired leaves answers through
-    :func:`~osprey_connectors.types.tier_writes`' fallback, and the line names
+    :func:`~osprey_connectors.write_tier.tier_writes`' fallback, and the line names
     the leaf that armed it rather than a key the file does not contain.
     """
     from osprey.cli.build_profile_document import RETIRED_WRITES_LEAF
-    from osprey_connectors.types import WRITES_KEY
+    from osprey_connectors.write_tier import WRITES_KEY
 
     section_name, _, tier_leaf = WRITES_KEY.rpartition(".")
     if tier_leaf in section:
@@ -69,11 +69,11 @@ def limits_database_errors(render_dir: Path) -> list[str]:
     Read after the profile's ``data/`` tree has been applied into the render,
     because that is where a relative ``database_path`` resolves to and where
     the file arrives from. The gate is the render's tier: the login tier allows
-    writes (:func:`~osprey_connectors.types.tier_allows`) *and* some configured
+    writes (:func:`~osprey_connectors.write_tier.tier_allows`) *and* some configured
     target's resolved limits posture requires a database
-    (:func:`~osprey_connectors.types.limits_database_required` — limits checking
+    (:func:`~osprey_connectors.limits_posture.limits_database_required` — limits checking
     on, and a mode other than ``optional`` or a path configured); the list is
-    :func:`~osprey_connectors.types.tier_limits_database_targets`, the same one
+    :func:`~osprey_connectors.limits_posture.tier_limits_database_targets`, the same one
     the compose mount reads.
     The database is deployment-wide, so it is loaded once however many targets
     qualify, and the line names the first target that made it load.
@@ -91,7 +91,7 @@ def limits_database_errors(render_dir: Path) -> list[str]:
         LimitsValidator,
         mapping_config_lookup,
     )
-    from osprey_connectors.types import target_limits_posture, tier_limits_database_targets
+    from osprey_connectors.limits_posture import target_limits_posture, tier_limits_database_targets
 
     config = _rendered_config(render_dir)
     section = config.get("control_system")

@@ -873,7 +873,7 @@ keys:
     note: >-
       The stand-in's Channel Access port, and the one fact four independent
       readers decide the stand-in's existence from. Evidence anchors on
-      `osprey_connectors.standin`, where the dotted path is spelled ONCE and
+      `osprey_connectors.deployment.standin`, where the dotted path is spelled ONCE and
       every other site imports it — the build injector that writes the block,
       the archiver recorder's enablement gate, `deployment/reach.py`'s
       projected key and `deployment/host_ports.py`'s port-conflict remedy all
@@ -1319,11 +1319,11 @@ keys:
     default_note: computed by the build from modules.web_terminals and the renders; never spelled
   control_system.limits_checking: {evidence: 'limits_checking', default: no-fallback, default_note: "an absent block states no posture; both leaves read as unstated and limits checking is off"}
   control_system.limits_checking.enabled:
-    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
     note: >-
       Deployment-wide limits posture, and no longer read by a dotted
       `get_config_value` call: every reader now goes through the per-type
-      resolver family in `osprey_connectors.types`, whose inherit branch falls
+      resolver family in `osprey_connectors.limits_posture`, whose inherit branch falls
       back to this deployment-wide block when the acting connector type wrote
       no block of its own. Both scopes read their leaves through the one
       shared helper `_block_limits_posture`, so this anchor is shared with the
@@ -1354,7 +1354,7 @@ keys:
     default_note: >-
       the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
   control_system.limits_checking.mode:
-    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
     note: >-
       The limits mode, one of `exclusive` or `optional`. `exclusive`: only
       channels in the limits database can be written. `optional`: a channel in
@@ -1658,7 +1658,7 @@ keys:
       half-written block into permission on hardware. Only the two leaves below: `database_path`
       stays deployment-wide because a deployment mounts one limits database.
       No shipped preset writes this block.
-      The reader is `type_limits_posture` in `osprey_connectors.types`, and the
+      The reader is `type_limits_posture` in `osprey_connectors.limits_posture`, and the
       evidence is the line in it that takes this block out of the resolved
       connector block -- disjoint from the deployment-wide read in
       `_global_limits_posture` (`section[...]`), so each entry dies with exactly
@@ -1670,7 +1670,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.virtual_accelerator.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
     note: >-
       Whether limits checking runs for this connector type. Literal `true` or
       `false` states a posture. A leaf PRESENT but spelled otherwise (a quoted
@@ -1688,7 +1688,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.virtual_accelerator.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
     note: >-
       The limits mode for this connector type alone, with the same two values
       and the same shared reader as the deployment-wide leaf above. A per-type
@@ -1706,7 +1706,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.epics.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
     note: >-
       Same leaf, same absent/unreadable reading and the same shared reader
       for the epics block.
@@ -1714,7 +1714,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.epics.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the epics block.
@@ -1731,7 +1731,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.doocs.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the doocs block.
@@ -1739,7 +1739,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.doocs.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the doocs block.
@@ -1756,7 +1756,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.tango.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the tango block.
@@ -1764,7 +1764,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.tango.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
     note: >-
       The same leaf, same absent/unreadable reading and the same shared reader,
       for the tango block.
@@ -1787,7 +1787,7 @@ keys:
     default_note: falls through to control_system.limits_checking
   control_system.connector.live_standin.limits_checking.enabled:
     rendered: false
-    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    evidence: '_limits_leaf\(block\.get\(_ENABLED_LEAF\)\)'
     note: >-
       One of the two leaves of the derived block a profile is free to write.
       Same absent/unreadable reading and the same shared reader as the other
@@ -1796,7 +1796,7 @@ keys:
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.live_standin.limits_checking.mode:
     rendered: false
-    evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
+    evidence: '_limits_mode\(block\.get\(_MODE_LEAF\)\)'
     note: >-
       The other leaf of the derived block. Same absent/unreadable reading and
       the same shared reader; a deployment that writes no live_standin block

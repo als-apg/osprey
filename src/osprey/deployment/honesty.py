@@ -8,7 +8,7 @@ kind of claim from a soft IOC the deployment runs for itself. Neither machine
 existed before this deployment stood it up: the simulator's only past is the
 store its recorder keeps, and the stand-in's is the facility's archive it
 rehearses against — they are the
-:data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, reached over a
+:data:`~osprey_connectors.connector_types.INVENTED_HISTORY_TYPES`, reached over a
 network, and every question below is asked of that whole set rather than of the
 virtual accelerator alone. The mock archiver answers a history query the other
 way round: it synthesizes a plausible-looking series at read time, for
@@ -54,7 +54,7 @@ it is fiction. The simulator served in process has no recorder, so a
 synthesized archive is the only archive it can have, and the chip says
 "Simulator": that pairing claims nothing it cannot back up and is not refused.
 :func:`invents_history` asks it through
-:func:`~osprey_connectors.types.talks_to_network`, the same wire fact every
+:func:`~osprey_connectors.connector_types.talks_to_network`, the same wire fact every
 other check reads, so the type and the ``serving`` leaf are judged together and
 never the type word alone. A control system that states no type is the
 simulator in process, so it invents nothing either.
@@ -64,7 +64,7 @@ asks to be pointed at the virtual accelerator, or at the stand-in, has not
 changed anything yet, so the config's own ``control_system.type`` is not the
 type to judge — the pairing to refuse is the one the switch *would* create.
 :func:`pairing_for_target` judges that one, taking the prospective control
-system from :func:`~osprey_connectors.types.resolve_target` while the archiver
+system from :func:`~osprey_connectors.targets.resolve_target` while the archiver
 still comes from the config, because the switch changes the machine and leaves
 the archive exactly where it was. The target is resolved through that shared
 resolver and never here: a guard that translates ``va`` privately is guarding a
@@ -79,18 +79,18 @@ from __future__ import annotations
 
 from typing_extensions import override
 
-from .model import FrozenModel
-from .types import (
+from osprey_connectors.archiver_selection import resolve_archiver_type
+from osprey_connectors.connector_types import (
     INVENTED_HISTORY_TYPES,
     MOCK_ARCHIVER,
     SERVING_KEY,
     SERVING_LEAF,
     VIRTUAL_ACCELERATOR,
-    resolve_archiver_type,
     resolve_control_system_type,
-    resolve_target,
     talks_to_network,
 )
+from osprey_connectors.model import FrozenModel
+from osprey_connectors.targets import resolve_target
 
 __all__ = [
     "ArchiverPairing",
@@ -119,7 +119,7 @@ _ARCHIVER_TYPE = "archiver.type"
 def invents_history(control_system_section: object) -> bool:
     """Whether the machine *control_system_section* selects has no recorded past.
 
-    A type in :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES` that is
+    A type in :data:`~osprey_connectors.connector_types.INVENTED_HISTORY_TYPES` that is
     reached over a network: the simulator served from its container and the
     live stand-in. The simulator served in process dials nothing and has no
     recorder, so it is not one. A ``serving`` value no reader accepts is judged
@@ -242,21 +242,21 @@ def pairing_for_target(config: object, target: str) -> ArchiverPairing:
     at run time.
 
     The prospective type comes from
-    :func:`~osprey_connectors.types.resolve_target` and is never worked out
+    :func:`~osprey_connectors.targets.resolve_target` and is never worked out
     here, so this predicate and the switch it guards cannot disagree about where
     a target lands.
 
     Args:
         config: The raw config mapping, as loaded from ``config.yml``.
         target: The control target being asked for, one of
-            :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+            :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`.
 
     Returns:
         The verdict and the phrase naming the config's archiver, ready for a
         refusal that quotes :data:`VA_MOCK_ARCHIVER_WHY`.
 
     Raises:
-        ValueError: Propagated from :func:`~osprey_connectors.types.resolve_target`
+        ValueError: Propagated from :func:`~osprey_connectors.targets.resolve_target`
             when *target* is unknown, or is ``live`` on a deployment with no
             derivable live control system. An underivable target has no pairing
             to judge, and answering "allowed" for one would report a session as
@@ -302,7 +302,7 @@ def _spellings(config: object, dotted: str, *, nested_only: bool) -> list[object
     """The values this config sets for *dotted*, in every spelling that is live.
 
     Returned exactly as written, never normalized: the resolvers in
-    :mod:`osprey_connectors.types` are what turn a value into a decision, and
+    :mod:`osprey_connectors.connector_types` are what turn a value into a decision, and
     tidying one on the way in (stripping whitespace, say) would decide something
     about it that the factory does not — a padded type name is a lookup failure
     there, and must stay one here.

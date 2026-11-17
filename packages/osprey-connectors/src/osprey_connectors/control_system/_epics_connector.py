@@ -40,6 +40,7 @@ from typing_extensions import Buffer, override
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_STEP_READ_TIMEOUT_S, step_read_timeout_s
 from osprey_connectors.config import config_flag
+from osprey_connectors.connector_types import is_control_target
 from osprey_connectors.control_system._base import (
     Alarm,
     ChannelMetadata,
@@ -65,7 +66,8 @@ from osprey_connectors.errors import (
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.types import WRITES_KEY, is_control_target, machine_kind
+from osprey_connectors.targets import machine_kind
+from osprey_connectors.write_tier import WRITES_KEY
 
 logger = get_logger("epics_connector")
 

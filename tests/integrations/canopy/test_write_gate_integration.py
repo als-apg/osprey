@@ -43,7 +43,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.integrations.canopy.backend import SURFACE
 from osprey.integrations.canopy.sidecar import CanopySidecar
 from osprey.runtime import session as session_module
-from osprey_connectors import control_context, posture_store, session_hold, types
+from osprey_connectors import connector_types, control_context, posture_store, session_hold
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness._control_context_fixtures import _set_switch_to
@@ -62,11 +62,11 @@ SITECUSTOMIZE = textwrap.dedent(
     import os
 
     if os.environ.get("CANOPY_EPICS__BACKEND"):
-        from osprey_connectors import types
+        from osprey_connectors import connector_types
         from osprey_connectors_tests._fake_connector import FakeConnector
         from osprey_connectors.factory import ConnectorFactory
 
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, FakeConnector)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, FakeConnector)
     """
 )
 
@@ -74,8 +74,8 @@ SITECUSTOMIZE = textwrap.dedent(
 def _config(*, writes: Any) -> dict[str, Any]:
     config: dict[str, Any] = {
         "control_system": {
-            "type": types.VIRTUAL_ACCELERATOR,
-            "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+            "type": connector_types.VIRTUAL_ACCELERATOR,
+            "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
         },
     }
     if writes is not None:

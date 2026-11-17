@@ -327,11 +327,8 @@ def isolation_errors(section: Any) -> list[str]:
     Returns:
         One line per violation; empty when the section is isolated.
     """
-    from osprey_connectors.types import (
-        configured_targets,
-        resolve_target,
-        tier_writes,
-    )
+    from osprey_connectors.targets import configured_targets, resolve_target
+    from osprey_connectors.write_tier import tier_writes
 
     if not isinstance(section, dict):
         return [f"control_system is {section!r}, not a mapping"]

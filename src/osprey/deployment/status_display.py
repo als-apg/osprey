@@ -54,7 +54,7 @@ from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
-from osprey_connectors.types import TIER_WORDS
+from osprey_connectors.write_tier import TIER_WORDS
 
 logger = get_logger("deployment.status")
 
@@ -1296,7 +1296,7 @@ def writes_rows(config, repo_root):
         read_record_status,
         switch_position,
     )
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     try:
         tree = control_target_tree_dir(config, repo_root)
@@ -1414,7 +1414,8 @@ def _target_cell(target, state_dir, *, now=None):
     """
     from datetime import UTC, datetime
 
-    from osprey_connectors.types import CONTROL_TARGETS, TARGET_STANDIN, published_machine_kind
+    from osprey_connectors.connector_types import CONTROL_TARGETS, TARGET_STANDIN
+    from osprey_connectors.control_context import published_machine_kind
     from osprey_connectors.write_target import KIND_BANNERS
 
     if target not in CONTROL_TARGETS:

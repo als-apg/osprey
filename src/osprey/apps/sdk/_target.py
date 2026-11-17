@@ -20,7 +20,7 @@ from typing import Any
 
 from osprey_connectors.control_context import RECORD_FILENAME, parse_record
 from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_TREE_MARKER_NAME
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 
 logger = logging.getLogger(__name__)
 

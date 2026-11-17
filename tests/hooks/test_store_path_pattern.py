@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 from osprey_connectors.refusals import STORE_PATH_MARKERS
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import write_control_context
 
 #: The shared case table.

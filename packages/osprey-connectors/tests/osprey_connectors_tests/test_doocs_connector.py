@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from osprey_connectors.connector_types import DOOCS
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
@@ -21,7 +22,6 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.types import DOOCS
 from osprey_connectors_tests._stall import STALL_CEILING_S, Stall
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled

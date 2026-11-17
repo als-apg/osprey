@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey_connectors.simulator import (
+from osprey_connectors.deployment.simulator import (
     VIRTUAL_ACCELERATOR_PORT_KEY,
     virtual_accelerator_active,
     virtual_accelerator_port,

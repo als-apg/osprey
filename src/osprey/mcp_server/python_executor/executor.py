@@ -690,7 +690,7 @@ def _target_is_resolvable(target: str) -> bool:
     """Whether this deployment can actually build a connector for *target*.
 
     The sandbox resolves the stamp through
-    :func:`osprey_connectors.types.resolve_target`, which refuses ``live`` on a
+    :func:`osprey_connectors.targets.resolve_target`, which refuses ``live`` on a
     deployment that has never named its real machine — a development checkout
     on the simulator in process alone, say. Asking the same question here, against the same config the
     sandbox will read, keeps that refusal out of agent-authored code: an
@@ -703,7 +703,7 @@ def _target_is_resolvable(target: str) -> bool:
     """
     try:
         from osprey_connectors.config import get_config_value
-        from osprey_connectors.types import resolve_target
+        from osprey_connectors.targets import resolve_target
 
         section = get_config_value("control_system", {})
         resolve_target(section if isinstance(section, dict) else {}, target)

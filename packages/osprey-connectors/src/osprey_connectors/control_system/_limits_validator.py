@@ -11,9 +11,7 @@ from typing import Final, TypeGuard
 
 from pydantic import ValidationError
 
-from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel
-from osprey_connectors.types import (
+from osprey_connectors.limits_posture import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,
     limits_database_required,
@@ -21,6 +19,8 @@ from osprey_connectors.types import (
     target_limits_posture,
     type_limits_posture,
 )
+from osprey_connectors.logger import get_logger
+from osprey_connectors.model import FrozenModel
 
 logger = get_logger("limits_validator")
 
@@ -500,7 +500,7 @@ class LimitsValidator:
             connector_type: The connector type to resolve the posture for, as
                 the config's ``control_system.connector`` table keys it.
             target: The session control target to resolve the posture for, one
-                of :data:`osprey_connectors.types.CONTROL_TARGETS`. A target
+                of :data:`osprey_connectors.connector_types.CONTROL_TARGETS`. A target
                 that does not resolve to a type gets the deployment-wide block,
                 as the write posture does.
 
@@ -549,7 +549,7 @@ class LimitsValidator:
         machine it is deciding about is any of the ones a session here can
         select.
 
-        The fold is :func:`osprey_connectors.types.most_restrictive_limits_posture`'s:
+        The fold is :func:`osprey_connectors.limits_posture.most_restrictive_limits_posture`'s:
         limits checking is on when any reachable target has it on, and the mode
         is ``optional`` only where every reachable target is ``optional``. The
         result names the deployment-wide keys, because no per-type line decides
@@ -598,14 +598,14 @@ class LimitsValidator:
         unset ``enabled`` would take the disabled branch and check nothing.
 
         Whether the database must exist is
-        :func:`~osprey_connectors.types.limits_database_required`, asked of the
+        :func:`~osprey_connectors.limits_posture.limits_database_required`, asked of the
         live config's path. ``optional`` with no path configured needs none:
         the validator enforces over an empty database, so every channel is
         unlisted and written with no limits. A configured path that fails to
         load stays fail-safe whatever the mode.
 
         Args:
-            posture: The resolved posture, from the ``types`` resolver family.
+            posture: The resolved posture, from the ``limits_posture`` resolver family.
 
         Returns:
             An enforcing validator (over an empty database for ``optional``

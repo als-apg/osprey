@@ -6,7 +6,7 @@ the acknowledgments and the write refusals against something that cannot move a
 magnet. It is a **third control target**, ``standin``, and not a mode of the
 first: it gets a connector block of its own,
 ``control_system.connector.live_standin``, which
-:func:`osprey_connectors.types.resolve_target` hands to the EPICS connector when
+:func:`osprey_connectors.targets.resolve_target` hands to the EPICS connector when
 a session asks for ``standin``.
 
 That block is the whole of this module's output. ``live`` means the machine the
@@ -48,15 +48,15 @@ from __future__ import annotations
 from typing import Any
 
 from osprey.deployment.reach import dotted_get
-from osprey_connectors.standin import LOOPBACK_HOSTNAME
+from osprey_connectors.deployment.standin import LOOPBACK_HOSTNAME
 
 from .build_profile_archiver import _expand_dotted
 from .build_profile_schema import VAConfig
 
 #: Rendered subtree the ``standin`` target is configured from — the stand-in's
 #: own connector block, keyed by the connector type
-#: :data:`osprey_connectors.types.LIVE_STANDIN` that
-#: :func:`osprey_connectors.types.resolve_target` answers ``standin`` with.
+#: :data:`osprey_connectors.connector_types.LIVE_STANDIN` that
+#: :func:`osprey_connectors.targets.resolve_target` answers ``standin`` with.
 _STANDIN_PREFIX = "control_system.connector.live_standin"
 
 #: Rendered subtree of the sandbox virtual accelerator — read, never written:

@@ -30,7 +30,7 @@ from osprey.cli.build_profile_merge import (
 )
 from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.errors import BuildProfileError
-from osprey_connectors.types import tier_writes
+from osprey_connectors.write_tier import tier_writes
 
 _LOGGER_NAME = merge.__name__
 

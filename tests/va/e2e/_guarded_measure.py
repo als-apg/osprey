@@ -179,7 +179,7 @@ def state_tier(repo: Path, tier: Position) -> None:
     the profile's ``config:`` block, which the build then renders. Any other
     spelling of the leaf already there is removed, so the profile states it once.
     """
-    from osprey_connectors.types import WRITES_KEY
+    from osprey_connectors.write_tier import WRITES_KEY
 
     path = repo / "profile.yml"
     profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -294,7 +294,7 @@ def only_simulated_targets(config: Mapping[str, Any]) -> list[str]:
     control system, so a render with none of them records zero hardware writes
     by construction.
     """
-    from osprey_connectors.types import configured_targets, resolve_target
+    from osprey_connectors.targets import configured_targets, resolve_target
 
     section = config.get("control_system") or {}
     found: list[str] = []

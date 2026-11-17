@@ -31,7 +31,7 @@ from canopy.epics.testing import conformance
 from osprey.integrations.canopy import backend as backend_module
 from osprey.integrations.canopy.backend import OspreyPVConnector, PVTargetChanged, PVWriteRefused
 from osprey.runtime import session as session_module
-from osprey_connectors import control_context, posture_store, types
+from osprey_connectors import connector_types, control_context, posture_store
 from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.factory import ConnectorFactory
@@ -45,8 +45,8 @@ BACKEND_PATH = "osprey.integrations.canopy.backend:OspreyPVConnector"
 
 #: A deployment whose baseline is the virtual accelerator.
 VA_SECTION = {
-    "type": types.VIRTUAL_ACCELERATOR,
-    "connector": {types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
+    "type": connector_types.VIRTUAL_ACCELERATOR,
+    "connector": {connector_types.VIRTUAL_ACCELERATOR: {"response_delay_ms": 0}},
 }
 
 #: The channels the machine serves, by the conformance kit's kind.
@@ -232,7 +232,7 @@ def machine(monkeypatch, state_dir):
     monkeypatch.setenv(backend_module.RENDERED_FOR_ENV, "va@3")
     _Machine.reset()
     with isolated_connector_registries():
-        ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Machine)
+        ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Machine)
         yield _Machine
     _Machine.reset()
 
@@ -335,7 +335,7 @@ class TestLoading:
         _Machine.reset()
         _Machine.set(SCALAR, 4.5)
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _Machine)
+            ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _Machine)
             built = make_connector()
             await built.start()
             try:
@@ -593,7 +593,9 @@ class TestUnservable:
         write_record(state_dir)
         monkeypatch.setenv(backend_module.RENDERED_FOR_ENV, "va@3")
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _RefusingConnector)
+            ConnectorFactory.register_control_system(
+                connector_types.VIRTUAL_ACCELERATOR, _RefusingConnector
+            )
             built = make_connector(ca_timeout_s=0.3, connect_report_s=5.0)
             await built.start()
             yield built

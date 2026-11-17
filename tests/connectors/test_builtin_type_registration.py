@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import pytest
 from click.testing import CliRunner
 
-from osprey_connectors import factory, types
+from osprey_connectors import connector_types, factory, targets
 from osprey_connectors.factory import (
     ConnectorFactory,
 )
@@ -36,21 +36,21 @@ class _Row:
 
 _ROWS = [
     _Row(
-        types.DOOCS,
+        connector_types.DOOCS,
         "doocs",
         "DOOCSConnector",
         "osprey_connectors.control_system._doocs_connector",
         "control_system",
     ),
     _Row(
-        types.DOOCS_ARCHIVER,
+        connector_types.DOOCS_ARCHIVER,
         "doocs_archiver",
         "DOOCSArchiverConnector",
         "osprey_connectors.archiver._doocs_archiver_connector",
         "archiver",
     ),
     _Row(
-        types.TANGO,
+        connector_types.TANGO,
         "tango",
         "TangoConnector",
         "osprey_connectors.control_system._tango_connector",
@@ -70,7 +70,7 @@ def cli_runner():
 
 
 class TestTypeConstants:
-    """``types.py`` is the single source of truth for the name strings."""
+    """``connector_types.py`` is the single source of truth for the name strings."""
 
     @pytest.mark.parametrize("row", _ROWS, ids=_ids(_ROWS))
     def test_constant_value(self, row):
@@ -78,7 +78,7 @@ class TestTypeConstants:
 
     @pytest.mark.parametrize("row", _CONTROL_SYSTEM_ROWS, ids=_ids(_CONTROL_SYSTEM_ROWS))
     def test_constant_appears_in_cli_choice_list(self, row):
-        assert row.type_name in types.CLI_CONTROL_SYSTEM_TYPES
+        assert row.type_name in connector_types.CLI_CONTROL_SYSTEM_TYPES
 
     @pytest.mark.parametrize("row", _CONTROL_SYSTEM_ROWS, ids=_ids(_CONTROL_SYSTEM_ROWS))
     def test_type_is_live_capable(self, row):
@@ -88,7 +88,10 @@ class TestTypeConstants:
         stand-in types; these types name real hardware and must resolve as
         written, exactly as ``epics`` does.
         """
-        assert types.resolve_target({"type": row.type_name}, types.TARGET_LIVE) == row.type_name
+        assert (
+            targets.resolve_target({"type": row.type_name}, connector_types.TARGET_LIVE)
+            == row.type_name
+        )
 
 
 class TestBuiltinRegistration:
@@ -125,9 +128,9 @@ class TestDirectoryBuiltins:
     def test_none_is_selectable_as_a_connector(self):
         names = {row.name for row in factory._SERVICE_BUILTINS}
 
-        assert not names & set(types.SET_CONTROL_SYSTEM_TYPES)
-        assert not names & set(types.CLI_CONTROL_SYSTEM_TYPES)
-        assert not names & {connector.name for connector in factory.BUILTIN_CONNECTORS}
+        assert not names & set(connector_types.SET_CONTROL_SYSTEM_TYPES)
+        assert not names & set(connector_types.CLI_CONTROL_SYSTEM_TYPES)
+        assert not names & {connector.name for connector in connector_types.BUILTIN_CONNECTORS}
 
 
 class TestFrameworkRegistryEntries:
@@ -159,7 +162,7 @@ class TestCliSurface:
         """``SET_CONTROL_SYSTEM_TYPES`` is what the shorthand validates
         against, so a connector missing from it cannot be selected however
         well it is registered underneath."""
-        assert row.type_name in types.SET_CONTROL_SYSTEM_TYPES
+        assert row.type_name in connector_types.SET_CONTROL_SYSTEM_TYPES
 
     @pytest.mark.parametrize("row", _CONTROL_SYSTEM_ROWS, ids=_ids(_CONTROL_SYSTEM_ROWS))
     def test_set_connector_writes_the_type_into_the_profile(self, row, cli_runner, tmp_path):

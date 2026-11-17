@@ -360,7 +360,7 @@ def test_switch_section_does_not_disturb_the_existing_rule_shape():
 # ── the gate: which deployments render the switch ───────────────────────────
 #
 # The build-time gate must not be its own opinion about what "switchable" means.
-# It delegates to osprey_connectors.types.switch_capable, the predicate the
+# It delegates to osprey_connectors.targets.switch_capable, the predicate the
 # controls server uses at run time to decide whether its tools are served by a
 # connector-host child — a frozen rule promising a switch the runtime refuses to
 # perform is worse than a rule that never mentions one. The cases below are

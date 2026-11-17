@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey_connectors.types import TARGET_STANDIN, TARGET_VA
+from osprey_connectors.connector_types import TARGET_STANDIN, TARGET_VA
 from osprey_connectors_tests._harness._ports import reserved_ports
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest

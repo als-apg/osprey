@@ -4,7 +4,7 @@
 ``control_system.connector.virtual_accelerator.serving`` says whether it is
 served from its container or in this process. Every check that asks "does this
 speak Channel Access" or "does this dial a network" reads
-:func:`~osprey_connectors.types.connector_transport`, never the type word.
+:func:`~osprey_connectors.connector_types.connector_transport`, never the type word.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import types
-from osprey_connectors.types import (
+from osprey_connectors import connector_types
+from osprey_connectors.connector_types import (
     DOOCS,
     EPICS,
     IN_PROCESS,
@@ -28,14 +28,12 @@ from osprey_connectors.types import (
     TRANSPORT_CA,
     TRANSPORT_IN_PROCESS,
     VIRTUAL_ACCELERATOR,
-    baseline_target,
     connector_transport,
     resolve_serving,
-    resolve_target,
     speaks_channel_access,
-    switch_capable,
     talks_to_network,
 )
+from osprey_connectors.targets import baseline_target, resolve_target, switch_capable
 
 DOTTED = "my_pkg.module.MyConnector"
 
@@ -104,14 +102,14 @@ def test_in_process_simulator_beside_a_live_block_is_switchable():
 
 
 def test_retired_message_names_the_new_spelling():
-    message = types.retired_type_message("mock")
+    message = connector_types.retired_type_message("mock")
     assert "`mock` is retired" in message
     assert "control_system.connector.virtual_accelerator.serving: in_process" in message
     assert (
         "osprey set connector=virtual_accelerator "
         "config.control_system.connector.virtual_accelerator.serving=in_process"
     ) in message
-    assert types.RETIRED_CONTROL_SYSTEM_TYPES == {"mock": VIRTUAL_ACCELERATOR}
+    assert connector_types.RETIRED_CONTROL_SYSTEM_TYPES == {"mock": VIRTUAL_ACCELERATOR}
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +162,7 @@ def test_factory_refuses_mock_with_the_new_spelling():
     with pytest.raises(ValueError) as caught:
         ConnectorFactory.build_control_system_connector({"type": "mock"})
 
-    assert str(caught.value) == types.retired_type_message("mock")
+    assert str(caught.value) == connector_types.retired_type_message("mock")
 
 
 def test_an_unbuilt_connector_names_no_transport():
@@ -182,7 +180,7 @@ def test_an_unbuilt_connector_names_no_transport():
 #: derivation's port fill for the served venue, and the two hooks' literal
 #: tables.
 _TYPE_COMPARISON_HOMES = {
-    "packages/osprey-connectors/src/osprey_connectors/types.py",
+    "packages/osprey-connectors/src/osprey_connectors/connector_types.py",
     "packages/osprey-connectors/src/osprey_connectors/factory.py",
     "packages/osprey-connectors/src/osprey_connectors/ipc/_verification.py",
     "src/osprey/templates/claude_code/claude/hooks/osprey_target_state.py",
@@ -190,7 +188,7 @@ _TYPE_COMPARISON_HOMES = {
 }
 
 _TYPE_COMPARISON = re.compile(
-    r"==\s*(?:types\.)?VIRTUAL_ACCELERATOR\b|==\s*[\"']virtual_accelerator[\"']"
+    r"==\s*(?:connector_types\.)?VIRTUAL_ACCELERATOR\b|==\s*[\"']virtual_accelerator[\"']"
 )
 
 

@@ -1,7 +1,7 @@
 """The published machine kind: one reader in the package, one in the hook twin.
 
 C-KIND: the controls server publishes ``machine_kind`` per target in its
-report, and :func:`osprey_connectors.types.published_machine_kind` reads it
+report, and :func:`osprey_connectors.control_context.published_machine_kind` reads it
 back. The stdlib-only hook restates that reader; both are driven here over the
 same report fixtures, so a ``standin`` reads ``rehearsal`` on one side exactly
 when it does on the other.
@@ -24,7 +24,7 @@ import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey_connectors import posture_store
-from osprey_connectors.types import published_machine_kind
+from osprey_connectors.control_context import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 from tests.mcp_server.test_control_target_roster import standin_config
 

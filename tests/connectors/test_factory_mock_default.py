@@ -15,7 +15,7 @@ import logging
 
 import pytest
 
-from osprey_connectors import types
+from osprey_connectors import connector_types
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -49,9 +49,9 @@ class _NetworkConnectorTripwire:
 def registered_connectors():
     """Tripwires for EPICS and the served simulator, so 'no network' is proven, not assumed."""
     with isolated_connector_registries(clear=True):
-        ConnectorFactory.register_control_system(types.EPICS, _NetworkConnectorTripwire)
+        ConnectorFactory.register_control_system(connector_types.EPICS, _NetworkConnectorTripwire)
         ConnectorFactory.register_control_system(
-            types.VIRTUAL_ACCELERATOR, _NetworkConnectorTripwire
+            connector_types.VIRTUAL_ACCELERATOR, _NetworkConnectorTripwire
         )
         yield
 
@@ -62,15 +62,17 @@ class TestFactoryTypeFallback:
     async def test_unset_type_creates_the_in_process_connector(self, caplog, config, tmp_path):
         config = {
             **config,
-            "connector": {types.VIRTUAL_ACCELERATOR: in_process_config(served_tree(tmp_path))},
+            "connector": {
+                connector_types.VIRTUAL_ACCELERATOR: in_process_config(served_tree(tmp_path))
+            },
         }
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
             connector = await ConnectorFactory.create_control_system_connector(config)
 
         assert isinstance(connector, VAInProcessConnector)
-        assert connector.transport == types.TRANSPORT_IN_PROCESS
-        assert caplog.messages == [types.UNSET_TYPE_WARNING]
+        assert connector.transport == connector_types.TRANSPORT_IN_PROCESS
+        assert caplog.messages == [connector_types.UNSET_TYPE_WARNING]
 
         await connector.disconnect()
 
@@ -79,7 +81,9 @@ class TestFactoryTypeFallback:
         self, caplog, monkeypatch, tmp_path
     ):
         section = {
-            "connector": {types.VIRTUAL_ACCELERATOR: in_process_config(served_tree(tmp_path))}
+            "connector": {
+                connector_types.VIRTUAL_ACCELERATOR: in_process_config(served_tree(tmp_path))
+            }
         }
         monkeypatch.setattr(
             "osprey_connectors.config.get_config_value",
@@ -98,8 +102,10 @@ class TestFactoryTypeFallback:
     async def test_explicit_type_is_honoured_without_warning(self, caplog, tmp_path):
         view = served_tree(tmp_path)
         config = {
-            "type": types.VIRTUAL_ACCELERATOR,
-            "connector": {types.VIRTUAL_ACCELERATOR: in_process_config(view, response_delay_ms=0)},
+            "type": connector_types.VIRTUAL_ACCELERATOR,
+            "connector": {
+                connector_types.VIRTUAL_ACCELERATOR: in_process_config(view, response_delay_ms=0)
+            },
         }
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):

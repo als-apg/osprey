@@ -26,7 +26,7 @@ rather than writing where no reader will look.
 
 **2. What a payload must carry.** ``schema`` (exactly
 :data:`_SCHEMA_VERSION`), ``target`` (a member of
-:data:`~osprey_connectors.types.CONTROL_TARGETS`) and ``generation`` (a
+:data:`~osprey_connectors.connector_types.CONTROL_TARGETS`) and ``generation`` (a
 non-negative integer) are the record's identity. If any of the three is
 absent, of the wrong type, or unrecognised, there is no record: this is a
 file that decides whether a real machine is written to, so a hand-edited or
@@ -42,7 +42,7 @@ on safely:
   the next process take the file over instead of stalling behind a ghost.
 * ``posture`` → ``{}``. A mirror of ``switch`` kept for old readers, never
   an input: a record's JSON form (``model_dump(mode="json")``) holds ``sandbox`` for every
-  machine in :data:`~osprey_connectors.types.CONTROL_TARGETS` whose position
+  machine in :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` whose position
   is off (:func:`_posture_mirror`), whatever the record it was built
   from carried, and no write decision reads it back. A file written before
   the mirror may still hold an old narrowing; it is parsed by the posture
@@ -148,6 +148,13 @@ from typing import Final, Generic, Literal, TypeVar, get_args
 from pydantic import Field, SerializerFunctionWrapHandler, field_validator, model_serializer
 
 from osprey_connectors import posture_store
+from osprey_connectors.connector_types import (
+    CONTROL_TARGETS,
+    TARGET_STANDIN,
+    ControlTarget,
+    MachineKind,
+    is_control_target,
+)
 from osprey_connectors.errors import (
     ConnectorsError,
     StateLockedError,
@@ -172,7 +179,7 @@ from osprey_connectors.safety_file import (
     atomic_replace,
     ensure_shared_dir,
 )
-from osprey_connectors.types import CONTROL_TARGETS, ControlTarget, MachineKind, is_control_target
+from osprey_connectors.targets import _MACHINE_KINDS as _TARGET_MACHINE_KINDS
 
 logger = logging.getLogger("osprey_connectors.control_context")
 
@@ -207,6 +214,7 @@ __all__ = [
     "converged",
     "file_signature",
     "parse_record",
+    "published_machine_kind",
     "read_record",
     "read_record_status",
     "read_report",
@@ -356,7 +364,7 @@ class ControlContext(FrozenModel):
             through rule 2's filter (:func:`_parse_switch`) whatever it is
             handed, so a value that arms nothing is off rather than a
             validation error, and the legacy ``"on"`` is ``"asked"``. Keys are
-            any string, not only a :data:`~osprey_connectors.types.ControlTarget`:
+            any string, not only a :data:`~osprey_connectors.connector_types.ControlTarget`:
             a key no target names is kept so a stop of every machine clears it.
         switch_epoch: A compare-and-swap token moved by every stop or loss of
             the record, or ``None`` for a record written before epochs
@@ -406,7 +414,7 @@ def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, Posture]:
     """The ``posture`` field a record with *switch* stores — ``{target: "sandbox"}``.
 
     ``sandbox`` for every machine in
-    :data:`~osprey_connectors.types.CONTROL_TARGETS` at off, so an old reader
+    :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` at off, so an old reader
     of the field refuses every machine the person has not turned on; ``asked``
     and ``allowed`` both store no entry, which is how the old grammar spells
     "writes". Derived on every write and never read by a write decision: the
@@ -971,7 +979,7 @@ def _gesture_targets(
         ValueError: Anything that is not ``"all"`` or a non-empty sequence of
             names; ``"all"`` with anything but ``"off"``; ``"asked"`` or
             ``"allowed"`` for a name outside
-            :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+            :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`.
     """
     if targets == _ALL_TARGETS:
         if state != _SWITCH_OFF:
@@ -1842,6 +1850,93 @@ def _live_parsed(
             continue
         reports.append(report)
     return reports
+
+
+# -- the published machine kind ----------------------------------------------
+
+
+#: The kind a published report may claim for ``standin``. Anything else it says
+#: about that target, or nothing at all, reads as the real machine.
+_REHEARSAL: Final = "rehearsal"
+
+#: The report key the controls server publishes each target's kind under.
+_MACHINE_KIND_KEY = "machine_kind"
+
+
+def _published_targets(directory: str) -> dict[str, object]:
+    """Per-target metadata from the first live controls server's report, or ``{}``.
+
+    The hook twin's ``_published_targets`` restated: report files in name order,
+    the PID taken from the file name, a dead server's report skipped (never
+    deleted), and the first live report carrying a non-empty ``targets``
+    mapping is the answer. Never raises.
+    """
+    prefix = REPORT_FILE_PREFIX
+    suffix = REPORT_FILE_SUFFIX
+    try:
+        names = sorted(
+            n for n in os.listdir(directory) if n.startswith(prefix) and n.endswith(suffix)
+        )
+    except (OSError, TypeError, ValueError):
+        return {}
+    for name in names:
+        try:
+            pid = int(name[len(prefix) : -len(suffix)])
+        except ValueError:
+            continue
+        if not is_process_alive(pid):
+            continue
+        try:
+            with open(os.path.join(directory, name), encoding="utf-8") as handle:
+                report: object = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(report, dict):
+            continue
+        targets = report.get("targets")
+        if isinstance(targets, dict) and targets:
+            return targets
+    return {}
+
+
+def published_machine_kind(
+    target: object, *, state_dir: str | os.PathLike[str] | None = None
+) -> MachineKind:
+    """The kind of machine *target* is, as this deployment's controls server publishes it.
+
+    The one source every surface reads (C-KIND). ``standin`` is ``rehearsal``
+    only when the first live server's report — in the hook twin's order, dead
+    servers' reports ignored — says so for it; no live report, no key, or any
+    other value reads ``real``, the cautious words. So a process that sees no
+    report (an executor sandbox, a bluesky or dispatch container, a deployment
+    with no server running) names a ``standin`` the real machine. Every other
+    target answers from the name table: ``va`` is the simulator, ``live`` and
+    anything unknown the real machine — a report can never make them a
+    rehearsal.
+
+    Args:
+        target: The control target.
+        state_dir: The directory holding the servers' reports; ``None`` reads
+            :func:`osprey_connectors.posture_store.state_dir`.
+
+    Returns:
+        ``real``, ``rehearsal`` or ``simulator``. Never raises.
+    """
+    if target != TARGET_STANDIN:
+        return _TARGET_MACHINE_KINDS.get(target, "real") if is_control_target(target) else "real"
+    try:
+        if state_dir is None:
+            state_dir = posture_store.state_dir()
+        if not isinstance(state_dir, str | os.PathLike):
+            # Only a path names a report directory; ``None`` names none.
+            return "real"
+        meta = _published_targets(os.fspath(state_dir)).get(TARGET_STANDIN)
+    except Exception:  # the kind is a word an operator reads; it must not raise
+        logger.debug("Could not read the published machine kind", exc_info=True)
+        return "real"
+    if isinstance(meta, dict) and meta.get(_MACHINE_KIND_KEY) == _REHEARSAL:
+        return _REHEARSAL
+    return "real"
 
 
 # -- sweeping ---------------------------------------------------------------

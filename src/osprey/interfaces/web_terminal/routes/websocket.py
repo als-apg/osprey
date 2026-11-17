@@ -61,11 +61,11 @@ from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 from osprey.interfaces.web_terminal.session_key import is_posture_key
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.control_context import published_machine_kind
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.session_hold import has_no_record, is_held, is_safe_session_key
-from osprey_connectors.types import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:
@@ -161,7 +161,7 @@ class TargetRequest(BaseModel):
     is a property of the *rendered deployment*, not of this build's vocabulary,
     and a name pinned here would either admit a machine the deployment never
     described or refuse one a later render adds. The handler checks it against
-    :func:`~osprey_connectors.types.configured_targets` instead, which is the
+    :func:`~osprey_connectors.targets.configured_targets` instead, which is the
     same list the roster, the prober and the popover enumerate.
     """
 
@@ -1379,10 +1379,10 @@ def _unknown_target_message(configured: tuple[str, ...]) -> str:
 def _configured_target_names(section: Any) -> tuple[str, ...]:
     """The control targets this render describes, or ``()``.
 
-    :func:`~osprey_connectors.types.configured_targets` and nothing else — the
+    :func:`~osprey_connectors.targets.configured_targets` and nothing else — the
     same list the roster, the endpoint prober and the popover enumerate, so a
     name these routes accept is a name some row exists for. Never
-    :data:`~osprey_connectors.types.CONTROL_TARGETS`, which is the vocabulary
+    :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`, which is the vocabulary
     of machines that *can* exist: accepting a request for a target the
     deployment never configured would hand the reconciler a switch nobody could
     have meant.
@@ -1395,7 +1395,7 @@ def _configured_target_names(section: Any) -> tuple[str, ...]:
     if section is UNREADABLE:
         return ()
     try:
-        from osprey_connectors.types import configured_targets
+        from osprey_connectors.targets import configured_targets
 
         return tuple(configured_targets(section))
     except Exception:  # an unreadable render configures no targets
@@ -1414,7 +1414,7 @@ def _baseline_target(section: Any) -> str:
     if section is UNREADABLE:
         return "live"
     try:
-        from osprey_connectors.types import baseline_target
+        from osprey_connectors.targets import baseline_target
 
         return str(baseline_target(section))
     except Exception:  # a render we cannot classify is `live`
@@ -2461,7 +2461,7 @@ def _row_selected_role(
     ``None`` for a target this render cannot derive at all, which the collapse
     renders as ``unknown``.
     """
-    from osprey_connectors.types import is_control_target
+    from osprey_connectors.connector_types import is_control_target
 
     if config is UNREADABLE or not is_control_target(target):
         return None

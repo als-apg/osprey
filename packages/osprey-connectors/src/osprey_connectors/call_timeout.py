@@ -10,10 +10,10 @@ so every connector that bounds its calls names and refuses those bounds alike.
 import logging
 import math
 from collections.abc import Iterable, Iterator, Mapping
-from typing import SupportsFloat
+from typing import SupportsFloat, get_args
 
+from osprey_connectors.connector_types import ControlSystemTypeName
 from osprey_connectors.errors import ConfigurationError
-from osprey_connectors.types import DOOCS, EPICS, LIVE_STANDIN, TANGO, VIRTUAL_ACCELERATOR
 
 __all__ = [
     "DEFAULT_STEP_READ_TIMEOUT_S",
@@ -58,7 +58,7 @@ STEP_READ_TIMEOUT_KEY = "step_read_timeout_s"
 #: Every old-spelled key, as the dotted path a whole config names it by.
 _RENAMED_PATHS = frozenset(
     f"control_system.connector.{connector_type}.{_RENAMED_KEY}"
-    for connector_type in (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN, TANGO, DOOCS)
+    for connector_type in get_args(ControlSystemTypeName)
 )
 
 

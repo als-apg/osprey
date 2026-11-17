@@ -19,9 +19,9 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from osprey_connectors.connector_types import EPICS, TARGET_VA, TRANSPORT_CA
 from osprey_connectors.control_system import ConnectorContext, ControlSystemConnector
 from osprey_connectors.errors import ChannelLimitsViolationError
-from osprey_connectors.types import EPICS, TARGET_VA, TRANSPORT_CA
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._write_fakes import arm_switch
 

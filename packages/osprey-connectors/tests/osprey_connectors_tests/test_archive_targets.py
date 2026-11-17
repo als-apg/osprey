@@ -17,15 +17,7 @@ import copy
 
 import pytest
 
-from osprey_connectors.archive_targets import (
-    _NO_TARGETS,
-    _STORE_ARCHIVERS,
-    _STORE_TARGETS,
-    APPLIANCE_TARGETS,
-    archive_targets,
-    archive_withheld,
-)
-from osprey_connectors.types import (
+from osprey_connectors.connector_types import (
     DOOCS_ARCHIVER,
     EPICS_ARCHIVER,
     MOCK_ARCHIVER,
@@ -34,6 +26,14 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
     TARGET_VA,
+)
+from osprey_connectors.deployment.archive_targets import (
+    _NO_TARGETS,
+    _STORE_ARCHIVERS,
+    _STORE_TARGETS,
+    APPLIANCE_TARGETS,
+    archive_targets,
+    archive_withheld,
 )
 
 STANDIN_PORT = 5074

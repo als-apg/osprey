@@ -136,7 +136,7 @@ def test_dispatch_worker_runs_the_tier_the_e2e_expects(dispatch_repo: Path) -> N
 
 def test_single_user_maps_the_host_identity_at_the_root_tier(single_user_repo: Path) -> None:
     from osprey_connectors.posture_store import owner_tier_term
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     rendered = _load(single_user_repo / "build" / "config.yml")
     assert rendered["deployment"]["host_identity"] == HOST_LOGIN, (

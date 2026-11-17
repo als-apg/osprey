@@ -172,7 +172,7 @@ LEGACY_SUBSTRINGS = (
 # live only by luck. Bare ``writes_enabled`` and ``WRITES_KEY`` are NOT listed:
 # the first is a live keyword and report field, the second the live tier key.
 WRITE_POSTURE_IDENTIFIERS = (
-    # osprey_connectors.types readers
+    # osprey_connectors type-vocabulary readers
     "WRITES_ENABLED_KEY",
     "TYPE_WRITES_ENABLED_LEAF",
     "type_writes_enabled",

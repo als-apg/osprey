@@ -83,7 +83,8 @@ from osprey.port_layout import (
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
-from osprey_connectors.types import configured_targets, tier_writes
+from osprey_connectors.targets import configured_targets
+from osprey_connectors.write_tier import tier_writes
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import invoke_build, rendered_config

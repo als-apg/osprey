@@ -28,7 +28,7 @@ from osprey.cli.templates.claude_code import _graphdb_configured, _pv_directory_
 from osprey.deployment.web_terminals.lint import lint_shared_render
 from osprey.errors import BuildProfileError
 from osprey.registry.mcp import resolve_servers
-from osprey_connectors.types import configured_targets
+from osprey_connectors.targets import configured_targets
 
 _SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
 _DRAFT_CONCEPT = "mcp__osprey_facility_knowledge__draft_concept"

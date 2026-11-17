@@ -117,7 +117,7 @@ from osprey.mcp_server.phoebus.server import mcp
 from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import posture_store
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,

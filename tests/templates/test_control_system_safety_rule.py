@@ -27,7 +27,7 @@ from tests._preset_data import create_project_as_built
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES, connector_transport
+from osprey_connectors.connector_types import SET_CONTROL_SYSTEM_TYPES, connector_transport
 
 #: Lines the p4p block must contain, verbatim.
 P4P_LINES = (

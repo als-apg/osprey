@@ -15,7 +15,7 @@ import pytest
 
 from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.errors import ChannelLimitsViolationError
-from osprey_connectors.types import LIMITS_MODES
+from osprey_connectors.limits_posture import LIMITS_MODES
 from tests.facility._limits_render import render_limits, validator_under
 
 QF = "SR:MAG:QF:01:CURRENT:SP"

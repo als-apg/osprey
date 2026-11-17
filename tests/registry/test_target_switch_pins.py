@@ -212,7 +212,7 @@ def test_a_writes_off_render_does_not_deny_the_switch_tool(tmp_path) -> None:
     # above describe the static-deny render and not an `allowed` one (which
     # denies nothing statically, and would pass these pins for the wrong
     # reason). The tier key alone decides when present.
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     assert config["control_system"]["writes"] == "never"
@@ -266,7 +266,7 @@ def test_the_approval_hooks_target_literals_match_the_frameworks() -> None:
         TARGET_STANDIN,
         TARGET_VA,
     )
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import connector_types, targets
     from tests.hooks.conftest import import_hook
 
     hook = import_hook("osprey_approval")
@@ -276,7 +276,7 @@ def test_the_approval_hooks_target_literals_match_the_frameworks() -> None:
     assert hook._TARGET_STANDIN == TARGET_STANDIN
     assert hook._VIRTUAL_ACCELERATOR_TYPE == connector_types.VIRTUAL_ACCELERATOR
     assert hook._LIVE_STANDIN_TYPE == connector_types.LIVE_STANDIN
-    assert hook._BASELINE_TARGETS == connector_types._BASELINE_TARGETS
+    assert hook._BASELINE_TARGETS == targets._BASELINE_TARGETS
 
 
 # ---------------------------------------------------------------------------
@@ -303,13 +303,13 @@ def test_the_readers_target_literals_match_the_frameworks() -> None:
 
     ``osprey_target_state`` is the stdlib reader the deployed hooks and the
     status line import; it runs outside the osprey venv and so spells the target
-    vocabulary out rather than importing ``osprey_connectors.types``. A target
+    vocabulary out rather than importing ``osprey_connectors.connector_types``. A target
     added upstream and not restated here is a machine the hooks cannot name: the
     stand-in would fall through ``target_type`` to ``None`` and be described
     from the deployment-wide key, which is a posture for a machine nobody
     identified.
     """
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import connector_types
 
     reader = _reader()
 
@@ -327,7 +327,7 @@ def test_the_readers_connector_type_literals_match_the_frameworks() -> None:
     would make the stand-in's block look like an ordinary candidate for
     ``live`` — the one direction a wrong answer must never go.
     """
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import connector_types
 
     reader = _reader()
 
@@ -358,7 +358,7 @@ def _framework_target_type(section: dict, target: str) -> str | None:
     raise into a hook — so agreement is checked against that translation rather
     than against the exception itself.
     """
-    from osprey_connectors.types import resolve_target
+    from osprey_connectors.targets import resolve_target
 
     try:
         return resolve_target(section, target)
@@ -383,12 +383,12 @@ def test_the_reader_derives_targets_exactly_as_the_framework_does(connector, bas
     hook goes on rendering a target line, naming the wrong machine — so each
     baseline type is driven through both copies and the answers compared.
     """
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import connector_types, targets
 
     reader = _reader()
     section = {"type": baseline_type, "connector": connector}
 
-    assert reader._baseline_target(section) == connector_types.baseline_target(section)
+    assert reader._baseline_target(section) == targets.baseline_target(section)
     assert reader._live_type(section) == _framework_target_type(section, "live")
     for target in connector_types.CONTROL_TARGETS:
         assert reader.target_type(section, target) == _framework_target_type(section, target)
@@ -401,7 +401,7 @@ def test_the_reader_reaches_the_standin_only_where_a_deployment_has_one() -> Non
     ``standin`` slot on a deployment carrying no ``live_standin`` block would
     fold in a posture for a soft IOC nobody stood up.
     """
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import connector_types, targets
 
     reader = _reader()
     without = {
@@ -421,9 +421,9 @@ def test_the_reader_reaches_the_standin_only_where_a_deployment_has_one() -> Non
         # The reachable set: every
         # configured target when the deployment renders the switch, else its baseline.
         reachable = (
-            connector_types.configured_targets(section)
-            if connector_types.switch_capable(section)
-            else [connector_types.baseline_target(section)]
+            targets.configured_targets(section)
+            if targets.switch_capable(section)
+            else [targets.baseline_target(section)]
         )
         assert sorted(reader.session_types(section)) == sorted(reachable)
     assert "standin" not in reader.session_types(without)
@@ -516,7 +516,7 @@ def standin_settings_renders(tmp_path_factory) -> dict:
       the permission render reads.
     """
     from osprey.cli.templates.manager import TemplateManager
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import connector_types, targets
 
     manager = TemplateManager()
     project_dir = create_project_as_built(
@@ -547,16 +547,19 @@ def standin_settings_renders(tmp_path_factory) -> dict:
 
     monkeypatch = pytest.MonkeyPatch()
     try:
-        monkeypatch.setattr(
-            connector_types,
-            "CONTROL_TARGETS",
-            [connector_types.TARGET_LIVE, connector_types.TARGET_VA],
-        )
+        # The vocabulary is read both as ``connector_types.CONTROL_TARGETS`` and
+        # through the name ``targets`` took from it, so both are patched.
+        for module in (connector_types, targets):
+            monkeypatch.setattr(
+                module,
+                "CONTROL_TARGETS",
+                [connector_types.TARGET_LIVE, connector_types.TARGET_VA],
+            )
         # The patch has to bite, or the "before" render is the "after" render
         # under another name and the pin below passes having proved nothing.
         # ``configured_targets`` reads the module global at call time, so it
         # does — asserted here rather than assumed.
-        assert connector_types.configured_targets(
+        assert targets.configured_targets(
             {"type": "virtual_accelerator", "connector": three_connector}
         ) == [connector_types.TARGET_LIVE, connector_types.TARGET_VA], (
             "configured_targets did not follow the patched CONTROL_TARGETS — it "
@@ -587,12 +590,8 @@ def test_a_two_target_deployment_enumerates_exactly_its_two_targets() -> None:
     below are downstream of — stated on its own because a phantom slot is worth
     catching without paying for a project render.
     """
-    from osprey_connectors.types import (
-        TARGET_LIVE,
-        TARGET_STANDIN,
-        TARGET_VA,
-        configured_targets,
-    )
+    from osprey_connectors.connector_types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
+    from osprey_connectors.targets import configured_targets
 
     connector = {
         "virtual_accelerator": {"timeout_s": 5.0},
@@ -650,13 +649,9 @@ def test_a_configured_standin_does_reach_the_settings_render(
     same two-target config on a ``never`` tier renders differently, and denies
     the write tool the ``allowed`` render does not.
     """
-    from osprey_connectors.types import (
-        TARGET_LIVE,
-        TARGET_STANDIN,
-        TARGET_VA,
-        configured_targets,
-        tier_writes,
-    )
+    from osprey_connectors.connector_types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
+    from osprey_connectors.targets import configured_targets
+    from osprey_connectors.write_tier import tier_writes
 
     renders = standin_settings_renders
 

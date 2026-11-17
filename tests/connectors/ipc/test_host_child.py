@@ -7,7 +7,7 @@ first, whether it dies when it should, and whether a failed request takes it
 down with it. Nothing is stubbed out on the far side.
 
 The child is pointed at the mock connector through its dotted class path, which
-:func:`osprey_connectors.types.resolve_target` returns verbatim for ``live``
+:func:`osprey_connectors.targets.resolve_target` returns verbatim for ``live``
 (the mock is not one of the *simulated* type names, so it is treated as a
 deployment's own control system). That runs the entire real path — resolver,
 factory, ``connect()`` — with no EPICS, no gateway and no network.

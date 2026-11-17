@@ -1288,11 +1288,11 @@ def _refuse_invented_history(config: dict) -> None:
 
     Both keys are resolved through nested sections only, the way ``ConfigBuilder``
     reads a rendered ``config.yml`` — see
-    :func:`~osprey_connectors.honesty.pairing_in_rendered_config`.
+    :func:`~osprey.deployment.honesty.pairing_in_rendered_config`.
 
     The refused machine is *named* in the message rather than assumed: the
     pairing covers every type in
-    :data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, so a deployment
+    :data:`~osprey_connectors.connector_types.INVENTED_HISTORY_TYPES`, so a deployment
     baselined on the live stand-in must be told about the stand-in and not about
     a virtual accelerator it does not run.
 
@@ -1301,8 +1301,8 @@ def _refuse_invented_history(config: dict) -> None:
         for itself — a virtual accelerator or the live stand-in — with the mock
         archiver, an unset ``archiver.type`` included.
     """
-    from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-    from osprey_connectors.types import resolve_control_system_type
+    from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+    from osprey_connectors.connector_types import resolve_control_system_type
 
     pairing = pairing_in_rendered_config(config)
     if not pairing.is_invented_history:

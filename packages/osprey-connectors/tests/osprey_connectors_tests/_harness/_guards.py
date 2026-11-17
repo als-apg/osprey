@@ -715,7 +715,7 @@ def restore_root_logging():
 def reset_second_real_block_warning():
     """Forget which config shapes have already drawn the one-real-machine warning.
 
-    Leak guarded: ``osprey_connectors.types`` says once per process that a
+    Leak guarded: ``osprey_connectors.targets`` says once per process that a
     config carries a second real connector block no control target reaches —
     once, because the resolver behind it answers every roster render and a line
     repeated at that rate is a line nobody reads. Held for the life of the
@@ -723,13 +723,13 @@ def reset_second_real_block_warning():
     earlier test on the same worker happened to resolve the same shape first,
     which under xdist depends on how the files were distributed.
     """
-    from osprey_connectors import types as connector_types
+    from osprey_connectors import targets
 
-    connector_types._SECOND_REAL_BLOCK_WARNED.clear()
+    targets._SECOND_REAL_BLOCK_WARNED.clear()
 
     yield
 
-    connector_types._SECOND_REAL_BLOCK_WARNED.clear()
+    targets._SECOND_REAL_BLOCK_WARNED.clear()
 
 
 # ===================================================================

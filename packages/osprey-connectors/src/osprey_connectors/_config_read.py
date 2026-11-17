@@ -1,6 +1,6 @@
 """Readers of a rendered ``config.yml`` shared by the endpoint predicates.
 
-:mod:`osprey_connectors.standin` and :mod:`osprey_connectors.simulator` each
+:mod:`osprey_connectors.deployment.standin` and :mod:`osprey_connectors.deployment.simulator` each
 ask whether an endpoint is a container this deployment stood up. Both read a
 port the build projected into the config and compare it with a loopback
 endpoint, so the three readers they need live here once.

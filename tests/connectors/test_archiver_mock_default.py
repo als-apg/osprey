@@ -19,7 +19,7 @@ import pytest
 
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
-from osprey_connectors import types
+from osprey_connectors import connector_types
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -54,8 +54,8 @@ class _LiveArchiverTripwire:
 def registered_archivers():
     """Mock plus an EPICS tripwire, so 'not epics_archiver' is proven, not assumed."""
     with isolated_connector_registries(clear=True):
-        ConnectorFactory.register_archiver(types.MOCK_ARCHIVER, MockArchiverConnector)
-        ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, _LiveArchiverTripwire)
+        ConnectorFactory.register_archiver(connector_types.MOCK_ARCHIVER, MockArchiverConnector)
+        ConnectorFactory.register_archiver(connector_types.EPICS_ARCHIVER, _LiveArchiverTripwire)
         yield
 
 
@@ -82,7 +82,7 @@ class TestArchiverTypeFallback:
 
         assert isinstance(connector, MockArchiverConnector)
         assert "archiver.type" in caplog.text
-        assert types.MOCK_ARCHIVER in caplog.text
+        assert connector_types.MOCK_ARCHIVER in caplog.text
 
         await connector.disconnect()
 
@@ -116,8 +116,8 @@ class TestArchiverTypeFallback:
     @pytest.mark.asyncio
     async def test_explicit_type_is_honoured_without_warning(self, caplog, rendered_view):
         config = {
-            "type": types.MOCK_ARCHIVER,
-            types.MOCK_ARCHIVER: in_process_config(rendered_view, sample_rate_hz=1.0),
+            "type": connector_types.MOCK_ARCHIVER,
+            connector_types.MOCK_ARCHIVER: in_process_config(rendered_view, sample_rate_hz=1.0),
         }
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
@@ -145,4 +145,4 @@ class TestShippedPresetsDeclareAnArchiver:
 
     def test_the_onboarding_preset_ships_the_mock_archiver(self):
         """hello-world runs no archive service, so it states the mock explicitly."""
-        assert _cfg("hello-world")["archiver"]["type"] == types.MOCK_ARCHIVER
+        assert _cfg("hello-world")["archiver"]["type"] == connector_types.MOCK_ARCHIVER

@@ -42,6 +42,15 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.connector_types.BuiltinConnector": (
+        "the framework reads each built-in's fields in this type"
+    ),
+    "osprey_connectors.connector_types.ControlSystemTypeName": (
+        "a caller names a built-in control-system type in this type"
+    ),
+    "osprey_connectors.connector_types.SERVED": "a word of the serving vocabulary a config states",
+    "osprey_connectors.connector_types.Serving": "resolve_serving answers the simulator's venue in this type",
+    "osprey_connectors.connector_types.TANGO": "a word of the type-name vocabulary a config states",
     "osprey_connectors.control_context.OwnerKind": "the record's owner names its kind in this type",
     "osprey_connectors.control_system.Alarm": (
         "a connector's read reports the alarm state of a reading in this type"
@@ -67,12 +76,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.errors.NaiveDatetimeError": (
         "a caller tells an instant handed over without a zone from the other refusals"
     ),
-    "osprey_connectors.factory.BuiltinConnector": (
-        "the framework reads each built-in's fields in this type"
-    ),
-    "osprey_connectors.honesty.ArchiverPairing": (
-        "every archiver-pairing judgement answers in this type"
-    ),
     "osprey_connectors.ipc.ConnectorHostError": "a caller catches every host failure by its base",
     "osprey_connectors.ipc.ConnectorHostLostError": "a caller tells a lost host from the others",
     "osprey_connectors.ipc.ConnectorHostStartError": (
@@ -94,6 +97,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "the pool hands every caller its connector in this type"
     ),
     "osprey_connectors.ipc.READONLY": "a caller asks the pool for a readonly child by this value",
+    "osprey_connectors.limits_posture.LIMITS_MODE_EXCLUSIVE": (
+        "a word of the limits-mode vocabulary a config states"
+    ),
     "osprey_connectors.posture_store.OwnerTierTerm": "the owner rung answers in this type",
     "osprey_connectors.put_log.PutLog": "an out-of-tree put-log backend subclasses it",
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
@@ -136,11 +142,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
-    "osprey_connectors.types.LIMITS_MODE_EXCLUSIVE": (
-        "a word of the limits-mode vocabulary a config states"
-    ),
-    "osprey_connectors.types.SERVED": "a word of the serving vocabulary a config states",
-    "osprey_connectors.types.Serving": "resolve_serving answers the simulator's venue in this type",
     "osprey_connectors.write_authorization.ApprovalSurface": (
         "a person approves a request from one of these surfaces"
     ),

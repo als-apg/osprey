@@ -2,7 +2,7 @@
 
 import pytest
 
-from osprey_connectors import types
+from osprey_connectors import connector_types
 from osprey_connectors.archiver._base import ArchiverConnector
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._base import ControlSystemConnector
@@ -124,18 +124,18 @@ class TestConnectorFactory:
 # Written out here rather than read from ``_BUILTIN_CONTROL_SYSTEMS`` /
 # ``_BUILTIN_ARCHIVERS``: a name dropped from a tuple must still produce a case.
 _EVERY_BUILTIN_CONTROL_SYSTEM = (
-    types.EPICS,
-    types.VIRTUAL_ACCELERATOR,
-    types.DOOCS,
-    types.TANGO,
-    types.LIVE_STANDIN,
+    connector_types.EPICS,
+    connector_types.VIRTUAL_ACCELERATOR,
+    connector_types.DOOCS,
+    connector_types.TANGO,
+    connector_types.LIVE_STANDIN,
 )
 _EVERY_BUILTIN_ARCHIVER = (
-    types.MOCK_ARCHIVER,
-    types.EPICS_ARCHIVER,
-    types.MONGODB_ARCHIVER,
-    types.DOOCS_ARCHIVER,
-    types.MYA_ARCHIVER,
+    connector_types.MOCK_ARCHIVER,
+    connector_types.EPICS_ARCHIVER,
+    connector_types.MONGODB_ARCHIVER,
+    connector_types.DOOCS_ARCHIVER,
+    connector_types.MYA_ARCHIVER,
 )
 
 
@@ -201,18 +201,24 @@ class TestBuiltinRegistrationConverges:
         class SentinelArchiver:
             pass
 
-        ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] = SentinelControlSystem
-        ConnectorFactory._archiver_connectors[types.MONGODB_ARCHIVER] = SentinelArchiver
+        ConnectorFactory._control_system_connectors[connector_types.LIVE_STANDIN] = (
+            SentinelControlSystem
+        )
+        ConnectorFactory._archiver_connectors[connector_types.MONGODB_ARCHIVER] = SentinelArchiver
         # Force the call past its early return so the per-name guard is what runs.
-        del ConnectorFactory._control_system_connectors[types.EPICS]
+        del ConnectorFactory._control_system_connectors[connector_types.EPICS]
 
         ConnectorFactory._ensure_builtins()
 
         assert (
-            ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is SentinelControlSystem
+            ConnectorFactory._control_system_connectors[connector_types.LIVE_STANDIN]
+            is SentinelControlSystem
         )
-        assert ConnectorFactory._archiver_connectors[types.MONGODB_ARCHIVER] is SentinelArchiver
-        assert types.EPICS in ConnectorFactory._control_system_connectors
+        assert (
+            ConnectorFactory._archiver_connectors[connector_types.MONGODB_ARCHIVER]
+            is SentinelArchiver
+        )
+        assert connector_types.EPICS in ConnectorFactory._control_system_connectors
 
 
 class TestBuiltinsRegisterOnFirstUse:
@@ -292,7 +298,7 @@ class TestLiveStandinRegistration:
         resolves to ``control_system.connector.live_standin.writes_enabled``
         rather than to the ``epics`` block's.
         """
-        from osprey_connectors import types
+        from osprey_connectors import connector_types
         from osprey_connectors.control_system._epics_connector import EPICSConnector
         from osprey_connectors.factory import ConnectorFactory
 
@@ -301,14 +307,14 @@ class TestLiveStandinRegistration:
         # No gateways: connect() then touches no EPICS_* environment variable
         # and opens no CA context, so nothing here reaches a network.
         config = {
-            "type": types.LIVE_STANDIN,
-            "connector": {types.LIVE_STANDIN: {"timeout_s": 1.0}},
+            "type": connector_types.LIVE_STANDIN,
+            "connector": {connector_types.LIVE_STANDIN: {"timeout_s": 1.0}},
         }
 
         connector = await ConnectorFactory.create_control_system_connector(config)
 
         assert isinstance(connector, EPICSConnector)
-        assert connector._connector_type == types.LIVE_STANDIN
+        assert connector._connector_type == connector_types.LIVE_STANDIN
         assert connector._timeout == 1.0
 
         await connector.disconnect()
@@ -321,16 +327,19 @@ class TestLiveStandinRegistration:
         instead of the key would look right on one of them and be wrong on the
         other. Pinning the sibling keeps that failure visible.
         """
-        from osprey_connectors import types
+        from osprey_connectors import connector_types
         from osprey_connectors.factory import ConnectorFactory
 
         ConnectorFactory._ensure_builtins()
 
         connector = await ConnectorFactory.create_control_system_connector(
-            {"type": types.EPICS, "connector": {types.EPICS: {"timeout_s": 1.0}}}
+            {
+                "type": connector_types.EPICS,
+                "connector": {connector_types.EPICS: {"timeout_s": 1.0}},
+            }
         )
 
-        assert connector._connector_type == types.EPICS
+        assert connector._connector_type == connector_types.EPICS
 
         await connector.disconnect()
 

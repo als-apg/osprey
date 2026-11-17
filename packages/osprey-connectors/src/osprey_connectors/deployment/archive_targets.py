@@ -36,7 +36,7 @@ it with the simulator's synthesized history and the recorder samples the
 simulator into it (``osprey.services.archiver_recorder``); the stand-in is
 never recorded there and its offsets are never seeded there. So the store is
 the ``va`` target's exactly when the deployment built a simulator — read
-through :func:`osprey_connectors.simulator.virtual_accelerator_port`, the
+through :func:`osprey_connectors.deployment.simulator.virtual_accelerator_port`, the
 build's own statement that it stood one up — and no other target's ever.
 ``control_system.type`` is not consulted: it names the machine a session
 starts on, and a deployment baselined on its stand-in or on the facility's
@@ -58,8 +58,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from osprey_connectors.simulator import virtual_accelerator_port
-from osprey_connectors.types import (
+from osprey_connectors.archiver_selection import resolve_archiver_settings, resolve_archiver_type
+from osprey_connectors.connector_types import (
     DOOCS_ARCHIVER,
     EPICS_ARCHIVER,
     MOCK_ARCHIVER,
@@ -69,9 +69,8 @@ from osprey_connectors.types import (
     TARGET_STANDIN,
     TARGET_VA,
     ControlTarget,
-    resolve_archiver_settings,
-    resolve_archiver_type,
 )
+from osprey_connectors.deployment.simulator import virtual_accelerator_port
 
 #: The top-level config section selecting and configuring the archiver.
 _ARCHIVER_SECTION_KEY = "archiver"

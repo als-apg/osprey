@@ -1040,7 +1040,7 @@ def test_end_to_end_a_standin_pointing_elsewhere_prompts_as_the_real_machine(
 # ---------------------------------------------------------------------------
 # which targets a deployment has: the stdlib restatement of the framework's resolver
 # ---------------------------------------------------------------------------
-# `osprey_connectors.types` is the authority; the reader mirrors its target-to-type
+# `osprey_connectors.targets` is the authority; the reader mirrors its target-to-type
 # mapping and its reachable-target rule for hooks, which cannot import osprey.
 #
 # The pre-switch posture predicates are retired: a write is decided by `write_verdict`, twin of the package's, and
@@ -1116,7 +1116,7 @@ def test_both_targets_are_reachable_only_on_a_switch_capable_render(reader):
 def test_a_standin_beside_a_simulator_reaches_both_without_a_live_block(reader):
     """Two configured targets are the switching world, whichever two they are.
 
-    Mirrors ``osprey_connectors.types.switch_capable``: a deployment rehearsing
+    Mirrors ``osprey_connectors.targets.switch_capable``: a deployment rehearsing
     on its stand-in beside the simulator has two machines a session can be
     pointed at, and ``live`` — underivable here — is simply not among them.
     """

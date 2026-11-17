@@ -122,6 +122,15 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
 from osprey_connectors import posture_store
+from osprey_connectors.connector_types import (
+    SIMULATED_TYPES,
+    TARGET_LIVE,
+    TARGET_STANDIN,
+    TARGET_VA,
+    ControlTarget,
+    MachineKind,
+    is_control_target,
+)
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
 from osprey_connectors.ipc import (
     DEFAULT_CALL_TIMEOUT_S,
@@ -146,17 +155,8 @@ from osprey_connectors.ipc import (
 from osprey_connectors.model import evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
-from osprey_connectors.types import (
-    SIMULATED_TYPES,
-    TARGET_LIVE,
-    TARGET_STANDIN,
-    TARGET_VA,
-    ControlTarget,
-    MachineKind,
-    is_control_target,
-)
-from osprey_connectors.types import baseline_target as types_baseline_target
-from osprey_connectors.types import switch_capable as types_switch_capable
+from osprey_connectors.targets import baseline_target as types_baseline_target
+from osprey_connectors.targets import switch_capable as types_switch_capable
 from osprey_connectors.write_target import KIND_BANNERS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -431,7 +431,7 @@ def _control_system_section(config: Any) -> Any:
 def baseline_target(config: Any) -> ControlTarget:
     """The target this deployment's own config selects.
 
-    The whole-config spelling of :func:`osprey_connectors.types.baseline_target`,
+    The whole-config spelling of :func:`osprey_connectors.targets.baseline_target`,
     for callers holding a rendered config rather than a ``control_system:``
     section.
     """
@@ -442,7 +442,7 @@ def switch_capable(config: Any) -> bool:
     """Whether this deployment gives a session more than one runtime target: a
     deployment that configures at least two targets.
 
-    The predicate itself lives in :func:`osprey_connectors.types.switch_capable`,
+    The predicate itself lives in :func:`osprey_connectors.targets.switch_capable`,
     beside the target resolution it is built from, so that the runtime and the
     build cannot answer it differently. This is the whole-config spelling of it,
     for callers holding a rendered config rather than a ``control_system:``
@@ -624,7 +624,7 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
 
     The predicate itself is
     :func:`~osprey.mcp_server.control_system.target_eligibility.endpoint_is_live_standin`
-    over :func:`osprey_connectors.standin.live_standin_active`, shared with the
+    over :func:`osprey_connectors.deployment.standin.live_standin_active`, shared with the
     archiver's enablement gate and the build derivation that points the gateways
     at the stand-in in the first place. An SSH tunnel is the case it must not
     claim: forwarding a real gateway to ``localhost:5064`` is loopback and
@@ -686,7 +686,7 @@ def _machine_kind(target: str, *, standin: bool = False) -> MachineKind:
     ``rehearsal`` only when its endpoint really is this deployment's stand-in
     container, and otherwise ``real``. ``va`` is the simulator; ``live`` is
     always the real machine. Readers take this from the report through
-    :func:`osprey_connectors.types.published_machine_kind` and never derive it.
+    :func:`osprey_connectors.control_context.published_machine_kind` and never derive it.
     """
     if target == TARGET_VA:
         return "simulator"

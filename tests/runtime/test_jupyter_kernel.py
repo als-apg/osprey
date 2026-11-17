@@ -46,7 +46,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ClientLibraryRefusedError,
 )
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import state_dir_under
 from tests.runtime._patch_restore import restore_patches  # noqa: F401
 

@@ -132,7 +132,7 @@ def login_tier(section: Any, login: str) -> WriteCeiling:
     """The login's write ceiling here: ``never``, ``asked``, ``allowed`` or ``unknown``.
 
     The two tier terms of the write verdict first, in its order: the
-    deployment's tier (:func:`~osprey_connectors.types.tier_writes`), then the
+    deployment's tier (:func:`~osprey_connectors.write_tier.tier_writes`), then the
     login's own rung (:func:`~osprey_connectors.posture_store.owner_tier_term`).
     Otherwise the verdict's own ceiling
     (:func:`~osprey_connectors.posture_store.write_ceiling`). A render that
@@ -142,7 +142,7 @@ def login_tier(section: Any, login: str) -> WriteCeiling:
     if section is UNREADABLE:
         return TIER_UNKNOWN
     try:
-        from osprey_connectors.types import tier_writes
+        from osprey_connectors.write_tier import tier_writes
 
         if tier_writes(section) == "never":
             return "never"

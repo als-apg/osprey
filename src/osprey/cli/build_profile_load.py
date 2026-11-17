@@ -40,21 +40,21 @@ from osprey.port_layout import (
 )
 from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
+from osprey_connectors.connector_types import (
+    RETIRED_CONTROL_SYSTEM_TYPES,
+    SET_CONTROL_SYSTEM_TYPES,
+    TARGET_STANDIN,
+    TARGET_VA,
+    retired_type_message,
+    talks_to_network,
+)
 from osprey_connectors.simulation import (
     FAST_TICK_KEY,
     TICK_KEY,
     resolve_fast_tick_s,
     resolve_tick_s,
 )
-from osprey_connectors.types import (
-    RETIRED_CONTROL_SYSTEM_TYPES,
-    SET_CONTROL_SYSTEM_TYPES,
-    TARGET_STANDIN,
-    TARGET_VA,
-    baseline_target,
-    retired_type_message,
-    talks_to_network,
-)
+from osprey_connectors.targets import baseline_target
 
 from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
 from .build_profile_deploy import _limits_block_leaf, _rendered_leaf_paths, parse_deploy_block
@@ -1553,9 +1553,9 @@ def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     the key is returned unchanged.
 
     The value is validated against
-    :data:`~osprey_connectors.types.SET_CONTROL_SYSTEM_TYPES` — the built-in
+    :data:`~osprey_connectors.connector_types.SET_CONTROL_SYSTEM_TYPES` — the built-in
     connector types the CLI offers, plus ``live_standin``. That list rather
-    than :data:`~osprey_connectors.types.CLI_CONTROL_SYSTEM_TYPES` because the
+    than :data:`~osprey_connectors.connector_types.CLI_CONTROL_SYSTEM_TYPES` because the
     two questions differ: a deployment that already runs a stand-in may be
     pointed at it (``osprey set connector=live_standin``), while ``osprey
     init`` never materializes a project onto one, having no stand-in to point

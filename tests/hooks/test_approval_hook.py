@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 from osprey_connectors.control_context import _record_path_under
-from osprey_connectors.types import baseline_target
+from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import (
     pin_identity,
     state_dir_under,

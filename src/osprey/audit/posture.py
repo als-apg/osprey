@@ -231,7 +231,7 @@ def recorded_control_target() -> str | None:
        if the session moves off it, so its posture is the posture of the target
        it was pinned to, not of the one the deployment has since switched to.
        The value is checked against
-       :data:`~osprey_connectors.types.CONTROL_TARGETS` exactly as the record's
+       :data:`~osprey_connectors.connector_types.CONTROL_TARGETS` exactly as the record's
        is — a stamp naming something no reader knows can only index the posture
        to a key nothing writes, so it is dropped in favour of the record rather
        than answered with.
@@ -262,7 +262,7 @@ def recorded_control_target() -> str | None:
         # Imported inside the function: this module is a leaf, and every MCP
         # server imports it while only a session child ever reaches this line.
         from osprey_connectors import control_context
-        from osprey_connectors.types import CONTROL_TARGETS
+        from osprey_connectors.connector_types import CONTROL_TARGETS
 
         if stamped:
             if stamped in CONTROL_TARGETS:

@@ -54,8 +54,8 @@ from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import RENDERED_CONFIG_ENV_VALUE
 from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, TIERS_DIRNAME
-from osprey_connectors.types import WRITES_KEY, tier_writes
 from osprey_connectors.workspace import BUILD_DIR_NAME, RENDERED_CONFIG_RELPATH
+from osprey_connectors.write_tier import WRITES_KEY, tier_writes
 
 PROJECT_NAME = "layout-fixture"
 

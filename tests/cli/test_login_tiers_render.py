@@ -337,7 +337,7 @@ def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
     edited: Path,
 ) -> None:
     from osprey_connectors.posture_store import owner_tier_term
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     repo = edited
     build = repo / "build"
@@ -374,7 +374,7 @@ def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
 
 def test_single_user_host_process_as_the_build_account_resolves(tiered: Path) -> None:
     from osprey_connectors.posture_store import owner_tier_term
-    from osprey_connectors.types import tier_writes
+    from osprey_connectors.write_tier import tier_writes
 
     build = tiered / "build"
     root = _load(build / "config.yml")["control_system"]

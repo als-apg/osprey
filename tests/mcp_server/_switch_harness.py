@@ -45,7 +45,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey_connectors import control_context, posture_store
-from osprey_connectors.types import EPICS
+from osprey_connectors.connector_types import EPICS
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree

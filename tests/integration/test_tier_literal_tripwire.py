@@ -6,8 +6,8 @@ The tier key ``control_system.writes`` reads ``never``, ``asked`` or
 reader was moved to the three-word rule (``tier_allows``, or the normalised
 word compared to ``never``). This module pins that across the shipped code:
 no Python file under ``src/`` or a package's source tree compares a tier word
-to the literal ``"allowed"``, except :mod:`osprey_connectors.types`, where
-:func:`~osprey_connectors.types.tier_writes` defines the words.
+to the literal ``"allowed"``, except :mod:`osprey_connectors.write_tier`, where
+:func:`~osprey_connectors.write_tier.tier_writes` defines the words.
 
 A *tier word* is an expression that names a tier or a ceiling (an identifier
 spelling ``tier`` or ``ceiling``) or reads the tier key itself (``["writes"]``,
@@ -29,7 +29,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 
 #: The one file allowed to spell the tier words against a value: it defines them.
-DEFINING_FILE = REPO / "packages" / "osprey-connectors" / "src" / "osprey_connectors" / "types.py"
+DEFINING_FILE = (
+    REPO / "packages" / "osprey-connectors" / "src" / "osprey_connectors" / "write_tier.py"
+)
 
 #: The literal no tier reader may compare to, and the names that stand for it.
 ALLOWED = "allowed"

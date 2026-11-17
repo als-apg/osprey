@@ -12,7 +12,7 @@ safe on a machine with no JLab environment.
 
 from unittest.mock import patch
 
-from osprey_connectors import types
+from osprey_connectors import connector_types
 from osprey_connectors.factory import (
     ConnectorFactory,
 )
@@ -20,10 +20,10 @@ from osprey_connectors_tests._harness import isolated_connector_registries
 
 
 class TestTypeConstants:
-    """``types.py`` is the single source of truth for the name string."""
+    """``connector_types.py`` is the single source of truth for the name string."""
 
     def test_archiver_constant(self):
-        assert types.MYA_ARCHIVER == "mya_archiver"
+        assert connector_types.MYA_ARCHIVER == "mya_archiver"
 
 
 class TestBuiltinRegistration:
@@ -36,8 +36,8 @@ class TestBuiltinRegistration:
         with isolated_connector_registries(clear=True):
             ConnectorFactory._ensure_builtins()
 
-            assert types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
-            registered = ConnectorFactory._archiver_connectors[types.MYA_ARCHIVER]
+            assert connector_types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
+            registered = ConnectorFactory._archiver_connectors[connector_types.MYA_ARCHIVER]
             assert registered is MYAArchiverConnector
 
     def test_registration_needs_no_client_library(self, monkeypatch):
@@ -69,7 +69,7 @@ class TestBuiltinRegistration:
             ConnectorFactory._ensure_builtins()
 
             assert sys.modules[canonical] is not cached, "the connector was not re-imported"
-            assert types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
+            assert connector_types.MYA_ARCHIVER in ConnectorFactory.list_archivers()
 
 
 class TestFrameworkRegistryEntries:
@@ -81,9 +81,9 @@ class TestFrameworkRegistryEntries:
         connectors = FrameworkRegistryProvider().get_registry_config().connectors
         by_name = {c.name: c for c in connectors}
 
-        assert by_name[types.MYA_ARCHIVER].connector_type == "archiver"
-        assert by_name[types.MYA_ARCHIVER].class_name == "MYAArchiverConnector"
+        assert by_name[connector_types.MYA_ARCHIVER].connector_type == "archiver"
+        assert by_name[connector_types.MYA_ARCHIVER].class_name == "MYAArchiverConnector"
         assert (
-            by_name[types.MYA_ARCHIVER].module_path
+            by_name[connector_types.MYA_ARCHIVER].module_path
             == "osprey_connectors.archiver._mya_archiver_connector"
         )
