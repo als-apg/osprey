@@ -9,9 +9,11 @@ root holds ``.env`` and the detached server's PID/log pair under ``var/``.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import socket
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -653,20 +655,111 @@ def test_detach_shows_url_and_pid(
 # -- stop -------------------------------------------------------------------
 
 
-def test_stop_kills_process(monkeypatch, runner, deployment):
-    seed_pid(deployment, "12345")
-    log_path = deployment / LOG_FILE
-    log_path.write_text("some log")
+#: A stand-in server: prints ``ready``, then on SIGTERM takes a second to exit.
+_SLOW_TO_EXIT = """
+import signal, sys, time
+def _bye(*_):
+    time.sleep(1.0)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, _bye)
+print("ready", flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+#: A stand-in server that ignores SIGTERM.
+_IGNORES_SIGTERM = """
+import signal, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+print("ready", flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+#: A stand-in server that starts a process in a session of its own which
+#: ignores SIGTERM, prints that process's pid, and exits on SIGTERM.
+_LEAVES_A_CHILD = """
+import signal, subprocess, sys, time
+child = subprocess.Popen(
+    [sys.executable, "-c",
+     "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(120)"],
+    start_new_session=True,
+)
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+print(child.pid, flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+
+@contextlib.contextmanager
+def _stand_in_server(root: Path, script: str):
+    """Run *script* as the detached server *root*'s PID file names; yield it and its first line."""
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True, start_new_session=True
+    )
+    others: list[int] = []
+    try:
+        assert proc.stdout is not None
+        line = proc.stdout.readline().strip()
+        if line.isdigit():
+            others.append(int(line))
+        seed_pid(root, str(proc.pid))
+        (root / LOG_FILE).write_text("some log")
+        yield proc, line
+    finally:
+        for pgid in (proc.pid, *others):
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(pgid, signal.SIGKILL)
+        proc.wait()
+
+
+def test_stop_reports_stopped_only_after_the_server_exits(monkeypatch, runner, deployment):
     monkeypatch.chdir(deployment)
 
-    with patch("osprey.cli.web_cmd.os.kill") as mock_kill:
+    with _stand_in_server(deployment, _SLOW_TO_EXIT) as (proc, _):
         result = runner.invoke(web, ["stop"])
 
-    mock_kill.assert_called_once_with(12345, signal.SIGTERM)
-    assert result.exit_code == 0
-    assert "Stopped" in result.output
+        assert proc.poll() is not None
+    assert result.exit_code == 0, result.output
+    assert f"Stopped web terminal (PID {proc.pid})." in result.output
     assert not (deployment / PID_FILE).exists()
-    assert not log_path.exists()
+    assert not (deployment / LOG_FILE).exists()
+
+
+def test_stop_names_a_server_that_ignores_sigterm_and_keeps_its_files(
+    monkeypatch, runner, deployment
+):
+    from osprey.cli import web_cmd
+
+    monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
+    monkeypatch.chdir(deployment)
+
+    with _stand_in_server(deployment, _IGNORES_SIGTERM) as (proc, _):
+        result = runner.invoke(web, ["stop"])
+
+        assert proc.poll() is None
+    assert result.exit_code == 1, result.output
+    assert "Stopped" not in result.output
+    assert f"PID {proc.pid}" in result.output
+    assert (deployment / PID_FILE).exists()
+    assert (deployment / LOG_FILE).exists()
+
+
+def test_stop_names_a_started_process_that_outlives_the_server(monkeypatch, runner, deployment):
+    from osprey.cli import web_cmd
+
+    monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
+    monkeypatch.chdir(deployment)
+
+    with _stand_in_server(deployment, _LEAVES_A_CHILD) as (proc, child_pid):
+        result = runner.invoke(web, ["stop"])
+
+        assert proc.poll() is not None
+    assert result.exit_code == 1, result.output
+    assert "Stopped" not in result.output
+    assert child_pid in result.output
+    assert not (deployment / PID_FILE).exists()
 
 
 def test_stop_no_pid_file(monkeypatch, runner, deployment):
