@@ -13,9 +13,10 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.tools._sandbox_packages import with_sandbox_packages
 from osprey.mcp_server.workspace.tools._viz_common import (
-    build_data_reader,
+    DATA_READER_SOURCE,
     build_viz_response,
     collect_and_register_artifacts,
+    resolve_data_source,
 )
 
 logger = logging.getLogger("osprey.mcp_server.tools.create_static_plot")
@@ -93,8 +94,9 @@ async def create_static_plot(
     # Build the full code to execute
     parts = [_STATIC_PREAMBLE]
 
-    if data_source:
-        parts.append(build_data_reader(data_source))
+    data_path = resolve_data_source(data_source) if data_source else None
+    if data_path:
+        parts.append(DATA_READER_SOURCE)
 
     parts.append(code)
 
@@ -107,7 +109,9 @@ async def create_static_plot(
     )
 
     execution_folder = create_sandbox_execution_folder()
-    exec_result = await execute_sandbox_code(code=full_code, execution_folder=execution_folder)
+    exec_result = await execute_sandbox_code(
+        code=full_code, execution_folder=execution_folder, data_path=data_path
+    )
 
     if not exec_result.success:
         return make_error(
