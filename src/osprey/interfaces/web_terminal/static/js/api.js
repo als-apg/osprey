@@ -1,5 +1,7 @@
 /* OSPREY Web Terminal — Connection Helpers */
 
+import { takeEarlyRead } from './shell-reveal.js';
+
 /**
  * @typedef {object} WebSocketHandlers
  * @property {(ws: WebSocket) => void} [onOpen]
@@ -442,11 +444,17 @@ function openSharedStream(url) {
 
 /**
  * Fetch JSON from a URL.
+ *
+ * During start-up a read the page began before its modules arrived
+ * (shell-boot.js) is taken instead of asked for again, so the several modules
+ * that open with the same read share one round trip.
  * @param {string} url
  * @param {{ signal?: AbortSignal }} [options] - `signal` aborts the request
  * @returns {Promise<any>}
  */
 export async function fetchJSON(url, { signal } = {}) {
+  const early = takeEarlyRead(url);
+  if (early) return early;
   const res = await fetch(withPrefix(url), { cache: 'no-store', signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   return res.json();

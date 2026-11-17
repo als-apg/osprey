@@ -161,6 +161,11 @@ class TestAMountMustBeSpellable:
             create_app(shell_command=["echo"])
 
 
+def _versioned(client, mount: str) -> str:
+    """*mount* as a page names it: under the app's asset fingerprint."""
+    return f"{mount}/_v/{client.app.state.assets.version()}"
+
+
 class TestPrefixInjection:
     """``OSPREY_TERMINAL_USER=alice`` -> baked ``/u/alice`` prefix everywhere."""
 
@@ -178,8 +183,14 @@ class TestPrefixInjection:
 
             prefix_idx = body.index('window.__OSPREY_PREFIX__ = "/u/alice";')
             importmap_idx = body.index('type="importmap"')
-            assert '"/design-system/": "/u/alice/design-system/"' in body
-            assert '"/static/": "/u/alice/static/"' in body
+            # Each root resolves under the prefix and the asset fingerprint,
+            # and the fingerprinted root maps to itself so a relative import
+            # from a fingerprinted module is not retargeted a second time.
+            for mount in ("/design-system", "/static"):
+                target = f"/u/alice{_versioned(c, mount)}/"
+                assert f'"{mount}/": "{target}"' in body
+                assert f'"/u/alice{mount}/": "{target}"' in body
+                assert f'"{target}": "{target}"' in body
 
             # The prefix global must be set before any module script loads.
             first_module_idx = body.find('type="module"')
@@ -231,16 +242,18 @@ class TestHeadAssetAndEntrypointPrefixing:
             body = c.get(path).text
 
             # A classic <script src> and a <link href> shared by every page.
-            assert 'src="/u/alice/design-system/js/theme-boot.js"' in body
-            assert 'href="/u/alice/design-system/css/tokens.css"' in body
+            design = _versioned(c, "/design-system")
+            assert f'src="/u/alice{design}/js/theme-boot.js"' in body
+            assert f'href="/u/alice{design}/css/tokens.css"' in body
             # The un-prefixed root-absolute forms must not remain.
-            assert 'src="/design-system/js/theme-boot.js"' not in body
-            assert 'href="/design-system/css/tokens.css"' not in body
+            assert f'src="{design}/js/theme-boot.js"' not in body
+            assert f'href="{design}/css/tokens.css"' not in body
 
             entrypoint = _MODULE_ENTRYPOINTS[page_id]
             if entrypoint is not None:
-                assert f'src="/u/alice{entrypoint}"' in body
-                assert f'src="{entrypoint}"' not in body
+                versioned = entrypoint.replace("/static", _versioned(c, "/static"), 1)
+                assert f'src="/u/alice{versioned}"' in body
+                assert f'src="{versioned}"' not in body
 
             # Every root-absolute asset link goes through ``prefixed()``, the
             # stylesheets included, not only the three named above.
@@ -252,12 +265,14 @@ class TestHeadAssetAndEntrypointPrefixing:
         with terminal_client(workspace_dir) as c:
             body = c.get(path).text
 
-            assert 'src="/design-system/js/theme-boot.js"' in body
-            assert 'href="/design-system/css/tokens.css"' in body
+            design = _versioned(c, "/design-system")
+            assert f'src="{design}/js/theme-boot.js"' in body
+            assert f'href="{design}/css/tokens.css"' in body
 
             entrypoint = _MODULE_ENTRYPOINTS[page_id]
             if entrypoint is not None:
-                assert f'src="{entrypoint}"' in body
+                versioned = entrypoint.replace("/static", _versioned(c, "/static"), 1)
+                assert f'src="{versioned}"' in body
 
 
 class TestPrefixEmptyWhenUnset:
@@ -273,8 +288,10 @@ class TestPrefixEmptyWhenUnset:
             body = resp.text
 
             assert 'window.__OSPREY_PREFIX__ = "";' in body
-            assert '"/design-system/": "/design-system/"' in body
-            assert '"/static/": "/static/"' in body
+            for mount in ("/design-system", "/static"):
+                target = f"{_versioned(c, mount)}/"
+                assert f'"{mount}/": "{target}"' in body
+                assert f'"{target}": "{target}"' in body
             assert "<base" not in body.lower()
 
             assert c.app.root_path == ""
