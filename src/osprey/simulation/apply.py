@@ -323,10 +323,7 @@ def require_view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord]:
 
     scenarios = view_scenarios(project_dir)
     if scenarios is None:
-        raise ValueError(
-            f"No simulator view in {view_path(project_dir)}. "
-            "Run 'osprey build'."
-        )
+        raise ValueError(f"No simulator view in {view_path(project_dir)}. Run 'osprey build'.")
     return scenarios
 
 

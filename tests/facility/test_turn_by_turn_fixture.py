@@ -152,9 +152,7 @@ def test_the_ring_shot_counter_steps_after_the_ring_charge(view: SimulatorView) 
     assert bindings[SHOT].engine["signal"] == "counter"
     assert bindings[CHARGE].engine["signal"] == "charge"
     assert bindings[CURRENT].engine["signal"] == "current"
-    assert (
-        bindings[SHOT].engine["offset_s"] > bindings[CHARGE].engine["offset_s"]
-    )
+    assert bindings[SHOT].engine["offset_s"] > bindings[CHARGE].engine["offset_s"]
 
 
 # -- the ring -----------------------------------------------------------------
@@ -207,9 +205,7 @@ def test_the_ring_keeps_its_orbit_monitors_and_correctors(view: SimulatorView) -
     for element in MONITORS:
         for axis in ("X", "Y"):
             assert bindings[f"SR:DIAG:BPM:{element[3:]}:POSITION:{axis}"].element == element
-    correctors = [
-        b for b in bindings.values() if b.engine.get("attribute") == "KickAngle"
-    ]
+    correctors = [b for b in bindings.values() if b.engine.get("attribute") == "KickAngle"]
     assert len(correctors) == 288
     setpoints = [b.address for b in correctors if b.engine_role == "setpoint"]
     assert len(setpoints) == 144
