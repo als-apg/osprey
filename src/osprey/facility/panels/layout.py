@@ -2054,9 +2054,12 @@ class _Page:
                 continue
             if first:
                 self.y += SET_BLOCK_GAP - ROW_GAP
-            w = text_width(what, SMALL_SIZE)
-            self.text(self.set_x(0), self.y, what, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
-            self.y += ROW
+            if not first:  # what a cell shows: once, over the first block
+                w = text_width(what, SMALL_SIZE)
+                self.text(
+                    self.set_x(0), self.y, what, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags
+                )
+                self.y += ROW
             for column in range(first, min(first + fit, width)):
                 x = self.set_x(column - first)
                 head = f"#{column + 1}"
