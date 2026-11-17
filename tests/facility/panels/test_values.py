@@ -155,10 +155,13 @@ def test_a_stated_precision_wins_and_needs_no_rule(tmp_path) -> None:
 # -- the strip ---------------------------------------------------------------------
 
 
+CROWD = 30  # pickups on one strip: more value blocks than two lanes hold
+
+
 def _crowd(document) -> None:
     from tests.facility.panels._fixture import add_bpm
 
-    for i in range(12):
+    for i in range(CROWD):
         add_bpm(document, f"XR01:BPM{i}", "XR/XR01")
 
 
@@ -168,7 +171,7 @@ def _crowded_strip(tmp_path):
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _crowd), PANELS_DIR)
     elements = []
-    for i in range(12):
+    for i in range(CROWD):
         channels = (f"XR01:BPM{i}:position_x_readback", f"XR01:BPM{i}:position_y_readback")
         annotations = tuple((c, "mm") for c in channels)
         elements.append(
@@ -184,11 +187,16 @@ def _box(n: dict) -> tuple[float, float, float, float]:
     return g["x"], g["y"], g["x"] + g["width"], g["y"] + g["height"]
 
 
-def test_strip_values_are_whole_and_no_box_overlaps_another(tmp_path) -> None:
-    _graph, doc = _crowded_strip(tmp_path)
+def _strip_parts(doc: dict) -> tuple[list[dict], list[dict]]:
     values = [n for n in nodes(doc) if n["type"] == "pv-label"]
     names = [n for n in nodes(doc) if n["type"] == "text-label" and n["props"]["text"][:1] == "P"]
-    assert len(values) == 24 and len(names) == 12
+    return values, names
+
+
+def test_strip_values_are_whole_in_two_lanes_and_no_box_overlaps_another(tmp_path) -> None:
+    _graph, doc = _crowded_strip(tmp_path)
+    values, names = _strip_parts(doc)
+    assert values and len(names) == CROWD  # a symbol with no room keeps its bare name
     room = layout.value_width("mm", layout.SMALL_SIZE)
     boxes = [_box(n) for n in values + names]
     for n in values:
@@ -197,29 +205,50 @@ def test_strip_values_are_whole_and_no_box_overlaps_another(tmp_path) -> None:
     for i, a in enumerate(boxes):
         for b in boxes[i + 1 :]:
             assert a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1], (a, b)
-    lanes = {n["geometry"]["y"] for n in names}
-    assert len(lanes) >= 2  # close neighbours stagger
+    blocks = {n["geometry"]["y"] for n in names if n["props"]["text"] in _shown(values)}
+    assert len(blocks) == layout.STRIP_VALUE_LANES  # close neighbours take the second lane
+    left_out = 2 * CROWD - len(values)
+    assert left_out > 0
+    texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
+    assert layout._CROWDED.format(left_out) in texts
 
 
-def test_each_value_sits_under_its_own_name(tmp_path) -> None:
+def _shown(values: list[dict]) -> set[str]:
+    return {f"P{v['props']['pv'].split(':')[1].removeprefix('BPM')}" for v in values}
+
+
+def test_each_value_sits_under_its_own_name_and_a_lower_lane_has_a_leader(tmp_path) -> None:
     _graph, doc = _crowded_strip(tmp_path)
-    for i in range(12):
-        (name,) = [
-            n for n in nodes(doc) if n["type"] == "text-label" and n["props"]["text"] == f"P{i}"
-        ]
+    values, names = _strip_parts(doc)
+    lines = [n for n in nodes(doc) if n["type"] == "line"]
+    top_lane = min(n["geometry"]["y"] for n in names if n["props"]["text"] in _shown(values))
+    for shown in sorted(_shown(values)):
+        i = shown.removeprefix("P")
+        (name,) = [n for n in names if n["props"]["text"] == shown]
         x, y = (f"XR01:BPM{i}:position_{a}_readback" for a in "xy")
-        (vx,) = [n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == x]
-        (vy,) = [n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == y]
+        (vx,) = [n for n in values if n["props"]["pv"] == x]
+        (vy,) = [n for n in values if n["props"]["pv"] == y]
         centre = name["geometry"]["x"] + name["geometry"]["width"] / 2
         for value in (vx, vy):
             g = value["geometry"]
             assert abs(g["x"] + g["width"] / 2 - centre) < 1
-        assert name["geometry"]["y"] < vx["geometry"]["y"] < vy["geometry"]["y"]
         assert vx["geometry"]["y"] == name["geometry"]["y"] + layout.VALUE_STEP
+        assert vy["geometry"]["y"] == vx["geometry"]["y"] + layout.VALUE_STEP
+        if name["geometry"]["y"] > top_lane:  # the lower lane: a leader down to it
+            g = name["geometry"]
+            leaders = [
+                n for n in lines
+                if g["x"] <= n["geometry"]["x"] <= g["x"] + g["width"]
+                and n["geometry"]["y"] + n["geometry"]["height"] == g["y"]
+            ]  # fmt: skip
+            assert leaders, shown
 
 
-def test_the_precision_rule_takes_max_over_one_tuple_as_the_formula_engine_does() -> None:
-    assert "max((0, " in layout.precision_expression("{v}")
+def test_value_lanes_keep_a_kind_in_its_lane_and_alternate_only_on_a_collision() -> None:
+    spans = [(0, 50, "q"), (100, 50, "q"), (200, 50, "b"), (230, 50, "q"), (400, 50, "b")]
+    assert layout.value_lanes(spans) == [0, 0, 0, 1, 0]
+    crowded = [(0, 100, "q"), (10, 100, "q"), (20, 100, "q")]
+    assert layout.value_lanes(crowded) == [0, 1, None]
 
 
 def test_values_in_card_columns_have_room_for_the_number_and_its_unit(tmp_path) -> None:

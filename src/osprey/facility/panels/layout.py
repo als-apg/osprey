@@ -163,6 +163,7 @@ STRIP_LABEL_WIDTH = 96  # the most a symbol's name may take along the strip
 STRIP_LABEL_GAP = 6  # between two names on one line
 STRIP_BELOW = STRIP_LABEL_TOP + 2 * STRIP_LABEL_STEP  # room under the axis
 LEADER_GAP = 8  # between the names and the leaders
+STRIP_VALUE_LANES = 2  # the most lanes of value blocks under a strip
 LEADER_DROP = 40  # the leaders' run down to the locator
 LOCATOR_BAR = 1  # the to-scale bar: a line
 LOCATOR_MARK = 8  # how far a device's mark reaches above the bar
@@ -371,6 +372,7 @@ _DASH = "—"
 _COUNTS = frozenset({"count_true", "count_false", "count_in_tolerance"})
 _VALUES = "values: "
 _DROPPED = "{} values not shown: the screen's budget is spent"
+_CROWDED = "{} values not shown: no room under their symbols; each card shows them"
 _MORE_CHANNELS = "{} more {} channels not drawn"
 _MORE_ROWS = "{} more not drawn"
 _NOT_AT_A_UNIT = "not at a unit"
@@ -1011,6 +1013,19 @@ def light_cost(rule: Ladder | str | None) -> tuple[int, frozenset[str]]:
     return rules, frozenset(rule.channels)
 
 
+@dataclass(frozen=True)
+class _Block:
+    """A strip symbol's values as drawn: its short name over them, at *cx* the symbol's
+    centre, *left* and *w* the block's span, in *lane*."""
+
+    name: str
+    channels: tuple[str, ...]
+    cx: float
+    left: float
+    w: float
+    lane: int
+
+
 @dataclass
 class Budget:
     """What is left of one screen's budget (:data:`SCREEN_RULE_BUDGET`,
@@ -1270,6 +1285,7 @@ class _Page:
             str, dict[str | None, str | None]
         ] = {}  # strip values: symbol, signal, unit
         self.dropped = 0  # strip values the budget left out
+        self.crowded = 0  # strip values with no room in the lanes under their symbol
         self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
         self.x0: float = MARGIN  # the left edge of the column drawn in
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
@@ -2804,57 +2820,71 @@ class _Page:
             centres.append((p, x, cy))
         for p, x, cy in centres:
             self.badge_text(p, x, cy)
-        shown = [self.affordable(p) for p in beam]
+        blocks = self.value_blocks(beam)
         lines = 0
-        bare = [p for p, channels in zip(beam, shown, strict=True) if not channels]
+        bare = [p for p in beam if id(p) not in blocks]
         for text, left, w, level in strip_labels(bare):
             top = axis + STRIP_LABEL_TOP + level * STRIP_LABEL_STEP
             self.text(MARGIN + left, top, text, size=STRIP_LABEL_SIZE, w=w, h=STRIP_LABEL_STEP)
             lines = max(lines, level + 1)
         names = axis + STRIP_LABEL_TOP + lines * STRIP_LABEL_STEP
-        below = self.value_blocks(beam, shown, names)
+        below = self.draw_blocks(blocks, axis, names)
         self.y = max(axis + STRIP_AXIS, below) + LEADER_GAP
         if extent is not None:
             self.locator(beam, extent)
         else:
             self.y += ROW_GAP
 
-    def value_blocks(
-        self, beam: Sequence[strip.Placed], shown: Sequence[list[str]], top: float
-    ) -> float:
-        """Each symbol with values as one block from *top* down: its short name, then
-        its values under it, centred on the symbol and wide enough for
-        :data:`VALUE_SAMPLE` and the unit the viewer prints after it. A block goes in
-        the first lane where it clears the blocks there (:func:`value_lanes`), each
-        lane under the one before, so no two boxes overlap. Returns the bottom."""
-        blocks = []
-        for p, channels in zip(beam, shown, strict=True):
-            if not channels:
+    def value_blocks(self, beam: Sequence[strip.Placed]) -> dict[int, _Block]:
+        """The symbols whose values the strip shows, by ``id`` of the placed symbol: each
+        a block of its short name over its values, centred on the symbol and as wide as
+        the name and :func:`value_width` of each unit need, in one of
+        :data:`STRIP_VALUE_LANES` lanes (:func:`value_lanes`). A block that fits no lane
+        is left out and counted in :attr:`crowded`; one the budget refuses, in
+        :attr:`dropped`; either symbol keeps its bare name."""
+        wanted = []
+        for p in beam:
+            if not p.annotations:
                 continue
             name = p.short if p.short is not None else _short(p.thing)
-            units = dict(p.annotations)
+            units = [unit for _channel, unit in p.annotations]
             w = max(
-                text_width(name, STRIP_LABEL_SIZE),
-                *(value_width(units.get(c), SMALL_SIZE) for c in channels),
+                text_width(name, STRIP_LABEL_SIZE), *(value_width(u, SMALL_SIZE) for u in units)
             )
             left = min(max(MARGIN + p.x - w / 2, MARGIN), MARGIN + STRIP_WIDTH - w)
-            blocks.append((name, channels, left, w))
-        lanes = value_lanes([(left, w) for _name, _channels, left, w in blocks])
+            wanted.append((p, name, left, w))
+        lanes = value_lanes([(left, w, p.symbol) for p, _name, left, w in wanted])
+        blocks: dict[int, _Block] = {}
+        for (p, name, left, w), lane in zip(wanted, lanes, strict=True):
+            if lane is None:
+                self.crowded += len(p.annotations)
+                continue
+            channels = self.affordable(p)
+            if channels:
+                blocks[id(p)] = _Block(name, tuple(channels), MARGIN + p.x, left, w, lane)
+        return blocks
+
+    def draw_blocks(self, blocks: Mapping[int, _Block], axis: float, top: float) -> float:
+        """*blocks* from *top* down, each lane under the one before; a thin leader from
+        the axis to each block of a lower lane, at its symbol. Returns the bottom."""
         heights: dict[int, float] = {}
-        for (_name, channels, _left, _w), lane in zip(blocks, lanes, strict=True):
-            heights[lane] = max(heights.get(lane, 0), (1 + len(channels)) * VALUE_STEP)
-        tops = {}
-        y = top
+        for block in blocks.values():
+            height = (1 + len(block.channels)) * VALUE_STEP
+            heights[block.lane] = max(heights.get(block.lane, 0), height)
+        tops, y = {}, top
         for lane in sorted(heights):
             tops[lane] = y
             y += heights[lane] + ROW_GAP
-        for (name, channels, left, w), lane in zip(blocks, lanes, strict=True):
-            y0 = tops[lane]
+        for block in blocks.values():
+            y0 = tops[block.lane]
+            if block.lane:
+                self.line([(block.cx, axis + STRIP_AXIS), (block.cx, y0)], MUTED_TEXT)
             self.text(
-                left, y0, name, size=STRIP_LABEL_SIZE, w=w, h=VALUE_STEP, align="center"
+                block.left, y0, block.name, size=STRIP_LABEL_SIZE, w=block.w, h=VALUE_STEP,
+                align="center",
             )  # fmt: skip
-            for i, channel in enumerate(channels, start=1):
-                self.value(left, y0 + i * VALUE_STEP, w, channel)
+            for i, channel in enumerate(block.channels, start=1):
+                self.value(block.left, y0 + i * VALUE_STEP, block.w, channel)
         return y - ROW_GAP if heights else top
 
     def affordable(self, element: strip.Placed) -> list[str]:
@@ -2914,10 +2944,10 @@ class _Page:
                     line = _VALUES + part if line == _VALUES else joined
             self.text(MARGIN, self.y, line, size=SMALL_SIZE, fg=MUTED_TEXT)
             self.next_row()
-        if self.dropped:
-            note = _DROPPED.format(self.dropped)
-            self.text(MARGIN, self.y, note, size=SMALL_SIZE, fg=MUTED_TEXT)
-            self.next_row()
+        for count, words in ((self.crowded, _CROWDED), (self.dropped, _DROPPED)):
+            if count:
+                self.text(MARGIN, self.y, words.format(count), size=SMALL_SIZE, fg=MUTED_TEXT)
+                self.next_row()
 
     def badge(self, element: strip.Placed, cx: float, cy: float) -> None:
         """A device off the axis: a circle with its kind's letter, filled with its
@@ -4154,16 +4184,20 @@ def value_size(unit: str | None, width: float) -> float:
     return max(SMALL_SIZE, (width - NUMBER_PAD) / (len(text) * CHAR_WIDTH))
 
 
-def value_lanes(spans: Sequence[tuple[float, float]]) -> list[int]:
-    """The lane of each ``(left, width)`` span, in order: the first lane whose last
-    span it clears by :data:`STRIP_LABEL_GAP`, else a new one."""
-    ends: list[float] = []
-    out = []
-    for left, w in spans:
-        lane = next((n for n, end in enumerate(ends) if left >= end + STRIP_LABEL_GAP), len(ends))
-        if lane == len(ends):
-            ends.append(left + w)
-        else:
+def value_lanes(spans: Sequence[tuple[float, float, str]]) -> list[int | None]:
+    """The lane of each ``(left, width, kind)`` span in beam order, one of
+    :data:`STRIP_VALUE_LANES`: the lane its kind took first when the span clears the
+    last one there by :data:`STRIP_LABEL_GAP`, else the other lane that it clears;
+    ``None`` when it clears none."""
+    ends = [-math.inf] * STRIP_VALUE_LANES
+    kept: dict[str, int] = {}
+    out: list[int | None] = []
+    for left, w, kind in spans:
+        first = kept.get(kind, 0)
+        order = [first, *(n for n in range(STRIP_VALUE_LANES) if n != first)]
+        lane = next((n for n in order if left >= ends[n] + STRIP_LABEL_GAP), None)
+        if lane is not None:
+            kept.setdefault(kind, lane)
             ends[lane] = left + w
         out.append(lane)
     return out
