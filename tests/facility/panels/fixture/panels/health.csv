@@ -15,3 +15,4 @@ XR02:BEND1:Current-RB,expr:a>3,warn,database-severity,stated,xr-ioc,0a1b2c3,magA
 XR02:QF1:Current-RB,expr:a>7,bad,database-severity,stated,xr-ioc,0a1b2c3,magApp/Db/mag.db:10
 XR02:QF1:Current-RB,2,normal,database-severity,stated,xr-ioc,0a1b2c3,magApp/Db/mag.db:11
 XR02:BEND1:Current-RB,bit1=2,warn,database-severity,stated,xr-ioc,0a1b2c3,magApp/Db/mag.db:12
+XR09:LOOSE1:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,looseApp/Db/loose.db:2

@@ -62,6 +62,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.relations import END_KINDS, end_identity
 
 __all__ = [
+    "PLACE_RELATION",
     "SIMULATION_PREFIX",
     "Channel",
     "Citation",
@@ -71,6 +72,9 @@ __all__ = [
     "ThingKind",
     "load_graph",
 ]
+
+#: The relation kind that states a thing's place.
+PLACE_RELATION = "located_in"
 
 #: The prefix of a channel only the simulation serves; no screen shows one.
 SIMULATION_PREFIX = "VA:"
@@ -258,6 +262,7 @@ class PanelGraph:
         }
         self._read_channels(records, tables, excluded["channel"])
         self._read_edges(records)
+        self._read_claims()
         self._read_poses(tables, ring_frame)
         self._rules: dict[str, list[HealthRule]] = {}
         for rule in tables.health:
@@ -387,6 +392,21 @@ class PanelGraph:
                 )
                 self._edges.setdefault(here, {}).setdefault(edge.kind, []).append(edge)
 
+    def _read_claims(self) -> None:
+        """Every thing a ``located_in`` claim puts in a place, by place, in graph order."""
+        self._claimed: dict[str, list[Thing]] = {}
+        self._claims_of: dict[_Key, list[str]] = {}
+        for key, thing in self._things.items():
+            if thing.kind == "group":
+                continue
+            for edge in self._edges.get(key, {}).get(PLACE_RELATION, ()):
+                if not edge.outgoing or edge.other_kind != "place":
+                    continue
+                places = self._claims_of.setdefault(key, [])
+                if edge.other not in places:
+                    places.append(edge.other)
+                    self._claimed.setdefault(edge.other, []).append(thing)
+
     def _read_poses(self, tables: PanelTables, ring_frame: str | None) -> None:
         thing_ids = {thing_id for _kind, thing_id in self._things}
         kept = [
@@ -514,6 +534,43 @@ class PanelGraph:
             found.append(thing)
             if deep and thing.kind == "place":
                 self._collect(thing.id, deep, found)
+
+    def contents(self, place_id: str) -> list[Thing]:
+        """What is in a place: the one definition every screen and roll-up uses.
+
+        The devices and places whose built place is *place_id* or a place
+        within it (any depth, depth first), then those a ``located_in`` claim
+        puts in it or in a place within it; each thing once.
+
+        Raises:
+            KeyError: No such place, or it is excluded.
+        """
+        found = self.within(place_id, deep=True)
+        seen = {(thing.kind, thing.id) for thing in found}
+        places = [place_id, *(thing.id for thing in found if thing.kind == "place")]
+        for place in places:
+            for thing in self._claimed.get(place, ()):
+                if (thing.kind, thing.id) not in seen:
+                    seen.add((thing.kind, thing.id))
+                    found.append(thing)
+        return found
+
+    def claimed(self, place_id: str) -> list[Thing]:
+        """The things a ``located_in`` claim puts directly in the place, in graph order."""
+        return list(self._claimed.get(place_id, ()))
+
+    def placed(self, thing_id: str, kind: ThingKind | None = None) -> bool:
+        """Whether the thing is in some place: it has a built place or a claim into one."""
+        key = self._key(thing_id, kind)
+        return self._things[key].place is not None or bool(self._claims_of.get(key))
+
+    def unplaced(self) -> list[Thing]:
+        """Every device in no place by :meth:`contents`, in graph order."""
+        return [
+            thing
+            for key, thing in self._things.items()
+            if thing.kind == "device" and thing.place is None and not self._claims_of.get(key)
+        ]
 
     def pose(self, thing_id: str) -> Pose | None:
         """The thing's ring-frame pose, else its first pose, else ``None``."""

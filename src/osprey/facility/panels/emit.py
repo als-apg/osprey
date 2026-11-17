@@ -122,7 +122,8 @@ class Problem:
     Attributes:
         kind: ``stale``, ``missing``, ``orphan``, ``dangling_link``,
             ``unknown_channel``, ``stamp``, ``invalid``, ``oversize``,
-            ``incomplete`` (an earlier write did not finish) or
+            ``incomplete`` (an earlier write did not finish), ``unrolled``
+            (a rule-bearing channel no roll-up screen reads) or
             ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
@@ -302,12 +303,13 @@ def under(graph: PanelGraph, place_id: str) -> Callable[[Target], bool]:
 
     Returns:
         A function true for a target whose thing is the place or a device or
-        place within it, at any depth. Groups are never under a place.
+        place of its contents (:meth:`PanelGraph.contents`). Groups are never
+        under a place.
 
     Raises:
         KeyError: No such place.
     """
-    within = {place_id, *(thing.id for thing in graph.within(place_id, deep=True))}
+    within = {place_id, *(thing.id for thing in graph.contents(place_id))}
     return lambda target: target.kind != "group" and target.id in within
 
 
@@ -671,13 +673,25 @@ def check(
             problems.append(
                 Problem("missing", relative, f"no file for {target.view} of {target.id}")
             )
+    rolled: set[str] | None = set()
     for relative in wanted:
         if relative not in valid:
+            if wanted[relative].view == "rollup":
+                rolled = None  # a roll-up is not on disk: what is read cannot be told
             continue
         problems.extend(
             _check_file(
                 graph, out, relative, wanted[relative], ids, valid, outside, max_bytes, draw
             )
+        )
+        if rolled is not None and wanted[relative].view == "rollup":
+            rolled.update(_bound_channels(json.loads((out / relative).read_bytes())))
+    if rolled is not None:
+        ruled = dict.fromkeys(row.channel for row in graph.rules())
+        problems.extend(
+            Problem("unrolled", INDEX, f"{name} has a health rule and no roll-up screen reads it")
+            for name in ruled
+            if name not in rolled
         )
     return problems
 

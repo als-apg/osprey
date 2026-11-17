@@ -73,3 +73,5 @@
     version: A
     state: released
     locator: sheet 3
+- id: XR09:LOOSE1
+  class: Infrastructure

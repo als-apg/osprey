@@ -33,8 +33,16 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from osprey.facility.panels.health import rule_channels, supported
-from osprey.facility.panels.model import Channel, Citation, Edge, PanelGraph, Thing, ThingKind
+from osprey.facility.panels.health import rule_channels, supported, unplaced_channels
+from osprey.facility.panels.model import (
+    PLACE_RELATION,
+    Channel,
+    Citation,
+    Edge,
+    PanelGraph,
+    Thing,
+    ThingKind,
+)
 from osprey.facility.panels.tables import DRAWN_AS, Pose
 from osprey.facility.panels.view import (
     CheckRow,
@@ -61,6 +69,7 @@ from osprey.facility.panels.view import (
 
 __all__ = [
     "GENERIC_SYMBOL",
+    "NOT_PLACED",
     "NO_SYSTEM",
     "PLACE_RELATION",
     "RACK_ORDER",
@@ -76,8 +85,9 @@ __all__ = [
     "targets",
 ]
 
-#: The relation kind that states a thing's place; shown under "where", not as a neighbour.
-PLACE_RELATION = "located_in"
+#: The id of the screens of what is in no place (:meth:`PanelGraph.unplaced`):
+#: a roll-up and a checkout, addressed as a place that the graph does not hold.
+NOT_PLACED = "not placed"
 
 #: Section titles of a card's neighbours: relation kind -> (title on the
 #: subject's card, title on the object's card). A kind not listed is titled by
@@ -123,9 +133,11 @@ class _Index:
     carded: frozenset[str]  # devices with a card
     place_views: frozenset[str]
     sets: frozenset[str]
-    ruled: frozenset[str]  # places with a rule-bearing channel within
+    ruled: frozenset[str]  # places with a rule-bearing channel in their contents
     readbacks: frozenset[str]  # every channel some setpoint is paired with
     racked: frozenset[str]  # places some located_in claim names a unit in
+    unplaced_ruled: bool  # a device in no place has a rule-bearing channel
+    unplaced_channels: bool  # a device in no place has a channel
 
 
 _INDEXES: weakref.WeakKeyDictionary[PanelGraph, _Index] = weakref.WeakKeyDictionary()
@@ -190,10 +202,17 @@ def _build_index(graph: PanelGraph) -> _Index:
         elif thing.place is not None:
             place_views.add(thing.place)
         if any(graph.rule(channel.name) for channel in channels):
-            place = thing.place if thing.kind == "device" else thing.id
-            while place is not None and place not in ruled:
-                ruled.add(place)
-                place = graph.thing(place, "place").place
+            starts = [thing.place if thing.kind == "device" else thing.id]
+            starts += [
+                edge.other
+                for edge in graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ())
+                if edge.outgoing and edge.other_kind == "place"
+            ]
+            for place in starts:
+                while place is not None and place not in ruled:
+                    ruled.add(place)
+                    place = graph.thing(place, "place").place
+    unplaced = graph.unplaced()
     return _Index(
         frozenset(carded),
         frozenset(place_views),
@@ -201,6 +220,8 @@ def _build_index(graph: PanelGraph) -> _Index:
         frozenset(ruled),
         frozenset(readbacks),
         frozenset(racked),
+        bool(unplaced_channels(graph)),
+        any(graph.channels(thing.id, "device") for thing in unplaced),
     )
 
 
@@ -209,6 +230,10 @@ def _has(
 ) -> bool:
     """Whether *target* is a screen of the graph."""
     view, kind, thing_id = target.view, target.kind, target.id
+    if (kind, thing_id) == ("place", NOT_PLACED) and not _holds(graph, thing_id, "place"):
+        if view == "rollup":
+            return target.by == "place" and index.unplaced_ruled
+        return view == "checkout" and index.unplaced_channels
     if view == "card":
         return thing_id in index.carded if kind == "device" else _holds(graph, thing_id, kind)
     if view == "set":
@@ -261,7 +286,15 @@ def targets(graph: PanelGraph, *, rack_classes: frozenset[str] = frozenset()) ->
                 Target("checkout", "place", thing.id),
             ]
         found += [target for target in candidates if _has(graph, index, target, rack_classes)]
+    for target in _UNPLACED_TARGETS:
+        if _has(graph, index, target):
+            found.append(target)
     return found
+
+
+_UNPLACED_ROLLUP = Target("rollup", "place", NOT_PLACED, by="place")
+_UNPLACED_CHECKOUT = Target("checkout", "place", NOT_PLACED)
+_UNPLACED_TARGETS = (_UNPLACED_ROLLUP, _UNPLACED_CHECKOUT)
 
 
 # -- shared pieces ---------------------------------------------------------------
@@ -685,7 +718,7 @@ def place_view(
     index = _index(graph)
     elements: list[StripElement] = []
     tray: list[TrayEntry] = []
-    for thing in graph.within(place_id, deep=True):
+    for thing in graph.contents(place_id):
         if thing.kind != "device":
             continue
         link = _ref(graph, index, thing)
@@ -814,6 +847,36 @@ def _device_node(graph: PanelGraph, index: _Index, thing: Thing) -> Node:
     )
 
 
+def _unplaced_node(graph: PanelGraph, index: _Index) -> Node | None:
+    """The child "not placed" of a root roll-up: every device in no place, linked down."""
+    if not index.unplaced_ruled:
+        return None
+    return _node(NOT_PLACED, Link(NOT_PLACED, _UNPLACED_ROLLUP), unplaced_channels(graph))
+
+
+def _place_children(graph: PanelGraph, index: _Index, root_id: str, by: str) -> list[Node]:
+    """A by-place roll-up's children: what is built directly in the place, then what a
+    claim puts directly in it and is not built within it."""
+    children: list[Node] = []
+    direct = graph.within(root_id)
+    built = {(thing.kind, thing.id) for thing in graph.within(root_id, deep=True)}
+    claimed = [t for t in graph.claimed(root_id) if (t.kind, t.id) not in built]
+    for child in [*direct, *claimed]:
+        if child.kind == "place":
+            link = _place_link(graph, index, child.id, Target("rollup", "place", child.id, by))
+            children.append(_node(child.id, link, rule_channels(graph, child.id, "place")))
+        else:
+            children.append(_device_node(graph, index, child))
+    return children
+
+
+def _unplaced_rollup(graph: PanelGraph, index: _Index) -> View:
+    """The roll-up of every device in no place, one node per device."""
+    children = [_device_node(graph, index, thing) for thing in graph.unplaced()]
+    root = _node(NOT_PLACED, None, unplaced_channels(graph), tuple(children))
+    return View(_UNPLACED_ROLLUP, f"{NOT_PLACED} health", (), (Section("roll-up", (root,)),))
+
+
 def health_rollup(
     graph: PanelGraph,
     root_id: str,
@@ -823,14 +886,20 @@ def health_rollup(
 ) -> View:
     """The channels each node of a place's roll-up reads: the root and one level below it.
 
-    By ``place``, the nodes are the place's direct children; a child place
-    links down to its own roll-up (its card when it has none), a device to
-    its card. By ``system``, the devices within the place (any depth) are
-    grouped by ``system_of`` (default: the device's class), the groups in
-    name order and :data:`NO_SYSTEM` last; a group node carries the union of
-    its devices' channels and no children, and has no screen of its own. A
-    node that reads no rule-bearing channel is present and marked ``no_rule``.
-    No node below the root has children: one screen shows one level.
+    What a place holds is :meth:`PanelGraph.contents`. By ``place``, the
+    nodes are the place's direct children (built there, or claimed there and
+    built elsewhere); a child place links down to its own roll-up (its card
+    when it has none), a device to its card. By ``system``, the devices of
+    the place's contents are grouped by ``system_of`` (default: the device's
+    class), the groups in name order and :data:`NO_SYSTEM` last; a group node
+    carries the union of its devices' channels and no children, and has no
+    screen of its own. A node that reads no rule-bearing channel is present
+    and marked ``no_rule``. No node below the root has children: one screen
+    shows one level.
+
+    A root place (one with no parent) has one more child, ``not placed``:
+    every device in no place, linked to their own roll-up, whose channels the
+    root reads too. :data:`NOT_PLACED` as *root_id* is that roll-up.
 
     Raises:
         KeyError: No such place, or it is excluded.
@@ -838,27 +907,31 @@ def health_rollup(
     """
     if by not in ("place", "system"):
         raise ValueError(f"a roll-up goes by 'place' or 'system', not by {by!r}")
-    place = graph.thing(root_id, "place")
     index = _index(graph)
+    if root_id == NOT_PLACED and not _holds(graph, root_id, "place"):
+        if by != "place":
+            raise KeyError(f"the {NOT_PLACED} roll-up goes by place only")
+        return _unplaced_rollup(graph, index)
+    place = graph.thing(root_id, "place")
     children: list[Node] = []
     if by == "place":
-        for child in graph.within(root_id):
-            if child.kind == "place":
-                link = _place_link(graph, index, child.id, Target("rollup", "place", child.id, by))
-                children.append(_node(child.id, link, rule_channels(graph, child.id, "place")))
-            else:
-                children.append(_device_node(graph, index, child))
+        children = _place_children(graph, index, root_id, by)
     else:
         key = system_of if system_of is not None else (lambda thing: thing.cls)
         systems: dict[str | None, list[Node]] = {}
-        for thing in graph.within(root_id, deep=True):
+        for thing in graph.contents(root_id):
             if thing.kind == "device":
                 systems.setdefault(key(thing), []).append(_device_node(graph, index, thing))
         names = sorted(name for name in systems if name is not None)
         for name in [*names, None] if None in systems else names:
             read = (channel for node in systems[name] for channel in node.channels)
             children.append(_node(name if name is not None else NO_SYSTEM, None, read))
-    root = _node(root_id, None, rule_channels(graph, root_id, "place"), tuple(children))
+    channels = rule_channels(graph, root_id, "place")
+    unplaced = _unplaced_node(graph, index) if place.place is None else None
+    if unplaced is not None:
+        children.append(unplaced)
+        channels += unplaced.channels
+    root = _node(root_id, None, channels, tuple(children))
     crumbs = _crumbs(graph, index, place.place, "rollup", by)
     title = f"{root_id} health by {by}"
     return View(
@@ -879,23 +952,9 @@ def _sourced(graph: PanelGraph, channel: str) -> bool:
     )
 
 
-def checkout(graph: PanelGraph, place_id: str) -> View:
-    """One row per channel of the devices within a place (any depth), with totals.
-
-    A row says whether the channel is on a device (always, here), typed
-    (``drawn_as`` other than ``untyped``), rule-bearing, and sourced (a
-    record type, pair or health row names a source). Sections: ``channels``,
-    ``totals``, then ``places within``: links to each child place's checkout
-    (its card when it has none), so a table cut on screen leaves no row
-    unreachable.
-
-    Raises:
-        KeyError: No such place, or it is excluded.
-    """
-    place = graph.thing(place_id, "place")
-    index = _index(graph)
+def _check_rows(graph: PanelGraph, things: Iterable[Thing]) -> list[CheckRow]:
     rows: dict[str, CheckRow] = {}
-    for thing in graph.within(place_id, deep=True):
+    for thing in things:
         if thing.kind != "device":
             continue
         for channel in graph.channels(thing.id, "device"):
@@ -909,21 +968,49 @@ def checkout(graph: PanelGraph, place_id: str) -> View:
                 has_rule=bool(graph.rule(channel.name)),
                 has_source=_sourced(graph, channel.name),
             )
-    found = list(rows.values())
-    totals = Totals(
+    return list(rows.values())
+
+
+def _totals(found: list[CheckRow]) -> Totals:
+    return Totals(
         channels=len(found),
         on_device=sum(row.on_device for row in found),
         typed=sum(row.typed for row in found),
         has_rule=sum(row.has_rule for row in found),
         has_source=sum(row.has_source for row in found),
     )
-    children = [
+
+
+def checkout(graph: PanelGraph, place_id: str) -> View:
+    """One row per channel of the devices a place holds (:meth:`PanelGraph.contents`), with totals.
+
+    A row says whether the channel is on a device, typed (``drawn_as``
+    other than ``untyped``), rule-bearing, and sourced (a record type, pair
+    or health row names a source). Sections: ``channels``, ``totals``, then
+    ``places within``: links to each child place's checkout (its card when it
+    has none), so a table cut on screen leaves no row unreachable. A root
+    place also links to the checkout of what is in no place; that checkout is
+    :data:`NOT_PLACED` as *place_id*.
+
+    Raises:
+        KeyError: No such place, or it is excluded.
+    """
+    index = _index(graph)
+    if place_id == NOT_PLACED and not _holds(graph, place_id, "place"):
+        found = _check_rows(graph, graph.unplaced())
+        sections = _sections([("channels", list(found)), ("totals", [_totals(found)])])
+        return View(_UNPLACED_CHECKOUT, f"{NOT_PLACED} checkout", (), sections)
+    place = graph.thing(place_id, "place")
+    found = _check_rows(graph, graph.contents(place_id))
+    children: list[Item] = [
         _place_link(graph, index, child.id, Target("checkout", "place", child.id))
         for child in graph.within(place_id)
         if child.kind == "place"
     ]
+    if place.place is None and _has(graph, index, _UNPLACED_CHECKOUT):
+        children.append(Link(NOT_PLACED, _UNPLACED_CHECKOUT))
     sections = _sections(
-        [("channels", list(found)), ("totals", [totals]), ("places within", children)]
+        [("channels", list(found)), ("totals", [_totals(found)]), ("places within", children)]
     )
     crumbs = _crumbs(graph, index, place.place, "checkout")
     return View(Target("checkout", "place", place_id), f"{place_id} checkout", crumbs, sections)

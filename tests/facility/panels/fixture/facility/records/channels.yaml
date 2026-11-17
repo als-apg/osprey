@@ -88,3 +88,6 @@
 - id: XR02:Cab1Temp-RB
   'on':
     place: XR/XR02/SAFE/CAB1
+- id: XR09:LOOSE1:Fault-Sts
+  'on':
+    device: XR09:LOOSE1

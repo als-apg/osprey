@@ -6,8 +6,9 @@ A channel with no row, a missing value, or a value no supported row names is
 different states make the channel ``disagree``. The row's ``basis`` does not
 change the state.
 
-A roll-up reads the rule-bearing channels of a node (its own, plus everything
-within a place at any depth, or the members of a group) and takes the
+A roll-up reads the rule-bearing channels of a node (its own, plus the
+:meth:`~osprey.facility.panels.model.PanelGraph.contents` of a place, or the
+members of a group) and takes the
 :func:`worst`. A thing with no rule-bearing channel contributes nothing, and a
 roll-up where nothing contributed is ``None``: whoever draws it decides how to
 show "no rule here".
@@ -269,7 +270,7 @@ def rule_channels(graph: PanelGraph, node_id: str, kind: ThingKind | None = None
     node = graph.thing(node_id, kind)
     holders = [node]
     if node.kind == "place":
-        holders += graph.within(node.id, deep=True)
+        holders += graph.contents(node.id)
     elif node.kind == "group":
         # The facility build refuses a group member that is not a device or a
         # place, so a group cannot hold a group and no cycle can occur here.
@@ -277,13 +278,25 @@ def rule_channels(graph: PanelGraph, node_id: str, kind: ThingKind | None = None
         for member in graph.members(node.id):
             holders.append(member)
             if member.kind == "place":
-                holders += graph.within(member.id, deep=True)
+                holders += graph.contents(member.id)
     seen: set[str] = set()
     found: list[str] = []
     for holder in holders:
         if holder.kind == "group":
             continue
         for channel in graph.channels(holder.id, holder.kind):
+            if channel.name not in seen and graph.rule(channel.name):
+                seen.add(channel.name)
+                found.append(channel.name)
+    return found
+
+
+def unplaced_channels(graph: PanelGraph) -> list[str]:
+    """The rule-bearing channels of every device in no place, each once, in graph order."""
+    seen: set[str] = set()
+    found: list[str] = []
+    for thing in graph.unplaced():
+        for channel in graph.channels(thing.id, "device"):
             if channel.name not in seen and graph.rule(channel.name):
                 seen.add(channel.name)
                 found.append(channel.name)

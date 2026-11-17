@@ -685,3 +685,15 @@ def test_a_drawn_node_with_an_unwritable_channel_shows_its_siblings_states(tmp_p
     assert drawn(shape, {a: 0.5, b: 1}) == shown("warn")
     assert drawn(shape, {a: 3, b: 1}) == shown("unknown")  # A normal: never normal
     assert "label condition" in needs(doc) and unexpressed(doc) == 0
+
+
+def test_a_device_in_no_place_turns_the_root_roll_up_bad(panel_graph) -> None:
+    loose = "XR09:LOOSE1:Fault-Sts"
+    for by in ("place", "system"):
+        doc, _ = draw(health_rollup(panel_graph, "XR", by), panel_graph)
+        root = _by_type(doc, "polygon")[0]  # the root's row is drawn first
+        names = {p["name"] for rule in root["rules"] for p in rule["pvs"]}
+        assert loose in names
+        quiet = dict.fromkeys(names, 1) | {loose: 0}
+        assert drawn(root, quiet)["fillColor"] != symbols.look("bad")["fillColor"]
+        assert drawn(root, quiet | {loose: 1}) == shown("bad"), by

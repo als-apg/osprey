@@ -12,6 +12,7 @@ import pytest
 
 from osprey.facility.panels import load_graph
 from osprey.facility.panels.describe import (
+    NOT_PLACED,
     RACK_ORDER,
     RELATION_TITLES,
     checkout,
@@ -520,6 +521,7 @@ def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
         "XR02:IP1": "no position",  # a ring-frame row with no s
         "XR02:IP2": "no position",
         "XR02:BLOCK1": "no position",
+        "XR02:CH5": "no position",  # no built place: its claim into XR/XR02/RK2 puts it here
     }
     assert not _ids(view) & set(EXCLUDED)
 
@@ -550,7 +552,8 @@ def test_place_view_links_child_places_and_the_parent(panel_graph):
 def test_a_place_with_no_ring_position_has_no_extent(panel_graph):
     (strip,) = _section(place_view(panel_graph, "XR/XR01/RK1"), "strip").items
     assert strip.elements == () and strip.extent_m is None
-    assert [entry.thing for entry in strip.tray] == ["XR01:CH1", "XR01:CH2", "XR01:CH3"]
+    # XR02:CH5 by its claims into the rack
+    assert [entry.thing for entry in strip.tray] == ["XR01:CH1", "XR01:CH2", "XR01:CH3", "XR02:CH5"]
 
 
 # -- rack elevation ---------------------------------------------------------------
@@ -658,6 +661,7 @@ def test_rollup_by_place_links_down_to_child_rollups(panel_graph):
     assert [(node.label, node.link.target) for node in root.children] == [
         ("XR/XR01", Target("rollup", "place", "XR/XR01", by="place")),
         ("XR/XR02", Target("rollup", "place", "XR/XR02", by="place")),
+        ("not placed", Target("rollup", "place", NOT_PLACED, by="place")),
     ]
 
 
@@ -670,7 +674,8 @@ def test_rollup_by_system_groups_devices_by_class_by_default(panel_graph):
     assert systems["PowerSupply"].channels == ("XR01:PS1:On-Sts",)
     assert systems["ElectronicsChassis"].no_rule is True
     # one level: a system carries its devices' channels, not the devices
-    assert all(node.children == () and node.link is None for node in root.children)
+    assert all(node.children == () for node in root.children)
+    assert all(node.link is None for node in root.children if node.label != NOT_PLACED)
 
 
 def test_a_rollup_shows_one_level_below_its_root(panel_graph):
@@ -688,7 +693,7 @@ def test_rollup_by_system_takes_the_system_key_from_a_function(panel_graph):
         system_of=lambda thing: "vacuum" if thing.cls == "Pump" else None,
     )
     (root,) = _section(view, "roll-up").items
-    assert [node.label for node in root.children] == ["vacuum", "no system"]
+    assert [node.label for node in root.children] == ["vacuum", "no system", NOT_PLACED]
 
 
 def test_rollup_refuses_an_unknown_grouping(panel_graph):
@@ -705,6 +710,7 @@ def test_checkout_links_each_child_place_to_its_checkout_or_card(panel_graph):
     assert [(link.label, link.target) for link in links] == [
         ("XR/XR01", Target("checkout", "place", "XR/XR01")),
         ("XR/XR02", Target("checkout", "place", "XR/XR02")),
+        ("not placed", Target("checkout", "place", NOT_PLACED)),
     ]
     rack = _section(checkout(panel_graph, "XR/XR01"), "places within").items
     assert [link.target for link in rack] == [Target("card", "place", "XR/XR01/RK1")]
@@ -839,3 +845,45 @@ def test_targets_and_views_scale_near_linearly():
 
     ratio = cost(large) / cost(small)
     assert ratio < 8, f"4x the size took {ratio:.1f}x the time"
+
+
+# -- what is in no place ------------------------------------------------------------
+
+
+def test_every_root_roll_up_has_a_not_placed_child_that_reads_the_unplaced(panel_graph):
+    loose = "XR09:LOOSE1:Fault-Sts"
+    for by in ("place", "system"):
+        (root,) = _section(health_rollup(panel_graph, "XR", by), "roll-up").items
+        unplaced = root.children[-1]
+        assert unplaced.label == NOT_PLACED and unplaced.channels == (loose,)
+        assert unplaced.link.target == Target("rollup", "place", NOT_PLACED, by="place")
+        assert loose in root.channels
+    (sector,) = _section(health_rollup(panel_graph, "XR/XR01"), "roll-up").items
+    assert NOT_PLACED not in [node.label for node in sector.children]  # a root's child only
+
+
+def test_the_not_placed_screens_are_targets_with_their_devices(panel_graph):
+    found = targets(panel_graph)
+    assert Target("rollup", "place", NOT_PLACED, by="place") in found
+    assert Target("checkout", "place", NOT_PLACED) in found
+    view = describe(panel_graph, Target("rollup", "place", NOT_PLACED, by="place"))
+    (root,) = _section(view, "roll-up").items
+    assert [(node.label, node.channels) for node in root.children] == [
+        ("XR09:LOOSE1", ("XR09:LOOSE1:Fault-Sts",))
+    ]
+    rows = _section(describe(panel_graph, Target("checkout", "place", NOT_PLACED)), "channels")
+    assert [row.channel for row in rows.items] == ["XR09:LOOSE1:Fault-Sts"]
+
+
+def test_a_roll_up_reads_a_device_its_claims_place_and_no_built_place_does(tmp_path):
+    def ruled_chassis(document: dict[str, Any]) -> None:
+        document["channels"].append({"id": "XR02:CH5:Fault-Sts", "on": {"device": "XR02:CH5"}})
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write("XR02:CH5:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,ch.db:1\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json", ruled_chassis), tables)
+    for place in ("XR", "XR/XR02", "XR/XR02/RK2", "XR/XR01/RK1"):
+        (root,) = _section(health_rollup(graph, place), "roll-up").items
+        assert "XR02:CH5:Fault-Sts" in root.channels, place
+    assert Target("rollup", "place", "XR/XR02/RK2", by="place") in targets(graph)

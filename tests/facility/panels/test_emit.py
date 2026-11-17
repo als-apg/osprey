@@ -536,3 +536,21 @@ def test_the_content_hash_moves_with_a_rule_table(panel_facility, panel_graph, t
     with (tables / "health.csv").open("a", encoding="utf-8") as handle:
         handle.write("\n")
     assert load_graph(panel_facility, tables).content_hash != panel_graph.content_hash
+
+
+def test_a_rule_channel_no_roll_up_reads_is_unrolled(
+    panel_facility, panel_tables, tmp_path, monkeypatch
+):
+    import importlib
+
+    describe_module = importlib.import_module("osprey.facility.panels.describe")
+
+    clean = load_graph(panel_facility, panel_tables)
+    emit.write(clean, tmp_path / "clean")
+    assert not [p for p in emit.check(clean, tmp_path / "clean") if p.kind == "unrolled"]
+    monkeypatch.setattr(describe_module, "unplaced_channels", lambda graph: [])
+    blind = load_graph(panel_facility, panel_tables)
+    emit.write(blind, tmp_path / "blind")
+    unrolled = [p for p in emit.check(blind, tmp_path / "blind") if p.kind == "unrolled"]
+    assert [p.detail.split()[0] for p in unrolled] == ["XR09:LOOSE1:Fault-Sts"]
+    assert all(p.failing for p in unrolled)

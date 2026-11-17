@@ -236,7 +236,7 @@ def test_a_roll_up_over_a_large_place_is_linear():
         def thing(self, *_args, **_kwargs):
             return place
 
-        def within(self, *_args, **_kwargs):
+        def contents(self, *_args, **_kwargs):
             return things
 
         def channels(self, thing_id, *_args):

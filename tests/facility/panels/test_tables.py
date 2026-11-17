@@ -52,7 +52,7 @@ def test_the_fixture_tables_read(panel_tables: Path) -> None:
     assert len(tables.positions) == 13
     assert len(tables.record_types) == 6
     assert len(tables.pairs) == 3
-    assert len(tables.health) == 16
+    assert len(tables.health) == 17
     assert len(tables.excluded) == 3
     assert len(tables.pictures) == 2
     rack = next(pose for pose in tables.positions if pose.thing == "XR/XR01/RK1")

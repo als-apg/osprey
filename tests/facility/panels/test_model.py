@@ -37,7 +37,8 @@ def test_things_are_the_devices_places_and_groups(panel_graph: PanelGraph) -> No
         kinds.setdefault(thing.kind, set()).add(thing.id)
     assert kinds["place"] == {"XR", "XR/XR01", "XR/XR02", "XR/XR01/RK1", "XR/XR02/RK2"}
     assert kinds["group"] == {"XR01-VAC", "XR02-VAC", "XR-QUAD"}
-    assert len(kinds["device"]) == 6 + 4 + 3 + 1 + 1 + 1 + 1  # XR02:BLOCK1, XR02:CH5
+    # XR02:BLOCK1, XR02:CH5, XR09:LOOSE1
+    assert len(kinds["device"]) == 6 + 4 + 3 + 1 + 1 + 1 + 1 + 1
 
 
 def test_a_thing_carries_kind_class_place_and_citations(panel_graph: PanelGraph) -> None:
@@ -344,9 +345,9 @@ def test_a_tie_between_ring_frames_is_refused(tmp_path: Path, panel_facility: Pa
 
 def test_rules_lists_every_row_of_every_held_channel(panel_graph: PanelGraph) -> None:
     rows = panel_graph.rules()
-    # 16 table rows, less the one on an excluded thing, the one on a hidden thing
+    # 17 table rows, less the one on an excluded thing, the one on a hidden thing
     # and the one on a simulation-only channel
-    assert len(rows) == 13
+    assert len(rows) == 14
     assert {row.channel for row in rows}.isdisjoint({VA_CHANNEL, *HIDDEN_CHANNELS})
 
 
@@ -376,3 +377,23 @@ def test_pictures_give_a_class_rows_in_file_order(panel_graph):
         ("end", "thermal switch 1"),
     ]
     assert panel_graph.pictures("Dipole") == []
+
+
+def test_contents_of_a_place_are_built_there_or_claimed_there(panel_graph: PanelGraph) -> None:
+    sector = [thing.id for thing in panel_graph.contents("XR/XR02")]
+    # built within, any depth, then claimed into it or a place within it (XR/XR02/RK2)
+    assert sector[: len(panel_graph.within("XR/XR02", deep=True))] == [
+        thing.id for thing in panel_graph.within("XR/XR02", deep=True)
+    ]
+    assert "XR02:CH5" in sector and len(sector) == len(set(sector))
+    rack = [thing.id for thing in panel_graph.contents("XR/XR01/RK1")]
+    assert rack == ["XR01:CH1", "XR01:CH2", "XR01:CH3", "XR02:CH5"]  # each once
+    assert panel_graph.claimed("XR/XR02/RK2") == [panel_graph.thing("XR02:CH5")]
+
+
+def test_a_device_in_no_place_is_unplaced(panel_graph: PanelGraph) -> None:
+    assert [thing.id for thing in panel_graph.unplaced()] == ["XR09:LOOSE1"]
+    assert panel_graph.placed("XR02:CH5")  # by its claims
+    assert not panel_graph.placed("XR09:LOOSE1")
+    every = {thing.id for place in ("XR",) for thing in panel_graph.contents(place)}
+    assert "XR09:LOOSE1" not in every

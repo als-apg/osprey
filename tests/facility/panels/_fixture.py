@@ -23,6 +23,8 @@ a citation and nothing else. ``XR02:CH5`` has unit claims into two racks
 (``XR/XR01/RK1`` unit 40, ``XR/XR02/RK2`` unit 5), which the build marks
 contested, so its built place is ``None``. A second claim from another document puts ``XR01:CH2``
 at unit 20 too, and a third claim puts ``XR02:CH5`` at unit 41 in ``XR/XR01/RK1``.
+``XR09:LOOSE1`` is in no place (no built place, no claim) and has a rule-bearing
+channel, ``XR09:LOOSE1:Fault-Sts`` (``1`` is bad).
 """
 
 from __future__ import annotations
