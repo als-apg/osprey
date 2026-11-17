@@ -3,7 +3,7 @@
 ``osprey.facility.panels.layout`` draws the panels fixture's views (every view
 kind) and the invented views of ``tests/facility/panels``.
 
-The contract is the schema and runtime this worktree pins: CANOPY and the PyDM
+The contract is the schema and runtime this repository pins: CANOPY and the PyDM
 converter at the commits ``osprey.integrations.canopy`` proves
 (``PROVEN_COMMITS``), the same ones the rest of ``tests/templates/canopy``
 validates against. It is not a copy in another checkout, such as
