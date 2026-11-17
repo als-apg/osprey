@@ -2,7 +2,9 @@
 
 The framework runs on connectors releases that predate those modules, so the
 names below are ``None`` there and :data:`DIRECTORY_CONNECTORS_AVAILABLE` is
-false. Every other framework module imports this one, never the connectors'
+false. Listing a directory's servers came later still:
+:data:`DIRECTORY_LISTING_AVAILABLE` is false, and ``ServerRow`` ``None``, on a
+release that has the directory but not the listing. Every other framework module imports this one, never the connectors'
 modules, and checks the flag before touching a contract type.
 
 :func:`unavailable_payload`, :func:`as_payload` and :func:`logbook_source` check
@@ -85,9 +87,20 @@ except ImportError:
     has_simulator = None  # type: ignore[assignment]
     service_targets = None  # type: ignore[assignment]
 
+# Listing a directory's servers came in a later connectors release than the
+# directory itself, so it has a guard and a flag of its own.
+try:
+    from osprey_connectors.directory import ServerRow
+
+    DIRECTORY_LISTING_AVAILABLE = True
+except ImportError:
+    DIRECTORY_LISTING_AVAILABLE = False
+    ServerRow = None  # type: ignore[assignment,misc]
+
 __all__ = [
     "APPLIANCE_TARGETS",
     "DIRECTORY_CONNECTORS_AVAILABLE",
+    "DIRECTORY_LISTING_AVAILABLE",
     "ENGINEER",
     "FLOOR_REASON",
     "IOC_HEALTH_SIGNALS",
@@ -112,6 +125,7 @@ __all__ = [
     "PutRow",
     "Source",
     "SERVED_FIELD",
+    "ServerRow",
     "Unavailable",
     "as_payload",
     "has_simulator",

@@ -63,6 +63,25 @@ def test_a_used_or_declared_name_passes(tmp_path: Path) -> None:
     assert _strays(root, {"osprey_connectors.a.declared": "a hook for other packages"}) == []
 
 
+def test_a_use_under_an_import_error_guard_counts(tmp_path: Path) -> None:
+    # The framework takes a name a newer connectors release adds under
+    # ``try`` / ``except ImportError``; that import is the name's user.
+    root = _tree(
+        tmp_path,
+        {
+            f"{PACKAGE}/__init__.py": "",
+            f"{PACKAGE}/a.py": '__all__ = ["newer"]\n',
+            "src/osprey/x.py": (
+                "try:\n"
+                "    from osprey_connectors.a import newer\n"
+                "except ImportError:\n"
+                "    newer = None\n"
+            ),
+        },
+    )
+    assert _strays(root) == []
+
+
 def test_a_test_or_docstring_use_does_not_count(tmp_path: Path) -> None:
     root = _tree(
         tmp_path,

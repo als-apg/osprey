@@ -1,7 +1,9 @@
 """Tests for the connectors shim, with the PV directory modules present and blocked.
 
 Blocking is the connectors floor: a release without those modules. The shim then
-binds every contract name to ``None`` and its payload helpers still answer.
+binds every contract name to ``None`` and its payload helpers still answer. The
+middle release has the directory but cannot list its servers: the directory's
+names are bound and only the listing's are ``None``.
 """
 
 from __future__ import annotations
@@ -70,6 +72,16 @@ def floor() -> Iterator[ModuleType]:
     importlib.reload(_connectors)
 
 
+@pytest.fixture
+def no_listing() -> Iterator[ModuleType]:
+    """The shim re-imported against a directory namespace that lacks ``ServerRow``."""
+    directory = pytest.importorskip("osprey_connectors.directory")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.delattr(directory, "ServerRow")
+        yield importlib.reload(_connectors)
+    importlib.reload(_connectors)
+
+
 class _Kind(StrEnum):
     ROW = "row"
 
@@ -119,6 +131,20 @@ def test_with_the_modules_every_name_is_bound() -> None:
     assert _connectors.SERVED_SIGNAL_PROPERTY is view.SERVED_SIGNAL_PROPERTY
     assert _connectors.has_simulator is simulator.has_simulator
     assert all(getattr(_connectors, name) is not None for name in _CONTRACT_NAMES)
+
+
+def test_with_the_modules_the_listing_is_bound() -> None:
+    directory = pytest.importorskip("osprey_connectors.directory")
+
+    assert _connectors.DIRECTORY_LISTING_AVAILABLE is True
+    assert _connectors.ServerRow is directory.ServerRow
+
+
+def test_a_directory_without_the_listing_keeps_the_directory(no_listing: ModuleType) -> None:
+    assert no_listing.DIRECTORY_CONNECTORS_AVAILABLE is True
+    assert all(getattr(no_listing, name) is not None for name in _CONTRACT_NAMES)
+    assert no_listing.DIRECTORY_LISTING_AVAILABLE is False
+    assert no_listing.ServerRow is None
 
 
 def test_as_payload_of_a_contract_record() -> None:
@@ -191,6 +217,11 @@ def test_floor_binds_every_contract_name_to_none(floor: ModuleType) -> None:
     assert {name: getattr(floor, name) for name in _CONTRACT_NAMES} == dict.fromkeys(
         _CONTRACT_NAMES
     )
+
+
+def test_floor_has_no_listing(floor: ModuleType) -> None:
+    assert floor.DIRECTORY_LISTING_AVAILABLE is False
+    assert floor.ServerRow is None
 
 
 def test_floor_payload_helpers_still_work(floor: ModuleType) -> None:

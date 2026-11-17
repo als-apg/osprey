@@ -246,6 +246,31 @@ def test_the_scan_sees_the_framework_imports():
     assert len(_framework_imports()) > 300
 
 
+# -- Extension points grow without breaking their subclasses ----------------
+
+
+def test_a_directory_backend_without_list_servers_answers_unavailable():
+    # ChannelDirectory is subclassed out of tree, so a method added to it after
+    # its first release has a default: a backend written before it still builds,
+    # and says it cannot list rather than giving an empty list.
+    import asyncio
+
+    from osprey_connectors.directory import ChannelDirectory
+    from osprey_connectors.service_answers import Unavailable
+
+    assert "list_servers" not in ChannelDirectory.__abstractmethods__
+    older = type(
+        "OlderDirectory",
+        (ChannelDirectory,),
+        dict.fromkeys(ChannelDirectory.__abstractmethods__),
+    )
+    assert not older.__abstractmethods__
+    answer = asyncio.run(older.list_servers(object.__new__(older), deadline=1.0))
+
+    assert isinstance(answer, Unavailable)
+    assert "cannot list" in answer.reason
+
+
 # -- Public signatures name only public types -------------------------------
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")

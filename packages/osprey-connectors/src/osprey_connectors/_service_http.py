@@ -10,7 +10,11 @@ are reads.
 An allowed path is exact, so ``/`` admits only the root and ``/search`` nothing
 beneath it, or ends in ``/*`` to admit plain segments under that prefix. Plain
 means letters, digits, ``_`` and ``-``: no dot segment, no percent escape and no
-query can walk a prefix somewhere else.
+query can walk a prefix somewhere else. A ``GET`` may instead put exactly one
+percent-encoded segment under the prefix, which is how a name such as a PV name
+travels as a path segment: unreserved characters and valid ``%XX`` escapes only,
+and once decoded it is UTF-8 holding no ``/``, ``\\`` or control character and
+is neither ``.`` nor ``..``, so it still names one thing under the prefix.
 
 Every failure is a value, because backends never raise. That covers a connection
 block that cannot be used: ``read_connection_settings`` and ``urllib_opener`` raise
@@ -70,6 +74,10 @@ _MAX_BODY_BYTES = 64 * 1024 * 1024
 #: Marks an allowed path as a prefix rather than an exact path.
 _PREFIX_MARK = "/*"
 _PLAIN_SEGMENTS = re.compile(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*")
+#: One segment as ``urllib.parse.quote(name, safe="")`` writes it.
+_ENCODED_SEGMENT = re.compile(r"(?:[A-Za-z0-9_.~-]|%[0-9A-Fa-f]{2})+")
+#: What a decoded segment may not hold: a separator or a control character.
+_UNSAFE_DECODED = re.compile(r"[/\\\x00-\x1f\x7f]")
 
 #: How far into a body the ``<html`` of a page with a comment or doctype first is looked for.
 _HTML_SNIFF_BYTES = 1024
@@ -77,6 +85,17 @@ _READ_CHUNK_BYTES = 65536
 
 #: A request's query: a mapping, or a sequence of pairs that may repeat a key.
 Params = Mapping[str, object] | Sequence[tuple[str, object]]
+
+
+def _one_encoded_segment(segment: str) -> bool:
+    """Whether *segment* is one percent-encoded path segment that stays one segment."""
+    if _ENCODED_SEGMENT.fullmatch(segment) is None:
+        return False
+    try:
+        decoded = urllib.parse.unquote(segment, errors="strict")
+    except UnicodeDecodeError:
+        return False
+    return decoded not in {".", ".."} and _UNSAFE_DECODED.search(decoded) is None
 
 
 class Transport(Protocol):
@@ -198,7 +217,10 @@ class ReadOnlyTransport:
         return any(
             allowed_method == method
             and path.startswith(prefix)
-            and _PLAIN_SEGMENTS.fullmatch(path[len(prefix) :])
+            and (
+                _PLAIN_SEGMENTS.fullmatch(path[len(prefix) :]) is not None
+                or (method == "GET" and _one_encoded_segment(path[len(prefix) :]))
+            )
             for allowed_method, prefix in self._prefixes
         )
 

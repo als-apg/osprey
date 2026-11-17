@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import time
+import urllib.parse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +25,8 @@ CHANNELFINDER = (
 )
 ALARM_LOGGER = (("GET", "/"), ("GET", "/search/*"))
 PUT_LOG = (("POST", "/search"),)
+#: A prefix that admits POST, to show the percent-encoded segment is a GET's only.
+SCROLLS = (("POST", "/scroll/*"),)
 JSON = "application/json"
 
 
@@ -144,6 +147,19 @@ def _serving(do_get: Callable[[BaseHTTPRequestHandler], None]) -> Iterator[ReadO
         (ALARM_LOGGER, "GET", "/search/alarm#frag"),
         (ALARM_LOGGER, "GET", "/searching/alarm"),
         (ALARM_LOGGER, "GET", "/search/*"),
+        (ALARM_LOGGER, "GET", "/search/%2e"),
+        (ALARM_LOGGER, "GET", "/search/%2E%2e"),
+        (ALARM_LOGGER, "GET", "/search/."),
+        (ALARM_LOGGER, "GET", "/search/.."),
+        (ALARM_LOGGER, "GET", "/search/SR%2Fadmin"),
+        (ALARM_LOGGER, "GET", "/search/SR%5Cadmin"),
+        (ALARM_LOGGER, "GET", "/search/SR%00"),
+        (ALARM_LOGGER, "GET", "/search/SR%3"),
+        (ALARM_LOGGER, "GET", "/search/SR%zz"),
+        (ALARM_LOGGER, "GET", "/search/SR%FF"),
+        (ALARM_LOGGER, "GET", "/search/SR%3A/x"),
+        (ALARM_LOGGER, "GET", "/search/SR:PV"),
+        (SCROLLS, "POST", "/scroll/SR01%3ABPM.X"),
         (PUT_LOG, "GET", "/search"),
         (PUT_LOG, "POST", "/autocomplete"),
         (PUT_LOG, "POST", "/search/x"),
@@ -175,6 +191,9 @@ async def test_a_refusal_comes_before_a_broken_connection_block():
         (ALARM_LOGGER, "GET", "/", "/"),
         (ALARM_LOGGER, "GET", "/search/alarm", "/search/alarm"),
         (ALARM_LOGGER, "GET", "/search/alarm/config", "/search/alarm/config"),
+        (ALARM_LOGGER, "GET", "/search/SR01%3ABPM.X", "/search/SR01%3ABPM.X"),
+        (ALARM_LOGGER, "GET", "/search/a%2Eb~c", "/search/a%2Eb~c"),
+        (ALARM_LOGGER, "GET", "/search/%C3%A9", "/search/%C3%A9"),
         (PUT_LOG, "POST", "/search", "/search"),
     ],
 )
@@ -185,6 +204,18 @@ async def test_an_allowed_request_is_sent(service, allowed, method, path, sent):
 
     assert answer == []
     assert [(r["method"], r["target"]) for r in service.received] == [(method, sent)]
+
+
+async def test_a_pv_name_quoted_as_one_segment_is_sent_unchanged(service):
+    segment = urllib.parse.quote("SR01:BPM04999.X", safe="")
+    service.answer(f"/search/{segment}", 200, JSON, b"[]")
+
+    answer = await _transport(service, ALARM_LOGGER).request(
+        "GET", f"/search/{segment}", deadline=5
+    )
+
+    assert answer == []
+    assert [r["target"] for r in service.received] == ["/search/SR01%3ABPM04999.X"]
 
 
 # --- what is sent -------------------------------------------------------------------
