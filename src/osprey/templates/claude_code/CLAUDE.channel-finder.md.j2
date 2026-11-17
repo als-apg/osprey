@@ -50,8 +50,16 @@ beside the curated channels. Its tools: {% for t in pv_directory_tools | default
   "unavailable" means the directory did not answer.
 - Build queries only from the user's words or property values the directory
   listed.
+{%- if pv_directory_fleet | default(false) %}
+- Which IOCs are down, and the fleet by host or class: `ioc_fleet` lists
+  every IOC of the session's target with its state.
+- Whether an IOC is alive, and its engineer: `ioc_record` carries its state
+  in "fleet". "unreached" and "unknown" mean the state is not known, not that
+  the IOC stopped.
+{%- else %}
 - Whether an IOC is alive, and its engineer: open its IOC page, the
   `links.panel` of `ioc_record`; the page reads its health channels.
+{%- endif %}
 - To show a channel or IOC, call `open_panel` with the result's `links.panel`.
   It opens the page in a new split tile, or focuses it when it is already on
   screen.

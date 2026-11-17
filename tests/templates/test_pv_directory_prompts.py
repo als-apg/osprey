@@ -25,6 +25,8 @@ _ALARM_STATE = {
     "settings": {"bootstrap_servers": "kafka.invalid:9092", "topic": "Accelerator"},
 }
 
+_FLEET = {**_DIRECTORY, "fleet": {}}
+
 _MAIN = "claude_code/CLAUDE.md.j2"
 _APP = "claude_code/CLAUDE.channel-finder.md.j2"
 _SUBAGENT = "claude_code/claude/agents/channel-finder.md.j2"
@@ -86,6 +88,7 @@ def test_a_full_section_lists_every_tool_in_registry_order(tmp_path: Path) -> No
         "alarm_log": _ALARM_LOG,
         "alarm_state": _ALARM_STATE,
         "put_log": {"type": "olog_put_log", "settings": {"url": "http://puts.invalid"}},
+        "fleet": {},
     }
     ctx = config_derived_context({"pv_directory": section}, tmp_path)
     assert ctx["pv_directory_tools"] == FRAMEWORK_SERVERS["pv-directory"].permissions_allow
@@ -190,3 +193,95 @@ def test_the_subagent_frontmatter_is_unchanged_without_the_server(tmp_path: Path
         "mcp__channel-finder__get_channels",
         "mcp__osprey_workspace__submit_response",
     ]
+
+
+# -- IOC liveness with the fleet on and off -----------------------------------
+
+#: The liveness line each arm renders with the fleet off, as before the fleet.
+_LIVENESS_WITHOUT_FLEET = {
+    _MAIN: (
+        "- Whether an IOC is alive, and its engineer: `ioc_record` names its health "
+        "channels; read them with `channel_read`. An advancing HEARTBEAT means alive.\n"
+    ),
+    _APP: (
+        "- Whether an IOC is alive, and its engineer: open its IOC page, the\n"
+        "  `links.panel` of `ioc_record`; the page reads its health channels.\n"
+    ),
+}
+
+
+def _without_controls(ctx: dict[str, Any]) -> dict[str, Any]:
+    return {**ctx, "enabled_servers": ctx["enabled_servers"] - {"controls"}}
+
+
+def test_the_fleet_tool_is_listed_only_with_the_fleet(tmp_path: Path) -> None:
+    assert (
+        "ioc_fleet"
+        in config_derived_context({"pv_directory": _FLEET}, tmp_path)["pv_directory_tools"]
+    )
+    assert (
+        "ioc_fleet"
+        not in config_derived_context({"pv_directory": _DIRECTORY}, tmp_path)["pv_directory_tools"]
+    )
+
+
+@pytest.mark.parametrize("template", [_MAIN, _APP])
+@pytest.mark.parametrize("controls", [True, False], ids=["controls", "no-controls"])
+def test_with_the_fleet_the_arm_names_ioc_fleet_and_the_record_state(
+    tmp_path: Path, template: str, controls: bool
+) -> None:
+    ctx = _context(tmp_path, _FLEET, served=True)
+    if not controls:
+        ctx = _without_controls(ctx)
+    arm = _arm(template, _render(template, ctx))
+    assert "`ioc_fleet`" in arm
+    assert "which iocs are down" in arm.lower()
+    assert "`ioc_record` carries its state" in arm
+    # Quoted, not backticked: a backticked word in a render is a tool name
+    # (tests/templates/test_shipped_prompt_registry.py).
+    assert '"unreached"' in arm and '"unknown"' in arm and "not that" in arm
+    assert "HEARTBEAT" not in arm
+    assert "channel_read" not in arm
+    assert "reads its health channels" not in arm
+    assert "`open_panel`" in arm
+    assert PROTOCOL_WORDS.search(arm) is None, arm
+
+
+@pytest.mark.parametrize("template", [_MAIN, _APP])
+@pytest.mark.parametrize("controls", [True, False], ids=["controls", "no-controls"])
+def test_without_the_fleet_the_arm_is_unchanged(
+    tmp_path: Path, template: str, controls: bool
+) -> None:
+    ctx = _context(tmp_path, _DIRECTORY, served=True)
+    if not controls:
+        ctx = _without_controls(ctx)
+    arm = _arm(template, _render(template, ctx))
+    assert "ioc_fleet" not in arm
+    assert "carries its state" not in arm
+    if template == _MAIN and not controls:
+        assert "open the IOC page from `ioc_record`'s `links.panel`" in arm
+    else:
+        assert _LIVENESS_WITHOUT_FLEET[template] in arm
+
+
+@pytest.mark.parametrize("template", [_MAIN, _APP])
+def test_the_fleet_changes_only_the_liveness_lines(tmp_path: Path, template: str) -> None:
+    off = _render(template, _context(tmp_path, _DIRECTORY, served=True))
+    on = _render(template, _context(tmp_path, _FLEET, served=True))
+    changed = [line for line in on.splitlines() if line not in off.splitlines()]
+    gone = [line for line in off.splitlines() if line not in on.splitlines()]
+    assert changed and gone
+    assert all("ioc" in line.lower() or line.startswith("  ") for line in changed + gone)
+    before, after = off.split(_ARM_HEADINGS[template], 1), on.split(_ARM_HEADINGS[template], 1)
+    assert before[0] == after[0]
+    assert before[1].split("\n## ", 1)[1] == after[1].split("\n## ", 1)[1]
+
+
+def test_the_subagent_changes_only_by_the_fleet_tool(tmp_path: Path) -> None:
+    def without_fleet_tool(text: str) -> str:
+        return text.replace("`ioc_fleet`, ", "").replace(" mcp__pv-directory__ioc_fleet,", "")
+
+    off = _render(_SUBAGENT, _context(tmp_path, _DIRECTORY, served=True))
+    on = _render(_SUBAGENT, _context(tmp_path, _FLEET, served=True))
+    assert "ioc_fleet" in on
+    assert without_fleet_tool(on) == off

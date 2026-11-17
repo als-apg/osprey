@@ -82,7 +82,10 @@ The directory is the control system's own list of every channel and IOC, beside 
 - Directory names are the control system's own, not curated: say so when you report one.
 - A "no_match" answer is not evidence that a channel does not exist; "unavailable" means the directory did not answer.
 - Build queries only from the user's words or property values the directory listed.
-{%- if "controls" in enabled_servers %}
+{%- if pv_directory_fleet | default(false) %}
+- Which IOCs are down, and the fleet by host or class: `ioc_fleet` lists every IOC of the session's target with its state.
+- Whether an IOC is alive, and its engineer: `ioc_record` carries its state in "fleet"; do not read its heartbeat. "unreached" and "unknown" mean the state is not known, not that the IOC stopped.
+{%- elif "controls" in enabled_servers %}
 - Whether an IOC is alive, and its engineer: `ioc_record` names its health channels; read them with `channel_read`. An advancing HEARTBEAT means alive.
 {%- else %}
 - Whether an IOC is alive, and its engineer: open the IOC page from `ioc_record`'s `links.panel`; the page reads its health channels.
