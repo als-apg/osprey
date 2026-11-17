@@ -16,7 +16,7 @@ import pytest
 
 from osprey.runtime import session as session_module
 from osprey.runtime.session import ControlSession
-from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors_tests._fake_connector import FakeConnector
@@ -49,7 +49,7 @@ def _write_record(state_dir: Path, *, target="va", generation=3) -> None:
         control_context.ControlContext(target=target, generation=generation),
         path=state_dir / control_context.RECORD_FILENAME,
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ def config_file(tmp_path, monkeypatch):
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -68,15 +68,15 @@ def config_file(tmp_path, monkeypatch):
         if name.startswith("OSPREY_CONTROL_TARGET") or name.startswith("EPICS_"):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield config
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture

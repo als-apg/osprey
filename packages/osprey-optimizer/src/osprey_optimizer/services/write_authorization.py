@@ -239,7 +239,7 @@ def retire_self_issued(grant: Any) -> None:
     from osprey_connectors import write_authorization as wa
     from osprey_connectors.identity import acting_identity
 
-    if grant is None or grant.approver.surface != wa.SELF_ISSUE_SURFACE:
+    if grant is None or grant.approver.surface != "write_switch":
         return
     try:
         wa.revoke_grants(by=acting_identity(), directory=wa.ledger_dir(), ids=[grant.id])

@@ -47,7 +47,7 @@ from osprey.interfaces.web_terminal.control_context_owner import (
     start_control_context_owner,
     terminal_identity,
 )
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.control_context import ControlContext, RecordWriter
 from osprey_connectors_tests._harness import _control_context_fixtures as fixtures
 
@@ -116,7 +116,7 @@ def liveness(monkeypatch):
 
 def read(root: Path) -> ControlContext | None:
     """The record as it is on disk right now, past the signature cache."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return control_context.read_record(path=control_context._record_path_under(root))
 
 
@@ -172,7 +172,7 @@ async def test_a_terminal_claims_over_a_live_controls_server(
         control_context_root,
         target="va",
         generation=2,
-        owned_by=fixtures.owner(kind=control_context.OWNER_CONTROLS_SERVER, pid=SERVER_PID),
+        owned_by=fixtures.owner(kind="controls_server", pid=SERVER_PID),
     )
 
     app = make_app()
@@ -190,7 +190,7 @@ async def test_an_unparseable_record_starts_a_fresh_one(control_context_root):
     path = control_context._record_path_under(control_context_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{not json at all", encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     await make_task(make_app()).tick_once()
 
@@ -400,7 +400,7 @@ async def test_a_request_for_the_target_the_deployment_is_on_is_applied_without_
     assert stored.generation == 6, "a switch that did not happen must not cost a generation"
     assert stored.last_switch is not None
     assert stored.last_switch.request_id == "r-1"
-    assert stored.last_switch.status == control_context.SWITCH_APPLIED
+    assert stored.last_switch.status == "applied"
     assert stored.last_switch.requested_by == "agent-7"
     assert not path.exists(), "an answered request is removed once the answer has stuck"
 
@@ -517,9 +517,7 @@ def test_the_identity_names_the_port_the_terminal_actually_listens_on(monkeypatc
 
     identity = terminal_identity()
 
-    assert identity == RecordWriter(
-        kind=control_context.OWNER_WEB_TERMINAL, pid=os.getpid(), port=8123
-    )
+    assert identity == RecordWriter(kind="web_terminal", pid=os.getpid(), port=8123)
 
 
 @pytest.mark.parametrize("declared", ["", "  ", "not-a-port"])
@@ -561,7 +559,7 @@ async def test_a_refused_switch_moves_neither_target_nor_generation(
     assert (stored.target, stored.generation) == ("va", 6)
     assert stored.last_switch is not None
     assert stored.last_switch.request_id == "r-6"
-    assert stored.last_switch.status == control_context.SWITCH_REFUSED
+    assert stored.last_switch.status == "refused"
     assert stored.last_switch.generation is None
     assert not path.exists()
 
@@ -619,7 +617,7 @@ async def test_an_eligible_request_is_applied_with_a_mint(
     assert (stored.target, stored.generation) == ("va", 7)
     assert stored.last_switch is not None
     assert stored.last_switch.request_id == "r-7"
-    assert stored.last_switch.status == control_context.SWITCH_APPLIED
+    assert stored.last_switch.status == "applied"
     assert stored.last_switch.generation == 7
     assert stored.last_switch.requested_by == "agent-7"
     assert not path.exists()
@@ -742,7 +740,7 @@ async def test_an_unreadable_render_refuses_a_request_naming_the_file(
     assert (stored.target, stored.generation) == ("live", 6)
     assert stored.last_switch is not None
     assert stored.last_switch.request_id == "r-9"
-    assert stored.last_switch.status == control_context.SWITCH_REFUSED
+    assert stored.last_switch.status == "refused"
     assert stored.last_switch.reason == "internal_error"
     assert str(config_file) in stored.last_switch.detail
     assert not request.exists()
@@ -790,7 +788,7 @@ async def test_a_gate_that_raises_is_refused_as_internal_error(
     assert (stored.target, stored.generation) == ("live", 6)
     assert stored.last_switch is not None
     assert stored.last_switch.request_id == "r-8"
-    assert stored.last_switch.status == control_context.SWITCH_REFUSED
+    assert stored.last_switch.status == "refused"
     assert stored.last_switch.reason == "internal_error"
     assert "RuntimeError: the gate is broken" in stored.last_switch.detail
     assert stored.last_switch.generation is None

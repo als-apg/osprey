@@ -39,7 +39,7 @@ from osprey.services.session_naming import (
     trim_title,
 )
 from osprey.stores.session_ledger import aware_time
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from tests.agent_record.fakes import FakeRecordClient
 
 ME = "alice"
@@ -63,11 +63,11 @@ class RecordingBroadcaster:
 def state_root(tmp_path, monkeypatch):
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _hub(since: str = SINCE) -> FastAPI:

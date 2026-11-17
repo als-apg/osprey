@@ -108,7 +108,7 @@ import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._deploy_support import wait_for_health
@@ -870,7 +870,7 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
         plan_args,
         client_id="bump-roundtrip-e2e",
         token=token,
-        owner=posture_store.current_owner(),
+        owner=write_switch.current_owner(),
     )
     _queue_drive.start_draining(BRIDGE_URL, token, run_id)
     status_body = _queue_drive.wait_for_terminal_status(

@@ -70,8 +70,6 @@ from osprey.interfaces.web_terminal.config_view import (
 )
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.control_context import (
-    OWNER_CONTROLS_SERVER,
-    OWNER_WEB_TERMINAL,
     ControlContext,
     RecordWriter,
     SwitchTerminus,
@@ -170,8 +168,8 @@ class ContextStoreUnavailable(ContextOwnerError):
 #: field name where the thing it names belongs. Unknown kinds keep their slug,
 #: which is still better than dropping the only clue about what holds the file.
 _OWNER_KIND_WORDS = {
-    OWNER_WEB_TERMINAL: "the web terminal",
-    OWNER_CONTROLS_SERVER: "the controls server",
+    "web_terminal": "the web terminal",
+    "controls_server": "the controls server",
 }
 
 
@@ -369,7 +367,7 @@ def terminal_identity() -> RecordWriter:
             "%s is %r, which is not a port; the record names none", WEB_PORT_ENV, declared
         )
         port = None
-    return RecordWriter(kind=OWNER_WEB_TERMINAL, pid=os.getpid(), port=port)
+    return RecordWriter(kind="web_terminal", pid=os.getpid(), port=port)
 
 
 @dataclass(frozen=True)
@@ -513,7 +511,7 @@ class ControlContextOwnerTask:
             # Already ours. Writing an unchanged record here would move the
             # file's signature once a second and wake every reader watching it.
             return Mutation.unchanged(None)
-        if owner is not None and owner.kind == OWNER_WEB_TERMINAL:
+        if owner is not None and owner.kind == "web_terminal":
             return Mutation.unchanged(owner)
         if record is None:
             return Mutation(

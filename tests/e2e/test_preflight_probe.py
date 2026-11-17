@@ -90,7 +90,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import format_failure, wait_for_health
@@ -479,7 +479,7 @@ def test_a_plan_naming_an_unserved_channel_is_refused_before_motion(
             ],
         },
         token=token,
-        owner=posture_store.current_owner(),
+        owner=write_switch.current_owner(),
         client_id=_QUEUE_CLIENT_ID,
         timeout=SCAN_TIMEOUT_SEC,
     )
@@ -554,7 +554,7 @@ def test_a_fully_reachable_plan_still_runs_to_completion(
             ],
         },
         token=token,
-        owner=posture_store.current_owner(),
+        owner=write_switch.current_owner(),
         client_id=_QUEUE_CLIENT_ID,
         timeout=SCAN_TIMEOUT_SEC,
     )

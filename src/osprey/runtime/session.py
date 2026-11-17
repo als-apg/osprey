@@ -44,7 +44,7 @@ never cancelled — the in-flight marker, the pin, the binding state, the
 execution verdict, the switch gate, the ``attempt`` record, the checked write
 and the outcome record — so a caller that stops waiting never cuts a write in
 half. Whether this login may write here is the execution verdict
-(:func:`~osprey_connectors.posture_store.execution_verdict`): one order shared
+(:func:`~osprey_connectors.write_switch.execution_verdict`): one order shared
 with every other write path, the session's hold included, and every refusal
 it decides names that verdict's reason in that verdict's words
 (:func:`~osprey_connectors.refusals.refusal_phrase`). At the ``asked``
@@ -130,7 +130,7 @@ if TYPE_CHECKING:
         ChannelValue,
         ControlSystemConnector,
     )
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.write_switch import WriteVerdict
 
 logger = get_logger("control_session")
 
@@ -194,7 +194,7 @@ _MARGIN_S = WRITE_MARGIN_S
 
 #: The environment variable naming the web terminal's session this process
 #: writes for, the key its hold is kept under. The verdict reads the same
-#: variable (``osprey_connectors.posture_store``); the session only watches the
+#: variable (``osprey_connectors.write_switch``); the session only watches the
 #: hold record it names, so a hold raised or answered shows without a restart.
 SESSION_KEY_ENV_VAR = "OSPREY_SESSION_ID"
 
@@ -365,14 +365,14 @@ def _keys_now(session_keys: SessionKeys) -> list[str] | None:
 def _verdict(target: str, session_keys: SessionKeys = None) -> WriteVerdict:
     """The execution verdict on a write by this login to *target* now.
 
-    :func:`~osprey_connectors.posture_store.execution_verdict`: the write
+    :func:`~osprey_connectors.write_switch.execution_verdict`: the write
     verdict's terms plus the hold of the sessions *session_keys* names (the
     environment's when ``None``). A config or a key list that cannot be read
     refuses as ``record_unavailable``. Never raises.
     """
     from osprey_connectors.config import get_config_value
-    from osprey_connectors.posture_store import Refused, execution_verdict
     from osprey_connectors.refusals import VerdictReason
+    from osprey_connectors.write_switch import Refused, execution_verdict
 
     try:
         section = get_config_value("control_system", {})
@@ -1250,7 +1250,7 @@ class ControlSession:
         allowed write ``switching`` while it sits on the read gateway. Only a
         block with both gateways chooses by the switch; one with a write gateway
         alone stays on it, and its writes are refused in software. The choice
-        follows :func:`~osprey_connectors.posture_store.write_verdict`, which has
+        follows :func:`~osprey_connectors.write_switch.write_verdict`, which has
         no hold term, so a hold never asks for another gateway. There is no
         public accessor for the choice, so this reads the attributes the
         connector's ``_role_refusal`` reads, and any other connector never lags.
@@ -1259,7 +1259,7 @@ class ControlSession:
         selected = getattr(connector, "_selected_role", None)
         if selected is None or not getattr(connector, "_write_gateway_configured", False):
             return False
-        from osprey_connectors.posture_store import write_verdict
+        from osprey_connectors.write_switch import write_verdict
 
         section = _control_system_section()
         blocks = section.get("connector")

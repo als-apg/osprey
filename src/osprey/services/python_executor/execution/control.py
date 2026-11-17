@@ -7,7 +7,7 @@ approval and oversight). This matters in scientific and industrial control
 environments, where code execution can have real-world physical consequences.
 
 Whether a run may write is not decided here. It is the write verdict's to decide
-(:func:`osprey_connectors.posture_store.write_verdict`): the executor's entry
+(:func:`osprey_connectors.write_switch.write_verdict`): the executor's entry
 gate, its launch pin and the connector's reference monitor all ask it about the
 control target the run is on, and refuse in its words.
 

@@ -1,7 +1,7 @@
 """A panel write is judged per write and per tick on the one execution verdict.
 
 Nothing about writes is rendered into DATA's environment. DATA reads the
-execution verdict (:func:`osprey_connectors.posture_store.execution_verdict`)
+execution verdict (:func:`osprey_connectors.write_switch.execution_verdict`)
 at every write and on every heartbeat tick, with the hold of every session the
 terminal runs: the sidecar names them in ``sessions.json`` in DATA's working
 directory and names the hold store in DATA's environment. No session, no hold.
@@ -56,10 +56,10 @@ from osprey.runtime import budget as budget_module
 from osprey.runtime.budget import write_budget
 from osprey.runtime.session import EXIT_BINDING_MOVED
 from osprey.runtime.session_outcomes import refusal_message
-from osprey_connectors import control_context, posture_store, session_hold
+from osprey_connectors import session_hold, testing, write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
-from osprey_connectors.posture_store import Allowed, Refused, WriteVerdict, _SessionHeld
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_switch import Allowed, Refused, WriteVerdict, _SessionHeld
 
 # The backend's fixtures and helpers: a real session over a recording machine,
 # bound to ``va@3`` with its switch allowed, the exit recorded.
@@ -151,22 +151,22 @@ def deployment(tmp_path, monkeypatch):
         if name.startswith(("CANOPY_", "OSPREY_CANOPY_", "OSPREY_CONTROL_TARGET")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         session_hold.HOLD_DIR_ENV_VAR,
     ):
         monkeypatch.delenv(name, raising=False)
     built = Deployment(tmp_path)
     monkeypatch.setenv("OSPREY_CONFIG", str(built.config_path))
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(built.state_dir))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(built.state_dir))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.chdir(tmp_path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield built
     for sidecar in built.sidecars:
         sidecar.stop()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _wait_for(predicate, timeout: float = 5.0) -> None:

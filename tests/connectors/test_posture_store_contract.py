@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import _control_state, control_context, testing, write_switch
 from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import write_control_context, write_payload
@@ -36,10 +36,10 @@ def data_root(tmp_path, monkeypatch):
     """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, caches cleared."""
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    control_context.invalidate_cache()
+    monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
+    testing.invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _write_record(
@@ -58,7 +58,7 @@ def _write_record(
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["posture"] = posture
     write_payload(path, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -67,7 +67,7 @@ def _switch_record(root: Path, *switched_on: str, target: str = "live") -> Path:
     path = write_control_context(
         root, target=target, owned_by=None, switch=dict.fromkeys(switched_on, "asked")
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -81,7 +81,7 @@ def _mirror() -> dict[str, str]:
     path = control_context.record_path()
     if path is None or not path.is_file():
         return {}
-    return posture_store._parse_posture_value(
+    return control_context._parse_posture_value(
         json.loads(path.read_text(encoding="utf-8")).get("posture")
     )
 
@@ -90,21 +90,21 @@ def _mirror() -> dict[str, str]:
 
 
 def test_root_prefers_the_env_stamp(data_root):
-    assert posture_store.state_dir() == data_root / "control_target" / acting_identity()
+    assert write_switch.state_dir() == data_root / "control_target" / acting_identity()
 
 
 def test_root_falls_back_to_the_shared_data_root(tmp_path, monkeypatch):
     monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
-    monkeypatch.setattr(posture_store, "resolve_shared_data_root", lambda: tmp_path / "var")
-    control_context.invalidate_cache()
-    assert posture_store.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
+    monkeypatch.setattr(_control_state, "resolve_shared_data_root", lambda: tmp_path / "var")
+    testing.invalidate_cache()
+    assert write_switch.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
 
 
 def test_blank_env_stamp_is_not_a_stamp(tmp_path, monkeypatch):
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, "   ")
-    monkeypatch.setattr(posture_store, "resolve_shared_data_root", lambda: tmp_path / "var")
-    control_context.invalidate_cache()
-    assert posture_store.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
+    monkeypatch.setattr(_control_state, "resolve_shared_data_root", lambda: tmp_path / "var")
+    testing.invalidate_cache()
+    assert write_switch.state_dir() == tmp_path / "var" / "control_target" / acting_identity()
 
 
 def test_unresolvable_root_answers_none(monkeypatch):
@@ -113,9 +113,9 @@ def test_unresolvable_root_answers_none(monkeypatch):
     def _boom():
         raise OSError("no project root")
 
-    monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
-    control_context.invalidate_cache()
-    assert posture_store.state_dir() is None
+    monkeypatch.setattr(_control_state, "resolve_shared_data_root", _boom)
+    testing.invalidate_cache()
+    assert write_switch.state_dir() is None
     # A caller that cannot resolve the root reads no record, not a crash.
     assert control_context.read_record() is None
 
@@ -131,16 +131,16 @@ def test_the_next_read_answers_once_the_root_is_back(tmp_path, monkeypatch):
     def _boom():
         raise RuntimeError("no project root")
 
-    monkeypatch.setattr(posture_store, "resolve_shared_data_root", _boom)
-    control_context.invalidate_cache()
+    monkeypatch.setattr(_control_state, "resolve_shared_data_root", _boom)
+    testing.invalidate_cache()
     assert _mirror() == {}
 
     root = tmp_path / "recovered"
-    _write_record(root, {"standin": posture_store.POSTURE_SANDBOX})
+    _write_record(root, {"standin": write_switch.LAUNCH_PIN_SANDBOX})
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
 
-    control_context.invalidate_cache()
-    assert _mirror() == {"standin": posture_store.POSTURE_SANDBOX}
+    testing.invalidate_cache()
+    assert _mirror() == {"standin": write_switch.LAUNCH_PIN_SANDBOX}
 
 
 @pytest.mark.usefixtures("data_root")
@@ -148,17 +148,17 @@ def test_the_posture_sits_beside_the_target_state_file():
     """FR9: co-sited with the state file — one directory, not two."""
     from osprey.mcp_server.control_system import target_state
 
-    assert posture_store.STATE_DIR_NAME == target_state.STATE_DIR_NAME
-    assert control_context.record_path().parent == posture_store.state_dir()
+    assert write_switch.CONTROL_STATE_DIR_NAME == target_state.CONTROL_STATE_DIR_NAME
+    assert control_context.record_path().parent == write_switch.state_dir()
 
 
 def test_the_retired_store_file_is_gone(data_root):
     """``session-postures.json`` is not written, not read, and not spelled here."""
-    assert not hasattr(posture_store, "STORE_FILENAME")
+    assert not hasattr(write_switch, "STORE_FILENAME")
     for retired in ("store_path", "load_store", "session_map"):
-        assert not hasattr(posture_store, retired), retired
+        assert not hasattr(write_switch, retired), retired
 
-    stale = data_root / posture_store.STATE_DIR_NAME / "session-postures.json"
+    stale = data_root / write_switch.CONTROL_STATE_DIR_NAME / "session-postures.json"
     stale.parent.mkdir(parents=True, exist_ok=True)
     stale.write_text(json.dumps({"s1": {"live": "sandbox"}}), encoding="utf-8")
     _switch_record(data_root, "live")
@@ -177,36 +177,36 @@ def test_the_retired_store_file_is_gone(data_root):
 
 
 def test_bare_sandbox_expands_to_every_target():
-    assert posture_store._parse_posture_value("sandbox") == dict.fromkeys(
+    assert control_context._parse_posture_value("sandbox") == dict.fromkeys(
         CONTROL_TARGETS, "sandbox"
     )
 
 
 def test_bare_writes_is_dropped():
-    assert posture_store._parse_posture_value("writes") == {}
+    assert control_context._parse_posture_value("writes") == {}
 
 
 def test_unknown_values_are_dropped():
-    assert posture_store._parse_posture_value("readonly") == {}
-    assert posture_store._parse_posture_value(7) == {}
-    assert posture_store._parse_posture_value(None) == {}
+    assert control_context._parse_posture_value("readonly") == {}
+    assert control_context._parse_posture_value(7) == {}
+    assert control_context._parse_posture_value(None) == {}
 
 
 def test_per_target_values_are_validated_the_same_way():
-    parsed = posture_store._parse_posture_value(
+    parsed = control_context._parse_posture_value(
         {"live": "sandbox", "va": "writes", "standin": "nonsense", 7: "sandbox"}
     )
     assert parsed == {"live": "sandbox"}
 
 
 def test_a_map_that_narrows_nothing_is_dropped():
-    assert posture_store._parse_posture_value({"live": "writes"}) == {}
-    assert posture_store._parse_posture_value({}) == {}
+    assert control_context._parse_posture_value({"live": "writes"}) == {}
+    assert control_context._parse_posture_value({}) == {}
 
 
 def test_a_shape_the_grammar_does_not_know_is_tolerated():
-    assert posture_store._parse_posture_value([1, 2, 3]) == {}
-    assert posture_store._parse_posture_value({7: "sandbox"}) == {}
+    assert control_context._parse_posture_value([1, 2, 3]) == {}
+    assert control_context._parse_posture_value({7: "sandbox"}) == {}
 
 
 def test_the_record_reader_does_not_read_the_mirror(data_root):
@@ -281,9 +281,9 @@ def test_a_moved_root_is_seen(data_root, tmp_path, monkeypatch):
 
 def _provision_tree(root: Path) -> Path:
     """A marked, readable tree at ``<root>/control_target`` — what the build leaves."""
-    tree = root / posture_store.STATE_DIR_NAME
+    tree = root / write_switch.CONTROL_STATE_DIR_NAME
     tree.mkdir(parents=True, exist_ok=True)
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    (tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
     return tree
 
 
@@ -297,13 +297,13 @@ def _write_tree_record(tree: Path, owner: str, switched_on=(), *, target: str = 
         switch_epoch=1,
     )
     write_payload(path, record.model_dump(mode="json"))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
 def _read_tree(tree: Path, owner: str):
     """``(record, unavailable)`` — the tree reader's answer for *owner*."""
-    read = posture_store._read_tree_context(tree, owner)
+    read = control_context.read_tree_context(tree, owner)
     return read.record, read.unavailable
 
 
@@ -311,8 +311,8 @@ def test_the_tree_marker_filename_agrees_with_the_build():
     """The reader restates the build's filename; a drift here fails the tree open."""
     from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
 
-    assert posture_store.CONTROL_TREE_MARKER_NAME == CONTROL_TREE_MARKER_NAME
-    assert "CONTROL_TREE_MARKER_NAME" in posture_store.__all__
+    assert write_switch.CONTROL_TREE_MARKER_NAME == CONTROL_TREE_MARKER_NAME
+    assert "CONTROL_TREE_MARKER_NAME" in write_switch.__all__
 
 
 def test_a_record_in_the_tree_is_its_own_owners(tmp_path):
@@ -351,7 +351,7 @@ def test_a_record_in_the_tree_pointed_at_another_target_still_answers_per_machin
 
 def test_an_unmarked_tree_is_unavailable(tmp_path):
     """A bind whose source the runtime auto-created empty must not fail open."""
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
     tree.mkdir()
     _write_tree_record(tree, "alice", ALL_ON)
 
@@ -364,7 +364,7 @@ def test_an_unmarked_tree_is_unavailable(tmp_path):
 
 
 def test_a_missing_tree_is_unavailable(tmp_path):
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
 
     record, unavailable = _read_tree(tree, "alice")
     assert record is None
@@ -436,7 +436,7 @@ def test_a_corrupt_or_foreign_record_in_the_tree_is_unavailable(tmp_path):
         json.dumps({"schema": 1, "target": "elsewhere", "generation": 0, "posture": "sandbox"}),
     ):
         path.write_text(payload, encoding="utf-8")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         record, unavailable = _read_tree(tree, "alice")
         assert record is None, payload
         assert unavailable is not None, payload
@@ -448,7 +448,7 @@ def test_an_undecodable_record_in_the_tree_is_unavailable(tmp_path):
     path = tree / "alice" / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True)
     path.write_bytes(b"\xff\xfe{\x00k\x00: sandbox}")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     record, unavailable = _read_tree(tree, "alice")
     assert record is None
@@ -480,47 +480,47 @@ def test_the_tree_reader_does_not_route_through_the_host_readers(tmp_path, monke
 
 
 def test_the_tree_bind_is_read_through_one_normalisation(tmp_path, monkeypatch):
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, f"  {tmp_path}  ")
-    assert posture_store._control_context_tree() == tmp_path
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, f"  {tmp_path}  ")
+    assert _control_state.control_context_tree() == tmp_path
 
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "   ")
-    assert posture_store._control_context_tree() is None
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "   ")
+    assert _control_state.control_context_tree() is None
 
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
-    assert posture_store._control_context_tree() is None
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
+    assert _control_state.control_context_tree() is None
 
 
 def test_a_relative_tree_or_dir_bind_is_no_bind(monkeypatch, caplog):
     """A bind names a path in the container's own filesystem; relative is a mistake."""
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "control_target")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, "state/mine")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "control_target")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, "state/mine")
 
-    with caplog.at_level(logging.WARNING, logger="osprey_connectors.posture_store"):
-        assert posture_store._control_context_tree() is None
-        assert posture_store.bound_state_dir() is None
+    with caplog.at_level(logging.WARNING, logger="osprey_connectors.write_switch"):
+        assert _control_state.control_context_tree() is None
+        assert write_switch.bound_state_dir() is None
 
-    assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in caplog.text
-    assert posture_store.CONTROL_CONTEXT_DIR_ENV_VAR in caplog.text
+    assert write_switch.CONTROL_CONTEXT_TREE_ENV_VAR in caplog.text
+    assert write_switch.CONTROL_CONTEXT_DIR_ENV_VAR in caplog.text
 
 
 def test_a_tree_or_dir_bind_expands_a_tilde(monkeypatch):
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, "~/state/control_target/alice")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "~/state/control_target")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, "~/state/control_target/alice")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "~/state/control_target")
 
-    assert posture_store.bound_state_dir() == Path.home() / "state/control_target/alice"
-    assert posture_store._control_context_tree() == Path.home() / "state/control_target"
+    assert write_switch.bound_state_dir() == Path.home() / "state/control_target/alice"
+    assert _control_state.control_context_tree() == Path.home() / "state/control_target"
 
 
 def test_a_tree_or_dir_bind_naming_an_unknown_user_does_not_raise(monkeypatch):
     """``Path.expanduser`` raises for ``~nosuchuser``; the ``os.path`` form does not."""
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, "~nosuchuser0/state")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "~nosuchuser0/control_target")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, "~nosuchuser0/state")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "~nosuchuser0/control_target")
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, "~nosuchuser0/agent_data")
 
     # Left unexpanded it is not absolute, so it is no bind — and never an exception.
-    assert posture_store.bound_state_dir() is None
-    assert posture_store._control_context_tree() is None
-    assert posture_store.stamped_agent_data_root() == Path("~nosuchuser0/agent_data")
+    assert write_switch.bound_state_dir() is None
+    assert _control_state.control_context_tree() is None
+    assert write_switch.stamped_agent_data_root() == Path("~nosuchuser0/agent_data")
 
 
 # The tree root is group-writable (2770) and its group is shared with accounts
@@ -560,11 +560,11 @@ def test_a_symlinked_owner_directory_in_the_tree_is_unavailable(tmp_path):
 
 def test_a_symlinked_tree_marker_is_unavailable(tmp_path):
     """A link here would let any account in the group declare an unbuilt tree built."""
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
     tree.mkdir()
     elsewhere = tmp_path / "somebodys-file"
     elsewhere.write_text("not the build's marker\n", encoding="utf-8")
-    marker = tree / posture_store.CONTROL_TREE_MARKER_NAME
+    marker = tree / write_switch.CONTROL_TREE_MARKER_NAME
     marker.symlink_to(elsewhere)
 
     record, unavailable = _read_tree(tree, "alice")
@@ -575,8 +575,8 @@ def test_a_symlinked_tree_marker_is_unavailable(tmp_path):
 
 
 def test_a_tree_marker_that_is_not_a_file_is_unavailable(tmp_path):
-    tree = tmp_path / posture_store.STATE_DIR_NAME
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).mkdir(parents=True)
+    tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
+    (tree / write_switch.CONTROL_TREE_MARKER_NAME).mkdir(parents=True)
 
     record, unavailable = _read_tree(tree, "alice")
     assert record is None
@@ -588,13 +588,13 @@ def test_a_tree_marker_that_is_not_a_file_is_unavailable(tmp_path):
 def bound_tree(tmp_path, monkeypatch):
     """A provisioned read-only tree bound in, with no owner named anywhere yet."""
     tree = _provision_tree(tmp_path)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    control_context.invalidate_cache()
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_OWNER_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
+    testing.invalidate_cache()
     yield tree
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def test_an_oversized_record_in_the_tree_is_unavailable(bound_tree):
@@ -608,7 +608,7 @@ def test_an_oversized_record_in_the_tree_is_unavailable(bound_tree):
     path = bound_tree / "alice" / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True)
     path.write_text("x" * (64 * 1024 + 1), encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     record, unavailable = _read_tree(bound_tree, "alice")
     assert record is None

@@ -8,17 +8,17 @@ from pathlib import Path
 import pytest
 
 from osprey.apps.sdk import owner_target
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, write_switch
 
 VA_DEPLOYMENT = {"type": "virtual_accelerator"}
 
 
 @pytest.fixture
 def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
     tree.mkdir()
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+    (tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
     return tree
 
 
@@ -54,7 +54,7 @@ def test_a_call_naming_nobody_is_answered_from_the_baseline(tree: Path) -> None:
 def test_a_render_with_no_tree_is_answered_from_the_baseline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
     assert owner_target(VA_DEPLOYMENT, "alice") == "va"
 
 
@@ -66,7 +66,7 @@ def test_a_record_that_cannot_be_read_names_no_machine(tree: Path) -> None:
 def test_a_tree_that_is_not_provisioned_names_no_machine(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tmp_path / "absent"))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tmp_path / "absent"))
     assert owner_target(VA_DEPLOYMENT, "alice") is None
 
 

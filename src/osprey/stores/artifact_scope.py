@@ -139,7 +139,7 @@ def scope_for(transcript: str | None, ledger: Ledger | None, ledger_ok: bool) ->
 def read_ledger() -> tuple[LedgerRows, bool]:
     """The hub's session ledger and whether it could be read. Never raises."""
     try:
-        from osprey_connectors.posture_store import state_dir
+        from osprey_connectors.write_switch import state_dir
 
         location = state_dir()
     except Exception:

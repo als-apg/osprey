@@ -121,7 +121,7 @@ try:
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None  # type: ignore[assignment]  # the sibling is absent
 
-#: The read-only run, restated from ``osprey_connectors.posture_env``: the
+#: The read-only run, restated from ``osprey_connectors.execution_mode``: the
 #: variable and the one value of it that sandboxes. Spelled here rather than
 #: taken from the reader above, because stage 1 must answer even where that
 #: sibling is missing. ``tests/hooks/test_posture_store_parity.py`` holds both

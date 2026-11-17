@@ -38,7 +38,7 @@ from osprey.runtime.guarded_run import (
     lock,
     target_limits_off,
 )
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
@@ -116,8 +116,8 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in ("OSPREY_CONFIG", "CONFIG_FILE", "OSPREY_EXECUTION_MODE", ENV_CONTROL_IDENTITY):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv(ENV_CONTROL_TARGET, "live")
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "alice")
     yield root
     reset_config_cache()
 
@@ -317,7 +317,7 @@ async def test_a_command_write_under_a_lock_without_a_context_is_refused() -> No
 async def test_a_command_write_for_another_owner_than_the_runs_is_refused(
     monkeypatch: pytest.MonkeyPatch, recorded_entries
 ) -> None:
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "bob")
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "bob")
 
     assert "'bob'" in (await _refused(_Connector(), [ARM])).reason
     [record] = _command_write_records(recorded_entries)
@@ -326,7 +326,7 @@ async def test_a_command_write_for_another_owner_than_the_runs_is_refused(
 
 
 async def test_a_command_write_while_the_owner_bound_for_the_plan_differs_is_refused() -> None:
-    with posture_store.bind_owner({posture_store.RESERVED_OWNER_KWARG: "bob"}):
+    with write_switch.bind_owner({write_switch.RESERVED_OWNER_KWARG: "bob"}):
         assert "'bob'" in (await _refused(_Connector(), [ARM])).reason
 
 
@@ -339,8 +339,8 @@ async def test_a_command_write_in_a_run_that_belongs_to_nobody_is_refused() -> N
 async def test_a_command_write_when_the_write_path_names_no_owner_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR)
-    monkeypatch.setattr(posture_store, "current_owner", lambda: posture_store.NO_OWNER)
+    monkeypatch.delenv(write_switch.CONTROL_OWNER_ENV_VAR)
+    monkeypatch.setattr(write_switch, "current_owner", lambda: write_switch.NO_OWNER)
 
     assert "nobody" in (await _refused(_Connector(), [ARM])).reason
 

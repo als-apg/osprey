@@ -48,7 +48,7 @@ from osprey.mcp_server.dispatch_worker.prior_answers import (
     format_run_ids,
     keep_run_ids,
 )
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, DISPATCH_RUN_ENV_VAR, NO_OWNER
+from osprey_connectors.write_switch import CONTROL_OWNER_ENV_VAR, DISPATCH_RUN_ENV_VAR, NO_OWNER
 
 if TYPE_CHECKING:
     from osprey.agent_runner.tool_policy import AgentSurfaces

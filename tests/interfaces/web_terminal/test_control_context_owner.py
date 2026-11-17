@@ -38,13 +38,13 @@ from osprey.interfaces.web_terminal.control_context_owner import (
     ControlContextOwner,
     Mutation,
 )
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.control_context import ControlContext, RecordWriter, SwitchTerminus
 from osprey_connectors.model import evolve
 
-TERMINAL = RecordWriter(kind=control_context.OWNER_WEB_TERMINAL, pid=4242, port=8080)
-OTHER_TERMINAL = RecordWriter(kind=control_context.OWNER_WEB_TERMINAL, pid=9999, port=8090)
-SERVER = RecordWriter(kind=control_context.OWNER_CONTROLS_SERVER, pid=7777)
+TERMINAL = RecordWriter(kind="web_terminal", pid=4242, port=8080)
+OTHER_TERMINAL = RecordWriter(kind="web_terminal", pid=9999, port=8090)
+SERVER = RecordWriter(kind="controls_server", pid=7777)
 
 #: A sample change for a mutation to make: a ``last_switch`` terminus.
 MARK = SwitchTerminus.unchanged(
@@ -55,9 +55,9 @@ MARK = SwitchTerminus.unchanged(
 @pytest.fixture(autouse=True)
 def _forget_the_parsed_record():
     """The record cache is process-global; no test may inherit another's."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ def context_owner(record_file: Path) -> ControlContextOwner:  # noqa: ARG001
 
 def read(path: Path) -> ControlContext | None:
     """The record as it is on disk right now, past the signature cache."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return control_context.read_record(path=path)
 
 

@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import control_context, posture_store, session_hold
+from osprey_connectors import control_context, session_hold, testing, write_switch
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.model import evolve
@@ -84,7 +84,7 @@ def spend(section: Any, target: str, operations: Any, *, authorization: str) -> 
 
 
 def epoch() -> int:
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     record = control_context.read_record()
     assert record is not None and isinstance(record.switch_epoch, int)
     return record.switch_epoch
@@ -168,7 +168,7 @@ class TestStopRevokes:
         start_lease(grant.id)
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
         control_context.set_switch([TARGET], "off")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         answer = spend(SECTION, TARGET, OPS, authorization=grant.id)
         assert (answer.allowed, answer.reason) == (False, "auth_revoked")
         assert ME in (answer.detail or "")
@@ -224,7 +224,7 @@ class TestStopRevokes:
 
         monkeypatch.setattr(wa, "revoke_grants", jammed)
         stored = control_context.set_switch([TARGET], "off")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         record = control_context.read_record()
         assert stored is not None and record is not None
         assert record.switch_epoch == stored.switch_epoch
@@ -241,7 +241,7 @@ class TestStopRevokes:
         _issue_grant(on_live)
         before = epoch()
         stored = control_context.set_switch([TARGET], "off", by=" alice")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         record = control_context.read_record()
         assert stored is not None and record is not None
         assert control_context.switch_position(record, TARGET) == "off"
@@ -393,7 +393,7 @@ class TestRequestFormat:
         }
 
     def test_a_holder_with_no_owner_cannot_ask(self, monkeypatch):
-        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
+        monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
         with pytest.raises(AuthorizationRefusedError) as refused:
             ask()
         assert refused.value.reason == "owner_unknown"
@@ -628,7 +628,7 @@ class TestPruneAndShow:
 
     def test_in_force_is_live_under_the_records_epoch(self):
         grant = make_grant()
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         record = control_context.read_record()
         assert _grant_in_force(grant, record)
         assert not _grant_in_force(grant, None)
@@ -639,16 +639,16 @@ class TestPruneAndShow:
     def test_a_self_issued_grant_is_in_force_only_at_allowed(self):
         control_context.set_switch([TARGET], "allowed", epoch=epoch())
         grant = make_grant(approver=Approver(by=ME, surface="write_switch", approved_at=T0))
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         assert _grant_in_force(grant, control_context.read_record())
         control_context.set_switch([TARGET], "asked")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         assert not _grant_in_force(grant, control_context.read_record())
 
     def test_a_grant_its_ledger_ended_is_not_in_force(self):
         grant = make_grant(steps=1)
         _issue_grant(grant)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         record = control_context.read_record()
         ledgers = [own_dir()]
         assert wa.grant_standing(grant, record, ledgers) == wa.GrantStanding(
@@ -665,7 +665,7 @@ class TestPruneAndShow:
         grant = make_grant()
         _issue_grant(grant)
         start_lease(grant.id)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         record = control_context.read_record()
         assert wa.grant_standing(grant, record, [own_dir()]).in_force
         later = wa.grant_standing(grant, record, [own_dir()], now=FAR_FUTURE - TICK)
@@ -675,7 +675,7 @@ class TestPruneAndShow:
         grant = make_grant()
         _issue_grant(grant)
         (own_dir() / f"{grant.id}.ledger.json").write_text("{")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         standing = wa.grant_standing(grant, control_context.read_record(), [own_dir()])
         assert standing.steps_spent is None and standing.ledger is None
 

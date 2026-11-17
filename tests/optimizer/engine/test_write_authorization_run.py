@@ -26,7 +26,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.refusals import VerdictReason
 from osprey_connectors_tests._harness import write_payload
@@ -88,14 +88,14 @@ def _record(tree: Path, state: str) -> None:
     ).model_dump(mode="json")
     payload["switch"] = {TARGET: state}
     write_payload(tree / OWNER / control_context.RECORD_FILENAME, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class Deployment:
     """The optimizer container's write path, and the run driven over it."""
 
     def __init__(self, tmp_path: Path) -> None:
-        self.tree = tmp_path / posture_store.STATE_DIR_NAME
+        self.tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
         self.ledger = tmp_path / "write_ledger"
         self.states: list[dict[str, Any]] = []
         self.authority: WriteAuthority | None = None
@@ -207,13 +207,13 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Depl
 
     built = Deployment(tmp_path)
     built.tree.mkdir()
-    (built.tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n")
+    (built.tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n")
     built.ledger.mkdir()
     built.switch("off")
 
     for name in (
-        posture_store.DISPATCH_RUN_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.DISPATCH_RUN_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
         "OSPREY_SESSION_ID",
         wa.AUTHORIZATION_ENV_VAR,
@@ -221,11 +221,11 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Depl
         wa.LEDGER_VIEW_DIR_ENV_VAR,
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "unset-by-the-fixture")
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "unset-by-the-fixture")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("CONFIG_FILE", str(config))
     monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", HOLDER)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(built.tree))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(built.tree))
     monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(built.ledger))
     monkeypatch.setenv(
         "PYTHONPATH",
@@ -235,12 +235,12 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Depl
     )
     monkeypatch.setattr(run_auth, "POLL_S", 0.05)
     stamp_owner(OWNER)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     random.seed(7)
     yield built
     install_process_authority(None)
     iface_module.reset_bridge()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _approve_when_asked(deployment: Deployment) -> threading.Thread:
@@ -269,7 +269,7 @@ def test_at_allowed_the_run_self_issues_and_spends_one_step_per_evaluation_and_o
 
     grant_id = deployment.granted_id()
     granted = next(s for s in deployment.states if s.get("state") == "granted")
-    assert granted["approver"] == wa.SELF_ISSUE_SURFACE
+    assert granted["approver"] == "write_switch"
     assert granted["steps"] == EVALUATIONS + 1
     assert granted["completion"] == "apply_best"
     # The grant is in the run's own ledger directory, never in the read-only tree.
@@ -665,7 +665,7 @@ def test_a_manual_write_at_allowed_is_one_self_issued_step_at_exactly_its_values
     assert deployment.values() == {A: 1.5, B: -1.0}
     grant = _only_grant(deployment.ledger)
     assert grant.owner == OWNER and grant.holder == HOLDER
-    assert grant.approver.surface == wa.SELF_ISSUE_SURFACE
+    assert grant.approver.surface == "write_switch"
     assert grant.steps == 1
     assert dict(grant.channels) == {
         A: wa.ChannelRange(min=1.5, max=1.5),

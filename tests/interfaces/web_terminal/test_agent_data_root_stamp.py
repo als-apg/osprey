@@ -67,7 +67,12 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.pty_manager import env_fingerprint
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import (
+    _control_state,
+    connector_types,
+    testing,
+    write_switch,
+)
 from osprey_connectors.ipc._launch import host_env
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -78,8 +83,8 @@ OPERATOR_KEY = "operator-deadbeef"
 
 EXECUTION_MODE_ENV = "OSPREY_EXECUTION_MODE"
 
-POSTURE_SANDBOX = posture_store.POSTURE_SANDBOX
-POSTURE_WRITES = posture_store.POSTURE_WRITES
+POSTURE_SANDBOX = write_switch.LAUNCH_PIN_SANDBOX
+POSTURE_WRITES = write_switch.LAUNCH_PIN_WRITES
 
 
 # --------------------------------------------------------------------------- #
@@ -108,7 +113,7 @@ def shared_root(tmp_path, monkeypatch):
       empty dict and only adds — which is exactly why naming the PTY case here
       would misstate the risk.
 
-    ``posture_store``'s own binding is rebound too, imported by name at module
+    ``write_switch``'s own binding is rebound too, imported by name at module
     load, or the record these tests read would be the real repo's
     ``var/agent_data/control_target/control_context.json``.
 
@@ -129,11 +134,11 @@ def shared_root(tmp_path, monkeypatch):
             "osprey_connectors.workspace.resolve_shared_data_root",
             return_value=root,
         ),
-        patch.object(posture_store, "resolve_shared_data_root", return_value=root),
+        patch.object(_control_state, "resolve_shared_data_root", return_value=root),
     ):
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         yield root
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
 
 # ``shared_root`` rebinds the agent-data resolver every app this factory builds reads.
@@ -183,7 +188,7 @@ def _seed_posture(write_control_context, root, posture):
     narrowed = posture == POSTURE_SANDBOX
     write_control_context(
         root,
-        posture=dict.fromkeys(posture_store.CONTROL_TARGETS, POSTURE_SANDBOX) if narrowed else {},
+        posture=dict.fromkeys(connector_types.CONTROL_TARGETS, POSTURE_SANDBOX) if narrowed else {},
     )
 
 

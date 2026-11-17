@@ -17,12 +17,7 @@ from osprey.audit import writer
 from osprey.audit.envelope import MAX_DETAIL_CHARS
 from osprey.services.bluesky_bridge import preflight
 from osprey.services.bluesky_bridge.preflight import ProbeOutcome, probe_before_motion
-from osprey_connectors.posture_store import (
-    NO_OWNER,
-    RESERVED_OWNER_KWARG,
-    bind_owner,
-    bound_owner,
-)
+from osprey_connectors.write_switch import NO_OWNER, RESERVED_OWNER_KWARG, bind_owner, bound_owner
 
 
 class _Connector:

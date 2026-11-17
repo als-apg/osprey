@@ -72,8 +72,8 @@ from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.control_system import ControlSystem
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from osprey_connectors.targets import baseline_target, resolve_target
+from osprey_connectors.write_switch import RESERVED_OWNER_KWARG
 
 _log = logging.getLogger(__name__)
 

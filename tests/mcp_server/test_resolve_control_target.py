@@ -27,7 +27,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.mcp_server.control_system import target_banner
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 
 #: A baseline no record can name, so a test cannot pass by accident when the
 #: reader answers with a real target that happens to match.
@@ -58,6 +58,6 @@ def test_a_corrupt_record_answers_the_baseline(control_context_root):
     path = control_context._record_path_under(control_context_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('{"schema": 1, "target": "va"', encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     assert target_banner.resolve_control_target(SENTINEL) == SENTINEL

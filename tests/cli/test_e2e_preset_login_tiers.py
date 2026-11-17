@@ -111,7 +111,7 @@ def single_user_repo(tmp_path_factory) -> Path:
 
 
 def test_dispatch_deploy_maps_the_firing_user_at_an_arming_tier(dispatch_repo: Path) -> None:
-    from osprey_connectors.posture_store import owner_tier_term
+    from osprey_connectors.write_switch import owner_tier_term
 
     user = dispatch_e2e.FIRING_USER
     for rel, section in _staged_sections(dispatch_repo).items():
@@ -135,7 +135,7 @@ def test_dispatch_worker_runs_the_tier_the_e2e_expects(dispatch_repo: Path) -> N
 
 
 def test_single_user_maps_the_host_identity_at_the_root_tier(single_user_repo: Path) -> None:
-    from osprey_connectors.posture_store import owner_tier_term
+    from osprey_connectors.write_switch import owner_tier_term
     from osprey_connectors.write_tier import tier_writes
 
     rendered = _load(single_user_repo / "build" / "config.yml")

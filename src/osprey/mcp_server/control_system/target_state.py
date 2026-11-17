@@ -28,7 +28,7 @@ the session-scoped root appends ``sessions/<OSPREY_SESSION_ID>``, which a reader
 outside the server's environment cannot reproduce.
 
 The whole directory is overridden by
-:data:`~osprey_connectors.posture_store.CONTROL_CONTEXT_DIR_ENV_VAR` when a
+:data:`~osprey_connectors.write_switch.CONTROL_CONTEXT_DIR_ENV_VAR` when a
 container carries the bind, and the root alone by
 :data:`~osprey.audit.posture.OSPREY_AGENT_DATA_ROOT`
 when the environment carries it. The web terminal's spawn sites stamp the root
@@ -49,7 +49,7 @@ fixed and greppable:
   ``agent_data.base_dir`` moves this directory somewhere a stdlib-only hook does
   not look; the hook then finds no state and falls back to the deployment
   baseline, which is the documented fail-closed outcome rather than a wrong one;
-* fixed subdirectory: :data:`STATE_DIR_NAME` (``control_target``);
+* fixed subdirectory: :data:`CONTROL_STATE_DIR_NAME` (``control_target``);
 * one directory inside it per identity, named by the ladder
   :mod:`osprey_connectors.identity` owns — which the hook restates too, for
   the same reason it restates everything else here. A hook that resolved a
@@ -195,9 +195,9 @@ from pathlib import Path
 from typing import Any, Final
 
 from osprey.audit.posture import posture_session
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, write_switch
 from osprey_connectors.connector_types import ControlTarget, is_control_target
-from osprey_connectors.control_context import ServerReport, SwitchProgress
+from osprey_connectors.control_context import ServerReport, SwitchProgress, SwitchProgressStatus
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import evolve, parse_instant
 from osprey_connectors.workspace import resolve_shared_data_root
@@ -217,20 +217,19 @@ TARGET_NAMES: tuple[ControlTarget, ...] = (TARGET_LIVE, TARGET_VA, TARGET_STANDI
 
 #: Fixed subdirectory of the agent-data root, holding one directory per
 #: identity. Part of the path contract above, and taken from
-#: :mod:`osprey_connectors.control_context` for the same reason the report
+#: :mod:`osprey_connectors.write_switch` for the same reason the report
 #: names below are: the record and these reports share one directory, and two
 #: spellings of it would make it two. Only the stdlib-only hooks, which can
 #: import neither, restate the literal.
-STATE_DIR_NAME = control_context.STATE_DIR_NAME
+CONTROL_STATE_DIR_NAME = write_switch.CONTROL_STATE_DIR_NAME
 
 #: One report file per server process. The PID in the name is what makes a
 #: stale report sweepable without opening it. Taken from
-#: :mod:`osprey_connectors.control_context` rather than re-spelled here: the
-#: writer and the readers that glob for it must not be able to disagree about
-#: which family of files this is.
-REPORT_FILE_PREFIX = control_context.REPORT_FILE_PREFIX
-REPORT_FILE_SUFFIX = control_context.REPORT_FILE_SUFFIX
+#: :mod:`osprey_connectors.control_context`'s glob rather than re-spelled here:
+#: the writer and the readers that glob for it must not be able to disagree
+#: about which family of files this is.
 REPORT_FILE_GLOB = control_context.REPORT_FILE_GLOB
+REPORT_FILE_PREFIX, _, REPORT_FILE_SUFFIX = REPORT_FILE_GLOB.partition("*")
 
 #: One in-flight marker per execution, written by the python executor before a
 #: sandbox subprocess starts and removed in a ``finally``. It lives in
@@ -267,12 +266,12 @@ REQUEST_TTL_S = 30
 #: now, which is what makes the fleet not converged, so it carries the
 #: ``expires_at`` past which a reader stops letting it block everybody
 #: (:func:`publish_last_switch`). ``applied`` and ``failed`` are termini and are
-#: read together with ``applied_target`` / ``applied_generation``. Taken from
-#: :mod:`osprey_connectors.control_context`, whose readers decide from them
-#: whether a session is held up, for the same reason the report names are.
-SWITCH_APPLYING = control_context.REPORT_APPLYING
-SWITCH_APPLIED = control_context.REPORT_APPLIED
-SWITCH_FAILED = control_context.REPORT_FAILED
+#: read together with ``applied_target`` / ``applied_generation``. The words of
+#: :data:`osprey_connectors.control_context.SwitchProgressStatus`, whose readers
+#: decide from them whether a session is held up; the type holds each to one.
+SWITCH_APPLYING: Final[SwitchProgressStatus] = "applying"
+SWITCH_APPLIED: Final[SwitchProgressStatus] = "applied"
+SWITCH_FAILED: Final[SwitchProgressStatus] = "failed"
 
 __all__ = [
     "INFLIGHT_FILE_GLOB",
@@ -285,7 +284,7 @@ __all__ = [
     "REQUEST_FILE_PREFIX",
     "REQUEST_FILE_SUFFIX",
     "REQUEST_TTL_S",
-    "STATE_DIR_NAME",
+    "CONTROL_STATE_DIR_NAME",
     "SWITCH_APPLIED",
     "SWITCH_APPLYING",
     "SWITCH_FAILED",
@@ -329,10 +328,10 @@ __all__ = [
 def state_dir() -> Path:
     """This identity's directory, holding its servers' reports. Not created by reading.
 
-    :data:`~osprey_connectors.posture_store.CONTROL_CONTEXT_DIR_ENV_VAR` wins
+    :data:`~osprey_connectors.write_switch.CONTROL_CONTEXT_DIR_ENV_VAR` wins
     over everything: it is the directory a container has bound for its own
     state, already per-identity, so neither hop below is appended to it. It is
-    read through :func:`~osprey_connectors.posture_store.bound_state_dir` for
+    read through :func:`~osprey_connectors.write_switch.bound_state_dir` for
     the same reason the stamp is read through the store below — one variable,
     one normalisation, or the report and the record land in different places.
 
@@ -353,7 +352,7 @@ def state_dir() -> Path:
     in the wrong place".
 
     The stamp is read through
-    :func:`~osprey_connectors.posture_store.stamped_agent_data_root` rather
+    :func:`~osprey_connectors.write_switch.stamped_agent_data_root` rather
     than off the environment here, because the control-context record sits in
     this same directory and the two must not normalise one variable differently
     — a ``~`` or a padded value would otherwise put the report and the record
@@ -366,12 +365,12 @@ def state_dir() -> Path:
     where the store reader answers ``None``, and the web terminal's switch
     route turns that raise into its ``store_unavailable`` 503.
     """
-    bound = posture_store.bound_state_dir()
+    bound = write_switch.bound_state_dir()
     if bound is not None:
         return bound
-    stamped = posture_store.stamped_agent_data_root()
+    stamped = write_switch.stamped_agent_data_root()
     root = stamped if stamped is not None else resolve_shared_data_root()
-    return root / STATE_DIR_NAME / acting_identity()
+    return root / CONTROL_STATE_DIR_NAME / acting_identity()
 
 
 def report_file_path(server_pid: int | None = None) -> Path:

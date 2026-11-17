@@ -14,10 +14,12 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
-from osprey_connectors import posture_store, session_hold
+from osprey_connectors import session_hold, write_switch
 from osprey_connectors.control_system import ChannelWriteResult
 from osprey_connectors.errors import ChannelWriteBlockedError
-from osprey_connectors.posture_store import (
+from osprey_connectors.refusals import REASONS, RefusalReason, VerdictReason
+from osprey_connectors.write_authorization import AuthorizationRefusedError, ChannelRange
+from osprey_connectors.write_switch import (
     Allowed,
     BudgetSpent,
     ChannelNotListed,
@@ -29,8 +31,6 @@ from osprey_connectors.posture_store import (
     WrongMachine,
     _SessionHeld,
 )
-from osprey_connectors.refusals import REASONS, RefusalReason, VerdictReason
-from osprey_connectors.write_authorization import AuthorizationRefusedError, ChannelRange
 
 STOPPED_AT = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 ADDRESS = "SR:CORRECTOR:H1"
@@ -168,8 +168,8 @@ def test_an_allowed_and_a_refused_verdict_never_compare_equal():
     allowed = Allowed(target=None, kind=None, position=None)
     refused = Refused(reason="switch_off", target=None, kind=None)
     assert allowed != refused
-    assert isinstance(allowed, posture_store.WriteVerdict)
-    assert isinstance(refused, posture_store.WriteVerdict)
+    assert isinstance(allowed, write_switch.WriteVerdict)
+    assert isinstance(refused, write_switch.WriteVerdict)
 
 
 # -- the vocabulary -------------------------------------------------------------

@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.audit import posture
-from osprey_connectors import control_context
+from osprey_connectors import testing
 from osprey_connectors.refusals import refusal_phrase, refusal_text
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST, write_control_context
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
@@ -69,7 +69,7 @@ def _no_ambient_deployment(control_context_root, monkeypatch):
     monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
     arm_switch(monkeypatch, control_context_root, ARMED_TARGET, stamp=False)
     yield control_context_root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -351,15 +351,14 @@ def switched_off(control_context_root, monkeypatch):
     make the process read-only. The session key is still stamped because audit
     entries join on it.
     """
-    from osprey_connectors import control_context
 
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
     write_control_context(control_context_root, target=ARMED_TARGET, owned_by=None, switch={})
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield control_context_root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 #: The phrase each source refuses with, and the one it must NOT borrow.
@@ -593,7 +592,7 @@ def control_target(control_context_root):
                 owned_by=None,
                 switch={"va": "on"},
             )
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
     return _select
 

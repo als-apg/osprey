@@ -4,8 +4,9 @@ Which machine a deployment is pointed at, how many times that has moved, and
 what one operator has narrowed are properties of the deployment as that
 operator holds it, not of any process tree inside it. They live in a single
 JSON file, :data:`RECORD_FILENAME` inside the acting identity's directory
-under :data:`STATE_DIR_NAME` (the state directory,
-:func:`~osprey_connectors.posture_store.state_dir`), and this module is where
+under :data:`~osprey_connectors.write_switch.CONTROL_STATE_DIR_NAME` (the
+state directory, :func:`~osprey_connectors.write_switch.state_dir`), and this
+module is where
 it is written and read.
 
 The file has exactly one writer at a time — its **writer**, stored under the
@@ -16,9 +17,9 @@ executor sandbox, every sibling MCP server, and the stdlib-only hooks, which
 cannot import this module and therefore restate the rules below. Treat
 them as the contract; a change here is a change there.
 
-**1. Where the file is.** :func:`record_path` — the record sits in the same
-directory as the posture store, and the root resolves by that store's rule 1
-(:func:`osprey_connectors.posture_store.state_dir`) rather than by a
+**1. Where the file is.** :func:`record_path` — the record sits in the state
+directory, and the root resolves by the write switch's rule 1
+(:func:`osprey_connectors.write_switch.state_dir`) rather than by a
 second derivation here: a record one process writes and another looks for
 somewhere else is worse than no record at all. An unresolvable root makes
 :func:`record_path` ``None``, which reads as "no record" and makes
@@ -100,9 +101,10 @@ file share ``flock`` is not guaranteed to exclude anything; that residual is
 closed by the sandboxed connector host, not here.
 
 **4. When a change is seen.** Every read re-stats the file and re-parses on
-``(st_mtime_ns, st_size, st_ino)``, the same signature the posture store uses
-and for the same reason: writes arrive as temp+rename, so two of them inside
-one filesystem clock tick differ by inode when mtime and size do not.
+``(st_mtime_ns, st_size, st_ino)``, the signature :func:`file_signature`
+answers for every file in the directory: writes arrive as temp+rename, so two
+of them inside one filesystem clock tick differ by inode when mtime and size do
+not.
 
 **5. Who else lives in that directory.** The record says what the deployment
 is pointed at; it does not say what any one controls server has managed to do
@@ -130,22 +132,26 @@ files' addressees are all judged by it and there must be one answer.
 This module imports nothing from ``osprey`` and holds no config: it runs
 inside connector-host children, executor sandboxes and notebook kernels,
 where the dependency budget is the lean connector chain. The import direction
-is one-way — the posture store below it, never the reverse at module scope.
+is one-way: where the state is and the file primitives live below it, in the
+package's private ``_control_state``, and the write switch above it reads it;
+this module imports neither the switch nor, at module scope, anything above.
 """
 
 from __future__ import annotations
 
 import contextlib
+import errno
 import fcntl
 import json
 import logging
 import os
+import stat
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final, Generic, Literal, Self, TypeVar, get_args
+from typing import Final, Generic, Literal, NamedTuple, Protocol, Self, TypeVar, get_args
 
 from pydantic import (
     Field,
@@ -155,7 +161,15 @@ from pydantic import (
     model_validator,
 )
 
-from osprey_connectors import posture_store
+from osprey_connectors import _control_state
+from osprey_connectors._control_state import (
+    CONTROL_STATE_DIR_NAME,
+    CONTROL_TREE_MARKER_NAME,
+    file_signature,
+    is_process_alive,
+    sweep_dead,
+    write_json_atomic,
+)
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     TARGET_STANDIN,
@@ -169,7 +183,7 @@ from osprey_connectors.errors import (
     StateUnavailableError,
     require_aware,
 )
-from osprey_connectors.identity import acting_identity
+from osprey_connectors.identity import acting_identity, is_path_segment
 from osprey_connectors.model import (
     FrozenModel,
     Instant,
@@ -180,12 +194,9 @@ from osprey_connectors.model import (
     evolve,
     parse_instant,
 )
-from osprey_connectors.posture_store import ArmedPosition, Posture, SwitchPosition
 from osprey_connectors.refusals import REASONS, VerdictReason, VerdictReasonField, refusal_phrase
 from osprey_connectors.safety_file import (
-    SHARED_FILE_MODE,
     SHARED_LOCK_MODE,
-    atomic_replace,
     ensure_shared_dir,
 )
 from osprey_connectors.targets import _MACHINE_KINDS as _TARGET_MACHINE_KINDS
@@ -194,11 +205,8 @@ logger = logging.getLogger("osprey_connectors.control_context")
 
 __all__ = [
     "claimed",
-    "REPORT_APPLIED",
-    "REPORT_APPLYING",
-    "REPORT_FAILED",
-    "OWNER_CONTROLS_SERVER",
-    "OWNER_WEB_TERMINAL",
+    "ArmedPosition",
+    "SwitchPosition",
     "ReachableState",
     "SwitchProgressStatus",
     "SwitchStatus",
@@ -206,12 +214,6 @@ __all__ = [
     "WriterKind",
     "RECORD_FILENAME",
     "REPORT_FILE_GLOB",
-    "REPORT_FILE_PREFIX",
-    "REPORT_FILE_SUFFIX",
-    "STATE_DIR_NAME",
-    "SWITCH_APPLIED",
-    "SWITCH_POSITIONS",
-    "SWITCH_REFUSED",
     "ControlContext",
     "MachineStatement",
     "Reachable",
@@ -222,7 +224,6 @@ __all__ = [
     "SwitchTerminus",
     "WritesStatement",
     "blocking_pids",
-    "invalidate_cache",
     "is_process_alive",
     "live_writer",
     "live_reports",
@@ -234,6 +235,9 @@ __all__ = [
     "read_record",
     "read_record_status",
     "read_report",
+    "read_tree_context",
+    "TreeContext",
+    "VerdictSurface",
     "record_path",
     "report_path",
     "report_paths",
@@ -257,26 +261,31 @@ _SCHEMA_VERSION = 1
 #: this literal.
 RECORD_FILENAME = "control_context.json"
 
-#: The tree of per-identity directories the record shares with the posture
-#: store, the per-server reports and the request files — one directory per
-#: identity, each holding every one of those families. Taken from the store
-#: rather than re-spelled so one directory cannot be two directories.
-STATE_DIR_NAME = posture_store.STATE_DIR_NAME
+#: A machine's three switch positions, narrowest first. ``off`` is never stored
+#: in the control-context record: it is a target absent from its ``switch`` map.
+SwitchPosition = Literal["off", "asked", "allowed"]
+
+#: The two positions that arm a machine — every value the record's ``switch``
+#: map stores, and the effective position an allowed verdict carries.
+ArmedPosition = Literal["asked", "allowed"]
+
+#: The word the record's ``posture`` mirror stores for a machine at off: the
+#: one word of the grammar old readers know (:func:`_posture_mirror`).
+_MIRROR_SANDBOX: Final = "sandbox"
+
+#: The mirror's one word, as a type.
+_MirrorWord = Literal["sandbox"]
 
 #: The two kinds of process that can write the record — its **writer**, which
 #: the file stores under ``owner``. A web terminal outranks a controls server —
 #: it is the one an operator is looking at. A process, not a login: the login
-#: whose switch governs a write is the posture store's owner.
+#: whose switch governs a write is the write switch's owner.
 WriterKind = Literal["web_terminal", "controls_server"]
-OWNER_WEB_TERMINAL: Final[WriterKind] = "web_terminal"
-OWNER_CONTROLS_SERVER: Final[WriterKind] = "controls_server"
 
 #: The two termini a switch request can reach in the record, as stored.
 #: ``applied`` moved the target and minted a generation, or found the target
 #: already there (:meth:`SwitchTerminus.unchanged`); ``refused`` moved nothing.
 SwitchStatus = Literal["applied", "refused"]
-SWITCH_APPLIED: Final[SwitchStatus] = "applied"
-SWITCH_REFUSED: Final[SwitchStatus] = "refused"
 
 #: How far one controls server has got through the switch the record names.
 #: ``applying`` is a swap in flight and stops every session while its bound
@@ -285,16 +294,13 @@ SWITCH_REFUSED: Final[SwitchStatus] = "refused"
 #: whose server it is. Distinct from the record's :data:`SwitchStatus`, which
 #: is a request's terminus rather than a server's progress.
 SwitchProgressStatus = Literal["applying", "applied", "failed"]
-REPORT_APPLYING: Final[SwitchProgressStatus] = "applying"
-REPORT_APPLIED: Final[SwitchProgressStatus] = "applied"
-REPORT_FAILED: Final[SwitchProgressStatus] = "failed"
 
 #: One report file per controls server, in the state directory beside the record.
 #: The PID in the name is the address and is what makes a report left behind by
 #: a killed server sweepable without opening it.
-REPORT_FILE_PREFIX = "server_"
-REPORT_FILE_SUFFIX = ".json"
-REPORT_FILE_GLOB = f"{REPORT_FILE_PREFIX}*{REPORT_FILE_SUFFIX}"
+_REPORT_FILE_PREFIX = "server_"
+_REPORT_FILE_SUFFIX = ".json"
+REPORT_FILE_GLOB = f"{_REPORT_FILE_PREFIX}*{_REPORT_FILE_SUFFIX}"
 
 #: Guards every :class:`_ParsedFiles` cache below.
 _CACHE_LOCK = threading.Lock()
@@ -340,7 +346,7 @@ class RecordWriter(FrozenModel):
     """The process currently allowed to write the record, stored under ``owner``.
 
     A process and not a login: the login whose switch governs a write is the
-    posture store's owner (:func:`~osprey_connectors.posture_store.current_owner`).
+    write switch's owner (:func:`~osprey_connectors.write_switch.current_owner`).
 
     Attributes:
         kind: A :data:`WriterKind`.
@@ -417,7 +423,7 @@ class SwitchTerminus(FrozenModel):
             target=target,
             requested_at=_aware_or_none(requested_at),
             requested_by=requested_by,
-            status=SWITCH_APPLIED,
+            status="applied",
             reason=None,
             detail=f"The control target is now {target!r} (generation {generation}).",
             generation=generation,
@@ -447,7 +453,7 @@ class SwitchTerminus(FrozenModel):
             target=target,
             requested_at=_aware_or_none(requested_at),
             requested_by=requested_by,
-            status=SWITCH_APPLIED,
+            status="applied",
             reason=None,
             detail=f"The control target is already {target!r} (generation {generation}).",
             generation=generation,
@@ -474,7 +480,7 @@ class SwitchTerminus(FrozenModel):
             target=target,
             requested_at=_aware_or_none(requested_at),
             requested_by=requested_by,
-            status=SWITCH_REFUSED,
+            status="refused",
             reason=reason,
             detail=detail,
             generation=None,
@@ -575,7 +581,7 @@ class ControlContext(FrozenModel):
         }
 
 
-def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, Posture]:
+def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, _MirrorWord]:
     """The ``posture`` field a record with *switch* stores — ``{target: "sandbox"}``.
 
     ``sandbox`` for every machine in
@@ -589,17 +595,45 @@ def _posture_mirror(switch: Mapping[str, ArmedPosition]) -> dict[str, Posture]:
         switch: The record's switch, ``{target: "asked" | "allowed"}``.
     """
     return {
-        target: posture_store.POSTURE_SANDBOX
+        target: _MIRROR_SANDBOX
         for target in CONTROL_TARGETS
         if _switch_word(switch.get(target)) is None
     }
+
+
+def _parse_posture_value(value: object) -> dict[str, _MirrorWord]:
+    """The record's ``posture`` mirror as ``{target: "sandbox"}`` — the switched-off targets.
+
+    The grammar of the mirror field (rule 2), in one place: the stdlib hook
+    twin reads the mirror, and its parity test holds that reader to this one.
+    Nothing in this package reads the field — the switch decides every write —
+    so this is the shape a reader that predates the switch sees, and nothing
+    more.
+
+    Never raises. Anything that is not a ``"sandbox"`` entry — a bare
+    ``"writes"``, an unknown string, a non-string target key, a hand-edited or
+    future-version shape — is dropped, so a field nobody can repair from the
+    browser never fails a read.
+    """
+    if isinstance(value, str):
+        if value == _MIRROR_SANDBOX:
+            return dict.fromkeys(CONTROL_TARGETS, _MIRROR_SANDBOX)
+        # Bare "writes" (and every unknown string) maps nothing.
+        return {}
+    if isinstance(value, dict):
+        return {
+            target: posture
+            for target, posture in value.items()
+            if isinstance(target, str) and posture == _MIRROR_SANDBOX
+        }
+    return {}
 
 
 def switch_position(record: ControlContext | None, target: str) -> SwitchPosition:
     """Where the person has put *target* — the one reader of the ``switch`` map.
 
     Never raises. No record and a target absent from the map read as off; the
-    map holds only :data:`~osprey_connectors.posture_store.ArmedPosition` words
+    map holds only :data:`ArmedPosition` words
     (a parsed ``"on"`` is already ``"asked"``).
 
     Args:
@@ -649,7 +683,7 @@ def _record_path_under(root: Path) -> Path:
     The container bind deliberately does not apply: a caller passing a root has
     said which tree it means, and that is a statement about the host layout.
     """
-    return root / STATE_DIR_NAME / acting_identity() / RECORD_FILENAME
+    return root / CONTROL_STATE_DIR_NAME / acting_identity() / RECORD_FILENAME
 
 
 def record_path() -> Path | None:
@@ -659,7 +693,7 @@ def record_path() -> Path | None:
     empty deployment, and for a writer it is what a route reports as
     ``store_unavailable``.
     """
-    directory = posture_store.state_dir()
+    directory = _control_state.state_dir()
     return None if directory is None else directory / RECORD_FILENAME
 
 
@@ -691,12 +725,10 @@ def _parse_writer(value: object) -> RecordWriter | None:
     pid = _positive_int(value.get("pid"))
     if pid is None:
         return None
-    if kind == OWNER_WEB_TERMINAL:
-        return RecordWriter(kind=OWNER_WEB_TERMINAL, pid=pid, port=_positive_int(value.get("port")))
-    if kind == OWNER_CONTROLS_SERVER:
-        return RecordWriter(
-            kind=OWNER_CONTROLS_SERVER, pid=pid, port=_positive_int(value.get("port"))
-        )
+    if kind == "web_terminal":
+        return RecordWriter(kind="web_terminal", pid=pid, port=_positive_int(value.get("port")))
+    if kind == "controls_server":
+        return RecordWriter(kind="controls_server", pid=pid, port=_positive_int(value.get("port")))
     return None
 
 
@@ -727,10 +759,10 @@ def _parse_terminus(value: object) -> SwitchTerminus | None:
     status = value.get("status")
     if not isinstance(request_id, str):
         return None
-    if status == SWITCH_APPLIED:
-        stored: SwitchStatus = SWITCH_APPLIED
-    elif status == SWITCH_REFUSED:
-        stored = SWITCH_REFUSED
+    if status == "applied":
+        stored: SwitchStatus = "applied"
+    elif status == "refused":
+        stored = "refused"
     else:
         return None
     return SwitchTerminus(
@@ -824,25 +856,6 @@ def parse_record(raw: object) -> ControlContext | None:
 
 
 # -- reading ----------------------------------------------------------------
-
-
-def file_signature(path: Path | None) -> tuple[int, int, int] | None:
-    """``(mtime_ns, size, inode)`` for *path*, or ``None`` when it is absent.
-
-    Rule 4 of the module contract, and the same answer for everything that
-    watches one of these files: the cache below re-parses on it, and the
-    reconciler wakes on it. The inode is the third element because
-    :func:`write_json_atomic` replaces the file rather than rewriting it, so
-    two switches inside one filesystem clock tick differ there and nowhere
-    else. An unresolvable path has no signature, which reads as "no file".
-    """
-    if path is None:
-        return None
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size, st.st_ino)
 
 
 class _ParsedFiles(Generic[_Parsed]):
@@ -968,47 +981,273 @@ def read_record_status(*, path: Path | None = None) -> ReadResult[ControlContext
     return _read_result(target_path)
 
 
-def invalidate_cache() -> None:
-    """Forget every parsed file. For tests and for a process that moved roots."""
+def _invalidate_cache() -> None:
+    """Forget every parsed file: after an approval stood on the record, and for tests.
+
+    Tests reach it as :func:`osprey_connectors.testing.invalidate_cache`.
+    """
     _RECORDS.clear()
     _REPORTS.clear()
 
 
-# -- writing ----------------------------------------------------------------
+# -- the read-only tree -----------------------------------------------------
 
 
-def write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
-    """Write *payload* to *path* as JSON, replacing any existing file. Rule 3.
+class TreeContext(NamedTuple):
+    """One read of one owner's whole record out of the read-only tree.
 
-    The file is replaced whole through ``safety_file.atomic_replace``, so a
-    failed write leaves neither half a file nor litter beside it.
+    Attributes:
+        record: The parsed record — its ``switch`` already filtered by
+            this module's parser to the targets
+            at ``"asked"`` or ``"allowed"`` — or ``None`` when the tree holds no record for
+            this owner or the record could not be read.
+        unavailable: ``None`` when the read reached an answer — a record, or
+            a provisioned tree holding none for this owner — and otherwise the
+            operator-facing sentence saying what could not be read and what to
+            do about it. The caller turns a non-``None`` into its own refusal;
+            the remedy is this reader's, because only the read knows which of
+            the ways of not knowing happened.
+    """
 
-    Every file in the state directory is written this way, the record and the
-    per-server reports and requests alike: they are read by processes that
-    never coordinate with the writer, so a reader must never be able to see
-    half of one.
+    record: ControlContext | None
+    unavailable: str | None
 
-    The mode is load-bearing, not a preference: those readers run under other
-    uids — a dispatch worker at uid 1000 reading what the host account wrote —
-    and reach the file through the setgid group of the state directory, so the
-    file is given 0640 whatever the umask: under umask 077 a record only the
-    owner can read makes every owned lane write refuse
-    ``control_context_unavailable``, while CI at umask 022 stays green and never
-    sees it. Every directory this writer creates — the
-    levels above the leaf as much as the leaf — is set to exactly 0o2770 rather
-    than merely widened, because a directory left at the umask 0755 would let
-    ``other`` list the identity names (``safety_file.ensure_shared_dir``).
+
+def _tree_unprovisioned(tree: Path, why: str) -> str:
+    """The remedy for a tree that was never built: *why* names how it shows."""
+    return (
+        f"the control-context tree {tree} {why}, so it is not provisioned — "
+        "run `osprey build` on the deployment"
+    )
+
+
+def _tree_unreadable(tree: Path) -> str:
+    """The remedy for a tree this container cannot get into."""
+    return (
+        f"the control-context tree {tree} is not readable by this container — "
+        "check the group join; on Docker Desktop the bind's ownership is remapped, "
+        "so share the tree through a group the container can join or run the "
+        "worker on a Linux host"
+    )
+
+
+def _tree_record_unreadable(record_file: Path, detail: str) -> str:
+    """The remedy for a record that is THERE and could not be used: *detail* says how."""
+    return (
+        f"the control-context record {record_file} is present but {detail} — "
+        "check the file's mode and group"
+    )
+
+
+def _tree_record_oversized(record_file: Path) -> str:
+    """The remedy for a record too large to be the one a chip wrote.
+
+    Its own sentence rather than the unreadable one's: the mode and the group
+    permitted this read, so an operator sent to check them finds both correct
+    and learns nothing. A record is a few hundred bytes, and one past the bound
+    is a file something other than the chip put at that name.
+    """
+    return (
+        f"the control-context record {record_file} is larger than the "
+        f"{_RECORD_READ_LIMIT} bytes a record may be, so it was not read — "
+        "re-select the control target to write the record again"
+    )
+
+
+def _tree_planted_link(path: Path, what: str) -> str:
+    """The remedy for a symbolic link where a real *what* belongs.
+
+    Its own wording rather than a mode-and-group one, because the operator has
+    to remove something rather than fix a permission, and because a link here is
+    the one failure that may be somebody's doing.
+    """
+    return (
+        f"the control-context {what} {path} is a symbolic link, which this reader "
+        "will not follow: the tree is group-writable, so a link planted there can "
+        "point one account's reader at a record its owner never wrote — remove it "
+        "and check the directory's mode and group"
+    )
+
+
+#: The most a record may be and still be read. A record is a few hundred bytes,
+#: so this is headroom rather than a limit anything real approaches. It exists
+#: because the file lives in a group-writable tree and is re-read on every
+#: gated write: without it, the account whose plan is running chooses how much
+#: the container allocates per write, and the container is shared with other
+#: people's plans.
+_RECORD_READ_LIMIT: Final = 64 * 1024
+
+
+def _read_no_follow(path: Path) -> str:
+    """*path*'s text, refusing to follow a symbolic link at its last component.
+
+    ``O_NOFOLLOW`` rather than a :meth:`~pathlib.Path.is_symlink` check before
+    an ordinary open: the check and the open are two trips to the filesystem,
+    and the directory holding this file is group-writable by parties other than
+    its owner, so a link planted between the two would be followed by a reader
+    that had just decided there was none. The flag makes the kernel decide it
+    once, at the open, and a link raises ``ELOOP`` there.
+
+    The read is bounded at :data:`_RECORD_READ_LIMIT` and an over-long file
+    raises rather than being truncated into a parse — a truncated record either
+    fails to parse or, worse, parses into a different switch than the one on
+    disk. The bound is applied to the read itself rather than to a prior
+    :func:`os.fstat`, so nothing is allocated for a file that grew between the
+    two.
 
     Raises:
-        OSError: The write itself failed.
+        OSError: The file is absent (``FileNotFoundError``), is a symbolic link
+            (``ELOOP``), is longer than the limit (``EFBIG``), or could not be
+            read.
+        UnicodeDecodeError: The bytes are not UTF-8.
     """
-    ensure_shared_dir(path.parent)
-    atomic_replace(
-        path,
-        json.dumps(payload, indent=2).encode("utf-8"),
-        mode=SHARED_FILE_MODE,
-        sync="best_effort",
-    )
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        with os.fdopen(fd, encoding="utf-8", closefd=False) as handle:
+            text = handle.read(_RECORD_READ_LIMIT + 1)
+    finally:
+        os.close(fd)
+    if len(text) > _RECORD_READ_LIMIT:
+        raise OSError(
+            errno.EFBIG,
+            f"the file is larger than the {_RECORD_READ_LIMIT} bytes a record may be",
+        )
+    return text
+
+
+def read_tree_context(tree: Path, owner: object) -> TreeContext:
+    """*owner*'s whole record out of the read-only *tree*, with the reason when there is none.
+
+    The reader a container uses when it holds the whole tree and no chip of its
+    own: a lane's queueserver, the dispatch worker. It fails CLOSED, and that is
+    the whole difference from the host reader.
+    :func:`read_record` folds an unreadable
+    file into ``None`` — tolerable for a display on the host, and wrong here,
+    where an unprovisioned bind, a group the container could not join or a
+    record written 0600 must not be answered as the owner's switch. So this
+    reader does not go through it.
+
+    Exactly one failure is not a refusal: an ENOENT on the record. A tree that
+    is provisioned and readable and holds no record for this owner is an owner
+    whose every switch is off. Every other failure on a PRESENT path — EACCES,
+    EISDIR, a corrupt payload, a payload from another schema — is a switch that
+    may exist and cannot be read, and is reported rather than guessed at.
+
+    **Nothing here follows a symbolic link.** The tree root is group-writable
+    (2770) and its group is shared with accounts other than the one reading, so
+    any account in it can plant a link under another identity's name; followed,
+    that link decides whether a real machine is written to, from a file its
+    supposed owner never wrote. The marker and the ``<owner>/`` directory are
+    therefore checked with :func:`os.lstat` and the record is opened
+    ``O_NOFOLLOW`` — the open is what closes the window between a check and a
+    read — and a link found at any of the three answers unavailable NAMING the
+    path. Never ENOENT: an absent record means every switch is off, and a
+    planted link is not an absence.
+
+    There is no cache. The parse memo in this module is reached through the reader
+    whose ``None`` this one exists to avoid, and a memo of its own would be a
+    second thing to invalidate for a file that is a few hundred bytes and is
+    read once per verdict.
+
+    Args:
+        tree: The tree bind, from :func:`control_context_tree`.
+        owner: The name whose record to read — one path segment, resolved by
+            :func:`~osprey_connectors.write_switch.current_owner` before the call. :data:`~osprey_connectors.write_switch.NO_OWNER` never
+            reaches here: work that belongs to nobody is refused before
+            any record is read.
+
+    Returns:
+        A :class:`TreeContext`: the parsed record (``None`` when the tree holds
+        none for this owner, or when it could not be read) and the sentence when
+        it could not. Never raises: this is read on a write path.
+    """
+    if not tree.is_dir():
+        return TreeContext(None, _tree_unprovisioned(tree, "does not exist"))
+    if not os.access(tree, os.R_OK | os.X_OK):
+        return TreeContext(None, _tree_unreadable(tree))
+
+    marker = tree / CONTROL_TREE_MARKER_NAME
+    try:
+        marker_mode = os.lstat(marker).st_mode
+    except FileNotFoundError:
+        return TreeContext(
+            None, _tree_unprovisioned(tree, f"carries no {CONTROL_TREE_MARKER_NAME}")
+        )
+    except OSError:
+        return TreeContext(None, _tree_unreadable(tree))
+    if stat.S_ISLNK(marker_mode):
+        # A link here would let any account in the tree's group declare an
+        # unbuilt tree provisioned, which is the fail-open this marker exists
+        # to close.
+        return TreeContext(None, _tree_planted_link(marker, "tree marker"))
+    if not stat.S_ISREG(marker_mode):
+        return TreeContext(
+            None,
+            _tree_unprovisioned(tree, f"carries a {CONTROL_TREE_MARKER_NAME} that is not a file"),
+        )
+
+    # An owner that is not one path segment addresses no record in this tree,
+    # and must not be answered as an owner whose switches are off: the name
+    # arrived on a queue item, and a name nobody can look up is a lookup that
+    # did not happen rather than a lookup that found nothing.
+    if not is_path_segment(owner):
+        return TreeContext(
+            None,
+            f"the owner {owner!r} is not a name the control-context tree can hold, "
+            "so no narrowing can be read for it — the owner a plan carries must be "
+            "one directory name",
+        )
+
+    owner_dir = tree / owner
+    try:
+        owner_mode = os.lstat(owner_dir).st_mode
+    except FileNotFoundError:
+        # The one absence that is an answer: every switch is off for this
+        # owner, and a missing ``<owner>/`` directory says exactly that.
+        return TreeContext(None, None)
+    except OSError:
+        logger.debug("Could not stat the control-context directory %s", owner_dir, exc_info=True)
+        return TreeContext(None, _tree_unreadable(tree))
+    if stat.S_ISLNK(owner_mode):
+        # ``O_NOFOLLOW`` on the record below guards its last component only, so
+        # the directory above it is checked here: a link at this level redirects
+        # the read just as effectively.
+        return TreeContext(None, _tree_planted_link(owner_dir, "directory"))
+
+    record_file = owner_dir / RECORD_FILENAME
+    try:
+        record = parse_record(_read_no_follow(record_file))
+    except FileNotFoundError:
+        # No record for this owner: the same answer as no directory.
+        return TreeContext(None, None)
+    except Exception as exc:  # every failure here REFUSES
+        # Blanket on purpose, and the opposite of the one this reader avoids:
+        # an unexpected failure on a present record leaves a switch that may
+        # exist unread, so it answers unavailable rather than guessing.
+        logger.debug("Could not read the control-context record at %s", record_file, exc_info=True)
+        code: object = getattr(exc, "errno", None)
+        if code == errno.ELOOP:
+            return TreeContext(None, _tree_planted_link(record_file, "record"))
+        if code == errno.EFBIG:
+            # Asked by name for the same reason the planted link is: the size
+            # bound refuses a file whose mode and group are beyond reproach, so
+            # the generic remedy points at two things an operator then finds
+            # correct.
+            return TreeContext(None, _tree_record_oversized(record_file))
+        strerror: object = getattr(exc, "strerror", None)
+        detail = strerror or type(exc).__name__
+        return TreeContext(
+            None, _tree_record_unreadable(record_file, f"could not be read ({detail})")
+        )
+    if record is None:
+        return TreeContext(
+            None,
+            _tree_record_unreadable(record_file, "is not a record this version can read"),
+        )
+    return TreeContext(record, None)
+
+
+# -- writing ----------------------------------------------------------------
 
 
 def _lock_path(path: Path) -> Path:
@@ -1152,7 +1391,7 @@ _ALL_TARGETS = "all"
 #: A machine's three positions, narrowest first: a later one widens an earlier
 #: one. The gesture's words and every reader's order. ``"off"`` is not stored
 #: (rule 2).
-SWITCH_POSITIONS: tuple[SwitchPosition, ...] = get_args(SwitchPosition)
+_SWITCH_POSITIONS: tuple[SwitchPosition, ...] = get_args(SwitchPosition)
 
 
 class StoppedSinceError(ConnectorsError):
@@ -1217,7 +1456,7 @@ def _gesture_targets(
 
 def _widens(state: SwitchPosition, position: SwitchPosition) -> bool:
     """Whether moving a machine at *position* to *state* widens it."""
-    return SWITCH_POSITIONS.index(state) > SWITCH_POSITIONS.index(position)
+    return _SWITCH_POSITIONS.index(state) > _SWITCH_POSITIONS.index(position)
 
 
 def set_switch(
@@ -1296,8 +1535,8 @@ def set_switch(
         StateLockedError: The record stayed locked past the bounded wait.
         OSError: The write itself failed.
     """
-    if state not in SWITCH_POSITIONS:
-        raise ValueError(f"set_switch state must be one of {SWITCH_POSITIONS}, not {state!r}")
+    if state not in _SWITCH_POSITIONS:
+        raise ValueError(f"set_switch state must be one of {_SWITCH_POSITIONS}, not {state!r}")
     names = _gesture_targets(targets, state)
     if state != _SWITCH_OFF and (
         epoch is not None and (isinstance(epoch, bool) or not isinstance(epoch, int))
@@ -1376,7 +1615,8 @@ def held_epoch(path: Path, target: ControlTarget) -> Iterator[int]:
     the block takes comes after this one. A record that is not there is
     created on *target* with every switch off and a fresh epoch, and an
     epoch-less record is given one, so that a later stop of every machine has
-    an epoch to move past.
+    an epoch to move past. A block that ends without raising drops the parse
+    cache once the lock is released, so the next read is of what it stood on.
 
     Raises:
         RecordUnavailableError: The record is there and cannot be read.
@@ -1393,6 +1633,7 @@ def held_epoch(path: Path, target: ControlTarget) -> Iterator[int]:
             base = ControlContext(target=target, generation=0) if current is None else current
             _write_record_unlocked(evolve(base, switch_epoch=epoch), path)
         yield epoch
+    _invalidate_cache()
 
 
 def _revoke_on_stop(record_file: Path, names: list[str] | None, by: str | None) -> None:
@@ -1445,60 +1686,6 @@ def _try_revoke_on_stop(record_file: Path, names: list[str] | None, by: str | No
 
 # -- process liveness -------------------------------------------------------
 
-_PROC_ROOT = "/proc"
-
-
-def _is_thread_id(pid: int) -> bool:
-    """Whether the kernel knows *pid* as a thread of some other process.
-
-    Linux draws PIDs and thread ids from one number space, and ``/proc/<tid>``
-    opens by number though no listing shows it. A process is its own thread
-    group leader, so a ``Tgid`` that differs from *pid* means a thread. ``False``
-    when ``/proc`` says nothing, which is every platform without one.
-    """
-    try:
-        with open(f"{_PROC_ROOT}/{pid}/status", "rb") as status:
-            for line in status:
-                if line.startswith(b"Tgid:"):
-                    return int(line.split()[1]) != pid
-    except (OSError, ValueError, IndexError):
-        return False  # no /proc, or one that does not read like Linux's: no claim either way
-    return False
-
-
-def is_process_alive(pid: object) -> bool:
-    """Whether *pid* names a running process.
-
-    ``os.kill(pid, 0)`` sends no signal and only asks the kernel whether the
-    process exists — the ``osprey web`` PID-file check does the same. A
-    ``PermissionError`` means the process exists but belongs to another user, so
-    it counts as ALIVE: sweeping a file whose owner is merely unreachable would
-    delete live state. Non-positive PIDs are rejected without calling
-    ``os.kill`` at all, because 0 and negatives address process *groups*.
-
-    ``os.kill`` also answers for a thread id, which is no process: a PID kept
-    in a record that outlived its container can land on a thread of the
-    process reading it, which would then follow itself for ever
-    (:func:`_is_thread_id`). A real process on that PID is not told apart.
-
-    Anything that is not an ``int`` names no process and is ``False`` without
-    a call either, so a field read off a file can be handed over unconverted.
-    That includes ``bool``: ``True`` is ``1`` to ``os.kill``, and PID 1 is
-    always alive, so a report carrying ``"server_pid": true`` would otherwise
-    read as a running server forever.
-    """
-    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        pass  # another user's process still exists; the thread check below applies to it too
-    except OSError:  # pragma: no cover - platform oddity; assume alive
-        return True
-    return not _is_thread_id(pid)
-
 
 def _is_foreign_process(pid: object) -> bool:
     """Whether *pid* names a running process that belongs to another user.
@@ -1525,23 +1712,6 @@ def _is_foreign_process(pid: object) -> bool:
     except OSError:
         return False
     return False
-
-
-def _pid_from_filename(name: str, prefix: str, suffix: str) -> int | None:
-    """The PID *name* encodes, or ``None`` when it encodes none.
-
-    Shared by every family of file in the state directory: each is named for the
-    process that owns it precisely so a sweeper can judge it without opening
-    it, and a name that does not follow the rule is judged the same way in all
-    of them — no PID, therefore no live owner.
-    """
-    if not name.startswith(prefix) or not name.endswith(suffix):
-        return None
-    stem = name[len(prefix) : -len(suffix)]
-    try:
-        return int(stem)
-    except ValueError:
-        return None
 
 
 # -- the record's writer ---------------------------------------------------
@@ -1691,7 +1861,7 @@ class SwitchProgress(FrozenModel):
         """
         return cls(
             generation=generation,
-            status=REPORT_APPLYING,
+            status="applying",
             at=require_aware(at, name="at"),
             expires_at=None if expires_at is None else require_aware(expires_at, name="expires_at"),
         )
@@ -1703,7 +1873,7 @@ class SwitchProgress(FrozenModel):
         Raises:
             NaiveDatetimeError: *at* names no zone.
         """
-        return cls(generation=generation, status=REPORT_APPLIED, at=require_aware(at, name="at"))
+        return cls(generation=generation, status="applied", at=require_aware(at, name="at"))
 
     @classmethod
     def failed(
@@ -1716,7 +1886,7 @@ class SwitchProgress(FrozenModel):
         """
         return cls(
             generation=generation,
-            status=REPORT_FAILED,
+            status="failed",
             reason=reason,
             detail=detail,
             at=require_aware(at, name="at"),
@@ -1737,7 +1907,7 @@ class SwitchProgress(FrozenModel):
             )
         else:
             keys = _PROGRESS_KEYS[self.status]
-            if self.status == REPORT_APPLYING and self.expires_at is None:
+            if self.status == "applying" and self.expires_at is None:
                 keys = keys[:-1]
         return {key: fields[key] for key in keys}
 
@@ -1762,6 +1932,27 @@ class Reachable(FrozenModel):
     state: ReachableState
     since: Instant | None = None
     reason: str | None = None
+
+
+class VerdictSurface(Protocol):
+    """What :meth:`WritesStatement.of` reads of a write verdict: its uniform surface.
+
+    Both members of :data:`~osprey_connectors.write_switch.WriteVerdict` answer
+    it; it is spelled here because the switch reads this module, not the
+    reverse.
+    """
+
+    @property
+    def allowed(self) -> bool: ...
+
+    @property
+    def position(self) -> ArmedPosition | None: ...
+
+    @property
+    def reason(self) -> VerdictReason | None: ...
+
+    @property
+    def kind(self) -> MachineKind | None: ...
 
 
 class WritesStatement(FrozenModel):
@@ -1791,11 +1982,11 @@ class WritesStatement(FrozenModel):
         return self
 
     @classmethod
-    def of(cls, verdict: posture_store.WriteVerdict) -> Self:
+    def of(cls, verdict: VerdictSurface) -> Self:
         """The statement of *verdict*, read through the verdict's uniform surface.
 
         Args:
-            verdict: :func:`~osprey_connectors.posture_store.execution_verdict`
+            verdict: :func:`~osprey_connectors.write_switch.execution_verdict`
                 for the session's target, so a held session states
                 ``session_held``.
         """
@@ -1966,12 +2157,12 @@ def _parse_progress(value: object) -> SwitchProgress | None:
         return None
     status = value.get("status")
     known: SwitchProgressStatus | None
-    if status == REPORT_APPLYING:
-        known = REPORT_APPLYING
-    elif status == REPORT_APPLIED:
-        known = REPORT_APPLIED
-    elif status == REPORT_FAILED:
-        known = REPORT_FAILED
+    if status == "applying":
+        known = "applying"
+    elif status == "applied":
+        known = "applied"
+    elif status == "failed":
+        known = "failed"
     else:
         known = None
     return SwitchProgress(
@@ -2101,18 +2292,18 @@ def _report_path_under(root: Path, server_pid: object) -> Path:
     """
     return (
         root
-        / STATE_DIR_NAME
+        / CONTROL_STATE_DIR_NAME
         / acting_identity()
-        / f"{REPORT_FILE_PREFIX}{server_pid}{REPORT_FILE_SUFFIX}"
+        / f"{_REPORT_FILE_PREFIX}{server_pid}{_REPORT_FILE_SUFFIX}"
     )
 
 
 def report_path(server_pid: object) -> Path | None:
     """The report path of *server_pid*, or ``None`` without an agent-data root."""
-    directory = posture_store.state_dir()
+    directory = _control_state.state_dir()
     if directory is None:
         return None
-    return directory / f"{REPORT_FILE_PREFIX}{server_pid}{REPORT_FILE_SUFFIX}"
+    return directory / f"{_REPORT_FILE_PREFIX}{server_pid}{_REPORT_FILE_SUFFIX}"
 
 
 def report_paths() -> list[Path]:
@@ -2122,7 +2313,7 @@ def report_paths() -> list[Path]:
     answer "no reports", the same as an empty deployment, because a caller
     describing a fleet has the same nothing to say in each case.
     """
-    directory = posture_store.state_dir()
+    directory = _control_state.state_dir()
     if directory is None:
         return []
     try:
@@ -2221,8 +2412,8 @@ def _published_targets(directory: str) -> dict[str, object]:
     deleted), and the first live report carrying a non-empty ``targets``
     mapping is the answer. Never raises.
     """
-    prefix = REPORT_FILE_PREFIX
-    suffix = REPORT_FILE_SUFFIX
+    prefix = _REPORT_FILE_PREFIX
+    suffix = _REPORT_FILE_SUFFIX
     try:
         names = sorted(
             n for n in os.listdir(directory) if n.startswith(prefix) and n.endswith(suffix)
@@ -2267,7 +2458,7 @@ def published_machine_kind(
     Args:
         target: The control target.
         state_dir: The directory holding the servers' reports; ``None`` reads
-            :func:`osprey_connectors.posture_store.state_dir`.
+            :func:`osprey_connectors.write_switch.state_dir`.
 
     Returns:
         ``real``, ``rehearsal`` or ``simulator``. Never raises.
@@ -2276,7 +2467,7 @@ def published_machine_kind(
         return _TARGET_MACHINE_KINDS.get(target, "real") if is_control_target(target) else "real"
     try:
         if state_dir is None:
-            state_dir = posture_store.state_dir()
+            state_dir = _control_state.state_dir()
         if not isinstance(state_dir, str | os.PathLike):
             # Only a path names a report directory; ``None`` names none.
             return "real"
@@ -2287,58 +2478,6 @@ def published_machine_kind(
     if isinstance(meta, dict) and meta.get(_MACHINE_KIND_KEY) == _REHEARSAL:
         return _REHEARSAL
     return "real"
-
-
-# -- sweeping ---------------------------------------------------------------
-
-
-def sweep_dead(
-    directory: Path,
-    *,
-    prefix: str,
-    suffix: str,
-    keep: str | None = None,
-    is_alive: Callable[[object], bool] = is_process_alive,
-) -> list[Path]:
-    """Unlink every ``prefix<pid>suffix`` file in *directory* whose PID is gone.
-
-    A process that is killed rather than asked to stop leaves its file behind,
-    and a later process that happens to reuse the PID would otherwise inherit
-    it. The name is the whole judgement — a file whose name encodes no PID
-    encodes no owner either, and goes the same way.
-
-    Args:
-        directory: Where to look. A missing or unreadable one sweeps nothing.
-        prefix: Filename prefix of the family to sweep.
-        suffix: Filename suffix of the family to sweep.
-        keep: A filename to leave alone without probing it. This is how a
-            process spares its own file: asking whether oneself is alive is a
-            way to get it wrong.
-        is_alive: The liveness predicate.
-
-    Returns:
-        The paths removed, in discovery order.
-    """
-    try:
-        entries = sorted(directory.glob(f"{prefix}*{suffix}"))
-    except OSError:
-        return []
-
-    removed: list[Path] = []
-    for entry in entries:
-        if keep is not None and entry.name == keep:
-            continue
-        pid = _pid_from_filename(entry.name, prefix, suffix)
-        if pid is not None and is_alive(pid):
-            continue
-        try:
-            entry.unlink(missing_ok=True)
-        except OSError as exc:  # pragma: no cover - unwritable state dir
-            logger.warning("Could not remove stale file %s: %s", entry, exc)
-            continue
-        logger.info("Swept stale file %s (owner pid %s gone)", entry.name, pid)
-        removed.append(entry)
-    return removed
 
 
 # -- convergence ------------------------------------------------------------
@@ -2429,7 +2568,7 @@ def blocking_pids(
     for report in fleet:
         block = _switch_at(report, record.generation)
         status = None if block is None else block.status
-        if block is not None and status == REPORT_APPLYING and not _holds_no_connector(report):
+        if block is not None and status == "applying" and not _holds_no_connector(report):
             # ``None`` is no bound, which keeps blocking rather than expiring
             # immediately: an unreadable deadline is not a reason to decide a
             # swap finished. The bound is a wall clock the publishing server
@@ -2447,7 +2586,7 @@ def blocking_pids(
                 continue
         if not session or report.session != session:
             continue
-        if status in (REPORT_APPLYING, REPORT_FAILED) or _bound_off_record(report, record):
+        if status in ("applying", "failed") or _bound_off_record(report, record):
             blocked.add(report.server_pid)
     return tuple(sorted(blocked))
 

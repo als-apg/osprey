@@ -28,7 +28,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     QueueRequestRejectedError,
     QueueUnavailableError,
 )
-from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+from osprey_connectors.write_switch import RESERVED_OWNER_KWARG
 from tests._control_system import IN_PROCESS
 from tests.services.bluesky_bridge._queue_fakes import FakeManager, status_doc
 

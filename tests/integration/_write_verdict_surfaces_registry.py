@@ -1,8 +1,8 @@
 """The registry of write-verdict surfaces: one named projection per surface.
 
-Every src module that asks :func:`osprey_connectors.posture_store.write_verdict`,
-:func:`~osprey_connectors.posture_store.execution_verdict` or
-:func:`~osprey_connectors.posture_store.backstop_verdict` (or the hook twin's
+Every src module that asks :func:`osprey_connectors.write_switch.write_verdict`,
+:func:`~osprey_connectors.write_switch.execution_verdict` or
+:func:`~osprey_connectors.write_switch.backstop_verdict` (or the hook twin's
 ``write_verdict`` or ``execution_verdict``) "may this write?" is a *surface*. A surface rarely
 returns the verdict itself: the connector host answers a bool, the executor a
 launch stamp, the kernel a hint line, the chip a turn-on lock. A
@@ -94,9 +94,9 @@ _HOOKS_DIR = Path(__file__).resolve().parents[2] / "src" / Path(*_HOOKS.split(".
 
 
 def _pin_env(case: Case) -> bool:
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    return posture_store.LAUNCH_POSTURE_ENV_VAR in case.env
+    return write_switch.LAUNCH_PIN_ENV_VAR in case.env
 
 
 def _ladder_pin_honoured(case: Case) -> bool:
@@ -163,7 +163,7 @@ def _reset_hook_config_memo(staged: Staged, hook_function: Callable[..., Any]) -
 
 
 def _package(staged: Staged) -> Any:
-    from osprey_connectors.posture_store import write_verdict
+    from osprey_connectors.write_switch import write_verdict
     from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
 
     case = staged.case
@@ -177,7 +177,7 @@ def _package(staged: Staged) -> Any:
 
 
 def _package_backstop(staged: Staged) -> Any:
-    from osprey_connectors.posture_store import backstop_verdict
+    from osprey_connectors.write_switch import backstop_verdict
 
     verdict = backstop_verdict(staged.case.section)
     return (verdict.allowed, verdict.reason), _expected(staged.case)
@@ -361,11 +361,13 @@ def _executor_pin(staged: Staged) -> Any:
     if not _ladder_pin_ignored(case) or not _str_target(case):
         return OUT_OF_DOMAIN
     from osprey.mcp_server.python_executor.executor import _launch_posture
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    expected = posture_store.launch_posture_stamp(
+    expected = write_switch.launch_pin_stamp(
         case.target,
-        posture_store.POSTURE_WRITES if case.expect["allowed"] else posture_store.POSTURE_SANDBOX,
+        write_switch.LAUNCH_PIN_WRITES
+        if case.expect["allowed"]
+        else write_switch.LAUNCH_PIN_SANDBOX,
     )
     return _launch_posture(case.target), expected
 
@@ -595,7 +597,7 @@ def _held(project: Callable[[Staged], Any]) -> Callable[[Staged], Any]:
     """*project*, asked with the session held: the row's answer gives way to the hold."""
 
     def held(staged: Staged) -> Any:
-        from osprey_connectors.posture_store import backstop_verdict
+        from osprey_connectors.write_switch import backstop_verdict
 
         _hold(staged)
         answer = project(staged)
@@ -887,7 +889,7 @@ def _orbit_bump_posture(staged: Staged) -> Any:
 SURFACES: tuple[Surface, ...] = (
     Surface(
         "package",
-        "osprey_connectors.posture_store",
+        "osprey_connectors.write_switch",
         "write",
         stage1=True,
         reports_reason=True,
@@ -895,7 +897,7 @@ SURFACES: tuple[Surface, ...] = (
     ),
     Surface(
         "package-backstop",
-        "osprey_connectors.posture_store",
+        "osprey_connectors.write_switch",
         "backstop",
         stage1=False,
         reports_reason=True,

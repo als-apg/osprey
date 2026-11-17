@@ -64,16 +64,13 @@ from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.queue_backend import RUN_ID_META_KEY
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
 )
-from osprey_connectors.posture_store import (
-    NO_OWNER,
-    RESERVED_OWNER_KWARG,
-)
 from osprey_connectors.refusals import STORE_PATH_MARKERS, refusal_phrase
+from osprey_connectors.write_switch import NO_OWNER, RESERVED_OWNER_KWARG
 from osprey_connectors_tests._harness import isolated_connector_registries, write_payload
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -228,7 +225,7 @@ def switch_for(tree: Path, owner: str, state: str, target: str = _TARGET) -> Pat
     ).model_dump(mode="json")
     payload["switch"] = {target: state}
     path = write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -244,23 +241,23 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
     owner is reset on the way out as well as in: a run that failed mid-plan
     would otherwise hand its owner to the next test.
     """
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
     tree.mkdir(parents=True)
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    (tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
     for name in (
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.DISPATCH_RUN_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.DISPATCH_RUN_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
     for owner in (SWITCHING_OWNER, OTHER_OWNER, UNMAPPED_OWNER):
         switch_for(tree, owner, "on")
-    posture_store._owner_var.set(NO_OWNER)
+    write_switch._owner_var.set(NO_OWNER)
     yield tree
-    posture_store._owner_var.set(NO_OWNER)
-    control_context.invalidate_cache()
+    write_switch._owner_var.set(NO_OWNER)
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -408,7 +405,7 @@ def assert_names_the_refusal(line: str, owner: str | object, reason: str) -> Non
 
 def assert_names_no_store_path(message: str) -> None:
     """A refusal sends nobody to a file: no store path, no tree marker, no key."""
-    for marker in (*STORE_PATH_MARKERS, posture_store.CONTROL_TREE_MARKER_NAME, "writes_enabled"):
+    for marker in (*STORE_PATH_MARKERS, write_switch.CONTROL_TREE_MARKER_NAME, "writes_enabled"):
         assert marker not in message
 
 
@@ -560,9 +557,9 @@ def test_an_unmounted_tree_refuses_every_owners_write_as_record_unavailable(
     """
     plan_function, logger_name = wrapped_plan
     monkeypatch.setenv(
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(control_context_tree.parent / "unmounted")
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(control_context_tree.parent / "unmounted")
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
@@ -601,8 +598,8 @@ def test_a_tree_without_its_marker_refuses_every_owners_write_as_record_unavaila
     phrase sends the reader to the deployment admin, not to a path.
     """
     plan_function, logger_name = wrapped_plan
-    (control_context_tree / posture_store.CONTROL_TREE_MARKER_NAME).unlink()
-    control_context.invalidate_cache()
+    (control_context_tree / write_switch.CONTROL_TREE_MARKER_NAME).unlink()
+    testing.invalidate_cache()
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
@@ -633,7 +630,7 @@ def plant_unreadable_record(tree: Path, owner: str) -> Path:
     path = tree / owner / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("this is not a control-context record\n", encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 

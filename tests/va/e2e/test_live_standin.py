@@ -138,7 +138,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     evaluate_eligibility,
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
-from osprey_connectors import control_context
+from osprey_connectors import testing
 from osprey_connectors.connector_types import LIVE_STANDIN, TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ChannelLimitsViolationError
@@ -520,11 +520,11 @@ def module_environment(tmp_path_factory):
     server's claim would start.
     """
     root = tmp_path_factory.mktemp("standin-state") / "var" / "agent_data"
-    (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
+    (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(target_state, "resolve_shared_data_root", lambda: root)
         patch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         write_control_context(
             root, target=TARGET_VA, generation=0, owned_by=None, switch={TARGET_STANDIN: "asked"}
         )
@@ -546,9 +546,9 @@ def stamped_root(module_environment, monkeypatch):
     falls back to.
     """
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(module_environment))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 async def reading(manager: ConnectorHostManager, address: str) -> float:

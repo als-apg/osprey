@@ -121,7 +121,7 @@ from osprey.mcp_server.control_system.tools import control_target as control_tar
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as execution_gates
 from osprey.mcp_server.python_executor.tools import python_execute as python_execute_module
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.connector_types import TARGET_LIVE, TARGET_STANDIN, TARGET_VA
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.refusals import refusal_phrase
@@ -374,7 +374,7 @@ def module_environment(tmp_path_factory, endpoints):
     server's claim merges it and keeps the switch.
     """
     root = tmp_path_factory.mktemp("per-target-posture") / "var" / "agent_data"
-    (root / target_state.STATE_DIR_NAME).mkdir(parents=True)
+    (root / target_state.CONTROL_STATE_DIR_NAME).mkdir(parents=True)
     project = tmp_path_factory.mktemp("per-target-posture-project")
     written = project / "config.yml"
     written.write_text(
@@ -396,9 +396,9 @@ def module_environment(tmp_path_factory, endpoints):
         patch_env.setenv("CONFIG_FILE", str(written))
         patch_env.setenv("OSPREY_CONFIG", str(written))
         patch_env.delenv("OSPREY_EXECUTION_MODE", raising=False)
-        patch_env.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        patch_env.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
         patch_env.setattr(target_state, "resolve_shared_data_root", lambda: root)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         write_control_context(
             root,
             target=TARGET_VA,
@@ -408,7 +408,7 @@ def module_environment(tmp_path_factory, endpoints):
         )
         with patch.object(audit_writer, "record", side_effect=lambda **f: records.append(f)):
             yield SimpleNamespace(root=root, config_path=written)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture(scope="module")
@@ -478,7 +478,7 @@ def post_switch(client, target: str, state: str):
 
 def switch_now() -> dict:
     """The login's switch as the record holds it right now."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     record = control_context.read_record()
     return {} if record is None else dict(record.switch)
 

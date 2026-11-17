@@ -1634,7 +1634,7 @@ describe('switching', () => {
   });
 
   test('a switch that landed leaves no line: the card names the machine', async () => {
-    // The record writes `applied` (control_context.SWITCH_APPLIED); nothing on
+    // The record writes `applied` (control_context.SwitchStatus); nothing on
     // this path has ever published `success`. Matching the wrong word sent
     // every landed switch to the refusal branch, where it read `✗ applied`.
     await bootOpen(

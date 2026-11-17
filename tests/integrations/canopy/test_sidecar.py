@@ -52,7 +52,7 @@ from osprey.integrations.canopy.sidecar import (
 )
 from osprey.interfaces.web_terminal.supervised_child import PREVIOUS_EXIT_ENV
 from osprey.runtime.budget import write_budget
-from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV
 
 #: How long a stub child gets to show up, or to be gone.
@@ -97,7 +97,7 @@ def write_record(state_dir: Path, *, target: str, generation: int) -> None:
         control_context.ControlContext(target=target, generation=generation),
         path=state_dir / control_context.RECORD_FILENAME,
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def wait_for(predicate, what: str, timeout: float = WAIT_S):
@@ -210,21 +210,21 @@ def deployment(tmp_path, monkeypatch):
         if name.startswith(("CANOPY_", "OSPREY_CANOPY_", "OSPREY_CONTROL_TARGET")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
     ):
         monkeypatch.delenv(name, raising=False)
     built = Deployment(tmp_path)
     monkeypatch.setenv("OSPREY_CONFIG", str(built.config_path))
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(built.state_dir))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(built.state_dir))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.chdir(tmp_path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield built
     for sidecar in built.sidecars:
         sidecar.stop()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -274,9 +274,9 @@ class TestScrubbedEnvironment:
     def test_a_forbidden_session_variable_is_passed_through(self):
         """DATA must see it and refuse; the sidecar never hides it."""
         names = (
-            posture_store.CONTROL_OWNER_ENV_VAR,
-            posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            write_switch.CONTROL_OWNER_ENV_VAR,
+            write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+            write_switch.LAUNCH_PIN_ENV_VAR,
             "OSPREY_CONTROL_TARGET",
         )
         env = scrubbed_environment(dict.fromkeys(names, "x"))
@@ -1132,12 +1132,12 @@ class TestEnvironments:
         assert "OSPREY_CANOPY_WRITES" not in front
 
     def test_a_forbidden_variable_is_passed_through_to_data(self, deployment, monkeypatch):
-        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "someone")
+        monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "someone")
         sidecar = deployment.sidecar()
         sidecar.spawn()
-        assert sidecar.data_env()[posture_store.CONTROL_OWNER_ENV_VAR] == "someone"
+        assert sidecar.data_env()[write_switch.CONTROL_OWNER_ENV_VAR] == "someone"
         (started,) = deployment.started("data")
-        assert started["env"][posture_store.CONTROL_OWNER_ENV_VAR] == "someone"
+        assert started["env"][write_switch.CONTROL_OWNER_ENV_VAR] == "someone"
 
     def test_a_dotenv_in_the_working_directory_changes_nothing(self, deployment):
         sidecar = deployment.sidecar()

@@ -1,0 +1,1 @@
+`target_state.STATE_DIR_NAME` is now `target_state.CONTROL_STATE_DIR_NAME`, as in `osprey_connectors.write_switch`. The framework's own spellings of the read-only run (`osprey.audit.posture.POSTURE_ENV_VAR`, `SANDBOX_MODE`) and of report and switch words (`target_state.REPORT_FILE_PREFIX`, `SWITCH_APPLIED`, ...) are unchanged.

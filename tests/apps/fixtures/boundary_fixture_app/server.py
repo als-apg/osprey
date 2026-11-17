@@ -12,7 +12,7 @@ from osprey_connectors.write_tier import tier_writes
 from . import helpers
 
 if TYPE_CHECKING:
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.write_switch import WriteVerdict
 
 
 def describe(section: dict[str, Any], verdict: WriteVerdict) -> str:

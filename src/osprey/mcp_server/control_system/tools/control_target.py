@@ -126,7 +126,7 @@ from osprey.mcp_server.http import (
     SWITCH_OUTCOME_SUCCESS,
     notify_target_switch_async,
 )
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, write_switch
 from osprey_connectors.ipc import derive_endpoints
 from osprey_connectors.limits_posture import target_limits_posture
 from osprey_connectors.targets import configured_targets
@@ -403,12 +403,12 @@ def target_rows(
     return rows
 
 
-def _write_verdict(config: Any, target: str) -> posture_store.WriteVerdict:
+def _write_verdict(config: Any, target: str) -> write_switch.WriteVerdict:
     """The write verdict for *target* on this deployment, now.
 
     :func:`~osprey.mcp_server.control_system.target_eligibility.target_write_verdict`:
     the tier, this run's mode, the owner and the login's switch for *target*,
-    decided once by :func:`~osprey_connectors.posture_store.write_verdict`. Its
+    decided once by :func:`~osprey_connectors.write_switch.write_verdict`. Its
     ``allowed`` is also the value the roster hands
     :func:`~osprey_connectors.ipc.derive_endpoints`, so the flag a row reports
     and the gateway that row names are the same answer rather than two
@@ -839,7 +839,7 @@ async def _answered(
     if last_switch is None or last_switch.request_id != request_id:
         return None
 
-    if last_switch.status == control_context.SWITCH_REFUSED:
+    if last_switch.status == "refused":
         reason = last_switch.reason or ""
         return await _refuse(
             from_target=record.target,

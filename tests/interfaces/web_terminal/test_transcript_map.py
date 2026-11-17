@@ -25,7 +25,7 @@ import pytest
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import transcript_map
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import _control_state, control_context, testing
 
 # A session key: the bare UUID one browser tab keeps for its whole life.
 KEY = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -51,19 +51,19 @@ def shared_root(tmp_path, monkeypatch):
     root = tmp_path / "shared_agent_data"
     root.mkdir()
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
 def unresolvable_root(monkeypatch):
     """No stamp and no config derivation: a map with nowhere to write."""
     monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
-    monkeypatch.setattr(posture_store, "resolve_shared_data_root", _raise_no_root)
-    control_context.invalidate_cache()
+    monkeypatch.setattr(_control_state, "resolve_shared_data_root", _raise_no_root)
+    testing.invalidate_cache()
     yield
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _raise_no_root() -> Path:
@@ -153,7 +153,7 @@ class TestTheFileSitsBesideTheRecord:
     def test_the_path_is_the_records_directory(self):
         """One ``control_target/`` directory holds both files.
 
-        The map resolves through ``posture_store.state_dir`` and the record
+        The map resolves through ``write_switch.state_dir`` and the record
         through ``control_context.record_path``; pinning them equal is what
         keeps the two derivations from parting company on a deployment that
         moves ``agent_data.base_dir``.
@@ -205,6 +205,6 @@ class TestAMapWithNoLocationStillAnswers:
         root = tmp_path / "recovered"
         root.mkdir()
         monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         assert transcript_map.get(app, KEY) == TRANSCRIPT

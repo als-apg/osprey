@@ -23,7 +23,7 @@ import pytest
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.control_context import published_machine_kind
 from osprey_connectors.write_target import KIND_BANNERS
 from tests.mcp_server.test_control_target_roster import standin_config
@@ -101,7 +101,7 @@ def test_no_report_makes_any_other_target_a_rehearsal(tmp_path, target, kind):
 
 def test_both_readers_resolve_the_same_directory_by_default(tmp_path, monkeypatch):
     """With no ``state_dir``, both read the bound control-context directory."""
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path))
     _write_reports(tmp_path, [(None, {"targets": _REHEARSAL})])
 
     assert published_machine_kind("standin") == reader.published_machine_kind("standin")
@@ -110,7 +110,7 @@ def test_both_readers_resolve_the_same_directory_by_default(tmp_path, monkeypatc
 
 def test_the_name_tables_match():
     assert reader._MACHINE_KINDS == {
-        target: posture_store.machine_kind(
+        target: write_switch.machine_kind(
             {"type": "epics", "connector": {"live_standin": {}}}, target
         )
         for target in ("live", "standin", "va")
@@ -126,7 +126,7 @@ def test_the_name_tables_match():
 def report_dir(tmp_path, monkeypatch) -> Path:
     """The writer's and both readers' state directory, bound to one path."""
     directory = tmp_path / "state"
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     return directory
 
 

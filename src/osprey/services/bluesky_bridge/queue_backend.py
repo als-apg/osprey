@@ -57,7 +57,7 @@ from typing import Any
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 
 from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
-from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+from osprey_connectors.write_switch import RESERVED_OWNER_KWARG
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 
@@ -507,7 +507,7 @@ def lane_tier_allows(section: Any) -> bool:
     """Whether this lane's worker could be allowed to write at all.
 
     The startup half of the write verdict, the half that does not move while
-    the process runs: :func:`osprey_connectors.posture_store.backstop_verdict`
+    the process runs: :func:`osprey_connectors.write_switch.backstop_verdict`
     allows (not a read-only run, and a login tier of ``asked`` or ``allowed``, in
     that verdict's own order), and the lane is not degraded. The tier is
     target-blind — a tier that arms writes arms them for every machine, and the
@@ -522,7 +522,7 @@ def lane_tier_allows(section: Any) -> bool:
     Each write is still decided on its own, by the connector's verdict for the
     owner the plan wrapper bound. This never reads a record. Never raises.
     """
-    from osprey_connectors.posture_store import backstop_verdict
+    from osprey_connectors.write_switch import backstop_verdict
 
     return backstop_verdict(section).allowed and resolve_lane_connector_type()[1] is None
 
@@ -1022,7 +1022,7 @@ class QueueBackend:
 
         An owner rides the item twice, because the two carriers answer two
         different questions. The reserved kwarg
-        (:data:`~osprey_connectors.posture_store.RESERVED_OWNER_KWARG`) is the
+        (:data:`~osprey_connectors.write_switch.RESERVED_OWNER_KWARG`) is the
         only channel that reaches the worker's plan wrapper, which binds it for
         the duration of the run; :data:`OWNER_META_KEY` is the stamp that keeps
         the item itself attributable on a queue row or in history, where no
@@ -1718,7 +1718,7 @@ def split_owner(item: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     """An item without its reserved owner kwarg, plus the owner it carried.
 
     The owner reaches an item two ways. The reserved kwarg
-    (:data:`~osprey_connectors.posture_store.RESERVED_OWNER_KWARG`) is what the
+    (:data:`~osprey_connectors.write_switch.RESERVED_OWNER_KWARG`) is what the
     plan wrapper binds, and it is not a plan argument: nothing may render it,
     replay it, or hand it to a plan's signature. :data:`OWNER_META_KEY` is the
     stamp on the item's own metadata. The kwarg wins when an item carries both,

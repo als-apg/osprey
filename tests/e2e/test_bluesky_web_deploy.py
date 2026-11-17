@@ -84,7 +84,7 @@ from typing import Any
 import httpx
 import pytest
 
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import env_value, format_failure, run_command, wait_for_health
@@ -563,7 +563,7 @@ def _run_plan_via_bridge_as_owner(deployed_stack: DeployedStack, client_id: str)
         "/queue/items",
         {"draft_revision": patched["revision"]},
         token=token,
-        owner=posture_store.current_owner(),
+        owner=write_switch.current_owner(),
     )
     assert status == 200, f"POST /queue/items (bridge) failed: {status} {body}"
     run_id = body["run_id"]

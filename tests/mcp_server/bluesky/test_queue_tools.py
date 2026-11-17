@@ -5,7 +5,7 @@ Three properties are load-bearing and are asserted directly, never inferred:
 
 1. **The write verdict beats a valid token, with zero HTTP calls.**
    ``queue_start`` and ``queue_stop(cancel=True)`` ask the write verdict
-   (``posture_store.write_verdict``) fresh before any POST, so a caller that
+   (``write_switch.write_verdict``) fresh before any POST, so a caller that
    bypassed the PreToolUse hook and holds a correct ``BLUESKY_LAUNCH_TOKEN`` is
    still refused while the machine's switch is off. ``queue_add`` applies the
    same verdict to the armed half of enqueue by WITHHOLDING the token header —
@@ -47,9 +47,9 @@ from osprey.mcp_server.bluesky.server_context import initialize_server_context, 
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import TERMINAL_USER_ENV
-from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.targets import baseline_target
+from osprey_connectors.write_switch import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,

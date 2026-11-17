@@ -975,11 +975,11 @@ def test_control_tree_source_follows_the_configured_agent_data_root(
 def test_control_tree_directory_name_comes_from_the_writer() -> None:
     """Restating the directory name here would be a second spelling of the one
     constant the record writer resolves its own path through."""
-    from osprey_connectors.posture_store import STATE_DIR_NAME
+    from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 
     source, _ = _tree_keys()
 
-    assert source.rsplit("/", 1)[-1] == STATE_DIR_NAME
+    assert source.rsplit("/", 1)[-1] == CONTROL_STATE_DIR_NAME
 
 
 def test_control_tree_target_is_outside_every_container_state_zone() -> None:
@@ -8870,9 +8870,9 @@ class TestControlTargetPathSeam:
         """Restating it here would be a second spelling of the one constant the
         writer resolves its own path through, free to drift from it."""
         from osprey.deployment.compose_generator import control_target_tree_dir
-        from osprey_connectors.posture_store import STATE_DIR_NAME
+        from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 
-        assert control_target_tree_dir({}, tmp_path).name == STATE_DIR_NAME
+        assert control_target_tree_dir({}, tmp_path).name == CONTROL_STATE_DIR_NAME
 
     def test_an_absolute_agent_data_root_anchors_the_control_target_tree(
         self, tmp_path: Path

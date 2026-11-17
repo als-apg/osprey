@@ -39,7 +39,7 @@ from osprey.mcp_server.control_system.server_context import (
     initialize_server_context,
 )
 from osprey.stores.artifact_store import get_artifact_store
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from tests.facility.served_tree import served_tree
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
@@ -61,7 +61,7 @@ def write_corrupt_record(root, raw):
     path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(raw, encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 

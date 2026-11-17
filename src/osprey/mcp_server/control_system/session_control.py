@@ -120,7 +120,7 @@ import contextlib
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from osprey.audit import posture
 from osprey.mcp_server.control_system import target_state
@@ -131,6 +131,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors import control_context
+from osprey_connectors.control_context import SwitchStatus
 
 logger = logging.getLogger("osprey.mcp_server.control_system.session_control")
 
@@ -148,9 +149,9 @@ POLL_INTERVAL_S = 1.0
 # says so in its own report.
 
 #: The record moved (or was already where the request asked for).
-STATUS_APPLIED = control_context.SWITCH_APPLIED
+STATUS_APPLIED: Final[SwitchStatus] = "applied"
 #: The gate said no. Neither target nor generation moved.
-STATUS_REFUSED = control_context.SWITCH_REFUSED
+STATUS_REFUSED: Final[SwitchStatus] = "refused"
 
 #: An exception the consumption did not classify. Restated from
 #: :data:`~osprey.mcp_server.control_system.tools.control_target.REASON_INTERNAL_ERROR`

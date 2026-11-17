@@ -39,7 +39,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.connector_types import CONTROL_TARGETS, is_control_target
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.safety_file import atomic_replace
@@ -115,19 +115,19 @@ def pin_identity(monkeypatch: Any, identity: str = FIXTURE_IDENTITY) -> str:
 #: The variables that change a write verdict behind a test's back: a stamped
 #: owner, a dispatch run, a bound tree or directory, a launch pin, a read-only run.
 VERDICT_ENV_VARS: tuple[str, ...] = (
-    posture_store.CONTROL_OWNER_ENV_VAR,
-    posture_store.DISPATCH_RUN_ENV_VAR,
-    posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-    posture_store.CONTROL_CONTEXT_DIR_ENV_VAR,
-    posture_store.LAUNCH_POSTURE_ENV_VAR,
+    write_switch.CONTROL_OWNER_ENV_VAR,
+    write_switch.DISPATCH_RUN_ENV_VAR,
+    write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+    write_switch.CONTROL_CONTEXT_DIR_ENV_VAR,
+    write_switch.LAUNCH_PIN_ENV_VAR,
     "OSPREY_EXECUTION_MODE",
 )
 
 
 def reset_verdict_state() -> None:
     """No bound owner, and neither the posture store's nor the record's cache."""
-    posture_store._owner_var.set(posture_store.NO_OWNER)
-    control_context.invalidate_cache()
+    write_switch._owner_var.set(write_switch.NO_OWNER)
+    testing.invalidate_cache()
 
 
 def isolate_verdict_environment(monkeypatch: Any, root: Path) -> None:
@@ -156,7 +156,7 @@ SELF_OWNER: Any = _Self
 
 
 def owner(
-    kind: str = control_context.OWNER_WEB_TERMINAL,
+    kind: str = "web_terminal",
     pid: int | None = None,
     port: int | None = None,
 ) -> control_context.RecordWriter:
@@ -239,7 +239,7 @@ def write_control_context(
             payload["last_switch"] = dict(last_switch)
         return write_payload(path, payload)
     control_context.write_record(record, path=path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     if switch is not None:
         if all(key in CONTROL_TARGETS and value in _ARMED for key, value in switch.items()):
             _set_switch_to(path, dict(switch))
@@ -258,7 +258,7 @@ def write_control_context(
         if last_switch is not None:
             payload["last_switch"] = dict(last_switch)
         write_payload(path, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -276,7 +276,7 @@ def _set_switch_to(path: Path, wanted: Mapping[str, str]) -> None:
         names = sorted(target for target, word in wanted.items() if word == position)
         if not names:
             continue
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         current = control_context.read_record(path=path)
         epoch = current.switch_epoch if current is not None else None
         try:
@@ -336,7 +336,7 @@ def write_server_report(
         updated_at=updated_at,
     )
     path = control_context._record_path_under(root).parent / (
-        f"{control_context.REPORT_FILE_PREFIX}{pid}{control_context.REPORT_FILE_SUFFIX}"
+        f"{control_context._REPORT_FILE_PREFIX}{pid}{control_context._REPORT_FILE_SUFFIX}"
     )
     payload = report.model_dump(mode="json")
     payload["last_switch"] = None if last_switch is None else dict(last_switch)
@@ -358,7 +358,7 @@ def write_payload(path: Path, payload: Any) -> Path:
     atomic_replace(
         path, json.dumps(payload, indent=2).encode("utf-8"), mode=0o600, sync="best_effort"
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -402,10 +402,10 @@ def data_root(tmp_path, monkeypatch):
     """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, cache cleared."""
     root = tmp_path / "root"
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    control_context.invalidate_cache()
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def race_record_writers(
@@ -425,7 +425,7 @@ def race_record_writers(
     signals.mkdir()
     env = dict(os.environ)
     env["OSPREY_AGENT_DATA_ROOT"] = str(data_root)
-    env.pop(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, None)
+    env.pop(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, None)
     runs = [
         (person, "read", 0.5 if interleaved else 0.0),
         (other, "locked" if interleaved else "done", 0.0),
@@ -446,5 +446,5 @@ def race_record_writers(
         out, err = proc.communicate(timeout=_SIGNAL_TIMEOUT_S * 2)
         assert proc.returncode == 0, err
         outputs.append(json.loads(out.strip().splitlines()[-1]))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return outputs

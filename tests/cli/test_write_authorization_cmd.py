@@ -20,7 +20,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.write_authorization_cmd import write_authorization
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
@@ -390,9 +390,9 @@ class TestDeployment:
         assert run("approve", request.id, "--yes").exit_code == 0
         tree = repo / "var" / "agent_data" / "control_target"
         control_context.set_switch(["va"], "off", path=tree / "alice" / "control_context.json")
-        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
-        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
-        control_context.invalidate_cache()
+        monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+        monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "alice")
+        testing.invalidate_cache()
         status, grant = wa._find_grant("alice", request.id)
         assert status == "ok" and grant is not None and grant.revoked is not None
 

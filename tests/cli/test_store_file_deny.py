@@ -23,8 +23,8 @@ from osprey.cli.templates.claude_code import (
     store_deny,
 )
 from osprey.cli.templates.manager import TemplateManager
-from osprey_connectors.posture_store import STATE_DIR_NAME
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, agent_data_base_dir
+from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 from tests._preset_data import bundle_data_root
 
 #: The project root a container render names: the root the terminal runs at,
@@ -33,11 +33,11 @@ IN_CONTAINER_ROOT = "/app/project"
 
 
 def _absolute_rule(root: Path | str, base_dir: str = DEFAULT_AGENT_DATA_BASE_DIR) -> str:
-    return f"Edit(/{Path(root) / base_dir / STATE_DIR_NAME}/**)"
+    return f"Edit(/{Path(root) / base_dir / CONTROL_STATE_DIR_NAME}/**)"
 
 
 def _relative_rule(base_dir: str = DEFAULT_AGENT_DATA_BASE_DIR) -> str:
-    return f"Edit({base_dir}/{STATE_DIR_NAME}/**)"
+    return f"Edit({base_dir}/{CONTROL_STATE_DIR_NAME}/**)"
 
 
 def _settings(project: Path) -> dict:
@@ -183,7 +183,7 @@ def test_a_profile_remove_deny_does_not_lift_the_rendered_store_deny(tmp_path):
     probe = _project(tmp_path / "probe", "store-deny-probe")
     config = yaml.safe_load((probe / "config.yml").read_text())
     rules = store_deny(config, probe)
-    assert rules[0] == f"Edit(/{resolve_shared_data_root(config) / STATE_DIR_NAME}/**)"
+    assert rules[0] == f"Edit(/{resolve_shared_data_root(config) / CONTROL_STATE_DIR_NAME}/**)"
 
     project = _project(
         tmp_path / "lift",
@@ -209,4 +209,4 @@ def test_only_edit_path_rules_are_rendered_for_the_store(tmp_path):
     for section in ("allow", "deny", "ask"):
         stray = [e for e in permissions[section] if e.startswith(("Write(", "NotebookEdit("))]
         assert not stray, f"{section} carries non-Edit path rules: {stray}"
-    assert sum(STATE_DIR_NAME in e for e in permissions["deny"]) == 2
+    assert sum(CONTROL_STATE_DIR_NAME in e for e in permissions["deny"]) == 2

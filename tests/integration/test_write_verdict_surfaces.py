@@ -61,7 +61,7 @@ VERDICT_NAMES = frozenset(
 #: The modules that define a verdict rather than ask one.
 DEFINING_MODULES = frozenset(
     {
-        "osprey_connectors.posture_store",
+        "osprey_connectors.write_switch",
         "osprey.templates.claude_code.claude.hooks.osprey_target_state",
     }
 )
@@ -247,7 +247,7 @@ POSITION_SURFACES = (
 
 def _sides(staged: Staged) -> Any:
     """The package's and the twin's ``(allowed, reason, position)`` for one row."""
-    from osprey_connectors.posture_store import write_verdict
+    from osprey_connectors.write_switch import write_verdict
     from osprey_connectors_tests._harness._write_verdict_cases import owner_argument
     from tests.integration._write_verdict_surfaces_registry import _import_hook
 

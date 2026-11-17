@@ -241,8 +241,8 @@ def test_hold_record_is_read_as_a_held_session(tmp_path: Path) -> None:
 
 
 def test_session_held_text_is_the_refusal_a_write_gets(tmp_path: Path) -> None:
-    from osprey_connectors.posture_store import session_hold_refusal
     from osprey_connectors.refusals import refusal_text
+    from osprey_connectors.write_switch import session_hold_refusal
 
     _store_example_record(tmp_path)
     verdict = session_hold_refusal(root=tmp_path, session_keys=[_SESSION_KEY])

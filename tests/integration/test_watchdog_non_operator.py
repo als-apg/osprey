@@ -49,8 +49,8 @@ from osprey.mcp_server.dispatch_worker import dispatch_api, sdk_runner
 from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.services.watchdog.engines.decision import QUESTION_ID
 from osprey.services.watchdog.verdict import SURFACE_SAFETY_WATCHDOG
-from osprey_connectors.posture_store import DISPATCH_RUN_ENV_VAR
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR, ensure_session, open_flags
+from osprey_connectors.write_switch import DISPATCH_RUN_ENV_VAR
 from tests._builds import copy_build
 from tests._live import wait_until
 from tests.conftest import dispatcher_route_registry

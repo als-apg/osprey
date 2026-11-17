@@ -53,7 +53,7 @@ def _assert_limits_readable_if_writable() -> None:
 
     "Could write" is the startup half of the write verdict, asked through
     :func:`~osprey.services.bluesky_bridge.queue_backend.lane_tier_allows`:
-    :func:`osprey_connectors.posture_store.backstop_verdict` allows (the run
+    :func:`osprey_connectors.write_switch.backstop_verdict` allows (the run
     is not read-only and the login tier allows writes), and the lane is not
     degraded. The tier is target-blind — a deployment that
     allows writes allows them on every machine, and the person's switch picks

@@ -50,7 +50,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 )
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as py_executor
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.connector_types import LIVE_STANDIN
 from osprey_connectors_tests._harness import owner, write_control_context, write_server_report
 from tests._live import async_wait_until
@@ -86,13 +86,13 @@ def record_root(state_root, monkeypatch):
     here is what makes one directory hold the record, the reports and the
     requests — which is the thing under test, not an incidental of it.
     """
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(state_root))
-    (state_root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
-    control_context.invalidate_cache()
+    (state_root / write_switch.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    testing.invalidate_cache()
     yield state_root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)
@@ -131,7 +131,7 @@ def written_here(root, target="live", generation=1, **kwargs):
         root,
         target=target,
         generation=generation,
-        owned_by=owner(control_context.OWNER_CONTROLS_SERVER, pid=os.getpid()),
+        owned_by=owner("controls_server", pid=os.getpid()),
         **kwargs,
     )
 
@@ -143,7 +143,7 @@ def owned_elsewhere(root, target="live", generation=1, *, owner_pid=None, **kwar
         target=target,
         generation=generation,
         owned_by=owner(
-            control_context.OWNER_CONTROLS_SERVER,
+            "controls_server",
             pid=os.getppid() if owner_pid is None else owner_pid,
         ),
         **kwargs,
@@ -608,7 +608,7 @@ class TestTheGateRefusals:
         record = control_context.read_record()
         assert (record.target, record.generation) == ("live", 7)
         terminus = record.last_switch
-        assert terminus.status == control_context.SWITCH_REFUSED
+        assert terminus.status == "refused"
         assert terminus.target == "va"
         assert terminus.reason == REASON_PROBE_CHANNEL_MISSING
         # A refusal names no binding, because there is none to name.
@@ -819,7 +819,7 @@ class TestTheOwningServerAnswersItself:
         record = control_context.read_record()
         assert (record.target, record.generation) == ("va", 4)
         terminus = record.last_switch
-        assert terminus.status == control_context.SWITCH_APPLIED
+        assert terminus.status == "applied"
         assert terminus.generation == 4
         assert terminus.target == "va"
         assert terminus.requested_by == f"pid:{os.getpid()}"
@@ -1024,9 +1024,7 @@ class TestAFollowerFilesARequest:
         owned_elsewhere(record_root, target="live", generation=0)
         our_report(record_root)
 
-        answering = asyncio.create_task(
-            owner_answers(record_root, status=control_context.SWITCH_APPLIED)
-        )
+        answering = asyncio.create_task(owner_answers(record_root, status="applied"))
         payload = extract_response_dict(await TOOL(target="va"))
         body = await answering
 
@@ -1054,9 +1052,7 @@ class TestAFollowerFilesARequest:
         owned_elsewhere(record_root, target="live", generation=6)
         our_report(record_root)
 
-        answering = asyncio.create_task(
-            owner_answers(record_root, status=control_context.SWITCH_APPLIED)
-        )
+        answering = asyncio.create_task(owner_answers(record_root, status="applied"))
         payload = extract_response_dict(await TOOL(target="va"))
         await answering
 
@@ -1085,7 +1081,7 @@ class TestAFollowerFilesARequest:
         answering = asyncio.create_task(
             owner_answers(
                 record_root,
-                status=control_context.SWITCH_REFUSED,
+                status="refused",
                 reason=REASON_PROBE_CHANNEL_MISSING,
                 detail="Target 'va' names no probe channel.",
                 mint=False,
@@ -1512,7 +1508,7 @@ class TestServerStartup:
         assert record is not None, "create_server must claim the control context"
         assert (record.target, record.generation) == ("va", 0)
         assert record.writer.pid == os.getpid()
-        assert record.writer.kind == control_context.OWNER_CONTROLS_SERVER
+        assert record.writer.kind == "controls_server"
 
     async def test_the_lifespan_runs_the_endpoint_prober(self, monkeypatch, _no_prober):
         """The prober needs a running loop, so the lifespan owns it, not create_server."""

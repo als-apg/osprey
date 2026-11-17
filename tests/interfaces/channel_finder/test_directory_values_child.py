@@ -40,14 +40,14 @@ from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
 from osprey.runtime import session as session_module
 from osprey.runtime.session import EXIT_BINDING_MOVED, EXIT_START_REFUSED, EXIT_TRANSPORT_STALE
 from osprey.services.python_executor.write_surface import _ARMED_CHECKED
-from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
+from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR, READONLY_MODE, is_readonly_run
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.model import evolve
-from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, InlineCaLoop
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -71,13 +71,13 @@ def _write_record(state_dir: Path, *, target: str = "va", generation: int = 3) -
         control_context.ControlContext(target=target, generation=generation),
         path=state_dir / control_context.RECORD_FILENAME,
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture(autouse=True)
 def _inherits_a_writing_posture(monkeypatch) -> None:
     """``serve`` sets the posture on this process: restored here, and it starts writable."""
-    monkeypatch.setenv(POSTURE_ENV_VAR, "readwrite")
+    monkeypatch.setenv(EXECUTION_MODE_ENV_VAR, "readwrite")
 
 
 @pytest.fixture
@@ -277,7 +277,7 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
     state_dir.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -286,9 +286,9 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
         if name.startswith(("OSPREY_CONTROL_TARGET", "EPICS_")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -306,7 +306,7 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _ScriptedFake)
         yield state_dir
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class _Client:
@@ -716,13 +716,13 @@ class TestStart:
         assert "no table" in capsys.readouterr().err
 
     async def test_a_forbidden_variable_refuses_the_start(self, listener, monkeypatch, capsys):
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "sandbox")
         opened: list[bool] = []
         monkeypatch.setattr(session_module.ControlSession, "open", lambda **_: opened.append(True))
         assert await child_module.serve(listener) == EXIT_START_REFUSED
         err = capsys.readouterr().err
         assert err.startswith(ipc.START_REFUSED_PREFIX)
-        assert posture_store.LAUNCH_POSTURE_ENV_VAR in err
+        assert write_switch.LAUNCH_PIN_ENV_VAR in err
         assert opened == []
 
 
@@ -884,7 +884,7 @@ def _set_switch(state_dir: Path, position: str) -> None:
     _write_record(state_dir, target="live", generation=1)
     wanted = {} if position == "off" else {"live": position}
     _set_switch_to(state_dir / control_context.RECORD_FILENAME, wanted)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class _Gateways:
@@ -986,7 +986,7 @@ class TestReadGatewayOnly:
                 gateways.state_dir / control_context.RECORD_FILENAME,
                 {} if after == "off" else {"live": after},
             )
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
             assert gateways.session.moved() is False
 
     @pytest.mark.parametrize("position", ["off", "asked", "allowed"])
@@ -1011,7 +1011,7 @@ class TestReadGatewayOnly:
         async with _serving(listener) as client:
             await client.read(["SR:CH"])
         assert [body["posture"] for body in bodies] == ["sandbox"]
-        assert os.environ[POSTURE_ENV_VAR] == SANDBOX_MODE
+        assert os.environ[EXECUTION_MODE_ENV_VAR] == READONLY_MODE
 
 
 # -- a real child -----------------------------------------------------------------
@@ -1029,7 +1029,7 @@ def _child_env(tmp_path: Path, **environment: str | None) -> tuple[dict[str, str
     }
     env.update(
         {
-            posture_store.CONTROL_CONTEXT_DIR_ENV_VAR: str(state_dir),
+            write_switch.CONTROL_CONTEXT_DIR_ENV_VAR: str(state_dir),
             AUDIT_IDENTITY_ENV: "test-operator",
             "OSPREY_CONFIG": str(config),
             "CONFIG_FILE": str(config),

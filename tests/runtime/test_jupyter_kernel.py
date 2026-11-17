@@ -40,7 +40,7 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError, raw_put_block
 from osprey.services.python_executor.execution import wrapper
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
@@ -67,7 +67,7 @@ def kernel_env():
     after the test; the posture cache read from the stamped one is dropped here.
     """
     yield os.environ
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 #: The account and host this process writes as — what a kernel record names.
@@ -222,8 +222,8 @@ class TestPreparingTheProcess:
 
         stamps = jupyter_kernel._prepare_environment(connection_argv(tmp_path))
 
-        assert stamps[posture_store.LAUNCH_POSTURE_ENV_VAR] == "*=sandbox"
-        assert kernel_env[posture_store.LAUNCH_POSTURE_ENV_VAR] == "*=sandbox"
+        assert stamps[write_switch.LAUNCH_PIN_ENV_VAR] == "*=sandbox"
+        assert kernel_env[write_switch.LAUNCH_PIN_ENV_VAR] == "*=sandbox"
         assert not [name for name in executor._STAMP_ENV_NAMES if name in kernel_env]
 
     def test_the_config_path_is_published_under_the_name_the_loader_reads(
@@ -349,7 +349,7 @@ def audit_records(monkeypatch):
 @pytest.fixture
 def unstamped(monkeypatch):
     """No launch pin and no target stamp — what every hint case narrows from."""
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
     monkeypatch.delenv(posture.CONTROL_TARGET_ENV_VAR, raising=False)
     return monkeypatch
 
@@ -863,7 +863,7 @@ class TestTheActionLine:
         """
         baseline = baseline_target(writable_deployment)
         write_control_context(control_context_root, target=baseline, switch={baseline: "on"})
-        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+        unstamped.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
 
         fire(shell, REFUSALS["write_blocked"]())
 
@@ -875,7 +875,7 @@ class TestTheActionLine:
     ):
         """Writes were off for that target when the cell opened."""
         write_control_context(control_context_root, target="va", switch={"va": "on"})
-        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=sandbox")
+        unstamped.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=sandbox")
         unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "va")
 
         fire(shell, REFUSALS["write_blocked"]())
@@ -905,7 +905,7 @@ class TestTheActionLine:
         """
         serve_section(unstamped, {**WRITABLE_SECTION, "writes": "never"})
         write_control_context(control_context_root, target="va", switch={"va": "on"})
-        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+        unstamped.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
         unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "va")
 
         fire(shell, REFUSALS["write_blocked"]())
@@ -927,7 +927,7 @@ class TestTheActionLine:
     @pytest.mark.usefixtures("audit_records")
     def test_a_limits_violation_gets_no_line(self, shell, unstamped, capsys):
         """Re-running changes nothing about a value outside the configured range."""
-        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+        unstamped.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
 
         fire(shell, REFUSALS["limits"]())
 
@@ -966,7 +966,7 @@ class TestARawClientImport:
     @pytest.mark.usefixtures("audit_records")
     def test_the_hint_wins_over_writes_off(self, shell, unstamped, capsys):
         """Turning writes on would not load the client, so the chip is not the answer."""
-        unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+        unstamped.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
 
         fire(shell, ClientLibraryRefusedError(package="epics"))
 
@@ -1071,7 +1071,7 @@ def named_kernel(monkeypatch):
     monkeypatch.setenv(
         posture.POSTURE_SESSION_ENV_VAR, f"{jupyter_kernel.KERNEL_SESSION_PREFIX}{KERNEL_ID}"
     )
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
     return monkeypatch
 
 
@@ -1129,7 +1129,7 @@ class TestTheCellStamp:
 
         assert stamped(executor.ENV_CONTROL_TARGET) == "va"
         assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) == "3"
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel")
@@ -1175,7 +1175,7 @@ class TestTheCellStamp:
         jupyter_kernel.pre_run_cell()
 
         assert stamped(executor.ENV_CONTROL_TARGET) == "va"
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=sandbox"
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_tier_that_allows_nothing_pins_the_cell_sandboxed(
@@ -1188,7 +1188,7 @@ class TestTheCellStamp:
         jupyter_kernel.pre_run_cell()
 
         assert stamped(executor.ENV_CONTROL_TARGET) == "va"
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=sandbox"
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_switching_on_reaches_the_next_cell(
@@ -1211,16 +1211,16 @@ class TestTheCellStamp:
         """
         write_control_context(control_context_root, target="va", generation=3)
         jupyter_kernel.pre_run_cell()
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=sandbox"
 
         write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
 
         jupyter_kernel.pre_run_cell()
 
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
         # The consequence, not just the string: the cell's writes are allowed
         # by the very verdict the connector asks, launch pin included.
-        assert posture_store.write_verdict(writable_deployment, "va").allowed is True
+        assert write_switch.write_verdict(writable_deployment, "va").allowed is True
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_switching_off_refuses_the_next_write_of_a_running_cell(
@@ -1234,20 +1234,20 @@ class TestTheCellStamp:
         """
         write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
         jupyter_kernel.pre_run_cell()
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
-        assert posture_store.write_verdict(writable_deployment, "va").allowed is True
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
+        assert write_switch.write_verdict(writable_deployment, "va").allowed is True
 
         write_control_context(control_context_root, target="va", generation=3, switch={})
 
-        refused = posture_store.write_verdict(writable_deployment, "va")
+        refused = write_switch.write_verdict(writable_deployment, "va")
         assert (refused.allowed, refused.reason) == (False, "switch_off")
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
         jupyter_kernel._refusal_handler(shell, *raised(REFUSALS["write_blocked"]()))
         assert capsys.readouterr().out == jupyter_kernel.HINT_WRITES_OFF + "\n"
 
         jupyter_kernel.pre_run_cell()
 
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=sandbox"
 
     @pytest.mark.usefixtures("kernel_env", "resolvable", "writable_deployment")
     def test_a_stale_pin_in_the_environment_does_not_decide_the_cell(
@@ -1260,19 +1260,19 @@ class TestTheCellStamp:
         straight back. A stale ``va=writes`` must not survive a switch that is
         off.
         """
-        named_kernel.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=sandbox")
+        named_kernel.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=sandbox")
         write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
 
         jupyter_kernel.pre_run_cell()
 
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
 
-        named_kernel.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=writes")
+        named_kernel.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=writes")
         write_control_context(control_context_root, target="va", generation=3, switch={})
 
         jupyter_kernel.pre_run_cell()
 
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=sandbox"
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_switch_in_flight_refuses_the_cell(
@@ -1291,7 +1291,7 @@ class TestTheCellStamp:
 
         assert stamped(executor.ENV_CONTROL_TARGET) is None
         assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) is None
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "*=sandbox"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "*=sandbox"
         assert (
             stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL)
             == f"switch_in_progress:{os.getpid()}"
@@ -1321,7 +1321,7 @@ class TestTheCellStamp:
 
         assert stamped(executor.ENV_CONTROL_TARGET) is None
         assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) is None
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "*=sandbox"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "*=sandbox"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel")
@@ -1339,7 +1339,7 @@ class TestTheCellStamp:
         jupyter_kernel.pre_run_cell()
 
         assert stamped(executor.ENV_CONTROL_TARGET) is None
-        assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "*=sandbox"
+        assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "*=sandbox"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
 
     @pytest.mark.usefixtures("kernel_env", "resolvable")

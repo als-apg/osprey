@@ -49,10 +49,10 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, write_switch
 from osprey_connectors.connector_types import CONTROL_TARGETS
-from osprey_connectors.posture_store import NO_OWNER
 from osprey_connectors.refusals import REASONS
+from osprey_connectors.write_switch import NO_OWNER
 from osprey_connectors_tests._harness import (
     VERDICT_ENV_VARS,
     isolate_verdict_environment,
@@ -81,9 +81,9 @@ SIDES = frozenset({"package", "twin"})
 ROW_ENV_VARS = frozenset(
     {
         EXECUTION_MODE_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.DISPATCH_RUN_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.DISPATCH_RUN_ENV_VAR,
     }
 )
 # What clears them is :func:`isolate_verdict_environment`; a row variable it does
@@ -416,15 +416,13 @@ def _tree_payload(record: Mapping[str, Any]) -> dict[str, Any]:
 def _stage_tree(tmp_path: Path, tree: Mapping[str, Any], monkeypatch) -> None:
     bind = tree["bind"]
     if bind == "relative":
-        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "relative/tree")
+        monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "relative/tree")
         return
-    base = tmp_path / "shared" / posture_store.STATE_DIR_NAME
+    base = tmp_path / "shared" / write_switch.CONTROL_STATE_DIR_NAME
     base.mkdir(parents=True, exist_ok=True)
     if bind == "provisioned":
-        (base / posture_store.CONTROL_TREE_MARKER_NAME).write_text(
-            "provisioned\n", encoding="utf-8"
-        )
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(base))
+        (base / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(base))
     for owner, record in tree.get("records", {}).items():
         path = base / owner / control_context.RECORD_FILENAME
         status = record["status"]

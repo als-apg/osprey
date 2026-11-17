@@ -159,7 +159,7 @@ from osprey import bluesky_tool_names
 from osprey.agent_runner import SDKWorkflowResult, ToolTrace
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.queue_backend import is_queue_active
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._deploy_support import (
@@ -4604,7 +4604,7 @@ def _start_plan_and_wait_running(
         _long_grid_args(stack, num_points),
         client_id=_PROTOCOL_CLIENT_ID,
         token=stack.token,
-        owner=posture_store.current_owner(),
+        owner=write_switch.current_owner(),
     )
     _queue_drive.start_draining(BRIDGE_URL, stack.token, run_id)
 

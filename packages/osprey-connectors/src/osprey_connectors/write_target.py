@@ -28,7 +28,7 @@ from pathlib import Path
 
 from typing_extensions import override
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import _control_state, control_context
 from osprey_connectors.connector_types import (
     TARGET_LIVE,
     ControlTarget,
@@ -254,7 +254,7 @@ def _session_machine(
     if read.value is not None:
         return read.value.target
     if stamped is None:
-        stamped = posture_store.stamped_agent_data_root() is not None
+        stamped = _control_state.stamped_agent_data_root() is not None
     if read.status != "missing" or not stamped:
         return UNRESOLVED
     return baseline_target(_section(config))

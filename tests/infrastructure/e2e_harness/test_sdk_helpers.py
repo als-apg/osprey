@@ -20,7 +20,7 @@ import yaml
 from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
 from osprey.agent_runner.project_paths import claude_project_dir
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.targets import baseline_target
 from tests.e2e import _queue_drive, sdk_helpers
@@ -729,7 +729,7 @@ def test_the_record_arm_turns_on_the_named_owners_switch_only(tmp_path):
 
     path = repo / "var" / "agent_data" / "control_target" / "alice" / "control_context.json"
     assert sdk_helpers.switch_record_path(repo, "alice") == path
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     on_disk = control_context.read_record(path=path)
     assert on_disk is not None
     assert dict(on_disk.switch) == {_baseline(): "asked"} == dict(stored.switch)
@@ -761,7 +761,7 @@ def test_the_record_arm_retries_an_epochless_record_once(tmp_path):
     )
     payload["switch_epoch"] = None
     path.write_text(json.dumps(payload))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     stored = sdk_helpers.set_switch_in_record(repo, owner="alice")
 

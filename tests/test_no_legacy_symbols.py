@@ -185,7 +185,7 @@ WRITE_POSTURE_IDENTIFIERS = (
     "writes_enabled_key",
     "writes_enabled_answering_key",
     "writes_enabled_remedy",
-    # osprey_connectors.posture_store readers
+    # osprey_connectors.write_switch readers
     "effective_writes",
     "store_permits",
     "store_verdict",

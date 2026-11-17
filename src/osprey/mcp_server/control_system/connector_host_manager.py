@@ -121,7 +121,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     unknown_target_detail,
 )
 from osprey.utils.seconds import non_negative_seconds, positive_seconds
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.connector_types import (
     SIMULATED_TYPES,
     TARGET_LIVE,
@@ -132,6 +132,7 @@ from osprey_connectors.connector_types import (
     is_control_target,
 )
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
+from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.ipc import (
     DEFAULT_CALL_TIMEOUT_S,
     ROLE_READ_ONLY,
@@ -153,7 +154,6 @@ from osprey_connectors.ipc import (
     verify_host_report,
 )
 from osprey_connectors.model import evolve
-from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.process import DEFAULT_TERMINATE_GRACE_S, reap_exit_code
 from osprey_connectors.targets import baseline_target as types_baseline_target
 from osprey_connectors.targets import switch_capable as types_switch_capable
@@ -476,7 +476,7 @@ def _endpoint_text(endpoint: Endpoint | None) -> str:
 def _writes_allowed(section: Any, target: str) -> bool:
     """Whether the write verdict allows a write to *target*, launch pin honoured.
 
-    :func:`osprey_connectors.posture_store.write_verdict`'s ``.allowed`` over
+    :func:`osprey_connectors.write_switch.write_verdict`'s ``.allowed`` over
     the ``control_system:`` section: the run mode, the write tier, the target,
     the owner, the login's switch for that machine and the launch pin. It is
     the verdict the child's own write guard takes over the same record — the
@@ -484,7 +484,7 @@ def _writes_allowed(section: Any, target: str) -> bool:
     the same agent-data root — and therefore the posture it selects its
     gateway on.
     """
-    return posture_store.write_verdict(section, target).allowed
+    return write_switch.write_verdict(section, target).allowed
 
 
 def _display_writes(config: Any, target: str, write_allowed: Mapping[str, bool] | None) -> bool:

@@ -2,7 +2,7 @@
 
 The PreToolUse hooks cannot import ``osprey_connectors`` (they run outside the
 osprey venv), so ``osprey_hook_log`` restates ``write_target``'s three tool-name
-helpers and ``osprey_target_state`` restates ``posture_store``'s launch-pin term.
+helpers and ``osprey_target_state`` restates ``write_switch``'s launch-pin term.
 The connector originals are private: nothing outside their own module calls
 them, and the hook copies are the only reason they are spelled twice. Two copies
 of one rule drift silently, so each pair is driven here over one table of inputs
@@ -21,7 +21,7 @@ from types import MappingProxyType
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as target_state
-from osprey_connectors import posture_store, write_target
+from osprey_connectors import _control_state, write_switch, write_target
 
 from .conftest import import_hook
 
@@ -124,9 +124,9 @@ def test_is_write_call_without_a_short_name_agrees_on_the_mcp_shape(
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("stamp", LAUNCH_STAMPS)
 def test_launch_pin_term_agrees(monkeypatch, stamp, target):
-    assert target_state.LAUNCH_POSTURE_ENV_VAR == posture_store.LAUNCH_POSTURE_ENV_VAR
+    assert target_state.LAUNCH_POSTURE_ENV_VAR == write_switch.LAUNCH_PIN_ENV_VAR
     if stamp is None:
-        monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
     else:
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
-    assert target_state.launch_pin_term(target) == posture_store._launch_pin_term(target)
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, stamp)
+    assert target_state.launch_pin_term(target) == _control_state.launch_pin_term(target)

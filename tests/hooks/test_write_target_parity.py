@@ -21,7 +21,7 @@ import pytest
 import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as twin
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
-from osprey_connectors import posture_store, write_target
+from osprey_connectors import write_switch, write_target
 from osprey_connectors.write_target import (
     _FALLBACK_WRITE_TOOLS,
     UNRESOLVED,
@@ -229,7 +229,7 @@ def test_an_unstamped_process_with_no_record_cannot_place_a_session_write(
     bind.mkdir()
     isolate_verdict_environment(monkeypatch, _root(tmp_path))
     monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(bind))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(bind))
     if record != "missing":
         (bind / "control_context.json").write_text(
             json.dumps({"schema": 1, "target": record, "generation": 1}), encoding="utf-8"

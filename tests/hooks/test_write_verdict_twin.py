@@ -1,7 +1,7 @@
 """The hook's stdlib write verdict against the package's, row by row.
 
 ``osprey_target_state.write_verdict`` restates
-:func:`osprey_connectors.posture_store.write_verdict` for the hooks, which run
+:func:`osprey_connectors.write_switch.write_verdict` for the hooks, which run
 outside the osprey venv. Both read one case table
 (``osprey_connectors_tests/_harness/fixtures/write_verdict_cases.json``); this module drives its ``twin``
 rows through the hook, and pins the restated words — ``REASONS``, every phrase
@@ -32,7 +32,15 @@ from pathlib import Path
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
-from osprey_connectors import control_context, posture_store, refusals, session_hold, write_tier
+from osprey_connectors import (
+    _control_state,
+    control_context,
+    refusals,
+    session_hold,
+    testing,
+    write_switch,
+    write_tier,
+)
 from osprey_connectors_tests import _paths
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -95,7 +103,7 @@ def test_twin_and_package_agree_on_kind_and_position(case: Case, monkeypatch, tm
     twin = reader.write_verdict(
         case.section, case.target, **kwargs, **owner_argument(case, no_owner=reader.NO_OWNER)
     )
-    package = posture_store.write_verdict(
+    package = write_switch.write_verdict(
         case.section, case.target, **kwargs, **owner_argument(case)
     )
 
@@ -113,7 +121,7 @@ def test_twin_and_package_agree_on_kind_and_position(case: Case, monkeypatch, tm
 
 def _both_verdicts(section, **kwargs):
     twin = reader.write_verdict(section, "live", **kwargs)
-    package = posture_store.write_verdict(section, "live", **kwargs)
+    package = write_switch.write_verdict(section, "live", **kwargs)
     return (
         (twin.allowed, twin.reason, twin.position),
         (package.allowed, package.reason, package.position),
@@ -129,7 +137,7 @@ def _stage_host_switch(tmp_path, switch):
     path = control_context._record_path_under(host_root(tmp_path))
     path.parent.mkdir(parents=True, exist_ok=True)
     write_payload(path, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _stage_tree_switch(monkeypatch, tmp_path, switch):
@@ -247,11 +255,11 @@ def test_the_routes_ceiling_is_the_verdicts_under_a_tree(
     _stage_tree_switch(monkeypatch, tmp_path, {"live": "allowed"})
     section = {"type": "epics", "writes": section_tier, "login_tiers": {"alice": map_tier}}
 
-    verdict = posture_store.write_verdict(section, "live", owner="alice")
+    verdict = write_switch.write_verdict(section, "live", owner="alice")
 
     assert verdict.position == map_tier
     assert login_tier(section, "alice") == verdict.position
-    assert posture_store.write_ceiling(section, "alice") == verdict.position
+    assert write_switch.write_ceiling(section, "alice") == verdict.position
 
 
 @pytest.mark.usefixtures("case_environment")
@@ -264,17 +272,17 @@ def test_the_routes_ceiling_is_the_verdicts_on_a_host(tmp_path, section_tier, ma
     login = acting_identity()
     section = {"type": "epics", "writes": section_tier, "login_tiers": {login: map_tier}}
 
-    verdict = posture_store.write_verdict(section, "live", owner=login)
+    verdict = write_switch.write_verdict(section, "live", owner=login)
 
     assert verdict.position == section_tier
     assert login_tier(section, login) == verdict.position
-    assert posture_store.write_ceiling(section, login) == verdict.position
+    assert write_switch.write_ceiling(section, login) == verdict.position
 
 
 def test_a_ceiling_under_a_tree_with_no_map_is_unknown(monkeypatch):
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
-    assert posture_store.write_ceiling({"writes": "allowed"}, "alice") == "unknown"
-    assert posture_store.write_ceiling({"writes": "allowed"}, "alice", tree_bound=False) == (
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
+    assert write_switch.write_ceiling({"writes": "allowed"}, "alice") == "unknown"
+    assert write_switch.write_ceiling({"writes": "allowed"}, "alice", tree_bound=False) == (
         "allowed"
     )
 
@@ -374,7 +382,7 @@ def test_tier_readers_match_the_package_on_a_section_with_no_tier(section):
 def test_owner_tier_term_matches_the_package(login_tiers, owner):
     section = {"login_tiers": login_tiers}
 
-    assert reader.owner_tier_term(section, owner) == posture_store.owner_tier_term(section, owner)
+    assert reader.owner_tier_term(section, owner) == write_switch.owner_tier_term(section, owner)
 
 
 def test_a_dispatch_run_resolves_no_owner_on_both_sides(monkeypatch, tmp_path):
@@ -383,17 +391,17 @@ def test_a_dispatch_run_resolves_no_owner_on_both_sides(monkeypatch, tmp_path):
     monkeypatch.delenv("OSPREY_CONTROL_CONTEXT_TREE", raising=False)
     monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")
-    posture_store._owner_var.set(posture_store.NO_OWNER)
+    write_switch._owner_var.set(write_switch.NO_OWNER)
     assert reader.current_owner() is reader.NO_OWNER
-    assert posture_store.current_owner() is posture_store.NO_OWNER
+    assert write_switch.current_owner() is write_switch.NO_OWNER
 
     monkeypatch.setenv("OSPREY_CONTROL_OWNER", "alice")
-    assert reader.current_owner() == posture_store.current_owner() == "alice"
+    assert reader.current_owner() == write_switch.current_owner() == "alice"
 
     monkeypatch.delenv("OSPREY_CONTROL_OWNER")
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "0")
     assert reader.current_owner() is not reader.NO_OWNER
-    assert posture_store.current_owner() is not posture_store.NO_OWNER
+    assert write_switch.current_owner() is not write_switch.NO_OWNER
 
 
 def test_the_verdict_never_raises_on_a_hostile_section(monkeypatch):
@@ -427,7 +435,7 @@ def test_a_verdict_defaults_to_no_position_as_the_package_does():
     args = {"allowed": False, "reason": "switch_off", "target": "va", "kind": "simulator"}
 
     assert reader.WriteVerdict(**args).position is None
-    assert posture_store.Refused(**args).position is None
+    assert write_switch.Refused(**args).position is None
 
 
 def test_position_counts_in_a_verdicts_equality_and_repr():
@@ -484,18 +492,18 @@ def test_store_path_markers_match():
 
 
 def test_restated_store_names_match_the_package():
-    assert reader.CONTROL_OWNER_ENV_VAR == posture_store.CONTROL_OWNER_ENV_VAR
-    assert reader.DISPATCH_RUN_ENV_VAR == posture_store.DISPATCH_RUN_ENV_VAR
-    assert reader.CONTROL_CONTEXT_TREE_ENV_VAR == posture_store.CONTROL_CONTEXT_TREE_ENV_VAR
-    assert reader.CONTROL_TREE_MARKER_NAME == posture_store.CONTROL_TREE_MARKER_NAME
-    assert reader.LAUNCH_POSTURE_ENV_VAR == posture_store.LAUNCH_POSTURE_ENV_VAR
-    assert reader.LAUNCH_POSTURE_ALL_TARGETS == posture_store._LAUNCH_POSTURE_ALL_TARGETS
-    assert reader.RECORD_READ_LIMIT == posture_store._RECORD_READ_LIMIT
+    assert reader.CONTROL_OWNER_ENV_VAR == write_switch.CONTROL_OWNER_ENV_VAR
+    assert reader.DISPATCH_RUN_ENV_VAR == write_switch.DISPATCH_RUN_ENV_VAR
+    assert reader.CONTROL_CONTEXT_TREE_ENV_VAR == write_switch.CONTROL_CONTEXT_TREE_ENV_VAR
+    assert reader.CONTROL_TREE_MARKER_NAME == write_switch.CONTROL_TREE_MARKER_NAME
+    assert reader.LAUNCH_POSTURE_ENV_VAR == write_switch.LAUNCH_PIN_ENV_VAR
+    assert reader.LAUNCH_POSTURE_ALL_TARGETS == _control_state._LAUNCH_PIN_ALL_TARGETS
+    assert reader.RECORD_READ_LIMIT == control_context._RECORD_READ_LIMIT
     assert reader.HOLD_DIR_ENV_VAR == session_hold.HOLD_DIR_ENV_VAR
     assert reader.HOLD_RECORD_NAME == session_hold.RECORD_NAME
     assert reader.HOLD_SCHEMA_VERSION == session_hold._SCHEMA_VERSION
     assert reader.HOLD_RECORD_READ_LIMIT == session_hold._RECORD_READ_LIMIT
-    assert reader.HOLD_SESSION_ENV_VAR == posture_store._SESSION_KEY_ENV_VAR
+    assert reader.HOLD_SESSION_ENV_VAR == write_switch._SESSION_KEY_ENV_VAR
     assert reader._HOLD_SAFE_KEY == session_hold._SAFE_KEY.pattern
     assert reader._HOLD_STR_FIELDS == tuple(
         name
@@ -507,7 +515,7 @@ def test_restated_store_names_match_the_package():
 def test_tier_words_match_the_package():
     assert (reader.TIER_NEVER, reader.TIER_ASKED, reader.TIER_ALLOWED) == write_tier.TIER_WORDS
     # The order is the ceiling's rank: ``min`` on it is the cap.
-    assert reader._LOGIN_TIERS == posture_store._LOGIN_TIERS == ("never", "asked", "allowed")
+    assert reader._LOGIN_TIERS == write_switch._LOGIN_TIERS == ("never", "asked", "allowed")
 
 
 def test_switch_words_match_the_package():
@@ -593,7 +601,7 @@ def _open_flag() -> None:
 def _agree(section: object, target: object) -> tuple:
     """Both sides' whole answer, asserted equal; returned for a test to read."""
     twin = reader.execution_verdict(section, target)
-    package = posture_store.execution_verdict(section, target)
+    package = write_switch.execution_verdict(section, target)
     assert (twin.allowed, twin.reason, twin.target, twin.kind) == (
         package.allowed,
         package.reason,
@@ -811,7 +819,7 @@ def test_twin_and_package_agree_on_every_row_while_held(case: Case, monkeypatch,
     twin = reader.execution_verdict(
         case.section, case.target, **kwargs, **owner_argument(case, no_owner=reader.NO_OWNER)
     )
-    package = posture_store.execution_verdict(
+    package = write_switch.execution_verdict(
         case.section, case.target, **kwargs, **owner_argument(case)
     )
 

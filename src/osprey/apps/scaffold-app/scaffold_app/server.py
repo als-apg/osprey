@@ -41,8 +41,8 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
 )
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from osprey_connectors.targets import baseline_target, resolve_target
+from osprey_connectors.write_switch import RESERVED_OWNER_KWARG
 from scaffold_app import APP_NAME, CHANNEL_KEY, CHANNEL_SETTING, STATE_ROUTE, WRITE_ROUTE
 
 #: Where the deployment hands this application its rendered ``apps.<name>.config``.

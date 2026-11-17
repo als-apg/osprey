@@ -509,10 +509,14 @@ def scenario_sessions_dir(config: Mapping[str, Any], project_dir: Path, identity
     environment or the working directory -- so a deploy run from anywhere
     writes into the deployment it was handed.
     """
-    from osprey_connectors.posture_store import STATE_DIR_NAME
     from osprey_connectors.workspace import agent_data_base_dir, anchored_path
+    from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 
-    return anchored_path(agent_data_base_dir(config), Path(project_dir)) / STATE_DIR_NAME / identity
+    return (
+        anchored_path(agent_data_base_dir(config), Path(project_dir))
+        / CONTROL_STATE_DIR_NAME
+        / identity
+    )
 
 
 def _stable_id(identity: str, scenario: str, slug: str, leaf: str | int) -> uuid.UUID:

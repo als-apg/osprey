@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._limits_validator import (
     ChannelLimitsConfig,
@@ -181,11 +181,11 @@ class TestBaseBatch:
     async def test_a_session_held_mid_batch_refuses_every_write_not_yet_sent(
         self, fake, monkeypatch
     ):
-        held = posture_store.Refused(reason="session_held", target=None, kind=None)
+        held = write_switch.Refused(reason="session_held", target=None, kind=None)
         self._after_the_first_write(
             fake,
             monkeypatch,
-            lambda: monkeypatch.setattr(posture_store, "session_hold_refusal", lambda: held),
+            lambda: monkeypatch.setattr(write_switch, "session_hold_refusal", lambda: held),
         )
 
         results = await fake.write_multiple_channels([("A", 1.0), ("B", 2.0)])

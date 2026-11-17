@@ -19,7 +19,7 @@ import asyncio
 import pytest
 import yaml
 
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.ipc._pool import ConnectorHostPool
@@ -199,7 +199,7 @@ async def test_a_child_spawned_off_refuses_switching_after_a_turn_on(deployment,
 
         record = control_context.read_record()
         control_context.set_switch(["live"], "asked", epoch=record.switch_epoch)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         lagging = await live.write_channel(setpoint, 7.0, confirm=True, timeout_s=CA_TIMEOUT_S)
 
         assert lagging.outcome is WriteOutcome.REFUSED

@@ -48,8 +48,8 @@ from osprey_connectors.control_system._gateway_role import (
     _selected_role,
     readonly_gateway_refusal,
 )
+from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.model import FrozenModel, ReadOnlyMapping
-from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.targets import resolve_target
 from osprey_connectors.write_tier import tier_allows
 
@@ -249,7 +249,7 @@ def derive_endpoints(
             own; injectable so a caller (or a test) can derive the endpoints of
             a posture other than the configured one.
         readonly_run: Whether this is a readonly executor run. Defaults to
-            :func:`~osprey_connectors.posture_env.is_readonly_run`.
+            :func:`~osprey_connectors.execution_mode.is_readonly_run`.
         config_path: The project config an unset virtual-accelerator gateway
             port is filled from — the file the child reads, so the port derived
             here is the port it connects to. ``None`` reads ``CONFIG_FILE``,

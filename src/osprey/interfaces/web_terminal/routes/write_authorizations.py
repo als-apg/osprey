@@ -66,7 +66,7 @@ from osprey.interfaces.web_terminal.config_view import (
     section_of,
 )
 from osprey.interfaces.web_terminal.routes import websocket as posture_routes
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, write_switch
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.errors import AlreadyApprovedError
@@ -187,7 +187,7 @@ class _Facts:
     login: str
     configured: tuple[str, ...]
     ceiling: str
-    lock: posture_store.Refused | None = None
+    lock: write_switch.Refused | None = None
     request: wa.WriteRequest | None = None
     request_problem: str | None = None
     limits: dict[str, Any] | None = None
@@ -254,14 +254,14 @@ def _facts(config_path: Path | None, request_id: str) -> _Facts:
         return facts
     target = facts.request.target
     if target in facts.configured:
-        verdict = posture_store.write_verdict(
+        verdict = write_switch.write_verdict(
             None if section is UNREADABLE else section,
             target,
             owner=login,
             ignore_launch_pin=True,
         )
         if (
-            isinstance(verdict, posture_store.Refused)
+            isinstance(verdict, write_switch.Refused)
             and verdict.reason in posture_routes._TURN_ON_LOCKS
         ):
             facts.lock = verdict
@@ -365,7 +365,7 @@ def _listing() -> dict[str, Any]:
         standing = wa.grant_standing(grant, record, ledgers, now=now)
         row = approval.grant_summary(grant, used=standing.steps_spent, now=now)
         row["in_force"] = standing.in_force
-        row["self_issued"] = grant.approver.surface == wa.SELF_ISSUE_SURFACE
+        row["self_issued"] = grant.approver.surface == "write_switch"
         row["revocable"] = listed.directory == own
         grants.append(row)
     pending: list[dict[str, Any]] = []

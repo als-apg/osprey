@@ -1,6 +1,6 @@
 """Tests for the executor's entry gate: the write verdict for the run's target.
 
-``enforce_posture_clamp`` asks :func:`osprey_connectors.posture_store.write_verdict`
+``enforce_posture_clamp`` asks :func:`osprey_connectors.write_switch.write_verdict`
 about the control target a run launched now would write to — the deployment's
 record's target, or its baseline when there is no record — and refuses a
 readwrite run with that verdict's phrase. These tests stage each term the
@@ -20,7 +20,7 @@ from fastmcp.exceptions import ToolError
 
 from osprey.audit import posture as posture_module
 from osprey.mcp_server.python_executor.tools._execution_gates import enforce_posture_clamp
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.refusals import refusal_text
 from osprey_connectors_tests._harness import (
     FIXTURE_IDENTITY,
@@ -162,7 +162,7 @@ def test_a_record_target_this_deployment_cannot_build_refuses(deployment):
 
 def test_an_unknown_owner_refuses(deployment, monkeypatch):
     deployment.on("live", switch={"live": "on"})
-    monkeypatch.setattr(posture_store, "current_owner", lambda owner=None: posture_store.NO_OWNER)
+    monkeypatch.setattr(write_switch, "current_owner", lambda owner=None: write_switch.NO_OWNER)
 
     envelope = _refusal()
 
@@ -207,9 +207,7 @@ def test_no_refusal_names_a_key_a_file_or_a_variable(deployment, monkeypatch, st
     elif stage == "target_unknown":
         deployment.section = {"writes": "allowed"}
     elif stage == "owner_unknown":
-        monkeypatch.setattr(
-            posture_store, "current_owner", lambda owner=None: posture_store.NO_OWNER
-        )
+        monkeypatch.setattr(write_switch, "current_owner", lambda owner=None: write_switch.NO_OWNER)
     elif stage == "record_unavailable":
         path.write_text("{ not json", encoding="utf-8")
         reset_verdict_state()
@@ -227,7 +225,7 @@ def test_a_verdict_that_raises_still_refuses(deployment, monkeypatch):
     def _explode(*_args, **_kwargs):
         raise RuntimeError("the verdict is on fire")
 
-    monkeypatch.setattr(posture_store, "write_verdict", _explode)
+    monkeypatch.setattr(write_switch, "write_verdict", _explode)
 
     assert _refusal()["details"]["reason"] == "record_unavailable"
 
