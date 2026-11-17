@@ -224,6 +224,7 @@ from osprey_connectors.control_system._base import (
     ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
+    raise_for_write_result,
 )
 from osprey_connectors.errors import (
     ConnectorsError,
@@ -315,8 +316,8 @@ _StartMark = tuple[StartPhase, float]
 
 #: The calls that can move the machine, as :class:`PooledConnector` names them
 #: to :meth:`ConnectorHostPool._call`. ``write_channel_checked`` is composed
-#: in the proxy from ``write_channel``, so its deadline is that write's.
-_WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels", "write_channel_checked"})
+#: from ``write_channel``, here as in the proxy, so it is that one call.
+_WRITE_METHODS = frozenset({"write_channel", "write_multiple_channels"})
 
 #: ``(target, execution_mode)``, or ``(target, execution_mode, owner,
 #: authorization)`` for a key that names an owner or an authorization.
@@ -1510,16 +1511,11 @@ class PooledConnector:
         ``ChannelWriteBlockedError`` for a refusal — writes disabled, a
         readonly child, limits — and ``ChannelWriteFailedError`` for a write
         that was sent but not confirmed. ``timeout_s`` and ``confirm`` pass
-        through to :meth:`write_channel`.
+        through to :meth:`write_channel`, the one supervised call; the result
+        is held to the denial contract here, as the proxy does.
         """
-        return await self._pool._call(
-            self._key,
-            "write_channel_checked",
-            # The proxy borrows the base class's function, typed for a
-            # ControlSystemConnector; the ignore goes when the proxy has its own.
-            lambda proxy: proxy.write_channel_checked(  # type: ignore[misc]
-                address, value, timeout_s=timeout_s, confirm=confirm
-            ),
+        return raise_for_write_result(
+            await self.write_channel(address, value, timeout_s=timeout_s, confirm=confirm)
         )
 
     async def validate_channel(self, address: str) -> bool:

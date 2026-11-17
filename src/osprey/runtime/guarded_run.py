@@ -993,11 +993,7 @@ async def command_write(
         _phase_for_outcome,
     )
     from osprey_connectors.control_system import raise_for_write_results
-    from osprey_connectors.errors import (
-        ChannelError,
-        ChannelLimitsViolationError,
-        ChannelWriteBlockedError,
-    )
+    from osprey_connectors.errors import ChannelError, ChannelWriteBlockedError
 
     batch = list(addresses)
     with _run_state.LOCK:
@@ -1016,11 +1012,11 @@ async def command_write(
         )
     except BaseException as exc:
         # A refusal raised partway names the one command it refused; every
-        # other command's outcome is unknown and may have gone out.
+        # other command's outcome is unknown and may have gone out. A limits
+        # refusal is never raised here: the batch answers it as a result.
         refused = (
             exc.address
-            if isinstance(exc, ChannelLimitsViolationError | ChannelWriteBlockedError)
-            and exc.address in batch
+            if isinstance(exc, ChannelWriteBlockedError) and exc.address in batch
             else None
         )
         if refused is not None:

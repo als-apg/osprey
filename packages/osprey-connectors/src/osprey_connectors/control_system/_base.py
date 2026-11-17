@@ -1126,12 +1126,15 @@ class ControlSystemConnector(ABC):
     Implementations provide interfaces to different control systems
     (EPICS, LabVIEW, Tango, the simulator, etc.) using a unified API.
 
-    The write methods — :meth:`write_channel`, :meth:`write_multiple_channels`
-    and :meth:`write_channel_checked` — are final: they are the reference
-    monitor, and a subclass that defines one is refused when its class is
-    created. A connector writes by implementing :meth:`_send`, and adjusts the
-    pipeline through the protected hooks, each optional:
+    :meth:`connect` and the write methods — :meth:`write_channel`,
+    :meth:`write_multiple_channels` and :meth:`write_channel_checked` — are
+    final: they are the reference monitor, and a subclass that defines one is
+    refused when its class is created. A connector opens its connection by
+    implementing :meth:`_open` and writes by implementing :meth:`_send`, and
+    adjusts the pipeline through the protected hooks, each optional:
 
+    - :meth:`_read_many` — how a batch read reads its channels (default: each
+      with :meth:`read_channel`, concurrently);
     - :meth:`_precheck` — its own refusals that need no I/O, and the one name
       a write uses for its channel;
     - :meth:`_confirming_read` — the read a confirmed write is compared with

@@ -7,8 +7,8 @@ value went out, else `not_sent`, `not_taken`, `unacknowledged`, `cs_refused` or
 `unwritable` with the transport's words in `detail`); the base class runs the
 write guard, the limits, the confirming read and the comparison, and builds
 every result. The optional hooks are `_precheck` (was `_write_precheck`),
-`_confirming_read(address, sent, *, timeout_s)`, `_run_check`, `_bound`,
-`_current_values` and `_send_batch`. `get_metadata` and `validate_channel` are
+`_confirming_read(address, sent, *, timeout_s)`, `_run_check`, `_bound`
+(default: the block's `timeout_s`), `_current_values` and `_send_batch`. `get_metadata` and `validate_channel` are
 no longer abstract (defaults: a read's metadata, a read that does not raise).
 `subscribe` must take `on_connection`: the deprecated wrapper for one that does
 not is gone.
@@ -30,9 +30,7 @@ uppercase `reason` is gone; compare `exc.outcome is WriteOutcome.FAILED`.
 `ChannelNotFoundError.reason` and `ClientLibraryRefusedError.reason` are gone;
 the refusal reason of an unknown channel is `RefusalReason.CHANNEL_NOT_FOUND`.
 
-A connector that never loaded a limits validator is now checked against the one
-the loaded config gives its type. A DOOCS or Tango limits check that does not
-finish within the write's timeout refuses the write with nothing sent (it used
+A DOOCS or Tango limits check that does not finish within the write's timeout refuses the write with nothing sent (it used
 to share the set's bound and report `unconfirmed`), and a single Tango write to
 an address that names no device and attribute is refused (`VALIDATION_ERROR`)
 instead of raising `ValueError`. Write results are worded the same on every

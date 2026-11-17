@@ -81,9 +81,6 @@ class _Sender(ControlSystemConnector):
     async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - the read signature
         return ChannelValue(value=dict(self.sent)[address], sampled_at=datetime.now(UTC))
 
-    async def read_multiple_channels(self, addresses, *, timeout_s=None):
-        raise NotImplementedError
-
     async def _send(self, address: str, value: Any, *, timeout_s: float, wait: bool) -> SendReport:  # noqa: ARG002 - the send hook's signature
         self.sent.append((address, value))
         return self._report

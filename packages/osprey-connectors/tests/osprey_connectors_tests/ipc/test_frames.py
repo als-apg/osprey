@@ -30,8 +30,8 @@ from osprey_connectors.errors import (
     ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorInternalError,
-    LimitsViolation,
     ConnectorUnavailableError,
+    LimitsViolation,
     RefusalReason,
 )
 from osprey_connectors.ipc import Endpoint

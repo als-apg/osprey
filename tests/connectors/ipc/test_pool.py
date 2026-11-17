@@ -30,16 +30,18 @@ import yaml
 import osprey_connectors
 from osprey_connectors import control_context
 from osprey_connectors import recovery as recovery_module
-from osprey_connectors.control_system._base import WriteOutcome
+from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
     ChannelNotFoundError,
     ChannelReadFailedError,
     ChannelUnreachableError,
+    ChannelWriteBlockedError,
     ClientLibraryRefusedError,
     ConnectorInternalError,
     ConnectorUnavailableError,
     RecoveryAction,
     RecoveryRecord,
+    RefusalReason,
 )
 from osprey_connectors.ipc import _pool as pool_module
 from osprey_connectors.ipc._host import START_PHASES
@@ -1255,28 +1257,38 @@ def test_a_handle_names_the_key_it_is_bound_to():
 
 
 async def test_a_checked_write_is_one_call_the_pool_names_and_supervises(monkeypatch):
-    """The handle's checked write is the proxy's, run through the pool's one call path."""
+    """The handle's checked write is one supervised ``write_channel``, held to the
+    denial contract in the parent."""
     pool = ConnectorHostPool(_section(SLOW))
     seen = []
+    answers = [
+        ChannelWriteResult.unrequested("SR:SP", 1.0),
+        ChannelWriteResult.refused("SR:SP", 1.0, RefusalReason.CONTROL_SYSTEM_REFUSED, "refused"),
+    ]
 
     class _Proxy:
-        async def write_channel_checked(self, address, value, *, timeout_s=None, confirm=None):
+        async def write_channel(self, address, value, *, timeout_s=None, confirm=None):
             seen.append((address, value, timeout_s, confirm))
-            return "checked"
+            return answers.pop(0)
 
     async def call(key, method, run):
         seen.append((key, method))
         return await run(_Proxy())
 
     monkeypatch.setattr(pool, "_call", call)
+    handle = PooledConnector(pool, ("live", None))
 
-    got = await PooledConnector(pool, ("live", None)).write_channel_checked(
-        "SR:SP", 1.0, timeout_s=2.0, confirm=False
-    )
+    got = await handle.write_channel_checked("SR:SP", 1.0, timeout_s=2.0, confirm=False)
+    with pytest.raises(ChannelWriteBlockedError):
+        await handle.write_channel_checked("SR:SP", 1.0)
 
-    assert got == "checked"
-    assert seen == [(("live", None), "write_channel_checked"), ("SR:SP", 1.0, 2.0, False)]
-    assert "write_channel_checked" in pool_module._WRITE_METHODS
+    assert got.outcome is WriteOutcome.UNREQUESTED
+    assert seen == [
+        (("live", None), "write_channel"),
+        ("SR:SP", 1.0, 2.0, False),
+        (("live", None), "write_channel"),
+        ("SR:SP", 1.0, None, None),
+    ]
 
 
 async def test_batched_reads_and_writes_reach_the_child_and_come_back_in_order(pools, writable):

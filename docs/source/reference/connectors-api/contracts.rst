@@ -25,6 +25,8 @@ builds every result. The other protected hooks are optional.
 
 .. automethod:: osprey_connectors.control_system.ControlSystemConnector._open
 
+.. automethod:: osprey_connectors.control_system.ControlSystemConnector._read_many
+
 .. automethod:: osprey_connectors.control_system.ControlSystemConnector._send
 
 .. automethod:: osprey_connectors.control_system.ControlSystemConnector._precheck
