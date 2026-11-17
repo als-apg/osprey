@@ -1070,30 +1070,6 @@
 <span class="sd">    Singleton access: use :func:`get_config_builder` or :func:`_get_config`.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="c1"># Sentinel to distinguish &quot;no default given&quot; from &quot;default is None&quot;.</span>
-    <span class="n">_REQUIRED</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
-
-    <span class="k">def</span><span class="w"> </span><span class="nf">_require_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="n">_REQUIRED</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get config value, raising ValueError if required (no default) and missing.</span>
-
-<span class="sd">        When *default* is provided, uses it with a warning. When *default* is</span>
-<span class="sd">        omitted (_REQUIRED sentinel), raises on missing/None values.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-
-        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="k">if</span> <span class="n">default</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">_REQUIRED</span><span class="p">:</span>
-                <span class="c1"># No default provided - this is a required configuration</span>
-                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;Missing required configuration: &#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39;. For profile-built &quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;projects, set it under `config:` in profile.yml and run &quot;</span>
-                    <span class="sa">f</span><span class="s2">&quot;`osprey build`; otherwise add it to your config file.&quot;</span>
-                <span class="p">)</span>
-            <span class="c1"># Default provided - use it but warn for visibility</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Using default value for &#39;</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">&#39; = </span><span class="si">{</span><span class="n">default</span><span class="si">}</span><span class="s2">. &quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">default</span>
-        <span class="k">return</span> <span class="n">value</span>
-
 <div class="viewcode-block" id="ConfigBuilder.__init__">
 <a class="viewcode-back" href="../../reference/connectors-api/configuration.html#osprey_connectors.config.ConfigBuilder.__init__">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">load_env</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">):</span>

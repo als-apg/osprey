@@ -764,8 +764,7 @@ to the reason the write verdict gave, a member of
 them apart without parsing <code class="docutils literal notranslate"><span class="pre">error_message</span></code>; it is <code class="docutils literal notranslate"><span class="pre">None</span></code> on every
 other result. <code class="docutils literal notranslate"><span class="pre">observed_value</span></code> is whatever the confirming
 re-read returned, in the type the channel holds — a number, a string, an
-enum label, a waveform; <a class="reference internal" href="#osprey_connectors.control_system.ChannelWriteResult.observed_number" title="osprey_connectors.control_system.ChannelWriteResult.observed_number"><code class="xref py py-attr docutils literal notranslate"><span class="pre">observed_number</span></code></a> narrows it to a float
-where that makes sense.</p>
+enum label, a waveform.</p>
 <p>Alarm state (<code class="docutils literal notranslate"><span class="pre">alarm_status</span></code>, <code class="docutils literal notranslate"><span class="pre">alarm_severity</span></code>) is carried
 protocol-agnostically — the alarm <em>name</em> as a string, the severity as an
 int — and is information reported with the write, never a reason to raise.
@@ -843,12 +842,6 @@ runs on.</p>
     result or set on any other.</p>
 </dd>
 </dl>
-</dd></dl>
-
-<dl class="py property">
-<dt class="sig sig-object py" id="osprey_connectors.control_system.ChannelWriteResult.observed_number">
-<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">observed_number</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.control_system.ChannelWriteResult.observed_number" title="Link to this definition">#</a></dt>
-<dd><p><a class="reference internal" href="#osprey_connectors.control_system.ChannelWriteResult.observed_value" title="osprey_connectors.control_system.ChannelWriteResult.observed_value"><code class="xref py py-attr docutils literal notranslate"><span class="pre">observed_value</span></code></a> as a float, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when it is not a number.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1412,32 +1405,6 @@ what could not be read, complete enough to be quoted by any caller.</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>A <code class="docutils literal notranslate"><span class="pre">(loaded,</span> <span class="pre">reason)</span></code> pair with exactly one half set</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="osprey_connectors.control_system.LimitsValidator.writable_addresses">
-<span class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">writable_addresses</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">db_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_system/_limits_validator.html#LimitsValidator.writable_addresses"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_system.LimitsValidator.writable_addresses" title="Link to this definition">#</a></dt>
-<dd><p>The addresses a limits database declares writable.</p>
-<p>Read through <code class="xref py py-meth docutils literal notranslate"><span class="pre">_load_limits_database()</span></code> rather than from the raw
-JSON, so the metadata keys and the per-entry validation are applied by
-the same code the write path applies them with: <code class="docutils literal notranslate"><span class="pre">writable</span></code> is read
-from each entry, an entry that does not state it fails the load, and a
-top-level <code class="docutils literal notranslate"><span class="pre">defaults</span></code> key fails the load.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>db_path</strong> (<em>str</em><em> | </em><em>Path</em>) – Path to a <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code>-shaped file.</p>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>The writable addresses.</p>
-</dd>
-<dt class="field-odd">Raises<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>ValueError</strong> – If the file is missing, is not JSON, is not a JSON
-    object, or carries an entry the validator refuses.</p>
-</dd>
-<dt class="field-even">Return type<span class="colon">:</span></dt>
-<dd class="field-even"><p>frozenset[str]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2312,7 +2279,6 @@ Without one, neither is passed.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.ChannelWriteResult.notes"><code class="docutils literal notranslate"><span class="pre">ChannelWriteResult.notes</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.ChannelWriteResult.verdict_reason"><code class="docutils literal notranslate"><span class="pre">ChannelWriteResult.verdict_reason</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.ChannelWriteResult.__post_init__"><code class="docutils literal notranslate"><span class="pre">ChannelWriteResult.__post_init__()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.ChannelWriteResult.observed_number"><code class="docutils literal notranslate"><span class="pre">ChannelWriteResult.observed_number</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.ChannelWriteResult.__init__"><code class="docutils literal notranslate"><span class="pre">ChannelWriteResult.__init__()</span></code></a></li>
 </ul>
 </li>
@@ -2340,7 +2306,6 @@ Without one, neither is passed.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.resolve_database_path"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.resolve_database_path()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.configured_database_path"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.configured_database_path()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.load_configured_database"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.load_configured_database()</span></code></a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.writable_addresses"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.writable_addresses()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.from_config"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.from_config()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.from_config_most_restrictive"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.from_config_most_restrictive()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.control_system.LimitsValidator.resolve_confirm"><code class="docutils literal notranslate"><span class="pre">LimitsValidator.resolve_confirm()</span></code></a></li>

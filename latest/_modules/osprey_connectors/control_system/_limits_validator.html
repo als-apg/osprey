@@ -899,32 +899,6 @@
         <span class="k">return</span> <span class="p">(</span><span class="n">limits_db</span><span class="p">,</span> <span class="n">raw_db</span><span class="p">),</span> <span class="kc">None</span></div>
 
 
-<div class="viewcode-block" id="LimitsValidator.writable_addresses">
-<a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.writable_addresses">[docs]</a>
-    <span class="nd">@staticmethod</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">writable_addresses</span><span class="p">(</span><span class="n">db_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;The addresses a limits database declares writable.</span>
-
-<span class="sd">        Read through :meth:`_load_limits_database` rather than from the raw</span>
-<span class="sd">        JSON, so the metadata keys and the per-entry validation are applied by</span>
-<span class="sd">        the same code the write path applies them with: ``writable`` is read</span>
-<span class="sd">        from each entry, an entry that does not state it fails the load, and a</span>
-<span class="sd">        top-level ``defaults`` key fails the load.</span>
-
-<span class="sd">        Args:</span>
-<span class="sd">            db_path: Path to a ``channel_limits.json``-shaped file.</span>
-
-<span class="sd">        Returns:</span>
-<span class="sd">            The writable addresses.</span>
-
-<span class="sd">        Raises:</span>
-<span class="sd">            ValueError: If the file is missing, is not JSON, is not a JSON</span>
-<span class="sd">                object, or carries an entry the validator refuses.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">limits_db</span><span class="p">,</span> <span class="n">_raw</span> <span class="o">=</span> <span class="n">LimitsValidator</span><span class="o">.</span><span class="n">_load_limits_database</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">db_path</span><span class="p">))</span>
-        <span class="k">return</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">address</span> <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">limits_db</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">writable</span><span class="p">)</span></div>
-
-
 <div class="viewcode-block" id="LimitsValidator.from_config">
 <a class="viewcode-back" href="../../../reference/connectors-api/contracts.html#osprey_connectors.control_system.LimitsValidator.from_config">[docs]</a>
     <span class="nd">@classmethod</span>

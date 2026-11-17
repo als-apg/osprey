@@ -574,11 +574,6 @@
     <span class="n">login</span><span class="p">:</span> <span class="n">Login</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">ca_bundle</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 
-    <span class="nd">@property</span>
-    <span class="k">def</span><span class="w"> </span><span class="nf">credential_env_names</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;The environment variables the login&#39;s secret is read from; ``()`` without one.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">login</span><span class="o">.</span><span class="n">env_names</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">login</span> <span class="k">else</span> <span class="p">()</span>
-
 <div class="viewcode-block" id="ConnectionSettings.timeout_or">
 <a class="viewcode-back" href="../../reference/connectors-api/building.html#osprey_connectors.connection.ConnectionSettings.timeout_or">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">timeout_or</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
