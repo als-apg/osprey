@@ -200,7 +200,9 @@ def apply_scenarios(
 
     Raises:
         ValueError: If the render carries no simulator view, a scenario name is
-            unknown, or the requested set does not compose (channel collision).
+            unknown, the requested set does not compose (channel collision), or
+            a requested scenario stops an IOC of a model the render does not
+            serve (its ``inactive_iocs``).
     """
     from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
@@ -216,6 +218,7 @@ def apply_scenarios(
             "Run 'osprey build'."
         )
     scenarios = _scenarios(view)
+    _refuse_inactive_stops(scenarios, names)
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
     # zone each seeded logbook entry's relative time-of-day resolves into, and it
@@ -314,6 +317,28 @@ def view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
 def _scenarios(view: SimulatorView) -> dict[str, dict[str, Any]]:
     """The scenarios ``view`` lists, by name, as plain dicts."""
     return {str(scenario["name"]): _plain(scenario) for scenario in view.scenarios()}
+
+
+def _refuse_inactive_stops(
+    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str]
+) -> None:
+    """Refuse a requested scenario that stops an IOC this render does not serve.
+
+    The view keeps such a name out of the scenario's ``stopped_iocs`` and lists
+    it under ``inactive_iocs`` instead, so the scenario would apply without the
+    stop it describes. Applying it is refused rather than run half-way.
+
+    Raises:
+        ValueError: A requested scenario lists an inactive IOC.
+    """
+    for name in names:
+        inactive = (scenarios.get(name) or {}).get("inactive_iocs") or {}
+        if inactive:
+            listed = ", ".join(f"{ioc} ({why})" for ioc, why in sorted(inactive.items()))
+            raise ValueError(
+                f"Scenario {name!r} stops IOC(s) this render does not serve: {listed}; "
+                "serve their model to apply it."
+            )
 
 
 def _plain(value: Any) -> Any:

@@ -57,6 +57,12 @@ from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 from osprey_connectors.simulation.values import is_waveform
 
+try:
+    from osprey_connectors.simulation.iocs import TEXTURE_IOC, served_iocs
+except ImportError:  # an osprey-connectors release older than scenario ``stopped_iocs``
+    TEXTURE_IOC = None  # type: ignore[assignment]
+    served_iocs = None  # type: ignore[assignment]
+
 __all__ = [
     "FACILITY_HEADER",
     "STAGES",
@@ -2009,6 +2015,7 @@ class _Records:
                 yield from self._scenario_noise(name, files, str(address), entry)
             yield from self._still(name, files, scenario)
             yield from self._channel_faults(name, files, scenario.get("channel_faults"))
+            yield from self._stopped_iocs(name, files, scenario.get("stopped_iocs"))
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
@@ -2159,6 +2166,52 @@ class _Records:
                     files,
                     f"`{slot}` is `{word}` on a {role} channel",
                     "`stuck` faults a setpoint, `frozen` a reading, `disconnected` any channel",
+                )
+
+    def _stopped_iocs(
+        self, name: str, files: list[str], block: Any
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``stopped_iocs``: each the name of a simulated IOC the facility can serve.
+
+        Which models a render serves is the render's to know, so a name of a
+        model it leaves unserved is refused there (``views/simulator.py``).
+        """
+        if block is None:
+            return
+        if served_iocs is None:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                "`stopped_iocs` needs an osprey-connectors release that can stop a simulated IOC",
+                "upgrade osprey-connectors, or remove `stopped_iocs`",
+            )
+            return
+        if not isinstance(block, list) or not all(isinstance(ioc, str) for ioc in block):
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`stopped_iocs` is {block!r}, not a list of simulated IOC names",
+                f"write `stopped_iocs: [sim-<model>, ...]` or `[{TEXTURE_IOC}]`",
+            )
+            return
+        known = served_iocs(
+            model_name
+            for model_name, model in self.index.models.items()
+            if model.get("engine") not in (None, "texture")
+        )
+        for ioc in block:
+            if ioc not in known:
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`stopped_iocs` names `{ioc}`, which no simulated IOC is",
+                    "write one of " + ", ".join(f"`{served}`" for served in sorted(known)),
                 )
 
     def _scenario_noise(

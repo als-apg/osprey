@@ -41,6 +41,10 @@ is not writable.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
 states carried verbatim; ``faults`` maps each faulted model to ``{writes}``,
 plus ``inactive: model not served`` when the render does not serve it;
+``stopped_iocs`` keeps only the IOCs this render serves, and each named IOC of
+a model the render does not serve moves to ``inactive_iocs``, mapped to
+``model not served``, and stops nothing; such a name is refused only when its
+scenario is one of the render's ``simulation.default_scenarios``;
 ``still`` is the sorted list of float addresses its ``all``, addresses and
 selections resolve to; a scenario named ``still`` that stills every float
 reading is listed when no file defines one. Each
@@ -133,6 +137,7 @@ _SCENARIO_BLOCKS = (
     "couple",
     "noise",
     "channel_faults",
+    "stopped_iocs",
 )
 
 #: The scenario ``scenarios.json`` lists when no file defines ``still``.
@@ -413,6 +418,52 @@ def _resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> li
     return sorted(resolved)
 
 
+def _split_stopped_iocs(
+    inputs: ViewInputs, scenario: Mapping[str, Any]
+) -> tuple[list[str], dict[str, str]]:
+    """A scenario's ``stopped_iocs``: the names this render stops, and the inactive rest.
+
+    The validator refuses a name that is no simulated IOC of the facility;
+    only the render knows which models it serves. A name of an unserved model
+    stops nothing, so it follows the rule for a fault on an unserved model: it
+    is marked ``model not served`` and left out of the stop. It is refused only
+    when the scenario is one of the render's default scenarios, which would
+    otherwise come up stopping nothing.
+
+    Raises:
+        FacilityBuildError: ``value-invalid``: a default scenario names an IOC
+            this render does not serve.
+    """
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.simulation.apply import resolve_default_scenarios
+    from osprey_connectors.simulation.iocs import served_iocs
+
+    physics = [
+        str(model["name"])
+        for model in inputs.records.document.get("models", [])
+        if model["name"] in inputs.served
+        and model["name"] != TEXTURE
+        and model.get("engine") != TEXTURE
+    ]
+    known = served_iocs(physics)
+    stopped = [str(ioc) for ioc in scenario["stopped_iocs"] if ioc in known]
+    unserved = [str(ioc) for ioc in scenario["stopped_iocs"] if ioc not in known]
+    name = str(scenario["name"])
+    if unserved and name in resolve_default_scenarios(inputs.rendered_config):
+        raise FacilityBuildError(
+            "value-invalid",
+            name,
+            [f"{SCENARIOS_DIR}/{name}.yaml"],
+            f"serve the model in this render, remove `{unserved[0]}` from `stopped_iocs`, "
+            f"or drop `{name}` from `simulation.default_scenarios`; "
+            f"this render serves {', '.join(f'`{ioc}`' for ioc in sorted(known))}",
+            record_kind="scenario",
+            detail=f"default scenario `{name}`'s `stopped_iocs` names `{unserved[0]}`, "
+            "which this render does not serve",
+        )
+    return stopped, dict.fromkeys(unserved, INACTIVE_UNSERVED)
+
+
 def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
     scenarios: list[dict[str, Any]] = []
     for scenario in sorted(
@@ -422,6 +473,10 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
         for block in _SCENARIO_BLOCKS:
             if scenario.get(block) is not None:
                 entry[block] = copy.deepcopy(scenario[block])
+        if scenario.get("stopped_iocs"):
+            entry["stopped_iocs"], inactive = _split_stopped_iocs(inputs, scenario)
+            if inactive:
+                entry["inactive_iocs"] = inactive
         if scenario.get("still") is not None:
             entry["still"] = _resolved_still(inputs.records, scenario)
         faults = scenario.get("faults")

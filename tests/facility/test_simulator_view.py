@@ -31,6 +31,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
+from osprey.facility.views.simulator import INACTIVE_UNSERVED
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import (
     IOC_HEALTH_SIGNALS,
@@ -1147,3 +1148,49 @@ def test_an_empty_inputs_list_is_written_as_no_inputs(
     root = _render_facility(tmp_path, built_demo, _with_inputs(built_demo, {"SR": []}))
 
     assert (root / VARIABLES).read_bytes() == (plain / VARIABLES).read_bytes()
+
+
+def test_stopped_iocs_of_served_models_are_carried_verbatim(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_iocs": ["sim-SR", "sim-texture"]}
+
+    (entry,) = [
+        e for e in _rendered_scenarios(tmp_path, built_demo, [scenario]) if e["name"] == "sr-down"
+    ]
+    assert entry == scenario
+
+
+def test_stopped_iocs_of_an_unserved_model_are_marked_inactive_and_left_out_of_the_stop(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_iocs": ["sim-SR", "sim-texture"]}
+
+    (entry,) = [
+        e
+        for e in _rendered_scenarios(
+            tmp_path, built_demo, [scenario], {"simulation": {"models": [TEXTURE]}}
+        )
+        if e["name"] == "sr-down"
+    ]
+    assert entry == {
+        "name": "sr-down",
+        "stopped_iocs": ["sim-texture"],
+        "inactive_iocs": {"sim-SR": INACTIVE_UNSERVED},
+    }
+
+
+def test_a_default_scenario_stopping_an_unserved_models_ioc_is_refused_at_render(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_iocs": ["sim-SR"]}
+    config = {"simulation": {"models": [TEXTURE], "default_scenarios": ["sr-down"]}}
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _rendered_scenarios(tmp_path, built_demo, [scenario], config)
+
+    assert stop.value.kind == "value-invalid"
+    assert stop.value.record_id == "sr-down"
+    assert "`sim-SR`, which this render does not serve" in stop.value.detail
+    assert "`sim-texture`" in stop.value.remedy
+    assert "`simulation.default_scenarios`" in stop.value.remedy

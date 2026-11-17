@@ -976,6 +976,44 @@ class TestValueRules:
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == (f"`channel_faults` is {block!r}, not a mapping of address to fault")
 
+    def test_stopped_iocs_name_served_simulated_iocs(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [_wired("Q1:SP")],
+                "scenarios/s.yaml": {"stopped_iocs": ["sim-optics", "sim-texture"]},
+            }
+        )
+        assert _run(tmp_path, files).ok
+
+    def test_a_stopped_ioc_the_facility_does_not_serve_is_refused(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [_wired("Q1:SP")],
+                "scenarios/s.yaml": {"stopped_iocs": ["sim-nothing"]},
+            }
+        )
+        error = _rule(tmp_path, files, "value-invalid")
+        assert (error.record_kind, error.record_id) == ("scenario", "s")
+        assert error.detail == "`stopped_iocs` names `sim-nothing`, which no simulated IOC is"
+        assert error.remedy == "write one of `sim-optics`, `sim-texture`"
+
+    @pytest.mark.parametrize("block", ["sim-texture", {"sim-texture": True}, [1]])
+    def test_stopped_iocs_is_a_list_of_names(self, tmp_path: Path, block: Any) -> None:
+        files = _tree(**{"scenarios/s.yaml": {"stopped_iocs": block}})
+        assert not _run(tmp_path, files).ok
+
+    def test_stopped_iocs_is_refused_by_a_connectors_release_without_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from osprey.facility import validate
+
+        monkeypatch.setattr(validate, "served_iocs", None)
+        files = _tree(**{"scenarios/s.yaml": {"stopped_iocs": ["sim-texture"]}})
+        error = _rule(tmp_path, files, "value-invalid")
+        assert error.detail == (
+            "`stopped_iocs` needs an osprey-connectors release that can stop a simulated IOC"
+        )
+
     def _monitor_map(self, faults: dict[str, Any]) -> dict[str, Any]:
         model = _wired("Q1:SP")
         model["wiring"].append({"address": "BPM1:X", "element": "BPM1", "engine": {"axis": "x"}})
