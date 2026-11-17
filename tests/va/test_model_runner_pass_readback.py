@@ -122,6 +122,9 @@ def test_every_value_a_texture_write_changes_is_one_of_its_write_records(
     roster = _roster(composite, view)
     records = write_records(view, composite.texture_reach())
 
+    # Each write's "before" is the previous write's "after": on the fixed clock
+    # nothing but a write moves a value, so one roster read per write suffices.
+    before = composite.get(roster)
     for setpoint in _texture_setpoints(composite, view)[:25]:
         level = composite.get(setpoint)
         if not isinstance(level, float):
@@ -129,7 +132,10 @@ def test_every_value_a_texture_write_changes_is_one_of_its_write_records(
         low, high = composite.supported_variables[setpoint].value_range or (None, None)
         target = level + 0.5 if high is None or level + 0.5 <= high else level - 0.5
 
-        changed = _changed_by(composite, roster, {setpoint: target})
+        composite.set({setpoint: target})
+        after = composite.get(roster)
+        changed = {name for name in roster if not _same(before[name], after[name])}
+        before = after
 
         assert setpoint in changed
         assert changed <= pass_readback(records, [setpoint]), setpoint
