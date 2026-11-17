@@ -241,6 +241,15 @@ def test_the_emitted_example_names_the_conventional_trigger_file() -> None:
     assert PROFILE_TRIGGERS_FILENAME in KNOWN_ROOT_ENTRIES
 
 
+def test_the_emitted_example_states_the_run_limits() -> None:
+    """The example writes each per-run budget at the value an unstated key builds with."""
+    example = _emitted_dispatch_example()["dispatch"]
+
+    assert example["timeout_sec"] == DispatchConfig.timeout_sec
+    assert example["inactivity_sec"] == DispatchConfig.inactivity_sec
+    assert example["max_turns"] == DispatchConfig.max_turns
+
+
 def test_the_emitted_example_calls_facility_name_an_override() -> None:
     """The example names no config or profile key for the dashboard's name."""
     from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES

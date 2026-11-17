@@ -220,6 +220,14 @@ def _block_default(block: str, key: str) -> Any:
     return next(f.default for f in fields(cls) if f.name == key)
 
 
+# The run budgets as commented example lines, for the dispatch template a
+# profile without a `dispatch:` block carries.
+_DISPATCH_LIMIT_EXAMPLE = "\n".join(
+    f"#   {key}: {_block_default('dispatch', key)}  # {comment}"
+    for key, comment in _BLOCK_DEFAULTS["dispatch"][1].items()
+)
+
+
 # Two keys need more than a one-line rationale: their shape is not obvious from
 # the empty default the emitter writes, and guessing it wrong is a build error
 # rather than a quiet no-op. Each entry replaces that key's rationale line with
@@ -426,13 +434,15 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # Runs the agent unattended against a trigger file (facility events in, agent
 # runs out). triggers names that file: one beside this profile, or a bundled
 # trigger set by name. worker_count sets parallelism; workspace_mode isolated
-# gives each run its own copy of the project. The dashboard shows the facility
-# name the build's identity records.
+# gives each run its own copy of the project. timeout_sec, inactivity_sec and
+# max_turns are the per-run budgets. The dashboard shows the facility name the
+# build's identity records.
 #
 # dispatch:
 #   triggers: {PROFILE_TRIGGERS_FILENAME}
 #   worker_count: 1
 #   workspace_mode: isolated
+{_DISPATCH_LIMIT_EXAMPLE}
 """,
     "bluesky": """
 # --- Bluesky bridge -----------------------------------------------------
