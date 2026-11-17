@@ -1891,9 +1891,11 @@ class _Page:
             w = min(text_width(line, TEXT_SIZE), self.label_w)
             self.text(name, self.y + n * TITLE_LINE, line, w=w)
         extra = (len(lines) - 1) * TITLE_LINE
-        if raw:  # the full name, muted, under the short one
-            full = _cut(row.label, self.label_w, SMALL_SIZE)
-            self.small(name, self.y + ROW + extra, full, fg=MUTED_TEXT)
+        if raw:  # the full name, muted, under the short one, broken after a colon
+            fulls = _wrap_name(row.label, self.label_w, SMALL_SIZE, SIGNAL_NAME_LINES)
+            for n, line in enumerate(fulls):
+                self.small(name, self.y + ROW + extra + n * SMALL_LINE, line, fg=MUTED_TEXT)
+            extra += (len(fulls) - 1) * SMALL_LINE
         shown = row.readback
         if row.readback is not None:
             self.field(
@@ -3914,6 +3916,21 @@ def _wrap(
             line = _cut(" ".join([line, *words]), fit, size)
             words = []
         out.append(_cut(line, fit, size))
+    return out or [""]
+
+
+def _wrap_name(text: str, width: float, size: float, lines: int) -> list[str]:
+    """A channel name in at most *lines* lines that each fit *width* at *size*, broken
+    after a colon; the last line cut with an ellipsis when the rest does not fit."""
+    pieces = re.findall(r"[^:]*:|[^:]+$", text)
+    out: list[str] = []
+    while pieces and len(out) < lines:
+        line = pieces.pop(0)
+        while pieces and text_width(line + pieces[0], size) <= width:
+            line += pieces.pop(0)
+        if len(out) == lines - 1 and pieces:
+            line, pieces = line + "".join(pieces), []
+        out.append(_cut(line, width, size))
     return out or [""]
 
 

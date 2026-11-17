@@ -277,3 +277,40 @@ def test_a_long_signal_name_in_a_column_wraps_to_a_second_line_and_is_never_cut(
     )
     tops = [n["geometry"]["y"] for n in rows]
     assert len(tops) == len(set(tops))  # nothing drawn over the second line
+
+
+def _raw_channels(document) -> None:
+    from tests.facility.panels._fixture import add_bpm
+
+    add_bpm(document, "XR01:BPM1", "XR/XR01")
+    for n in range(14):
+        document["channels"].append(
+            {
+                "id": f"XR01:BPM1:LONGER:PART{n:02d}:segment:tail{n:02d}",
+                "on": {"device": "XR01:BPM1"},
+            }
+        )
+
+
+def test_a_channel_name_under_its_row_breaks_after_a_colon_instead_of_being_cut(
+    tmp_path,
+) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _raw_channels), PANELS_DIR)
+    doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
+    small = sorted(
+        (
+            n for n in nodes(doc)
+            if n["type"] == "text-label" and n["props"]["fontSize"] == layout.SMALL_SIZE
+        ),
+        key=lambda n: (n["geometry"]["x"], n["geometry"]["y"]),
+    )  # fmt: skip
+    for n in range(14):
+        name = f"XR01:BPM1:LONGER:PART{n:02d}:segment:tail{n:02d}"
+        (i,) = [k for k, m in enumerate(small) if f"PART{n:02d}" in m["props"]["text"]]
+        first, second = small[i], small[i + 1]
+        assert second["geometry"]["y"] == first["geometry"]["y"] + layout.SMALL_LINE
+        assert first["props"]["text"] + second["props"]["text"] == name
+        assert first["props"]["text"].endswith(":")
