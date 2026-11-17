@@ -95,6 +95,8 @@ GAP = 8  # between two widgets on one row
 INDENT = 20  # one level of a roll-up tree
 LABEL_WIDTH = 200
 VALUE_WIDTH = 130
+UNIT_WIDTH = 44  # a value's unit, beside it
+UNIT_GAP = 2
 BUTTON_PAD = 16
 MAX_BUTTON_WIDTH = 420
 LIGHT_SIZE = 14
@@ -840,13 +842,19 @@ class _Page:
             props = {
                 **common,
                 "backgroundColor": FIELD_BACKGROUND,
-                "showUnits": True,
+                "showUnits": False,  # the unit is a label of its own: a tile never cuts it
                 "alarmSensitive": True,
                 "alarmBorder": True,
                 "align": "right",
             }
             self.s.widget("pv-label", x, y, w, ROW, props)
         return x + w
+
+    def unit(self, x, y, unit: str | None) -> float:
+        """A value's unit, its own label beside the value; the right edge (*x* with none)."""
+        if not unit:
+            return x
+        return self.text(x + UNIT_GAP, y, unit, size=SMALL_SIZE, w=UNIT_WIDTH)
 
     def next_row(self, height: float = ROW) -> None:
         self.y += height + ROW_GAP
@@ -918,8 +926,10 @@ class _Page:
     def value_row(self, row: ValueRow) -> None:
         x = self.text(MARGIN, self.y, row.label, w=LABEL_WIDTH)
         x = self.field(x + GAP, self.y, row.channel, drawn_as=row.drawn_as, writable=row.writable)
+        x = self.unit(x, self.y, row.unit)
         if row.readback is not None:
             x = self.field(x + GAP, self.y, row.readback)
+            x = self.unit(x, self.y, row.readback_unit)
         deviation = _tolerance_ladder(row)
         if deviation is not None:
             x = self.light(x + GAP, self.y, [Light(row.channel)], rule=deviation)
@@ -1009,6 +1019,7 @@ class _Page:
             return
         below = y + ROW + ROW_GAP
         x = self.field(x0, below, cell.pair.readback)
+        x = self.unit(x, below, cell.pair.readback_unit)
         deviation = _tolerance_ladder(cell.pair)
         if deviation is not None:
             x = self.light(x + GAP, below, [Light(cell.pair.channel)], rule=deviation)

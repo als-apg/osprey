@@ -121,6 +121,8 @@ def test_a_paired_setpoint_sits_beside_its_readback_in_signals(panel_graph):
             writable=True,
             drawn_as="setpoint",
             inferred=False,
+            unit="A",
+            readback_unit="A",
         ),
     )
     assert "settings" not in _titles(view)
@@ -497,6 +499,8 @@ def test_the_primary_pair_is_keyed_on_the_stated_signal_never_the_name(panel_gra
         tolerance=("absolute", 0.05),
         writable=True,
         drawn_as="setpoint",
+        unit="A",
+        readback_unit="A",
     )
     assert cells["XR01:QD1"].pair is None  # its setpoint is in no pair of the table
 

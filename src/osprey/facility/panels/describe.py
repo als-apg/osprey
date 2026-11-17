@@ -376,6 +376,8 @@ def _value_row(graph: PanelGraph, channel: Channel) -> ValueRow:
         writable=channel.writable,
         drawn_as=channel.drawn_as,
         inferred=pair is not None and pair.basis == "inferred",
+        unit=channel.unit,
+        readback_unit=graph.channel(pair.readback).unit if pair is not None else None,
     )
 
 

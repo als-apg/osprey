@@ -927,3 +927,20 @@ def test_the_devices_off_the_beamline_are_one_line_that_opens_the_place_card(pan
     files = [a["file"] for n in _links_drawn(doc) for a in n["props"]["actions"]]
     assert screens(Target("card", "place", "XR/XR02")) in files
     assert "XR02:BLOCK1" not in _texts(doc)  # listed on the place card, not in the tray
+
+
+def test_a_values_unit_is_a_label_of_its_own_beside_it(panel_graph) -> None:
+    from osprey.facility.panels.describe import device_card
+
+    doc, _ = draw(device_card(panel_graph, "XR01:QF1"), panel_graph)
+    labels = {n["props"]["pv"]: n for n in _by_type(doc, "pv-label")}
+    value = labels["XR01-QF1:Current-RB"]
+    assert value["props"]["showUnits"] is False
+    (unit,) = [
+        n
+        for n in _by_type(doc, "text-label")
+        if n["props"]["text"] == "A"
+        and n["geometry"]["y"] == value["geometry"]["y"]
+        and n["geometry"]["x"] >= value["geometry"]["x"] + value["geometry"]["width"]
+    ]
+    assert unit["geometry"]["width"] == layout.UNIT_WIDTH

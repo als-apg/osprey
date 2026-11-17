@@ -119,6 +119,8 @@ class ValueRow:
         writable: Whether the channel is a setpoint.
         drawn_as: How ``record_types.csv`` says to draw the channel, or ``None``.
         inferred: Whether the pair is inferred rather than stated.
+        unit: The channel's unit, shown beside its value; ``None`` with none.
+        readback_unit: The readback's unit, or ``None``.
     """
 
     label: str
@@ -128,6 +130,8 @@ class ValueRow:
     writable: bool
     drawn_as: str | None = None
     inferred: bool = False
+    unit: str | None = None
+    readback_unit: str | None = None
 
 
 @dataclass(frozen=True)
