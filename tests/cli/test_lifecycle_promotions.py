@@ -1974,6 +1974,12 @@ def _stub_one_port_conflict(monkeypatch: pytest.MonkeyPatch, *, host_network: bo
 class TestTheHostPortConflictReport:
     """The preflight's refusal, in the shape every other refusal wears."""
 
+    @pytest.fixture(autouse=True)
+    def _repo_root_in_tmp(self, monkeypatch, tmp_path):
+        """An empty config resolves the repo root to the working directory, where
+        the preflight reads and writes its host-network ports file."""
+        monkeypatch.chdir(tmp_path)
+
     @pytest.mark.usefixtures("default_altitude")
     def test_the_report_lands_on_stderr_as_a_failure(self, printed_err, monkeypatch):
         _stub_one_port_conflict(monkeypatch)
