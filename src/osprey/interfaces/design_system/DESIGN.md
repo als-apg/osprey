@@ -524,8 +524,12 @@ writer (`markPageReady(doc = document)`, idempotent). A page takes one route:
 | Page | Markup | Who marks it |
 |---|---|---|
 | Plain (draws on parse) | nothing | `initTheme()`, once the `DOMContentLoaded` handlers have run |
-| Late (fetches, draws a first state) | `<html data-page-ready="pending">` | the page, `markPageReady()` at the end of its start-up, on the failure path too |
+| Late (fetches, draws a first state) | `<html data-page-ready="pending">` | the page, `markPageReady()` at the end of its start-up, on the failure path too; the writer marks it `failed` if it throws first |
 | No script at all | `<html data-page-ready="true">` | the markup |
+
+`failed` is the writer's value, never markup: a pending page that throws an
+uncaught error or leaves a rejection unhandled before its call is marked
+`failed` and stays so. A waiter stops on either end state.
 
 `pending` is markup, never a call: only the markup is early enough to stop the
 shared start-up marking the page first. Ready means "can be driven", not "has

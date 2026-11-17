@@ -15,7 +15,9 @@
  *     draws a first state, builds a dock) carries
  *     `<html data-page-ready="pending">` in its markup, and calls
  *     `markPageReady()` itself when it is dressed, on its failure path too: a
- *     page that drew its error state is ready;
+ *     page that drew its error state is ready; a pending page that throws an
+ *     uncaught error, or leaves a rejection unhandled, before that call is
+ *     marked `failed` by this module, and stays failed;
  *   - a page with no script at all carries `data-page-ready="true"` literally.
  *
  * `pending` lives in the markup, never in a call, because only the markup is
@@ -23,7 +25,7 @@
  * start-up had already marked the page.
  *
  * Ready means "can be driven", not "has data". A test that needs data waits for
- * the data.
+ * the data. `failed` means the page cannot be driven: a waiter stops there.
  *
  * @module page-ready
  */
@@ -34,14 +36,39 @@ export const PAGE_READY_ATTRIBUTE = 'data-page-ready';
 /** The value a late page declares in its markup until it marks itself. */
 const PENDING = 'pending';
 
+/** The value the writer sets when a pending page threw before it marked itself. */
+const FAILED = 'failed';
+
 /**
- * Mark the document ready to drive. Idempotent: a second call changes nothing.
+ * Mark the document ready to drive. Idempotent, and an end state stands: a
+ * second call, or a call on a page already marked failed, changes nothing.
  * @param {Document} [doc]
  */
 export function markPageReady(doc = document) {
   const root = doc.documentElement;
-  if (root.getAttribute(PAGE_READY_ATTRIBUTE) === 'true') return;
+  const value = root.getAttribute(PAGE_READY_ATTRIBUTE);
+  if (value === 'true' || value === FAILED) return;
   root.setAttribute(PAGE_READY_ATTRIBUTE, 'true');
+}
+
+/**
+ * Mark a pending page failed when its running script throws. The attribute is
+ * the only state: two loaded copies of this module read and write the same
+ * mark and agree. A page that is not pending is never attested.
+ */
+function attestFailure() {
+  const root = document.documentElement;
+  if (root.getAttribute(PAGE_READY_ATTRIBUTE) !== PENDING) return;
+  root.setAttribute(PAGE_READY_ATTRIBUTE, FAILED);
+}
+
+// Neither listener captures: a resource that fails to load (a script, a
+// stylesheet, an image) reports on its own element and does not bubble, so
+// only an error thrown by running script, or a rejection nobody handled,
+// reaches them.
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', attestFailure);
+  window.addEventListener('unhandledrejection', attestFailure);
 }
 
 /**
