@@ -53,6 +53,7 @@ import json
 import os
 import posixpath
 import re
+import warnings
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,8 +61,9 @@ from typing import Any
 
 from osprey.facility.panels import layout
 from osprey.facility.panels.describe import describe, targets
-from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.view import Target
+from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
+from osprey.facility.panels.symbols import WIDTH_UNITS
+from osprey.facility.panels.view import VIEW_KINDS, Target
 
 __all__ = [
     "FORMAT_VERSION",
@@ -69,9 +71,11 @@ __all__ = [
     "SCREEN_SUFFIX",
     "SLUG_MAX",
     "Draw",
+    "DRAW_FILE",
     "EmitError",
     "Problem",
     "check",
+    "load_draw",
     "screen_id",
     "screen_ids",
     "under",
@@ -91,8 +95,13 @@ DIGEST_LEN = 8
 #: Failing problem kinds are all but these.
 NOTE_KINDS = frozenset({"outside_set"})
 
-_STAMP = re.compile(r" Facility ([0-9a-f]{64}), panels format (\d+)\.$")
-_STAMP_IN_TEXT = re.compile(r" Facility [0-9a-f]{64}, panels format \d+\.\"")
+_STAMP = re.compile(r" Facility ([0-9a-f]{64}), panels format (\d+), draw ([0-9a-f]{16})\.$")
+_STAMP_IN_TEXT = re.compile(r" Facility [0-9a-f]{64}, panels format \d+, draw [0-9a-f]{16}\.\"")
+#: The only paths ``write`` creates or deletes below ``out``.
+_FILE_SHAPE = re.compile(rf"(?:{'|'.join(VIEW_KINDS)})/[a-z0-9-]+{re.escape(SCREEN_SUFFIX)}")
+_TEMPORARY = re.compile(r"\.[a-z0-9-]+" + re.escape(SCREEN_SUFFIX) + r"\.tmp")
+#: The drawing settings file, beside the rule tables.
+DRAW_FILE = "draw.json"
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 
 
@@ -106,7 +115,8 @@ class Problem:
 
     Attributes:
         kind: ``stale``, ``missing``, ``orphan``, ``dangling_link``,
-            ``unknown_channel``, ``stamp``, ``invalid``, ``oversize`` or
+            ``unknown_channel``, ``stamp``, ``invalid``, ``oversize``,
+            ``incomplete`` (an earlier write did not finish) or
             ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
@@ -129,6 +139,66 @@ class Draw:
     rack_classes: frozenset[str] = frozenset()
     symbols: Mapping[str, str] = field(default_factory=dict)
     above: frozenset[str] = frozenset()
+
+    @property
+    def digest(self) -> str:
+        """16 hex digits naming these settings, whatever the order they were given in."""
+        text = json.dumps(
+            {
+                "rack_classes": sorted(self.rack_classes),
+                "symbols": sorted(self.symbols.items()),
+                "above": sorted(self.above),
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _strings(value: Any, name: str, path: Path) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise EmitError(f"{path}: {name} must be a list of strings")
+    return value
+
+
+def load_draw(path: Path) -> Draw:
+    """Read the drawing settings from a JSON file.
+
+    The keys are ``rack_classes`` (place levels that mark a rack), ``symbols``
+    (device class to symbol name) and ``above`` (device classes drawn on the
+    upper lane of a strip; each needs a symbol). All are optional.
+
+    Raises:
+        EmitError: The file is missing or unreadable, is not JSON, holds a key
+            this reader does not know, a value of the wrong type, or a symbol
+            name the engine does not have.
+    """
+    path = Path(path)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise EmitError(f"{path} cannot be read as {DRAW_FILE}: {error}") from error
+    if not isinstance(document, dict):
+        raise EmitError(f"{path}: the file must hold one JSON object")
+    unknown = sorted(set(document) - {"rack_classes", "symbols", "above"})
+    if unknown:
+        raise EmitError(f"{path}: unknown key {', '.join(unknown)}")
+    racks = _strings(document.get("rack_classes", []), "rack_classes", path)
+    above = _strings(document.get("above", []), "above", path)
+    symbols = document.get("symbols", {})
+    if not isinstance(symbols, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in symbols.items()
+    ):
+        raise EmitError(f"{path}: symbols must map class names to symbol names")
+    for name in sorted(set(symbols.values()) - set(WIDTH_UNITS) - {"generic"}):
+        raise EmitError(f"{path}: {name} is not a symbol of the engine")
+    for cls in above:
+        if cls not in symbols:
+            raise EmitError(f"{path}: above names {cls}, which has no entry in symbols")
+    return Draw(
+        rack_classes=frozenset(racks),
+        symbols=dict(symbols),
+        above=frozenset(symbols[cls] for cls in above),
+    )
 
 
 # -- ids ------------------------------------------------------------------------------
@@ -238,8 +308,8 @@ def under(graph: PanelGraph, place_id: str) -> Callable[[Target], bool]:
 # -- drawing --------------------------------------------------------------------------
 
 
-def _stamp(graph: PanelGraph) -> str:
-    return f" Facility {graph.content_hash}, panels format {FORMAT_VERSION}."
+def _stamp(graph: PanelGraph, draw: Draw) -> str:
+    return f" Facility {graph.content_hash}, panels format {FORMAT_VERSION}, draw {draw.digest}."
 
 
 def _generate(
@@ -260,7 +330,7 @@ def _generate(
         above=draw.above,
     )
     document = layout.render(view, graph=graph, screens=screens, doc_id=own[: -len(SCREEN_SUFFIX)])
-    document["metadata"]["description"] += _stamp(graph)
+    document["metadata"]["description"] += _stamp(graph, draw)
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
     )
@@ -271,6 +341,7 @@ def _atomic(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp")
     try:
+        temporary.unlink(missing_ok=True)  # never write through a link left at this name
         temporary.write_bytes(data)
         os.replace(temporary, path)
     except BaseException:
@@ -278,24 +349,79 @@ def _atomic(path: Path, data: bytes) -> None:
         raise
 
 
+def _guard(out: Path, relative: str, seen: set[str]) -> Path:
+    """The path of *relative* below *out*, refused when a link lies on the way.
+
+    *out* itself may be a link; nothing below it may be, the file included.
+
+    Raises:
+        EmitError: A component below *out* is a symbolic link.
+    """
+    parts = relative.split("/")
+    current = out
+    for number, part in enumerate(parts, 1):
+        current = current / part
+        key = "/".join(parts[:number])
+        if number < len(parts) and key in seen:
+            continue
+        if current.is_symlink():
+            raise EmitError(f"{current} is a symbolic link; refusing to go through it")
+        if number < len(parts):
+            seen.add(key)
+    return out.joinpath(*parts)
+
+
+def _put(out: Path, relative: str, data: bytes, seen: set[str]) -> Path:
+    path = _guard(out, relative, seen)
+    _atomic(path, data)
+    return path
+
+
+def _remove(out: Path, relative: str, seen: set[str]) -> None:
+    """Delete one file this generator owns, then its directory when that is empty."""
+    path = _guard(out, relative, seen)
+    if path.is_file():
+        path.unlink()
+        parent = path.parent
+        if parent != out and not any(parent.iterdir()):
+            parent.rmdir()
+            seen.discard(posixpath.dirname(relative))
+
+
 def _read_index(out: Path) -> dict[str, Any] | None:
+    path = out / INDEX
     try:
-        index = json.loads((out / INDEX).read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return None
-    if not isinstance(index, dict) or not isinstance(index.get("screens"), list):
-        raise EmitError(f"{out / INDEX} is not an index this generator wrote")
+    except (OSError, UnicodeDecodeError) as error:
+        raise EmitError(f"{path} cannot be read: {error}") from error
+    try:
+        index = json.loads(text)
+    except ValueError as error:
+        raise EmitError(f"{path} is not JSON: {error}") from error
+    if (
+        not isinstance(index, dict)
+        or not isinstance(index.get("screens"), list)
+        or not all(isinstance(entry, dict) for entry in index["screens"])
+        or not isinstance(index.get("outside", []), list)
+    ):
+        raise EmitError(f"{path} is not an index this generator wrote")
     return index
 
 
-def _owned(out: Path, relative: Any) -> Path | None:
-    """The path of a file the index lists, when it lies strictly inside *out*."""
-    if not isinstance(relative, str) or not relative or relative == INDEX:
-        return None
-    clean = posixpath.normpath(relative)
-    if clean.startswith(("/", "..")) or clean != relative or "\\" in relative:
-        return None
-    return out.joinpath(*clean.split("/"))
+def _clean_temporaries(out: Path) -> None:
+    """Remove the half-written files of an interrupted run (ours by name, nothing else)."""
+    stale = [out / f".{INDEX}.tmp"]
+    for view in VIEW_KINDS:
+        directory = out / view
+        if directory.is_symlink():
+            raise EmitError(f"{directory} is a symbolic link; refusing to go through it")
+        if directory.is_dir():
+            stale += [directory / n for n in os.listdir(directory) if _TEMPORARY.fullmatch(n)]
+    for path in stale:
+        if path.is_file() or path.is_symlink():
+            path.unlink()
 
 
 def _entry(target: Target, ids: Mapping[Target, str], title: str, size: int) -> dict[str, Any]:
@@ -345,14 +471,54 @@ def write(
     previous = _read_index(out)
     if previous is None and out.exists() and any(out.iterdir()):
         raise EmitError(f"{out} is not empty and holds no {INDEX}; refusing to write into it")
+    seen: set[str] = set()
+    _guard(out, INDEX, seen)
+    if out.is_dir():
+        _clean_temporaries(out)
+    # The index is input from the disk: only paths of our own shape count as ours.
+    owned: dict[str, dict[str, Any]] = {}
+    ignored: list[str] = []
+    for entry in (previous or {}).get("screens", ()):
+        name = entry.get("file")
+        if isinstance(name, str) and _FILE_SHAPE.fullmatch(name):
+            owned[name] = entry
+        else:
+            ignored.append(str(name))
+    if ignored:
+        shown = ", ".join(ignored[:5]) + (" ..." if len(ignored) > 5 else "")
+        warnings.warn(
+            f"{out / INDEX} lists {len(ignored)} files that are no screen files of this "
+            f"generator; they were left alone: {shown}",
+            UserWarning,
+            stacklevel=2,
+        )
     found = targets(graph, rack_classes=draw.rack_classes)
     ids = screen_ids(found)
-    carried = {
-        entry.get("file"): entry
-        for entry in (previous or {}).get("screens", ())
-        if isinstance(entry, dict)
-    }
     paths = {_path(t, ids) for t in found}
+    head = {
+        "format": FORMAT_VERSION,
+        "facility_hash": graph.content_hash,
+        "draw_hash": draw.digest,
+    }
+
+    def put_index(state: str, screens: list[dict[str, Any]], outside: list[dict[str, Any]]) -> None:
+        index = {
+            **head,
+            "state": state,
+            "total_bytes": sum(e.get("bytes", 0) for e in screens),
+            "screens": sorted(screens, key=lambda e: e["file"]),
+            "outside": sorted(outside, key=lambda e: e["file"]),
+        }
+        text = json.dumps(index, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
+        _put(out, INDEX, text.encode("utf-8"), seen)
+
+    # First the index in the "writing" state, listing every file this run may
+    # leave: an interrupted run is then finished, not leaked, by the next one.
+    announced = dict(owned)
+    for target in found:
+        announced.setdefault(_path(target, ids), _entry(target, ids, "", 0))
+    put_index("writing", list(announced.values()), [])
+
     entries: dict[str, dict[str, Any]] = {}
     written: list[Path] = []
     outside: list[dict[str, Any]] = []
@@ -360,12 +526,10 @@ def write(
         relative = _path(target, ids)
         if only is None or only(target):
             data, title = _generate(graph, target, ids, draw)
-            destination = out / relative
-            _atomic(destination, data)
-            written.append(destination)
+            written.append(_put(out, relative, data, seen))
             entries[relative] = _entry(target, ids, title, len(data))
-        elif relative in carried and (out / relative).is_file():
-            old = carried[relative]
+        elif relative in owned and _guard(out, relative, seen).is_file():
+            old = owned[relative]
             entries[relative] = _entry(
                 target, ids, str(old.get("title", "")), (out / relative).stat().st_size
             )
@@ -373,30 +537,10 @@ def write(
             outside.append(
                 {k: v for k, v in _entry(target, ids, "", 0).items() if k not in {"title", "bytes"}}
             )
-    index = {
-        "format": FORMAT_VERSION,
-        "facility_hash": graph.content_hash,
-        "total_bytes": sum(e["bytes"] for e in entries.values()),
-        "screens": [entries[k] for k in sorted(entries)],
-        "outside": sorted(outside, key=lambda e: e["file"]),
-    }
-    _atomic(
-        out / INDEX,
-        (json.dumps(index, indent=1, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8"),
-    )
-    for relative in carried:
-        owned = _owned(out, relative)
-        if owned is not None and relative not in paths and owned.is_file():
-            owned.unlink()
-            _prune(owned.parent, out)
+    for relative in sorted(owned.keys() - paths):
+        _remove(out, relative, seen)
+    put_index("complete", list(entries.values()), outside)
     return written
-
-
-def _prune(directory: Path, out: Path) -> None:
-    """Remove *directory* when it is empty, up to but not including *out*."""
-    while directory != out and directory.is_dir() and not any(directory.iterdir()):
-        directory.rmdir()
-        directory = directory.parent
 
 
 # -- check ----------------------------------------------------------------------------
@@ -461,14 +605,22 @@ def check(
     if index is None:
         return [Problem("invalid", INDEX, "no index.json: nothing was written here")]
     problems: list[Problem] = []
-    if index.get("facility_hash") != graph.content_hash or index.get("format") != FORMAT_VERSION:
+    if index.get("state") != "complete":
         problems.append(
-            Problem(
-                "stamp",
-                INDEX,
-                f"written from facility {index.get('facility_hash')} format {index.get('format')}; "
-                f"now facility {graph.content_hash} format {FORMAT_VERSION}",
-            )
+            Problem("incomplete", INDEX, "an earlier write did not finish; write again")
+        )
+    changed = [
+        name
+        for name, then, now in (
+            ("facility", index.get("facility_hash"), graph.content_hash),
+            ("format", index.get("format"), FORMAT_VERSION),
+            ("draw settings", index.get("draw_hash"), draw.digest),
+        )
+        if then != now
+    ]
+    if changed:
+        problems.append(
+            Problem("stamp", INDEX, f"written from other {' and '.join(changed)} than now")
         )
     found = targets(graph, rack_classes=draw.rack_classes)
     ids = screen_ids(found)
@@ -479,11 +631,26 @@ def check(
         Problem("orphan", relative, "listed in the index, and no screen of the model")
         for relative in sorted(listed.keys() - wanted.keys())
     )
-    valid = {r for r in wanted if r in listed and (out / r).is_file()}
+    for view in VIEW_KINDS:
+        directory = out / view
+        if directory.is_symlink():
+            problems.append(Problem("invalid", view, "is a symbolic link; its files are not read"))
+        elif directory.is_dir():
+            problems.extend(
+                Problem("orphan", f"{view}/{name}", "a screen file the index does not list")
+                for name in sorted(os.listdir(directory))
+                if _FILE_SHAPE.fullmatch(f"{view}/{name}") and f"{view}/{name}" not in listed
+            )
+
+    def readable(relative: str) -> bool:
+        path = out / relative
+        return not path.parent.is_symlink() and not path.is_symlink() and path.is_file()
+
+    valid = {r for r in wanted if r in listed and readable(r)}
     for relative, target in wanted.items():
         if relative in outside and relative not in listed:
             continue
-        if relative not in listed or not (out / relative).is_file():
+        if relative not in listed or not readable(relative):
             problems.append(
                 Problem("missing", relative, f"no file for {target.view} of {target.id}")
             )
@@ -520,13 +687,22 @@ def _check_file(
     except (ValueError, KeyError, TypeError):
         return [*problems, Problem("invalid", relative, "not a screen document")]
     stamped = _STAMP.search(description) if isinstance(description, str) else None
-    if (
-        stamped is None
-        or stamped.group(1) != graph.content_hash
-        or int(stamped.group(2)) != FORMAT_VERSION
-    ):
-        got = f"facility {stamped.group(1)} format {stamped.group(2)}" if stamped else "no stamp"
-        problems.append(Problem("stamp", relative, f"{got}; now facility {graph.content_hash}"))
+    now = (graph.content_hash, str(FORMAT_VERSION), draw.digest)
+    if stamped is None or stamped.groups() != now:
+        changed = (
+            [
+                n
+                for n, a, b in zip(
+                    ("facility", "format", "draw settings"), stamped.groups(), now, strict=True
+                )
+                if a != b
+            ]
+            if stamped
+            else ["stamp"]
+        )
+        problems.append(
+            Problem("stamp", relative, f"written from other {' and '.join(changed)} than now")
+        )
     fresh = _generate(graph, target, ids, draw)[0]
     if fresh != data:
         # The stamp is reported on its own; stale is what differs besides it.
@@ -541,13 +717,12 @@ def _check_file(
         try:
             graph.channel(name)
         except KeyError:
-            problems.append(
-                Problem(
-                    "unknown_channel",
-                    relative,
-                    f"binds {name}, which is no channel of the facility",
-                )
+            why = (
+                "a simulation-only channel no screen may bind"
+                if name.startswith(SIMULATION_PREFIX)
+                else "no channel of the facility"
             )
+            problems.append(Problem("unknown_channel", relative, f"binds {name}, which is {why}"))
     here = posixpath.dirname(relative)
     for ref in dict.fromkeys(_links(document)):
         resolved = posixpath.normpath(posixpath.join(here, ref))

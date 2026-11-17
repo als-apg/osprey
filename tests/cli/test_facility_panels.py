@@ -105,3 +105,85 @@ def test_a_missing_facility_file_says_so(tmp_path):
     result = _run(tmp_path / "none.json", "check", "--out", str(tmp_path))
     assert result.exit_code == 1
     assert "cannot be read" in result.output
+
+
+def test_a_corrupt_index_stops_write_and_check(facility_file, tmp_path):
+    out = tmp_path / "out"
+    assert _run(facility_file, "write", "--out", str(out)).exit_code == 0
+    (out / "index.json").write_text("{nope")
+    written = _run(facility_file, "write", "--out", str(out))
+    assert written.exit_code == 1 and "index.json" in written.output
+    checked = _run(facility_file, "check", "--out", str(out))
+    assert checked.exit_code == 1 and "invalid: 1" in checked.output
+
+
+def test_a_draw_file_is_read_and_part_of_the_stamp(facility_file, tmp_path):
+    draw = tmp_path / "draw.json"
+    draw.write_text(json.dumps({"symbols": {"Quadrupole": "quadrupole"}}))
+    out = str(tmp_path / "out")
+    assert _run(facility_file, "write", "--out", out, "--draw", str(draw)).exit_code == 0
+    assert _run(facility_file, "check", "--out", out, "--draw", str(draw)).exit_code == 0
+    plain = _run(facility_file, "check", "--out", out)
+    assert plain.exit_code == 1
+    assert "stamp:" in plain.output and "draw settings" in plain.output
+
+
+def test_draw_json_beside_the_tables_is_the_default(facility_file, tmp_path):
+    import shutil
+
+    tables = tmp_path / "tables"
+    shutil.copytree(PANELS_DIR, tables)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "facility",
+            "panels",
+            "write",
+            "--facility",
+            str(facility_file),
+            "--tables",
+            str(tables),
+            "--out",
+            str(tmp_path / "a"),
+        ],
+    )
+    assert "no draw.json" in result.output
+    (tables / "draw.json").write_text(json.dumps({"symbols": {"Quadrupole": "quadrupole"}}))
+    result = CliRunner().invoke(
+        cli,
+        [
+            "facility",
+            "panels",
+            "write",
+            "--facility",
+            str(facility_file),
+            "--tables",
+            str(tables),
+            "--out",
+            str(tmp_path / "b"),
+        ],
+    )
+    assert result.exit_code == 0 and "no draw.json" not in result.output
+    index = json.loads((tmp_path / "b" / "index.json").read_text())
+    other = json.loads((tmp_path / "a" / "index.json").read_text())
+    assert index["draw_hash"] != other["draw_hash"]
+
+
+def test_a_bad_draw_file_stops_the_command(facility_file, tmp_path):
+    draw = tmp_path / "draw.json"
+    draw.write_text(json.dumps({"symbols": {"Quadrupole": "no_such_symbol"}}))
+    result = _run(facility_file, "write", "--out", str(tmp_path / "out"), "--draw", str(draw))
+    assert result.exit_code == 1 and "no_such_symbol" in result.output
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_tampered_index_entry_is_reported_on_stderr_and_left_alone(facility_file, tmp_path):
+    out = tmp_path / "out"
+    assert _run(facility_file, "write", "--out", str(out)).exit_code == 0
+    (out / "mine.txt").write_text("1")
+    index = json.loads((out / "index.json").read_text())
+    index["screens"].append({"file": "mine.txt"})
+    (out / "index.json").write_text(json.dumps(index))
+    result = _run(facility_file, "write", "--out", str(out))
+    assert result.exit_code == 0 and "mine.txt" in result.output
+    assert (out / "mine.txt").read_text() == "1"

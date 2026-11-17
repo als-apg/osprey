@@ -278,7 +278,8 @@ def test_a_listed_path_that_leaves_out_is_never_deleted(panel_graph, tmp_path):
     index = json.loads((out / "index.json").read_text())
     index["screens"].append({"id": "x", "kind": "card", "file": "../victim.txt", "bytes": 4})
     (out / "index.json").write_text(json.dumps(index))
-    write(panel_graph, out)
+    with pytest.warns(UserWarning, match="victim.txt"):
+        write(panel_graph, out)
     assert victim.read_text() == "keep"
 
 
