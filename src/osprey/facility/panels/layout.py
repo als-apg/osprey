@@ -124,20 +124,22 @@ CELL_WIDTH = 110  # a checkout's column
 NAME_WIDTH = 260  # a checkout's first column
 GRID_CELL_WIDTH = 240  # one member of a set overview
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
-MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 36 px tall
-SYMBOL_UNIT = 16  # one shape unit of a symbol, in px, at scale 1: a bend is 60 px tall
-STRIP_AXIS = 30  # the axis's room each side: half the tallest symbol, a bend
-BADGE = 18  # a device off the axis: its circle
-STEM_LOW = 44  # from the axis to the centre of a badge, first level
-STEM_HIGH = 74  # second level, for a badge that would touch its neighbour
+MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 45 px tall
+SYMBOL_UNIT = 20  # one shape unit of a symbol, in px, at scale 1: a bend is 75 px tall
+STRIP_LANE = 200  # the strip's lane; the axis runs through its middle
+STRIP_AXIS = 38  # the axis's room each side: half the tallest symbol, a bend
+BADGE = 20  # a device off the axis: its circle
+STEM_LOW = 52  # from the axis to the centre of a badge, first level
+STEM_HIGH = 84  # second level, for a badge that would touch its neighbour
 BADGE_GAP = 2  # between two badges of one level
-STRIP_LABEL_TOP = STRIP_AXIS + 4  # a symbol's name, below the axis
+STRIP_LABEL_TOP = STRIP_AXIS + 18  # a symbol's name, below the axis, with air between
 STRIP_LABEL_STEP = 18  # the second line of names, further down
 STRIP_LABEL_SIZE = SMALL_SIZE
 STRIP_LABEL_WIDTH = 96  # the most a symbol's name may take along the strip
 STRIP_LABEL_GAP = 6  # between two names on one line
 STRIP_BELOW = STRIP_LABEL_TOP + 2 * STRIP_LABEL_STEP  # room under the axis
-LEADER_DROP = 22  # from the names to the locator: the leaders' run
+LEADER_GAP = 8  # between the names and the leaders
+LEADER_DROP = 40  # the leaders' run down to the locator
 LOCATOR_BAR = 1  # the to-scale bar: a line
 LOCATOR_MARK = 8  # how far a device's mark reaches above the bar
 LOCATOR_BIG = 12  # the mark of a magnet
@@ -146,13 +148,13 @@ TICK_LABEL_WIDTH = 48
 MAX_TICKS = 16
 TICK_STEPS = (1, 2, 5)
 TICK_BASE = 10
-LEGEND_SYMBOL = 6  # one shape unit of a symbol in the legend
+LEGEND_SYMBOL = 12  # one shape unit of a symbol in the legend: 60 % of the strip's
 LEGEND_GAP = 20  # between two entries of the legend
 TRAY_PAD = 10
 CHIP_HEIGHT = 26
 CHIP_GAP = 8
 CHIP_LIGHT = 12
-LEGEND_ROW = 28
+LEGEND_ROW = 52
 SUMMARY_ROW = 36  # one row of a by-system summary
 SUMMARY_COLUMNS = 2
 PICTURE_SIZE = 260
@@ -278,7 +280,7 @@ _NOT_PLACED = "not placed"
 _NO_UNIT = "no unit"
 _ROWS_NOT_DRAWN = "rows not drawn: the screen holds a table of at most this many rows"
 _CONTESTED = "contested"
-_STRIP_TITLE = "{} · IN BEAM ORDER → · schematic, not to scale"
+_STRIP_TITLE = "IN BEAM ORDER → · schematic, not to scale"
 _LOOKS_LEGEND = (
     "grey = normal · amber = warning · red = fault · dashed = unknown · outline = no rule"
 )
@@ -302,6 +304,7 @@ SYMBOL_WORDS: Mapping[str, str] = MappingProxyType(
         "bpm": "BPM",
         "neg_pump": "NEG pump",
         "ion_pump": "ion pump",
+        "pump": "pump",
         "gauge": "gauge",
         "gate_valve": "gate valve",
         "bellows": "bellows",
@@ -1200,6 +1203,12 @@ class _Page:
             right = self.text(right + GAP, y, _CONTESTED, size=SMALL_SIZE)
         return right
 
+    def quiet_link(self, right: float, y: float, link: Link) -> None:
+        """A link as muted text ending at *right*: no box, a box that opens it on hover."""
+        w = text_width(link.label, SMALL_SIZE)
+        self.text(right - w, y, link.label, size=SMALL_SIZE, w=w, fg=MUTED_TEXT)
+        self.nav(right - w, y, w, ROW, link)
+
     def ref(self, x, y, item: Link | Fact) -> float:
         if isinstance(item, Link):
             return self.button(x, y, item)
@@ -1326,8 +1335,9 @@ class _Page:
     def draw(self) -> dict[str, Any]:
         self.header()
         self.y = HEADER_HEIGHT + SECTION_GAP
-        self.text(MARGIN, self.y, self.view.title, size=TITLE_SIZE, w=STRIP_WIDTH, h=ROW + GAP)
-        self.y += ROW + GAP
+        if self.view.title != self.view.id.id:  # else the header says it already
+            self.text(MARGIN, self.y, self.view.title, size=TITLE_SIZE, w=STRIP_WIDTH, h=ROW + GAP)
+            self.y += ROW + GAP
         for section in self.view.sections:
             self.section(section)
         return self.s.document(self.y + SECTION_GAP)
@@ -1724,13 +1734,13 @@ class _Page:
             self.legend(item.elements)
         if item.tray:
             self.tray(item)
-        if item.others is not None:
-            self.button(MARGIN, self.y, item.others)
+        elif item.others is not None:
+            self.quiet_link(MARGIN + STRIP_WIDTH, self.y, item.others)
             self.next_row()
 
     def strip_title(self) -> None:
         """What the strip is, left; what its looks mean, right."""
-        self.text(MARGIN, self.y, _STRIP_TITLE.format(self.view.id.id))
+        self.text(MARGIN, self.y, _STRIP_TITLE)
         w = text_width(_LOOKS_LEGEND, SMALL_SIZE)
         self.text(
             MARGIN + STRIP_WIDTH - w, self.y, _LOOKS_LEGEND, size=SMALL_SIZE, w=w, fg=MUTED_TEXT
@@ -1750,10 +1760,7 @@ class _Page:
         beam = [p for p in placed if p.lane != "above"]
         badges = [p for p in placed if p.lane == "above"]
         levels = stem_levels([p.x for p in badges])
-        room = STRIP_AXIS
-        if badges:
-            room = max(room, (STEM_HIGH if any(levels) else STEM_LOW) + BADGE / 2)
-        axis = self.y + room + ROW_GAP
+        axis = self.y + STRIP_LANE / 2
         self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], PAGE_TEXT, AXIS_WIDTH)
         for p, level in zip(badges, levels, strict=True):
             x = MARGIN + p.x
@@ -1772,7 +1779,8 @@ class _Page:
             top = axis + STRIP_LABEL_TOP + level * STRIP_LABEL_STEP
             self.text(MARGIN + left, top, text, size=STRIP_LABEL_SIZE, w=w, h=STRIP_LABEL_STEP)
             lines = max(lines, level + 1)
-        self.y = axis + STRIP_LABEL_TOP + lines * STRIP_LABEL_STEP
+        names = axis + STRIP_LABEL_TOP + lines * STRIP_LABEL_STEP
+        self.y = max(axis + STRIP_LANE / 2, names) + LEADER_GAP
         if extent is not None:
             self.locator(beam, extent)
         else:
@@ -1965,6 +1973,8 @@ class _Page:
         top = self.y
         self.y += TRAY_PAD
         self.text(MARGIN + TRAY_PAD, self.y, _TRAY_TITLE.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
+        if item.others is not None:
+            self.quiet_link(MARGIN + STRIP_WIDTH - TRAY_PAD, self.y, item.others)
         self.y += ROW
         entries = [(f"{e.thing} · {e.reason}", e.link, None) for e in item.tray]
         self.chips(MARGIN + TRAY_PAD, entries)

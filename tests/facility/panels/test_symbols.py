@@ -66,7 +66,7 @@ def _extent(nodes):
 
 def test_every_kind_of_the_brief_is_drawn_and_one_without_polarity_besides() -> None:
     assert set(BRIEF_KINDS) <= set(KINDS)
-    assert set(KINDS) - set(BRIEF_KINDS) == {"quadrupole"}
+    assert set(KINDS) - set(BRIEF_KINDS) == {"quadrupole", "pump"}
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -88,13 +88,25 @@ def test_every_colour_of_a_symbol_is_a_theme_role(kind) -> None:
                 assert isinstance(value, dict) and "$role" in value, (kind, key)
 
 
-def test_quadrupoles_sit_above_or_below_the_axis_by_polarity() -> None:
-    _, top_f, _, bottom_f = _extent(draw("quadrupole_f", 0.0, AXIS, unit=UNIT))
-    _, top_d, _, bottom_d = _extent(draw("quadrupole_d", 0.0, AXIS, unit=UNIT))
-    _, top_x, _, bottom_x = _extent(draw("quadrupole", 0.0, AXIS, unit=UNIT))
-    assert bottom_f == pytest.approx(AXIS) and top_f < AXIS
-    assert top_d == pytest.approx(AXIS) and bottom_d > AXIS
-    assert (top_x + bottom_x) / 2 == pytest.approx(AXIS)
+def test_every_magnet_is_centred_on_the_axis_and_its_polarity_is_in_its_shape() -> None:
+    for kind in ("quadrupole_f", "quadrupole_d", "quadrupole", "bend", "sextupole"):
+        _, top, _, bottom = _extent(draw(kind, 0.0, AXIS, unit=UNIT))
+        assert (top + bottom) / 2 == pytest.approx(AXIS), kind
+    (f,) = draw("quadrupole_f", 0.0, AXIS, unit=UNIT)
+    (d,) = draw("quadrupole_d", 0.0, AXIS, unit=UNIT)
+    w = f["geometry"]["width"]
+    # at the axis a focusing one is at its widest, a defocusing one at its narrowest
+    assert max(p["x"] for p in f["props"]["points"]) == pytest.approx(w)
+    assert min(p["x"] for p in d["props"]["points"] if p["x"] > 0) < w
+
+
+def test_a_pump_of_no_stated_kind_is_a_circle_on_the_chamber_with_the_letter_p() -> None:
+    (circle,) = draw("pump", 0.0, AXIS, unit=UNIT)
+    assert len(circle["props"]["points"]) >= 12
+    g = circle["geometry"]
+    assert g["y"] + g["height"] == pytest.approx(AXIS)  # it sits on the chamber
+    _, letter = symbols.badge(0.0, 0.0, 20.0, "pump", 11)
+    assert letter["props"]["text"] == "P"
 
 
 def test_an_unknown_kind_is_refused() -> None:
@@ -222,8 +234,8 @@ def test_the_five_states_the_aggregate_and_none_look_pairwise_different() -> Non
     assert symbols.APPEARANCES == (*STATES, "aggregate", "none")
     no_rule = look("none")
     assert (no_rule["fill"], no_rule["lineColor"]["$role"], no_rule["text"]) == (
-        False,
-        "Text_Muted",  # a clear outline, never the border role
+        True,
+        "Page_Text",  # a clear outline in the text role, never the border role
         "",
     )
     for a, b in combinations(symbols.APPEARANCES, 2):
@@ -284,7 +296,7 @@ def test_each_look_is_pinned_to_its_role_and_pattern_by_name() -> None:
             x["text"],
         )
 
-    assert shown("normal") == (True, "Normal_Fill", "Text_Muted", "solid", "")
+    assert shown("normal") == (True, "Normal_Fill", "Page_Text", "solid", "")
     assert shown("warn") == (True, "MINOR", "MINOR", "solid", "")
     assert shown("bad") == (True, "MAJOR", "MAJOR", "solid", "")
     assert shown("unknown") == (False, "Page_Background", "DISCONNECTED", "dashed", "?")
@@ -352,5 +364,7 @@ def test_text_and_outlines_reach_the_contrast_floor_on_every_ground(theme) -> No
 
 def test_normal_and_none_differ_at_a_glance() -> None:
     normal, none = look("normal"), look("none")
-    assert normal["lineColor"] == none["lineColor"] == symbols.MUTED_TEXT
-    assert normal["fill"] is True and none["fill"] is False
+    assert normal["lineColor"] == none["lineColor"] == symbols.PAGE_TEXT
+    # no rule: filled with the ground it stands on, so it reads as an outline
+    assert none["fillColor"] == symbols.PANEL_BACKGROUND
+    assert normal["fillColor"] == symbols.NORMAL_FILL

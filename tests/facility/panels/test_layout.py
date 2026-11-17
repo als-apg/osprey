@@ -391,16 +391,15 @@ def test_an_inferred_item_carries_the_mark_and_a_stated_one_does_not(panel_graph
     assert _texts(doc).count(symbols.INFERRED_MARK) == 4
 
 
-def test_a_strip_draws_quadrupoles_above_or_below_the_axis_by_polarity(panel_graph) -> None:
+def test_a_strip_centres_its_magnets_on_the_axis_and_lifts_the_upper_lane(panel_graph) -> None:
     doc, _ = draw(invented_views()[2], panel_graph)
     (axis,) = _axes(doc)
     y = axis["geometry"]["y"] + axis["geometry"]["height"] / 2
     shape = {
         thing: _symbol(doc, thing)[0][0]["geometry"] for thing in ("QF", "QD", "QX", "IP", "ODD")
     }
-    assert shape["QF"]["y"] + shape["QF"]["height"] == pytest.approx(y, abs=0.1)
-    assert shape["QD"]["y"] == pytest.approx(y, abs=0.1)
-    assert shape["QX"]["y"] < y < shape["QX"]["y"] + shape["QX"]["height"]
+    for quad in ("QF", "QD", "QX"):
+        assert shape[quad]["y"] + shape[quad]["height"] / 2 == pytest.approx(y, abs=0.1)
     assert shape["IP"]["y"] + shape["IP"]["height"] < y  # the lane above
     assert shape["ODD"]["width"] == pytest.approx(symbols.WIDTH_UNITS["generic"] * SYMBOL_UNIT)
 

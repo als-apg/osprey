@@ -10,7 +10,7 @@ A light has seven looks: one per health state, an aggregate's, and ``none``
 for a thing with no rule (not a state: it has no rules). ``normal`` is
 neutral, never green: an operator's eye goes to what is not normal.
 ``unknown`` is hollow and dashed, ``disagree`` and ``aggregate`` carry a mark,
-``none`` is a bare outline in the muted text role, so none of them reads as a
+``none`` is an outline in the text role filled with the ground it sits on, so none of them reads as a
 colour alone and a thing with no rule never looks normal.
 
 An element symbol's shape tells its type. It takes the same look a light
@@ -112,7 +112,7 @@ _LOOKS: Mapping[str, Mapping[str, Any]] = MappingProxyType(
         "normal": {
             "fill": True,
             "fillColor": NORMAL_FILL,
-            "lineColor": MUTED_TEXT,
+            "lineColor": PAGE_TEXT,
             "lineStyle": "solid",
             "text": "",
         },
@@ -152,9 +152,9 @@ _LOOKS: Mapping[str, Mapping[str, Any]] = MappingProxyType(
             "text": AGGREGATE_MARK,
         },
         NONE: {
-            "fill": False,
-            "fillColor": PAGE_BACKGROUND,
-            "lineColor": MUTED_TEXT,
+            "fill": True,
+            "fillColor": PANEL_BACKGROUND,
+            "lineColor": PAGE_TEXT,
             "lineStyle": "solid",
             "text": "",
         },
@@ -181,6 +181,7 @@ WIDTH_UNITS: Mapping[str, float] = MappingProxyType(
         "bpm": 0.9,
         "neg_pump": 1.1,
         "ion_pump": 1.1,
+        "pump": 1.1,
         "gauge": 1.1,
         "gate_valve": 1.0,
         "bellows": 0.7,
@@ -193,7 +194,8 @@ WIDTH_UNITS: Mapping[str, float] = MappingProxyType(
 KINDS: tuple[str, ...] = tuple(WIDTH_UNITS)
 
 _BEND_HEIGHT = 3.75  # across the axis
-_QUAD_HEIGHT = 1.9  # off the axis, on the side of its polarity; across it with none
+_QUAD_HEIGHT = 2.4  # across the axis; the polarity is in the shape
+_LENS = 0.25  # how far a quadrupole's sides bow in or out, in parts of its width
 _SEXTUPOLE_HEIGHT = 2.75
 _CORRECTOR_HEIGHT = 2.0
 _NEG_HEIGHT = 0.4  # a getter strip lies flat along the chamber
@@ -203,15 +205,16 @@ _BELLOWS_FOLDS = 4
 _KICKER_HEIGHT = 1.75
 _SCRAPER_HEIGHT = 1.75
 _SKEW_TURN = 45  # degrees
-_LINE = 1  # line width of a drawn outline, in px, whatever the unit
-_THICK = 2  # line width of the bellows and the kicker
+_LINE = 1.5  # line width of a drawn outline, in px, at the least
+_LINE_PER_UNIT = 0.1  # a symbol's outline grows with its unit
+_THICK = 2  # line width of the bellows and the kicker, at the least
 _MARK_FONT = 0.9  # a light's mark, in parts of the light's size
 _OCTAGON = 8
 _CIRCLE_SIDES = 16  # a circle is drawn as a polygon of this many sides
 # --- end shape ratios ----------------------------------------------------------
 
 # A symbol with no state is drawn in these: an outline and a neutral fill.
-_OUTLINE = MUTED_TEXT
+_OUTLINE = PAGE_TEXT
 _FILL = NORMAL_FILL
 
 # The props a look sets on each widget type of a symbol; a closed shape takes
@@ -279,6 +282,8 @@ def draw(
     w = WIDTH_UNITS[kind] * unit
     left = x - w / 2
     nodes = _draw(kind, left, y, w, unit)
+    for node in nodes:  # an outline of comparable weight to a filled symbol
+        node["props"]["lineWidth"] = max(node["props"]["lineWidth"], unit * _LINE_PER_UNIT)
     if state is None:
         return nodes
     shown = look(state)
@@ -327,12 +332,33 @@ def _ring(cx: float, cy: float, r: float, sides: int) -> list[tuple[float, float
 
 
 def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]:
-    if kind == "quadrupole_f":
+    if kind in ("quadrupole_f", "quadrupole_d"):
+        # centred on the axis: a focusing one bows out like a convex lens, a
+        # defocusing one is waisted like a concave one
         h = _QUAD_HEIGHT * unit
-        return [_box(left, y - h, w, h, fill=True)]
-    if kind == "quadrupole_d":
-        h = _QUAD_HEIGHT * unit
-        return [_box(left, y, w, h, fill=True)]
+        top, bottom, right = y - h / 2, y + h / 2, left + w
+        bow = _LENS * w
+        if kind == "quadrupole_f":
+            points = [
+                (left + bow, top),
+                (right - bow, top),
+                (right, y - h / 4),
+                (right, y + h / 4),
+                (right - bow, bottom),
+                (left + bow, bottom),
+                (left, y + h / 4),
+                (left, y - h / 4),
+            ]
+        else:
+            points = [
+                (left, top),
+                (right, top),
+                (right - bow, y),
+                (right, bottom),
+                (left, bottom),
+                (left + bow, y),
+            ]
+        return [_polygon(points, fill=True)]
     if kind in ("quadrupole", "bend"):
         h = (_QUAD_HEIGHT if kind == "quadrupole" else _BEND_HEIGHT) * unit
         return [_box(left, y - h / 2, w, h, fill=True)]
@@ -362,6 +388,9 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]
     if kind == "neg_pump":
         h = _NEG_HEIGHT * unit
         return [_box(left, y - h / 2, w, h, fill=False)]
+    if kind == "pump":  # a circle on top of the chamber: a pump of no stated kind
+        r = w / 2
+        return [_polygon(_ring(left + r, y - r, r, _CIRCLE_SIDES), fill=True)]
     if kind == "ion_pump":  # a triangle pointing down, the pump hanging off the chamber
         top, bottom = y - w / 2, y + w / 2
         return [_polygon([(left, top), (left + w, top), (left + w / 2, bottom)], fill=True)]
@@ -403,7 +432,7 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]
 
 #: The letter in a badge of a kind; any other kind shows its first letter.
 BADGE_LETTERS: Mapping[str, str] = MappingProxyType(
-    {"neg_pump": "N", "ion_pump": "I", "gauge": "G"}
+    {"neg_pump": "N", "ion_pump": "I", "pump": "P", "gauge": "G"}
 )
 
 
