@@ -23,7 +23,7 @@ written once by the approver's process and afterwards only to mark it
 revoked (:func:`_issue_grant`, :func:`revoke_grants`). The authorizations
 directory is the owner's: :data:`AUTHORIZATIONS_DIR_NAME` inside the owner's
 directory of the read-only control-context tree when one is bound, else inside
-this host's :func:`~osprey_connectors.posture_store.state_dir`. The **ledger**
+this host's :func:`~osprey_connectors.write_switch.state_dir`. The **ledger**
 is ``<ledger dir>/<id>.ledger.json``, written only by the holder: the holder
 opens it with its lease (:func:`start_lease`), its heartbeat renews the lease
 (:func:`renew_lease`), and the connector child appends one step per write call
@@ -34,7 +34,7 @@ The control-context record is not touched: ``control_context.json`` keeps its
 schema and its seven fields.
 
 **2. Reads fail closed.** Both files are read the way the posture store reads
-the tree (:func:`~osprey_connectors.posture_store._read_tree_context`): no
+the tree (:func:`~osprey_connectors.control_context.read_tree_context`): no
 symbolic link is followed at any directory below the root or at the file (the
 file is opened ``O_NOFOLLOW``), the read is bounded, the file must be a regular
 file, and the payload must be exactly this schema — every field present, of its
@@ -46,7 +46,7 @@ lease, and refuses ``auth_lease_lapsed``.
 
 **3. The verdict.** :func:`_verdict` judges one write call — a
 whole batch of ``(channel, value)`` operations — in one total order: the launch
-pin (:func:`~osprey_connectors.posture_store._launch_pin_term`, read here
+pin (:func:`~osprey_connectors._control_state.launch_pin_term`, read here
 because the switch verdict reaches it only with the switch on), the owner, the
 record, the grant, its holder and owner, its machine, a stop, its expiry, the
 switch position for a self-issued grant, every channel listed and every value a
@@ -159,7 +159,7 @@ from pydantic import (
     model_validator,
 )
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import _control_state, control_context, write_switch
 from osprey_connectors.connector_types import ControlTarget, is_control_target
 from osprey_connectors.errors import (
     AlreadyApprovedError,
@@ -169,8 +169,17 @@ from osprey_connectors.errors import (
     require_aware,
 )
 from osprey_connectors.identity import acting_identity, is_path_segment
-from osprey_connectors.model import FrozenModel, Instant, Listing, ReadOnlyMapping, evolve
-from osprey_connectors.posture_store import (
+from osprey_connectors.model import (
+    FrozenModel,
+    Instant,
+    Listing,
+    ReadOnlyMapping,
+    ReadStatus,
+    evolve,
+)
+from osprey_connectors.refusals import VerdictReason, refusal_phrase
+from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
+from osprey_connectors.write_switch import (
     NO_OWNER,
     Allowed,
     BudgetSpent,
@@ -185,8 +194,6 @@ from osprey_connectors.posture_store import (
     WriteVerdict,
     WrongMachine,
 )
-from osprey_connectors.refusals import VerdictReason, refusal_phrase
-from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 logger = logging.getLogger("osprey_connectors.write_authorization")
 
@@ -199,7 +206,6 @@ __all__ = [
     "MAX_STEPS",
     "REQUESTS_DIR_ENV_VAR",
     "REQUESTS_DIR_NAME",
-    "SELF_ISSUE_SURFACE",
     "ApprovalSurface",
     "Approver",
     "ApproverSurface",
@@ -275,7 +281,7 @@ ApproverSurface = Literal[ApprovalSurface, "write_switch"]
 
 #: The surface of a self-issued grant: the switch itself standing at
 #: ``allowed``.
-SELF_ISSUE_SURFACE: Final = "write_switch"
+_SELF_ISSUE_SURFACE: Final = "write_switch"
 
 #: What a run does once its evaluations are done, each a write the budget pays
 #: for: nothing, the best point found, or the values it started from.
@@ -302,8 +308,6 @@ _LOCK_POLL_S: Final = 0.01
 
 _PROC_STAT: Final = "/proc/{pid}/stat"
 _PID_NS_LINK: Final = "/proc/self/ns/pid"
-
-_Status = Literal["ok", "absent", "unreadable"]
 
 
 #: The earliest instant a file may state, and the lease end a lapse writes:
@@ -660,7 +664,7 @@ class AuthorizationRefusedError(ConnectorsError):
     Attributes:
         reason: The :class:`~osprey_connectors.refusals.VerdictReason` it refused for.
         cause: Which of the causes *reason* covers it was
-            (:data:`~osprey_connectors.posture_store.RefusalCause`), or ``None``
+            (:data:`~osprey_connectors.write_switch.RefusalCause`), or ``None``
             when the reason says it all.
     """
 
@@ -819,25 +823,25 @@ def _owner_place(owner: str) -> _Place | None:
     Under a bound tree, ``<tree>/<owner>/authorizations``; on a host, the
     host's own state directory, which holds only its own login's.
     """
-    if posture_store._tree_is_bound():
-        tree = posture_store._control_context_tree()
+    if _control_state.tree_is_bound():
+        tree = _control_state.control_context_tree()
         if tree is None or not is_path_segment(owner):
             return None
         return _Place(tree, (owner, AUTHORIZATIONS_DIR_NAME))
     if owner != acting_identity():
         return None
-    root = posture_store.state_dir()
+    root = _control_state.state_dir()
     return None if root is None else _Place(root, (AUTHORIZATIONS_DIR_NAME,))
 
 
 def _ledger_place() -> _Place | None:
     """The holder's ledger directory, or ``None`` when this process has none."""
-    bound = posture_store._absolute_bind(LEDGER_DIR_ENV_VAR)
+    bound = _control_state.absolute_bind(LEDGER_DIR_ENV_VAR)
     if bound is not None:
         return _Place(bound)
-    if posture_store._tree_is_bound():
+    if _control_state.tree_is_bound():
         return None
-    root = posture_store.state_dir()
+    root = _control_state.state_dir()
     return None if root is None else _Place(root, (AUTHORIZATIONS_DIR_NAME,))
 
 
@@ -861,15 +865,15 @@ def ledger_dir() -> Path | None:
 # -- reading ------------------------------------------------------------------
 
 
-def _dir_status(place: _Place) -> _Status:
-    """Whether *place* is a plain directory: ``absent`` at the first missing segment.
+def _dir_status(place: _Place) -> ReadStatus:
+    """Whether *place* is a plain directory: ``missing`` at the first missing segment.
 
     ``unreadable`` for the root not being a directory, a link or a non-directory
     at any segment, and any other failure.
     """
     try:
         if not place.root.is_dir():
-            return "absent" if not place.root.exists() else "unreadable"
+            return "missing" if not place.root.exists() else "unreadable"
     except OSError:
         return "unreadable"
     probe = place.root
@@ -878,7 +882,7 @@ def _dir_status(place: _Place) -> _Status:
         try:
             mode = os.lstat(probe).st_mode
         except FileNotFoundError:
-            return "absent"
+            return "missing"
         except OSError:
             return "unreadable"
         if not stat.S_ISDIR(mode):
@@ -916,7 +920,7 @@ def _read_no_follow(path: Path, limit: int) -> bytes:
     return data
 
 
-def _read_grant_at(place: _Place, authorization: str) -> tuple[_Status, Grant | None]:
+def _read_grant_at(place: _Place, authorization: str) -> tuple[ReadStatus, Grant | None]:
     """The grant ``<id>.json`` under *place*, with how the read ended.
 
     What went wrong is logged with the path; a refusal never names a file.
@@ -930,7 +934,7 @@ def _read_grant_at(place: _Place, authorization: str) -> tuple[_Status, Grant | 
     try:
         grant = _parse_grant(_read_no_follow(path, _GRANT_READ_LIMIT).decode("utf-8"))
     except FileNotFoundError:
-        return "absent", None
+        return "missing", None
     except Exception as exc:  # every failure on a present grant refuses
         logger.warning("The write authorization %s cannot be read: %s", path, exc)
         return "unreadable", None
@@ -940,7 +944,7 @@ def _read_grant_at(place: _Place, authorization: str) -> tuple[_Status, Grant | 
     return "ok", grant
 
 
-def _read_ledger_at(place: _Place, authorization: str) -> tuple[_Status, Ledger | None]:
+def _read_ledger_at(place: _Place, authorization: str) -> tuple[ReadStatus, Ledger | None]:
     """The ledger ``<id>.ledger.json`` under *place*; a missing directory is unreadable."""
     if _dir_status(place) != "ok":
         logger.warning("The write ledger directory %s is not a plain directory", place.path)
@@ -949,7 +953,7 @@ def _read_ledger_at(place: _Place, authorization: str) -> tuple[_Status, Ledger 
     try:
         ledger = _parse_ledger(_read_no_follow(path, _LEDGER_READ_LIMIT).decode("utf-8"))
     except FileNotFoundError:
-        return "absent", None
+        return "missing", None
     except Exception as exc:  # every failure on a present ledger refuses
         logger.warning("The write ledger %s cannot be read: %s", path, exc)
         return "unreadable", None
@@ -959,7 +963,7 @@ def _read_ledger_at(place: _Place, authorization: str) -> tuple[_Status, Ledger 
     return "ok", ledger
 
 
-def _find_grant(owner: str, authorization: str) -> tuple[_Status, Grant | None]:
+def _find_grant(owner: str, authorization: str) -> tuple[ReadStatus, Grant | None]:
     """The grant for *authorization*: in the owner's directory, else the holder's.
 
     A grant found only in the holder's ledger directory was written by the
@@ -971,13 +975,13 @@ def _find_grant(owner: str, authorization: str) -> tuple[_Status, Grant | None]:
         logger.warning("No authorizations directory is reachable for %r", owner)
         return "unreadable", None
     status, grant = _read_grant_at(owner_place, authorization)
-    if status != "absent":
+    if status != "missing":
         return status, grant
     holder_place = _ledger_place()
     if holder_place is None or holder_place.path == owner_place.path:
-        return "absent", None
+        return "missing", None
     status, grant = _read_grant_at(holder_place, authorization)
-    if grant is not None and grant.approver.surface != SELF_ISSUE_SURFACE:
+    if grant is not None and grant.approver.surface != _SELF_ISSUE_SURFACE:
         logger.warning(
             "The grant %s in the holder's own directory claims a %s approval; refused",
             authorization,
@@ -994,11 +998,11 @@ def _governing_record(owner: str) -> tuple[bool, control_context.ControlContext 
     reader; on a host, this host's own record. An absent record is readable
     and ``None``.
     """
-    if posture_store._tree_is_bound():
-        tree = posture_store._control_context_tree()
+    if _control_state.tree_is_bound():
+        tree = _control_state.control_context_tree()
         if tree is None:
             return False, None
-        read = posture_store._read_tree_context(tree, owner)
+        read = control_context.read_tree_context(tree, owner)
         return read.unavailable is None, read.record
     own = control_context.read_record_status()
     if own.status == "unreadable":
@@ -1078,7 +1082,7 @@ _ANY_WRITE: Final = object()
 class _Basis:
     """What the switch verdict already read, for a judgement that follows it.
 
-    ``switch`` is that verdict (:func:`~osprey_connectors.posture_store._switch_basis`):
+    ``switch`` is that verdict (:func:`~osprey_connectors.write_switch._switch_basis`):
     it names the machine kind every answer here carries, and stands in for a
     second read of the switch's position for a self-issued grant. ``record``
     is the record it read when ``read`` is true, so the grant's epoch and the
@@ -1103,7 +1107,7 @@ class _Judgement:
 
 
 def _resolved_owner(owner: str | NoOwner | None) -> str | None:
-    resolved = posture_store.current_owner(owner)
+    resolved = write_switch.current_owner(owner)
     if resolved is NO_OWNER or not isinstance(resolved, str) or not resolved.strip():
         return None
     return resolved.strip()
@@ -1150,15 +1154,15 @@ def _judge(
 
     if identifier is None or _ID.fullmatch(identifier) is None:
         return refuse(VerdictReason.AUTH_UNREADABLE, FixedCause(kind="not_an_id"))
-    if posture_store._launch_pin_term(named) != "none":
+    if _control_state.launch_pin_term(named) != "none":
         return refuse(VerdictReason.LAUNCH_PINNED)
 
     resolved = _resolved_owner(owner)
     if resolved is None:
-        if posture_store._is_dispatch_run():
+        if _control_state.is_dispatch_run():
             return refuse(VerdictReason.OWNER_UNSCHEDULED)
         return refuse(VerdictReason.OWNER_UNKNOWN)
-    if not posture_store._tree_is_bound() and resolved != acting_identity():
+    if not _control_state.tree_is_bound() and resolved != acting_identity():
         return refuse(VerdictReason.OWNER_FOREIGN)
 
     if basis is not None and basis.read:
@@ -1169,7 +1173,7 @@ def _judge(
         return refuse(VerdictReason.RECORD_UNAVAILABLE)
 
     status, grant = _find_grant(resolved, identifier)
-    if status == "absent":
+    if status == "missing":
         return refuse(VerdictReason.SWITCH_OFF)
     if status != "ok" or grant is None:
         return refuse(VerdictReason.AUTH_UNREADABLE)
@@ -1185,13 +1189,13 @@ def _judge(
         return refuse(VerdictReason.AUTH_REVOKED, FixedCause(kind="epoch_moved"))
     if now >= grant.expires_at:
         return refuse(VerdictReason.AUTH_EXPIRED)
-    if grant.approver.surface == SELF_ISSUE_SURFACE:
+    if grant.approver.surface == _SELF_ISSUE_SURFACE:
         # The pin was judged first, so the switch verdict that honoured it and
         # one that ignores it agree here.
         switch = (
             basis.switch
             if basis is not None
-            else posture_store.write_verdict(section, named, owner=resolved, ignore_launch_pin=True)
+            else write_switch.write_verdict(section, named, owner=resolved, ignore_launch_pin=True)
         )
         if not switch.allowed or switch.position != "allowed":
             ended = refuse(VerdictReason.AUTH_REVOKED, FixedCause(kind="switch_left_allowed"))
@@ -1213,7 +1217,7 @@ def _judge(
     if ledger_place is None:
         return refuse(VerdictReason.AUTH_UNREADABLE, FixedCause(kind="no_ledger_directory"))
     ledger_status, ledger = _read_ledger_at(ledger_place, identifier)
-    if ledger_status == "absent":
+    if ledger_status == "missing":
         return refuse(VerdictReason.AUTH_LEASE_LAPSED, FixedCause(kind="lease_never_started"))
     if ledger_status != "ok" or ledger is None:
         return refuse(VerdictReason.AUTH_UNREADABLE, FixedCause(kind="ledger_unreadable"))
@@ -1289,14 +1293,14 @@ def _verdict(
             :data:`_ANY_WRITE` for a verdict on any write.
         authorization: The id the process names.
         owner: Whose switch the grant stands in for; ``None`` asks
-            :func:`~osprey_connectors.posture_store.current_owner`.
+            :func:`~osprey_connectors.write_switch.current_owner`.
         basis: The record and switch verdict the caller already read, or
             ``None`` to read the record and the switch here (the answer then
             names no machine kind).
 
     Returns:
-        An :class:`~osprey_connectors.posture_store.Allowed` or a
-        :class:`~osprey_connectors.posture_store.Refused` whose
+        An :class:`~osprey_connectors.write_switch.Allowed` or a
+        :class:`~osprey_connectors.write_switch.Refused` whose
         ``authorization`` names the id; an allowed one has no ``position``.
         Never raises: a verdict that cannot be reached refuses
         ``auth_unreadable``.
@@ -1386,7 +1390,7 @@ def _checked_ledger_place(authorization: str, *, create: bool = False) -> _Place
     """
     _authorization_id(authorization)
     place = _ledger_place()
-    if create and place is not None and place.segments and _dir_status(place) == "absent":
+    if create and place is not None and place.segments and _dir_status(place) == "missing":
         _prepare_directory(place.path)
     if place is None or _dir_status(place) != "ok":
         raise AuthorizationRefusedError(
@@ -1474,7 +1478,7 @@ def _authorized_basis(
     Otherwise — the switch allowed or was off — the authorization decides,
     judged on what the switch verdict read.
     """
-    switch, read, record = posture_store._switch_basis(
+    switch, read, record = write_switch._switch_basis(
         section, target, owner, session_keys, hold=hold
     )
     if isinstance(switch, Refused) and switch.reason is not VerdictReason.SWITCH_OFF:
@@ -1493,13 +1497,13 @@ def authorized_execution_verdict(
 ) -> WriteVerdict:
     """The verdict on one write call about to execute under *authorization*; it spends nothing.
 
-    :func:`~osprey_connectors.posture_store.execution_verdict` first, which
+    :func:`~osprey_connectors.write_switch.execution_verdict` first, which
     stands whenever it refuses for any reason but ``switch_off`` — an
     authorization lifts no tier, owner, record, pin or hold — and otherwise,
     whether the switch allowed or was off, the authorization's verdict in its
     place: a person turning the switch on mid-run does not lift the bounds. A
     process that names no authorization asks
-    :func:`~osprey_connectors.posture_store.execution_verdict` itself.
+    :func:`~osprey_connectors.write_switch.execution_verdict` itself.
 
     Args:
         section: The ``control_system`` section of the resolved config.
@@ -1508,15 +1512,15 @@ def authorized_execution_verdict(
         authorization: The id the process names.
         owner: As for :func:`_verdict`.
         session_keys: As for
-            :func:`~osprey_connectors.posture_store.execution_verdict`.
+            :func:`~osprey_connectors.write_switch.execution_verdict`.
 
     The record is read once: the authorization's terms are judged on the
     record the switch verdict read, and a self-issued grant's position on that
     verdict's own answer.
 
     Returns:
-        An :class:`~osprey_connectors.posture_store.Allowed` or a
-        :class:`~osprey_connectors.posture_store.Refused`. Never raises.
+        An :class:`~osprey_connectors.write_switch.Allowed` or a
+        :class:`~osprey_connectors.write_switch.Refused`. Never raises.
     """
     basis = _authorized_basis(section, target, authorization, owner, session_keys, hold=True)
     if isinstance(basis, Refused):
@@ -1542,8 +1546,8 @@ def spend_authorized_write(
     :func:`authorized_execution_verdict`.
 
     Returns:
-        An :class:`~osprey_connectors.posture_store.Allowed` or a
-        :class:`~osprey_connectors.posture_store.Refused`. Never raises.
+        An :class:`~osprey_connectors.write_switch.Allowed` or a
+        :class:`~osprey_connectors.write_switch.Refused`. Never raises.
     """
     basis = _authorized_basis(section, target, authorization, owner, session_keys, hold=True)
     if isinstance(basis, Refused):
@@ -1562,17 +1566,17 @@ def authorized_write_verdict(
 
     The gateway's and the report's answer: composed as
     :func:`authorized_execution_verdict` composes the execution verdict, over
-    :func:`~osprey_connectors.posture_store.write_verdict`, with the
+    :func:`~osprey_connectors.write_switch.write_verdict`, with the
     authorization judged on every term but the channels and values: the grant
     in force, the lease live and a step left. It names no hold, as the switch
     verdict names none, because the gateway a connector selects must not
     follow a session's hold. It reads and never spends. A process that names
     no authorization asks
-    :func:`~osprey_connectors.posture_store.write_verdict` itself.
+    :func:`~osprey_connectors.write_switch.write_verdict` itself.
 
     Returns:
-        An :class:`~osprey_connectors.posture_store.Allowed` or a
-        :class:`~osprey_connectors.posture_store.Refused`. Never raises.
+        An :class:`~osprey_connectors.write_switch.Allowed` or a
+        :class:`~osprey_connectors.write_switch.Refused`. Never raises.
     """
     basis = _authorized_basis(section, target, authorization, owner, None, hold=False)
     if isinstance(basis, Refused):
@@ -1596,7 +1600,7 @@ def _live_grant(owner: str | NoOwner | None, authorization: str, now: datetime) 
     if not readable:
         raise AuthorizationRefusedError(VerdictReason.RECORD_UNAVAILABLE)
     status, grant = _find_grant(resolved, authorization)
-    if status == "absent":
+    if status == "missing":
         raise AuthorizationRefusedError(
             VerdictReason.SWITCH_OFF, FixedCause(kind="no_such_authorization")
         )
@@ -1634,7 +1638,7 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
         now = _now()
         grant = _live_grant(owner, authorization, now)
         status, _ledger = _read_ledger_at(place, authorization)
-        if status != "absent":
+        if status != "missing":
             raise AuthorizationRefusedError(
                 VerdictReason.AUTH_LEASE_LAPSED, FixedCause(kind="lease_already_started")
             )
@@ -1674,7 +1678,7 @@ def renew_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
             now = _now()
             grant = _live_grant(owner, authorization, now)
             status, ledger = _read_ledger_at(place, authorization)
-            if status == "absent":
+            if status == "missing":
                 raise _lapsed(FixedCause(kind="lease_never_started"))
             if status != "ok" or ledger is None:
                 raise _lapsed(FixedCause(kind="ledger_unreadable"))
@@ -1985,7 +1989,7 @@ def self_issue(
         raise AuthorizationRefusedError(VerdictReason.OWNER_UNKNOWN)
 
     def epoch_at_allowed() -> int:
-        switch = posture_store.write_verdict(section, target, owner=resolved)
+        switch = write_switch.write_verdict(section, target, owner=resolved)
         if isinstance(switch, Refused):
             raise AuthorizationRefusedError(switch.reason)
         if switch.position != "allowed":
@@ -2021,7 +2025,7 @@ def self_issue(
         issued_at=now,
         expires_at=expires_at,
         lease_s=lease_s,
-        approver=Approver(by=holder, surface=SELF_ISSUE_SURFACE, approved_at=now),
+        approver=Approver(by=holder, surface=_SELF_ISSUE_SURFACE, approved_at=now),
         label=label,
     )
     path = _issue_grant(grant, directory=place.path, peers=self_issued_directories())
@@ -2058,7 +2062,7 @@ def self_issued_directories() -> tuple[Path, ...]:
     ledger = _ledger_place()
     if ledger is not None:
         found.append(ledger.path)
-    view = posture_store._absolute_bind(LEDGER_VIEW_DIR_ENV_VAR)
+    view = _control_state.absolute_bind(LEDGER_VIEW_DIR_ENV_VAR)
     if view is not None and all(os.path.normpath(view) != os.path.normpath(p) for p in found):
         found.append(view)
     return tuple(found)
@@ -2068,7 +2072,7 @@ def _self_issued_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path,
     """The self-issued grants in a ledger *directory*, and the paths that could not be read.
 
     :func:`_grants_in`, keeping only the grants approved by the switch
-    (:data:`SELF_ISSUE_SURFACE`): a grant there claiming any other surface is
+    (:data:`_SELF_ISSUE_SURFACE`): a grant there claiming any other surface is
     never honoured, because the holder can write there, so it is not listed.
 
     Raises:
@@ -2076,7 +2080,7 @@ def _self_issued_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path,
     """
     grants, unreadable = _grants_in(directory)
     return (
-        tuple(grant for grant in grants if grant.approver.surface == SELF_ISSUE_SURFACE),
+        tuple(grant for grant in grants if grant.approver.surface == _SELF_ISSUE_SURFACE),
         unreadable,
     )
 
@@ -2096,7 +2100,7 @@ def _grant_in_force(
         grant.live_at(now) and record is not None and record.switch_epoch == grant.switch_epoch
     ):
         return False
-    if grant.approver.surface == SELF_ISSUE_SURFACE:
+    if grant.approver.surface == _SELF_ISSUE_SURFACE:
         return control_context.switch_position(record, grant.target) == "allowed"
     return True
 
@@ -2160,7 +2164,7 @@ def _ledgers_of(authorization: str, ledger_dirs: Iterable[Path]) -> Iterator[Led
         if not os.path.isdir(directory):
             continue
         status, ledger = _read_ledger_at(_Place(Path(directory)), authorization)
-        if status != "absent":
+        if status != "missing":
             yield ledger
 
 
@@ -2227,7 +2231,7 @@ def list_grants(*directories: Path, self_issued: Iterable[Path] = ()) -> Listing
 
     *directories* are grants directories, every grant in them listed;
     *self_issued* are ledger directories, where only a grant approved by the
-    switch (:data:`SELF_ISSUE_SURFACE`) is listed, because only that one is
+    switch (:data:`_SELF_ISSUE_SURFACE`) is listed, because only that one is
     honoured there. A file is a grant file by its name, ``<id>.json``; ledgers
     and locks beside them are not. A directory named twice is listed once, a
     grant found twice is listed where it was found first, and a missing
@@ -2366,7 +2370,7 @@ def requests_dir() -> Path | None:
     holder, or a host with no bind, reads ``<ledger dir>/requests``. ``None``
     when neither is reachable.
     """
-    bound = posture_store._absolute_bind(REQUESTS_DIR_ENV_VAR)
+    bound = _control_state.absolute_bind(REQUESTS_DIR_ENV_VAR)
     if bound is not None:
         return bound
     ledger = ledger_dir()
@@ -2436,7 +2440,7 @@ def write_request(
     """Ask for an authorization: write a request into this holder's ledger directory.
 
     The holder is this process's acting identity, the owner the login the
-    owner ladder names (:func:`~osprey_connectors.posture_store.current_owner`).
+    owner ladder names (:func:`~osprey_connectors.write_switch.current_owner`).
     The file is ``<ledger dir>/requests/<id>.json``; the directory is created
     there when absent. Nothing is approved by writing it: a person approves it
     from the chip or the CLI, which issues the grant under the same id
@@ -2591,5 +2595,4 @@ def approve_request(
             )
     except control_context.RecordUnavailableError as exc:
         raise AuthorizationRefusedError(VerdictReason.RECORD_UNAVAILABLE) from exc
-    control_context.invalidate_cache()
     return grant

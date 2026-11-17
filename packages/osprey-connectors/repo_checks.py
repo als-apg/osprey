@@ -63,6 +63,12 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.control_context.TerminusOutcome": (
         "write_terminus says whether an answer stuck, and why not, in this type"
     ),
+    "osprey_connectors.control_context.TreeContext": (
+        "read_tree_context answers one owner's record out of the tree in this type"
+    ),
+    "osprey_connectors.control_context.VerdictSurface": (
+        "WritesStatement.of reads a write verdict through this protocol"
+    ),
     "osprey_connectors.control_context.WriterKind": "the record's writer names its kind in this type",
     "osprey_connectors.control_system.Alarm": (
         "a connector's read reports the alarm state of a reading in this type"
@@ -112,7 +118,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.limits_posture.LIMITS_MODE_EXCLUSIVE": (
         "a word of the limits-mode vocabulary a config states"
     ),
-    "osprey_connectors.posture_store.OwnerTierTerm": "the owner rung answers in this type",
     "osprey_connectors.put_log.PutLog": "an out-of-tree put-log backend subclasses it",
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
     "osprey_connectors.service_answers.SourceKind": (
@@ -154,6 +159,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
+    "osprey_connectors.testing.invalidate_cache": (
+        "a test drops the parsed control-context files through it"
+    ),
     "osprey_connectors.write_authorization.ApprovalSurface": (
         "a person approves a request from one of these surfaces"
     ),
@@ -179,6 +187,8 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.write_authorization.Revocation": (
         "a revoked grant says whose stop ended it in this type"
     ),
+    "osprey_connectors.write_switch.LaunchPin": "launch_pin_stamp takes its pin in this type",
+    "osprey_connectors.write_switch.OwnerTierTerm": "the owner rung answers in this type",
     "osprey_connectors.write_target.UNRESOLVED": (
         "a caller tells an unplaced write by this sentinel"
     ),

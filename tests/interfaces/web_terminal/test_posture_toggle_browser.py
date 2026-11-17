@@ -52,7 +52,7 @@ Coverage (one test each):
   (f) the popover shows all of a target.
 
 The chip criteria, end to end — each one closed against the write verdict
-itself (``posture_store.write_verdict``), and each one asserting that every
+itself (``write_switch.write_verdict``), and each one asserting that every
 machine's ``data-state`` and the chip's own equal what that verdict and the
 record say (:func:`assert_chip_matches_verdict`):
 
@@ -107,7 +107,7 @@ model turn would have written. Nothing in the posture or target routes gates on
 it any more, and pinning it empty keeps that true rather than accidental.
 
 The agent-data root is stamped with ``OSPREY_AGENT_DATA_ROOT``, which is the
-one seam the record reader and ``posture_store`` both prefer — patching
+one seam the record reader and ``write_switch`` both prefer — patching
 ``resolve_shared_data_root`` would redirect one of them and leave the other
 writing into the repository's own ``var/agent_data``.
 
@@ -126,7 +126,7 @@ from typing import Any
 import pytest
 import requests
 
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import owner, write_payload
@@ -706,7 +706,7 @@ def test_switch_confirms_moves_the_record_and_waits_for_the_fleet(
             assert record.target == SWITCH_TARGET, record
             assert record.generation == RECORD_GENERATION + 1, record
             assert record.last_switch is not None, record
-            assert record.last_switch.status == control_context.SWITCH_APPLIED, record
+            assert record.last_switch.status == "applied", record
             assert record.last_switch.target == SWITCH_TARGET, record
             assert record.last_switch.request_id, record
         finally:
@@ -965,7 +965,7 @@ def test_all_off_from_a_follower_turns_every_machine_off(tmp_path, monkeypatch, 
     both armed positions at once. Afterwards every machine refuses with
     ``switch_off`` and the record still names the holder.
     """
-    holder = owner(control_context.OWNER_WEB_TERMINAL, os.getppid(), _HOLDER_PORT)
+    holder = owner("web_terminal", os.getppid(), _HOLDER_PORT)
     switch = {**ALL_ALLOWED, POSTURE_TARGET: "asked"}
     with chip_hub(tmp_path, monkeypatch, owned_by=holder, switch=switch) as (base_url, app, _root):
         page, _session_id = settled_chip(chromium_browser, base_url, enforceable=False)
@@ -1081,7 +1081,7 @@ def test_a_widening_a_stop_overtook_is_refused_and_the_next_click_lands(
             )
             # The stop, out of band: the same writer every surface uses.
             control_context.set_switch("all", "off")
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
             assert read_record().switch_epoch != epoch_before
             page.locator(MODAL_CONFIRM).click()
 
@@ -1125,7 +1125,7 @@ def test_an_unreadable_record_shows_the_refusal_and_never_off(
         try:
             write_payload(record_path, "not a control context")
             record_path.parent.chmod(0o500)
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
             assert control_context.read_record_status().status == "unreadable"
 
             open_popover(page)
@@ -1144,7 +1144,7 @@ def test_an_unreadable_record_shows_the_refusal_and_never_off(
             expect(page.locator(CHIP_STATE)).to_have_text("writes locked", timeout=TIMEOUT)
             expect(page.locator(f"{POPOVER} [data-state='off']")).to_have_count(0)
             assert_chip_matches_verdict(page, app)
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
             assert control_context.read_record_status().status == "unreadable"
         finally:
             record_path.parent.chmod(0o700)

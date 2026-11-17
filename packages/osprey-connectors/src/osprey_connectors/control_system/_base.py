@@ -30,16 +30,16 @@ from pydantic import (
 )
 from typing_extensions import override
 
-from osprey_connectors import posture_store, write_authorization
+from osprey_connectors import write_authorization, write_switch
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.connector_types import Transport
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import ChannelError, ChannelReadFailedError, LimitsViolation
+from osprey_connectors.execution_mode import is_readonly_run
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
-from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.posture_store import Allowed, Refused, WriteVerdict
 from osprey_connectors.refusals import RefusalReason, VerdictReason, VerdictReasonField
+from osprey_connectors.write_switch import Allowed, Refused, WriteVerdict
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system._limits_validator import (
@@ -806,7 +806,7 @@ def _named_authorization() -> str | None:
 def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
     """The verdict the reference monitor decides one write (or batch) by.
 
-    :func:`osprey_connectors.posture_store.write_verdict` over this deployment's
+    :func:`osprey_connectors.write_switch.write_verdict` over this deployment's
     ``control_system`` section for *control_target*, the owner taken from the
     ladder. An unstamped connector (*control_target* ``None``) resolves no
     machine and is refused ``target_unknown`` unless an earlier term refuses
@@ -826,7 +826,7 @@ def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
     section = _monitor_section()
     authorization = _named_authorization()
     if authorization is None:
-        return posture_store.write_verdict(section, control_target, owner=None)
+        return write_switch.write_verdict(section, control_target, owner=None)
     return write_authorization.authorized_write_verdict(
         section, control_target, authorization=authorization, owner=None
     )
@@ -1262,7 +1262,7 @@ class ControlSystemConnector(ABC):
     def _writes_enabled(self) -> bool:
         """Whether the write verdict allows a write to this connector's machine.
 
-        Decided by :func:`osprey_connectors.posture_store.write_verdict` for
+        Decided by :func:`osprey_connectors.write_switch.write_verdict` for
         :attr:`_control_target` (see :func:`_monitor_verdict`), re-read on every
         call: a read-only run, the login's write tier, the target, the owner,
         the login's switch for that machine and the launch pin, first refusal
@@ -1571,7 +1571,7 @@ class ControlSystemConnector(ABC):
                 return _verdict_refusal(
                     address, value, _refusing_verdict(self), wording=self.context.readonly_wording
                 )
-            held = posture_store.session_hold_refusal()
+            held = write_switch.session_hold_refusal()
             if held is not None:
                 return _verdict_refusal(address, value, held, wording=self.context.readonly_wording)
         with open_door():
@@ -1749,7 +1749,7 @@ class ControlSystemConnector(ABC):
                 if not self._writes_enabled:
                     refused = _refusing_verdict(self)
                 else:
-                    refused = posture_store.session_hold_refusal()
+                    refused = write_switch.session_hold_refusal()
                 if refused is not None:
                     break
         if refused is not None:
@@ -1884,7 +1884,7 @@ class ControlSystemConnector(ABC):
         if authorization is None:
             if not self._writes_enabled:
                 return _refusing_verdict(self)
-            return posture_store.session_hold_refusal()
+            return write_switch.session_hold_refusal()
         if _overrides_writes_enabled(self) and not self._writes_enabled:
             return _refusing_verdict(self)
         verdict = write_authorization.authorized_execution_verdict(

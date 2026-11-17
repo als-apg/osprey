@@ -46,9 +46,9 @@ from osprey.services.bluesky_bridge import qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.errors import ChannelWriteBlockedError
-from osprey_connectors.posture_store import (
+from osprey_connectors.write_switch import (
     NO_OWNER,
     RESERVED_OWNER_KWARG,
     current_owner,
@@ -163,15 +163,15 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
     is reset on the way out as well as in: a run that failed mid-plan would
     otherwise hand its owner to the next test.
     """
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
     tree.mkdir(parents=True)
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
-    monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
-    posture_store._owner_var.set(NO_OWNER)
+    (tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    monkeypatch.delenv(write_switch.CONTROL_OWNER_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+    write_switch._owner_var.set(NO_OWNER)
     yield tree
-    posture_store._owner_var.set(NO_OWNER)
+    write_switch._owner_var.set(NO_OWNER)
 
 
 def record_for(tree: Path, owner: str, *, on: bool, target: str = _TARGET) -> Path:
@@ -183,7 +183,7 @@ def record_for(tree: Path, owner: str, *, on: bool, target: str = _TARGET) -> Pa
     if on:
         epoch = control_context.read_record(path=path).switch_epoch
         control_context.set_switch([target], "asked", epoch=epoch, path=path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -191,7 +191,7 @@ def turn_off_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
     """Turn *owner*'s switch for *target* off."""
     path = tree / owner / control_context.RECORD_FILENAME
     control_context.set_switch([target], "off", path=path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -271,7 +271,7 @@ def test_the_binding_does_not_outlive_the_run(
     RunEngine(context_managers=[])(plan_function(**{RESERVED_OWNER_KWARG: _OWNER}))
 
     assert current_owner() is NO_OWNER
-    assert posture_store._owner_var.get() is NO_OWNER
+    assert write_switch._owner_var.get() is NO_OWNER
 
 
 def test_an_owner_less_run_after_an_owned_one_writes_under_no_owner(

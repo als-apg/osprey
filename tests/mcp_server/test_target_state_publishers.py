@@ -45,7 +45,7 @@ import pytest
 
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import control_context
+from osprey_connectors import _control_state, control_context
 from osprey_connectors.control_context import SwitchProgress
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import state_dir_under
@@ -91,7 +91,7 @@ def _dead_pid(monkeypatch, dead):
         return real(os.getpid(), 0)
 
     monkeypatch.setattr(target_state.os, "kill", fake_kill)
-    monkeypatch.setattr(control_context, "_PROC_ROOT", "/nonexistent/proc")
+    monkeypatch.setattr(_control_state, "_PROC_ROOT", "/nonexistent/proc")
 
 
 def _reparsed(server_pid=None):
@@ -117,7 +117,7 @@ class TestRequestFileContract:
     def test_path_is_named_for_the_requester(self, state_root):
         assert target_state.request_file_path(4321) == (
             state_root
-            / target_state.STATE_DIR_NAME
+            / target_state.CONTROL_STATE_DIR_NAME
             / acting_identity()
             / "switch_request_4321.json"
         )
@@ -414,13 +414,16 @@ class TestReportFileContract:
     """One file per server, named for its PID, in the family the library owns."""
 
     def test_the_family_is_the_librarys_own(self):
-        assert target_state.REPORT_FILE_PREFIX is control_context.REPORT_FILE_PREFIX
-        assert target_state.REPORT_FILE_SUFFIX is control_context.REPORT_FILE_SUFFIX
+        assert target_state.REPORT_FILE_PREFIX is control_context._REPORT_FILE_PREFIX
+        assert target_state.REPORT_FILE_SUFFIX is control_context._REPORT_FILE_SUFFIX
         assert target_state.REPORT_FILE_GLOB is control_context.REPORT_FILE_GLOB
 
     def test_path_is_named_for_the_reporting_server(self, state_root):
         assert target_state.report_file_path(4321) == (
-            state_root / target_state.STATE_DIR_NAME / acting_identity() / "server_4321.json"
+            state_root
+            / target_state.CONTROL_STATE_DIR_NAME
+            / acting_identity()
+            / "server_4321.json"
         )
 
     def test_path_defaults_to_this_process(self):

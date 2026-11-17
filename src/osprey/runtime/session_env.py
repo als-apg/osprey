@@ -55,7 +55,7 @@ class SessionEnvironmentError(RuntimeError):
 def check_environment(environ: Mapping[str, str]) -> None:
     """Raise :class:`SessionEnvironmentError` unless *environ* suits a session."""
     from osprey_connectors.identity import AUDIT_IDENTITY_ENV
-    from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR
+    from osprey_connectors.write_switch import CONTROL_CONTEXT_DIR_ENV_VAR
 
     def blank(name: str) -> bool:
         return not (environ.get(name) or "").strip()

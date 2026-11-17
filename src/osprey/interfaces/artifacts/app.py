@@ -651,7 +651,7 @@ class _LedgerCache:
     """The hub's session ledger as this process last read it.
 
     The hub writes ``session-ledger.json`` in this identity's state directory
-    (:func:`osprey_connectors.posture_store.state_dir`, the rule the hub's
+    (:func:`osprey_connectors.write_switch.state_dir`, the rule the hub's
     ``session_meta.ledger_state_dir`` follows); this app only reads it, again
     whenever the file's mtime or size moves, through
     :func:`session_ledger.load_checked` — the reader the agent's MCP processes
@@ -670,10 +670,10 @@ class _LedgerCache:
     def read(self) -> tuple[Any, bool]:
         """``(ledger, available)``; the ledger is empty when it is unavailable."""
         from osprey.stores import session_ledger
-        from osprey_connectors import posture_store
+        from osprey_connectors import write_switch
 
         try:
-            state_dir = posture_store.state_dir()
+            state_dir = write_switch.state_dir()
         except Exception:  # an unresolvable root is "no ledger", not a crash
             logger.warning("The session ledger's location does not resolve", exc_info=True)
             state_dir = None

@@ -28,7 +28,7 @@ guard them, both enforced BEFORE any HTTP call — but only the first is carried
 everywhere:
 
 1. The write verdict for the control target the BOUND LANE serves
-   (``osprey_connectors.posture_store.execution_verdict``), the one verdict every
+   (``osprey_connectors.write_switch.execution_verdict``), the one verdict every
    OSPREY write path shares: a read-only run, the deployment's tier, the session's
    hold, the target,
    the owner, the record and the owner's switch, in one order, first refusal
@@ -182,7 +182,7 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import baseline_target
 
@@ -350,7 +350,7 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
 }
 
 
-def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
+def _lane_verdict(lane_target: str | None) -> write_switch.WriteVerdict:
     """The write verdict for ONE lane's control target, read fresh on every call.
 
     *lane_target* is the target the bound lane declares
@@ -365,9 +365,9 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
     baseline's verdict rather than a fail-open read of nothing.
 
     Asks the ONE verdict every OSPREY write path shares, with the session's hold,
-    :func:`osprey_connectors.posture_store.execution_verdict`, over the deployment's
+    :func:`osprey_connectors.write_switch.execution_verdict`, over the deployment's
     ``control_system`` section, with the owner left to the verdict's own ladder
-    (:func:`~osprey_connectors.posture_store.current_owner`). So the queue's
+    (:func:`~osprey_connectors.write_switch.current_owner`). So the queue's
     arming gate refuses for the same reason, in the same order, as the
     connector's reference monitor, the executor's gate and the PreToolUse hook:
     a read-only run, a tier that allows nothing, a held session, a target this deployment does
@@ -391,7 +391,7 @@ def _lane_verdict(lane_target: str | None) -> posture_store.WriteVerdict:
         return execution_verdict(section, target)
     except Exception:  # unknown posture must not arm hardware
         logger.warning("Write verdict for lane target %r could not be reached", lane_target)
-        return posture_store.Refused(
+        return write_switch.Refused(
             reason=VerdictReason.RECORD_UNAVAILABLE, target=lane_target, kind=None
         )
 
@@ -424,7 +424,7 @@ def _halt_lane_target(halt_lane: str | None) -> str | None:
     return None
 
 
-def _refusal_text(verdict: posture_store.Refused) -> tuple[VerdictReason, str]:
+def _refusal_text(verdict: write_switch.Refused) -> tuple[VerdictReason, str]:
     """The refused verdict's reason, and the phrase an operator reads for it."""
     from osprey_connectors.refusals import refusal_phrase
 
@@ -434,7 +434,7 @@ def _refusal_text(verdict: posture_store.Refused) -> tuple[VerdictReason, str]:
 
 
 def _refuse_writes_disabled(
-    refused: str, verdict: posture_store.Refused, *, lane: str | None = None
+    refused: str, verdict: write_switch.Refused, *, lane: str | None = None
 ) -> NoReturn:
     """The local write-verdict refusal: the verdict refused, so this arms nothing.
 
@@ -1693,9 +1693,9 @@ async def queue_stop(cancel: bool = False) -> str:
 
     if cancel:
         halt_target = _halt_lane_target(halt_lane)
-        verdict: posture_store.WriteVerdict
+        verdict: write_switch.WriteVerdict
         if halt_target is None:
-            verdict = posture_store.Refused(
+            verdict = write_switch.Refused(
                 reason=VerdictReason.TARGET_UNKNOWN, target=None, kind=None
             )
         else:

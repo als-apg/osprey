@@ -37,7 +37,7 @@ import yaml
 
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.routes import write_authorizations as routes
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.write_authorization import Approver, ChannelRange, Grant
@@ -365,7 +365,7 @@ class TestStopping:
             json={"session_id": SESSION, "target": target, "state": "off", "epoch": None},
         )
         assert response.status_code == 200, response.text
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         (grant,) = own_grants()
         assert grant.revoked is not None
         chip = row(client)
@@ -423,7 +423,7 @@ class TestSelfIssued:
         """A program's grant self-issued at allowed, in the ledger the terminal sees read-only."""
         ledgers = requests_dir.parent
         monkeypatch.setenv(wa.LEDGER_VIEW_DIR_ENV_VAR, str(ledgers))
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         record = control_context.read_record()
         assert record is not None
         epoch = record.switch_epoch
@@ -432,7 +432,7 @@ class TestSelfIssued:
                 control_context.set_switch([TARGET], "asked", epoch=None)
             epoch = stamped.value.epoch
         control_context.set_switch([TARGET], "allowed", epoch=epoch)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         now = datetime.now(UTC)
         grant = Grant(
             id=uuid.uuid4().hex,
@@ -474,7 +474,7 @@ class TestSelfIssued:
             json={"session_id": SESSION, "target": TARGET, "state": "off", "epoch": None},
         )
         assert response.status_code == 200, response.text
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         assert row(client)["program_hold"] is False
         (entry,) = client.get("/api/terminal/write-authorizations").json()["authorizations"]
         assert entry["id"] == held.id and entry["in_force"] is False

@@ -30,7 +30,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from osprey_connectors import control_context, session_hold
+from osprey_connectors import control_context, session_hold, testing
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.control_context import (
     ControlContext,
@@ -1103,7 +1103,7 @@ def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def _approved() -> Grant:
     """A grant this login approved for itself, issued and its lease started."""
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     record = control_context.read_record()
     assert record is not None and isinstance(record.switch_epoch, int)
     now = datetime.now(UTC)

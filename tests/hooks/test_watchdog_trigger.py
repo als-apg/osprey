@@ -24,7 +24,7 @@ import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_watchdog_trigger as trigger
 from osprey.agent_runner.runner import WATCHDOG_SKIP_ENV_VAR
-from osprey_connectors.posture_store import DISPATCH_RUN_ENV_VAR
+from osprey_connectors.write_switch import DISPATCH_RUN_ENV_VAR
 from osprey_connectors_tests._harness._ports import bound_socket
 
 HOOK = Path(trigger.__file__)

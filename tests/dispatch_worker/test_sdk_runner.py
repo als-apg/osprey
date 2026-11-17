@@ -35,7 +35,7 @@ from osprey.agent_runner import (
 from osprey.agent_runner.clean_env import build_clean_env as _REAL_BUILD_CLEAN_ENV
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import sdk_runner
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
+from osprey_connectors.write_switch import CONTROL_OWNER_ENV_VAR, NO_OWNER
 from tests.dispatch_worker._runner import drain, result_event, stub_osprey_helpers
 
 

@@ -38,8 +38,8 @@ export const REASON_STORE_UNAVAILABLE = 'store_unavailable';
 const REASON_CONTEXT_OWNED_ELSEWHERE = 'context_owned_elsewhere';
 
 /**
- * What can own the control context (`OWNER_WEB_TERMINAL` /
- * `OWNER_CONTROLS_SERVER` in osprey_connectors/control_context.py). A web
+ * What can own the control context (the `WriterKind` words in
+ * osprey_connectors/control_context.py). A web
  * terminal is a page an operator can open, and its `port` is where; a controls
  * server is an agent's own process and carries no port, so it is named by pid.
  */
@@ -47,8 +47,8 @@ export const OWNER_WEB_TERMINAL = 'web_terminal';
 export const OWNER_CONTROLS_SERVER = 'controls_server';
 
 /**
- * The RECORD's word for a switch request it accepted (`SWITCH_APPLIED` in
- * osprey_connectors/control_context.py). Its sibling `SWITCH_REFUSED` is not
+ * The RECORD's word for a switch request it accepted (a `SwitchStatus` word in
+ * osprey_connectors/control_context.py). Its sibling `refused` is not
  * mirrored here: a refusal is recognised by its `generation` being null, which
  * is what makes it one, and any other non-applied verdict is read the same way.
  */
@@ -56,7 +56,7 @@ export const SWITCH_APPLIED = 'applied';
 
 /**
  * A controls SERVER's own word for "I was asked for that generation and could
- * not get there" (`REPORT_FAILED` in osprey_connectors/control_context.py,
+ * not get there" (a `SwitchProgressStatus` word in osprey_connectors/control_context.py,
  * written as `SWITCH_FAILED` in mcp_server/control_system/target_state.py —
  * the reader's spelling and the writer's for one word). Deliberately distinct
  * from {@link SWITCH_APPLIED}, which is a request's terminus rather than a

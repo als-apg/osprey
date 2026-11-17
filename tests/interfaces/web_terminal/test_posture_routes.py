@@ -44,7 +44,7 @@ from osprey.interfaces.web_terminal import config_view, control_context_owner
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
 from osprey.mcp_server.python_executor import executor as host_executor
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.identity import acting_identity
@@ -217,7 +217,7 @@ def make_epochless():
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["switch_epoch"] = None
     write_payload(path, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def post_switch(
@@ -545,7 +545,7 @@ class TestNarrowingIsNeverRefused:
 
     def test_the_lock_verdict_is_not_read_for_a_narrowing(self, at_allowed, monkeypatch):
         seen = []
-        monkeypatch.setattr(posture_store, "write_verdict", lambda *a, **k: seen.append(a))
+        monkeypatch.setattr(write_switch, "write_verdict", lambda *a, **k: seen.append(a))
         assert post_switch(at_allowed, state="asked").status_code == 200
         assert seen == []
 
@@ -584,7 +584,7 @@ class TestWidenings:
         payload = json.loads(path.read_text(encoding="utf-8"))
         payload["switch"] = {"standin": "on"}
         write_payload(path, payload)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         assert post_switch(client, state="asked", epoch="1").status_code == 200
         assert switch_now() == {"standin": "asked"}
@@ -610,7 +610,7 @@ class TestPostFacts:
         login = acting_identity()
         assert websocket_routes._posture_post_facts(config, "all", "off", login).before is None
         control_context.record_path().write_text("{not json", encoding="utf-8")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         facts = websocket_routes._posture_post_facts(config, "standin", "asked", login)
         assert facts.before is None
         assert facts.record_status == "unreadable"
@@ -745,7 +745,7 @@ class TestWideningLocks:
         client.app.state.config_path = write_config(
             tmp_path, control_system_section(), name="app.yml"
         )
-        verdict = posture_store.write_verdict(control_system_section(), "va")
+        verdict = write_switch.write_verdict(control_system_section(), "va")
         assert verdict.reason == "tier_never"
         assert_envelope(
             post_switch(client, target="va"),
@@ -778,13 +778,13 @@ class TestWideningLocks:
 
     def test_the_lock_is_the_verdict_for_this_login_with_the_pin_ignored(self, client, monkeypatch):
         seen = []
-        real = posture_store.write_verdict
+        real = write_switch.write_verdict
 
         def recording(section, target, **kwargs):
             seen.append((target, kwargs))
             return real(section, target, **kwargs)
 
-        monkeypatch.setattr(posture_store, "write_verdict", recording)
+        monkeypatch.setattr(write_switch, "write_verdict", recording)
         assert turn_on(client, "standin").status_code == 200
         assert seen
         assert all(
@@ -810,7 +810,7 @@ class TestTheLoginsOwnTierLock:
     def test_the_terminal_render_carries_no_map_and_binds_no_tree(self):
         assert LOGIN_TIERS_KEY not in ALLOWED
         assert "OSPREY_CONTROL_CONTEXT_TREE" not in os.environ
-        assert posture_store.owner_tier_term(ALLOWED, acting_identity()) == "skip"
+        assert write_switch.owner_tier_term(ALLOWED, acting_identity()) == "skip"
 
     def test_an_allowed_render_locks_its_own_login_allowed(self, client):
         assert self._locks(client)["tier"] == "allowed"
@@ -984,13 +984,13 @@ class TestNoUsableRecord:
     @pytest.fixture
     def missing(self, client):
         control_context.record_path().unlink()
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         return client
 
     @pytest.fixture
     def unreadable(self, client):
         control_context.record_path().write_text("{not json", encoding="utf-8")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         return client
 
     @pytest.mark.parametrize("which", ["missing", "unreadable"])
@@ -1165,7 +1165,7 @@ class TestAudit:
 
     def test_the_503_files_one_refused_line(self, client, ledger):
         control_context.record_path().unlink()
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         assert post_switch(client, state="off").status_code == 503
         _assert_one_line(ledger, decision="refused", reason="not_taken", state="off")
 
@@ -1303,7 +1303,7 @@ class TestRunsAndTheSwitch:
     """On reaches the next run and the next connector write; off reaches running ones.
 
     The sandbox's reference monitor asks
-    :func:`~osprey_connectors.posture_store.write_verdict` on every write with
+    :func:`~osprey_connectors.write_switch.write_verdict` on every write with
     the launch pin stamped by :func:`host_executor._launch_posture`, exactly as
     the executor stamps it; the connector asks it for its stamped machine.
     """
@@ -1314,17 +1314,17 @@ class TestRunsAndTheSwitch:
 
     @staticmethod
     def _launch(monkeypatch, target):
-        monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
-        control_context.invalidate_cache()
+        monkeypatch.delenv(write_switch.LAUNCH_PIN_ENV_VAR, raising=False)
+        testing.invalidate_cache()
         stamp = host_executor._launch_posture(target)
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
-        control_context.invalidate_cache()
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, stamp)
+        testing.invalidate_cache()
         return stamp
 
     @staticmethod
     def _next_write(target):
         read_record()
-        return posture_store.write_verdict(ALLOWED, target)
+        return write_switch.write_verdict(ALLOWED, target)
 
     def test_a_turn_on_lands_under_a_live_run_which_stays_pinned(
         self, client, agent_data_root, monkeypatch

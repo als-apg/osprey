@@ -336,7 +336,7 @@ def test_flatten_failure_fallback_still_stages_the_map(
 def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
     edited: Path,
 ) -> None:
-    from osprey_connectors.posture_store import owner_tier_term
+    from osprey_connectors.write_switch import owner_tier_term
     from osprey_connectors.write_tier import tier_writes
 
     repo = edited
@@ -373,7 +373,7 @@ def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
 
 
 def test_single_user_host_process_as_the_build_account_resolves(tiered: Path) -> None:
-    from osprey_connectors.posture_store import owner_tier_term
+    from osprey_connectors.write_switch import owner_tier_term
     from osprey_connectors.write_tier import tier_writes
 
     build = tiered / "build"

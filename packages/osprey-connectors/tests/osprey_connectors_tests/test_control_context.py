@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import _control_state, control_context, testing, write_switch
 from osprey_connectors.connector_types import CONTROL_TARGETS
 from osprey_connectors.errors import NaiveDatetimeError, StateUnavailableError
 from osprey_connectors.model import evolve
@@ -32,7 +32,7 @@ from osprey_connectors_tests._paths import REPO_ROOT
 def proc_root(tmp_path_factory, monkeypatch):
     """An empty ``/proc``, so a PID faked through ``os.kill`` never meets a real thread."""
     root = tmp_path_factory.mktemp("proc")
-    monkeypatch.setattr(control_context, "_PROC_ROOT", str(root))
+    monkeypatch.setattr(_control_state, "_PROC_ROOT", str(root))
     return root
 
 
@@ -45,26 +45,26 @@ def data_root(tmp_path, monkeypatch):
     this module to that deployment's directory and never look at the root the
     test just laid down.
     """
-    monkeypatch.setenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    control_context.invalidate_cache()
+    monkeypatch.setenv(_control_state._AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    testing.invalidate_cache()
     yield tmp_path
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
 def rootless(monkeypatch):
     """No stamp, no bind and no derivable root: the record has nowhere to live."""
-    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(_control_state._AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(
-        posture_store,
+        _control_state,
         "resolve_shared_data_root",
         lambda: (_ for _ in ()).throw(RuntimeError("no project root")),
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _payload(**overrides):
@@ -101,7 +101,7 @@ def _write_raw(root: Path, payload, *, encoding: str = "utf-8") -> Path:
 # --- path resolution -------------------------------------------------------
 
 
-def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
+def test_record_lives_in_the_state_dir(data_root, monkeypatch):
     """One file per identity, under one directory, named the same by both readers.
 
     The identity is pinned rather than taken from the account running pytest:
@@ -112,7 +112,7 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
 
     identity = pin_identity(monkeypatch)
 
-    assert control_context.STATE_DIR_NAME == "control_target"
+    assert write_switch.CONTROL_STATE_DIR_NAME == "control_target"
     assert control_context.RECORD_FILENAME == "control_context.json"
     assert (
         control_context.record_path()
@@ -124,7 +124,7 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
 @pytest.mark.usefixtures("rootless")
 def test_record_path_is_none_without_a_root():
     assert control_context.record_path() is None
-    assert posture_store.state_dir() is None
+    assert write_switch.state_dir() is None
 
 
 # --- writing ---------------------------------------------------------------
@@ -159,7 +159,7 @@ def test_a_narrowing_input_is_not_stored():
     # write_record keeps the on-disk switch (empty on a fresh root), and the
     # mirror follows what is stored, not what the caller passed.
     assert payload["switch"] == {}
-    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
+    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, write_switch.LAUNCH_PIN_SANDBOX)
 
 
 @pytest.mark.parametrize(
@@ -188,14 +188,14 @@ def test_the_stored_mirror_follows_the_switch():
     assert stored()["posture"] == {"va": "sandbox", "standin": "sandbox"}
 
     control_context.set_switch(["live"], "off")
-    assert stored()["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
+    assert stored()["posture"] == dict.fromkeys(CONTROL_TARGETS, write_switch.LAUNCH_PIN_SANDBOX)
 
 
 def test_write_creates_the_state_directory(data_root):
     assert not (data_root / "control_target").exists()
     control_context.write_record(control_context.ControlContext(target="live", generation=0))
     assert control_context.record_path().is_file()
-    assert control_context.record_path().parent == posture_store.state_dir()
+    assert control_context.record_path().parent == write_switch.state_dir()
 
 
 @pytest.mark.usefixtures("data_root")
@@ -220,7 +220,7 @@ def test_write_payload_carries_exactly_the_record_contract():
     }
     assert payload["schema"] == control_context._SCHEMA_VERSION == 1
     assert payload["owner"] == {"kind": "controls_server", "pid": 4242, "port": None}
-    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, posture_store.POSTURE_SANDBOX)
+    assert payload["posture"] == dict.fromkeys(CONTROL_TARGETS, write_switch.LAUNCH_PIN_SANDBOX)
     assert payload["last_switch"] is None
     assert payload["switch"] == {}
     assert isinstance(payload["switch_epoch"], int) and payload["switch_epoch"] > 0
@@ -235,7 +235,7 @@ def test_write_replaces_atomically_and_leaves_no_litter():
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     assert first.stat().st_ino != before
     # The record and its lock (rule 3) — no temp file left behind.
-    assert sorted(p.name for p in posture_store.state_dir().iterdir()) == [
+    assert sorted(p.name for p in write_switch.state_dir().iterdir()) == [
         "control_context.json",
         "control_context.json.lock",
     ]
@@ -244,7 +244,7 @@ def test_write_replaces_atomically_and_leaves_no_litter():
 @pytest.mark.usefixtures("data_root")
 def test_a_written_record_is_group_readable_and_not_owner_only():
     """Mode 0640 exactly: the worker uid reads the record through the shared group."""
-    state = posture_store.state_dir()
+    state = write_switch.state_dir()
     state.mkdir(parents=True)
     os.chmod(state, 0o2770)
 
@@ -310,7 +310,7 @@ def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with():
     identity hop and set ITS mode, so the assertion would pass on a directory
     nobody had provisioned.
     """
-    state = posture_store.state_dir()
+    state = write_switch.state_dir()
     state.mkdir(parents=True)
     os.chmod(state, 0o2750)
 
@@ -583,7 +583,7 @@ def test_an_unchanged_signature_is_not_re_parsed(data_root):
     assert path.stat().st_size == signature.st_size
 
     assert control_context.read_record() is first
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     assert control_context.read_record().generation == 8
 
 
@@ -734,7 +734,7 @@ def test_a_record_naming_a_thread_has_no_live_owner(proc_root, monkeypatch):
 
 @pytest.mark.skipif(not Path("/proc/self/status").exists(), reason="needs a Linux /proc")
 def test_a_real_thread_id_passes_the_kernel_check_and_is_no_process(monkeypatch):
-    monkeypatch.setattr(control_context, "_PROC_ROOT", "/proc")
+    monkeypatch.setattr(_control_state, "_PROC_ROOT", "/proc")
     named = threading.Event()
     release = threading.Event()
     tids = []
@@ -775,9 +775,7 @@ def _owned_record(pid):
     return control_context.ControlContext(
         target="va",
         generation=3,
-        writer=control_context.RecordWriter(
-            kind=control_context.OWNER_WEB_TERMINAL, pid=pid, port=8090
-        ),
+        writer=control_context.RecordWriter(kind="web_terminal", pid=pid, port=8090),
     )
 
 
@@ -925,8 +923,8 @@ def _write_report(root: Path, pid, payload=None) -> Path:
 
 def test_reports_live_beside_the_record(data_root):
     """Every family of file in this directory moves together, identity hop included."""
-    expected = posture_store.state_dir() / "server_4321.json"
-    assert control_context.REPORT_FILE_PREFIX == "server_"
+    expected = write_switch.state_dir() / "server_4321.json"
+    assert control_context._REPORT_FILE_PREFIX == "server_"
     assert control_context.REPORT_FILE_GLOB == "server_*.json"
     assert control_context.report_path(4321) == expected
     assert control_context._report_path_under(data_root, 4321) == expected
@@ -1018,7 +1016,7 @@ def test_an_unchanged_answer_is_an_applied_terminus_that_mints_nothing():
     )
     answered = record.answered(terminus)
     assert (answered.target, answered.generation) == ("va", 2)
-    assert terminus.status == control_context.SWITCH_APPLIED
+    assert terminus.status == "applied"
     assert terminus.reason is None
     assert terminus.detail == "The control target is already 'va' (generation 2)."
 
@@ -1106,7 +1104,7 @@ def test_an_unchanged_report_signature_is_not_re_parsed(data_root):
     assert path.stat().st_size == signature.st_size
 
     assert control_context.read_report(path) is first
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     assert control_context.read_report(path).applied_generation == 8
 
 
@@ -1262,11 +1260,11 @@ def test_a_reachable_since_that_states_no_instant_is_not_stated():
 
 
 def test_a_writes_statement_carries_the_verdicts_terms_and_nothing_else():
-    verdict = posture_store.Refused(
+    verdict = write_switch.Refused(
         reason="session_held",
         target="va",
         kind="simulator",
-        cause=posture_store._SessionHeld(sources=("watchdog:a",)),
+        cause=write_switch._SessionHeld(sources=("watchdog:a",)),
     )
     writes = control_context.WritesStatement.of(verdict).model_dump(mode="json")
 
@@ -1282,7 +1280,7 @@ def test_a_writes_statement_carries_the_verdicts_terms_and_nothing_else():
     )
     assert report.statement.writes == control_context.WritesStatement.of(verdict)
 
-    allowed = posture_store.Allowed(target="live", kind="real", position="asked")
+    allowed = write_switch.Allowed(target="live", kind="real", position="asked")
     assert control_context.WritesStatement.of(allowed).model_dump(mode="json") == {
         "allowed": True,
         "position": "asked",
@@ -1381,8 +1379,8 @@ def test_blocking_pids_passes_over_a_display_only_report(session, target, genera
 def _sweep(directory, **kwargs):
     return control_context.sweep_dead(
         directory,
-        prefix=control_context.REPORT_FILE_PREFIX,
-        suffix=control_context.REPORT_FILE_SUFFIX,
+        prefix=control_context._REPORT_FILE_PREFIX,
+        suffix=control_context._REPORT_FILE_SUFFIX,
         **kwargs,
     )
 
@@ -1391,7 +1389,7 @@ def test_a_dead_owners_file_is_swept(data_root, monkeypatch):
     dead = _write_report(data_root, 4321, _report_payload(4321))
     monkeypatch.setattr(os, "kill", _kill_with_dead({4321}))
 
-    assert _sweep(posture_store.state_dir()) == [dead]
+    assert _sweep(write_switch.state_dir()) == [dead]
     assert not dead.exists()
 
 
@@ -1399,7 +1397,7 @@ def test_a_live_owners_file_is_left_alone(data_root, monkeypatch):
     alive = _write_report(data_root, 4321, _report_payload(4321))
     monkeypatch.setattr(os, "kill", _kill_with_dead(set()))
 
-    assert _sweep(posture_store.state_dir()) == []
+    assert _sweep(write_switch.state_dir()) == []
     assert alive.exists()
 
 
@@ -1407,13 +1405,13 @@ def test_the_kept_file_is_never_probed(data_root, monkeypatch):
     own = _write_report(data_root, 1234, _report_payload(1234))
     monkeypatch.setattr(os, "kill", _kill_with_dead({1234}))
 
-    assert _sweep(posture_store.state_dir(), keep=own.name) == []
+    assert _sweep(write_switch.state_dir(), keep=own.name) == []
     assert own.exists()
 
 
 @pytest.mark.usefixtures("data_root")
 def test_a_filename_that_encodes_no_pid_is_swept():
-    directory = posture_store.state_dir()
+    directory = write_switch.state_dir()
     directory.mkdir(parents=True)
     junk = directory / "server_notapid.json"
     junk.write_text("{}", encoding="utf-8")
@@ -1424,8 +1422,8 @@ def test_a_filename_that_encodes_no_pid_is_swept():
 
 @pytest.mark.usefixtures("data_root")
 def test_a_missing_directory_sweeps_to_empty():
-    assert not posture_store.state_dir().exists()
-    assert _sweep(posture_store.state_dir()) == []
+    assert not write_switch.state_dir().exists()
+    assert _sweep(write_switch.state_dir()) == []
 
 
 # --- convergence -----------------------------------------------------------
@@ -1869,7 +1867,7 @@ def test_the_record_fixture_round_trips_through_read_record(data_root):
         data_root,
         target="va",
         generation=7,
-        last_switch={"request_id": "req-1", "status": control_context.SWITCH_APPLIED},
+        last_switch={"request_id": "req-1", "status": "applied"},
     )
 
     assert path == control_context.record_path()
@@ -1898,7 +1896,7 @@ def test_the_record_fixture_defaults_to_an_owner_that_is_alive(data_root):
     record = control_context.read_record()
     assert record is not None
     assert record.writer is not None
-    assert record.writer.kind == control_context.OWNER_WEB_TERMINAL
+    assert record.writer.kind == "web_terminal"
     assert record.writer.pid == os.getpid()
     assert control_context.is_process_alive(record.writer.pid) is True
 
@@ -1918,13 +1916,13 @@ def test_the_record_fixture_owns_by_a_named_process_on_request(data_root):
 
     write_control_context(
         data_root,
-        owned_by=owner(control_context.OWNER_CONTROLS_SERVER, pid=4321),
+        owned_by=owner("controls_server", pid=4321),
     )
 
     record = control_context.read_record()
     assert record is not None
     assert record.writer == control_context.RecordWriter(
-        kind=control_context.OWNER_CONTROLS_SERVER, pid=4321, port=None
+        kind="controls_server", pid=4321, port=None
     )
 
 
@@ -1940,7 +1938,7 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
         applied_generation=7,
         children=[9001, 9002],
         reachability={"va": {"reachable": True}},
-        last_switch={"generation": 7, "status": control_context.REPORT_APPLIED},
+        last_switch={"generation": 7, "status": "applied"},
         last_posture_realign={"at": "2026-01-01T00:00:00Z"},
         targets={"va": {"selected_role": "primary"}},
         updated_at="2026-01-01T00:00:01Z",
@@ -1955,7 +1953,7 @@ def test_the_report_fixture_round_trips_through_read_report(data_root):
         applied_generation=7,
         children=(9001, 9002),
         reachability={"va": {"reachable": True}},
-        last_switch={"generation": 7, "status": control_context.REPORT_APPLIED},
+        last_switch={"generation": 7, "status": "applied"},
         last_posture_realign={"at": "2026-01-01T00:00:00Z"},
         targets={"va": {"selected_role": "primary"}},
         updated_at="2026-01-01T00:00:01Z",
@@ -1988,13 +1986,13 @@ def test_the_record_fixture_drops_the_read_cache_after_every_write(data_root, mo
     from osprey_connectors_tests._harness import write_control_context
 
     drops = []
-    real_invalidate = control_context.invalidate_cache
+    real_invalidate = testing.invalidate_cache
 
     def spy():
         drops.append(True)
         real_invalidate()
 
-    monkeypatch.setattr(control_context, "invalidate_cache", spy)
+    monkeypatch.setattr(testing, "invalidate_cache", spy)
 
     write_control_context(data_root, target="va", generation=7)
     assert drops, "write_control_context did not drop the read cache"

@@ -9,7 +9,7 @@ included, until the container's connectors are upgraded. This is fail-closed,
 not a loosening, and it is why the connectors release goes out before the
 framework that renders ``asked``.
 
-``_released_owner_tier_term`` is that release's ``posture_store.owner_tier_term``
+``_released_owner_tier_term`` is that release's ``write_switch.owner_tier_term``
 (tag ``osprey-connectors-v2026.10.0``), frozen here with its tree branch reduced
 to the tree-bound answer a shared container gives.
 """
@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 
 #: The two values a 2026.10.0 map entry may carry.
 _RELEASED_LOGIN_TIERS = frozenset({"allowed", "never"})
@@ -71,6 +71,6 @@ def test_the_old_reader_reads_a_two_word_map_as_before():
 
 
 def test_this_package_reads_each_entry_of_the_same_map(monkeypatch):
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
-    assert posture_store.owner_tier_term(MIXED, "alice") == "allowed"
-    assert posture_store.owner_tier_term(MIXED, "bob") == "asked"
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "/nonexistent")
+    assert write_switch.owner_tier_term(MIXED, "alice") == "allowed"
+    assert write_switch.owner_tier_term(MIXED, "bob") == "asked"

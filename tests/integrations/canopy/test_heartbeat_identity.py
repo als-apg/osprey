@@ -47,11 +47,11 @@ from osprey.integrations.canopy import backend as backend_module
 from osprey.runtime import session as session_module
 from osprey.runtime.session import STATE_BOUND, STATE_FALLBACK, STATE_UNSERVABLE
 from osprey.runtime.session_outcomes import refusal_message
-from osprey_connectors import connector_types, control_context, posture_store, session_hold
+from osprey_connectors import connector_types, control_context, session_hold, testing, write_switch
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
-from osprey_connectors.posture_store import Refused, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_switch import Refused, WriteVerdict
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._harness._control_context_fixtures import _set_switch_to
@@ -142,10 +142,10 @@ def _write_record(state_dir: Path, switch: dict[str, str] | None = None) -> None
     control_context.write_record(
         control_context.ControlContext(target="va", generation=3), path=path
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     if switch is not None:
         _set_switch_to(path, switch)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -155,7 +155,7 @@ def state_dir(tmp_path, monkeypatch):
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -164,9 +164,9 @@ def state_dir(tmp_path, monkeypatch):
         if name.startswith(("OSPREY_CONTROL_TARGET", "EPICS_", "CANOPY_EPICS__")):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         session_hold.HOLD_DIR_ENV_VAR,
         session_module.SESSION_KEY_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
@@ -184,9 +184,9 @@ def state_dir(tmp_path, monkeypatch):
         raise AssertionError(f"the backend tried to end the test process with status {status}")
 
     monkeypatch.setattr(backend_module.os, "_exit", no_exit)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield directory
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _broker(connector) -> PVBroker:
@@ -316,12 +316,12 @@ async def _move_record(connector) -> None:
     The watcher leaves only once the broker has pushed the changed statement,
     so it is waited for while the broker still runs.
     """
-    state_dir = Path(os.environ[posture_store.CONTROL_CONTEXT_DIR_ENV_VAR])
+    state_dir = Path(os.environ[write_switch.CONTROL_CONTEXT_DIR_ENV_VAR])
     control_context.write_record(
         control_context.ControlContext(target="va", generation=4),
         path=state_dir / control_context.RECORD_FILENAME,
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     session = connector._session
     watcher = connector._watcher
     for _ in range(500):
@@ -362,7 +362,7 @@ def _setup(row_id: str, state_dir: Path, monkeypatch, exits: list[int]):
     if row_id == "fallback":
         _armed(state_dir, monkeypatch)
         (state_dir / control_context.RECORD_FILENAME).unlink()
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         monkeypatch.setenv(backend_module.RENDERED_FOR_ENV, backend_module.NO_RECORD)
         return FakeConnector, STATE_FALLBACK, None
     if row_id == "unservable":

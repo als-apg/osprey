@@ -139,7 +139,7 @@ enforced at WRITE time rather than delivered by respawning the agent, which is
 what lets a flip land on a session already mid-conversation. A stored ``"on"``,
 the retired spelling, reads as ``"asked"``; no other value arms.
 
-``osprey_connectors.posture_store.write_verdict`` is the canonical verdict.
+``osprey_connectors.write_switch.write_verdict`` is the canonical verdict.
 Hooks cannot import it, so :func:`write_verdict` restates it here term for term
 — a change there is a change here, and ``tests/hooks/test_write_verdict_twin.py``
 drives one case table through both.
@@ -190,13 +190,13 @@ from osprey_hook_log import (
 )
 
 #: Fixed subdirectory of the agent-data root, holding one directory per
-#: identity. Mirrors ``STATE_DIR_NAME`` on the writer; part of the greppable
-#: path contract.
+#: identity. Mirrors ``write_switch.CONTROL_STATE_DIR_NAME`` on the writer;
+#: part of the greppable path contract.
 STATE_DIR_NAME = "control_target"
 
 #: The container's own state directory, bound in by compose. Top rung of the
 #: path contract and already the per-identity directory, so neither fixed hop
-#: is appended to it. Mirrors ``posture_store.CONTROL_CONTEXT_DIR_ENV_VAR``;
+#: is appended to it. Mirrors ``write_switch.CONTROL_CONTEXT_DIR_ENV_VAR``;
 #: read by NAME for the reason every other marker here is, and never confused
 #: with ``OSPREY_CONTROL_CONTEXT_TREE``, which names every identity's
 #: directory and therefore none of them.
@@ -637,7 +637,7 @@ def parse_posture(value):
     """One record's ``posture`` as a ``{target: posture}`` map of NARROWINGS.
 
     Rule 2 of the restated posture contract, and the same filter
-    ``posture_store.parse_posture_value`` applies to the same field: what survives here
+    ``control_context._parse_posture_value`` applies to the same field: what survives here
     decides whether a real machine is written to, so an entry the two filters
     disagree about is a narrowing that silently does not apply. Returns an empty
     map for anything that narrows nothing.
@@ -1031,7 +1031,7 @@ def is_readonly_run():
     """Whether this process is a read-only run.
 
     A value comparison, never a presence check — the same semantics as
-    ``osprey_connectors.posture_env.is_readonly_run`` and the executor's
+    ``osprey_connectors.execution_mode.is_readonly_run`` and the executor's
     posture clamp: only the exact ``"readonly"`` string sandboxes a session.
     """
     return os.environ.get(EXECUTION_MODE_ENV_VAR) == SANDBOX_MODE
@@ -1074,7 +1074,7 @@ def posture_unknown(hook_input=None):
 
 # -- the write verdict -----------------------------------------------------
 #
-# The stdlib twin of ``posture_store.write_verdict``: the same terms in the same
+# The stdlib twin of ``write_switch.write_verdict``: the same terms in the same
 # order, so a write the connector refuses is refused here for the same reason
 # and in the same words. Every name below restates a package symbol and says
 # which; ``tests/hooks/test_write_verdict_twin.py`` drives the shared case table
@@ -1083,42 +1083,42 @@ def posture_unknown(hook_input=None):
 # narrowing left in a file refuses nothing.
 
 #: The stamped owner of a dispatch job's work. Mirrors
-#: ``posture_store.CONTROL_OWNER_ENV_VAR``; a blank value is the unset case.
+#: ``write_switch.CONTROL_OWNER_ENV_VAR``; a blank value is the unset case.
 CONTROL_OWNER_ENV_VAR = "OSPREY_CONTROL_OWNER"
 
-#: The mark of a dispatch job. Mirrors ``posture_store.DISPATCH_RUN_ENV_VAR``;
+#: The mark of a dispatch job. Mirrors ``write_switch.DISPATCH_RUN_ENV_VAR``;
 #: only ``"1"`` marks one.
 DISPATCH_RUN_ENV_VAR = "OSPREY_DISPATCH_RUN"
 
 #: The read-only bind of every login's control-context directory, carried by a
 #: container that holds no chip of its own. Mirrors
-#: ``posture_store.CONTROL_CONTEXT_TREE_ENV_VAR``. Its PRESENCE makes the
+#: ``write_switch.CONTROL_CONTEXT_TREE_ENV_VAR``. Its PRESENCE makes the
 #: process owned-or-nothing; its value is read only by the tree reader.
 CONTROL_CONTEXT_TREE_ENV_VAR = "OSPREY_CONTROL_CONTEXT_TREE"
 
 #: The marker ``osprey build`` writes at the tree's root. Mirrors
-#: ``posture_store.CONTROL_TREE_MARKER_NAME``: a bind without it is an
+#: ``write_switch.CONTROL_TREE_MARKER_NAME``: a bind without it is an
 #: unprovisioned tree, which refuses rather than reads as "nothing narrowed".
 CONTROL_TREE_MARKER_NAME = ".osprey-control-tree"
 
 #: The executor's launch-time pin, ``"<target>=<posture>"``. Mirrors
-#: ``posture_store.LAUNCH_POSTURE_ENV_VAR`` and its all-targets spelling.
+#: ``write_switch.LAUNCH_PIN_ENV_VAR`` and its all-targets spelling.
 LAUNCH_POSTURE_ENV_VAR = "OSPREY_LAUNCH_POSTURE"
 LAUNCH_POSTURE_ALL_TARGETS = "*"
 
 #: The most a tree record may be and still be read. Mirrors
-#: ``posture_store._RECORD_READ_LIMIT``.
+#: ``control_context._RECORD_READ_LIMIT``.
 RECORD_READ_LIMIT = 64 * 1024
 
 #: The tier key's leaf, its three values, and the login→tier map's leaf. Mirror
-#: ``write_tier._WRITES_LEAF``/``_TIER_*`` and ``posture_store._LOGIN_TIERS_LEAF``.
+#: ``write_tier._WRITES_LEAF``/``_TIER_*`` and ``write_switch._LOGIN_TIERS_LEAF``.
 WRITES_LEAF = "writes"
 TIER_NEVER = "never"
 TIER_ASKED = "asked"
 TIER_ALLOWED = "allowed"
 LOGIN_TIERS_LEAF = "login_tiers"
 
-#: Lowest to highest, which is what caps a position. Mirrors ``posture_store._LOGIN_TIERS``.
+#: Lowest to highest, which is what caps a position. Mirrors ``write_switch._LOGIN_TIERS``.
 _LOGIN_TIERS = (TIER_NEVER, TIER_ASKED, TIER_ALLOWED)
 
 #: The positions a machine's switch can be in, and the retired spelling read as
@@ -1165,7 +1165,7 @@ REASONS = (
     "auth_overlap",
 )
 
-# Mirrors ``refusals._PHRASES`` word for word.
+# Mirrors each ``refusals.VerdictReason`` member's ``phrase`` word for word.
 _PHRASES = {
     "readonly_run": (
         "Writes are refused because the deployment is running read-only; "
@@ -1291,7 +1291,7 @@ def refusal_text(reason, kind=None, *, detail=None):
 class NoOwner:
     """The absence of an owner: one instance, compared by identity only.
 
-    Mirrors ``posture_store.NoOwner``. ``None`` already means "the caller named
+    Mirrors ``write_switch.NoOwner``. ``None`` already means "the caller named
     nobody, walk the ladder", and every string is a name some deployment may
     give an account, so neither can say "this work belongs to nobody".
     """
@@ -1311,7 +1311,7 @@ NO_OWNER = NoOwner()
 class WriteVerdict:
     """Whether one write may go ahead, and the one reason when it may not.
 
-    The same five fields as ``posture_store.WriteVerdict``: *allowed*, *reason*
+    The same five fields as ``write_switch.WriteVerdict``: *allowed*, *reason*
     (a member of :data:`REASONS` or ``None``), *target* (verbatim when it was a
     string), *kind* (``real``/``rehearsal``/``simulator`` or ``None``) and
     *position* (``asked``/``allowed`` when allowed, ``None`` on every refusal).
@@ -1408,7 +1408,7 @@ def published_machine_kind(target, *, state_dir=None, hook_input=None):
 def launch_pin_term(target):
     """The launch pin as a verdict term: ``"none"``, ``"pinned"`` or ``"unreadable"``.
 
-    Mirrors ``posture_store._launch_pin_term``: no stamp is ``none``; a
+    Mirrors ``_control_state.launch_pin_term``: no stamp is ``none``; a
     ``<t>=sandbox`` stamp pins *target* when ``<t>`` is it, is ``*``, or
     *target* is empty; a ``<t>=writes`` stamp is ``none``; anything unparseable
     is ``unreadable``, which refuses like a pin.
@@ -1435,7 +1435,7 @@ def launch_pin_term(target):
 def _tree_is_bound():
     """Whether a control-context tree is bound at all, usable or not.
 
-    Mirrors ``posture_store._tree_is_bound``: presence of a non-blank value.
+    Mirrors ``_control_state.tree_is_bound``: presence of a non-blank value.
     """
     return bool((os.environ.get(CONTROL_CONTEXT_TREE_ENV_VAR) or "").strip())
 
@@ -1443,7 +1443,7 @@ def _tree_is_bound():
 def _control_context_tree():
     """The tree bind as an absolute path, or ``None`` when it names none.
 
-    Mirrors ``posture_store._control_context_tree``: stripped, expanded with
+    Mirrors ``_control_state.control_context_tree``: stripped, expanded with
     ``os.path.expanduser``, and ``None`` unless absolute.
     """
     raw = (os.environ.get(CONTROL_CONTEXT_TREE_ENV_VAR) or "").strip()
@@ -1456,7 +1456,7 @@ def _control_context_tree():
 def current_owner(owner=None):
     """The owner whose record governs a write, by the package's ladder minus one rung.
 
-    Mirrors ``posture_store.current_owner`` without the context-variable rung,
+    Mirrors ``write_switch.current_owner`` without the context-variable rung,
     which only a queueserver worker sets: an explicit *owner* (a string is
     stripped; :data:`NO_OWNER` or any other value is returned as is), else
     :data:`CONTROL_OWNER_ENV_VAR` when non-blank, else :data:`NO_OWNER` for a
@@ -1478,14 +1478,14 @@ def current_owner(owner=None):
 
 
 def _is_dispatch_run():
-    """Whether this process is a dispatch job. Mirrors ``posture_store._is_dispatch_run``."""
+    """Whether this process is a dispatch job. Mirrors ``_control_state.is_dispatch_run``."""
     return os.environ.get(DISPATCH_RUN_ENV_VAR) == "1"
 
 
 def owner_tier_term(section, owner):
     """The owner's tier from the login→tier map: ``skip``, a tier word, or ``unknown``.
 
-    Mirrors ``posture_store.owner_tier_term``: the rung applies when the
+    Mirrors ``write_switch.owner_tier_term``: the rung applies when the
     section carries ``login_tiers`` or a tree is bound; a map that is not one
     render's well-formed output, an owner that is not a non-empty string, or an
     owner the map does not name is ``unknown``. Logins match exactly. Never
@@ -1606,7 +1606,7 @@ def read_record_status(hook_input=None):
 def _read_no_follow(path, limit=RECORD_READ_LIMIT):
     """*path*'s text, refusing a symbolic link at its last component and an over-long file.
 
-    Mirrors ``posture_store._read_no_follow``: ``O_NOFOLLOW`` makes the kernel
+    Mirrors ``control_context._read_no_follow``: ``O_NOFOLLOW`` makes the kernel
     refuse a link at the open (``ELOOP``), and a file past
     *limit* raises ``EFBIG`` rather than being truncated into
     a parse. Raises ``OSError`` or ``UnicodeDecodeError``.
@@ -1627,7 +1627,7 @@ def _read_no_follow(path, limit=RECORD_READ_LIMIT):
 def read_tree_record(tree, owner):
     """``(record, unavailable)`` for *owner*'s record in the read-only *tree*.
 
-    Mirrors ``posture_store._read_tree_context``, and fails closed the same
+    Mirrors ``control_context.read_tree_context``, and fails closed the same
     way: *unavailable* is ``True`` for a tree that is not a directory, not
     readable, carries no marker (or a link or non-file there), an owner that
     is not one directory name, a link at the owner's directory or record, and
@@ -1729,7 +1729,7 @@ def _write_refusal(section, target, owner, ignore_launch_pin, hook_input):
 def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_input=None):
     """The verdict on one write to *target*: one total order, first refusal wins.
 
-    The stdlib twin of ``posture_store.write_verdict``, term for term:
+    The stdlib twin of ``write_switch.write_verdict``, term for term:
     ``readonly_run``, ``tier_never`` (the section's tier), ``target_unknown``,
     ``owner_unknown`` (the ladder found nobody; ``owner_unscheduled`` instead
     for a dispatch run), ``owner_foreign`` (no tree
@@ -1775,7 +1775,7 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
 # is ``OSPREY_SESSION_ID``, which is not :func:`session_key`'s variable.
 
 #: Mirror ``session_hold.HOLD_DIR_ENV_VAR``, ``RECORD_NAME``, ``_SCHEMA_VERSION``,
-#: ``_RECORD_READ_LIMIT`` and ``posture_store._SESSION_KEY_ENV_VAR``.
+#: ``_RECORD_READ_LIMIT`` and ``write_switch._SESSION_KEY_ENV_VAR``.
 HOLD_DIR_ENV_VAR = "OSPREY_SESSION_HOLD_DIR"
 HOLD_RECORD_NAME = "record.json"
 HOLD_SCHEMA_VERSION = 1
@@ -1906,7 +1906,7 @@ def hold_applies(section):
 def execution_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_input=None):
     """The verdict on one write about to execute: :func:`write_verdict` plus the hold.
 
-    The stdlib twin of ``posture_store.execution_verdict``, in its order:
+    The stdlib twin of ``write_switch.execution_verdict``, in its order:
     ``readonly_run``, ``tier_never``, ``session_held``, then the rest of
     :func:`write_verdict`. :func:`hold_applies` decides the hold's place.
 

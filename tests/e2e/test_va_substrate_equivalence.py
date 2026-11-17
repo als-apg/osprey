@@ -87,7 +87,7 @@ import yaml
 
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
 from osprey.facility.records import FacilityRecords
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
@@ -613,7 +613,7 @@ def _queue_owner() -> str:
     The bridge worker's writes follow the add's owner's switch, so an ownerless
     add has no switch to follow and every write it makes is refused.
     """
-    owner = posture_store.current_owner()
+    owner = write_switch.current_owner()
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     return owner
 

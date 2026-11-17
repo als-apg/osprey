@@ -199,7 +199,7 @@ def _ceiling(scope: _Scope, owner: str, *, in_container: bool) -> str:
     the login map those containers enforce (staged by the build); for one on
     this host, the rendered config, as the web terminal's card reads it.
     """
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
     from osprey_connectors.write_tier import tier_writes
 
     section = (scope.config or {}).get("control_system")
@@ -212,10 +212,10 @@ def _ceiling(scope: _Scope, owner: str, *, in_container: bool) -> str:
             staged = _staged_login_tiers(scope.repo_root)
             if staged is not None:
                 return str(_mapped_tier(staged, owner))
-        rung = posture_store.owner_tier_term(section, owner)
+        rung = write_switch.owner_tier_term(section, owner)
         if rung in ("never", "unknown"):
             return rung
-        return posture_store.write_ceiling(section, owner)
+        return write_switch.write_ceiling(section, owner)
     except Exception:  # an unreadable tier is not an allowed one
         return "unknown"
 
@@ -453,7 +453,7 @@ def list_(owner: str | None, as_json: bool, repo: Path | None) -> None:
         )
         row = grant_summary(grant, used=standing.steps_spent, now=now)
         row["in_force"] = standing.in_force
-        row["self_issued"] = grant.approver.surface == wa.SELF_ISSUE_SURFACE
+        row["self_issued"] = grant.approver.surface == "write_switch"
         grants.append(row)
     pending: list[dict[str, Any]] = []
     issued = {row["id"] for row in grants}

@@ -10,7 +10,7 @@ the transcript its key was on when the artifact was first saved.
 
 **One document, two readers.** The hub writes it (every turn report, every chat
 turn end, every spawn); the artifacts app only reads it. Both find it the same
-way, through the caller passing :func:`osprey_connectors.posture_store.state_dir`
+way, through the caller passing :func:`osprey_connectors.write_switch.state_dir`
 — the rule the transcript map and the control-context record use — so this module
 takes the directory as a parameter and resolves nothing itself. That keeps it a
 pure function of its inputs: the artifacts app and the hub share one reader with

@@ -163,7 +163,7 @@ async def _client() -> dict[str, Any]:
     from osprey.integrations.canopy.backend import OspreyPVConnector
     from osprey.runtime.session import STATE_BOUND, Binding, ControlSession
     from osprey_connectors.control_system._epics_connector import EPICSConnector
-    from osprey_connectors.posture_store import Refused
+    from osprey_connectors.write_switch import Refused
 
     connector = EPICSConnector()
     await connector.connect(ConnectorContext(settings={"timeout_s": 3.0}))

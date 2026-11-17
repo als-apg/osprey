@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import control_context, posture_store, refusals
+from osprey_connectors import _control_state, control_context, refusals, testing, write_switch
 from osprey_connectors.control_context import StoppedSinceError, set_switch, switch_position
 from osprey_connectors.errors import StateLockedError, StateUnavailableError
 from osprey_connectors_tests._harness import (
@@ -298,7 +298,7 @@ def test_an_unknown_stored_value_reads_as_off(data_root, value):
 )
 def test_the_mirror_refuses_only_the_machines_at_off(switch, sandboxed):
     mirror = control_context._posture_mirror(switch)
-    assert mirror == dict.fromkeys(sandboxed, posture_store.POSTURE_SANDBOX)
+    assert mirror == dict.fromkeys(sandboxed, write_switch.LAUNCH_PIN_SANDBOX)
 
 
 # --- a map still spelling on -------------------------------------------------------
@@ -582,8 +582,8 @@ def test_a_turn_off_of_an_unknown_key_clears_it(data_root):
 
 
 def test_no_agent_data_root_is_a_runtime_error(monkeypatch):
-    monkeypatch.delenv(posture_store._AGENT_DATA_ROOT_ENV_VAR, raising=False)
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(_control_state._AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(control_context, "record_path", lambda: None)
     with pytest.raises(StateUnavailableError) as caught:
         set_switch("all", "off")
@@ -645,7 +645,7 @@ def _damage(path: Path, damage: str) -> None:
         path.write_text("{not json", encoding="utf-8")
     else:
         path.write_text(json.dumps({**_payload(path), "schema": 2}), encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.mark.parametrize("damage", ["missing", "corrupt", "foreign_schema"])
@@ -726,7 +726,7 @@ _CHILD = """
         assert seen.switch, "the other writer must start from a view with machines on"
         mark("read")
         wait(wait_for)
-        me = cc.RecordWriter(kind=cc.OWNER_CONTROLS_SERVER, pid=os.getpid())
+        me = cc.RecordWriter(kind="controls_server", pid=os.getpid())
         cc.write_record(evolve(seen, writer=me, generation=seen.generation + 1))
         print(json.dumps({"confirmed": True}))
 """

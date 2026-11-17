@@ -175,7 +175,7 @@ def compute_stamps(
     from osprey.audit import posture
     from osprey.build.claude_code_telemetry import TERMINAL_SESSION_ENV, terminal_session_env
     from osprey.mcp_server.python_executor import executor
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     stamps: dict[str, str] = {}
     if kernel_id:
@@ -187,8 +187,8 @@ def compute_stamps(
         env.pop(TERMINAL_SESSION_ENV, None)
     for name in executor._STAMP_ENV_NAMES:
         env.pop(name, None)
-    stamps[executor.ENV_LAUNCH_POSTURE] = posture_store.launch_posture_stamp(
-        None, posture_store.POSTURE_SANDBOX
+    stamps[executor.ENV_LAUNCH_POSTURE] = write_switch.launch_pin_stamp(
+        None, write_switch.LAUNCH_PIN_SANDBOX
     )
 
     env.update(stamps)
@@ -252,9 +252,9 @@ IN_CELL = "1"
 
 def _sandbox_pin() -> str:
     """The launch pin for a cell that reached no target: sandboxed everywhere."""
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    return posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX)
+    return write_switch.launch_pin_stamp(None, write_switch.LAUNCH_PIN_SANDBOX)
 
 
 def _switch_in_progress_refusal(pids: tuple[int, ...]) -> str:
@@ -522,7 +522,7 @@ def _hint_for(value: BaseException) -> str | None:
     from osprey.audit import posture
     from osprey.mcp_server.python_executor import executor
     from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
     from osprey_connectors.errors import ChannelWriteBlockedError, ClientLibraryRefusedError
     from osprey_connectors.targets import baseline_target
 
@@ -541,7 +541,7 @@ def _hint_for(value: BaseException) -> str | None:
             target = baseline_target(section)
         except Exception:  # no baseline to name: the verdict answers target_unknown
             target = None
-    reason = posture_store.write_verdict(section, target).reason
+    reason = write_switch.write_verdict(section, target).reason
     return HINT_WRITES_OFF if reason in _WRITES_OFF_REASONS else None
 
 

@@ -41,7 +41,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey_connectors import control_context
+from osprey_connectors import testing
 from tests.interfaces.web_terminal._fakes import PoolChatSession, created_first
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -72,9 +72,9 @@ def shared_root(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 # ``shared_root`` stamps the agent-data root the app under test reads.

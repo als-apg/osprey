@@ -24,7 +24,7 @@ import pytest
 from osprey.agent_runner import ResultEvent
 from osprey.mcp_server.dispatch_worker import sdk_runner
 from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.connector_types import TARGET_LIVE
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
@@ -65,11 +65,11 @@ def deployment(monkeypatch):
 @pytest.fixture
 def tree(tmp_path, monkeypatch) -> Path:
     """A provisioned control-context tree, bound for this process."""
-    base = tmp_path / "shared" / posture_store.STATE_DIR_NAME
+    base = tmp_path / "shared" / write_switch.CONTROL_STATE_DIR_NAME
     base.mkdir(parents=True)
-    (base / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(base))
-    control_context.invalidate_cache()
+    (base / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(base))
+    testing.invalidate_cache()
     return base
 
 
@@ -84,11 +84,11 @@ def _set_switch(tree: Path, owner: str, state: str) -> None:
 
 def _dispatch_run(monkeypatch, owner: str | None) -> None:
     """This process is a dispatch job, attributed to *owner* (``None``: nobody)."""
-    monkeypatch.setenv(posture_store.DISPATCH_RUN_ENV_VAR, "1")
+    monkeypatch.setenv(write_switch.DISPATCH_RUN_ENV_VAR, "1")
     if owner is None:
-        monkeypatch.delenv(posture_store.CONTROL_OWNER_ENV_VAR, raising=False)
+        monkeypatch.delenv(write_switch.CONTROL_OWNER_ENV_VAR, raising=False)
     else:
-        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, owner)
+        monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, owner)
 
 
 def _connector() -> RecordingConnector:
@@ -251,7 +251,7 @@ def _become(monkeypatch, child: dict[str, str]) -> None:
     for name, value in child.items():
         if name.startswith("OSPREY_"):
             monkeypatch.setenv(name, value)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.mark.asyncio
@@ -261,7 +261,7 @@ async def test_a_sandboxed_write_in_an_owner_less_job_is_refused_as_unscheduled(
     # Arrange: the worker runs with the tree bound; the fire carries no owner.
     for login in ("alice", "bob", "carol"):
         _set_switch(tree, login, "asked")
-    worker_env = {posture_store.CONTROL_CONTEXT_TREE_ENV_VAR: str(tree), "PATH": "/usr/bin"}
+    worker_env = {write_switch.CONTROL_CONTEXT_TREE_ENV_VAR: str(tree), "PATH": "/usr/bin"}
     agent_env = await _agent_env(monkeypatch, tmp_path, worker_env, run_id="run-1")
 
     # Act: the executor builds its child's environment from the agent's.
@@ -271,9 +271,9 @@ async def test_a_sandboxed_write_in_an_owner_less_job_is_refused_as_unscheduled(
     result = await connector.write_channel(CHANNEL, 0.5)
 
     # Assert: the child still knows it is a dispatch job, and refuses.
-    assert agent_env[posture_store.DISPATCH_RUN_ENV_VAR] == "1"
-    assert child[posture_store.DISPATCH_RUN_ENV_VAR] == "1"
-    assert posture_store.CONTROL_OWNER_ENV_VAR not in child
+    assert agent_env[write_switch.DISPATCH_RUN_ENV_VAR] == "1"
+    assert child[write_switch.DISPATCH_RUN_ENV_VAR] == "1"
+    assert write_switch.CONTROL_OWNER_ENV_VAR not in child
     _refused(result, "owner_unscheduled")
     assert connector.writes == []
 
@@ -282,7 +282,7 @@ async def test_a_sandboxed_write_in_an_owner_less_job_is_refused_as_unscheduled(
 async def test_a_sandboxed_write_in_an_owned_job_follows_the_owner(monkeypatch, tmp_path, tree):
     """The control for the case above: the same child env, with an owner, writes."""
     _set_switch(tree, "alice", "asked")
-    worker_env = {posture_store.CONTROL_CONTEXT_TREE_ENV_VAR: str(tree), "PATH": "/usr/bin"}
+    worker_env = {write_switch.CONTROL_CONTEXT_TREE_ENV_VAR: str(tree), "PATH": "/usr/bin"}
     agent_env = await _agent_env(monkeypatch, tmp_path, worker_env, run_id="run-2", owner="alice")
 
     child = scrub_sandbox_child_env(agent_env)
@@ -290,7 +290,7 @@ async def test_a_sandboxed_write_in_an_owned_job_follows_the_owner(monkeypatch, 
     connector = _connector()
     result = await connector.write_channel(CHANNEL, 0.5)
 
-    assert child[posture_store.DISPATCH_RUN_ENV_VAR] == "1"
-    assert child[posture_store.CONTROL_OWNER_ENV_VAR] == "alice"
+    assert child[write_switch.DISPATCH_RUN_ENV_VAR] == "1"
+    assert child[write_switch.CONTROL_OWNER_ENV_VAR] == "alice"
     assert result.outcome is WriteOutcome.CONFIRMED
     assert connector.writes == [(CHANNEL, 0.5)]

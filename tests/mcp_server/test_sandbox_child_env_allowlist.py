@@ -82,15 +82,15 @@ def _child_read_names() -> list[tuple[str, str]]:
     from osprey import runtime
     from osprey.audit import posture
     from osprey.mcp_server.python_executor import executor
-    from osprey_connectors import identity, posture_store
+    from osprey_connectors import identity, write_switch
 
     return [
         ("OSPREY_AGENT_DATA_ROOT", OSPREY_AGENT_DATA_ROOT),
-        ("posture_store.CONTROL_CONTEXT_DIR_ENV_VAR", posture_store.CONTROL_CONTEXT_DIR_ENV_VAR),
-        ("posture_store.CONTROL_CONTEXT_TREE_ENV_VAR", posture_store.CONTROL_CONTEXT_TREE_ENV_VAR),
-        ("posture_store.CONTROL_OWNER_ENV_VAR", posture_store.CONTROL_OWNER_ENV_VAR),
-        ("posture_store.DISPATCH_RUN_ENV_VAR", posture_store.DISPATCH_RUN_ENV_VAR),
-        ("posture_store.LAUNCH_POSTURE_ENV_VAR", posture_store.LAUNCH_POSTURE_ENV_VAR),
+        ("write_switch.CONTROL_CONTEXT_DIR_ENV_VAR", write_switch.CONTROL_CONTEXT_DIR_ENV_VAR),
+        ("write_switch.CONTROL_CONTEXT_TREE_ENV_VAR", write_switch.CONTROL_CONTEXT_TREE_ENV_VAR),
+        ("write_switch.CONTROL_OWNER_ENV_VAR", write_switch.CONTROL_OWNER_ENV_VAR),
+        ("write_switch.DISPATCH_RUN_ENV_VAR", write_switch.DISPATCH_RUN_ENV_VAR),
+        ("write_switch.LAUNCH_PIN_ENV_VAR", write_switch.LAUNCH_PIN_ENV_VAR),
         ("identity.AUDIT_IDENTITY_ENV", identity.AUDIT_IDENTITY_ENV),
         ("posture.POSTURE_ENV_VAR", posture.POSTURE_ENV_VAR),
         ("posture.POSTURE_SOURCE_ENV_VAR", posture.POSTURE_SOURCE_ENV_VAR),

@@ -71,6 +71,8 @@ import time
 from typing import Any
 from unittest.mock import patch
 
+from osprey_connectors import testing
+
 RESULT_MARKER = "__HOST_CA_RESULT__"
 
 # sp-echo SP->RB propagation is asynchronous in the IOC (the setpoint record's
@@ -91,7 +93,7 @@ def _settle_tolerance(spec: dict[str, Any]) -> float:
 
 
 #: The environment that would point the write verdict at a record, an owner or a
-#: launch pin other than this process's own (posture_store's verdict variables).
+#: launch pin other than this process's own (write_switch's verdict variables).
 #: An armed op is the operator's own put from the host, so none of them applies.
 _FOREIGN_VERDICT_ENV = (
     "OSPREY_CONTROL_OWNER",
@@ -129,12 +131,12 @@ def _arm_switch(target: str) -> str:
     root = tempfile.mkdtemp(prefix="osprey-ca-op-")
     atexit.register(shutil.rmtree, root, ignore_errors=True)
     os.environ["OSPREY_AGENT_DATA_ROOT"] = root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     path = control_context.record_path()
     if path is None:
         raise RuntimeError("the control-context record path did not resolve")
     control_context.write_record(control_context.ControlContext(target=target, generation=1))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     current = control_context.read_record(path=path)
     epoch = (current.switch_epoch if current is not None else None) or 0
     try:
@@ -143,7 +145,7 @@ def _arm_switch(target: str) -> str:
         if not refused.stamped or refused.epoch is None:
             raise
         control_context.set_switch([target], "asked", epoch=refused.epoch, path=path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return root
 
 

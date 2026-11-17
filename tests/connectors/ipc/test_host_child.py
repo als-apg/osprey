@@ -42,7 +42,7 @@ import pytest
 import yaml
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
     ChannelValue,
@@ -64,7 +64,7 @@ from tests.facility.served_tree import in_process_config, served_tree
 REPO_ROOT = Path(__file__).resolve().parents[3]
 # The connectors under test, wherever they are installed: the workspace member
 # here, the floor release in the framework-at-connectors-floor lane.
-CONNECTORS_ROOT = Path(posture_store.__file__).resolve().parents[1]
+CONNECTORS_ROOT = Path(write_switch.__file__).resolve().parents[1]
 PYTHONPATH = os.pathsep.join(
     [
         # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
@@ -1207,9 +1207,9 @@ def switched_off_va(tmp_path, monkeypatch, va_deployment):  # noqa: ARG001 - arm
     root = tmp_path / "agent-data"
     write_control_context(root, switch={})
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _install_name_server(monkeypatch, address, port):

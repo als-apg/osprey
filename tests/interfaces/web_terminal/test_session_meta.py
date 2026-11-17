@@ -31,7 +31,7 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import session_meta, transcript_map
 from osprey.stores import session_ledger
 from osprey.stores.artifact_store import ArtifactStore
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 
 KEY = "aaaaaaaa-1111-2222-3333-444444444444"
 OTHER_KEY = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -50,11 +50,11 @@ def _app(**state) -> SimpleNamespace:
 def shared_root(tmp_path, monkeypatch):
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.mark.usefixtures("shared_root")
@@ -436,8 +436,8 @@ class TestCorruptAndCreation:
 class TestNoLocation:
     def test_memory_only_when_the_root_does_not_resolve(self, monkeypatch):
         monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
-        monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-        monkeypatch.setattr(posture_store, "state_dir", lambda: None)
+        monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+        monkeypatch.setattr(write_switch, "state_dir", lambda: None)
         app = _app()
         session_meta.load(app)
         session_meta.set_title(app, T1, "kept in memory")

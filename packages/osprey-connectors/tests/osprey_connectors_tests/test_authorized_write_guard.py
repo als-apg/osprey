@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import control_context, posture_store, session_hold
+from osprey_connectors import control_context, session_hold, testing, write_switch
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
@@ -146,7 +146,7 @@ def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _epoch() -> int:
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     record = control_context.read_record()
     assert record is not None and isinstance(record.switch_epoch, int)
     return record.switch_epoch
@@ -222,13 +222,13 @@ class TestUnnamed:
     ):
         turn_switch(TARGET, "asked")
         judged: list[Any] = []
-        real = posture_store.write_verdict
+        real = write_switch.write_verdict
 
         def counting(*args: Any, **kwargs: Any) -> Any:
             judged.append(args)
             return real(*args, **kwargs)
 
-        monkeypatch.setattr(posture_store, "write_verdict", counting)
+        monkeypatch.setattr(write_switch, "write_verdict", counting)
         conn = connector()
         results = await conn.write_multiple_channels([("A:SP", 1.0), ("C:SP", 99.0)])
         assert [r.outcome for r in results] == [WriteOutcome.CONFIRMED] * 2
@@ -318,7 +318,7 @@ class TestSingleWrites:
             revoke_grants(by="alice", targets=[TARGET])
         else:
             control_context.set_switch("all", "off")
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
         refused = await conn.write_channel("A:SP", 2.0)
         assert refused.verdict_reason == "auth_revoked"
         assert conn.writes == [("A:SP", 1.0)]

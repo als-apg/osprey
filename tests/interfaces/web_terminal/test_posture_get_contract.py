@@ -55,7 +55,7 @@ from osprey.mcp_server.control_system import (
     target_eligibility,
     target_state,
 )
-from osprey_connectors import control_context, posture_store, workspace
+from osprey_connectors import control_context, testing, workspace, write_switch
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.ipc import _verification as verification
 from osprey_connectors.model import ReadResult
@@ -280,7 +280,7 @@ def agent_data_root(tmp_path, monkeypatch):
     """Point every resolver at one throwaway agent-data root.
 
     ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
-    ``posture_store`` both prefer, and the ONLY way this route reaches either —
+    ``write_switch`` both prefer, and the ONLY way this route reaches either —
     patching ``resolve_shared_data_root`` would redirect one of them and leave
     the other reading the repository's own ``var/agent_data``.
     """
@@ -291,9 +291,9 @@ def agent_data_root(tmp_path, monkeypatch):
     # from whatever ran before it: it would zero every ``effective`` below.
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv(control_context_owner.WEB_PORT_ENV, raising=False)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -531,7 +531,7 @@ class TestTheOwner:
             agent_data_root,
             target="live",
             generation=4,
-            owned_by=owner(kind=control_context.OWNER_CONTROLS_SERVER, pid=SERVER_A),
+            owned_by=owner(kind="controls_server", pid=SERVER_A),
         )
         del client.app.state.control_context_owner
         payload = get_posture(client)
@@ -1156,7 +1156,7 @@ def armed(tmp_path, **kwargs):
 def fresh_verdict(config_path, target):
     """The write verdict a new call by the signed-in login gets, asked directly."""
     section = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))["control_system"]
-    return posture_store.write_verdict(section, target, owner=acting_identity())
+    return write_switch.write_verdict(section, target, owner=acting_identity())
 
 
 def switch_on(agent_data_root, *targets):
@@ -1181,7 +1181,7 @@ def make_unreadable():
     path = control_context.record_path()
     assert path is not None
     path.write_text("{not json", encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class TestTheWriteColumns:
@@ -1315,7 +1315,7 @@ class TestTheWriteColumns:
             assert path is not None
             payload = json.loads(path.read_text(encoding="utf-8"))
             write_payload(path, {**payload, "switch": {"va": "on"}})
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
             posture = get_posture(client)
         assert row_for(posture, "va")["switch"] == "asked"
         assert row_for(posture, "va")["prompt"] is True

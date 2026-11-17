@@ -24,7 +24,7 @@ from osprey.stores.artifact_store import (
     owner_of,
 )
 from osprey.stores.session_ledger import EPOCH, Ledger, LedgerRow
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 
 KEY = "11111111-1111-4111-8111-111111111111"
 OTHER_KEY = "22222222-2222-4222-8222-222222222222"
@@ -164,10 +164,10 @@ def state_dir(tmp_path, monkeypatch):
     """A bound, empty state directory, so nothing reads the developer's ledger."""
     bound = tmp_path / "state"
     bound.mkdir()
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(bound))
-    control_context.invalidate_cache()
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(bound))
+    testing.invalidate_cache()
     yield bound
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -252,7 +252,7 @@ class TestReadLedger:
         def _boom():
             raise RuntimeError("no identity")
 
-        monkeypatch.setattr(posture_store, "state_dir", _boom)
+        monkeypatch.setattr(write_switch, "state_dir", _boom)
         ledger, ok = read_ledger()
         assert not ok and tuple(ledger.rows) == ()
 

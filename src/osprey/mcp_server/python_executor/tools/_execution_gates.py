@@ -7,7 +7,7 @@ the write verdict for the control target the run will launch on
 spelling, so any *other* string falls through both — not "readonly", so write
 patterns are not blocked; not "readwrite", so the verdict is never asked.
 Rejecting unknown modes here closes that hole for every caller at once. The
-verdict is :func:`osprey_connectors.posture_store.execution_verdict`, the write
+verdict is :func:`osprey_connectors.write_switch.execution_verdict`, the write
 verdict the connector's reference monitor asks at the moment of every write plus
 the session's hold, and its
 refusal is spoken in that verdict's words
@@ -49,9 +49,9 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor import executor
 from osprey.utils.session_hold_api import execution_verdict
-from osprey_connectors.posture_store import Refused, WriteVerdict
 from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import baseline_target
+from osprey_connectors.write_switch import Refused, WriteVerdict
 
 if TYPE_CHECKING:
     from osprey.mcp_server.python_executor.executor import ExecutionResult
@@ -195,7 +195,7 @@ def _launch_target(section: Any) -> str | None:
 def _launch_verdict() -> WriteVerdict:
     """The write verdict for the target a run launched now would write to.
 
-    :func:`osprey_connectors.posture_store.execution_verdict` over the deployment's
+    :func:`osprey_connectors.write_switch.execution_verdict` over the deployment's
     ``control_system`` section (:func:`osprey.audit.posture.control_system_section`)
     and :func:`_launch_target`, with the owner left to the verdict's own
     ladder. Never raises: a verdict that cannot be reached refuses as

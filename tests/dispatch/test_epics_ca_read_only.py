@@ -29,8 +29,8 @@ from osprey_connectors.control_system._base import (
     ControlSystemConnector,
     WriteOutcome,
 )
-from osprey_connectors.posture_store import write_verdict
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.write_switch import write_verdict
 from osprey_connectors_tests._epics_fakes import install_fake_aioca
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from osprey_connectors_tests._write_fakes import config_reader

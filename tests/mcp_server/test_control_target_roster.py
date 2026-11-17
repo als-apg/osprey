@@ -34,7 +34,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     target_availability,
 )
 from osprey.mcp_server.control_system.tools import control_target
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors_tests._harness import owner, write_control_context
 from tests.mcp_server._switch_harness import (
     LIVE_PROBE,
@@ -76,12 +76,12 @@ def control_context_record(root, monkeypatch, target: str):
     unrelated test.
     """
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return write_control_context(
         root,
         target=target,
         generation=0,
-        owned_by=owner(control_context.OWNER_CONTROLS_SERVER, pid=os.getpid()),
+        owned_by=owner("controls_server", pid=os.getpid()),
     )
 
 
@@ -424,7 +424,7 @@ class TestCorrectBeforeAnySwitch:
 
         del raw["control_system"]["login_tiers"]
         control_context._record_path_under(state_root).write_text("{not json", encoding="utf-8")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         install_context(make_manager(raw=raw), monkeypatch)
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
@@ -1212,7 +1212,7 @@ class TestEndpointFollowsThePosture:
         assert widened["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert widened["standin"]["selected_role"] == "write_access"
 
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         narrowed = target_display_metadata(config, write_allowed={"standin": False})
         assert narrowed["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
         assert narrowed["standin"]["selected_role"] == "read_only"

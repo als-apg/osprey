@@ -91,7 +91,7 @@ from typing import Any
 import pytest
 
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import env_value, format_failure, wait_for_health
@@ -358,7 +358,7 @@ def _enqueue_session_plan(
     assert status == 200, f"PATCH /draft failed for {plan_name!r}: {status} {patched}"
     # Named for the login whose switch the stack armed: the worker's writes
     # follow the add's owner, and an ownerless add has no switch to follow.
-    headers = {OWNER_HEADER: posture_store.current_owner()}
+    headers = {OWNER_HEADER: write_switch.current_owner()}
     if token:
         headers["X-Launch-Token"] = token
     return _post("/queue/items", {"draft_revision": patched["revision"]}, headers=headers)

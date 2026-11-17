@@ -21,7 +21,7 @@ import osprey.apps.sdk as sdk
 from osprey.apps.errors import AppManifestError
 from osprey.mcp_server import approval_record, startup
 from osprey.mcp_server.approval_record import APPROVAL_MISSING, Refusal
-from osprey_connectors import posture_store, refusals
+from osprey_connectors import refusals, write_switch
 from osprey_connectors.workspace import reset_config_cache
 from tests.apps import test_sdk_check_approved_call as approved_call
 from tests.apps.test_sdk_check_approved_call import APP, DIGEST, FULL_NAME, TOOL, VALUE, _config
@@ -387,7 +387,7 @@ def test_configure_app_is_the_interface_setup_itself():
 
 
 def test_the_write_chain_names_are_the_connectors_own():
-    assert sdk.write_verdict is posture_store.write_verdict
-    assert sdk.WriteVerdict is posture_store.WriteVerdict
-    assert sdk.bind_owner is posture_store.bind_owner
+    assert sdk.write_verdict is write_switch.write_verdict
+    assert sdk.WriteVerdict is write_switch.WriteVerdict
+    assert sdk.bind_owner is write_switch.bind_owner
     assert sdk.refusal_phrase is refusals.refusal_phrase

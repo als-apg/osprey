@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from osprey_connectors.posture_store import WriteVerdict
+    from osprey_connectors.write_switch import WriteVerdict
 
 #: A write's outcome, as the panel's write contract names it.
 OUTCOME_REFUSED = "refused"
@@ -116,8 +116,8 @@ def refusal_message(verdict: WriteVerdict) -> str:
     verdict adds, such as which hold was raised. Raises ``ValueError`` for a
     verdict that refuses nothing.
     """
-    from osprey_connectors.posture_store import Allowed
     from osprey_connectors.refusals import refusal_phrase
+    from osprey_connectors.write_switch import Allowed
 
     if isinstance(verdict, Allowed):
         raise ValueError("not a refusal")

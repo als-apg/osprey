@@ -48,7 +48,7 @@ from osprey.services.code_review.settings import (
     ReviewSettings,
     resolve_prompt,
 )
-from osprey_connectors import control_context
+from osprey_connectors import testing
 from osprey_connectors_tests._write_fakes import ARMED_SECTION, ARMED_TARGET, arm_switch
 from tests.hooks.conftest import HOOKS_DIR, _curated_env
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -133,7 +133,7 @@ def armed_deployment(deployment, control_context_root, monkeypatch):
     monkeypatch.setattr(posture, "control_system_section", lambda: dict(ARMED_SECTION))
     arm_switch(monkeypatch, control_context_root, ARMED_TARGET, stamp=False)
     yield deployment
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture

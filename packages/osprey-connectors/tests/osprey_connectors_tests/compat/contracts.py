@@ -223,7 +223,7 @@ def check_control_context_golden(fixtures: Path = FIXTURES) -> str:
     expected = {key: GOLDEN_RECORD[key] for key in stated}
     _require(stated == expected, f"the golden record reads as {stated}")
     _require(
-        record.writer is not None and record.writer.kind == control_context.OWNER_WEB_TERMINAL,
+        record.writer is not None and record.writer.kind == "web_terminal",
         f"the golden record's owner reads as {record.writer}",
     )
     _require(

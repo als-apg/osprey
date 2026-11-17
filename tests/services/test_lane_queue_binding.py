@@ -66,7 +66,7 @@ from osprey.mcp_server.bluesky.tools import draft as draft_tools
 from osprey.mcp_server.bluesky.tools import queue
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -304,7 +304,7 @@ def _session_on(target: str, generation: int = 0) -> None:
     to the host: :func:`target_banner.resolve_control_target` reads this file
     and nothing else.
     """
-    root = posture_store.stamped_agent_data_root()
+    root = write_switch.stamped_agent_data_root()
     assert root is not None, "the deployment fixture stamps OSPREY_AGENT_DATA_ROOT"
     write_control_context(root, target=target, generation=generation)
 

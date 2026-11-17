@@ -29,7 +29,7 @@ from osprey.runtime.session import (
     SessionEnvironmentError,
     SessionUnservableError,
 )
-from osprey_connectors import connector_types, control_context, posture_store
+from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._epics_connector import EPICSConnector
@@ -105,7 +105,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     control_context.write_record(
         control_context.ControlContext(target=target, generation=generation), path=path
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     if switch is None:
         wanted = dict.fromkeys({target} & set(connector_types.CONTROL_TARGETS), "allowed")
     elif isinstance(switch, Mapping):
@@ -113,7 +113,7 @@ def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> 
     else:
         wanted = dict.fromkeys(switch, "allowed")
     _set_switch_to(path, wanted)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -124,7 +124,7 @@ def state_dir(tmp_path, monkeypatch):
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -133,18 +133,18 @@ def state_dir(tmp_path, monkeypatch):
         if name.startswith("OSPREY_CONTROL_TARGET") or name.startswith("EPICS_"):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
     # Every record a session files lands in the test's spool zone (the root
     # conftest), never in a real project.
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield directory
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ class TestEnvironmentRefusal:
 
     @pytest.mark.parametrize(
         "name",
-        [posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, AUDIT_IDENTITY_ENV, "OSPREY_CONFIG"],
+        [write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, AUDIT_IDENTITY_ENV, "OSPREY_CONFIG"],
     )
     async def test_a_missing_required_variable_refuses(self, mock_va, monkeypatch, name):
         write_record(mock_va)
@@ -214,9 +214,9 @@ class TestEnvironmentRefusal:
     @pytest.mark.parametrize(
         "name",
         [
-            posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-            posture_store.CONTROL_OWNER_ENV_VAR,
-            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+            write_switch.CONTROL_OWNER_ENV_VAR,
+            write_switch.LAUNCH_PIN_ENV_VAR,
             "OSPREY_CONTROL_TARGET",
             "OSPREY_CONTROL_TARGET_GENERATION",
             "OSPREY_CONTROL_TARGET_REFUSAL",
@@ -236,7 +236,7 @@ class TestEnvironmentRefusal:
     @pytest.mark.usefixtures("mock_va")
     async def test_the_refusal_names_every_problem_at_once(self, monkeypatch):
         monkeypatch.delenv(AUDIT_IDENTITY_ENV)
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "sandbox")
 
         with pytest.raises(SessionEnvironmentError) as refusal:
             await _opened()
@@ -254,9 +254,9 @@ class TestEnvironmentRefusal:
         ):
             assert name.startswith(session_env.FORBIDDEN_ENV_PREFIX)
         assert set(session_env.FORBIDDEN_ENV) == {
-            posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-            posture_store.CONTROL_OWNER_ENV_VAR,
-            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+            write_switch.CONTROL_OWNER_ENV_VAR,
+            write_switch.LAUNCH_PIN_ENV_VAR,
         }
 
 
@@ -394,7 +394,7 @@ class TestWriteBudgetAndProcessMark:
         write_record(mock_va)
         monkeypatch.setattr(sys, "argv", ["/tmp/some_server.py"])
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        refused = posture_store.Refused(reason="readonly_run", target="va", kind="simulator")
+        refused = write_switch.Refused(reason="readonly_run", target="va", kind="simulator")
         script = connector_base._verdict_refusal("TEST:CHANNEL:SP", 1.0, refused, wording="script")
         assert "readonly execution mode" in script.error_message
         assert "resubmit it with execution_mode='readwrite'" in script.error_message
@@ -436,7 +436,7 @@ class TestFallback:
 
     async def test_a_corrupt_record_is_no_record(self, mock_va):
         (mock_va / control_context.RECORD_FILENAME).write_text("{not json", encoding="utf-8")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         session = await _opened()
 
@@ -499,7 +499,7 @@ class TestUnservable:
         path = write_record(mock_va, target="va", generation=1)
         payload = json.loads(path.read_text(encoding="utf-8"))
         path.write_text(json.dumps({**payload, "target": "somewhere"}), encoding="utf-8")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         session = await _opened()
 
@@ -796,7 +796,7 @@ class TestMoved:
         session = await _opened()
 
         path.unlink()
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
 
         assert session.moved() is True
         await session.close()
@@ -1043,7 +1043,7 @@ def pin_env(tmp_path, monkeypatch):
     import os
 
     from osprey.runtime import session as session_module
-    from osprey_connectors import connector_types, control_context, posture_store
+    from osprey_connectors import connector_types, write_switch
     from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
     from osprey_connectors_tests._fake_connector import FakeConnector
@@ -1053,7 +1053,7 @@ def pin_env(tmp_path, monkeypatch):
     directory.mkdir()
     config = tmp_path / "config.yml"
     config.write_text("{}\n", encoding="utf-8")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(directory))
     monkeypatch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
@@ -1062,9 +1062,9 @@ def pin_env(tmp_path, monkeypatch):
         if name.startswith("OSPREY_CONTROL_TARGET") or name.startswith("EPICS_"):
             monkeypatch.delenv(name)
     for name in (
-        posture_store.CONTROL_CONTEXT_TREE_ENV_VAR,
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_CONTEXT_TREE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -1079,11 +1079,11 @@ def pin_env(tmp_path, monkeypatch):
         return section if path == "control_system" else default
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, FakeConnector)
         yield directory
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _write_record(directory, *, target="va", generation=3):
@@ -1094,7 +1094,7 @@ def _write_record(directory, *, target="va", generation=3):
         control_context.ControlContext(target=target, generation=generation),
         path=path,
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -1103,7 +1103,7 @@ def _corrupt_record(directory):
 
     path = directory / control_context.RECORD_FILENAME
     path.write_text("{not json", encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 

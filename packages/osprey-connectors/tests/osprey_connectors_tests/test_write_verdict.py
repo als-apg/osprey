@@ -1,6 +1,6 @@
 """The write verdict: one total order over every reason a write is refused.
 
-:func:`~osprey_connectors.posture_store.write_verdict` combines the run mode, the
+:func:`~osprey_connectors.write_switch.write_verdict` combines the run mode, the
 login tier, the target, the owner, the owner's mapped tier, the record (the host's
 own, or the owner's out of a bound tree), the person's switch and the launch pin,
 in that order; the first that refuses names the reason. These tests pin each
@@ -17,9 +17,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from osprey_connectors import control_context, posture_store
-from osprey_connectors.posture_store import NO_OWNER, Allowed, Refused, WriteVerdict, write_verdict
+from osprey_connectors import _control_state, control_context, testing, write_switch
 from osprey_connectors.refusals import REASONS, refusal_text
+from osprey_connectors.write_switch import NO_OWNER, Allowed, Refused, WriteVerdict, write_verdict
 from osprey_connectors_tests._harness import (
     write_control_context,
     write_payload,
@@ -57,7 +57,7 @@ def _host(root: Path, *, switch=None, posture=None) -> Path:
         payload = json.loads(path.read_text(encoding="utf-8"))
         payload["posture"] = dict(posture)
         write_payload(path, payload)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
     return path
 
 
@@ -67,14 +67,14 @@ def _legacy_host(root: Path, switch: dict[str, str]) -> Path:
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["switch"] = dict(switch)
     write_payload(path, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
 def _provision_tree(base: Path) -> Path:
-    tree = base / posture_store.STATE_DIR_NAME
+    tree = base / write_switch.CONTROL_STATE_DIR_NAME
     tree.mkdir(parents=True, exist_ok=True)
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    (tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
     return tree
 
 
@@ -94,7 +94,7 @@ def _tree_record(tree: Path, owner: str, *, switch=None, posture=None) -> Path:
 @pytest.fixture
 def tree(tmp_path, monkeypatch) -> Path:
     tree = _provision_tree(tmp_path / "shared")
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
     return tree
 
 
@@ -235,7 +235,7 @@ def test_corrupt_host_record_is_record_unavailable(root):
     path = control_context._record_path_under(root)
     write_payload(path, "{not json")
     path.write_text("{not json", encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     _refused(write_verdict(LIVE, "live"), "record_unavailable")
 
 
@@ -248,7 +248,7 @@ def test_foreign_schema_host_record_is_record_unavailable(root):
 
 
 def test_unresolvable_host_root_is_record_unavailable(monkeypatch):
-    monkeypatch.setattr(posture_store, "_agent_data_root", lambda: None)
+    monkeypatch.setattr(_control_state, "_agent_data_root", lambda: None)
     monkeypatch.setattr(control_context, "record_path", lambda: None)
     _refused(write_verdict(LIVE, "live"), "record_unavailable")
 
@@ -290,26 +290,26 @@ def test_recorded_sandbox_for_another_target_does_not_refuse(root):
 @pytest.mark.parametrize("stamp", ["live=sandbox", "*=sandbox", "garbage", "live=maybe"])
 def test_launch_pinned(root, monkeypatch, stamp):
     _host(root, switch={"live": "asked"})
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, stamp)
     _refused(write_verdict(LIVE, "live"), "launch_pinned")
 
 
 @pytest.mark.parametrize("stamp", ["live=sandbox", "garbage"])
 def test_ignore_launch_pin_skips_only_the_pin(root, monkeypatch, stamp):
     _host(root, switch={"live": "asked"})
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, stamp)
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, stamp)
     assert write_verdict(LIVE, "live", ignore_launch_pin=True).allowed is True
 
 
 def test_ignore_launch_pin_still_reports_the_switch(root, monkeypatch):
     _host(root)
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "live=sandbox")
     _refused(write_verdict(LIVE, "live", ignore_launch_pin=True), "switch_off")
 
 
 def test_pin_on_another_target_does_not_refuse(root, monkeypatch):
     _host(root, switch={"live": "asked"})
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=sandbox")
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=sandbox")
     assert write_verdict(LIVE, "live").allowed is True
 
 
@@ -318,12 +318,12 @@ def test_pin_on_another_target_does_not_refuse(root, monkeypatch):
 
 def test_order_readonly_beats_everything(monkeypatch):
     monkeypatch.setenv(EXECUTION_MODE, "readonly")
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "garbage")
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "garbage")
     _refused(write_verdict(NEVER, "bogus", owner=NO_OWNER), "readonly_run")
 
 
 def test_order_tier_beats_target_and_owner(monkeypatch):
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "garbage")
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "garbage")
     _refused(write_verdict(NEVER, "bogus", owner=NO_OWNER), "tier_never")
 
 
@@ -356,13 +356,13 @@ def test_order_foreign_owner_beats_the_rung_and_the_record(root):
 
 def test_order_record_beats_the_pin(root, monkeypatch):
     write_payload(control_context._record_path_under(root), "{not json")
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "live=sandbox")
     _refused(write_verdict(LIVE, "live"), "record_unavailable")
 
 
 def test_order_switch_beats_the_pin(root, monkeypatch):
     _host(root)
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "live=sandbox")
     _refused(write_verdict(LIVE, "live"), "switch_off")
 
 
@@ -392,13 +392,13 @@ def test_a_foreign_owner_on_the_host_never_reads_the_record(root, monkeypatch):
 
 def test_a_stamped_foreign_owner_on_the_host_is_refused(root, monkeypatch):
     _host(root, switch={"live": "asked"})
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "alice")
     _refused(write_verdict(LIVE, "live"), "owner_foreign")
 
 
 def test_a_bound_foreign_owner_on_the_host_is_refused(root):
     _host(root, switch={"live": "asked"})
-    with posture_store.bind_owner({posture_store.RESERVED_OWNER_KWARG: "alice"}):
+    with write_switch.bind_owner({write_switch.RESERVED_OWNER_KWARG: "alice"}):
         _refused(write_verdict(LIVE, "live"), "owner_foreign")
 
 
@@ -433,7 +433,7 @@ def test_two_owners_in_one_tree_read_their_own_records(tree):
 def test_the_bound_owner_is_the_one_read(tree):
     _tree_record(tree, "alice", switch={"live": "asked"})
     section = {**LIVE, "login_tiers": {"alice": "allowed"}}
-    with posture_store.bind_owner({posture_store.RESERVED_OWNER_KWARG: "alice"}):
+    with write_switch.bind_owner({write_switch.RESERVED_OWNER_KWARG: "alice"}):
         assert write_verdict(section, "live").allowed is True
 
 
@@ -485,12 +485,12 @@ def test_foreign_schema_tree_record_is_record_unavailable(tree):
 def test_unprovisioned_tree_is_record_unavailable(tmp_path, monkeypatch):
     bare = tmp_path / "bare"
     bare.mkdir()
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(bare))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(bare))
     _refused(write_verdict(TREE_SECTION, "live", owner="alice"), "record_unavailable")
 
 
 def test_unusable_tree_bind_is_record_unavailable(monkeypatch):
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "relative/tree")
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "relative/tree")
     _refused(write_verdict(TREE_SECTION, "live", owner="alice"), "record_unavailable")
 
 
@@ -588,7 +588,7 @@ def test_under_a_tree_the_containers_own_tier_does_not_cap(tree):
 
 def test_ignoring_the_pin_still_reports_the_position(root, monkeypatch):
     _host(root, switch={"live": "allowed"})
-    monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
+    monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "live=sandbox")
     _refused(write_verdict(LIVE, "live"), "launch_pinned")
     assert write_verdict(LIVE, "live", ignore_launch_pin=True).position == "allowed"
 

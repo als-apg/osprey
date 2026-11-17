@@ -172,11 +172,13 @@ def store_deny(config: dict, project_dir: Path) -> list[str]:
     Rendered through its own context key, after ``killswitch_deny`` and never
     filtered, so no profile ``remove_deny`` can lift it.
     """
-    from osprey_connectors.posture_store import STATE_DIR_NAME
     from osprey_connectors.workspace import agent_data_base_dir
+    from osprey_connectors.write_switch import CONTROL_STATE_DIR_NAME
 
-    absolute = _spellable(str(_resolved_agent_data_root(config, project_dir) / STATE_DIR_NAME))
-    relative = f"{agent_data_base_dir(config)}/{STATE_DIR_NAME}"
+    absolute = _spellable(
+        str(_resolved_agent_data_root(config, project_dir) / CONTROL_STATE_DIR_NAME)
+    )
+    relative = f"{agent_data_base_dir(config)}/{CONTROL_STATE_DIR_NAME}"
     return [f"Edit(/{absolute}/**)", f"Edit({relative}/**)"]
 
 

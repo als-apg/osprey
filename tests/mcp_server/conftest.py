@@ -24,7 +24,7 @@ from osprey.mcp_server.control_system.server_context import (
 )
 from osprey.mcp_server.workspace.tools.screen_capture_backends import reset_backend
 from osprey.stores.artifact_store import reset_artifact_store
-from osprey_connectors import control_context
+from osprey_connectors import testing
 from osprey_connectors.workspace import reset_config_cache
 from tests._config_lookup import reset_config_caches  # noqa: F401 - fixture, used by name
 
@@ -361,7 +361,7 @@ class WebSession:
         from osprey.stores import session_ledger
 
         assert session_ledger.append(self.state_dir, self.key, transcript)
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         self.transcript = transcript
 
 
@@ -395,19 +395,19 @@ def web_session(tmp_path, monkeypatch) -> WebSession:
     ``clear(new_id)`` to move it.
     """
     from osprey.stores import session_ledger
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     for name in _SCOPE_ENV:
         monkeypatch.delenv(name, raising=False)
     state_dir = tmp_path / "state"
     state_dir.mkdir(exist_ok=True)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
     session = WebSession(state_dir)
     assert session_ledger.append(state_dir, session.key, session.transcript, session_ledger.EPOCH)
     monkeypatch.setenv("OSPREY_SESSION_ID", session.key)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield session
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -419,18 +419,18 @@ def cli_session(tmp_path, monkeypatch) -> CliSession:
     first id, as the harness's MCP children do; ``clear(new_id)`` moves only the
     pointer. An empty temp ledger is bound so nothing reads a real one.
     """
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     for name in _SCOPE_ENV:
         monkeypatch.delenv(name, raising=False)
     state_dir = tmp_path / "state"
     state_dir.mkdir(exist_ok=True)
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
     session = CliSession(tmp_path / "_agent_data")
     session.clear("dddddddd-dddd-4ddd-8ddd-dddddddddddd")
     monkeypatch.setenv("OSPREY_TERMINAL_SESSION", session.terminal_session)
     monkeypatch.setenv("OSPREY_CLI_LAUNCH", session.launch)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session.transcript)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield session
-    control_context.invalidate_cache()
+    testing.invalidate_cache()

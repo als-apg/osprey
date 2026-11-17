@@ -34,7 +34,7 @@ from osprey.build.claude_code_telemetry import (
 from osprey.interfaces.web_terminal import session_handoff, session_meta, transcript_map
 from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.stores import session_ledger
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from tests.agent_record.fakes import FakeRecordClient
 
 ME = "alice"
@@ -58,11 +58,11 @@ class RecordingBroadcaster:
 def state_root(tmp_path, monkeypatch):
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture

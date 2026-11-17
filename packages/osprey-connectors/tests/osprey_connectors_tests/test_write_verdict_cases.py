@@ -2,8 +2,8 @@
 
 The table (``_harness/fixtures/write_verdict_cases.json``) is shared with the
 hook's stdlib twin; this module drives its ``package`` rows through
-:func:`~osprey_connectors.posture_store.write_verdict` and
-:func:`~osprey_connectors.posture_store.backstop_verdict`, and pins the
+:func:`~osprey_connectors.write_switch.write_verdict` and
+:func:`~osprey_connectors.write_switch.backstop_verdict`, and pins the
 loader's own checks: a reason outside ``REASONS`` and a reason with no row
 both fail the load.
 """
@@ -15,8 +15,8 @@ import json
 
 import pytest
 
-from osprey_connectors.posture_store import backstop_verdict, write_verdict
 from osprey_connectors.refusals import REASONS
+from osprey_connectors.write_switch import backstop_verdict, write_verdict
 from osprey_connectors_tests._harness._write_verdict_cases import (
     CASES,
     CASES_PATH,

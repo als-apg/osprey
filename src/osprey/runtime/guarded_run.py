@@ -695,7 +695,7 @@ def lock(
         OspreyRunBusy: Another run holds the target's lock.
         OSError: The lock could not be opened.
     """
-    from osprey_connectors.posture_env import is_readonly_run
+    from osprey_connectors.execution_mode import is_readonly_run
 
     if is_readonly_run():
         raise OspreyWriteRefused(_READONLY_REASON)
@@ -814,7 +814,7 @@ def _admit(
         OspreyWriteRefused: A condition does not hold.
         ChannelLimitsViolationError: An address fails the connector's validator.
     """
-    from osprey_connectors.posture_store import NO_OWNER, current_owner
+    from osprey_connectors.write_switch import NO_OWNER, current_owner
 
     if not batch:
         raise OspreyWriteRefused("a command write names no command")
@@ -933,7 +933,7 @@ async def command_write(
     * this process holds a run lock with an :class:`ActionContext`;
     * the batch names each command once;
     * the owner the write path reads
-      (:func:`osprey_connectors.posture_store.current_owner`) is that
+      (:func:`osprey_connectors.write_switch.current_owner`) is that
       context's owner, and the context names one;
     * the connector's control target, its ``baseline`` resolved as
       :func:`guarded_run_target` resolves it, is the context's target;

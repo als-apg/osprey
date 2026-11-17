@@ -38,8 +38,8 @@ from osprey.agent_runner import tool_names
 from osprey_connectors import refusals, write_target
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.errors import ChannelNotFoundError, ChannelWriteBlockedError
-from osprey_connectors.posture_store import Allowed, Refused
 from osprey_connectors.refusals import RefusalReason
+from osprey_connectors.write_switch import Allowed, Refused
 
 
 def _package_phrases() -> dict[str, str]:
@@ -469,9 +469,7 @@ def _chip_surface() -> list[str]:
         texts += [m.group(0)[1:-1] for m in _JS_LITERAL.finditer(source) if " " in m.group(0)]
     texts.append(owner.owned_elsewhere_message(None))
     texts.append(
-        owner.owned_elsewhere_message(
-            SimpleNamespace(kind=owner.OWNER_WEB_TERMINAL, pid=42, port=8080)
-        )
+        owner.owned_elsewhere_message(SimpleNamespace(kind="web_terminal", pid=42, port=8080))
     )
     return texts
 

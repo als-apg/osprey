@@ -37,7 +37,7 @@ from typing import Any
 import pytest
 
 from osprey.mcp_server.control_system import target_eligibility as te
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors_tests._harness import state_dir_under
 
 # ===========================================================================
@@ -468,14 +468,14 @@ def test_a_row_with_no_probed_at_still_counts_as_a_measurement() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_gate_never_reads_the_posture_store(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_gate_never_reads_the_write_switch(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every fact arrives as an argument; a store read here would be a file read."""
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
     def _explode(*args: Any, **kwargs: Any) -> bool:
         raise AssertionError("evaluate_switch read the posture store")
 
-    monkeypatch.setattr(posture_store, "write_verdict", _explode)
+    monkeypatch.setattr(write_switch, "write_verdict", _explode)
 
     assert _gate(writes_enabled=False).allowed is True
     assert _gate(writes_enabled=True).allowed is True
@@ -651,7 +651,7 @@ def test_both_callers_get_identical_verdicts(
         write_server_report(
             root, live_pid, reachability=_reachability((LIVE, "read_only", "reached"))
         )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     route = _route_caller_verdict(config, wanted, LIVE)
     tool = _tool_caller_verdict(config, wanted, LIVE)
@@ -708,7 +708,7 @@ def test_each_parity_world_is_the_verdict_it_claims_to_be(
         write_server_report(
             root, live_pid, reachability=_reachability((LIVE, "read_only", "reached"))
         )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
     verdict = _route_caller_verdict(config, wanted, LIVE)
 

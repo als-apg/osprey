@@ -57,7 +57,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from osprey_connectors.posture_store import bind_owner, current_owner
+from osprey_connectors.write_switch import bind_owner, current_owner
 
 from .plan_fields import declared_channels
 from .plan_validation import hash_plan_body

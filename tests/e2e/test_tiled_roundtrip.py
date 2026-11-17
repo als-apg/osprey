@@ -69,7 +69,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import (
@@ -405,7 +405,7 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
         "POST",
         {"draft_revision": patched["revision"]},
         token=deployed_stack.token,
-        owner=posture_store.current_owner(),
+        owner=write_switch.current_owner(),
     )
     assert status == 200, f"POST /queue/items failed: {status} {enqueued}"
     run_id = enqueued["run_id"]

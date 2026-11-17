@@ -39,9 +39,9 @@ from osprey.services.watchdog.config import (
 )
 from osprey.services.watchdog.history import SessionNodes, read_session_nodes
 from osprey.services.watchdog.verdict import ErrorType, Verdict, record_verdict
-from osprey_connectors.posture_store import state_dir
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors.session_hold import open_flag
+from osprey_connectors.write_switch import state_dir
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.services.watchdog.engines.agent import JudgeCredentials

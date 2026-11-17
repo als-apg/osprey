@@ -5,7 +5,7 @@ builder and one way to arm writes, so the files that pin the write guard do not
 each carry their own byte-equivalent copy.
 
 Arming a write takes what the reference monitor's verdict asks for
-(:func:`osprey_connectors.posture_store.write_verdict`): a ``control_system``
+(:func:`osprey_connectors.write_switch.write_verdict`): a ``control_system``
 section whose tier allows writes, a connector stamped with the machine it
 writes to, and the login's switch turned on for that machine in its record.
 :data:`ARMED_SECTION` is the first, :func:`arm_switch` the other two.
@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import (
@@ -128,10 +128,10 @@ def turn_switch(target: str, state: str) -> None:
         try:
             control_context.set_switch([target], state, epoch=record.switch_epoch)
         except control_context.StoppedSinceError:
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
             record = control_context.read_record()
             control_context.set_switch([target], state, epoch=record.switch_epoch)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 class RecordingConnector(ControlSystemConnector):

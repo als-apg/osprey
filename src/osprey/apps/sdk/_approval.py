@@ -6,7 +6,7 @@ live-target check, in this order:
 
 1. **Offered** — the render must carry the tool's approval entry
    (:func:`~osprey.mcp_server.approval_record.app_approval_entry`).
-2. **Execution verdict** — :func:`~osprey_connectors.posture_store.execution_verdict`:
+2. **Execution verdict** — :func:`~osprey_connectors.write_switch.execution_verdict`:
    the write verdict for the session's recorded control target, with the
    session's hold after the read-only run and the tier.
 3. **Approval record** —
@@ -36,9 +36,9 @@ from osprey.apps.errors import AppManifestError
 from osprey.mcp_server import approval_record
 from osprey.mcp_server.approval_record import APPROVAL_CONFIG_INVALID, APPROVAL_MISSING, Refusal
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
-from osprey_connectors.posture_store import Refused, WriteVerdict
 from osprey_connectors.refusals import VerdictReason, refusal_text
 from osprey_connectors.workspace import load_osprey_config
+from osprey_connectors.write_switch import Refused, WriteVerdict
 
 logger = logging.getLogger(__name__)
 

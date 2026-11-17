@@ -904,9 +904,9 @@ def test_store_naming_code_with_a_write_switch_stamp_is_refused(
     stamps: Path, monkeypatch: pytest.MonkeyPatch, config: dict[str, Any]
 ) -> None:
     """``allowed`` asked nobody, so its record cannot vouch for code naming the store."""
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.DISPATCH_RUN_ENV_VAR, raising=False)
     _stamp(stamps, approver=APPROVER_WRITE_SWITCH, **_AT_ALLOWED)
 
     refusal = _store_check(config)
@@ -919,9 +919,9 @@ def test_store_naming_code_with_a_write_switch_stamp_is_refused(
 def test_store_naming_code_with_a_human_stamp_runs(
     stamps: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.DISPATCH_RUN_ENV_VAR, raising=False)
     _stamp(stamps, approver=APPROVER_HUMAN)
 
     assert _store_check(_ASKING_CONFIG) is None
@@ -931,9 +931,9 @@ def test_store_naming_code_with_a_dispatch_policy_stamp_runs_outside_a_dispatch_
     stamps: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The approver rule admits ``dispatch_policy``; a dispatch run is refused before it."""
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.DISPATCH_RUN_ENV_VAR, raising=False)
     _stamp(stamps, approver=APPROVER_DISPATCH_POLICY)
 
     assert _store_check(_ASKING_CONFIG) is None
@@ -949,9 +949,9 @@ def test_store_naming_code_with_a_dispatch_policy_stamp_runs_outside_a_dispatch_
 def test_store_naming_code_with_an_unprompted_stamp_is_refused(
     stamps: Path, monkeypatch: pytest.MonkeyPatch, fields: dict[str, str]
 ) -> None:
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
+    monkeypatch.delenv(write_switch.DISPATCH_RUN_ENV_VAR, raising=False)
     payload = {"tool_use_id": _CALL_ID, "tool": "mcp__python__execute", **fields}
     (stamps / f"approval_ask_{_CALL_ID}.json").write_text(json.dumps(payload), encoding="utf-8")
 

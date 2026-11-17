@@ -85,6 +85,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
+from osprey_connectors import testing
 
 
 class StubWorkspaceWatcher:
@@ -269,16 +270,15 @@ def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
     """Point every resolver at one throwaway agent-data root, verdict env clean.
 
     ``OSPREY_AGENT_DATA_ROOT`` is the single stamp the record reader and
-    ``posture_store`` both prefer — the stamp this feature puts in every
+    ``write_switch`` both prefer — the stamp this feature puts in every
     session child's environment. Patching ``resolve_shared_data_root`` instead
-    would redirect only one of them: ``posture_store`` binds the resolver at
+    would redirect only one of them: ``write_switch`` binds the resolver at
     import, so the other half would write into the repository's own
     ``var/agent_data``. Every variable that changes a write verdict behind a
     test's back — a stamped owner, a bound tree, a launch pin, a read-only run
     — is cleared, so each case states the one it means. Both caches are
     dropped on the way in and out.
     """
-    from osprey_connectors import control_context
     from osprey_connectors_tests._harness import VERDICT_ENV_VARS, state_dir_under
 
     root = tmp_path / "agent_data"
@@ -286,9 +286,9 @@ def agent_data_root(tmp_path, monkeypatch) -> Iterator[Path]:
     for name in VERDICT_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture

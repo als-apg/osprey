@@ -87,19 +87,18 @@ from osprey.agent_runner.launcher import project_agent_cli_path
 from osprey.agent_runner.primitives import _ingest_tool_result
 from osprey.mcp_server.control_system.connector_host_manager import baseline_target
 from osprey.mcp_server.control_system.target_state import (
+    CONTROL_STATE_DIR_NAME,
     INFLIGHT_FILE_GLOB,
     REPORT_FILE_GLOB,
     REQUEST_FILE_GLOB,
     REQUEST_FILE_PREFIX,
     REQUEST_FILE_SUFFIX,
-    STATE_DIR_NAME,
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.connector_types import TARGET_LIVE, TARGET_VA
 from osprey_connectors.control_context import (
     RECORD_FILENAME,
-    SWITCH_APPLIED,
     live_reports,
     read_record,
     write_json_atomic,
@@ -737,7 +736,7 @@ def clear_control_state(repo: Path) -> list[Path]:
     serialisation an owner does around a write.
     """
     removed: list[Path] = []
-    for directory in repo.rglob(STATE_DIR_NAME):
+    for directory in repo.rglob(CONTROL_STATE_DIR_NAME):
         if not directory.is_dir():
             continue
         for pattern in CONTROL_STATE_GLOBS:
@@ -1516,7 +1515,7 @@ def record_files(deployment: SwitchDeployment) -> list[Path]:
     found = [
         path
         for path in deployment.repo.rglob(RECORD_FILENAME)
-        if path.parent.parent.name == STATE_DIR_NAME
+        if path.parent.parent.name == CONTROL_STATE_DIR_NAME
     ]
     return sorted(found, key=lambda path: path.stat().st_mtime, reverse=True)
 
@@ -1603,7 +1602,7 @@ def switch_from_outside(
         record = read_record(path=record_path) or record
         answer = record.last_switch or {}
         if answer.get("request_id") == request_id:
-            assert answer.get("status") == SWITCH_APPLIED, (
+            assert answer.get("status") == "applied", (
                 f"the owner refused the switch to {target!r} filed from outside the session: "
                 f"{answer}"
             )

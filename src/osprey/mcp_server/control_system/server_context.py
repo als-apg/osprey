@@ -193,9 +193,7 @@ def claim_control_context(
             return record
 
         pid = os.getpid() if server_pid is None else server_pid
-        writer = control_context.RecordWriter(
-            kind=control_context.OWNER_CONTROLS_SERVER, pid=pid, port=None
-        )
+        writer = control_context.RecordWriter(kind="controls_server", pid=pid, port=None)
         claimed = (
             control_context.ControlContext(target=baseline, generation=0, writer=writer)
             if record is None

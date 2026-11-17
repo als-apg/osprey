@@ -78,7 +78,7 @@ from osprey.interfaces.web_terminal.supervised_child import (
 )
 from osprey.mcp_server.sandbox_env import drop_sandbox_denied_env
 from osprey.runtime.session import EXIT_BINDING_MOVED, EXIT_START_REFUSED, EXIT_TRANSPORT_STALE
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, acting_identity
 
 logger = logging.getLogger(__name__)
@@ -189,9 +189,9 @@ class ValueSupervisor:
         """The child's complete environment, as it is now (module docstring)."""
         env = drop_sandbox_denied_env(os.environ)
         env["OSPREY_CONFIG"] = env["CONFIG_FILE"] = self._config_path
-        state_dir = posture_store.state_dir()
+        state_dir = write_switch.state_dir()
         if state_dir is not None:
-            env[posture_store.CONTROL_CONTEXT_DIR_ENV_VAR] = str(state_dir)
+            env[write_switch.CONTROL_CONTEXT_DIR_ENV_VAR] = str(state_dir)
         env[AUDIT_IDENTITY_ENV] = acting_identity()
         return env
 

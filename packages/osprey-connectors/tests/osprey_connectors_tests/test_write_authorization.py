@@ -27,11 +27,10 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors import control_context, posture_store, refusals, session_hold
+from osprey_connectors import control_context, refusals, session_hold, testing, write_switch
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.model import evolve, parse_instant
-from osprey_connectors.posture_store import FixedCause
 from osprey_connectors.write_authorization import (
     Approver,
     AuthorizationRefusedError,
@@ -53,6 +52,7 @@ from osprey_connectors.write_authorization import (
     spend_authorized_write,
     start_lease,
 )
+from osprey_connectors.write_switch import FixedCause
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     pin_identity,
@@ -114,7 +114,7 @@ def spend(section: Any, target: str, operations: Any, *, authorization: str) -> 
 
 
 def record() -> control_context.ControlContext:
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     current = control_context.read_record()
     assert current is not None
     return current
@@ -132,7 +132,7 @@ def switch(position: str) -> None:
         control_context.set_switch([TARGET], "off")
     else:
         control_context.set_switch([TARGET], position, epoch=epoch())  # type: ignore[arg-type]
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
@@ -274,7 +274,7 @@ def _stage(row: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> str:
         path = control_context.record_path()
         assert path is not None
         path.write_text("{not json")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
     for name, value in row.get("env", {}).items():
         monkeypatch.setenv(name, value)
     return grant.id
@@ -634,7 +634,7 @@ class TestFormats:
         assert set(json.loads(before)) == {
             "schema", "owner", "target", "generation", "posture", "last_switch", "switch", "switch_epoch",
         }  # fmt: skip
-        assert posture_store.write_verdict(SECTION, TARGET).reason == "switch_off"
+        assert write_switch.write_verdict(SECTION, TARGET).reason == "switch_off"
 
 
 # -- fail-closed reads --------------------------------------------------------
@@ -817,7 +817,7 @@ class TestComposition:
     def test_a_switch_turned_on_mid_run_does_not_lift_the_bounds(self, position: str):
         grant = approve()
         switch(position)
-        assert posture_store.write_verdict(SECTION, TARGET).allowed
+        assert write_switch.write_verdict(SECTION, TARGET).allowed
         for operations, reason in (
             ([("C:SP", 1.0)], "auth_channel"),
             ([("A:SP", 11.0)], "auth_range"),
@@ -847,7 +847,7 @@ class TestComposition:
 
     def test_an_authorization_lifts_no_pin_with_the_switch_on_or_off(self, monkeypatch):
         grant = approve()
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "va=sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "va=sandbox")
         assert (
             authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id).reason
             == "launch_pinned"
@@ -1253,7 +1253,7 @@ class TestStops:
     def test_a_stop_of_every_machine_ends_it_by_the_epoch_alone(self):
         grant = approve()
         control_context.set_switch("all", "off")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         assert verdict(grant.id).reason == "auth_revoked"
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_revoked"
         with pytest.raises(AuthorizationRefusedError) as unrenewed:
@@ -1306,7 +1306,7 @@ class TestStops:
         path = control_context.record_path()
         assert path is not None
         path.unlink()
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         assert verdict(grant.id).reason == "auth_revoked"
 
 
@@ -1352,7 +1352,7 @@ class TestSelfIssue:
 
     def test_a_pinned_launch_issues_nothing(self, monkeypatch):
         switch("allowed")
-        monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
+        monkeypatch.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
         with pytest.raises(AuthorizationRefusedError) as refused:
             _self_issue()
         assert refused.value.reason == "launch_pinned"
@@ -1364,7 +1364,7 @@ class TestSelfIssue:
         def stop_after(grant: Grant, *, directory: Path | None = None, peers: Any = ()) -> Path:
             path = real(grant, directory=directory, peers=peers)
             control_context.set_switch("all", "off")
-            control_context.invalidate_cache()
+            testing.invalidate_cache()
             return path
 
         monkeypatch.setattr(wa, "_issue_grant", stop_after)
@@ -1397,7 +1397,7 @@ class TestSelfIssue:
         grant = _self_issue()
         start_lease(grant.id)
         control_context.set_switch("all", "off")
-        control_context.invalidate_cache()
+        testing.invalidate_cache()
         assert verdict(grant.id).reason == "auth_revoked"
 
     def test_no_ledger_directory_refuses_before_a_malformed_grant(self, tmp_path, monkeypatch):
@@ -1678,7 +1678,7 @@ class TestTree:
     def tree(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         tree = tmp_path / "tree"
         (tree / "alice").mkdir(parents=True)
-        (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("")
+        (tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("")
         payload = control_context.ControlContext(target="live", generation=1).model_dump(
             mode="json"
         )
@@ -1686,8 +1686,8 @@ class TestTree:
         write_payload(tree / "alice" / control_context.RECORD_FILENAME, payload)
         ledgers = tmp_path / "ledgers"
         ledgers.mkdir()
-        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
-        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+        monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+        monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "alice")
         monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(ledgers))
         pin_identity(monkeypatch, "optimizer")
         return tree
@@ -1716,7 +1716,7 @@ class TestTree:
     def test_the_owners_grant_lets_the_holder_write_with_the_switch_off(self, tree: Path):
         grant = self.issue(tree)
         assert wa.authorizations_dir("alice") == tree / "alice" / wa.AUTHORIZATIONS_DIR_NAME
-        assert posture_store.write_verdict(self.SECTION, TARGET).reason == "switch_off"
+        assert write_switch.write_verdict(self.SECTION, TARGET).reason == "switch_off"
         answer = spend_authorized_write(self.SECTION, TARGET, OPS, authorization=grant.id)
         assert answer.allowed
         assert len(ledger(grant.id).spent) == 1
@@ -1751,5 +1751,5 @@ class TestTree:
 
     def test_an_unprovisioned_tree_refuses_as_the_switch_does(self, tree: Path):
         grant = self.issue(tree)
-        (tree / posture_store.CONTROL_TREE_MARKER_NAME).unlink()
+        (tree / write_switch.CONTROL_TREE_MARKER_NAME).unlink()
         assert verdict(grant.id, section=self.SECTION).reason == "record_unavailable"

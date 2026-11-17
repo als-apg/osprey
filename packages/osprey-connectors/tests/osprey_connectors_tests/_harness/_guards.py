@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 from rich.logging import RichHandler
 
+from osprey_connectors import testing
 from osprey_connectors.logger import _QUIET_THIRD_PARTY_LOGGERS
 from osprey_connectors_tests._harness import (
     _env_scope_guard,
@@ -915,14 +916,14 @@ def control_context_root(tmp_path, monkeypatch):
     directory is created, so a test can write a raw file into it without
     reaching for ``mkdir`` first.
     """
-    from osprey_connectors import control_context, posture_store
+    from osprey_connectors import write_switch
 
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    (root / write_switch.CONTROL_STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield root
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 # ===================================================================

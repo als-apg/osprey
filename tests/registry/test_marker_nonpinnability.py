@@ -72,7 +72,7 @@ from osprey.registry.mcp import (
     TOOL_PREFIX_ENV,
     resolve_servers,
 )
-from osprey_connectors import posture_store, session_hold
+from osprey_connectors import session_hold, write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV as IDENTITY_MODULE_AUDIT_IDENTITY_ENV
 from osprey_connectors.identity import IDENTITY_ENV_LADDER, TERMINAL_USER_ENV
 from tests.registry._ctx import render_ctx, resolve_one
@@ -155,40 +155,40 @@ class TestMarkerSpellings:
         assert mcp.TERMINAL_SESSION_ENV == "OSPREY_TERMINAL_SESSION"
         assert mcp.TERMINAL_SESSION_ENV in NON_PINNABLE_AUDIT_MARKERS
 
-    def test_the_owner_marker_is_the_posture_store_spelling(self):
+    def test_the_owner_marker_is_the_write_switch_spelling(self):
         """The owner decides WHOSE narrowing a write is judged against, so a spec
         that could pin it could hand a plan another user's chip. Pinned by
         identity against the module that resolves the owner from it.
         """
-        assert CONTROL_OWNER_ENV is posture_store.CONTROL_OWNER_ENV_VAR
+        assert CONTROL_OWNER_ENV is write_switch.CONTROL_OWNER_ENV_VAR
         assert CONTROL_OWNER_ENV == "OSPREY_CONTROL_OWNER"
         assert CONTROL_OWNER_ENV in NON_PINNABLE_AUDIT_MARKERS
 
-    def test_the_control_tree_marker_is_the_posture_store_spelling(self):
+    def test_the_control_tree_marker_is_the_write_switch_spelling(self):
         """Its mere presence makes a container owned-or-nothing instead of
         falling through to the account it runs as, so a pin can both invent that
         state and hide it. Pinned by identity against the module that reads it.
         """
-        assert CONTROL_CONTEXT_TREE_ENV is posture_store.CONTROL_CONTEXT_TREE_ENV_VAR
+        assert CONTROL_CONTEXT_TREE_ENV is write_switch.CONTROL_CONTEXT_TREE_ENV_VAR
         assert CONTROL_CONTEXT_TREE_ENV == "OSPREY_CONTROL_CONTEXT_TREE"
         assert CONTROL_CONTEXT_TREE_ENV in NON_PINNABLE_AUDIT_MARKERS
 
-    def test_the_control_context_dir_marker_is_the_posture_store_spelling(self):
+    def test_the_control_context_dir_marker_is_the_write_switch_spelling(self):
         """The per-owner directory the chip is written to and read from, so a pin
         aims the read at a directory holding no record — which reads as "nothing
         narrowed". Pinned by identity against the module that reads it, the same
         constant the web-terminal overlay assigns it under.
         """
-        assert CONTROL_CONTEXT_DIR_ENV is posture_store.CONTROL_CONTEXT_DIR_ENV_VAR
+        assert CONTROL_CONTEXT_DIR_ENV is write_switch.CONTROL_CONTEXT_DIR_ENV_VAR
         assert CONTROL_CONTEXT_DIR_ENV == "OSPREY_CONTROL_CONTEXT_DIR"
         assert CONTROL_CONTEXT_DIR_ENV in NON_PINNABLE_AUDIT_MARKERS
 
-    def test_the_dispatch_run_marker_is_the_posture_store_spelling(self):
+    def test_the_dispatch_run_marker_is_the_write_switch_spelling(self):
         """It makes a process a dispatch job, which owns no narrowing, so a pin
         could present the ownerless answer where an owner's chip should be read.
         Pinned by identity against the module that reads it.
         """
-        assert DISPATCH_RUN_ENV is posture_store.DISPATCH_RUN_ENV_VAR
+        assert DISPATCH_RUN_ENV is write_switch.DISPATCH_RUN_ENV_VAR
         assert DISPATCH_RUN_ENV == _DISPATCH_MARKER_LITERAL
         assert DISPATCH_RUN_ENV in NON_PINNABLE_AUDIT_MARKERS
 
@@ -203,7 +203,7 @@ class TestMarkerSpellings:
         """Pinned against the modules that read them."""
         from osprey.registry import mcp
 
-        assert mcp.SESSION_ID_ENV == posture_store._SESSION_KEY_ENV_VAR
+        assert mcp.SESSION_ID_ENV == write_switch._SESSION_KEY_ENV_VAR
         assert mcp.HOLD_DIR_ENV_VAR == session_hold.HOLD_DIR_ENV_VAR
 
     def test_the_agent_data_root_is_non_pinnable(self):

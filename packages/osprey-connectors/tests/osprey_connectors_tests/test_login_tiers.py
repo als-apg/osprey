@@ -3,7 +3,7 @@
 A shared container reads other logins' records, so its own section's tier says
 nothing about the owner of the record it reads. The build renders
 ``control_system.login_tiers`` — ``{<login>: "never" | "asked" | "allowed"}`` — and
-:func:`~osprey_connectors.posture_store.owner_tier_term` reads the owner's entry.
+:func:`~osprey_connectors.write_switch.owner_tier_term` reads the owner's entry.
 The rung applies when the section carries the map or a control-context tree is
 bound; under a tree a missing or unreadable map is ``unknown``, never skipped.
 """
@@ -14,12 +14,12 @@ import json
 
 import pytest
 
-from osprey_connectors import posture_store
-from osprey_connectors.posture_store import NO_OWNER, owner_tier_term
+from osprey_connectors import write_switch
+from osprey_connectors.write_switch import NO_OWNER, owner_tier_term
 from osprey_connectors_tests._harness._write_verdict_cases import LOGIN_TIERS_SHAPE_PATH
 
 SHAPE = LOGIN_TIERS_SHAPE_PATH
-TREE_ENV = posture_store.CONTROL_CONTEXT_TREE_ENV_VAR
+TREE_ENV = write_switch.CONTROL_CONTEXT_TREE_ENV_VAR
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def _section(login_tiers):
 
 
 def test_the_leaf_names_the_documented_location():
-    assert f"control_system.{posture_store._LOGIN_TIERS_LEAF}" == "control_system.login_tiers"
+    assert f"control_system.{write_switch._LOGIN_TIERS_LEAF}" == "control_system.login_tiers"
 
 
 @pytest.mark.parametrize(
@@ -194,7 +194,7 @@ def _shape() -> dict:
 
 def test_the_shape_fixture_states_location_shape_sources_and_arms():
     shape = _shape()
-    assert shape["location"] == f"control_system.{posture_store._LOGIN_TIERS_LEAF}"
+    assert shape["location"] == f"control_system.{write_switch._LOGIN_TIERS_LEAF}"
     assert shape["value_shape"]["values"] == ["allowed", "never"]
     assert shape["sources"]
     assert set(shape["terms"]) == {"skip", "allowed", "never", "unknown"}

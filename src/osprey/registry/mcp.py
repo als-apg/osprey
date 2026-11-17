@@ -27,15 +27,15 @@ from osprey.profiles.sidecar_panels import SIDECAR_PANELS, SidecarPanel
 from osprey.utils.owner_header import OWNER_HEADER, SESSION_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey_connectors.identity import IDENTITY_ENV_LADDER
-from osprey_connectors.posture_store import (
+from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
+from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
+from osprey_connectors.write_switch import (
     CONTROL_CONTEXT_DIR_ENV_VAR,
     CONTROL_CONTEXT_TREE_ENV_VAR,
     CONTROL_OWNER_ENV_VAR,
     DISPATCH_RUN_ENV_VAR,
-    LAUNCH_POSTURE_ENV_VAR,
+    LAUNCH_PIN_ENV_VAR,
 )
-from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
-from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
 
@@ -1565,21 +1565,21 @@ POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
 TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 
 #: The session a write's hold is read for. Spelled here because its connectors
-#: owner, ``posture_store._SESSION_KEY_ENV_VAR``, is private.
+#: owner, ``write_switch._SESSION_KEY_ENV_VAR``, is private.
 SESSION_ID_ENV = "OSPREY_SESSION_ID"
 
 #: The per-target posture a python-executor sandbox was LAUNCHED under.
 #: Imported rather than re-spelled: unlike the names above, its owner
-#: (:mod:`osprey_connectors.posture_store`) is a package the registry may
+#: (:mod:`osprey_connectors.write_switch`) is a package the registry may
 #: import without an import cycle, and it is both the stamp's format authority
 #: and its reader.
-LAUNCH_POSTURE_ENV = LAUNCH_POSTURE_ENV_VAR
+LAUNCH_POSTURE_ENV = LAUNCH_PIN_ENV_VAR
 
 #: The stamped owner of the work a process is doing — the rung
-#: :func:`~osprey_connectors.posture_store.current_owner` reads from the
+#: :func:`~osprey_connectors.write_switch.current_owner` reads from the
 #: environment, and therefore the name whose narrowing an owned write is judged
 #: against. Imported rather than re-spelled: its owner
-#: (:mod:`osprey_connectors.posture_store`) is a package the registry may import
+#: (:mod:`osprey_connectors.write_switch`) is a package the registry may import
 #: without an import cycle, and it is both the stamp's format authority and its
 #: reader.
 CONTROL_OWNER_ENV = CONTROL_OWNER_ENV_VAR

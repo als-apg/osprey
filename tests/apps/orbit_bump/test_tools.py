@@ -25,7 +25,7 @@ from orbit_bump.server import (
 from osprey.apps.sdk import ApprovalRefused
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
 from osprey.mcp_server.startup import application_server
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import testing, write_switch
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -129,9 +129,9 @@ def stamps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     _deploy(tmp_path, monkeypatch, writes="asked")
     write_control_context(
-        posture_store.stamped_agent_data_root(), "va", 1, switch={"va": "asked", "live": "asked"}
+        write_switch.stamped_agent_data_root(), "va", 1, switch={"va": "asked", "live": "asked"}
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield use_stamp_dir(monkeypatch, tmp_path / "stamps")
     reset_config_cache()
 
@@ -272,9 +272,9 @@ async def test_a_target_switched_since_the_approval_never_reaches_the_door(
     stamps: ApprovalStamps, door: Door
 ) -> None:
     write_control_context(
-        posture_store.stamped_agent_data_root(), "standin", 2, switch={"standin": "asked"}
+        write_switch.stamped_agent_data_root(), "standin", 2, switch={"standin": "asked"}
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     with _approved(stamps), pytest.raises(ApprovalRefused):
         await tools_apply(plan_id=PLAN, **APPROVED)
     assert door.requests == []

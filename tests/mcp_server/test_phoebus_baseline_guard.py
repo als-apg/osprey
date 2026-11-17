@@ -31,7 +31,7 @@ import yaml
 
 from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.mcp_server.phoebus.tools import bridge_tools, databrowser_tools
-from osprey_connectors import control_context
+from osprey_connectors import control_context, testing
 from osprey_connectors_tests._harness import isolate_verdict_environment, reset_verdict_state
 from tests._approval_stamp_fixture import use_stamp_dir
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
@@ -51,7 +51,7 @@ def write_corrupt_record(root, raw):
     path = control_context._record_path_under(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(raw, encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     return path
 
 
@@ -140,9 +140,7 @@ def test_control_target_stands_while_the_owner_is_dead(control_context_root, wri
     write_control_context(
         control_context_root,
         target="va",
-        owned_by=control_context.RecordWriter(
-            kind=control_context.OWNER_WEB_TERMINAL, pid=_DEAD_PID, port=None
-        ),
+        owned_by=control_context.RecordWriter(kind="web_terminal", pid=_DEAD_PID, port=None),
     )
     assert target_banner.resolve_control_target("live") == "va"
 

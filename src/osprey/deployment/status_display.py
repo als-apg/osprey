@@ -1195,11 +1195,11 @@ def _mapped_tier(section, login):
     """*login*'s entry in the staged map *section*: a tier word, or ``unknown``.
 
     The ceiling a shared container's write verdict applies, under its bound
-    tree (:func:`~osprey_connectors.posture_store.write_ceiling`), so a
+    tree (:func:`~osprey_connectors.write_switch.write_ceiling`), so a
     malformed map is unreadable as a whole; no staged map (*section* ``None``)
     is ``unknown`` too.
     """
-    from osprey_connectors.posture_store import write_ceiling
+    from osprey_connectors.write_switch import write_ceiling
 
     if section is None:
         return "unknown"
@@ -1504,7 +1504,7 @@ def authorization_rows(config, repo_root, *, now=None):
             used, lease = str(standing.steps_spent), _lease_cell(standing.ledger, grant, now)
         left = max(0.0, (grant.expires_at - now).total_seconds())
         holder = grant.holder
-        if grant.approver.surface == wa.SELF_ISSUE_SURFACE:
+        if grant.approver.surface == "write_switch":
             holder = f"{holder} (self-issued)"
         rows.append(
             (

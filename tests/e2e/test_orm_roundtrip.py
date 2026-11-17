@@ -83,7 +83,7 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.simulation.state import STILL_SCENARIO, read_active_state
 from osprey_connectors.workspace import rendered_config_path, resolve_simulation_state_dir
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
@@ -624,7 +624,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
         plan_args,
         client_id="orm-roundtrip-e2e",
         token=token,
-        owner=posture_store.current_owner(),
+        owner=write_switch.current_owner(),
     )
     _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 

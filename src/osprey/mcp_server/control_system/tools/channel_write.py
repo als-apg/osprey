@@ -3,7 +3,7 @@
 Safety: PreToolUse hooks put the write to an approver before this tool runs,
 and the tool checks two things itself, first and in this order: the write
 verdict for the session's control target
-(:func:`~osprey_connectors.posture_store.execution_verdict`, the write verdict
+(:func:`~osprey_connectors.write_switch.execution_verdict`, the write verdict
 and the session's hold), then the record the
 approval prompt left for this call
 (:func:`~osprey.mcp_server.approval_record.require_approval_record`).
@@ -144,10 +144,10 @@ from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
 )
-from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, Refused
 from osprey_connectors.refusals import RefusalReason, VerdictReason, refusal_text
 from osprey_connectors.targets import baseline_target
 from osprey_connectors.workspace import load_osprey_config
+from osprey_connectors.write_switch import CONTROL_OWNER_ENV_VAR, Refused
 
 if TYPE_CHECKING:
     from osprey_connectors.control_system import ChannelWriteResult

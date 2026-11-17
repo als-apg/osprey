@@ -76,7 +76,7 @@ from osprey.agent_record.identities import host_identity
 from osprey.deployment.web_terminals.roster import authored_people
 from osprey.health.models import CheckResult, Status
 from osprey.utils.workspace import session_hold_dir
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, write_switch
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.workspace import (
     agent_data_base_dir,
@@ -365,21 +365,21 @@ def _logins(cfg: Mapping[str, Any]) -> list[tuple[str, str | None]]:
 
 
 def _agent_data_root(cfg: Mapping[str, Any], repo: Path) -> Path:
-    stamped = posture_store.stamped_agent_data_root()
+    stamped = write_switch.stamped_agent_data_root()
     if stamped is not None:
         return stamped
     return anchored_path(agent_data_base_dir(cfg), repo)
 
 
 def _login_dir(cfg: Mapping[str, Any], repo: Path, login: str) -> Path | None:
-    tree = os.environ.get(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "").strip()
+    tree = os.environ.get(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, "").strip()
     if tree and Path(tree).is_absolute():
         return Path(tree) / login
-    bound = posture_store.bound_state_dir()
+    bound = write_switch.bound_state_dir()
     if bound is not None:
         own = acting_identity() if _roster_enabled(cfg) else _single_user_login(cfg)
         return bound if login == own else None
-    return _agent_data_root(cfg, repo) / posture_store.STATE_DIR_NAME / login
+    return _agent_data_root(cfg, repo) / write_switch.CONTROL_STATE_DIR_NAME / login
 
 
 def _ceiling(cfg: Mapping[str, Any], repo: Path, tier: str | None) -> str | None:

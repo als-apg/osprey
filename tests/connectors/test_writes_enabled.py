@@ -1,7 +1,7 @@
 """Tests for ControlSystemConnector._writes_enabled: the write verdict at the connector.
 
 The property is the reference monitor's decision, and it is
-:func:`osprey_connectors.posture_store.write_verdict` for the connector's own
+:func:`osprey_connectors.write_switch.write_verdict` for the connector's own
 machine: the login's write tier, the machine the factory stamped, and the
 login's switch for that machine. The tier is a ceiling and target-blind; the
 switch picks the machine.

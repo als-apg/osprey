@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import write_payload
 from osprey_optimizer.api.owner import stamp_owner
@@ -53,7 +53,7 @@ def _switch(tree: Path, owner: str, state: str) -> None:
     ).model_dump(mode="json")
     payload["switch"] = {TARGET: state}
     write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 @pytest.fixture
@@ -84,35 +84,35 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path
     config = tmp_path / "config.yml"
     config.write_text(yaml.safe_dump({"control_system": section}))
 
-    tree = tmp_path / posture_store.STATE_DIR_NAME
+    tree = tmp_path / write_switch.CONTROL_STATE_DIR_NAME
     tree.mkdir()
-    (tree / posture_store.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
+    (tree / write_switch.CONTROL_TREE_MARKER_NAME).write_text("provisioned\n", encoding="utf-8")
     for owner in (OWNER, DEMOTED):
         _switch(tree, owner, "allowed")
 
     # Set, then cleared, so the stamp a row makes is undone after it.
-    monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "unset-by-the-fixture")
+    monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "unset-by-the-fixture")
     for name in (
-        posture_store.CONTROL_OWNER_ENV_VAR,
-        posture_store.DISPATCH_RUN_ENV_VAR,
-        posture_store.LAUNCH_POSTURE_ENV_VAR,
+        write_switch.CONTROL_OWNER_ENV_VAR,
+        write_switch.DISPATCH_RUN_ENV_VAR,
+        write_switch.LAUNCH_PIN_ENV_VAR,
         "OSPREY_EXECUTION_MODE",
         "OSPREY_SESSION_ID",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("CONFIG_FILE", str(config))
-    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
+    monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
     monkeypatch.setenv(
         "PYTHONPATH",
         os.pathsep.join(
             [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
         ),
     )
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     yield tree
     iface_module.reset_bridge()
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _refused(reason: str) -> str:
@@ -140,7 +140,7 @@ def test_a_run_for_nobody_is_refused_owner_unknown() -> None:
 def test_a_scheduled_run_for_nobody_is_refused_owner_unscheduled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(posture_store.DISPATCH_RUN_ENV_VAR, "1")
+    monkeypatch.setenv(write_switch.DISPATCH_RUN_ENV_VAR, "1")
     stamp_owner(None)
     with pytest.raises(WriteRefusedError) as caught:
         ConnectorInterface(TARGET).set_values({CHANNEL: 0.5})

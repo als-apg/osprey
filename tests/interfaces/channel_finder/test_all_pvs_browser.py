@@ -55,7 +55,7 @@ from click.testing import CliRunner
 from osprey.interfaces._serving import run_app_server
 from osprey.runtime.session_env import FORBIDDEN_ENV
 from osprey.services.pv_directory import _connectors
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests._builds import init_project
 from tests._control_system import IN_PROCESS
@@ -146,7 +146,7 @@ def _serve(render: Path, config_name: str, state_dir: Path) -> Iterator[tuple[st
         patch.setenv("OSPREY_CONFIG", str(config_file))
         patch.setenv("CONFIG_FILE", str(config_file))
         state_dir.mkdir(parents=True, exist_ok=True)
-        patch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
+        patch.setenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
         patch.setenv(AUDIT_IDENTITY_ENV, "test-operator")
         patch.delenv(TERMINAL_USER_ENV, raising=False)
         for name in list(os.environ):

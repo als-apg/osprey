@@ -39,7 +39,7 @@ from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal import jupyter_sidecar as jupyter_sidecar_module
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_eligibility, target_state
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import write_switch
 from osprey_connectors_tests._harness import (
     owner,
     state_dir_under,
@@ -149,7 +149,7 @@ def client(agent_data_root, workspace_dir, config_path):
 
 
 def state_dir() -> Path:
-    return posture_store.state_dir()
+    return write_switch.state_dir()
 
 
 def write_inflight_marker(
@@ -217,7 +217,7 @@ def applying_block(generation=1, *, expires_in_s=30.0):
     """A server's ``last_switch`` while it is mid-swap, with its own bound."""
     return {
         "generation": generation,
-        "status": control_context.REPORT_APPLYING,
+        "status": "applying",
         "at": datetime.now(UTC).isoformat(),
         "expires_at": (datetime.now(UTC) + timedelta(seconds=expires_in_s)).isoformat(),
     }
@@ -559,7 +559,7 @@ class TestTheGate:
         record = read_record()
         assert record.target == "live"
         assert record.generation == 1
-        assert record.last_switch.status == control_context.SWITCH_REFUSED
+        assert record.last_switch.status == "refused"
         assert record.last_switch.reason == target_eligibility.REASON_READONLY_RUN
         assert record.last_switch.generation is None
 
@@ -592,7 +592,7 @@ class TestApplied:
         request_id = post_target(client).json()["request_id"]
         block = read_record().last_switch
         assert block.request_id == request_id
-        assert block.status == control_context.SWITCH_APPLIED
+        assert block.status == "applied"
         assert block.target == "va"
         assert block.generation == 2
 
@@ -618,7 +618,7 @@ class TestApplied:
         record = read_record()
         assert record.writer is not None
         assert record.writer.pid == os.getpid()
-        assert record.writer.kind == control_context.OWNER_WEB_TERMINAL
+        assert record.writer.kind == "web_terminal"
 
 
 class TestAudit:

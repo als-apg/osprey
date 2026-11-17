@@ -59,7 +59,7 @@ from osprey.mcp_server.bluesky.lanes import REASON_UNKNOWN_LANE, resolve_lane_si
 from osprey.mcp_server.errors import make_error
 from osprey.utils.call_attribution import CONVERSATION_HEADER, TOOL_USE_HEADER
 from osprey.utils.owner_header import OWNER_HEADER
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 
 logger = logging.getLogger("osprey.mcp_server.bluesky.server_context")
 
@@ -396,9 +396,9 @@ def _with_owner(headers: dict[str, str] | None) -> dict[str, str] | None:
     forwards; two doors that named their callers differently would make the
     deployment's record of a change depend on which one it came through.
 
-    The owner is whatever :func:`~osprey_connectors.posture_store.current_owner`
+    The owner is whatever :func:`~osprey_connectors.write_switch.current_owner`
     answers, which is the roster account in a terminal container and the exported
-    stamp in a dispatch job. :data:`~osprey_connectors.posture_store.NO_OWNER` is
+    stamp in a dispatch job. :data:`~osprey_connectors.write_switch.NO_OWNER` is
     the one answer never sent, compared by identity because that is the only
     comparison the sentinel supports: a header spelling the sentinel's text would
     be a name the reader refuses. An owner-less request — a cron or triggered
@@ -424,8 +424,8 @@ def _with_owner(headers: dict[str, str] | None) -> dict[str, str] | None:
     neither header is sent.
     """
     stamped = dict(headers or {})
-    owner = posture_store.current_owner()
-    if owner is not posture_store.NO_OWNER:
+    owner = write_switch.current_owner()
+    if owner is not write_switch.NO_OWNER:
         # The ladder answers a name or the sentinel, and the sentinel is excluded.
         stamped[OWNER_HEADER] = str(owner)
     call = current_call()

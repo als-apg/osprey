@@ -2,7 +2,7 @@
 
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.identity import TERMINAL_USER_ENV
-from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
+from osprey_connectors.write_switch import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
 
 
 def headers_without_owner(m) -> dict[str, str]:

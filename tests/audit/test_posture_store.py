@@ -7,7 +7,7 @@ verdict allows, ``sandbox`` when it refuses for any reason. These tests pin
 that mapping and what feeds it:
 
 * **The verdict's own order.** A read-only run, then the tier, then the target,
-  owner, record and switch — :func:`osprey_connectors.posture_store.write_verdict`
+  owner, record and switch — :func:`osprey_connectors.write_switch.write_verdict`
   decides; this module only asks it about the right target.
 * **The target this process's writes are about.** The ``OSPREY_CONTROL_TARGET``
   stamp when it names a known target (the executor's sandbox subprocess), else
@@ -27,7 +27,7 @@ import os
 import pytest
 
 from osprey.audit import posture
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import _control_state, control_context, write_switch
 from osprey_connectors.safety_file import atomic_replace
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -329,7 +329,7 @@ class TestDegradation:
         def _boom(*_args, **_kwargs):
             raise RuntimeError("the verdict is on fire")
 
-        monkeypatch.setattr(posture_store, "write_verdict", _boom)
+        monkeypatch.setattr(write_switch, "write_verdict", _boom)
 
         assert posture.verdict().reason == "record_unavailable"
         assert posture.posture() == posture.POSTURE_SANDBOX
@@ -403,11 +403,11 @@ class TestWireContract:
         assert posture.CONTROL_TARGET_ENV_VAR == executor.ENV_CONTROL_TARGET
 
     def test_the_agent_data_root_env_matches_the_record_reader(self):
-        assert posture.OSPREY_AGENT_DATA_ROOT == posture_store._AGENT_DATA_ROOT_ENV_VAR
+        assert posture.OSPREY_AGENT_DATA_ROOT == _control_state._AGENT_DATA_ROOT_ENV_VAR
 
     def test_the_posture_spellings_match_the_record_reader(self):
-        assert posture.POSTURE_SANDBOX == posture_store.POSTURE_SANDBOX
-        assert posture.POSTURE_WRITES == posture_store.POSTURE_WRITES
+        assert posture.POSTURE_SANDBOX == write_switch.LAUNCH_PIN_SANDBOX
+        assert posture.POSTURE_WRITES == write_switch.LAUNCH_PIN_WRITES
 
     def test_the_module_stays_a_leaf(self):
         """No top-level import of the MCP servers or the connector package.
@@ -428,11 +428,11 @@ class TestWireContract:
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.append(node.module)
 
-        # ``posture_env`` is the one exception: the read-only predicate's owner,
+        # ``execution_mode`` is the one exception: the read-only predicate's owner,
         # a standard-library leaf that loads nothing else of the package.
         assert not [
             name
             for name in imported
-            if name.startswith("osprey_connectors") and name != "osprey_connectors.posture_env"
+            if name.startswith("osprey_connectors") and name != "osprey_connectors.execution_mode"
         ]
         assert not [name for name in imported if name.startswith("osprey.mcp_server")]

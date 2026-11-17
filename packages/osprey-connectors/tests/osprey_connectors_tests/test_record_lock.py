@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import control_context, posture_store
+from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.errors import StateLockedError
 from osprey_connectors_tests._harness import (
     data_root,
@@ -56,7 +56,7 @@ def test_the_lock_follows_an_explicit_path(tmp_path):
     )
     assert elsewhere.is_file()
     assert (tmp_path / "elsewhere" / "record.json.lock").is_file()
-    assert not posture_store.state_dir().exists()
+    assert not write_switch.state_dir().exists()
 
 
 def test_a_symlinked_lock_refuses_the_write_and_leaves_its_target_alone(data_root):
@@ -314,7 +314,7 @@ def test_a_write_over_a_lost_record_writes_the_switch_empty_with_a_fresh_epoch(d
         path.write_text("{not json", encoding="utf-8")
     else:
         path.write_text(json.dumps({**_payload(path), "schema": 2}), encoding="utf-8")
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     before = time.time_ns()
     control_context.write_record(
         control_context.ControlContext(target="live", generation=1, switch={"live": "asked"})
@@ -335,7 +335,7 @@ def test_a_write_over_a_lost_record_writes_the_switch_empty_with_a_fresh_epoch(d
 #: ``read``, wait for a signal, write through the public API.
 _CHILD = """
     path = cc.record_path()
-    me = cc.RecordWriter(kind=cc.OWNER_CONTROLS_SERVER, pid=os.getpid())
+    me = cc.RecordWriter(kind="controls_server", pid=os.getpid())
     if mode in ("stop", "turn_on"):
         wait(wait_for)
         with cc._record_lock(path):

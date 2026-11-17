@@ -61,7 +61,7 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
-from osprey_connectors import posture_store
+from osprey_connectors import write_switch
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import format_failure, wait_for_health
@@ -267,7 +267,7 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
         "grid_scan",
         plan_args,
         token=token,
-        owner=posture_store.current_owner(),
+        owner=write_switch.current_owner(),
         client_id="grid-scan-roundtrip-e2e",
         timeout=SCAN_TIMEOUT_SEC,
     )

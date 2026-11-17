@@ -154,6 +154,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     REASON_EXECUTABLE,
     REASON_SESSION_PLAN_UNVALIDATED,
 )
+from osprey_connectors import testing
 from tests.e2e import _facility_select, _orm_stack
 from tests.e2e._deploy_support import (
     docker_inspect,
@@ -566,9 +567,9 @@ def _enqueue(revision: int, *, token: str | None = None) -> tuple[int, Any]:
 
 def _queue_owner() -> str:
     """The login every queue add of this module names (``X-Osprey-Owner``)."""
-    from osprey_connectors import posture_store
+    from osprey_connectors import write_switch
 
-    owner = posture_store.current_owner()
+    owner = write_switch.current_owner()
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     return owner
 
@@ -1442,8 +1443,8 @@ def _stage_the_queue_tools(
     from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
     from osprey.bluesky_bridge_connection import LANE_ONE, lane_env_prefix
     from osprey.mcp_server.bluesky.server_context import initialize_server_context
-    from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR
     from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.write_switch import CONTROL_CONTEXT_DIR_ENV_VAR
 
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  writes: allowed\n", encoding="utf-8")
@@ -1477,12 +1478,12 @@ def _switch_on_for_this_login() -> None:
     from osprey_connectors.targets import baseline_target
 
     target = baseline_target({"writes": "allowed"})
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     path = control_context.record_path()
     assert path is not None, "the control-context record path did not resolve"
     path.parent.mkdir(parents=True, exist_ok=True)
     control_context.write_record(control_context.ControlContext(target=target, generation=1))
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
     current = control_context.read_record(path=path)
     epoch = (current.switch_epoch if current is not None else None) or 0
     try:
@@ -1491,7 +1492,7 @@ def _switch_on_for_this_login() -> None:
         if not refused.stamped or refused.epoch is None:
             raise
         control_context.set_switch([target], "asked", epoch=refused.epoch, path=path)
-    control_context.invalidate_cache()
+    testing.invalidate_cache()
 
 
 def _approved_call(tool: str):
