@@ -24,6 +24,7 @@ Every size, spacing and font size is in the constants block below.
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import json
 import math
@@ -55,6 +56,7 @@ from osprey.facility.panels.view import (
     Fact,
     Grid,
     GridCell,
+    GridRow,
     Group,
     Light,
     Link,
@@ -128,8 +130,9 @@ LINE_WIDTH = 1
 AXIS_WIDTH = 2
 CELL_WIDTH = 110  # a checkout's column
 NAME_WIDTH = 260  # a checkout's first column
-SET_CELL_WIDTH = 112  # one member of a set overview: its value or name and its lights
-SET_ROW_HEAD = 88  # a set overview's row heads: the place, short, or "not placed"
+SET_CELL_WIDTH = 112  # one member of a set overview at the least: its value or name, a light
+SET_CELL_MAX = 220  # the widest a cell grows to when the columns are few
+SET_ROW_HEAD = 64  # a set overview's row heads: the place, short
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
 MIN_STRIP_SCALE = 0.6  # below this a strip breaks into rows: a bend stays >= 45 px tall
 SYMBOL_UNIT = 20  # one shape unit of a symbol, in px, at scale 1: a bend is 75 px tall
@@ -342,6 +345,8 @@ _BY_CLASS = "by class"
 _SOURCES = "sources"
 _RACK_COUNTS = "{} at a stated unit · {} not at a unit"
 _UNITS_FROM = "{} · {} devices"
+_SET_READBACK = "each cell: readback of {}"
+_SET_NAMES = "each cell: the member's short name and its light"
 _NO_CLASS = "no class stated"
 _BY_SYSTEM_TITLE = "by system"
 _TILE_OPEN = "{} channels · open"
@@ -1196,6 +1201,7 @@ class _Page:
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
         self.lit: set[str] = set()  # channels whose light a card's table drew
         self.facts_bottom: float = 0  # a rack's right column, where it ends
+        self.cell_w: float = SET_CELL_WIDTH  # a set overview's cell width
 
     # -- primitives -----------------------------------------------------------
 
@@ -2003,82 +2009,121 @@ class _Page:
 
     def grid(self, grid: Grid) -> None:
         """A set's members as an equal grid: a row per place under its short name, the
-        members in beam order under column heads ``#1`` … ``#n``. A cell is the
-        member's readback of the set's primary pair with its deviation light, or its
-        short name, then its light; it opens the member's card and nothing in it is
-        writable. Columns past the page's width go on in a block below, the row
-        heads repeated. At most :data:`MAX_TABLE_ROWS` cells are drawn."""
+        rows grouped under the top-level place they are in (a heading each, a gap
+        between), the members in beam order under column heads ``#1`` … ``#n``,
+        and a line over the heads saying what a cell shows, with its unit. A cell
+        is the member's readback of the set's primary pair or its short name, and
+        one light: the deviation light when the pair has one, else the member's.
+        It opens the member's card and nothing in it is writable. Few columns
+        widen to at most :data:`SET_CELL_MAX`; columns past the page's width go
+        on in a block below, the row heads repeated. At most
+        :data:`MAX_TABLE_ROWS` cells are drawn."""
         tags = (_need("table"),)
         count = sum(len(row.cells) for row in grid.rows)
         width = max((len(row.cells) for row in grid.rows), default=0)
-        what = f"{grid.signal.replace('_', ' ')}: readback and deviation" if grid.signal else ""
-        line = " · ".join(t for t in (f"{count} members", f"{len(grid.rows)} rows", what) if t)
+        line = " · ".join((f"{count} members", f"{len(grid.rows)} rows"))
         self.text(MARGIN, self.y, line.upper(), size=SMALL_SIZE, fg=MUTED_TEXT, tags=tags)
         self.next_row()
-        fit = max(1, int((STRIP_WIDTH - SET_ROW_HEAD + GAP) // (SET_CELL_WIDTH + GAP)))
+        room = STRIP_WIDTH - SET_ROW_HEAD
+        fit = max(1, int((room + GAP) // (SET_CELL_WIDTH + GAP)))
+        shown = max(1, min(fit, width))
+        self.cell_w = min(SET_CELL_MAX, (room - (shown - 1) * GAP) / shown)
+        what = self.grid_what(grid)
+        groups = self.grid_groups(grid.rows)
         drawn = 0
         left_out = 0
         for first in range(0, width, fit):
-            columns = range(first, min(first + fit, width))
-            for column in columns:
+            w = text_width(what, SMALL_SIZE)
+            self.text(self.set_x(0), self.y, what, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
+            self.y += ROW
+            for column in range(first, min(first + fit, width)):
                 x = self.set_x(column - first)
                 head = f"#{column + 1}"
                 w = text_width(head, SMALL_SIZE)
-                x_head = x + (SET_CELL_WIDTH - w) / 2
+                x_head = x + (self.cell_w - w) / 2
                 self.text(x_head, self.y, head, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
             self.y += ROW
-            for row in grid.rows:
-                cells = row.cells[first : first + fit]
-                label = row.label.label if isinstance(row.label, Link) else row.label.text
-                short = _short(label) if isinstance(row.label, Link) else label
-                w = min(text_width(short, SMALL_SIZE), SET_ROW_HEAD - GAP)
-                self.text(MARGIN, self.y, _cut(short, w, SMALL_SIZE), size=SMALL_SIZE, w=w)
-                if isinstance(row.label, Link):
-                    self.nav(MARGIN, self.y, w, ROW, row.label)
-                for column, cell in enumerate(cells):
-                    if drawn >= MAX_TABLE_ROWS:
-                        left_out += 1
-                        continue
-                    self.grid_cell(self.set_x(column), self.y, cell)
-                    drawn += 1
-                self.y += ROW + ROW_GAP
+            for title, rows in groups:
+                self.y += ROW_GAP
+                self.text(MARGIN, self.y, title.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+                self.y += ROW
+                for row in rows:
+                    cells = row.cells[first : first + fit]
+                    if isinstance(row.label, Link):
+                        short = _short(row.label.label)
+                        w = min(text_width(short, SMALL_SIZE), SET_ROW_HEAD - GAP)
+                        self.text(MARGIN, self.y, _cut(short, w, SMALL_SIZE), size=SMALL_SIZE, w=w)
+                        self.nav(MARGIN, self.y, w, ROW, row.label)
+                    for column, cell in enumerate(cells):
+                        if drawn >= MAX_TABLE_ROWS:
+                            left_out += 1
+                            continue
+                        self.grid_cell(self.set_x(column), self.y, cell)
+                        drawn += 1
+                    self.y += ROW + ROW_GAP
             self.y += ROW_GAP
         if left_out:
             self.left_out(left_out)
 
+    def grid_what(self, grid: Grid) -> str:
+        """What a set overview's cells show: the readback of the primary pair's signal
+        with the readback's unit, or the members' short names."""
+        pairs = [
+            cell.pair for row in grid.rows for cell in row.cells
+            if cell.pair is not None and cell.pair.readback is not None
+        ]  # fmt: skip
+        if grid.signal is None or not pairs:
+            return _SET_NAMES
+        unit = self.graph.channel(pairs[0].readback).unit  # type: ignore[arg-type]
+        what = _SET_READBACK.format(grid.signal.replace("_", " "))
+        return f"{what} ({unit})" if unit else what
+
+    def grid_groups(self, rows: Sequence[GridRow]) -> list[tuple[str, list[GridRow]]]:
+        """The rows grouped by the top-level place of each row's place, in row order; the
+        rows of no place under their own fact."""
+        groups: dict[str, list[GridRow]] = {}
+        for row in rows:
+            if isinstance(row.label, Link):
+                top = row.label.target.id
+                with contextlib.suppress(KeyError):
+                    while (up := self.graph.thing(top, "place").place) is not None:
+                        top = up
+            else:
+                top = row.label.text
+            groups.setdefault(top, []).append(row)
+        return list(groups.items())
+
     def set_x(self, column: int) -> float:
         """The left edge of a set overview's *column* within its block."""
-        return MARGIN + SET_ROW_HEAD + column * (SET_CELL_WIDTH + GAP)
+        return MARGIN + SET_ROW_HEAD + column * (self.cell_w + GAP)
 
     def grid_cell(self, x0: float, y: float, cell: GridCell) -> None:
-        """One member: the readback (or the short name), the deviation light, then the
-        member's light at the right end; the whole cell opens its card."""
-        self.box(x0, y, SET_CELL_WIDTH, ROW, fill=FIELD_BACKGROUND)
-        right = x0 + SET_CELL_WIDTH - GAP / 2 - CHIP_LIGHT
-        light_y = y  # a light is centred in a row of the row height
-        if cell.channels:
+        """One member: the readback in its field, or the short name in a box, and one
+        light at the right end: the deviation light when the pair has one, else the
+        member's; the whole cell opens its card."""
+        w = self.cell_w
+        right = x0 + w - CHIP_LIGHT
+        pair = cell.pair
+        deviation = _tolerance_ladder(pair) if pair is not None else None
+        if pair is not None and deviation is not None:
+            self.light(right, y, [Light(pair.channel)], rule=deviation, size=CHIP_LIGHT, tile=True)
+        elif cell.channels:
             lights = [describe_light(self.graph, c) for c in cell.channels]
             rule = ladder(self.graph, lights, node=True)
-            self.light(right, light_y, lights, rule=rule, size=CHIP_LIGHT, tile=True)
+            self.light(right, y, lights, rule=rule, size=CHIP_LIGHT, tile=True)
         else:
-            self.no_rule(right, light_y, CHIP_LIGHT)
+            self.no_rule(right, y, CHIP_LIGHT)
         end = right - GAP / 2
-        pair = cell.pair
         if pair is not None and pair.readback is not None:
-            deviation = _tolerance_ladder(pair)
-            if deviation is not None:
-                end -= CHIP_LIGHT
-                light = Light(pair.channel)
-                self.light(end, light_y, [light], rule=deviation, size=CHIP_LIGHT, tile=True)
-                end -= GAP / 2
-            self.field(x0, y, pair.readback, w=end - x0)
+            self.field(x0, y, pair.readback, w=end - x0)  # the viewer frames it
         else:
+            self.box(x0, y, end - x0, ROW, fill=FIELD_BACKGROUND)
             name = self.member_name(cell.member)
-            name = _cut(name, end - x0 - GAP / 2, SMALL_SIZE)
-            w = text_width(name, SMALL_SIZE)
-            self.text(x0 + GAP / 2, y, name, size=SMALL_SIZE, w=min(w, end - x0 - GAP / 2))
+            name = _cut(name, end - x0 - GAP, SMALL_SIZE)
+            nw = text_width(name, SMALL_SIZE)
+            self.text(x0 + GAP / 2, y, name, size=SMALL_SIZE, w=min(nw, end - x0 - GAP))
         if isinstance(cell.member, Link):
-            self.nav(x0, y, SET_CELL_WIDTH, ROW, cell.member)
+            self.nav(x0, y, w, ROW, cell.member)
 
     def member_name(self, member: Link | Fact) -> str:
         """A member's short name: what ``names.csv`` states, else its id's last part."""

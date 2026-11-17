@@ -815,7 +815,7 @@ def test_a_rack_unit_and_a_grid_cell_with_no_rule_are_in_the_none_look(panel_gra
     none = symbols.look("none")
     for view, count in (
         (rack_elevation(panel_graph, "XR/XR01/RK1"), 5),  # four units and one unpositioned
-        (set_overview(panel_graph, "XR-QUAD"), 2),  # the XR01 quadrupoles have no rule
+        (set_overview(panel_graph, "XR-QUAD"), 1),  # XR01:QD1: no rule, no pair (QF1 deviates)
     ):
         doc, _ = draw(view, panel_graph)
         bare = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "no rule"]

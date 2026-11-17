@@ -82,8 +82,65 @@ def test_more_columns_than_fit_wrap_to_a_block_with_its_row_heads_again(panel_gr
     view = View(Target("set", "group", "X"), "x", (), (Section("members", (Grid(None, rows),)),))
     doc = stub_render(view, panel_graph)
     texts = _texts(doc)
-    assert len(texts["XR01"]) == 2 and len(texts["not placed"]) == 2  # once per block
+    assert len(texts["XR01"]) == 2 and len(texts["NOT PLACED"]) == 2  # once per block
     assert len(texts["#1"]) == 1 and len(texts["#14"]) == 1
     assert texts["#14"][0]["geometry"]["y"] > texts["#1"][0]["geometry"]["y"]
     for g in _cells(doc).values():
         assert g["x"] + g["width"] <= layout.MARGIN + layout.STRIP_WIDTH
+
+
+def test_few_columns_widen_to_the_most_and_the_row_heads_are_narrow(panel_graph) -> None:
+    doc = stub_render(set_overview(panel_graph, "XR-QUAD"), panel_graph)
+    cells = _cells(doc)
+    assert {g["width"] for g in cells.values()} == {layout.SET_CELL_MAX}
+    assert min(g["x"] for g in cells.values()) == layout.MARGIN + layout.SET_ROW_HEAD
+
+
+def test_a_cell_has_one_light_the_deviation_light_when_its_pair_has_one(panel_graph) -> None:
+    doc = stub_render(set_overview(panel_graph, "XR-QUAD"), panel_graph)
+    for member, g in _cells(doc).items():
+        lights = [
+            n for n in nodes(doc)
+            if n["type"] == "polygon"
+            and g["x"] <= n["geometry"]["x"] < g["x"] + g["width"]
+            and g["y"] <= n["geometry"]["y"] < g["y"] + g["height"]
+        ]  # fmt: skip
+        assert len(lights) == 1, member
+    boxes = [  # no box of the engine under a field: the viewer frames it
+        n for n in nodes(doc)
+        if n["type"] == "rectangle" and not n["props"].get("actions")
+        and any(
+            v["type"] == "pv-label" and v["geometry"]["x"] == n["geometry"]["x"]
+            and v["geometry"]["y"] == n["geometry"]["y"]
+            for v in nodes(doc)
+        )
+    ]  # fmt: skip
+    assert not boxes
+
+
+def test_rows_are_grouped_under_their_top_level_place_with_a_line_saying_what(
+    panel_graph,
+) -> None:
+    doc = stub_render(set_overview(panel_graph, "XR-QUAD"), panel_graph)
+    texts = _texts(doc)
+    (group,) = texts["XR"]
+    assert group["geometry"]["y"] < texts["XR01"][0]["geometry"]["y"]
+    (what,) = [t for t in texts if str(t).startswith("each cell: readback of")]
+    assert what.endswith("(A)")
+
+
+def test_rows_of_two_machines_get_two_groups_with_a_gap(panel_graph) -> None:
+    one = (GridCell(Fact("member", "M"), ()),)
+    rows = (
+        GridRow(Link("XR/XR01", Target("card", "place", "XR/XR01")), one),
+        GridRow(Link("XR/XR02", Target("card", "place", "XR/XR02")), one),
+        GridRow(Fact("row", "not placed"), one),
+    )
+    view = View(Target("set", "group", "X"), "x", (), (Section("members", (Grid(None, rows),)),))
+    doc = stub_render(view, panel_graph)
+    texts = _texts(doc)
+    assert len(texts["XR"]) == 1 and len(texts["NOT PLACED"]) == 1
+    assert "each cell: the member's short name and its light" in texts
+    heads = sorted(t["geometry"]["y"] for k in ("XR", "NOT PLACED") for t in texts[k])
+    rows_y = sorted(t["geometry"]["y"] for t in texts["XR02"])
+    assert heads[1] - rows_y[0] > layout.ROW  # a gap between the groups
