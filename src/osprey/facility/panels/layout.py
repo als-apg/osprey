@@ -2348,9 +2348,11 @@ class _Page:
     def grid(self, grid: Grid) -> None:
         """A set's members as an equal grid: a row per place under its short name, the
         rows grouped under the top-level place they are in (a heading each, a gap
-        between), the members in beam order under column heads ``#1`` … ``#n``,
-        and a line over the heads saying what a cell shows, with its unit. A cell
-        is the member's readback of the set's primary pair or its short name, and
+        between), the members in beam order under column heads: the short name
+        a column's members share, else ``#1`` … ``#n`` (:func:`_column_head`); one
+        row of heads over all groups when they read alike, else a row under each
+        group's heading; a line over them says what a cell shows, with its unit. A
+        cell is the member's readback of the set's primary pair or its short name, and
         one light: the deviation light when the pair has one, else the member's.
         It opens the member's card and nothing in it is writable. Few columns
         widen to at most :data:`SET_CELL_MAX`; columns past the page's width go
@@ -2401,17 +2403,17 @@ class _Page:
                 continue
             if first:
                 self.y += SET_BLOCK_GAP - ROW_GAP
-            for column in range(first, min(first + fit, width)):
-                x = self.set_x(column - first)
-                head = _column_head(gridded, column)
-                w = text_width(head, SMALL_SIZE)
-                x_head = x + (self.cell_w - w) / 2
-                self.text(x_head, self.y, head, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
-            self.y += ROW
+            columns = range(first, min(first + fit, width))
+            heads = {t: [_column_head([(t, rows)], c) for c in columns] for t, rows in here}
+            shared = len({tuple(h) for h in heads.values()}) == 1
+            if shared:  # every group's columns read alike: one row of heads over all
+                self.column_heads(first, heads[here[0][0]], tags)
             for title, rows in here:
                 self.y += ROW_GAP
                 self.text(MARGIN, self.y, title.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
                 self.y += ROW
+                if not shared:  # each group under its own heads
+                    self.column_heads(first, heads[title], tags)
                 for row in rows:
                     cells = row.cells[first : first + fit]
                     if isinstance(row.label, Link):
@@ -2496,6 +2498,15 @@ class _Page:
         unit = self.graph.channel(pairs[0].readback).unit  # type: ignore[arg-type]
         what = _SET_READBACK.format(grid.signal.replace("_", " "))
         return f"{what} ({unit})" if unit else what
+
+    def column_heads(self, first: int, heads: Sequence[str], tags) -> None:
+        """A row of column heads, each centred over its column, from column *first*."""
+        for column, head in enumerate(heads, start=first):
+            x = self.set_x(column - first)
+            w = text_width(head, SMALL_SIZE)
+            x_head = x + (self.cell_w - w) / 2
+            self.text(x_head, self.y, head, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
+        self.y += ROW
 
     def grid_groups(self, rows: Sequence[GridRow]) -> list[tuple[str, list[GridRow]]]:
         """The rows grouped by the top-level place of each row's place, in row order; the

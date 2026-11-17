@@ -220,3 +220,19 @@ def test_a_group_of_one_row_too_long_for_a_block_is_a_flow_at_full_width(panel_g
     assert len(lines) > 1 and min(lines) > max(
         g["y"] for k, g in _cells(doc).items() if k[0] in "AB"
     )
+
+
+def test_each_group_is_headed_by_the_short_names_its_own_members_share(panel_graph) -> None:
+    def cell(name: str, short: str | None) -> GridCell:
+        return GridCell(Link(name, Target("card", "device", name)), (), short_name=short)
+
+    rows = (
+        GridRow(Link("XR/XR01", Target("card", "place", "XR/XR01")), (cell("A1", "F1"), cell("A2", "D1"))),
+        GridRow(Fact("row", "not placed"), (cell("C1", None), cell("C2", None))),
+    )  # fmt: skip
+    view = View(Target("set", "group", "X"), "x", (), (Section("members", (Grid(None, rows),)),))
+    texts = _texts(stub_render(view, panel_graph))
+    (f1,), (d1,), (n1,), (n2,) = texts["F1"], texts["D1"], texts["#1"], texts["#2"]
+    (heading,) = texts["NOT PLACED"]
+    assert f1["geometry"]["y"] == d1["geometry"]["y"] < heading["geometry"]["y"]
+    assert n1["geometry"]["y"] == n2["geometry"]["y"] > heading["geometry"]["y"]
