@@ -118,6 +118,29 @@ end
 return 1
 """
 
+# The terminal record of a job whose worker found its record gone.
+# KEYS[1]=meta_key, KEYS[2]=the job's pickled status key, KEYS[3]=its pickled
+# error-message key, KEYS[4]=ACTIVE_JOB_KEY, KEYS[5]=CURRENT_JOB_KEY.
+# ARGV[1]=job_id, ARGV[2]=terminal-meta JSON, ARGV[3]=pickled ERROR,
+# ARGV[4]=pickled message, ARGV[5]=terminal ttl. Written
+# only by a worker refused for a lost record, once per job: returns 0 when a meta
+# exists, else writes the meta, the status and the message under the terminal TTL,
+# releases the slot if it names this job, points the current-job pointer at it if
+# none is set, and returns 1. Never touches a slot or a pointer another job holds.
+_RECORD_NEVER_STARTED_LUA = """
+if redis.call('EXISTS', KEYS[1]) == 1 then
+    return 0
+end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[5]))
+redis.call('SET', KEYS[2], ARGV[3], 'EX', tonumber(ARGV[5]))
+redis.call('SET', KEYS[3], ARGV[4], 'EX', tonumber(ARGV[5]))
+if redis.call('GET', KEYS[4]) == ARGV[1] then
+    redis.call('DEL', KEYS[4])
+end
+redis.call('SET', KEYS[5], ARGV[1], 'NX')
+return 1
+"""
+
 # Start a job that has just claimed the slot: CREATED -> RUNNING only while its
 # stored config is still the exact JSON the start checked. KEYS[1]=the job's
 # pickled status key, KEYS[2]=its config key, KEYS[3]=ACTIVE_JOB_KEY,
@@ -261,7 +284,7 @@ class JobTracker:
         On success the RUNNING meta carries the worker's PID and the heartbeat
         key is set, so the launcher's keep-alive hands over to the worker's
         heartbeat. A job that lost the slot, or whose record lapsed before the
-        worker started, is refused and nothing is written.
+        worker started, is refused and the registration writes nothing.
         """
         result = self._script(_REGISTER_WORKER_LUA)(
             keys=[ACTIVE_JOB_KEY, meta_key(job_id), heartbeat_key(job_id)],
@@ -295,6 +318,47 @@ class JobTracker:
             args=[RUNNING_STATE_TTL_SECONDS, JobStatus.RUNNING.value],
         )
         return bool(kept == 1)
+
+    def record_never_started(self, job_id: str, pid: int, message: str) -> bool:
+        """Write the terminal error record of a job whose worker found its record gone.
+
+        One step, and only while the job has no meta: the meta (COMPLETED, the
+        tracker's terminal marker), the ERROR status and ``message``, all under
+        the terminal TTL, the slot released if it names this job, and the
+        current-job pointer set to it if none is set. The meta's ``created_at``
+        is the refusal time, since the original record is gone. Returns True
+        when the record was written, False when the job already has one.
+        """
+        now = time.time()
+        meta = JobMeta(
+            job_id=job_id,
+            pid=pid,
+            status=JobStatus.COMPLETED,
+            created_at=now,
+            completed_at=now,
+        )
+        written = self._script(_RECORD_NEVER_STARTED_LUA)(
+            keys=[
+                meta_key(job_id),
+                f"{state_prefix(job_id)}:status",
+                f"{state_prefix(job_id)}:error_message",
+                ACTIVE_JOB_KEY,
+                CURRENT_JOB_KEY,
+            ],
+            args=[
+                job_id,
+                meta.model_dump_json(),
+                serialize_obj(JobStatus.ERROR),
+                serialize_obj(message),
+                TERMINAL_STATE_TTL_SECONDS,
+            ],
+        )
+        if written != 1:
+            logger.warning("Job %s already has a record; not written", job_id)
+            return False
+        self.expire_job(job_id, TERMINAL_STATE_TTL_SECONDS)
+        logger.info("Recorded job %s as never started", job_id)
+        return True
 
     def register_created_job(self, job_id: str) -> None:
         """Register a CREATED-but-not-started job WITHOUT claiming the active slot.
@@ -552,7 +616,8 @@ class JobLifecycle:
             JobSlotLostError: The job no longer holds the active slot, so another
                 job may be driving the machine; this one must not start.
             JobRecordLostError: The job's record lapsed before the worker
-                started, so the panel no longer tracks it; this one must not start.
+                started; the job ends with a terminal error record and this one
+                must not start.
         """
         self.writer = get_optimization_writer(self.job_id)
         registration = self.tracker.register_worker(self.job_id, os.getpid())
@@ -566,15 +631,8 @@ class JobLifecycle:
             self.tracker.expire_job(self.job_id, TERMINAL_STATE_TTL_SECONDS)
             raise JobSlotLostError(message)
         if registration is WorkerRegistration.RECORD_LOST:
-            message = (
-                f"Job {self.job_id} lost its job record before it started; "
-                "it wrote nothing to the machine."
-            )
-            self.writer.set_status(JobStatus.ERROR)
-            self.writer.set_error_message(message)
-            # Sweeps the job's keys under the terminal TTL and releases the slot
-            # that still names this job.
-            self.tracker.mark_completed(self.job_id)
+            message = "The job's record expired before its worker started."
+            self.tracker.record_never_started(self.job_id, os.getpid(), message)
             raise JobRecordLostError(message)
         self._heartbeat.start()
 
