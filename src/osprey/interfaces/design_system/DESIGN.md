@@ -531,8 +531,9 @@ writer (`markPageReady(doc = document)`, idempotent). A page takes one route:
 shared start-up marking the page first. Ready means "can be driven", not "has
 data". The hub marks itself once its rail, direct visit and dock grid are up;
 a pane's own window is marked by the hub once dressed, and never copies the
-hub's mark. An app panel imports `markPageReady` and calls it after its first
-refresh; `osprey app check` refuses one that never does.
+hub's mark. An app panel takes the late route: `pending` in its markup and
+`markPageReady()` after its first refresh, error or not; `osprey app check`
+refuses one that does not.
 
 ## 11. CANOPY host contract
 

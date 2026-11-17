@@ -294,7 +294,7 @@ The page says when it can be driven, which a browser test or a recording
 waits for: ``index.html`` carries ``<html data-page-ready="pending">``, and
 ``panel.js`` imports ``markPageReady`` from
 ``/design-system/js/page-ready.js`` and calls it once the first refresh has
-drawn, error or not. ``osprey app check`` refuses a panel without the import.
+drawn, error or not. ``osprey app check`` refuses a panel that lacks either.
 
 ``tests/panel.test.js`` is a Vitest test of the page's functions in a DOM;
 ``osprey app check`` runs it. A JavaScript library the panel needs is not

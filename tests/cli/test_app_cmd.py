@@ -14,6 +14,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.app_cmd import app
+from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT
 from tests.apps import _installed
 from tests.apps._installed import DIST, MODULE, NAME, entry_point
 from tests.cli._lifecycle_build import invoke_build
@@ -272,6 +273,7 @@ def test_an_application_with_no_package_passes_the_boundary_saying_so(
 # --- the panel's design-system styling ------------------------------------------
 
 
+PENDING = '<html data-page-ready="pending">'
 #: An inline module that sets the page-ready mark.
 INLINE_MARK = (
     '<script type="module">import { markPageReady } from '
@@ -282,8 +284,8 @@ INLINE_MARK = (
 def _page(
     *sheets: str,
     body: str = '<main class="osprey-card knob"></main>',
-    html: str = '<html data-page-ready="true">',
-    head: str = "",
+    html: str = PENDING,
+    head: str = INLINE_MARK,
 ) -> str:
     links = "".join(f'<link rel="stylesheet" href="/design-system/css/{s}">\n' for s in sheets)
     return f"{html}\n<head>\n{links}{head}</head>\n<body>{body}</body>\n</html>\n"
@@ -406,19 +408,23 @@ def test_classes_the_panel_js_sets_need_a_rule_and_classes_it_only_reads_do_not(
 
 # --- the panel's page-ready mark ------------------------------------------------
 
-#: The line a panel's script adds to set the mark.
-READY_IMPORT = "import { markPageReady } from '/design-system/js/page-ready.js';\n"
-PENDING = '<html data-page-ready="pending">'
-
 
 @pytest.mark.usefixtures("js")
 def test_a_panel_whose_script_marks_it_ready_passes(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
     app_dir = _panel(
-        lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html=PENDING)
+        lifecycle_repo,
+        _page(
+            "tokens.css",
+            "base.css",
+            "primitives.css",
+            head='<script type="module" src="main.js"></script>',
+        ),
     )
-    _write(app_dir, "panel/main.js", READY_IMPORT + "void load().finally(() => markPageReady());\n")
+    _write(
+        app_dir, "panel/main.js", READY_IMPORT + "\nvoid load().finally(() => markPageReady());\n"
+    )
 
     result = _check(runner, lifecycle_repo)
 
@@ -430,9 +436,15 @@ def test_a_panel_whose_scripts_never_mark_it_ready_is_refused_with_the_line_to_a
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
     app_dir = _panel(
-        lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html=PENDING)
+        lifecycle_repo,
+        _page(
+            "tokens.css",
+            "base.css",
+            "primitives.css",
+            head='<script type="module" src="main.js"></script>',
+        ),
     )
-    _write(app_dir, "panel/main.js", "// " + READY_IMPORT + "void load();\n")
+    _write(app_dir, "panel/main.js", "// " + READY_IMPORT + "\nvoid load();\n")
 
     result = _check(runner, lifecycle_repo)
 
@@ -442,10 +454,10 @@ def test_a_panel_whose_scripts_never_mark_it_ready_is_refused_with_the_line_to_a
     assert result.output.count("[page_ready]") == 1
 
 
-def test_a_panel_with_no_script_carries_the_mark_in_its_markup(
-    runner: CliRunner, lifecycle_repo: Path
-) -> None:
-    _panel(lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html="<html>"))
+def test_a_panel_with_no_script_is_refused(runner: CliRunner, lifecycle_repo: Path) -> None:
+    _panel(
+        lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", html="<html>", head="")
+    )
 
     result = _check(runner, lifecycle_repo)
 
@@ -466,6 +478,43 @@ def test_a_panel_that_marks_itself_without_pending_is_refused(
     assert result.exit_code == 1, result.output
     [line] = [line for line in result.output.splitlines() if line.endswith("[page_ready]")]
     assert "pending" in line
+
+
+@pytest.mark.usefixtures("js")
+def test_a_panel_whose_marking_script_index_html_never_loads_is_refused(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    app_dir = _panel(lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", head=""))
+    _write(
+        app_dir, "panel/main.js", READY_IMPORT + "\nvoid load().finally(() => markPageReady());\n"
+    )
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[page_ready]")]
+    assert "never sets the page-ready mark" in line
+
+
+def test_a_panel_marked_true_in_its_markup_is_refused(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _panel(
+        lifecycle_repo,
+        _page(
+            "tokens.css",
+            "base.css",
+            "primitives.css",
+            html='<html data-page-ready="true">',
+            head="",
+        ),
+    )
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1, result.output
+    [line] = [line for line in result.output.splitlines() if line.endswith("[page_ready]")]
+    assert 'data-page-ready="true"' in line
 
 
 # --- an installed application, checked from its origin -------------------------
@@ -556,7 +605,12 @@ def test_an_installed_panel_without_the_ready_mark_names_its_distribution(
         monkeypatch,
         {
             "panel/index.html": _page(
-                "tokens.css", "base.css", "primitives.css", body="<main></main>", html="<html>"
+                "tokens.css",
+                "base.css",
+                "primitives.css",
+                body="<main></main>",
+                html="<html>",
+                head="",
             )
         },
     )
