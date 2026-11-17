@@ -314,7 +314,7 @@ def test_a_dense_strip_breaks_into_rows_instead_of_shrinking(panel_graph) -> Non
     assert len(axes) > 1
     for n in nodes(doc):
         thing = n["props"].get("tooltip", "")
-        if thing.startswith("D") and n["type"] == "rectangle":
+        if thing.startswith("D") and n["type"] == "polygon":
             kind = ("quadrupole_f", "quadrupole_d", "bend")[int(thing[1:]) % 3]
             natural = symbols.WIDTH_UNITS[kind] * SYMBOL_UNIT
             assert n["geometry"]["width"] >= natural * MIN_STRIP_SCALE - 0.1
@@ -364,8 +364,11 @@ def test_a_node_without_a_rule_reads_no_rule_not_unknown(panel_graph) -> None:
     without = [n for n in found if n.no_rule]
     assert without and len(without) < len(found)
     doc, _ = draw(view, panel_graph)
-    assert _texts(doc).count("no rule") == len(without)
-    assert len(_by_type(doc, "polygon")) == len(found) - len(without)
+    polygons = _by_type(doc, "polygon")
+    assert len(polygons) == len(found)  # one light per row, those without a rule in "none"
+    bare = [n for n in polygons if n["props"]["lineColor"] == symbols.look("none")["lineColor"]]
+    assert len(bare) == len(without)
+    assert all(not n.get("rules") and n["props"]["tooltip"] == "no rule" for n in bare)
 
 
 def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> None:
@@ -453,16 +456,19 @@ def test_a_strip_symbol_shows_its_devices_state_live(tmp_path) -> None:
             assert node["props"][prop] == symbols.look("unknown")[prop]
 
 
-def test_a_strip_symbol_of_a_device_with_no_rule_is_neutral(panel_graph) -> None:
+def test_a_strip_symbol_of_a_device_with_no_rule_is_in_the_none_look(panel_graph) -> None:
     view = place_view(panel_graph, "XR/XR02", symbols=SYMBOLS, above=ABOVE)
     doc, _ = draw(view, panel_graph)
     shapes, marks = _symbol(doc, "XR02:SHIELD1")
     assert shapes and not marks
     for node in shapes:
         assert not node.get("rules")
-        roles = {v["$role"] for k, v in node["props"].items() if k.endswith("Color")}
-        assert roles <= {"Page_Text", "Led_Off", "Box_Border", "Field_Background"}
-        assert node["props"].get("lineStyle", "solid") == "solid"
+        for prop in symbols.styled(node["type"]):
+            assert node["props"][prop] == symbols.look("none")[prop]
+        assert (
+            node["props"]["fillColor"] != symbols.look("normal")["fillColor"]
+            or not node["props"]["fill"]
+        )
 
 
 def test_a_strip_symbol_over_the_rule_limit_takes_the_aggregate_look(
@@ -712,3 +718,21 @@ def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_gra
     ]
     assert ("XR01-QF1:Current-SP", "XR01-QF1:Current-RB") in bound  # the deviation light
     assert ("XR02-QD1:Current-RB",) in bound  # the member's own light
+
+
+def test_a_rack_unit_and_a_grid_cell_with_no_rule_are_in_the_none_look(panel_graph) -> None:
+    from osprey.facility.panels.describe import set_overview
+
+    none = symbols.look("none")
+    for view, count in (
+        (rack_elevation(panel_graph, "XR/XR01/RK1"), 5),  # four units and one unpositioned
+        (set_overview(panel_graph, "XR-QUAD"), 2),  # the XR01 quadrupoles have no rule
+    ):
+        doc, _ = draw(view, panel_graph)
+        bare = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "no rule"]
+        assert len(bare) == count, view.id
+        assert all(not n.get("rules") for n in bare)
+        for node in bare:
+            assert {p: node["props"][p] for p in symbols.LIGHT_PROPS} == {
+                p: none[p] for p in symbols.LIGHT_PROPS
+            }

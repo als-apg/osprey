@@ -158,8 +158,12 @@ def test_a_symbol_in_each_look_differs_from_its_other_five_looks(kind) -> None:
 @pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("state", APPEARANCES)
 def test_a_symbol_in_a_state_takes_the_lights_look(kind, state) -> None:
-    *shapes, mark = draw(kind, 0.0, AXIS, state, unit=UNIT)
+    nodes = draw(kind, 0.0, AXIS, state, unit=UNIT)
     shown = look(state)
+    if state == symbols.NONE:  # no rule: the look, and no mark
+        assert all(n["type"] != "text-label" for n in nodes)
+        nodes = [*nodes, {"type": "text-label", "props": {"text": ""}}]
+    *shapes, mark = nodes
     assert shapes
     for node in shapes:
         props = symbols.styled(node["type"])
@@ -203,9 +207,15 @@ def _appearance(state: str) -> tuple:
     )
 
 
-def test_the_five_states_and_the_aggregate_look_pairwise_different() -> None:
+def test_the_five_states_the_aggregate_and_none_look_pairwise_different() -> None:
     assert len(STATES) == 5
-    assert symbols.APPEARANCES == (*STATES, "aggregate")
+    assert symbols.APPEARANCES == (*STATES, "aggregate", "none")
+    no_rule = look("none")
+    assert (no_rule["fill"], no_rule["lineColor"]["$role"], no_rule["text"]) == (
+        False,
+        "Box_Border",
+        "",
+    )
     for a, b in combinations(symbols.APPEARANCES, 2):
         assert _appearance(a) != _appearance(b), (a, b)
     aggregate = look("aggregate")
@@ -276,3 +286,9 @@ def test_each_look_is_pinned_to_its_role_and_pattern_by_name() -> None:
         "solid",
         symbols.AGGREGATE_MARK,
     )
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_every_closed_symbol_is_a_polygon_so_its_outline_can_be_dashed(kind) -> None:
+    for node in draw(kind, 0.0, AXIS, "unknown", unit=UNIT):
+        assert node["type"] in ("polygon", "line", "text-label"), (kind, node["type"])

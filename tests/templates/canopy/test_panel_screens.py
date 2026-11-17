@@ -91,5 +91,5 @@ def test_a_strip_of_every_symbol_in_a_live_state_validates(panel_graph, spec_dir
     view = strip_view(elements)
     doc = stub_render(view, panel_graph)
     ruled = {n["type"] for n in nodes(doc) if n.get("rules")}
-    assert {"rectangle", "ellipse", "polygon", "line", "text-label"} <= ruled
+    assert {"polygon", "line", "text-label"} == ruled  # every closed symbol is a polygon
     _check(doc, spec_dir, view)

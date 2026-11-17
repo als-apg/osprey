@@ -659,6 +659,13 @@ class _Page:
             right = self.mark(right + GAP, y, symbols.INFERRED_MARK)
         return right
 
+    def no_rule(self, x, y, size: float = LIGHT_SIZE) -> float:
+        """The look of a thing with no rule: a bare outline, no rules, no mark; its right edge."""
+        shape, _mark = symbols.light(x, y + (ROW - size) / 2, size, symbols.NONE)
+        shape["props"][_TOOLTIP] = _NO_RULE
+        self.s.add(shape)
+        return x + size
+
     def rules(self, shape_rules: list, mark_rules: list, names: str, rule: Ladder) -> None:
         """A light's rules: one per shape prop and one for its mark, all from *rule*."""
         looks = {state: symbols.look(state) for state in symbols.STATES}
@@ -834,7 +841,7 @@ class _Page:
             lights = [describe_light(self.graph, c) for c in cell.channels]
             x = self.light(x, y, lights, rule=ladder(self.graph, lights, node=True))
         else:
-            x = self.text(x, y, _NO_RULE, size=SMALL_SIZE)
+            x = self.no_rule(x, y)
         room = x0 + GRID_CELL_WIDTH - (x + GAP)
         if isinstance(cell.member, Link):
             self.button(x + GAP, y, cell.member, width=room)
@@ -884,7 +891,7 @@ class _Page:
         x = MARGIN + depth * INDENT
         rule: Ladder | str | None = None
         if node.no_rule:
-            x = self.text(x, self.y, _NO_RULE, size=SMALL_SIZE)
+            x = self.no_rule(x, self.y)
         else:
             lights = [describe_light(self.graph, c) for c in node.channels]
             rule = ladder(self.graph, lights, node=True)
@@ -974,11 +981,12 @@ class _Page:
         """A device's symbol, in the live state of its rule channels.
 
         The symbol reads the ladder a roll-up node of the device would read: the
-        worst of its channels. With no rule channel it is neutral and carries no
-        mark; over the format's limit it is drawn in the aggregate look.
+        worst of its channels. With no rule channel it is in the ``none`` look
+        and carries no mark; over the format's limit it is drawn in the
+        aggregate look.
         """
         if not element.channels:
-            for node in symbols.draw(element.symbol, x, y, unit=unit):
+            for node in symbols.draw(element.symbol, x, y, symbols.NONE, unit=unit):
                 node["props"][_TOOLTIP] = element.thing
                 self.s.add(node)
             return
@@ -1093,6 +1101,8 @@ class _Page:
                 x = self.text(x + GAP, y_side, f"unit {unit.unit_text}", size=SMALL_SIZE)
             for item in unit.lights:
                 x = self.light(x + GAP, y_side, [item])
+            if not unit.lights:
+                self.no_rule(x + GAP, y_side)
             y_side += ROW + ROW_GAP
         self.y = max(y, y_side) + ROW_GAP
 
@@ -1106,6 +1116,8 @@ class _Page:
         x = self.ref(x + GAP, y, unit.link)
         for item in unit.lights:
             x = self.light(x + GAP, y, [item])
+        if not unit.lights:
+            x = self.no_rule(x + GAP, y)
         if unit.standing == _CONTESTED:
             self.text(x + GAP, y, _CONTESTED, size=SMALL_SIZE)
         return y + max(h, ROW)

@@ -6,13 +6,18 @@ colour. Colour means state only: OSPREY's own roles are neutral, ``Disagree``
 marks sources that disagree, and the scheme's alarm roles (``MINOR``,
 ``MAJOR``, ``DISCONNECTED``) are used only where a colour means a state.
 
-A light has six looks: one per health state, and an aggregate's. ``normal`` is
+A light has seven looks: one per health state, an aggregate's, and ``none``
+for a thing with no rule (not a state: it has no rules). ``normal`` is
 neutral, never green: an operator's eye goes to what is not normal.
 ``unknown`` is hollow and dashed, ``disagree`` and ``aggregate`` carry a mark,
-so none of them reads as a colour alone.
+``none`` is a bare outline in the border role, so none of them reads as a
+colour alone and a thing with no rule never looks normal.
 
-An element symbol is neutral, its shape tells its type. In a state it takes
-the same look a light takes, so a symbol in warn is a warn light of that shape.
+An element symbol's shape tells its type. It takes the same look a light
+takes, so a symbol in warn is a warn light of that shape, and one with no rule
+is in the ``none`` look. Every closed shape is a polygon, a circle a
+many-sided one, because the pinned viewer dashes the outline of lines and
+polygons only.
 
 :func:`draw` gives the widget nodes of one element symbol, without ids;
 :mod:`~osprey.facility.panels.layout` places them and numbers them. Shapes are
@@ -22,6 +27,7 @@ and :mod:`~osprey.facility.panels.layout` holds every size.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
@@ -38,6 +44,7 @@ __all__ = [
     "KINDS",
     "LIGHT_PROPS",
     "MARK_PROP",
+    "NONE",
     "STATES",
     "UNKNOWN_MARK",
     "WIDTH_UNITS",
@@ -86,8 +93,11 @@ CONFLICT_MARK = "!"
 #: The health states, worst first after ``normal``.
 STATES: tuple[State, ...] = ("normal", "warn", "bad", "unknown", "disagree")
 
-#: Every look a light can take: the five states, and an aggregate's.
-APPEARANCES: tuple[str, ...] = (*STATES, "aggregate")
+#: The look of a thing with no rule: not a state, it carries no rules and no mark.
+NONE = "none"
+
+#: Every look a light can take: the five states, an aggregate's, and :data:`NONE`.
+APPEARANCES: tuple[str, ...] = (*STATES, "aggregate", NONE)
 
 #: The props of a light's shape that its rules set; the mark's text is :data:`MARK_PROP`.
 LIGHT_PROPS = ("fill", "fillColor", "lineColor", "lineStyle")
@@ -137,6 +147,13 @@ _LOOKS: Mapping[str, Mapping[str, Any]] = MappingProxyType(
             "lineStyle": "solid",
             "text": AGGREGATE_MARK,
         },
+        NONE: {
+            "fill": False,
+            "fillColor": PAGE_BACKGROUND,
+            "lineColor": BOX_BORDER,
+            "lineStyle": "solid",
+            "text": "",
+        },
     }
 )
 
@@ -185,6 +202,7 @@ _LINE = 1  # line width of a drawn outline, in px, whatever the unit
 _THICK = 2  # line width of the bellows and the kicker
 _MARK_FONT = 0.9  # a light's mark, in parts of the light's size
 _OCTAGON = 8
+_CIRCLE_SIDES = 16  # a circle is drawn as a polygon of this many sides
 # --- end shape ratios ----------------------------------------------------------
 
 # A symbol with no state is drawn in these: an outline and a neutral fill.
@@ -243,8 +261,9 @@ def draw(
             it, a defocusing one below, a quadrupole with no polarity centred
             on it; every other kind is centred on it.
         state: One of :data:`APPEARANCES`: the shapes take its look (the
-            props :func:`styled` names) and a mark is drawn over them, last.
-            ``None`` draws the symbol neutral, with no mark.
+            props :func:`styled` names) and, but for :data:`NONE`, a mark is
+            drawn over them, last. ``None`` draws the symbol neutral, with no
+            mark.
         unit: The size of one shape unit, in px.
 
     Raises:
@@ -261,7 +280,8 @@ def draw(
     for node in nodes:
         for prop in styled(node["type"]):
             node["props"][prop] = shown[prop]
-    nodes.append(_symbol_mark(nodes, shown[MARK_PROP], unit))
+    if state != NONE:
+        nodes.append(_symbol_mark(nodes, shown[MARK_PROP], unit))
     return nodes
 
 
@@ -286,16 +306,31 @@ def _symbol_mark(nodes: list[Node], text: str, unit: float) -> Node:
     }
 
 
+def _box(left: float, top: float, w: float, h: float, *, fill: bool, **more: Any) -> Node:
+    """A rectangle as a polygon, so its outline can be dashed."""
+    corners = [(left, top), (left + w, top), (left + w, top + h), (left, top + h)]
+    return _polygon(corners, fill=fill, **more)
+
+
+def _ring(cx: float, cy: float, r: float, sides: int) -> list[tuple[float, float]]:
+    """The corners of a regular polygon of *sides* on a circle of radius *r*, one at angle 0.
+
+    With a number of sides divisible by four the polygon is as wide and as tall as the circle.
+    """
+    step = 2 * math.pi / sides
+    return [(cx + r * math.cos(step * i), cy + r * math.sin(step * i)) for i in range(sides)]
+
+
 def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]:
     if kind == "quadrupole_f":
         h = _MAGNET_HEIGHT * unit
-        return [_shape("rectangle", left, y - h, w, h, fill=True)]
+        return [_box(left, y - h, w, h, fill=True)]
     if kind == "quadrupole_d":
         h = _MAGNET_HEIGHT * unit
-        return [_shape("rectangle", left, y, w, h, fill=True)]
+        return [_box(left, y, w, h, fill=True)]
     if kind in ("quadrupole", "bend"):
         h = _MAGNET_HEIGHT * unit
-        return [_shape("rectangle", left, y - h / 2, w, h, fill=True)]
+        return [_box(left, y - h / 2, w, h, fill=True)]
     if kind == "sextupole":
         h = _SEXTUPOLE_HEIGHT * unit
         q = w / 4
@@ -308,16 +343,20 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]
             (left, y),
         ]
         return [_polygon(points, fill=True)]
-    if kind == "skew_quadrupole":
-        return [_shape("rectangle", left, y - w / 2, w, w, fill=False, rotation=_SKEW_TURN)]
+    if kind == "skew_quadrupole":  # a square turned by _SKEW_TURN: a diamond
+        half = w / 2
+        cx = left + half
+        assert _SKEW_TURN == 45
+        points = [(cx, y - half), (cx + half, y), (cx, y + half), (cx - half, y)]
+        return [_polygon(points, fill=False)]
     if kind == "corrector":
         h = _CORRECTOR_HEIGHT * unit
-        return [_shape("rectangle", left, y - h / 2, w, h, fill=True)]
+        return [_box(left, y - h / 2, w, h, fill=True)]
     if kind == "bpm":
-        return [_shape("ellipse", left, y - w / 2, w, w, fill=False)]
+        return [_polygon(_ring(left + w / 2, y, w / 2, _CIRCLE_SIDES), fill=False)]
     if kind == "neg_pump":
         h = _NEG_HEIGHT * unit
-        return [_shape("rectangle", left, y - h / 2, w, h, fill=False)]
+        return [_box(left, y - h / 2, w, h, fill=False)]
     if kind == "ion_pump":  # a triangle pointing down, the pump hanging off the chamber
         top, bottom = y - w / 2, y + w / 2
         return [_polygon([(left, top), (left + w, top), (left + w / 2, bottom)], fill=True)]
@@ -349,12 +388,12 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]
         return [{"type": "line", "props": props, "geometry": _geometry(x0, y0, w, h)}]
     if kind == "kicker":
         h = _KICKER_HEIGHT * unit
-        return [_shape("rectangle", left, y - h / 2, w, h, fill=False, lineWidth=_THICK)]
+        return [_box(left, y - h / 2, w, h, fill=False, lineWidth=_THICK)]
     if kind == "scraper":
         h = _SCRAPER_HEIGHT * unit
-        return [_shape("rectangle", left, y - h, w, h, fill=True)]
+        return [_box(left, y - h, w, h, fill=True)]
     # generic
-    return [_shape("rectangle", left, y - w / 2, w, w, fill=False)]
+    return [_box(left, y - w / 2, w, w, fill=False)]
 
 
 def light(x: float, y: float, size: float, state: str) -> list[Node]:
