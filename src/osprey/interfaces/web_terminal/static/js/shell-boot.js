@@ -12,6 +12,7 @@
  *     here, in parallel with the scripts, instead of after them:
  *     `window.__OSPREY_EARLY__` maps a path to the promise of its JSON
  *     (api.js `fetchJSON` takes it; shell-reveal.js drops it at the reveal).
+ *   - PROGRESS. The veil's bar fills as the files the page names arrive.
  *   - SLOW. After SLOW_NOTICE_MS the veil says the connection is slow.
  *   - FAILED. A script or stylesheet of the page that cannot be fetched ends
  *     the wait: the veil says so and offers a reload, `data-boot="failed"`.
@@ -80,6 +81,48 @@
     }
   }
 
+  // ---- Progress ----
+  // The page names every module it will load as a modulepreload link, and the
+  // browser reports each one as it arrives: arrived / named is how far the
+  // load is. The files fill the bar to FILES_SHARE; the rest is start-up and
+  // completes at the reveal (shell-reveal.js). Until a first file is reported
+  // the bar keeps its indeterminate sweep, so a browser that reports none
+  // shows a moving bar and never a stuck one.
+  const FILES_SHARE = 0.9;
+  /** @type {Set<string>} */
+  const arrived = new Set();
+  let shown = 0;
+
+  /** @param {number} fraction */
+  function progress(fraction) {
+    shown = Math.max(shown, Math.min(fraction, 1));
+    const bar = /** @type {HTMLElement | null} */ (document.querySelector('[data-boot-bar]'));
+    if (!bar) return;
+    bar.style.setProperty('--boot-progress', shown.toFixed(3));
+    bar.setAttribute('data-progress', '');
+    bar.setAttribute('aria-valuenow', String(Math.round(shown * 100)));
+  }
+
+  function measure() {
+    if (!loading() || !arrived.size) return;
+    /** @type {NodeListOf<HTMLLinkElement>} */
+    const named = document.querySelectorAll('link[rel="modulepreload"]');
+    let landed = 0;
+    for (const link of named) if (arrived.has(link.href)) landed += 1;
+    if (named.length) progress((landed / named.length) * FILES_SHARE);
+  }
+
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) arrived.add(entry.name);
+      measure();
+    }).observe({ type: 'resource', buffered: true });
+  } catch {
+    /* no resource timings: the bar stays indeterminate */
+  }
+  // Files that arrived before the veil was parsed are painted now.
+  document.addEventListener('DOMContentLoaded', measure);
+
   // ---- Slow ----
   setTimeout(() => {
     if (loading()) say('', 'Still loading. The connection to this server is slow.', false);
@@ -111,7 +154,9 @@
   // ---- Fail-open ----
   document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
-      if (loading()) root.setAttribute(BOOT_ATTRIBUTE, 'revealed');
+      if (!loading()) return;
+      progress(1);
+      root.setAttribute(BOOT_ATTRIBUTE, 'revealed');
     }, FAIL_OPEN_MS);
   });
 })();

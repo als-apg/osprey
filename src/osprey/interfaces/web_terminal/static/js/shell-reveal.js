@@ -87,6 +87,14 @@ export function revealShell(doc = document) {
   dropEarlyReads();
   const root = doc.documentElement;
   if (root.getAttribute(BOOT_ATTRIBUTE) !== 'loading') return false;
+  // The bar shell-boot.js filled as the files arrived ends full.
+  const bar = /** @type {HTMLElement | null} */ (
+    doc.querySelector('[data-boot-bar][data-progress]')
+  );
+  if (bar) {
+    bar.style.setProperty('--boot-progress', '1');
+    bar.setAttribute('aria-valuenow', '100');
+  }
   root.setAttribute(BOOT_ATTRIBUTE, 'revealed');
   return true;
 }

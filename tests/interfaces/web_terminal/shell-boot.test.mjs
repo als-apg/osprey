@@ -36,7 +36,9 @@ function mountVeil() {
   const reload = document.createElement('button');
   reload.setAttribute('data-boot-reload', '');
   reload.hidden = true;
-  veil.append(status, detail, reload);
+  const bar = document.createElement('div');
+  bar.setAttribute('data-boot-bar', '');
+  veil.append(status, bar, detail, reload);
   document.body.replaceChildren(veil);
 }
 
@@ -121,6 +123,96 @@ describe('early reads', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(early()).toBeUndefined();
+  });
+});
+
+describe('progress', () => {
+  const FILES = ['a.js', 'b.js', 'c.js', 'd.js'].map(
+    (name) => `${window.location.origin}/static/${name}`
+  );
+  const bar = () => /** @type {HTMLElement} */ (document.querySelector('[data-boot-bar]'));
+  const filled = () => bar().style.getPropertyValue('--boot-progress');
+
+  /** Name FILES as the page's modules; returns how the browser reports arrivals. */
+  function nameFiles() {
+    /** @type {(list: { getEntries: () => Array<{ name: string }> }) => void} */
+    let report = () => {};
+    vi.stubGlobal(
+      'PerformanceObserver',
+      class {
+        /** @param {typeof report} callback */
+        constructor(callback) {
+          report = callback;
+        }
+        observe() {}
+      }
+    );
+    for (const href of FILES) {
+      const link = document.createElement('link');
+      link.rel = 'modulepreload';
+      link.href = href;
+      document.head.appendChild(link);
+    }
+    return (/** @type {string[]} */ ...names) =>
+      report({ getEntries: () => names.map((name) => ({ name })) });
+  }
+
+  afterEach(() => {
+    for (const link of document.head.querySelectorAll('link[rel="modulepreload"]')) link.remove();
+  });
+
+  test('the bar is indeterminate until a file is reported', () => {
+    stubFetch({});
+    nameFiles();
+    runBoot();
+
+    expect(bar().hasAttribute('data-progress')).toBe(false);
+  });
+
+  test('fills by the share of named files that arrived, up to nine tenths', () => {
+    stubFetch({});
+    const arrive = nameFiles();
+    runBoot();
+
+    arrive(FILES[0], FILES[1]);
+    expect(filled()).toBe('0.450');
+    expect(bar().getAttribute('aria-valuenow')).toBe('45');
+
+    arrive(FILES[2], FILES[3]);
+    expect(filled()).toBe('0.900');
+  });
+
+  test('a file the page did not name does not move the bar', () => {
+    stubFetch({});
+    const arrive = nameFiles();
+    runBoot();
+
+    arrive(FILES[0]);
+    arrive(`${window.location.origin}/api/panels`);
+
+    expect(filled()).toBe('0.225');
+  });
+
+  test('ends full at the reveal', () => {
+    stubFetch({});
+    const arrive = nameFiles();
+    runBoot();
+    arrive(FILES[0]);
+
+    revealShell();
+
+    expect(filled()).toBe('1');
+    expect(bar().getAttribute('aria-valuenow')).toBe('100');
+  });
+
+  test('a browser without resource timings keeps the indeterminate bar', () => {
+    stubFetch({});
+    vi.stubGlobal('PerformanceObserver', undefined);
+
+    runBoot();
+
+    expect(boot()).toBe('loading');
+    expect(bar().hasAttribute('data-progress')).toBe(false);
   });
 });
 

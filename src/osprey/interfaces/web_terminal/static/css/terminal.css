@@ -2574,7 +2574,8 @@ html[data-boot="revealed"] .boot-veil {
   display: none;
 }
 
-/* Indeterminate: nothing here knows how much is left. */
+/* Indeterminate until shell-boot.js reports a first file; from then on
+   [data-progress] and --boot-progress (0 to 1) make it a filling bar. */
 .boot-veil-bar {
   position: relative;
   width: 160px;
@@ -2591,6 +2592,14 @@ html[data-boot="revealed"] .boot-veil {
   border-radius: inherit;
   background: var(--color-accent);
   animation: boot-veil-sweep calc(var(--duration-slow) * 4) ease-in-out infinite;
+}
+
+.boot-veil-bar[data-progress]::after {
+  inset: 0;
+  transform: scaleX(var(--boot-progress, 0));
+  transform-origin: left center;
+  transition: transform var(--duration-base) ease-out;
+  animation: none;
 }
 
 html[data-boot="failed"] .boot-veil-bar {
@@ -2680,6 +2689,11 @@ html[data-sidebar="collapsed"][data-boot="loading"] .sidebar-sections::before {
     inset: 0;
     opacity: 0.5;
     animation: none;
+  }
+
+  .boot-veil-bar[data-progress]::after {
+    opacity: 1;
+    transition: none;
   }
 
   html[data-boot="loading"] .sidebar-sections::before {
