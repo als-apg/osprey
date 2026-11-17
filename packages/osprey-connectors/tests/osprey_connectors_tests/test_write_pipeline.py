@@ -5,8 +5,9 @@ final; a connector writes through ``_send`` and the protected hooks. These tests
 pin what the one pipeline decides that the four hand-written copies decided
 differently, or not at all:
 
-- a connector that never loaded a limits validator is checked all the same,
-  against the validator the loaded config gives its type;
+- a connector whose own ``_open`` loads no limits validator is checked all
+  the same, against the one ``connect()`` built from the loaded config for its
+  type, and a validator that cannot be loaded fails the connect;
 - a DOOCS or TANGO limits check that outlives its bound refuses the write with
   nothing sent, since the check and the set are separate steps;
 - a single TANGO write to an address that names no device and attribute is
@@ -28,6 +29,7 @@ import pytest
 
 from osprey_connectors.control_system._base import (
     ChannelValue,
+    ConnectorContext,
     ControlSystemConnector,
     SendReport,
     WriteOutcome,
@@ -38,7 +40,12 @@ from osprey_connectors.control_system._limits_validator import (
 )
 from osprey_connectors.errors import RefusalReason
 from osprey_connectors_tests._stall import Stall
-from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_connectors_tests._write_fakes import (
+    ARMED_TARGET,
+    arm_switch,
+    armed_context,
+    writes_enabled_config,
+)
 
 _FROM_CONFIG = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
 
@@ -59,13 +66,13 @@ def _validator(**channels: dict[str, Any]) -> LimitsValidator:
 
 
 class _Sender(ControlSystemConnector):
-    """A connector that never loads a validator: it records each send and echoes it back."""
+    """A connector whose ``_open`` loads no validator: it records each send and echoes it back."""
 
     def __init__(self, report: SendReport | None = None) -> None:
         self.sent: list[tuple[str, Any]] = []
         self._report = report or SendReport()
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def _open(self, settings: Any) -> None:
         pass
 
     async def disconnect(self) -> None:
@@ -102,19 +109,19 @@ def test_a_subclass_defining_a_write_method_is_refused(name):
         type("_Overrider", (_Sender,), {name: method})
 
 
-# -- a connector that never loaded a validator is checked --------------------
+# -- a connector that loads no validator of its own is checked ---------------
 
 
 async def test_a_connector_with_no_validator_is_checked_against_the_loaded_config():
+    """``connect()`` loads the validator once; the write is judged by it, not by a reload."""
     connector = _Sender()
-    connector._connector_type = "epics"
-    assert connector._limits_validator is None
     loaded = _validator(**{"SR:SP": {"max_value": 10.0}})
 
     with patch(_FROM_CONFIG, return_value=loaded) as from_config:
+        await connector.connect(armed_context(connector_type="epics"))
         result = await connector.write_channel("SR:SP", 99.0)
 
-    from_config.assert_called_with(connector_type="epics")
+    from_config.assert_called_once_with(connector_type="epics")
     assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason is RefusalReason.LIMITS
     assert result.limits_violation is not None
@@ -127,7 +134,8 @@ async def test_a_batch_with_no_validator_is_checked_against_the_loaded_config():
     loaded = _validator(**{"A:SP": {"max_value": 10.0}, "B:SP": {"max_value": 10.0}})
 
     with patch(_FROM_CONFIG, return_value=loaded):
-        results = await connector.write_multiple_channels([("A:SP", 1.0), ("B:SP", 99.0)])
+        await connector.connect(armed_context())
+    results = await connector.write_multiple_channels([("A:SP", 1.0), ("B:SP", 99.0)])
 
     assert [r.refusal_reason for r in results] == [
         RefusalReason.BATCH_REFUSED,
@@ -136,11 +144,34 @@ async def test_a_batch_with_no_validator_is_checked_against_the_loaded_config():
     assert connector.sent == []
 
 
-async def test_a_validator_that_cannot_be_loaded_refuses_the_write():
+async def test_a_validator_that_cannot_be_loaded_fails_the_connect(monkeypatch):
+    """The connect raises before it stores anything: the connector names no
+    machine, so the write it is then asked for is refused with nothing sent."""
+    monkeypatch.setattr(ControlSystemConnector, "_context", ConnectorContext())
     connector = _Sender()
 
-    with patch(_FROM_CONFIG, side_effect=ValueError("limits block unreadable")):
-        result = await connector.write_channel("SR:SP", 1.0)
+    with (
+        patch(_FROM_CONFIG, side_effect=ValueError("limits block unreadable")),
+        pytest.raises(ValueError, match="limits block unreadable"),
+    ):
+        await connector.connect(
+            ConnectorContext(connector_type="epics", control_target=ARMED_TARGET)
+        )
+
+    assert connector.context == ConnectorContext()
+    result = await connector.write_channel("SR:SP", 1.0)
+    assert result.outcome is WriteOutcome.REFUSED
+    assert connector.sent == []
+
+
+async def test_a_validator_hook_that_raises_refuses_the_write():
+    class _Unloadable(_Sender):
+        def _validator(self) -> LimitsValidator | None:
+            raise ValueError("limits block unreadable")
+
+    connector = _Unloadable()
+
+    result = await connector.write_channel("SR:SP", 1.0)
 
     assert result.refusal_reason is RefusalReason.VALIDATION_ERROR
     assert "limits block unreadable" in result.error_message
@@ -148,11 +179,14 @@ async def test_a_validator_that_cannot_be_loaded_refuses_the_write():
 
 
 async def test_limits_checking_off_writes_and_confirms():
+    """Limits off: ``connect()`` keeps no validator, and no write loads one."""
     connector = _Sender()
 
-    with patch(_FROM_CONFIG, return_value=None):
+    with patch(_FROM_CONFIG, return_value=None) as from_config:
+        await connector.connect(armed_context())
         result = await connector.write_channel("SR:SP", 1.0)
 
+    from_config.assert_called_once()
     assert result.outcome is WriteOutcome.CONFIRMED
     assert connector.sent == [("SR:SP", 1.0)]
 
@@ -184,8 +218,7 @@ async def test_a_falsy_value_as_sent_is_what_the_read_back_is_compared_with():
         return ChannelValue(value=0, sampled_at=datetime.now(UTC))
 
     connector._confirming_read = held_zero  # type: ignore[method-assign]
-    with patch(_FROM_CONFIG, return_value=None):
-        result = await connector.write_channel("SR:SP", "0")
+    result = await connector.write_channel("SR:SP", "0")
 
     assert result.outcome is WriteOutcome.CONFIRMED
 
@@ -230,7 +263,7 @@ async def test_a_doocs_check_that_outlives_its_bound_is_refused_with_nothing_sen
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
         connector = DOOCSConnector()
-        await connector.connect({"timeout_s": 0.2})
+        await connector.connect(armed_context(settings={"timeout_s": 0.2}))
         connector._limits_validator = _stalled_validator(check)
         result = await connector.write_channel("FAC/DEV/LOC/PROP", 1.0)
         answered_first = not check.returned
@@ -253,7 +286,7 @@ async def test_a_tango_check_that_outlives_its_bound_is_refused_with_nothing_sen
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         connector = TangoConnector()
-        await connector.connect({"timeout_s": 0.2})
+        await connector.connect(armed_context(settings={"timeout_s": 0.2}))
         connector._limits_validator = _stalled_validator(check)
         result = await connector.write_channel("sr/power_supply/ps01/Current", 1.0)
         answered_first = not check.returned
@@ -276,7 +309,7 @@ async def test_a_single_tango_write_to_an_unparsable_address_is_refused():
         from osprey_connectors.control_system._tango_connector import TangoConnector
 
         connector = TangoConnector()
-        await connector.connect({})
+        await connector.connect(armed_context())
         result = await connector.write_channel("not-a-tango-address", 1.0)
 
     assert result.outcome is WriteOutcome.REFUSED

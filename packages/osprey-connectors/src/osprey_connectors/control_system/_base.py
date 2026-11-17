@@ -24,7 +24,7 @@ from typing_extensions import override
 
 from osprey_connectors import posture_store, write_authorization
 from osprey_connectors._contract_types import ContractAny
-from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
+from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import LimitsViolation, RefusalReason
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, empty_mapping
@@ -1310,35 +1310,38 @@ class ControlSystemConnector(ABC):
     def _validator(self) -> "LimitsValidator | None":
         """The limits validator this connector's writes are checked against.
 
-        The one :meth:`connect` loaded, else one loaded now from the loaded
-        config for this connector's type
-        (:meth:`LimitsValidator.from_config`): a connector that never loaded
-        one is checked all the same. ``None`` when limits checking is off.
+        The one :meth:`connect` built from the deployment's loaded config for
+        this connector's type, whatever the connector's own :meth:`_open` loads
+        or not. ``None`` when limits checking is off for that type, and before
+        ``connect()``, when the connector names no machine and the write
+        verdict refuses every write anyway.
         """
-        if self._limits_validator is not None:
-            return self._limits_validator
-        from osprey_connectors.control_system._limits_validator import LimitsValidator
-
-        return LimitsValidator.from_config(connector_type=self._connector_type)
+        return self._limits_validator
 
     def _bound(self, timeout_s: float | None) -> float:
         """The seconds a write's phases are given: *timeout_s*, else this connector's own.
 
-        The default is :data:`~osprey_connectors.call_timeout.DEFAULT_TIMEOUT_S`; a
-        connector that reads its own ``timeout_s`` from its block answers it.
+        The default is the ``timeout_s`` this connector's block declares
+        (:attr:`_call_timeout_s`). A connector that keeps its bound elsewhere
+        answers it.
         """
-        return DEFAULT_TIMEOUT_S if timeout_s is None else timeout_s
+        return self._call_timeout_s if timeout_s is None else timeout_s
 
     @final
     async def connect(self, context: ConnectorContext) -> None:
         """Connect this connector for *context*.
 
-        Stores the context, builds the limits validator from the deployment's
-        loaded config for ``context.connector_type``
+        Builds the limits validator from the deployment's loaded config for
+        ``context.connector_type``
         (:meth:`~osprey_connectors.control_system.LimitsValidator.from_config`),
-        then opens the connection with :meth:`_open`. Final: a subclass
-        implements :meth:`_open`, and defining ``connect`` raises ``TypeError``
-        when the class is created, so no connector can skip the validator.
+        stores it with the context, then opens the connection with
+        :meth:`_open`. Final: a subclass implements :meth:`_open`, and defining
+        ``connect`` raises ``TypeError`` when the class is created, so no
+        connector can skip the validator.
+
+        A validator that cannot be loaded raises here, before anything is
+        stored: the connector keeps the context it had, so one never connected
+        still names no machine and every write it is asked for is refused.
 
         Args:
             context: What the connector is built for, usually from
@@ -1351,8 +1354,9 @@ class ControlSystemConnector(ABC):
         """
         from osprey_connectors.control_system._limits_validator import LimitsValidator
 
+        validator = LimitsValidator.from_config(connector_type=context.connector_type)
         self._context = context
-        self._limits_validator = LimitsValidator.from_config(connector_type=context.connector_type)
+        self._limits_validator = validator
         await self._open(context.settings)
 
     @abstractmethod
@@ -1509,9 +1513,7 @@ class ControlSystemConnector(ABC):
                 )
             held = posture_store.session_hold_refusal()
             if held is not None:
-                return _verdict_refusal(
-                    address, value, held, wording=self.context.readonly_wording
-                )
+                return _verdict_refusal(address, value, held, wording=self.context.readonly_wording)
         with open_door():
             return await self._write_one(address, value, timeout_s=timeout_s, confirm=confirm)
 
@@ -1743,7 +1745,7 @@ class ControlSystemConnector(ABC):
         try:
             validator = self._validator()
         except Exception as exc:
-            # No validator could be loaded, which is not permission to write.
+            # A validator hook that raised has not said yes.
             return named, [
                 refusal if refusal is not None else self._validation_refusal(name, value, exc)
                 for (name, value), refusal in zip(named, refusals, strict=True)
@@ -1861,7 +1863,7 @@ class ControlSystemConnector(ABC):
         try:
             validator = self._validator()
         except Exception as exc:
-            # No validator could be loaded, which is not permission to write.
+            # A validator hook that raised has not said yes.
             return self._validation_refusal(address, value, exc)
         if confirm is None:
             confirm = _confirm_policy(validator, address)

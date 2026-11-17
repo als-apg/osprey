@@ -153,11 +153,6 @@ class DOOCSConnector(ControlSystemConnector):
         return doocs4py
 
     @override
-    def _bound(self, timeout_s: float | None) -> float:
-        """The per-call ``timeout_s`` when one is given, else the block's ``timeout_s``."""
-        return timeout_s if timeout_s is not None else self._timeout_s
-
-    @override
     async def read_channel(
         self,
         address: str,

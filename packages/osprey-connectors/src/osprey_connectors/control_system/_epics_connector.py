@@ -1892,7 +1892,12 @@ class EPICSConnector(ControlSystemConnector):
 
     @override
     def _bound(self, timeout_s: float | None) -> float:
-        """The per-call ``timeout_s`` when one is given, else the block's ``timeout_s``."""
+        """The per-call ``timeout_s`` when one is given, else :attr:`_timeout`.
+
+        ``_timeout`` is the one bound every phase of this connector uses — its
+        reads, connects, metadata and stale hold-down as well as a write — so a
+        write answers the same attribute rather than the block a second time.
+        """
         return self._timeout if timeout_s is None else timeout_s
 
     @override
