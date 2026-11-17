@@ -373,8 +373,8 @@ _DASH = "—"
 NO_VALUE = _DASH  # an annotation's text until its formula delivers, and while disconnected
 _COUNTS = frozenset({"count_true", "count_false", "count_in_tolerance"})
 _VALUES = "values: "
-_DROPPED = "{} values not shown: the screen's budget is spent"
-_CROWDED = "{} values not shown: open the card"
+_DROPPED = "{} not shown: the screen's budget is spent"
+_CROWDED = "{} not shown: open the card"
 _MORE_CHANNELS = "{} more {} channels not drawn"
 _MORE_ROWS = "{} more not drawn"
 _NOT_AT_A_UNIT = "not at a unit"
@@ -2962,7 +2962,7 @@ class _Page:
             self.next_row()
         for count, words in ((self.crowded, _CROWDED), (self.dropped, _DROPPED)):
             if count:
-                self.text(MARGIN, self.y, words.format(count), size=SMALL_SIZE, fg=MUTED_TEXT)
+                self.text(MARGIN, self.y, not_shown(count, words), size=SMALL_SIZE, fg=MUTED_TEXT)
                 self.next_row()
 
     def badge(self, element: strip.Placed, cx: float, cy: float) -> None:
@@ -4200,6 +4200,11 @@ def value_size(unit: str | None, width: float) -> float:
     under :data:`SMALL_SIZE`, the floor of all text."""
     text = f"{VALUE_SAMPLE} {unit}" if unit else VALUE_SAMPLE
     return max(SMALL_SIZE, (width - NUMBER_PAD) / (len(text) * CHAR_WIDTH))
+
+
+def not_shown(count: int, words: str) -> str:
+    """*words* (:data:`_CROWDED` or :data:`_DROPPED`) for *count* values."""
+    return words.format(f"{count} value" if count == 1 else f"{count} values")
 
 
 def significant_expression(value: str) -> str:

@@ -228,7 +228,7 @@ def test_strip_values_are_whole_in_two_lanes_and_no_box_overlaps_another(tmp_pat
     left_out = 2 * CROWD - len(values)
     assert left_out > 0
     texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
-    assert layout._CROWDED.format(left_out) in texts
+    assert layout.not_shown(left_out, layout._CROWDED) in texts
 
 
 def _shown(values: dict[str, dict]) -> set[str]:
@@ -467,3 +467,8 @@ def test_a_strip_annotation_is_a_static_label_whose_text_a_formula_sets(tmp_path
         assert set(formula["bindings"]) == {"v"}
     texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
     assert any(t.endswith("values not shown: open the card") for t in texts)
+
+
+def test_the_values_line_counts_one_value_in_the_singular() -> None:
+    assert layout.not_shown(1, layout._CROWDED) == "1 value not shown: open the card"
+    assert layout.not_shown(3, layout._CROWDED) == "3 values not shown: open the card"
