@@ -44,6 +44,7 @@ def no_site_env(monkeypatch):
     for name in compose_generator.SITE_IMAGE_AXES:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+    monkeypatch.delenv("OSPREY_SKIP_BROWSER", raising=False)
 
 
 def _site_config(tmp_path, **extra):
@@ -58,6 +59,7 @@ def _site_config(tmp_path, **extra):
             "pip_index_url": "https://mirror.example.org/simple",
             "pip_extra_index_url": "https://wheels.example.org/simple",
             "base_registry": "mirror.example.org/dockerhub",
+            "playwright_download_host": "https://mirror.example.org/playwright",
         },
     }
     config.update(extra)
@@ -120,6 +122,7 @@ def test_both_renderers_carry_the_same_arg_names_and_values(tmp_path):
         "PIP_INDEX_URL": "https://mirror.example.org/simple",
         "PIP_EXTRA_INDEX_URL": "https://wheels.example.org/simple",
         "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub",
+        "PLAYWRIGHT_DOWNLOAD_HOST": "https://mirror.example.org/playwright",
     }
     assert argv == expected
     assert staged == expected
@@ -180,6 +183,27 @@ def test_both_renderers_tell_every_image_the_deployment_is_offline(tmp_path):
     assert argv["OSPREY_OFFLINE"] == "1"
     assert staged["OSPREY_OFFLINE"] == "1"
     assert _rendered_args(staged)["OSPREY_OFFLINE"] == "1"
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_both_renderers_tell_every_image_to_skip_the_browser(tmp_path):
+    """The browser switch is a site build fact, so it reaches every built image.
+
+    Only the project image declares the ARG; an image that declares none
+    ignores it.
+    """
+    config = _site_config(tmp_path)
+    config["images"]["skip_browser"] = True
+    argv = _build_args(
+        container_lifecycle.site_image_build_args(config, _context(tmp_path, "argv-context"))
+    )
+    staged = compose_generator._site_image_args_for_context(
+        config, str(_context(tmp_path, "compose-context"))
+    )
+
+    assert argv["OSPREY_SKIP_BROWSER"] == "1"
+    assert staged["OSPREY_SKIP_BROWSER"] == "1"
+    assert _rendered_args(staged)["OSPREY_SKIP_BROWSER"] == "1"
 
 
 @pytest.mark.usefixtures("no_site_env")

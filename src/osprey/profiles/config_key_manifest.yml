@@ -368,6 +368,26 @@ keys:
       trailing slash is dropped. OSPREY_BASE_REGISTRY overrides it in the
       environment (not in the scaffolded pipeline, which reads the profile).
     default: ''
+  images.playwright_download_host:
+    rendered: false
+    evidence: '"PLAYWRIGHT_DOWNLOAD_HOST": "playwright_download_host"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the
+      presets. The host Playwright downloads the headless browser from, for a
+      site that mirrors cdn.playwright.dev. The mirror must keep
+      cdn.playwright.dev's paths. The build arg carries Playwright's own
+      environment name; unset, Playwright downloads from its CDN.
+      PLAYWRIGHT_DOWNLOAD_HOST overrides it in the environment.
+    default: ''
+  images.skip_browser:
+    rendered: false
+    evidence: 'images\.get\("skip_browser"\)'
+    note: >-
+      Hidden key, commented in the framework template and unset in the
+      presets. True builds the project image without the headless browser;
+      artifact-to-image export and CANOPY screenshots then report it missing.
+      Must be a bool. OSPREY_SKIP_BROWSER overrides it in the environment.
+    default: false
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}
