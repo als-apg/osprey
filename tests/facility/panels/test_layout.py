@@ -118,6 +118,11 @@ def _texts(doc: dict) -> list[str]:
     return [n["props"]["text"] for n in _by_type(doc, "text-label")]
 
 
+def _links_drawn(doc: dict) -> list[dict]:
+    """The boxes that open a screen."""
+    return [n for n in nodes(doc) if n["props"].get("actions")]
+
+
 def _beam_lines(doc: dict) -> list[dict]:
     """The beam axis and the locator's device marks: the page's lines at the axis width."""
     return [
@@ -421,7 +426,11 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
 
 def _symbol(doc: dict, thing: str) -> tuple[list[dict], list[dict]]:
     """A strip symbol's shape nodes (they carry the device as tooltip) and its mark, if any."""
-    found = [n for n in nodes(doc) if n["props"].get("tooltip") == thing]
+    found = [
+        n
+        for n in nodes(doc)
+        if n["props"].get("tooltip") == thing and not n["props"].get("actions")
+    ]
     shapes = [n for n in found if n["type"] != "text-label"]
     marks = [n for n in found if n["type"] == "text-label"]
     return shapes, marks
@@ -531,8 +540,8 @@ def test_every_navigation_target_comes_from_screens(panel_graph) -> None:
     for view in [*fixture_views(panel_graph), *invented_views()]:
         doc, screens = draw(view, panel_graph)
         given = {Screens()(t) for t in screens.asked}  # a fresh stub names them alike
-        files = [n["props"]["file"] for n in _by_type(doc, "related-display-button")]
-        files += [a["file"] for n in nodes(doc) for a in n["props"].get("actions", ())]
+        assert not _by_type(doc, "related-display-button")  # every link is an action box
+        files = [a["file"] for n in nodes(doc) for a in n["props"].get("actions", ())]
         assert set(files) <= given, view.id
         assert set(screens.asked) == {link.target for link in links(view)}, view.id
 
@@ -729,7 +738,7 @@ def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_gra
 
     doc, _ = draw(set_overview(panel_graph, "XR-QUAD"), panel_graph)
     assert not _by_type(doc, "pv-text-input")  # nothing writable in a grid
-    labels = [n["props"]["label"] for n in _by_type(doc, "related-display-button")]
+    labels = [n["props"]["tooltip"] for n in _links_drawn(doc)]
     for member in ("XR01:QF1", "XR01:QD1", "XR02:QF1", "XR02:QD1"):
         assert labels.count(member) == 1
     assert [n["props"]["pv"] for n in _by_type(doc, "pv-label")] == ["XR01-QF1:Current-RB"]
@@ -836,3 +845,18 @@ def test_an_aggregate_tile_opens_its_childs_screen(panel_graph, monkeypatch) -> 
         if n["props"].get("actions") and n["geometry"]["width"] == layout.MOSAIC_LIGHT
     ]
     assert [n["props"]["actions"][0]["file"] for n in opens] == [screens(down)]
+
+
+def test_a_link_is_neutral_text_under_an_outlined_box_that_opens_its_screen(panel_graph) -> None:
+    target = Target("card", "device", "XR01:PS1")
+    doc, screens = draw(card("x", Link("the supply", target)), panel_graph)
+    (box,) = _links_drawn(doc)
+    (label,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "the supply"]
+    assert box["type"] == "rectangle" and box["geometry"] == label["geometry"]
+    assert box["props"]["actions"] == [
+        {"type": "open_display", "file": screens(target), "target": "tab"}
+    ]
+    assert box["props"]["lineColor"] == symbols.BOX_BORDER and box["props"]["fill"] is False
+    assert label["props"]["foregroundColor"] == symbols.PAGE_TEXT
+    assert label["props"]["backgroundColor"] == symbols.FIELD_BACKGROUND
+    assert "clickable text" in needs(doc)

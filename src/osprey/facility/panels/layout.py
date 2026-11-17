@@ -181,8 +181,10 @@ FORMAT_REQUESTS: tuple[tuple[str, str], ...] = (
     ),
     (
         "clickable text",
-        "a link in a list or a tree reads as text that opens a screen; the nearest widget is "
-        "a related-display button",
+        "neutral navigation: a link in a list or a tree reads as text that opens a screen; "
+        "the format's navigation buttons take no colour props (related-display-button none, "
+        "regular-button only flat), so a link is a text label under an outlined box whose "
+        "action opens the screen: two widgets where one would do",
     ),
     (
         "label condition",
@@ -632,17 +634,30 @@ class _Page:
 
     # -- primitives -----------------------------------------------------------
 
-    def text(self, x, y, text: str, *, size=TEXT_SIZE, w=None, fg=PAGE_TEXT, tags=()) -> float:
+    def text(
+        self,
+        x,
+        y,
+        text: str,
+        *,
+        size=TEXT_SIZE,
+        w=None,
+        h=ROW,
+        fg=PAGE_TEXT,
+        bg=TRANSPARENT,
+        align="left",
+        tags=(),
+    ) -> float:
         """A text label; returns its right edge."""
         w = text_width(text, size) if w is None else w
         props = {
             "text": text,
             "fontSize": size,
-            "align": "left",
+            "align": align,
             "foregroundColor": fg,
-            "backgroundColor": TRANSPARENT,
+            "backgroundColor": bg,
         }
-        self.s.widget("text-label", x, y, w, ROW, props, tags=tags)
+        self.s.widget("text-label", x, y, w, h, props, tags=tags)
         return x + w
 
     def mark(self, x, y, glyph: str) -> float:
@@ -688,10 +703,11 @@ class _Page:
         w = min(text_width(text, TEXT_SIZE) + BUTTON_PAD, MAX_BUTTON_WIDTH)
         if width is not None:
             w = min(w, width)
-        props = {"label": text, "file": self.screens(link.target), "fontSize": TEXT_SIZE}
-        self.s.widget(
-            "related-display-button", x, y, w, ROW, props, tags=(_need("clickable text"),)
-        )
+        # Neutral: page text on the field background, outlined in the border
+        # role. The format's navigation buttons take no colour, so the text is
+        # a label and the outline the box that opens the screen.
+        self.text(x, y, text, w=w, bg=FIELD_BACKGROUND, align="center")
+        self.nav(x, y, w, ROW, replace(link, label=text), outline=True)
         right = x + w
         if link.basis == "inferred":
             right = self.mark(right + GAP, y, symbols.INFERRED_MARK)
@@ -1075,13 +1091,18 @@ class _Page:
             x += MOSAIC_LIGHT + MOSAIC_GAP
         self.y += MOSAIC_LIGHT + ROW_GAP
 
-    def nav(self, x, y, w, h, link: Link) -> None:
-        """A transparent box over what is drawn there that opens *link*'s screen."""
-        props = {
-            "lineColor": TRANSPARENT,
-            "lineWidth": 0,
+    def nav(self, x, y, w, h, link: Link, *, outline: bool = False) -> None:
+        """A box over what is drawn there that opens *link*'s screen.
+
+        Every link is one: a button's text is a label under an *outline* in
+        the border role, a symbol or a tile has a transparent box that shows
+        the link's label while the pointer is on it.
+        """
+        props: dict[str, Any] = {
+            "lineColor": BOX_BORDER if outline else TRANSPARENT,
+            "lineWidth": LINE_WIDTH if outline else 0,
             "fill": False,
-            _HOVER_LABEL: link.label,
+            _TOOLTIP: link.label,
             "actions": [
                 {
                     "type": "open_display",
@@ -1090,7 +1111,9 @@ class _Page:
                 }
             ],
         }
-        self.s.widget("rectangle", x, y, w, h, props)
+        if not outline:
+            props[_HOVER_LABEL] = link.label
+        self.s.widget("rectangle", x, y, w, h, props, tags=(_need("clickable text"),))
 
     # -- the strip ------------------------------------------------------------
 
