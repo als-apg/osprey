@@ -189,10 +189,12 @@ PICTURE_SIZE = 260
 PICTURE_PAD = 24
 PART_MARKER = 8
 PART_LABEL_WIDTH = 140
-RACK_U = 22  # one rack unit
-RACK_WIDTH = 420
-RACK_LABEL_WIDTH = 56
-UNPOSITIONED_GAP = 40
+RACK_U = 16  # one rack unit: a 48 U rack is 768 px tall
+RACK_WIDTH = 420  # a chassis bar, the rack's inner width
+RACK_LABEL_WIDTH = 40  # the unit numbers, left of the rack
+RACK_PAD = 6  # the rack's frame round its chassis
+RACK_SOURCES = 8  # documents a rack names; the rest are counted
+RACK_COLUMN = RACK_LABEL_WIDTH + RACK_WIDTH + 2 * RACK_PAD + 2 * COLUMN_GAP  # the facts' x
 # The longest expression the formula engine takes. The viewer compiles each rule
 # of a light into one expression, with the light's screen formula inlined once
 # per condition (see engine_expression); the engine refuses one longer than
@@ -324,6 +326,12 @@ _VALUES = "values: "
 _DROPPED = "{} values not shown: the screen's budget is spent"
 _MORE_CHANNELS = "{} more {} channels not drawn"
 _MORE_ROWS = "{} more not drawn"
+_NOT_AT_A_UNIT = "not at a unit"
+_BY_CLASS = "by class"
+_SOURCES = "sources"
+_RACK_COUNTS = "{} at a stated unit · {} not at a unit"
+_UNITS_FROM = "{} · {} devices"
+_NO_CLASS = "no class stated"
 _SIGNAL_HEADS = ("signal", "setpoint", "readback")
 _CHAIN_CAPTION = "power flows right to left"
 _THIS_DEVICE = "this device"
@@ -1164,7 +1172,6 @@ class _Page:
         self.y: float = MARGIN
         # writable widgets only on a device card's own signals and settings
         self.on_card = view.id.view == "card" and view.id.kind == "device"
-        self.node_form = False  # a rack over its budget: one light per unit (elevation)
         self.budget = Budget()  # spent by the strip's symbols, chips and summary rows
         self.colours: Mapping[str, str] = colours  # a symbol's type colour, by symbol name
         self.shown: dict[
@@ -1175,6 +1182,7 @@ class _Page:
         self.x0: float = MARGIN  # the left edge of the column drawn in
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
         self.lit: set[str] = set()  # channels whose light a card's table drew
+        self.facts_bottom: float = 0  # a rack's right column, where it ends
 
     # -- primitives -----------------------------------------------------------
 
@@ -2653,49 +2661,181 @@ class _Page:
         self.y = bottom + ROW + ROW_GAP
 
     def elevation(self, elevation: Elevation) -> None:
-        """A rack: a light per channel of each unit when they all fit the screen's
-        budget (:class:`Budget`), else one light per unit over all its channels
-        (node form), never parts; each unit links to its card."""
-        every = [*elevation.units, *elevation.unpositioned]
-        costs = [light_cost(ladder(self.graph, [item])) for unit in every for item in unit.lights]
-        self.node_form = not Budget().take(costs)
+        """A rack as it stands: its frame, each chassis a bar at its true unit spanning
+        the rack, the unit numbers left, the name inside the bar and one light over
+        the unit's channels at its right end, opening the card. Right of it the
+        classes counted and the sources; under it the devices not at a unit."""
+        tops = [_unit_top(unit) for unit in elevation.units]
+        height = max(tops, default=0)
+        frame_x = MARGIN + RACK_LABEL_WIDTH
+        bars_x = frame_x + RACK_PAD
         top = self.y
-        y = top
-        for unit in elevation.units:
-            y = self.rack_unit(MARGIN, y, unit)
-        side = MARGIN + RACK_WIDTH + UNPOSITIONED_GAP
-        self.text(side, top, _NO_UNIT, size=SMALL_SIZE)
-        y_side = top + ROW + ROW_GAP
-        for unit in elevation.unpositioned:
-            x = self.ref(side, y_side, unit.link)
-            if unit.unit_text is not None:
-                x = self.text(x + GAP, y_side, f"unit {unit.unit_text}", size=SMALL_SIZE)
-            x = self.unit_lights(x, y_side, unit)
-            y_side += ROW + ROW_GAP
-        self.y = max(y, y_side) + ROW_GAP
+        rack_top = top + RACK_PAD
+        self.s.widget(
+            "rectangle",
+            frame_x,
+            top,
+            RACK_WIDTH + 2 * RACK_PAD,
+            height * RACK_U + 2 * RACK_PAD,
+            {"lineColor": PAGE_TEXT, "lineWidth": AXIS_WIDTH, "fill": False},
+        )
+        labelled: set[int | None] = set()
+        lanes = rack_lanes(elevation.units)
+        for unit, unit_top, (lane, count) in zip(elevation.units, tops, lanes, strict=True):
+            w = RACK_WIDTH / count  # chassis whose units overlap share the rack's width
+            x = bars_x + lane * w
+            y = rack_top + (height - unit_top) * RACK_U
+            h = (unit.size_u or 1) * RACK_U
+            if unit.position not in labelled:  # at the unit stated: the bar's lowest
+                labelled.add(unit.position)
+                label = f"U{unit.position}"
+                self.text(
+                    MARGIN, y + h - RACK_U, label, size=SMALL_SIZE, w=RACK_LABEL_WIDTH - GAP,
+                    h=RACK_U,
+                )  # fmt: skip
+            self.chassis(x, y, w, h, unit)
+        bottom = top + height * RACK_U + 2 * RACK_PAD
+        self.rack_facts(elevation, top)
+        self.y = max(bottom, self.facts_bottom) + SECTION_GAP
+        if elevation.unpositioned:
+            self.not_at_a_unit(elevation.unpositioned)
 
-    def unit_lights(self, x: float, y: float, unit: RackUnit) -> float:
-        """A rack unit's lights after *x* (see :meth:`elevation`); their right edge."""
-        if not unit.lights:
-            return self.no_rule(x + GAP, y)
-        if self.node_form:
-            return self.light(x + GAP, y, unit.lights)
-        for item in unit.lights:
-            x = self.light(x + GAP, y, [item])
-        return x
-
-    def rack_unit(self, x0: float, y: float, unit: RackUnit) -> float:
-        h = (unit.size_u or 1) * RACK_U
-        self.box(x0, y, RACK_WIDTH, h, dashed=unit.conflicting)
-        label = "" if unit.position is None else f"U{unit.position}"
-        x = self.text(x0 + GAP, y, label, size=SMALL_SIZE, w=RACK_LABEL_WIDTH)
-        if unit.conflicting:
-            x = self.mark(x, y, symbols.CONFLICT_MARK)
-        x = self.ref(x + GAP, y, unit.link)
-        x = self.unit_lights(x, y, unit)
+    def chassis(self, x: float, y: float, w: float, h: float, unit: RackUnit) -> None:
+        """One bar: its name inside, the light at its right end, a link over it."""
+        self.box(x, y, w, h, fill=FIELD_BACKGROUND, dashed=unit.conflicting)
+        light_x = x + w - CHIP_LIGHT - GAP / 2
+        light_y = y + (min(h, RACK_U) - ROW) / 2
+        self.unit_light(light_x, light_y, unit)
+        name = unit.link.label if isinstance(unit.link, Link) else unit.link.text
         if unit.standing == _CONTESTED:
-            self.text(x + GAP, y, _CONTESTED, size=SMALL_SIZE)
-        return y + max(h, ROW)
+            name = f"{name} · {_CONTESTED}"
+        x_text = x + GAP / 2
+        if unit.conflicting:
+            x_text = self.text(x_text, y, symbols.CONFLICT_MARK, size=SMALL_SIZE, h=RACK_U)
+        room = light_x - GAP / 2 - x_text
+        name = _cut(name, room, SMALL_SIZE)
+        if name:
+            w_name = min(text_width(name, SMALL_SIZE), room)
+            self.text(x_text, y, name, size=SMALL_SIZE, w=w_name, h=RACK_U)
+        if isinstance(unit.link, Link):
+            self.nav(x, y, w, h, unit.link)
+
+    def unit_light(self, x: float, y: float, unit: RackUnit) -> None:
+        """One light over a unit's channels (and its parts'), the no-rule look with none."""
+        if not unit.lights:
+            self.no_rule(x, y, CHIP_LIGHT)
+        else:
+            self.light(x, y, unit.lights, size=CHIP_LIGHT)
+
+    def rack_facts(self, elevation: Elevation, top: float) -> None:
+        """Right of the rack: the classes of its devices counted, how many stand at a
+        unit, and the documents the units come from."""
+        x0, right = self.x0, self.right
+        self.x0, self.right = MARGIN + RACK_COLUMN, MARGIN + STRIP_WIDTH
+        self.y = top
+        every = [*elevation.units, *elevation.unpositioned]
+        classes: Counter[str] = Counter()
+        for device in dict.fromkeys(u.link.target.id for u in every if isinstance(u.link, Link)):
+            try:
+                cls = self.graph.thing(device, "device").cls
+            except KeyError:
+                cls = None
+            classes[cls or _NO_CLASS] += 1
+        if classes:
+            self.heading(_BY_CLASS)
+            for cls, count in sorted(classes.items(), key=lambda kv: (-kv[1], kv[0])):
+                self.text(self.x0, self.y, cls, size=SMALL_SIZE, h=SMALL_LINE)
+                n = str(count)
+                w = text_width(n, SMALL_SIZE)
+                self.text(self.right - w, self.y, n, size=SMALL_SIZE, w=w, h=SMALL_LINE)
+                self.y += SMALL_LINE
+            self.y += ROW_GAP
+        counts = _RACK_COUNTS.format(len(elevation.units), len(elevation.unpositioned))
+        self.text(self.x0, self.y, counts, size=SMALL_SIZE, fg=MUTED_TEXT)
+        self.next_row()
+        documents: Counter[str] = Counter()
+        for unit in every:  # a document per unit once, however many of its rows say it
+            documents.update(
+                list(
+                    dict.fromkeys(
+                        " ".join(p for p in (c.document, c.version) if p) for c in unit.citations
+                    )
+                )
+            )
+        if documents:
+            self.heading(_SOURCES)
+            ranked = sorted(documents.items(), key=lambda kv: (-kv[1], kv[0]))
+            for document, count in ranked[:RACK_SOURCES]:
+                text = _cut(_UNITS_FROM.format(document, count), self.right - self.x0, SMALL_SIZE)
+                self.text(self.x0, self.y, text, size=SMALL_SIZE, h=SMALL_LINE, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+            if len(ranked) > RACK_SOURCES:
+                more = _MORE_ROWS.format(len(ranked) - RACK_SOURCES)
+                self.text(self.x0, self.y, more, size=SMALL_SIZE, h=SMALL_LINE, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+        self.facts_bottom = self.y
+        self.x0, self.right = x0, right
+
+    def not_at_a_unit(self, entries: Sequence[RackUnit]) -> None:
+        """The devices in the rack with no unit: a framed list of chips, each with its
+        light and the unit text a claim gives, under the rack."""
+        first = len(self.s.nodes)
+        top = self.y
+        self.y += PANEL_PAD
+        self.heading(_NOT_AT_A_UNIT)
+        x = MARGIN
+        for unit in entries:
+            name = unit.link.label if isinstance(unit.link, Link) else unit.link.text
+            label = f"{name} · unit {unit.unit_text}" if unit.unit_text else name
+            w = text_width(label, SMALL_SIZE) + CHIP_LIGHT + 2 * GAP
+            if x > MARGIN and x + w > MARGIN + STRIP_WIDTH:
+                x = MARGIN
+                self.y += CHIP_HEIGHT + CHIP_GAP
+            self.box(x, self.y, w, CHIP_HEIGHT, fill=FIELD_BACKGROUND)
+            self.unit_light(x + GAP / 2, self.y + (CHIP_HEIGHT - ROW) / 2, unit)
+            self.text(x + CHIP_LIGHT + GAP, self.y, label, size=SMALL_SIZE, h=CHIP_HEIGHT)
+            if isinstance(unit.link, Link):
+                self.nav(x, self.y, w, CHIP_HEIGHT, unit.link)
+            x += w + CHIP_GAP
+        self.y += CHIP_HEIGHT + PANEL_PAD
+        self.s.widget(
+            "rectangle",
+            MARGIN - PANEL_PAD / 2,
+            top,
+            STRIP_WIDTH + PANEL_PAD,
+            self.y - top,
+            {"lineColor": BOX_BORDER, "lineWidth": LINE_WIDTH, "fill": False},
+        )
+        self.s.nodes.insert(first, self.s.nodes.pop())
+        self.y += GAP
+
+
+def rack_lanes(units: Sequence[RackUnit]) -> list[tuple[int, int]]:
+    """Each unit's lane and the lanes of its cluster: units whose spans overlap form a
+    cluster, each takes the first lane free over its span, in order."""
+    spans = [(unit.position or 0, _unit_top(unit)) for unit in units]
+    order = sorted(range(len(units)), key=lambda i: (spans[i][0], i))
+    lanes = [0] * len(units)
+    cluster = [0] * len(units)
+    clusters: list[list[int]] = []
+    reach = -math.inf
+    for i in order:
+        low, high = spans[i]
+        if low > reach:
+            clusters.append([])
+        reach = max(reach, high) if low <= reach else high
+        members = clusters[-1]
+        taken = {lanes[j] for j in members if spans[j][1] >= low}
+        lanes[i] = next(n for n in itertools.count() if n not in taken)
+        members.append(i)
+        cluster[i] = len(clusters) - 1
+    width = [max(lanes[j] for j in members) + 1 for members in clusters]
+    return [(lanes[i], width[cluster[i]]) for i in range(len(units))]
+
+
+def _unit_top(unit: RackUnit) -> int:
+    """The highest unit a chassis takes: its stated unit is its lowest."""
+    return (unit.position or 0) + int(unit.size_u or 1) - 1
 
 
 def picture_labels(

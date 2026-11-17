@@ -455,7 +455,7 @@ def test_a_conflicting_rack_unit_is_marked(panel_graph) -> None:
     assert conflicting
     doc, _ = draw(view, panel_graph)
     assert _texts(doc).count(symbols.CONFLICT_MARK) == len(conflicting)
-    assert "no unit" in _texts(doc)
+    assert "NOT AT A UNIT" in _texts(doc)
 
 
 def test_a_rack_unit_is_as_tall_as_its_size(panel_graph) -> None:
@@ -1233,7 +1233,7 @@ def test_a_channel_bad_above_its_last_value_writes_an_open_bound(tmp_path) -> No
         assert evaluate(rule, [value]) == flagged(channel_state(graph, item.channel, value), item)
 
 
-def test_a_rack_over_its_budget_draws_one_light_per_unit_and_no_parts(tmp_path, monkeypatch):
+def test_a_rack_unit_draws_one_light_over_its_channels_and_its_parts(tmp_path):
     from tests.facility.panels._fixture import add_part
 
     second = "XR01-CARD2:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,card.db:2\n"
@@ -1241,19 +1241,12 @@ def test_a_rack_over_its_budget_draws_one_light_per_unit_and_no_parts(tmp_path, 
     with (tmp_path / "panels" / "health.csv").open("a") as rows:
         rows.write(second)
     graph = load_graph(tmp_path / "facility.json", tmp_path / "panels")
-    view = rack_elevation(graph, "XR/XR01/RK1")
-    full, _ = draw(view, graph)
-    alone = [n for n in _by_type(full, "polygon") if n.get("rules")]
-    tips = [n["props"]["tooltip"] for n in alone]
-    assert "XR01-CARD1:Fault-Sts" in tips  # within budget: a light per channel
-    monkeypatch.setattr(layout, "SCREEN_RULE_BUDGET", _subscriptions(full) - 1)
-    doc, _ = draw(view, graph)
+    doc, _ = draw(rack_elevation(graph, "XR/XR01/RK1"), graph)
     lit = [n for n in _by_type(doc, "polygon") if n.get("rules")]
     tips = [n["props"]["tooltip"] for n in lit]
-    assert "XR01-CARD1:Fault-Sts" not in tips
+    assert "XR01-CARD1:Fault-Sts" not in tips  # no light of its own: the unit's light
     assert any("XR01-CARD1:Fault-Sts" in t and "XR01-CARD2:Fault-Sts" in t for t in tips)
     assert not [t for t in tips if t.startswith("part ")]
-    assert _subscriptions(doc) < _subscriptions(full)
 
 
 def test_a_tray_chip_names_a_reason_only_when_it_says_more_than_the_heading(panel_graph):

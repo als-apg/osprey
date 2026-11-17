@@ -27,7 +27,8 @@ ALLOWED = {
     ("text-label", "foregroundColor"): {"Page_Text", "Text_Muted"},
     ("text-label", "backgroundColor"): {"Transparent", "Field_Background"},
     ("line", "lineColor"): {"Page_Text", "Text_Muted", "MINOR", "MAJOR", "DISCONNECTED"},
-    ("rectangle", "lineColor"): {"Box_Border", "Transparent"},
+    # Page_Text: a drawn outline, as the strip's symbols (the rack's frame)
+    ("rectangle", "lineColor"): {"Box_Border", "Transparent", "Page_Text"},
     ("rectangle", "fillColor"): {"Field_Background", "Tile_Background"},
 }
 
