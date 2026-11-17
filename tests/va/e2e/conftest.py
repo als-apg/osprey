@@ -417,10 +417,7 @@ def demo_state_dir() -> Path:
     view lists, so the set is validated as an apply validates it. Readable by
     the container's user, which is not this process's.
     """
-    from osprey_connectors.simulation.state import (
-        scenario_targets,
-        write_active_state,
-    )
+    from osprey_connectors.simulation.state import write_active_state
 
     global _DEMO_STATE_DIR
     if _DEMO_STATE_DIR is None:
@@ -428,11 +425,9 @@ def demo_state_dir() -> Path:
         state_dir = Path(tempfile.mkdtemp(prefix="osprey-va-demo-state-"))
         atexit.register(shutil.rmtree, state_dir, ignore_errors=True)
         active = write_active_state(
-            state_dir,
-            {scenario.name: scenario_targets(scenario) for scenario in view.scenarios()},
-            SUITE_SCENARIOS,
+            state_dir, {scenario.name: scenario for scenario in view.scenarios()}, SUITE_SCENARIOS
         )
-        assert STILL_MONITORS_SCENARIO_NAME in active, active
+        assert STILL_MONITORS_SCENARIO_NAME in active.names, active
         state_dir.chmod(0o755)
         _DEMO_STATE_DIR = state_dir
     return _DEMO_STATE_DIR

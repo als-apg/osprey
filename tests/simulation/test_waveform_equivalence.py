@@ -40,6 +40,7 @@ from osprey_connectors.simulation.archive import (
     waveform_document,
 )
 from osprey_connectors.simulation.records import SeedsDocument, VariablesDocument
+from osprey_connectors.simulation.state import ActiveState
 from osprey_connectors.simulation.texture import TextureModel
 from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
 from tests._container_support import require_container_runtime
@@ -107,7 +108,7 @@ def live_trace(texture: TextureModel) -> np.ndarray:
 @pytest.fixture(scope="module")
 def seeded(demo_view: Path):
     """The archive composite of the example facility, nominal active, anchored at T."""
-    return build(demo_view, [], anchor_at=T, tz=get_facility_timezone())
+    return build(demo_view, ActiveState(names=[], anchor_at=T), tz=get_facility_timezone())
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.archive import ArchiveComposite, _synthesize_documents, build
 from osprey_connectors.simulation.records import SeedRecord, TopoffRecord
 from osprey_connectors.simulation.series import anchored_instant, step_end
+from osprey_connectors.simulation.state import ActiveState
 from tests._archiver_events import event as view_event
 
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
@@ -51,8 +52,7 @@ def archive(built_demo) -> ArchiveComposite:
     view = built_demo.build_dir / "data" / "simulator"
     return build(
         view,
-        ["rf-thermal"],
-        anchor_at=datetime.fromtimestamp(RF_ANCHOR_S, UTC),
+        ActiveState(names=["rf-thermal"], anchor_at=datetime.fromtimestamp(RF_ANCHOR_S, UTC)),
         tz=get_facility_timezone(),
     )
 

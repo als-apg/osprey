@@ -152,7 +152,7 @@ def capture() -> tuple[dict[str, Any], dict[str, Any]]:
     sys.path.insert(0, str(REPO_ROOT))
     from tests.va.e2e import conftest as e2e
 
-    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
+    from osprey_connectors.simulation.state import read_active_state
     from osprey_connectors.simulation.values import is_waveform
     from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 
@@ -163,7 +163,7 @@ def capture() -> tuple[dict[str, Any], dict[str, Any]]:
             raise SystemExit(
                 f"osprey sim apply {STILL} failed:\n{applied.stdout}\n{applied.stderr}"
             )
-        active = resolve_active_scenarios(read_active_state(project.state_dir).names)
+        active = list(read_active_state(project.state_dir).names)
         view = SimulatorView.open(project.data_dir / VIEW_RELPATH.name)
         status = set(view.status_addresses().values())
         addresses = sorted(

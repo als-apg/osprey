@@ -48,8 +48,6 @@ those stores out from under their assertions.
 from __future__ import annotations
 
 import contextlib
-import sys
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -82,19 +80,12 @@ from osprey_connectors.simulation.archive import (
 )
 from osprey_connectors.simulation.records import ArchiverEvent
 from osprey_connectors.simulation.series import epoch_seconds_array
-from tests._archive_composites import archives_closed
+from osprey_connectors.simulation.state import ActiveState
 from tests._archiver_events import events as view_events
 from tests._container_support import is_docker_available
 from tests._live import wait_until
 from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_scenarios_view, write_texture_view
-
-
-@pytest.fixture(autouse=True)
-def _close_archives(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    with archives_closed(monkeypatch, sys.modules[__name__]):
-        yield
-
 
 # ---------------------------------------------------------------------------
 # The world under test
@@ -385,7 +376,9 @@ class World:
         epochs = epoch_seconds_array(stamps)
         assert epochs is not None
         archive = build(
-            self.root / "data" / "simulator", [], anchor_at=T0, tz=get_facility_timezone()
+            self.root / "data" / "simulator",
+            ActiveState(names=[], anchor_at=T0),
+            tz=get_facility_timezone(),
         )
         documents = _synthesize_documents(archive, epochs)
         return {pv: [document[pv] for document in documents] for pv in channels}

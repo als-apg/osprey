@@ -276,7 +276,7 @@ class TestTheInstance:
     def test_the_instances_are_the_composites_served_ones(self) -> None:
         from typing import get_args
 
-        from osprey_connectors.simulation.composite import ServingInstance
+        from osprey_connectors.simulation.state import ServingInstance
 
         assert set(entrypoint.VA_INSTANCES) == set(get_args(ServingInstance)) - {"inprocess"}
 

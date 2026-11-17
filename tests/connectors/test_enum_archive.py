@@ -29,6 +29,7 @@ from osprey.services.archiver_recorder.recorder import channel_access_reader
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import ArchiveComposite, build
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.state import ActiveState
 from osprey_connectors.simulation.view import VARIABLES_FILE, SimulatorView
 from osprey_connectors_tests._epics_fakes import (
     DBR_ENUM,
@@ -97,8 +98,7 @@ def view_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def archive(view_dir: Path) -> ArchiveComposite:
     return build(
         view_dir,
-        ["mode-change"],
-        anchor_at=datetime.fromtimestamp(ANCHOR_S, UTC),
+        ActiveState(names=["mode-change"], anchor_at=datetime.fromtimestamp(ANCHOR_S, UTC)),
         tz=get_facility_timezone(),
     )
 

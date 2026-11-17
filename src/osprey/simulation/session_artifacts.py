@@ -176,32 +176,31 @@ def render_session_artifacts(
     from osprey.simulation.apply import active_archiver_events
     from osprey_connectors.config import get_facility_timezone
     from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
     tz = get_facility_timezone()
     events = active_archiver_events(project_dir, names)
     payloads: dict[tuple[str, str], ArtifactPayload] = {}
     archive: ArchiveComposite | None = None
-    try:
-        for session, turn in turns:
-            for artifact in turn.artifacts:
-                if artifact.spec.form == "plot" and archive is None:
-                    archive = build(
-                        SimulatorView.of_project(project_dir), names, anchor_at=anchor, tz=tz
-                    )
-                where = f"sessions[{session.session.slug}].artifacts[{artifact.spec.slug}]"
-                payloads[(session.session.slug, artifact.spec.slug)] = render_artifact(
-                    artifact.spec,
-                    turn,
-                    archive=archive,
-                    events=events,
-                    anchor_s=anchor.timestamp(),
+    for session, turn in turns:
+        for artifact in turn.artifacts:
+            if artifact.spec.form == "plot" and archive is None:
+                archive = build(
+                    SimulatorView.of_project(project_dir),
+                    ActiveState(names=tuple(names), anchor_at=anchor),
                     tz=tz,
-                    where=where,
                 )
-    finally:
-        if archive is not None:
-            archive.close()
+            where = f"sessions[{session.session.slug}].artifacts[{artifact.spec.slug}]"
+            payloads[(session.session.slug, artifact.spec.slug)] = render_artifact(
+                artifact.spec,
+                turn,
+                archive=archive,
+                events=events,
+                anchor_s=anchor.timestamp(),
+                tz=tz,
+                where=where,
+            )
     return payloads
 
 

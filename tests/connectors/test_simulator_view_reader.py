@@ -128,6 +128,7 @@ def test_a_channels_motion_envelope_follows_its_seed_and_the_active_scenarios(
     demo_view: Path,
 ) -> None:
     from osprey_connectors.simulation.envelope import active_envelopes, motion_envelope
+    from osprey_connectors.simulation.state import ActiveState, compose
 
     view = SimulatorView.open(demo_view)
     seeds = {
@@ -139,7 +140,7 @@ def test_a_channels_motion_envelope_follows_its_seed_and_the_active_scenarios(
         for entry in _raw(demo_view, "scenarios.json")["scenarios"]
     }
     noisy = next(address for address, seed in sorted(seeds.items()) if seed.drift)
-    live = active_envelopes(seeds, scenarios, ["rf-thermal-live"])
+    live = active_envelopes(seeds, compose(scenarios, ActiveState(names=["rf-thermal-live"])))
     replaced = sorted(scenarios["rf-thermal-live"].noise)[0]
 
     assert view.motion_envelope(noisy) == motion_envelope(seeds[noisy]) > 0.0

@@ -17,11 +17,8 @@ import yaml
 
 from osprey.facility.records import FacilityRecords
 from osprey.simulation.apply import apply_scenarios, view_scenarios
-from osprey_connectors.simulation.state import (
-    read_active_state,
-    scenario_targets,
-    validate_composition,
-)
+from osprey_connectors.model import evolve
+from osprey_connectors.simulation.state import read_active_state, validate_composition
 from osprey_connectors.workspace import resolve_simulation_state_dir
 from tests._facility_file import demo_facility_document
 
@@ -62,7 +59,7 @@ def test_sim_apply_activates_the_built_in_still(project: Path) -> None:
     result = apply_scenarios(project, ["still"], seed_logbook=False, seed_archive=False)
 
     assert result.active == ("nominal", "still")
-    assert _active(project) == ["still"]
+    assert _active(project) == ["nominal", "still"]
 
 
 def test_scenarios_that_clash_are_refused_together(project: Path) -> None:
@@ -73,7 +70,7 @@ def test_scenarios_that_clash_are_refused_together(project: Path) -> None:
             project, ["still", "rf-thermal-live"], seed_logbook=False, seed_archive=False
         )
 
-    assert _active(project) == ["still"]
+    assert _active(project) == ["nominal", "still"]
 
 
 def test_vacuum_burst_and_rf_thermal_compose(project: Path) -> None:
@@ -83,7 +80,7 @@ def test_vacuum_burst_and_rf_thermal_compose(project: Path) -> None:
     )
 
     assert result.active == ("nominal", "vacuum-burst", "rf-thermal")
-    assert _active(project) == ["vacuum-burst", "rf-thermal"]
+    assert _active(project) == ["nominal", "vacuum-burst", "rf-thermal"]
 
 
 def test_every_pair_that_composed_with_archiver_channels_as_targets_still_composes(
@@ -91,10 +88,12 @@ def test_every_pair_that_composed_with_archiver_channels_as_targets_still_compos
 ) -> None:
     scenarios = view_scenarios(project)
     assert scenarios
-    targets = {name: scenario_targets(scenario) for name, scenario in scenarios.items()}
     # The rule before archiver events composed: each entry's channel was a target too.
     before = {
-        name: targets[name] | {entry.channel for entry in scenario.archiver}
+        name: evolve(
+            scenario,
+            overrides={**scenario.overrides, **{entry.channel: 0.0 for entry in scenario.archiver}},
+        )
         for name, scenario in scenarios.items()
     }
 
@@ -105,4 +104,4 @@ def test_every_pair_that_composed_with_archiver_channels_as_targets_still_compos
     ]
 
     assert composed
-    assert [pair for pair in composed if validate_composition(targets, pair)] == []
+    assert [pair for pair in composed if validate_composition(scenarios, pair)] == []

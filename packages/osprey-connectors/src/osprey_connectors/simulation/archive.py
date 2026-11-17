@@ -54,13 +54,11 @@ option index. ``lume`` is imported inside :func:`build` only.
 from __future__ import annotations
 
 import hashlib
-import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -78,25 +76,22 @@ from osprey_connectors.simulation.series import (
     epoch_seconds_array,
     event_positions,
 )
-from osprey_connectors.simulation.state import (
-    ACTIVE_SCENARIOS_FILENAME,
-    resolve_active_scenarios,
-)
 from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, SimulatorView
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from pathlib import Path
     from zoneinfo import ZoneInfo
 
     from pymongo.collection import Collection
 
-    from osprey_connectors.simulation.composite import Composite, ServingInstance
+    from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.records import (
         ArchiverEvent,
         ChannelRecord,
         PulseRecord,
-        ScenarioRecord,
         TopoffRecord,
     )
+    from osprey_connectors.simulation.state import ActiveState, ServingInstance
 
 logger = get_logger("archive")
 
@@ -112,7 +107,6 @@ __all__ = [
     "build",
     "compare_fingerprint",
     "oldest_sample",
-    "scenario_events",
     "seed_base",
     "seed_fingerprint",
     "stored_date_utc",
@@ -327,8 +321,6 @@ class ArchiveComposite:
             from: the activation anchor.
         tz: The facility zone ``at_when`` calendar days are counted in and a
             daily ``at_time`` event is placed in.
-        state: The directory holding ``composite``'s active set, removed by
-            ``close``.
         pulses: Each pulsed waveform channel's ``pulse`` seed, by address: the
             ``driver`` and ``enable`` channels its trace is computed from.
         topoffs: Each channel's ``topoff`` seed record, by address, for the
@@ -349,7 +341,6 @@ class ArchiveComposite:
         *,
         anchor_at: datetime,
         tz: ZoneInfo,
-        state: tempfile.TemporaryDirectory[str] | None = None,
         pulses: Mapping[str, PulseRecord] | None = None,
         topoffs: Mapping[str, TopoffRecord] | None = None,
     ) -> None:
@@ -366,7 +357,6 @@ class ArchiveComposite:
         self._held: dict[str, object] = dict(held)
         self._events = {address: list(scripts) for address, scripts in events.items()}
         self._composite = composite
-        self._state = state
         # Epoch seconds from here on: the per-sample arithmetic is float.
         self._anchor_s = require_aware(anchor_at, name="anchor_at").timestamp()
         self._tz = tz
@@ -374,17 +364,6 @@ class ArchiveComposite:
     def topoff_record(self, address: str) -> TopoffRecord | None:
         """The ``topoff`` seed record that refills ``address``'s ``loss`` events, or None."""
         return self._topoffs.get(address)
-
-    def close(self) -> None:
-        """Remove the state directory, when the composite holds one; a second call does nothing."""
-        if self._state is not None:
-            self._state.cleanup()
-
-    def __enter__(self) -> ArchiveComposite:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        self.close()
 
     @property
     def addresses(self) -> list[str]:
@@ -597,36 +576,8 @@ class ArchiveComposite:
         return value
 
 
-def scenario_events(
-    scenarios: Mapping[str, ScenarioRecord], names: Sequence[str]
-) -> dict[str, list[ArchiverEvent]]:
-    """The archiver events a scenario set writes, by channel.
-
-    Args:
-        scenarios: The simulator view's scenarios, by name.
-        names: The scenario names of the set, in set order; a name
-            ``scenarios`` does not list contributes nothing.
-
-    Returns:
-        Each channel's events in set order; a channel an ``archiver`` entry
-        names with no events maps to an empty list.
-    """
-    events: dict[str, list[ArchiverEvent]] = {}
-    for name in names:
-        scenario = scenarios.get(name)
-        if scenario is None:
-            continue
-        for entry in scenario.archiver:
-            events.setdefault(entry.channel, []).extend(entry.events)
-    return events
-
-
 def build(
-    view: SimulatorView | Path | str,
-    active_set: Sequence[str],
-    *,
-    anchor_at: datetime | None = None,
-    tz: ZoneInfo,
+    view: SimulatorView | Path | str, active: ActiveState, *, tz: ZoneInfo
 ) -> ArchiveComposite:
     """Build the archive composite of a simulator view at one active set's start state.
 
@@ -638,9 +589,8 @@ def build(
     Args:
         view: The simulator view, ``<render>/data/simulator``, opened or as
             its directory, which is opened with :meth:`SimulatorView.open`.
-        active_set: The active scenario names; ``nominal`` is always active.
-        anchor_at: The instant the set was applied at, from which an
-            ``at_offset`` or ``at_when`` event is placed; ``None`` is the time
+        active: The active set; its anchor places an ``at_offset`` or
+            ``at_when`` event, and a set without one is placed from the time
             of the build.
         tz: The facility zone ``at_when`` calendar days are counted in and a
             daily ``at_time`` event is placed in.
@@ -649,7 +599,6 @@ def build(
         The archive composite.
 
     Raises:
-        NaiveDatetimeError: ``anchor_at`` is naive.
         RuntimeError: A physics model fails to build or read at the start
             state; the message names it and its engine's error. A model without
             a deck is unbuilt by design (``no deck``) and does not raise.
@@ -660,68 +609,49 @@ def build(
     from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.status import is_error
 
-    if anchor_at is None:
-        anchor_at = datetime.fromtimestamp(time.time(), UTC)
-    require_aware(anchor_at, name="anchor_at")
+    anchor_at = active.anchor_at or datetime.fromtimestamp(time.time(), UTC)
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
-    scenarios: dict[str, ScenarioRecord] = {
-        scenario.name: scenario for scenario in view.scenarios()
-    }
     records: dict[str, ChannelRecord] = {
         channel.address: channel for channel in view.document(VARIABLES_FILE).channels
     }
     seeds = view.document(SEEDS_FILE).seeds
     archived = sorted(view.channels())
-    names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
-    state = tempfile.TemporaryDirectory(prefix="osprey-archive-")
-    try:
-        (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
-            "".join(f"{name}\n" for name in names), encoding="utf-8"
+    composite = Composite(view, active=active, instance=_ARCHIVE_INSTANCE, model_log=False)
+    held = composite.held(archived)
+    failed = {
+        model: status for model in composite.models if is_error(status := composite.status(model))
+    }
+    if failed:
+        raise RuntimeError(
+            "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
         )
-        composite = Composite(
-            view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False
-        )
-        held = composite.held(archived)
-        failed = {
-            model: status
-            for model in composite.models
-            if is_error(status := composite.status(model))
-        }
-        if failed:
-            raise RuntimeError(
-                "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
-            )
 
-        events = scenario_events(scenarios, composite.active)
-        pulses = {
-            address: pulse_seed
-            for address in archived
-            if channel_values.is_waveform(records[address].value_type)
-            and (seed := seeds.get(address)) is not None
-            and (pulse_seed := seed.pulse) is not None
-        }
+    events = composite.composed.archiver_events
+    pulses = {
+        address: pulse_seed
+        for address in archived
+        if channel_values.is_waveform(records[address].value_type)
+        and (seed := seeds.get(address)) is not None
+        and (pulse_seed := seed.pulse) is not None
+    }
 
-        return ArchiveComposite(
-            {address: records[address] for address in archived},
-            held,
-            {address: scripts for address, scripts in events.items() if address in records},
-            composite,
-            anchor_at=anchor_at,
-            tz=tz,
-            state=state,
-            pulses=pulses,
-            topoffs={
-                address: record
-                for address in events
-                if address in records
-                and (record := topoff.topoff_record(seeds.get(address))) is not None
-            },
-        )
-    except BaseException:
-        state.cleanup()
-        raise
+    return ArchiveComposite(
+        {address: records[address] for address in archived},
+        held,
+        {address: scripts for address, scripts in events.items() if address in records},
+        composite,
+        anchor_at=anchor_at,
+        tz=tz,
+        pulses=pulses,
+        topoffs={
+            address: record
+            for address in events
+            if address in records
+            and (record := topoff.topoff_record(seeds.get(address))) is not None
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

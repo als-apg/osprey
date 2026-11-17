@@ -252,6 +252,7 @@ def test_each_channel_reads_on_its_own_panel_in_its_stated_unit(payloads) -> Non
 
 def test_the_plot_samples_are_the_archive_samples(project: Path, payloads) -> None:
     from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
     traces = {
@@ -262,10 +263,12 @@ def test_the_plot_samples_are_the_archive_samples(project: Path, payloads) -> No
     }
     seconds = _axis_seconds(traces[DCCT]["x"])
     assert seconds[1] - seconds[0] == PLOT_STEP_S
-    with build(
-        SimulatorView.of_project(project), NAMES, anchor_at=ANCHOR, tz=get_facility_timezone()
-    ) as archive:
-        archived = archive.samples([DCCT, SR07], seconds)
+    archive = build(
+        SimulatorView.of_project(project),
+        ActiveState(names=NAMES, anchor_at=ANCHOR),
+        tz=get_facility_timezone(),
+    )
+    archived = archive.samples([DCCT, SR07], seconds)
 
     assert traces[DCCT]["y"] == [float(v) for v in archived[DCCT]]
     assert traces[SR07]["y"] == [float(v) for v in archived[SR07]]

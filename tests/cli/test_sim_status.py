@@ -31,7 +31,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     JOURNAL_REJECTED_EVENT,
     simulation_state_dir,
 )
-from osprey_connectors.simulation.state import OVERLAP_EVENT
+from osprey_connectors.simulation.state import _OVERLAP_EVENT
 from tests._facility_file import demo_facility_document
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._simulator_view import (
@@ -189,7 +189,7 @@ def test_an_overlap_record_prints_on_its_own_line_and_nothing_else_from_the_log(
             "instance": "inprocess",
             "pid": 123,
             "model": "SR",
-            "event": OVERLAP_EVENT,
+            "event": _OVERLAP_EVENT,
             "target": "SR:MAG:HCM:01:CURRENT:SP",
         },
     ]
@@ -302,7 +302,7 @@ def test_the_standin_target_names_and_reads_the_standins_own_log(
                 "instance": "live_standin",
                 "pid": 321,
                 "model": "SR",
-                "event": OVERLAP_EVENT,
+                "event": _OVERLAP_EVENT,
                 "target": "SR:MAG:HCM:01:CURRENT:SP",
             }
         )
@@ -315,7 +315,7 @@ def test_the_standin_target_names_and_reads_the_standins_own_log(
                 "instance": "inprocess",
                 "pid": 999,
                 "model": "SR",
-                "event": OVERLAP_EVENT,
+                "event": _OVERLAP_EVENT,
                 "target": "SR:MAG:HCM:01:CURRENT:SP",
             }
         )
