@@ -1054,3 +1054,26 @@ def test_a_device_claimed_into_a_rack_with_no_unit_is_unpositioned_there(tmp_pat
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json", claimed), PANELS_DIR)
     (elevation,) = _section(rack_elevation(graph, "XR/XR01/RK1"), "units").items
     assert "XR02:BLOCK1" in [u.link.label for u in elevation.unpositioned]
+
+
+def test_every_roll_up_counts_a_channel_once_at_every_level(tmp_path) -> None:
+    def ruled_chassis(document: dict[str, Any]) -> None:
+        document["channels"].append({"id": "XR02-CH5:Fault-Sts", "on": {"device": "XR02:CH5"}})
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as rows:
+        rows.write("XR02-CH5:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,ch.db:1\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json", ruled_chassis), tables)
+
+    def walk(node):
+        yield node
+        for child in node.children:
+            yield from walk(child)
+
+    for place in ("XR", "XR/XR01", "XR/XR02"):
+        for by in ("place", "system"):
+            (root,) = _section(health_rollup(graph, place, by), "roll-up").items
+            for node in walk(root):
+                assert len(node.channels) == len(set(node.channels)), (place, by, node.label)
+    (root,) = _section(health_rollup(graph, "XR"), "roll-up").items
+    assert root.channels.count("XR02-CH5:Fault-Sts") == 1
