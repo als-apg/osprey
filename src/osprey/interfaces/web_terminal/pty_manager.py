@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import fcntl
 import hashlib
 import os
@@ -320,22 +321,15 @@ class PtySession:
         """
         # Taken before the hang-up: a process the agent started in a session
         # of its own keeps its parent link only until the agent exits.
-        groups: list[process_tree.ProcessGroup] = []
+        tree: process_tree.StartedTree | None = None
         process = self._process
         if process is not None and subprocess_capture.observe_exit(process) is None:
-            try:
-                rows = process_tree.read_while_alive(
-                    lambda: subprocess_capture.observe_exit(process) is None
-                )
-            except process_tree.ProcessTableUnreadable as exc:
-                logger.warning(
-                    "Could not read the process table while the PTY child %d was alive (%s); "
-                    "what it started is left running",
-                    process.pid,
-                    exc.cause,
-                )
-            else:
-                groups = process_tree.tree_groups(process.pid, rows)
+            tree = process_tree.read_started_tree(
+                process.pid,
+                lambda: subprocess_capture.observe_exit(process) is None,
+                child="PTY child",
+                log=logger,
+            )
 
         # Close master fd FIRST — the kernel sends SIGHUP to the entire
         # session (all process groups under this session leader), which is the
@@ -353,32 +347,15 @@ class PtySession:
             # the authority on that group and the one reaper of the child.
             pid = self._process.pid
             outcome = subprocess_capture.stop_child(self._process, grace=3.0)
-            groups = [group for group in groups if group.pgid != pid]
+            if tree is not None:
+                tree = dataclasses.replace(
+                    tree, groups=tuple(g for g in tree.groups if g.pgid != pid)
+                )
             if not outcome.gone:
                 logger.warning("PTY child %d: %s", pid, outcome.describe())
 
-        if groups and self._process is not None:
-            ending = process_tree.end_groups(groups)
-            if ending.ended:
-                logger.info(
-                    "Ended %d process group(s) the PTY child %d started: %s",
-                    len(ending.ended),
-                    self._process.pid,
-                    process_tree.describe(ending.ended),
-                )
-            if ending.survivors:
-                logger.warning(
-                    "Process group(s) the PTY child %d started survived SIGKILL: %s",
-                    self._process.pid,
-                    process_tree.describe(ending.survivors),
-                )
-            if ending.unknown:
-                logger.warning(
-                    "PTY child %d: process table unreadable: started group(s) may still be "
-                    "running: %s",
-                    self._process.pid,
-                    process_tree.describe(ending.unknown),
-                )
+        if tree is not None and self._process is not None:
+            process_tree.end_started_tree(self._process.pid, tree, child="PTY child", log=logger)
 
     def started_commands(self) -> list[process_tree.ProcessGroup]:
         """The commands the agent started in process groups of their own, still running.
