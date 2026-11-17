@@ -159,13 +159,24 @@ BPM_SIGNALS = (
 
 def add_bpm(document: dict[str, Any], device: str, place: str) -> None:
     """Add the pickup *device* (class ``BPM``) in *place*, with a channel per
-    :data:`BPM_SIGNALS`, ``read_out_by`` the chassis ``<device>-E``, whose channel
-    ``<device>-E:sum_readback`` states the signal ``sum_readback``."""
+    :data:`BPM_SIGNALS`, ``read_out_by`` the chassis ``<device>-E`` at the port
+    ``<device>-E:P1``, a device of its own. The chassis states ``sum_readback``
+    and ``amplitude_a``; the port device states ``amplitude_a`` to ``amplitude_d``.
+    So ``amplitude_a`` is stated at all three: pickup, port and chassis."""
     electronics = f"{device}-E"
+    port = f"{electronics}:P1"
     document["devices"] += [
         {"id": device, "class": "BPM", "place": place},
         {"id": electronics, "class": "BPMElectronics", "place": place},
+        {"id": port, "class": "BPMChannel", "place": place},
     ]
+    for signal in ("amplitude_a", "amplitude_b", "amplitude_c", "amplitude_d"):
+        document["channels"].append(
+            {"id": f"{port}:{signal}", "signal": signal, "on": {"device": port}}
+        )
+    document["channels"].append(
+        {"id": f"{electronics}:amplitude_a", "signal": "amplitude_a", "on": {"device": electronics}}
+    )
     for signal in BPM_SIGNALS:
         record: dict[str, Any] = {"id": f"{device}:{signal}", "signal": signal}
         record["on"] = {"device": device}
@@ -184,7 +195,7 @@ def add_bpm(document: dict[str, Any], device: str, place: str) -> None:
             "id": f"{device.lower()}-read-out-by",
             "type": "read_out_by",
             "subject": {"device": device},
-            "object": {"device": electronics},
+            "object": {"device": electronics, "port": port},
             "standing": "accepted",
         }
     )

@@ -837,7 +837,7 @@ def _held_in(graph: PanelGraph, device_id: str, kind: CalibrationKind) -> tuple[
     """The device's channels that state the kind's ``held_in`` signal, in channel order."""
     if kind.held_in is None:
         return ()
-    return tuple(c.name for c in graph.channels(device_id, "device") if c.signal == kind.held_in)
+    return graph.signal_channels(device_id, kind.held_in)
 
 
 def _calibration(graph: PanelGraph, index: _Index, thing: Thing) -> list[Item]:

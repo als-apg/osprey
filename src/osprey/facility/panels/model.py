@@ -1031,25 +1031,44 @@ class PanelGraph:
                 chosen[key] = (rank, first, row)
         return tuple(row for _rank, _n, row in sorted(chosen.values(), key=lambda c: c[1]))
 
-    def probe_channel(self, device_id: str, signal: str) -> str | None:
-        """The channel stating *signal* on the device, else on a device it is
-        ``read_out_by`` (in edge order); ``None`` when none states it.
+    def signal_channels(self, device_id: str, signal: str) -> tuple[str, ...]:
+        """The channels that state *signal* for a device, in channel order, from the
+        first of these that has any: (1) the device the ``port`` of the device's
+        ``read_out_by`` claims names, when it names a device (the control system's
+        own records); (2) the device itself; (3) the device it is read out by.
+        Empty when none states it.
 
         Raises:
             KeyError: No such device.
         """
-        found = next(
-            (c.name for c in self.channels(device_id, "device") if c.signal == signal), None
-        )
-        if found is not None:
-            return found
-        for edge in self.neighbours(device_id, "device").get(READ_OUT_RELATION, ()):
-            if edge.outgoing and edge.other_kind == "device":
-                channels = self.channels(edge.other, "device")
-                found = next((c.name for c in channels if c.signal == signal), None)
-                if found is not None:
-                    return found
-        return None
+        edges = [
+            edge
+            for edge in self.neighbours(device_id, "device").get(READ_OUT_RELATION, ())
+            if edge.outgoing and edge.other_kind == "device"
+        ]
+        ports = [
+            edge.other_port
+            for edge in edges
+            if edge.other_port is not None and ("device", edge.other_port) in self._things
+        ]
+        for level in (ports, [device_id], [edge.other for edge in edges]):
+            found = tuple(
+                c.name
+                for each in level
+                for c in self.channels(each, "device")
+                if c.signal == signal
+            )
+            if found:
+                return found
+        return ()
+
+    def probe_channel(self, device_id: str, signal: str) -> str | None:
+        """The first channel :meth:`signal_channels` finds, or ``None``.
+
+        Raises:
+            KeyError: No such device.
+        """
+        return next(iter(self.signal_channels(device_id, signal)), None)
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""

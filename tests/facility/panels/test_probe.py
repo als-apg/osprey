@@ -94,7 +94,33 @@ def test_the_most_specific_under_wins_element_by_element(bpm_graph) -> None:
     assert bpm_graph.probe("XR01:QF1") == ()
 
 
-def test_a_signal_is_found_on_the_device_or_what_reads_it_out(bpm_graph) -> None:
-    assert bpm_graph.probe_channel("XR01:BPM1", "amplitude_a") == "XR01:BPM1:amplitude_a"
+def test_a_signal_is_found_at_the_port_then_the_device_then_what_reads_it_out(bpm_graph):
+    # amplitude_a: stated at the port device, on the pickup and on the chassis
+    assert bpm_graph.probe_channel("XR01:BPM1", "amplitude_a") == "XR01:BPM1-E:P1:amplitude_a"
+    assert bpm_graph.probe_channel("XR01:BPM1", "tbt_x") == "XR01:BPM1:tbt_x"  # the pickup's own
     assert bpm_graph.probe_channel("XR01:BPM1", "sum_readback") == "XR01:BPM1-E:sum_readback"
     assert bpm_graph.probe_channel("XR01:BPM1", "nothing") is None
+    assert bpm_graph.signal_channels("XR01:BPM1", "amplitude_a") == ("XR01:BPM1-E:P1:amplitude_a",)
+
+
+def test_a_port_that_names_no_device_is_passed_over(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import add_bpm, write_fixture_facility
+
+    def change(document) -> None:
+        add_bpm(document, "XR01:BPM1", "XR/XR01")
+        document["relations"][-1]["object"]["port"] = "input 3"
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", change), PANELS_DIR)
+    assert graph.probe_channel("XR01:BPM1", "amplitude_a") == "XR01:BPM1:amplitude_a"
+
+
+def test_a_value_held_in_the_control_system_is_found_the_same_way(tmp_path) -> None:
+    from osprey.facility.panels.describe import calibration_row
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "calibration_kinds.csv").open("a") as handle:
+        handle.write("gains,Gains,BPM,scalar,1,beam,,,amplitude_a,1,\n")
+    graph = graph_with_bpms(tmp_path, tables)
+    row = calibration_row(graph, "XR01:BPM1", graph.calibration_kind("gains", "BPM"))
+    assert row.channels == ("XR01:BPM1-E:P1:amplitude_a",)

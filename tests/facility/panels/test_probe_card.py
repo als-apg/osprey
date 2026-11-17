@@ -34,7 +34,7 @@ def test_the_card_holds_the_probe_before_its_calibration(bpm_graph) -> None:
     assert TITLE in titles
     probe = _probe(bpm_graph, "XR01:BPM1")
     channels = {p.element.element: p.channel for p in probe.parts}
-    assert channels["A"] == "XR01:BPM1:amplitude_a"
+    assert channels["A"] == "XR01:BPM1-E:P1:amplitude_a"  # the port device's own record
     assert channels["sum"] == "XR01:BPM1-E:sum_readback"
     marker = next(p for p in probe.parts if p.element.shape == "marker")
     assert (marker.channel, marker.channel_y) == (
@@ -71,10 +71,10 @@ def test_the_drawing_is_to_scale_with_lettered_buttons_and_bars(bpm_graph) -> No
     letters = {n["props"]["text"] for n in block if n["type"] == "text-label"}
     assert {"A", "B", "C", "D"} <= letters
     bars = {n["props"]["pv"]: n for n in block if n["type"] == "pv-progress-bar"}
-    assert set(bars) == {f"XR01:BPM1:amplitude_{c}" for c in "abcd"}
+    assert set(bars) == {f"XR01:BPM1-E:P1:amplitude_{c}" for c in "abcd"}
     assert (
-        bars["XR01:BPM1:amplitude_a"]["props"]["min"],
-        bars["XR01:BPM1:amplitude_a"]["props"]["max"],
+        bars["XR01:BPM1-E:P1:amplitude_a"]["props"]["min"],
+        bars["XR01:BPM1-E:P1:amplitude_a"]["props"]["max"],
     ) == (0, 32767)
     assert not [n for n in block if "button placement inferred" in str(n["props"].get("text"))]
 
