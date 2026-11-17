@@ -147,7 +147,10 @@ async def test_export_playwright_missing(tmp_path, monkeypatch):
         with assert_raises_error(error_type="dependency_missing") as _exc_ctx:
             await fn(artifact_id=entry.id)
 
-    _exc_ctx["envelope"]
+    # Playwright is a core dependency: the package is never what is missing.
+    suggestions = _exc_ctx["envelope"]["suggestions"]
+    assert suggestions
+    assert not any("pip install playwright" in s for s in suggestions), suggestions
 
 
 @pytest.mark.parametrize(
