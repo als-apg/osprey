@@ -240,3 +240,17 @@ def test_values_in_card_columns_have_room_for_the_number_and_its_unit(tmp_path) 
     for n in nodes(doc):
         if n["type"] == "pv-label" and n["props"]["pv"].startswith("XR01:BPM0:position"):
             assert n["geometry"]["width"] >= room
+
+
+def test_every_formula_takes_min_and_max_over_one_tuple(bpm_graph, panel_graph) -> None:
+    """The formula engine's min and max are reductions: two arguments fail there."""
+    import re
+
+    docs = [
+        stub_render(device_card(bpm_graph, "XR01:BPM1"), bpm_graph),
+        stub_render(place_view(panel_graph, "XR/XR01", symbols=SYMBOLS), panel_graph),
+    ]
+    expressions = [f["expression"] for doc in docs for f in doc["formulas"]]
+    assert any("min(" in e for e in expressions) and any("max(" in e for e in expressions)
+    for expression in expressions:
+        assert not re.search(r"\b(min|max)\((?!\()", expression), expression

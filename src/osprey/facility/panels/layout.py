@@ -3603,8 +3603,9 @@ class _Page:
         bindings = {"x": marker.channel, "y": marker.channel_y}
         both = "0 * {x} + 0 * {y}"
 
-        def clamp(token: str) -> str:
-            return f"min(max({{{token}}}, {_number(-reach)}), {_number(reach)})"
+        def clamp(token: str) -> str:  # min and max over one tuple: the engine's reductions
+            low = f"max(({{{token}}}, {_number(-reach)},))"
+            return f"min(({low}, {_number(reach)},))"
 
         place = {
             "x": f"{_number(cx - PROBE_DOT / 2)} + {_number(k)} * {clamp('x')} + 0 * {{y}}",
