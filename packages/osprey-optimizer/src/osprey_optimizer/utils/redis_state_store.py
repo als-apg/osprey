@@ -42,7 +42,8 @@ CREATED_STATE_TTL_SECONDS = 600
 # lingers before self-reclaiming. Long enough for the UI to fetch final
 # status/logs after a run ends, but bounded so completed-run keys don't
 # accumulate forever. Only applied once a job is terminal — never to a running
-# job, whose keys back the single active-slot guard.
+# job, whose keys back the single active-slot guard. Counted from the job's end;
+# a read never renews it.
 TERMINAL_STATE_TTL_SECONDS = 3600
 
 
