@@ -21,6 +21,8 @@ __all__ = [
     "Elevation",
     "Fact",
     "Grid",
+    "GridCell",
+    "GridRow",
     "Item",
     "Light",
     "Link",
@@ -162,18 +164,48 @@ class Placement:
 
 
 @dataclass(frozen=True)
-class Grid:
-    """Members by common channel.
+class GridCell:
+    """One member of a set overview.
 
     Attributes:
-        rows: One link (or fact, for a member with no screen) per member.
-        columns: The channel suffixes, one per column.
-        cells: ``cells[row][column]``; ``None`` where a member lacks the channel.
+        member: The member's card, or a fact when it has none.
+        channels: The member's rule-bearing channels: its one light reads
+            their worst state, as a roll-up node of the member would.
+        pair: The member's setpoint of the set's primary pair, with its
+            readback and tolerance; ``None`` when the member has none.
     """
 
-    rows: tuple[Link | Fact, ...]
-    columns: tuple[str, ...]
-    cells: tuple[tuple[ValueRow | Light | None, ...], ...]
+    member: Link | Fact
+    channels: tuple[str, ...]
+    pair: ValueRow | None = None
+
+
+@dataclass(frozen=True)
+class GridRow:
+    """The members of a set overview that share one place.
+
+    Attributes:
+        label: The place (a link to its card), or a fact ``not placed``.
+        cells: The members, in beam order (``s_m``, then id).
+    """
+
+    label: Link | Fact
+    cells: tuple[GridCell, ...]
+
+
+@dataclass(frozen=True)
+class Grid:
+    """A set's members by place.
+
+    Attributes:
+        signal: The signal the facility states for the setpoint of the set's
+            primary pair (the pair most members have), or ``None``.
+        rows: One per place, in the graph's place order; the members with
+            no place last.
+    """
+
+    signal: str | None
+    rows: tuple[GridRow, ...]
 
 
 @dataclass(frozen=True)

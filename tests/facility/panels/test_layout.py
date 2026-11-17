@@ -127,7 +127,7 @@ def test_a_lights_rule_gives_the_engines_state_for_every_value(panel_graph, chan
 
 
 def test_a_light_with_no_value_is_unknown(panel_graph) -> None:
-    rule = ladder(panel_graph, [light(panel_graph, "XR01:PS1:On-Sts")])
+    rule = ladder(panel_graph, [light(panel_graph, "XR01-PS1:On-Sts")])
     assert evaluate(rule, [None]) == "unknown"
 
 
@@ -145,7 +145,7 @@ def test_a_roll_up_rule_gives_the_worst_channel(panel_graph) -> None:
 
 
 def test_flagged_lights_are_never_normal(panel_graph) -> None:
-    for channel in ("XR01:IP1:State-Sts", "XR02:QF1:Current-RB"):
+    for channel in ("XR01-IP1:State-Sts", "XR02-QF1:Current-RB"):
         item = light(panel_graph, channel)
         assert item.disagree or item.unsupported
         rule = ladder(panel_graph, [item])
@@ -155,10 +155,10 @@ def test_flagged_lights_are_never_normal(panel_graph) -> None:
 def test_a_text_label_row_cannot_be_written_and_the_light_is_unknown(tmp_path) -> None:
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
-        rows.write("XR01:PS1:On-Sts,ON,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
+        rows.write("XR01-PS1:On-Sts,ON,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
-    assert ladder(graph, [light(graph, "XR01:PS1:On-Sts")]) == "label condition"
-    doc, _ = draw(card("label", light(graph, "XR01:PS1:On-Sts")), graph)
+    assert ladder(graph, [light(graph, "XR01-PS1:On-Sts")]) == "label condition"
+    doc, _ = draw(card("label", light(graph, "XR01-PS1:On-Sts")), graph)
     assert unexpressed(doc) == 1
     assert "label condition" in needs(doc)
     (shape,) = _by_type(doc, "polygon")
@@ -211,8 +211,8 @@ def test_a_roll_up_screen_draws_one_level(panel_graph) -> None:
 
 def test_one_channel_over_the_limit_is_unknown_and_counted(panel_graph, monkeypatch) -> None:
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 10)
-    assert ladder(panel_graph, [light(panel_graph, "XR02:IP1:Pressure-RB")]) == "long rule"
-    doc, _ = draw(card("long", light(panel_graph, "XR02:IP1:Pressure-RB")), panel_graph)
+    assert ladder(panel_graph, [light(panel_graph, "XR02-IP1:Pressure-RB")]) == "long rule"
+    doc, _ = draw(card("long", light(panel_graph, "XR02-IP1:Pressure-RB")), panel_graph)
     assert unexpressed(doc) == 1 and "long rule" in needs(doc)
 
 
@@ -222,13 +222,13 @@ def test_every_fixture_rule_fits_the_limit(panel_graph) -> None:
 
 
 def test_a_lights_rules_carry_the_looks_of_their_states(panel_graph) -> None:
-    item = light(panel_graph, "XR02:IP1:Pressure-RB")
+    item = light(panel_graph, "XR02-IP1:Pressure-RB")
     doc, _ = draw(card("one", item), panel_graph)
     (shape,) = _by_type(doc, "polygon")
     rule = ladder(panel_graph, [item])
     assert [r["targetProperty"] for r in shape["rules"]] == list(symbols.LIGHT_PROPS)
     for r in shape["rules"]:
-        assert r["pvs"] == [{"name": "XR02:IP1:Pressure-RB", "trigger": True}]
+        assert r["pvs"] == [{"name": "XR02-IP1:Pressure-RB", "trigger": True}]
         assert r["default"] == symbols.look("unknown")[r["targetProperty"]]
         for condition, (expression, state) in zip(r["conditions"], rule.arms, strict=True):
             assert condition["expression"] == expression
@@ -269,8 +269,8 @@ def test_a_deviation_light_only_where_the_row_has_a_tolerance(panel_graph) -> No
 
 
 def test_an_inferred_item_carries_the_mark_and_a_stated_one_does_not(panel_graph) -> None:
-    marked, _ = draw(card("x", Light("XR01:PS1:On-Sts", inferred=True)), panel_graph)
-    plain, _ = draw(card("x", Light("XR01:PS1:On-Sts")), panel_graph)
+    marked, _ = draw(card("x", Light("XR01-PS1:On-Sts", inferred=True)), panel_graph)
+    plain, _ = draw(card("x", Light("XR01-PS1:On-Sts")), panel_graph)
     assert _texts(marked).count(symbols.INFERRED_MARK) == 1
     assert symbols.INFERRED_MARK not in _texts(plain)
     doc, _ = draw(invented_views()[3], panel_graph)
@@ -370,12 +370,12 @@ def test_a_node_without_a_rule_reads_no_rule_not_unknown(panel_graph) -> None:
 def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> None:
     def describe_switch(document) -> None:
         for channel in document["channels"]:
-            if channel["id"] == "XR01:QF1:Current-RB":
+            if channel["id"] == "XR01-QF1:Current-RB":
                 channel["description"] = "Thermal switch 1"  # no matching by text
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
-        rows.write("XR01:QF1:Current-RB,1,bad,screen,stated,xr-screens,4d5e6f7,m.screen:1\n")
+        rows.write("XR01-QF1:Current-RB,1,bad,screen,stated,xr-screens,4d5e6f7,m.screen:1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", describe_switch), tables)
     from osprey.facility.panels.describe import device_card
 
@@ -390,10 +390,10 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
         "thermal switch 1",
     ]
 
-    named = replace(picture, parts=(replace(picture.parts[1], channel="XR01:QF1:Current-RB"),))
+    named = replace(picture, parts=(replace(picture.parts[1], channel="XR01-QF1:Current-RB"),))
     doc, _ = draw(View(view.id, view.title, (), (Section("picture", (named,)),)), graph)
     (shape,) = _by_type(doc, "polygon")
-    assert shape["rules"][0]["pvs"] == [{"name": "XR01:QF1:Current-RB", "trigger": True}]
+    assert shape["rules"][0]["pvs"] == [{"name": "XR01-QF1:Current-RB", "trigger": True}]
     assert not _by_type(doc, "ellipse")
 
 
@@ -419,7 +419,7 @@ def _live(node: dict, values: dict[str, object]) -> dict:
 
 
 def test_a_strip_symbol_shows_its_devices_state_live(tmp_path) -> None:
-    channel = "XR01:QF1:Current-RB"
+    channel = "XR01-QF1:Current-RB"
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
         for value, state in ((">=7", "bad"), ("<1", "warn"), ("2", "normal")):
@@ -522,7 +522,7 @@ def test_the_format_requests_are_exactly_the_needs_the_views_hit(panel_graph, mo
     )
     hit |= set(needs(draw(rollup_view(), panel_graph)[0]))
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 10)
-    hit |= set(needs(draw(card("long", Light("XR02:IP1:Pressure-RB")), panel_graph)[0]))
+    hit |= set(needs(draw(card("long", Light("XR02-IP1:Pressure-RB")), panel_graph)[0]))
     assert FORMAT_REQUESTS
     # the label condition is hit in test_a_text_label_row_cannot_be_written...
     assert {name for name, _ in FORMAT_REQUESTS} - {"label condition"} == hit
@@ -576,7 +576,7 @@ def test_a_view_kind_not_drawn_is_refused(panel_graph) -> None:
 
 
 def test_a_node_light_reads_its_channels(panel_graph) -> None:
-    node = Node("n", None, ("XR01:PS1:On-Sts", "XR02:IP1:Pressure-RB"), False)
+    node = Node("n", None, ("XR01-PS1:On-Sts", "XR02-IP1:Pressure-RB"), False)
     doc, _ = draw(card("n", node), panel_graph)
     (shape,) = _by_type(doc, "polygon")
     assert [p["name"] for p in shape["rules"][0]["pvs"]] == list(node.channels)
@@ -609,10 +609,10 @@ def test_a_light_over_many_channels_names_their_count_not_each(panel_graph) -> N
 def test_agreeing_sources_write_a_condition_once_and_literals_never_disagree(tmp_path) -> None:
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
-        rows.write("XR01:PS1:On-Sts,1,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
-        rows.write("XR01:PS1:On-Sts,0,warn,screen,stated,xr-screens,4d5e6f7,ps.screen:2\n")
+        rows.write("XR01-PS1:On-Sts,1,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
+        rows.write("XR01-PS1:On-Sts,0,warn,screen,stated,xr-screens,4d5e6f7,ps.screen:2\n")
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
-    item = light(graph, "XR01:PS1:On-Sts")
+    item = light(graph, "XR01-PS1:On-Sts")
     rule = ladder(graph, [item])
     assert rule.arms == (("{0} == 0", "warn"), ("{0} == 1", "normal"))
     for value in VALUES:
@@ -621,7 +621,7 @@ def test_agreeing_sources_write_a_condition_once_and_literals_never_disagree(tmp
 
 def test_a_one_channel_roll_up_node_over_the_limit_is_an_aggregate(panel_graph, monkeypatch):
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 10)
-    node = Node("one", None, ("XR02:IP1:Pressure-RB",), False)
+    node = Node("one", None, ("XR02-IP1:Pressure-RB",), False)
     doc, _ = draw(card("one", node), panel_graph)
     assert aggregates(doc) == 1
     assert unexpressed(doc) == 0
@@ -631,13 +631,13 @@ def test_a_one_channel_roll_up_node_over_the_limit_is_an_aggregate(panel_graph, 
 def test_an_unwritable_channel_leaves_its_siblings_arms_and_never_normal(tmp_path) -> None:
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
-        rows.write("XR01:PS1:On-Sts,ON,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
+        rows.write("XR01-PS1:On-Sts,ON,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
-    items = [light(graph, "XR01:PS1:On-Sts"), light(graph, "XR02:IP1:Pressure-RB")]
+    items = [light(graph, "XR01-PS1:On-Sts"), light(graph, "XR02-IP1:Pressure-RB")]
     assert ladder(graph, items[:1]) == "label condition"  # alone, its light is unknown
     rule = ladder(graph, items)
     assert not isinstance(rule, str)
-    assert rule.unwritten == ("XR01:PS1:On-Sts",)
+    assert rule.unwritten == ("XR01-PS1:On-Sts",)
     assert all(state != "normal" for _, state in rule.arms)
     assert evaluate(rule, [1, 7]) == "bad"  # the sibling's bad still shows
     assert evaluate(rule, [1, 0.5]) == "warn"
@@ -670,10 +670,10 @@ def shown(state: str) -> dict:
 def test_a_drawn_node_with_an_unwritable_channel_shows_its_siblings_states(tmp_path) -> None:
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
-        rows.write("XR01:PS1:On-Sts,ON,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
-        rows.write("XR02:IP1:Pressure-RB,3,normal,screen,stated,xr-screens,4d5e6f7,vac.screen:1\n")
+        rows.write("XR01-PS1:On-Sts,ON,normal,screen,stated,xr-screens,4d5e6f7,ps.screen:1\n")
+        rows.write("XR02-IP1:Pressure-RB,3,normal,screen,stated,xr-screens,4d5e6f7,vac.screen:1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
-    a, b = "XR02:IP1:Pressure-RB", "XR01:PS1:On-Sts"  # A: >=5 bad, <1 warn, 3 normal; B: a label
+    a, b = "XR02-IP1:Pressure-RB", "XR01-PS1:On-Sts"  # A: >=5 bad, <1 warn, 3 normal; B: a label
     alone, _ = draw(card("a", Light(a)), graph)
     assert drawn(_by_type(alone, "polygon")[0], {a: 3}) == shown("normal")  # A alone reads normal
     doc, _ = draw(card("node", Node("n", None, (a, b), False)), graph)
@@ -688,7 +688,7 @@ def test_a_drawn_node_with_an_unwritable_channel_shows_its_siblings_states(tmp_p
 
 
 def test_a_device_in_no_place_turns_the_root_roll_up_bad(panel_graph) -> None:
-    loose = "XR09:LOOSE1:Fault-Sts"
+    loose = "XR09-LOOSE1:Fault-Sts"
     for by in ("place", "system"):
         doc, _ = draw(health_rollup(panel_graph, "XR", by), panel_graph)
         root = _by_type(doc, "polygon")[0]  # the root's row is drawn first
@@ -697,3 +697,21 @@ def test_a_device_in_no_place_turns_the_root_roll_up_bad(panel_graph) -> None:
         quiet = dict.fromkeys(names, 1) | {loose: 0}
         assert drawn(root, quiet)["fillColor"] != symbols.look("bad")["fillColor"]
         assert drawn(root, quiet | {loose: 1}) == shown("bad"), by
+
+
+def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_graph) -> None:
+    from osprey.facility.panels.describe import set_overview
+
+    doc, _ = draw(set_overview(panel_graph, "XR-QUAD"), panel_graph)
+    assert not _by_type(doc, "pv-text-input")  # nothing writable in a grid
+    labels = [n["props"]["label"] for n in _by_type(doc, "related-display-button")]
+    for member in ("XR01:QF1", "XR01:QD1", "XR02:QF1", "XR02:QD1"):
+        assert labels.count(member) == 1
+    assert [n["props"]["pv"] for n in _by_type(doc, "pv-label")] == ["XR01-QF1:Current-RB"]
+    bound = [
+        tuple(p["name"] for p in n["rules"][0]["pvs"])
+        for n in _by_type(doc, "polygon")
+        if n.get("rules")
+    ]
+    assert ("XR01-QF1:Current-SP", "XR01-QF1:Current-RB") in bound  # the deviation light
+    assert ("XR02-QD1:Current-RB",) in bound  # the member's own light

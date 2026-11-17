@@ -90,7 +90,7 @@ def invented_views() -> list[View]:
             ValueRow("sp", "A:SP", "A:RB", ("absolute", 0.05), True),
             ValueRow("rel", "B:SP", "B:RB", ("relative", 0.01), True, inferred=True),
             ValueRow("ro", "C:RB", None, None, False),
-            Light("XR01:PS1:On-Sts", inferred=True),
+            Light("XR01-PS1:On-Sts", inferred=True),
             Fact("note", "text", basis="inferred", standing="contested", caveat="assumed"),
             Link("other", Target("card", "device", "XR01:PS1"), basis="inferred"),
         ),
@@ -100,12 +100,12 @@ def invented_views() -> list[View]:
 
 #: Rule-bearing fixture channels, for an invented roll-up.
 RULED = (
-    "XR01:IP1:State-Sts",
-    "XR01:PS1:On-Sts",
-    "XR02:IP1:Pressure-RB",
-    "XR02:QD1:Current-RB",
-    "XR02:QF1:Current-RB",
-    "XR02:BEND1:Current-RB",
+    "XR01-IP1:State-Sts",
+    "XR01-PS1:On-Sts",
+    "XR02-IP1:Pressure-RB",
+    "XR02-QD1:Current-RB",
+    "XR02-QF1:Current-RB",
+    "XR02-BEND1:Current-RB",
 )
 
 

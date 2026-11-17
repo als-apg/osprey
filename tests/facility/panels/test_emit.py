@@ -552,5 +552,5 @@ def test_a_rule_channel_no_roll_up_reads_is_unrolled(
     blind = load_graph(panel_facility, panel_tables)
     emit.write(blind, tmp_path / "blind")
     unrolled = [p for p in emit.check(blind, tmp_path / "blind") if p.kind == "unrolled"]
-    assert [p.detail.split()[0] for p in unrolled] == ["XR09:LOOSE1:Fault-Sts"]
+    assert [p.detail.split()[0] for p in unrolled] == ["XR09-LOOSE1:Fault-Sts"]
     assert all(p.failing for p in unrolled)

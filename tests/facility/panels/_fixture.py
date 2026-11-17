@@ -14,9 +14,9 @@ which hides ``XR/XR02/SAFE/CAB1`` and ``XR02:SAF2`` in it (each with a
 channel, a relation and a pose), ``XR02:SHIELD1`` with a pose and no
 channel, and ``XR01:QF1`` and ``XR01:IP1`` at the same ``s_m``, and ``XR02:IP1`` with a
 ring-frame row and no ``s_m``. The channel
-``XR01:IP1:State-Sts`` has health rows from two sources that disagree on value
-``0``; ``XR02:IP2:Interlock-Sts`` is an excluded channel on a kept thing;
-``VA:XR:InjectionKnob`` is a simulation-only channel; ``XR01:QF1:Current-SP``
+``XR01-IP1:State-Sts`` has health rows from two sources that disagree on value
+``0``; ``XR02-IP2:Interlock-Sts`` is an excluded channel on a kept thing;
+``VA:XR:InjectionKnob`` is a simulation-only channel; ``XR01-QF1:Current-SP``
 states a tolerance. The rack ``XR/XR01/RK1`` names units for ``XR01:CH1``
 (10, size 2) and ``XR01:CH2`` (20), none for ``XR01:CH3``; ``XR02:BLOCK1`` has
 a citation and nothing else. ``XR02:CH5`` has unit claims into two racks
@@ -24,7 +24,7 @@ a citation and nothing else. ``XR02:CH5`` has unit claims into two racks
 contested, so its built place is ``None``. A second claim from another document puts ``XR01:CH2``
 at unit 20 too, and a third claim puts ``XR02:CH5`` at unit 41 in ``XR/XR01/RK1``.
 ``XR09:LOOSE1`` is in no place (no built place, no claim) and has a rule-bearing
-channel, ``XR09:LOOSE1:Fault-Sts`` (``1`` is bad).
+channel, ``XR09-LOOSE1:Fault-Sts`` (``1`` is bad).
 """
 
 from __future__ import annotations

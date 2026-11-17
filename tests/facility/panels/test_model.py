@@ -13,8 +13,8 @@ from tests.facility.panels._fixture import RING_FRAME, copy_tables, write_fixtur
 EXCLUDED_THING = "XR02:SAF1"
 EXCLUDED_PLACE = "XR/XR02/SAFE"
 HIDDEN_THINGS = (EXCLUDED_PLACE, "XR/XR02/SAFE/CAB1", "XR02:SAF2")
-HIDDEN_CHANNELS = ("XR02:SAF2:Door-Sts", "XR02:Cab1Temp-RB")
-EXCLUDED_CHANNELS = ("XR02:SAF1:Trip-Sts", "XR02:IP2:Interlock-Sts")
+HIDDEN_CHANNELS = ("XR02-SAF2:Door-Sts", "XR02:Cab1Temp-RB")
+EXCLUDED_CHANNELS = ("XR02-SAF1:Trip-Sts", "XR02-IP2:Interlock-Sts")
 VA_CHANNEL = "VA:XR:InjectionKnob"
 
 
@@ -83,15 +83,15 @@ def test_an_excluded_or_simulation_only_channel_is_absent(
 def test_a_pair_whose_readback_is_excluded_is_absent(tmp_path: Path) -> None:
     tables = copy_tables(tmp_path / "panels")
     with (tables / "excluded.csv").open("a", encoding="utf-8") as handle:
-        handle.write("channel,XR01:QF1:Current-RB,stand-in for the test,XR-LAYOUT,A,sheet 1\n")
+        handle.write("channel,XR01-QF1:Current-RB,stand-in for the test,XR-LAYOUT,A,sheet 1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json"), tables)
-    assert graph.pair("XR01:QF1:Current-SP") is None
+    assert graph.pair("XR01-QF1:Current-SP") is None
 
 
 def test_a_channel_carries_name_drawn_as_writable_and_alias(panel_graph: PanelGraph) -> None:
     channels = {channel.name: channel for channel in panel_graph.channels("XR01:QF1")}
-    assert list(channels) == ["XR01:QF1:Current-RB", "XR01:QF1:Current-SP"]
-    setpoint, readback = channels["XR01:QF1:Current-SP"], channels["XR01:QF1:Current-RB"]
+    assert list(channels) == ["XR01-QF1:Current-RB", "XR01-QF1:Current-SP"]
+    setpoint, readback = channels["XR01-QF1:Current-SP"], channels["XR01-QF1:Current-RB"]
     assert (setpoint.drawn_as, setpoint.writable, setpoint.alias) == ("setpoint", True, None)
     assert (readback.drawn_as, readback.writable, readback.alias) == (
         "value",
@@ -100,7 +100,7 @@ def test_a_channel_carries_name_drawn_as_writable_and_alias(panel_graph: PanelGr
     )
     assert readback.record_type == "ai"
     assert readback.thing == "XR01:QF1"
-    assert panel_graph.channel("XR01:QD1:Current-RB").drawn_as is None
+    assert panel_graph.channel("XR01-QD1:Current-RB").drawn_as is None
 
 
 def test_a_place_holds_the_channels_on_it(panel_graph: PanelGraph) -> None:
@@ -213,30 +213,30 @@ def test_the_ring_frame_can_be_passed(panel_facility: Path, panel_tables: Path) 
 
 
 def test_rule_returns_every_row_of_every_source(panel_graph: PanelGraph) -> None:
-    rules = panel_graph.rule("XR01:IP1:State-Sts")
+    rules = panel_graph.rule("XR01-IP1:State-Sts")
     assert [(rule.value, rule.state, rule.source) for rule in rules] == [
         ("0", "bad", "xr-screens"),
         ("0", "normal", "xr-ioc"),
         ("1", "normal", "xr-screens"),
     ]
-    assert panel_graph.rule("XR01:QF1:Current-RB") == []
+    assert panel_graph.rule("XR01-QF1:Current-RB") == []
 
 
 def test_pair_comes_from_the_table_only(panel_graph: PanelGraph) -> None:
-    stated = panel_graph.pair("XR01:QF1:Current-SP")
+    stated = panel_graph.pair("XR01-QF1:Current-SP")
     assert stated is not None
     assert (stated.readback, stated.basis, stated.source) == (
-        "XR01:QF1:Current-RB",
+        "XR01-QF1:Current-RB",
         "stated",
         "xr-ioc",
     )
-    inferred = panel_graph.pair("XR01:PS1:On-Cmd")
+    inferred = panel_graph.pair("XR01-PS1:On-Cmd")
     assert inferred is not None
-    assert (inferred.readback, inferred.basis) == ("XR01:PS1:On-Sts", "inferred")
+    assert (inferred.readback, inferred.basis) == ("XR01-PS1:On-Sts", "inferred")
     # The facility file pairs these, but pairs.csv does not: no pair.
-    assert panel_graph.pair("XR02:QF1:Current-SP") is None
-    assert panel_graph.pair("XR01:QD1:Current-SP") is None
-    assert panel_graph.pair("XR01:QF1:Current-RB") is None
+    assert panel_graph.pair("XR02-QF1:Current-SP") is None
+    assert panel_graph.pair("XR01-QD1:Current-SP") is None
+    assert panel_graph.pair("XR01-QF1:Current-RB") is None
 
 
 def test_an_excluded_document_drops_what_it_sources(tmp_path: Path, panel_facility: Path) -> None:
@@ -358,16 +358,16 @@ def test_a_place_carries_its_level_and_a_device_none(panel_graph):
 
 
 def test_a_channel_carries_its_stated_tolerance(panel_graph):
-    assert panel_graph.channel("XR01:QF1:Current-SP").tolerance == ("absolute", 0.05)
-    assert panel_graph.channel("XR01:QD1:Current-SP").tolerance is None
+    assert panel_graph.channel("XR01-QF1:Current-SP").tolerance == ("absolute", 0.05)
+    assert panel_graph.channel("XR01-QD1:Current-SP").tolerance is None
 
 
 def test_record_type_gives_the_table_row_of_a_held_channel(panel_graph):
-    row = panel_graph.record_type("XR01:QF1:Current-SP")
+    row = panel_graph.record_type("XR01-QF1:Current-SP")
     assert row is not None and (row.record_type, row.source) == ("ao", "xr-ioc")
-    assert panel_graph.record_type("XR01:QD1:Current-SP") is None
+    assert panel_graph.record_type("XR01-QD1:Current-SP") is None
     assert panel_graph.record_type(VA_CHANNEL) is None
-    assert panel_graph.record_type("XR02:SAF1:Trip-Sts") is None  # on an excluded thing
+    assert panel_graph.record_type("XR02-SAF1:Trip-Sts") is None  # on an excluded thing
 
 
 def test_pictures_give_a_class_rows_in_file_order(panel_graph):

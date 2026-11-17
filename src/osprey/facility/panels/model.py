@@ -136,6 +136,8 @@ class Channel:
         description: The facility file's description, or ``None``.
         tolerance: The facility file's ``tolerance`` as ``(term, amount)``,
             ``term`` being ``absolute`` or ``relative``; ``None`` with none.
+        signal: The signal role the facility file states for it (its
+            ``signal``), or ``None``.
     """
 
     name: str
@@ -148,6 +150,7 @@ class Channel:
     unit: str | None = None
     description: str | None = None
     tolerance: tuple[str, float] | None = None
+    signal: str | None = None
 
 
 @dataclass(frozen=True)
@@ -347,6 +350,7 @@ class PanelGraph:
                 unit=_text(record.get("unit")),
                 description=_text(record.get("description")),
                 tolerance=_tolerance(record.get("tolerance")),
+                signal=_text(record.get("signal")),
             )
             self._channel[name] = channel
             if row is not None:

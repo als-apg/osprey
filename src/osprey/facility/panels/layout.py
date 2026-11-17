@@ -44,6 +44,7 @@ from osprey.facility.panels.view import (
     Elevation,
     Fact,
     Grid,
+    GridCell,
     Light,
     Link,
     Node,
@@ -96,8 +97,9 @@ LIGHT_SIZE = 14
 MARK_WIDTH = 14
 LINE_WIDTH = 1
 AXIS_WIDTH = 2
-CELL_WIDTH = 110  # a grid's or a checkout's column
-NAME_WIDTH = 260  # a grid's or a checkout's first column
+CELL_WIDTH = 110  # a checkout's column
+NAME_WIDTH = 260  # a checkout's first column
+GRID_CELL_WIDTH = 240  # one member of a set overview
 STRIP_WIDTH = PAGE_WIDTH - 2 * MARGIN
 MIN_STRIP_SCALE = 0.5  # below this a strip breaks into rows
 SYMBOL_UNIT = 14  # one shape unit of a symbol, in px, at scale 1
@@ -146,7 +148,7 @@ FORMAT_REQUESTS: tuple[tuple[str, str], ...] = (
     ),
     (
         "table",
-        "a grid of members by channel and the checkout are tables; there is no table "
+        "a grid of a set's members and the checkout are tables; there is no table "
         "container that scrolls or pages, so every cell is placed on its own and a long "
         "table is cut, its remaining rows counted",
     ),
@@ -594,10 +596,14 @@ class _Page:
         props = {"lineColor": line, "lineWidth": LINE_WIDTH, "fill": True, "fillColor": fill}
         self.s.widget("rectangle", x, y, w, h, props)
 
-    def button(self, x, y, link: Link, *, label: str | None = None) -> float:
-        """A link to another screen; returns the right edge of what it drew."""
+    def button(
+        self, x, y, link: Link, *, label: str | None = None, width: float | None = None
+    ) -> float:
+        """A link to another screen, at most *width* wide; returns the right edge of what it drew."""
         text = link.label if label is None else label
         w = min(text_width(text, TEXT_SIZE) + BUTTON_PAD, MAX_BUTTON_WIDTH)
+        if width is not None:
+            w = min(w, width)
         props = {"label": text, "file": self.screens(link.target), "fontSize": TEXT_SIZE}
         self.s.widget(
             "related-display-button", x, y, w, ROW, props, tags=(_need("clickable text"),)
@@ -798,23 +804,58 @@ class _Page:
         self.next_row()
 
     def grid(self, grid: Grid) -> None:
-        x0 = MARGIN + NAME_WIDTH
+        """A set's members: a row per place, its members across the page in beam order.
+
+        A cell is the member's light, its name as a link and, for the set's
+        primary pair, the readback and a deviation light; nothing in a cell
+        is writable. At most :data:`MAX_TABLE_ROWS` cells are drawn.
+        """
         tags = (_need("table"),)
-        for j, column in enumerate(grid.columns):
-            self.text(x0 + j * CELL_WIDTH, self.y, column, size=SMALL_SIZE, w=CELL_WIDTH, tags=tags)
-        self.next_row()
-        shown = zip(grid.rows[:MAX_TABLE_ROWS], grid.cells[:MAX_TABLE_ROWS], strict=True)
-        for ref, cells in shown:
-            self.ref(MARGIN, self.y, ref)
-            for j, cell in enumerate(cells):
-                x = x0 + j * CELL_WIDTH
-                if isinstance(cell, Light):
-                    self.light(x, self.y, [cell])
-                elif isinstance(cell, ValueRow):
-                    self.field(x, self.y, cell.channel, writable=cell.writable, w=CELL_WIDTH - GAP)
+        if grid.signal is not None:
+            heading = f"{grid.signal.replace('_', ' ')}: readback and deviation"
+            self.text(MARGIN, self.y, heading, size=SMALL_SIZE, w=STRIP_WIDTH, tags=tags)
             self.next_row()
-        if len(grid.rows) > MAX_TABLE_ROWS:
-            self.left_out(len(grid.rows) - MAX_TABLE_ROWS)
+        height = 2 * ROW + ROW_GAP if grid.signal is not None else ROW
+        drawn = left_out = 0
+        for row in grid.rows:
+            self.ref(MARGIN, self.y, row.label)
+            self.next_row()
+            x = MARGIN + INDENT
+            for cell in row.cells:
+                if drawn >= MAX_TABLE_ROWS:
+                    left_out += 1
+                    continue
+                if x + GRID_CELL_WIDTH > MARGIN + STRIP_WIDTH:
+                    self.y += height + ROW_GAP
+                    x = MARGIN + INDENT
+                self.grid_cell(x, self.y, cell)
+                x += GRID_CELL_WIDTH + GAP
+                drawn += 1
+            self.y += height + ROW_GAP
+        if left_out:
+            self.left_out(left_out)
+
+    def grid_cell(self, x0: float, y: float, cell: GridCell) -> None:
+        x = x0
+        if cell.channels:
+            lights = [describe_light(self.graph, c) for c in cell.channels]
+            x = self.light(x, y, lights, rule=ladder(self.graph, lights, node=True))
+        else:
+            x = self.text(x, y, _NO_RULE, size=SMALL_SIZE)
+        room = x0 + GRID_CELL_WIDTH - (x + GAP)
+        if isinstance(cell.member, Link):
+            self.button(x + GAP, y, cell.member, width=room)
+        else:
+            self.text(x + GAP, y, cell.member.text, w=room)
+        if cell.pair is None or cell.pair.readback is None:
+            return
+        below = y + ROW + ROW_GAP
+        x = self.field(x0, below, cell.pair.readback, writable=False)
+        deviation = _tolerance_ladder(cell.pair)
+        if deviation is not None:
+            x = self.light(x + GAP, below, [Light(cell.pair.channel)], rule=deviation)
+        if cell.pair.inferred:
+            self.mark(x + GAP, below, symbols.INFERRED_MARK)
 
     def check_header(self) -> None:
         tags = (_need("table"),)

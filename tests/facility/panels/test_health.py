@@ -15,13 +15,13 @@ from osprey.facility.panels.health import (
     worst,
 )
 
-PLACE_XR02 = ["XR02:IP1:Pressure-RB", "XR02:QD1:Current-RB", "XR02:QF1:Current-RB"]
-PUMP = "XR01:IP1:State-Sts"
-SUPPLY = "XR01:PS1:On-Sts"
+PLACE_XR02 = ["XR02-IP1:Pressure-RB", "XR02-QD1:Current-RB", "XR02-QF1:Current-RB"]
+PUMP = "XR01-IP1:State-Sts"
+SUPPLY = "XR01-PS1:On-Sts"
 
 
 def test_a_channel_without_a_rule_is_unknown(panel_graph):
-    assert channel_state(panel_graph, "XR01:QF1:Current-RB", 3.0) == "unknown"
+    assert channel_state(panel_graph, "XR01-QF1:Current-RB", 3.0) == "unknown"
     assert channel_state(panel_graph, "XR99:NOPE:Nothing", 1) == "unknown"
 
 
@@ -62,8 +62,8 @@ def test_the_state_does_not_depend_on_the_basis(panel_graph):
 
 
 def test_a_hidden_channel_is_unknown(panel_graph):
-    assert channel_state(panel_graph, "XR02:SAF2:Door-Sts", 1) == "unknown"
-    assert channel_state(panel_graph, "XR02:SAF1:Trip-Sts", 1) == "unknown"
+    assert channel_state(panel_graph, "XR02-SAF2:Door-Sts", 1) == "unknown"
+    assert channel_state(panel_graph, "XR02-SAF1:Trip-Sts", 1) == "unknown"
 
 
 @pytest.mark.parametrize(
@@ -107,17 +107,17 @@ def test_an_unsupported_row_is_never_matched(row):
 
 def test_an_unsupported_row_is_not_compared_as_text(panel_graph):
     # the only row of this channel is unsupported: unknown, even for its own text
-    assert channel_state(panel_graph, "XR02:BEND1:Current-RB", "expr:a>3") == "unknown"
-    assert channel_state(panel_graph, "XR02:BEND1:Current-RB", 5) == "unknown"
+    assert channel_state(panel_graph, "XR02-BEND1:Current-RB", "expr:a>3") == "unknown"
+    assert channel_state(panel_graph, "XR02-BEND1:Current-RB", 5) == "unknown"
 
 
 def test_mixed_rows_evaluate_only_the_supported_ones(panel_graph):
-    assert channel_state(panel_graph, "XR02:QF1:Current-RB", 2) == "normal"
-    assert channel_state(panel_graph, "XR02:QF1:Current-RB", 9) == "unknown"
+    assert channel_state(panel_graph, "XR02-QF1:Current-RB", 2) == "normal"
+    assert channel_state(panel_graph, "XR02-QF1:Current-RB", 9) == "unknown"
 
 
 def test_comparison_rows_on_a_channel(panel_graph):
-    name = "XR02:IP1:Pressure-RB"
+    name = "XR02-IP1:Pressure-RB"
     assert channel_state(panel_graph, name, 7) == "bad"
     assert channel_state(panel_graph, name, 0.5) == "warn"
     assert channel_state(panel_graph, name, 3) == "unknown"
@@ -125,7 +125,7 @@ def test_comparison_rows_on_a_channel(panel_graph):
 
 
 def test_bit_rows_on_a_channel(panel_graph):
-    name = "XR02:QD1:Current-RB"
+    name = "XR02-QD1:Current-RB"
     assert channel_state(panel_graph, name, 3) == "disagree"  # bit 0 normal, bit 1 warn
     assert channel_state(panel_graph, name, "1") == "normal"
     assert channel_state(panel_graph, name, 2.0) == "warn"
@@ -158,7 +158,7 @@ def test_a_device_reads_its_own_rule_channels(panel_graph):
 
 def test_a_thing_without_a_rule_channel_contributes_nothing(panel_graph):
     assert rule_channels(panel_graph, "XR01:QF1") == []
-    assert rollup(panel_graph, "XR01:QF1", {"XR01:QF1:Current-RB": 1}) is None
+    assert rollup(panel_graph, "XR01:QF1", {"XR01-QF1:Current-RB": 1}) is None
     assert rollup(panel_graph, "XR02:SHIELD1", {}) is None
 
 
@@ -168,7 +168,7 @@ def test_a_place_reads_everything_within_it_at_any_depth(panel_graph):
     assert rollup(panel_graph, "XR/XR01", {PUMP: 1, SUPPLY: 1}) == "normal"
     assert rollup(panel_graph, "XR/XR01", {PUMP: 1, SUPPLY: 0}) == "warn"
     assert rollup(panel_graph, "XR", {PUMP: 1, SUPPLY: 1}) == "unknown"  # XR02 values missing
-    sector = {"XR02:IP1:Pressure-RB": 0.5, "XR02:QD1:Current-RB": 2, "XR02:QF1:Current-RB": 2}
+    sector = {"XR02-IP1:Pressure-RB": 0.5, "XR02-QD1:Current-RB": 2, "XR02-QF1:Current-RB": 2}
     assert rollup(panel_graph, "XR", {PUMP: 1, SUPPLY: 1, **sector}) == "warn"
 
 
@@ -182,7 +182,7 @@ def test_a_channel_less_thing_leaves_the_place_unchanged(panel_graph):
     before = rollup(panel_graph, "XR/XR01", values)
     # the rack holds three chassis and a place channel, none with a rule
     assert rule_channels(panel_graph, "XR/XR01/RK1") == []
-    assert rollup(panel_graph, "XR/XR01/RK1", {"XR01:CH1:Temp-RB": 5}) is None
+    assert rollup(panel_graph, "XR/XR01/RK1", {"XR01-CH1:Temp-RB": 5}) is None
     assert rollup(panel_graph, "XR/XR01", values) == before == "normal"
 
 
@@ -197,11 +197,11 @@ def test_a_group_reads_its_members(panel_graph):
 
 
 def test_an_excluded_thing_is_never_read(panel_graph):
-    trip = "XR02:SAF1:Trip-Sts"
-    door = "XR02:SAF2:Door-Sts"
+    trip = "XR02-SAF1:Trip-Sts"
+    door = "XR02-SAF2:Door-Sts"
     assert trip not in rule_channels(panel_graph, "XR02-VAC", kind="group")
     assert door not in rule_channels(panel_graph, "XR")
-    pressure = "XR02:IP1:Pressure-RB"
+    pressure = "XR02-IP1:Pressure-RB"
     assert rule_channels(panel_graph, "XR02-VAC", kind="group") == [pressure]
     values = {trip: 1, door: 1, pressure: 7}
     assert rollup(panel_graph, "XR02-VAC", values, kind="group") == "bad"
@@ -216,7 +216,7 @@ def test_a_roll_up_does_not_read_values_outside_its_channels(panel_graph):
             raise AssertionError(key)
 
         def get(self, key, default=None):
-            assert key in {PUMP, SUPPLY, *PLACE_XR02, "XR02:BEND1:Current-RB"}, key
+            assert key in {PUMP, SUPPLY, *PLACE_XR02, "XR02-BEND1:Current-RB"}, key
             return super().get(key, default)
 
     rollup(panel_graph, "XR", Strict({PUMP: 1, SUPPLY: 1}))
@@ -266,7 +266,7 @@ class _Odd:
     [NAN, INF, -INF, "nan", "inf", 10**400, -(10**400), None, "", [], [1], object(), _Odd()],
 )
 def test_no_live_value_can_raise(panel_graph, value):
-    names = [PUMP, SUPPLY, *PLACE_XR02, "XR02:BEND1:Current-RB"]
+    names = [PUMP, SUPPLY, *PLACE_XR02, "XR02-BEND1:Current-RB"]
     for name in names:
         assert channel_state(panel_graph, name, value) in {
             "unknown",
@@ -299,8 +299,8 @@ def test_a_non_finite_value_matches_no_operator_row(row, value):
 
 def test_a_non_finite_channel_is_unknown(panel_graph):
     for value in (NAN, INF, -INF, "nan"):
-        assert channel_state(panel_graph, "XR02:IP1:Pressure-RB", value) == "unknown"
-        assert channel_state(panel_graph, "XR02:QD1:Current-RB", value) == "unknown"
+        assert channel_state(panel_graph, "XR02-IP1:Pressure-RB", value) == "unknown"
+        assert channel_state(panel_graph, "XR02-QD1:Current-RB", value) == "unknown"
 
 
 def test_a_bit_row_needs_zero_or_one():

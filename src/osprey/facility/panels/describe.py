@@ -49,6 +49,8 @@ from osprey.facility.panels.view import (
     Elevation,
     Fact,
     Grid,
+    GridCell,
+    GridRow,
     Item,
     Light,
     Link,
@@ -119,6 +121,7 @@ GENERIC_SYMBOL = "generic"
 NO_SYSTEM = "no system"
 
 _NO_POSITION = "no position"
+_NOT_IN = "not placed"
 _DRAWN_RANK = {drawn: rank for rank, drawn in enumerate(DRAWN_AS)}
 _EMPTY: Mapping[str, str] = MappingProxyType({})
 
@@ -335,15 +338,15 @@ def _crumbs(
     )
 
 
-def _label(thing_id: str, channel: str) -> str:
-    """The channel's name without its thing's id, when it starts with it."""
-    return channel.removeprefix(f"{thing_id}:")
+def _label(channel: Channel) -> str:
+    """What a value row reads: the signal the facility states for the channel, else its name."""
+    return channel.signal.replace("_", " ") if channel.signal else channel.name
 
 
-def _value_row(graph: PanelGraph, thing_id: str, channel: Channel) -> ValueRow:
+def _value_row(graph: PanelGraph, channel: Channel) -> ValueRow:
     pair = graph.pair(channel.name) if channel.writable else None
     return ValueRow(
-        label=_label(thing_id, channel.name),
+        label=_label(channel),
         channel=channel.name,
         readback=pair.readback if pair is not None else None,
         tolerance=channel.tolerance,
@@ -428,7 +431,7 @@ def _sections(pairs: Iterable[tuple[str, list[Item]]]) -> tuple[Section, ...]:
 
 
 def _signals(
-    graph: PanelGraph, index: _Index, thing: Thing, channels: list[Channel]
+    graph: PanelGraph, index: _Index, channels: list[Channel]
 ) -> tuple[list[Item], list[Item]]:
     """The card's signals (pairs, then readable channels by how they are drawn) and settings."""
     paired: list[Item] = []
@@ -436,12 +439,12 @@ def _signals(
     readable: list[Channel] = []
     for channel in channels:
         if channel.writable:
-            row = _value_row(graph, thing.id, channel)
+            row = _value_row(graph, channel)
             (paired if row.readback is not None else settings).append(row)
         elif channel.name not in index.readbacks:
             readable.append(channel)
     readable.sort(key=lambda channel: _DRAWN_RANK[channel.drawn_as or "untyped"])
-    return paired + [_value_row(graph, thing.id, channel) for channel in readable], settings
+    return paired + [_value_row(graph, channel) for channel in readable], settings
 
 
 def _neighbours(graph: PanelGraph, index: _Index, thing: Thing) -> list[tuple[str, list[Item]]]:
@@ -593,7 +596,7 @@ def device_card(
     thing = graph.thing(thing_id, kind)
     index = _index(graph)
     channels = graph.channels(thing.id, thing.kind)
-    signals, settings = _signals(graph, index, thing, channels)
+    signals, settings = _signals(graph, index, channels)
     within: list[Item] = []
     members: list[Item] = []
     if thing.kind == "place":
@@ -628,30 +631,66 @@ def device_card(
 # -- set overview ----------------------------------------------------------------
 
 
-def _by_suffix(member: Thing, channels: list[Channel]) -> dict[str, Channel]:
-    prefix = f"{member.id}:"
-    return {
-        channel.name[len(prefix) :]: channel
-        for channel in channels
-        if channel.name.startswith(prefix)
-    }
+def _primary_signal(graph: PanelGraph, members: list[Thing]) -> str | None:
+    """The stated signal of the setpoint of the pair most members have; ties by name."""
+    count: Counter[str] = Counter()
+    for member in members:
+        signals = {
+            channel.signal
+            for channel in graph.channels(member.id, "device")
+            if channel.writable and channel.signal and graph.pair(channel.name) is not None
+        }
+        count.update(signals)
+    if not count:
+        return None
+    most = max(count.values())
+    return min(signal for signal, n in count.items() if n == most)
 
 
-def _cell(graph: PanelGraph, thing_id: str, channel: Channel) -> ValueRow | Light:
-    if not channel.writable and graph.rule(channel.name):
-        return light(graph, channel.name)
-    return _value_row(graph, thing_id, channel)
+def _row_places(graph: PanelGraph, members: list[Thing]) -> dict[str, str | None]:
+    """Each member's row: its nearest place that has a sibling of the same level among
+    the members' places (their places and every place around them), else its own place."""
+
+    def own(member: Thing) -> str | None:
+        if member.place is not None:
+            return member.place
+        claims = graph.neighbours(member.id, "device").get(PLACE_RELATION, ())
+        return next((e.other for e in claims if e.outgoing and e.other_kind == "place"), None)
+
+    def chain(place: str | None) -> list[Thing]:
+        found = []
+        while place is not None:
+            thing = graph.thing(place, "place")
+            found.append(thing)
+            place = thing.place
+        return found
+
+    chains = {member.id: chain(own(member)) for member in members}
+    every = {place.id: place for found in chains.values() for place in found}
+    by_parent: dict[tuple[str | None, str | None], set[str]] = {}
+    for place in every.values():
+        by_parent.setdefault((place.place, place.level), set()).add(place.id)
+    rows: dict[str, str | None] = {}
+    for member in members:
+        places = chains[member.id]
+        sibling = next((p.id for p in places if len(by_parent[(p.place, p.level)]) > 1), None)
+        rows[member.id] = sibling or (places[0].id if places else None)
+    return rows
 
 
 def set_overview(graph: PanelGraph, group_id: str) -> View:
-    """A group's devices as a grid: one row per member, one column per common channel.
+    """A group's devices as a grid: one row per place, the members in it in beam order.
 
-    Rows go by ring position when every member has a true one, else by id.
-    Columns are the channel suffixes (the name after ``<member id>:``) every
-    member has, in the first row's channel order; a suffix that is, on every
-    member, the readback paired with another column's setpoint is shown
-    beside that setpoint instead of as a column. A rule-bearing readable
-    channel is a :class:`Light`, any other a :class:`ValueRow`.
+    The row of a member is its nearest place (built, else the first a claim
+    names) that has a sibling of the same level among the members' places, in
+    practice the sector; the members with no place are a last row ``not
+    placed``. Rows go in the graph's place order, members within a row by
+    ring position (``s_m``, those with none after), then id. A cell is the
+    member: its card, its rule-bearing channels (one light), and for the
+    set's primary pair (:func:`_primary_signal`: keyed on the signal the
+    facility states for the setpoint, never on the channel's name) the
+    member's setpoint with readback and tolerance. No other channel is in
+    the grid; the member's card has them.
 
     Raises:
         KeyError: No such group, or it is excluded.
@@ -659,30 +698,36 @@ def set_overview(graph: PanelGraph, group_id: str) -> View:
     graph.thing(group_id, "group")
     index = _index(graph)
     members = [member for member in graph.members(group_id) if member.kind == "device"]
-    poses = [graph.pose(member.id) for member in members]
-    if members and all(pose is not None and pose.is_ring_position for pose in poses):
-        ranked = sorted(zip(members, poses, strict=True), key=lambda mp: (mp[1].s_m, mp[0].id))  # type: ignore[union-attr]
-        members = [member for member, _pose in ranked]
-    else:
-        members.sort(key=lambda member: member.id)
-    suffixes = [_by_suffix(member, graph.channels(member.id, "device")) for member in members]
-    common = [s for s in suffixes[0] if all(s in held for held in suffixes)] if suffixes else []
+    signal = _primary_signal(graph, members)
+    rows_of = _row_places(graph, members)
 
-    def paired_readbacks(held: dict[str, Channel]) -> set[str]:
-        pairs = (graph.pair(held[s].name) for s in common if held[s].writable)
-        return {pair.readback for pair in pairs if pair is not None}
+    def beam(member: Thing) -> tuple[float, str]:
+        pose = graph.pose(member.id)
+        ring = pose is not None and pose.is_ring_position
+        return (pose.s_m if ring else math.inf, member.id)  # type: ignore[union-attr]
 
-    readbacks = [paired_readbacks(held) for held in suffixes]
-    columns = [
-        s
-        for s in common
-        if not all(held[s].name in rbs for held, rbs in zip(suffixes, readbacks, strict=True))
-    ]
-    cells = tuple(
-        tuple(_cell(graph, member.id, held[s]) for s in columns)
-        for member, held in zip(members, suffixes, strict=True)
-    )
-    grid = Grid(tuple(_ref(graph, index, member) for member in members), tuple(columns), cells)
+    def cell(member: Thing) -> GridCell:
+        pair = None
+        if signal is not None:
+            for channel in graph.channels(member.id, "device"):
+                if channel.writable and channel.signal == signal and graph.pair(channel.name):
+                    pair = _value_row(graph, channel)
+                    break
+        channels = tuple(rule_channels(graph, member.id, "device"))
+        return GridCell(_ref(graph, index, member), channels, pair)
+
+    order = {thing.id: n for n, thing in enumerate(graph.things()) if thing.kind == "place"}
+    grouped: dict[str | None, list[Thing]] = {}
+    for member in members:
+        grouped.setdefault(rows_of[member.id], []).append(member)
+    keys = sorted((k for k in grouped if k is not None), key=lambda k: order[k])
+    rows: list[GridRow] = []
+    for key in [*keys, None] if None in grouped else keys:
+        label: Link | Fact = (
+            Link(key, Target("card", "place", key)) if key is not None else Fact("row", _NOT_IN)
+        )
+        rows.append(GridRow(label, tuple(cell(m) for m in sorted(grouped[key], key=beam))))
+    grid = Grid(signal, tuple(rows))
     group_link = Link(group_id, Target("card", "group", group_id))
     sections = (Section("group", (group_link,)), Section("members", (grid,)))
     return View(Target("set", "group", group_id), group_id, (), sections)

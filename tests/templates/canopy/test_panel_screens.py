@@ -84,7 +84,7 @@ def test_every_view_of_every_kind_validates(panel_graph, spec_dir: Path) -> None
 
 
 def test_a_strip_of_every_symbol_in_a_live_state_validates(panel_graph, spec_dir: Path) -> None:
-    channel = "XR02:IP1:Pressure-RB"  # stated literal rows the format can write
+    channel = "XR02-IP1:Pressure-RB"  # stated literal rows the format can write
     elements = [
         StripElement(f"E{i}", None, float(i), kind, "beam", None, (channel,))
         for i, kind in enumerate(symbols.KINDS)

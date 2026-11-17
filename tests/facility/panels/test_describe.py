@@ -114,9 +114,9 @@ def test_a_paired_setpoint_sits_beside_its_readback_in_signals(panel_graph):
     signals = _section(view, "signals")
     assert signals.items == (
         ValueRow(
-            label="Current-SP",
-            channel="XR01:QF1:Current-SP",
-            readback="XR01:QF1:Current-RB",
+            label="current setpoint",  # the stated signal, never cut from the name
+            channel="XR01-QF1:Current-SP",
+            readback="XR01-QF1:Current-RB",
             tolerance=("absolute", 0.05),
             writable=True,
             drawn_as="setpoint",
@@ -130,19 +130,19 @@ def test_a_writable_channel_with_no_pair_lands_in_settings(panel_graph):
     view = device_card(panel_graph, "XR01:QD1")
     settings = _section(view, "settings")
     assert [(row.channel, row.writable, row.readback) for row in settings.items] == [
-        ("XR01:QD1:Current-SP", True, None)
+        ("XR01-QD1:Current-SP", True, None)
     ]
     signals = _section(view, "signals")
     assert [(row.channel, row.writable) for row in signals.items] == [
-        ("XR01:QD1:Current-RB", False)
+        ("XR01-QD1:Current-RB", False)
     ]
 
 
 def test_readable_signals_are_ordered_by_how_they_are_drawn(panel_graph):
     signals = _section(device_card(panel_graph, "XR01:IP1"), "signals")
     assert [row.channel for row in signals.items] == [
-        "XR01:IP1:State-Sts",  # drawn as state
-        "XR01:IP1:Pressure-RB",  # untyped, last
+        "XR01-IP1:State-Sts",  # drawn as state
+        "XR01-IP1:Pressure-RB",  # untyped, last
     ]
 
 
@@ -150,25 +150,25 @@ def test_an_inferred_pair_marks_its_value_row(panel_graph):
     signals = _section(device_card(panel_graph, "XR01:PS1"), "signals")
     row = signals.items[0]
     assert (row.channel, row.readback, row.inferred) == (
-        "XR01:PS1:On-Cmd",
-        "XR01:PS1:On-Sts",
+        "XR01-PS1:On-Cmd",
+        "XR01-PS1:On-Sts",
         True,
     )
 
 
 def test_a_light_per_rule_bearing_channel_marks_inferred_and_disagree(panel_graph):
     supply = _section(device_card(panel_graph, "XR01:PS1"), "health")
-    assert supply.items == (Light("XR01:PS1:On-Sts", inferred=True),)
+    assert supply.items == (Light("XR01-PS1:On-Sts", inferred=True),)
     pump = _section(device_card(panel_graph, "XR01:IP1"), "health")
     # one stated row and one inferred row: not all inferred; they disagree on 0
-    assert pump.items == (Light("XR01:IP1:State-Sts", disagree=True),)
+    assert pump.items == (Light("XR01-IP1:State-Sts", disagree=True),)
 
 
 def test_a_light_whose_rules_the_engine_cannot_evaluate_says_so(panel_graph):
     (bend,) = _section(device_card(panel_graph, "XR02:BEND1"), "health").items
     assert bend.unsupported is True
     (mixed,) = _section(device_card(panel_graph, "XR02:QF1"), "health").items
-    assert (mixed.channel, mixed.unsupported) == ("XR02:QF1:Current-RB", True)
+    assert (mixed.channel, mixed.unsupported) == ("XR02-QF1:Current-RB", True)
     (plain,) = _section(device_card(panel_graph, "XR02:IP1"), "health").items
     assert plain.unsupported is False
 
@@ -223,7 +223,7 @@ def test_a_card_with_every_section_has_them_in_order(tmp_path):
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as health:
-        health.write("XR01:QD1:Current-RB,0,warn,database-severity,stated,xr-ioc,0a1b2c3,m.db:1\n")
+        health.write("XR01-QD1:Current-RB,0,warn,database-severity,stated,xr-ioc,0a1b2c3,m.db:1\n")
     facility = write_fixture_facility(tmp_path / "facility.json", everything)
     view = device_card(load_graph(facility, tables), "XR01:QD1")
     assert _titles(view) == [
@@ -460,46 +460,61 @@ def test_views_carry_channel_names_never_values(panel_graph):
 # -- set overview ---------------------------------------------------------------
 
 
-def test_a_set_overview_is_a_grid_of_members_by_common_suffix(panel_graph):
+def test_a_set_overview_is_a_grid_of_members_by_place(panel_graph):
     view = set_overview(panel_graph, "XR-QUAD")
     assert view.id == Target("set", "group", "XR-QUAD")
     (grid,) = _section(view, "members").items
     assert isinstance(grid, Grid)
-    # XR02:QD1 has no pose, so the rows go by id
-    assert [row.target for row in grid.rows] == [
-        card("XR01:QD1"),
-        card("XR01:QF1"),
-        card("XR02:QD1"),
-        card("XR02:QF1"),
+    # rows: the sector, the nearest place with a sibling among the members' places
+    assert [row.label.target for row in grid.rows] == [
+        Target("card", "place", "XR/XR01"),
+        Target("card", "place", "XR/XR02"),
     ]
-    assert grid.columns == ("Current-RB",)
-    assert [row[0].channel for row in grid.cells] == [
-        "XR01:QD1:Current-RB",
-        "XR01:QF1:Current-RB",
-        "XR02:QD1:Current-RB",
-        "XR02:QF1:Current-RB",
+    # within a row beam order: s first, a member with no ring position after, by id
+    assert [[c.member.target for c in row.cells] for row in grid.rows] == [
+        [card("XR01:QF1"), card("XR01:QD1")],
+        [card("XR02:QF1"), card("XR02:QD1")],
     ]
-    # a rule-bearing readback is a light, the others value rows
-    assert isinstance(grid.cells[2][0], Light) and isinstance(grid.cells[0][0], ValueRow)
+    # one light per member: its rule channels
+    cells = {c.member.target.id: c for row in grid.rows for c in row.cells}
+    assert cells["XR02:QD1"].channels == ("XR02-QD1:Current-RB",)
+    assert cells["XR01:QF1"].channels == ()
 
 
-def test_a_set_whose_members_all_have_ring_positions_goes_by_s(tmp_path):
-    def magnets(document: dict[str, Any]) -> None:
-        document["groups"].append({"id": "XR01-MAG", "members": ["XR01:QD1", "XR01:QF1"]})
-
-    (grid,) = _section(set_overview(_graph(tmp_path, magnets), "XR01-MAG"), "members").items
-    assert [row.target.id for row in grid.rows] == ["XR01:QF1", "XR01:QD1"]  # s 1.25, 2.0
-    # the readback beside a paired setpoint is not a column of its own only
-    # when every member pairs it
-    assert grid.columns == ("Current-RB", "Current-SP")  # the first row's channel order
-    assert grid.cells[0][1] == ValueRow(
-        label="Current-SP",
-        channel="XR01:QF1:Current-SP",
-        readback="XR01:QF1:Current-RB",
+def test_the_primary_pair_is_keyed_on_the_stated_signal_never_the_name(panel_graph):
+    assert not any(
+        channel.name.startswith(thing.id)
+        for thing in panel_graph.things()
+        for channel in panel_graph.channels(thing.id, thing.kind)
+    )
+    (grid,) = _section(set_overview(panel_graph, "XR-QUAD"), "members").items
+    assert grid.signal == "current_setpoint"  # the pair two members have
+    cells = {c.member.target.id: c for row in grid.rows for c in row.cells}
+    assert cells["XR01:QF1"].pair == ValueRow(
+        label="current setpoint",
+        channel="XR01-QF1:Current-SP",
+        readback="XR01-QF1:Current-RB",
         tolerance=("absolute", 0.05),
         writable=True,
         drawn_as="setpoint",
     )
+    assert cells["XR01:QD1"].pair is None  # its setpoint is in no pair of the table
+
+
+def test_a_set_member_with_no_place_is_in_a_last_row(tmp_path):
+    def loose(document: dict[str, Any]) -> None:
+        document["groups"].append({"id": "XR-MISC", "members": ["XR09:LOOSE1", "XR02:SHIELD1"]})
+        document["groups"].append({"id": "XR01-MAG", "members": ["XR01:QD1", "XR01:QF1"]})
+
+    graph = _graph(tmp_path, loose)
+    (grid,) = _section(set_overview(graph, "XR-MISC"), "members").items
+    assert [row.label for row in grid.rows][-1] == Fact("row", "not placed")
+    assert [c.member for c in grid.rows[-1].cells] == [Link("XR09:LOOSE1", card("XR09:LOOSE1"))]
+    assert grid.signal is None
+    # all members in one sector: no sibling among their places, so the row is that sector
+    (grid,) = _section(set_overview(graph, "XR01-MAG"), "members").items
+    assert [row.label.target.id for row in grid.rows] == ["XR/XR01"]
+    assert [c.member.target.id for c in grid.rows[0].cells] == ["XR01:QF1", "XR01:QD1"]
 
 
 # -- place view -----------------------------------------------------------------
@@ -592,7 +607,7 @@ def test_rack_elevation_lights_are_the_units_roll_up_channels(tmp_path):
         rack_elevation(_graph(tmp_path, racked_pump), "XR/XR01/RK1"), "units"
     ).items
     pump = [unit for unit in elevation.unpositioned if unit.link.target.id == "XR01:IP1"]
-    assert pump[0].lights == (Light("XR01:IP1:State-Sts", disagree=True),)
+    assert pump[0].lights == (Light("XR01-IP1:State-Sts", disagree=True),)
 
 
 def test_a_device_claimed_into_two_racks_is_in_both(panel_graph):
@@ -645,9 +660,9 @@ def test_rollup_by_place_is_a_tree_of_children_with_their_channels(panel_graph):
     assert view.id == Target("rollup", "place", "XR/XR01", by="place")
     (root,) = _section(view, "roll-up").items
     assert isinstance(root, Node)
-    assert root.channels == ("XR01:IP1:State-Sts", "XR01:PS1:On-Sts")
+    assert root.channels == ("XR01-IP1:State-Sts", "XR01-PS1:On-Sts")
     nodes = {node.label: node for node in root.children}
-    assert nodes["XR01:IP1"].channels == ("XR01:IP1:State-Sts",)
+    assert nodes["XR01:IP1"].channels == ("XR01-IP1:State-Sts",)
     assert nodes["XR01:IP1"].link.target == card("XR01:IP1")
     assert nodes["XR01:QF1"].no_rule is True and nodes["XR01:QF1"].channels == ()
     # the rack has no rule: present, marked, and its link goes to its card
@@ -670,8 +685,8 @@ def test_rollup_by_system_groups_devices_by_class_by_default(panel_graph):
     assert view.id == Target("rollup", "place", "XR", by="system")
     (root,) = _section(view, "roll-up").items
     systems = {node.label: node for node in root.children}
-    assert systems["Pump"].channels == ("XR01:IP1:State-Sts", "XR02:IP1:Pressure-RB")
-    assert systems["PowerSupply"].channels == ("XR01:PS1:On-Sts",)
+    assert systems["Pump"].channels == ("XR01-IP1:State-Sts", "XR02-IP1:Pressure-RB")
+    assert systems["PowerSupply"].channels == ("XR01-PS1:On-Sts",)
     assert systems["ElectronicsChassis"].no_rule is True
     # one level: a system carries its devices' channels, not the devices
     assert all(node.children == () for node in root.children)
@@ -721,19 +736,19 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
     assert view.id == Target("checkout", "place", "XR/XR01")
     rows = {row.channel: row for row in _section(view, "channels").items}
     assert "XR01:RackTemp-RB" not in rows  # on a place, not a device
-    assert rows["XR01:IP1:State-Sts"] == CheckRow(
-        channel="XR01:IP1:State-Sts",
+    assert rows["XR01-IP1:State-Sts"] == CheckRow(
+        channel="XR01-IP1:State-Sts",
         thing="XR01:IP1",
         on_device=True,
         typed=True,
         has_rule=True,
         has_source=True,
     )
-    assert rows["XR01:CH1:Temp-RB"] == CheckRow(
-        "XR01:CH1:Temp-RB", "XR01:CH1", True, False, False, False
+    assert rows["XR01-CH1:Temp-RB"] == CheckRow(
+        "XR01-CH1:Temp-RB", "XR01:CH1", True, False, False, False
     )
     # sourced by its health rows alone
-    assert (rows["XR01:PS1:On-Sts"].typed, rows["XR01:PS1:On-Sts"].has_source) == (False, True)
+    assert (rows["XR01-PS1:On-Sts"].typed, rows["XR01-PS1:On-Sts"].has_source) == (False, True)
     (totals,) = _section(view, "totals").items
     assert totals == Totals(
         channels=len(rows),
@@ -851,7 +866,7 @@ def test_targets_and_views_scale_near_linearly():
 
 
 def test_every_root_roll_up_has_a_not_placed_child_that_reads_the_unplaced(panel_graph):
-    loose = "XR09:LOOSE1:Fault-Sts"
+    loose = "XR09-LOOSE1:Fault-Sts"
     for by in ("place", "system"):
         (root,) = _section(health_rollup(panel_graph, "XR", by), "roll-up").items
         unplaced = root.children[-1]
@@ -869,21 +884,21 @@ def test_the_not_placed_screens_are_targets_with_their_devices(panel_graph):
     view = describe(panel_graph, Target("rollup", "place", NOT_PLACED, by="place"))
     (root,) = _section(view, "roll-up").items
     assert [(node.label, node.channels) for node in root.children] == [
-        ("XR09:LOOSE1", ("XR09:LOOSE1:Fault-Sts",))
+        ("XR09:LOOSE1", ("XR09-LOOSE1:Fault-Sts",))
     ]
     rows = _section(describe(panel_graph, Target("checkout", "place", NOT_PLACED)), "channels")
-    assert [row.channel for row in rows.items] == ["XR09:LOOSE1:Fault-Sts"]
+    assert [row.channel for row in rows.items] == ["XR09-LOOSE1:Fault-Sts"]
 
 
 def test_a_roll_up_reads_a_device_its_claims_place_and_no_built_place_does(tmp_path):
     def ruled_chassis(document: dict[str, Any]) -> None:
-        document["channels"].append({"id": "XR02:CH5:Fault-Sts", "on": {"device": "XR02:CH5"}})
+        document["channels"].append({"id": "XR02-CH5:Fault-Sts", "on": {"device": "XR02:CH5"}})
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
-        rows.write("XR02:CH5:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,ch.db:1\n")
+        rows.write("XR02-CH5:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,ch.db:1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "facility.json", ruled_chassis), tables)
     for place in ("XR", "XR/XR02", "XR/XR02/RK2", "XR/XR01/RK1"):
         (root,) = _section(health_rollup(graph, place), "roll-up").items
-        assert "XR02:CH5:Fault-Sts" in root.channels, place
+        assert "XR02-CH5:Fault-Sts" in root.channels, place
     assert Target("rollup", "place", "XR/XR02/RK2", by="place") in targets(graph)

@@ -62,7 +62,7 @@ def test_the_fixture_tables_read(panel_tables: Path) -> None:
     pump = next(pose for pose in tables.positions if pose.thing == "XR01:IP1")
     assert pump.ax_rad is None
     assert pump.derived_assumes is None
-    inferred = next(pair for pair in tables.pairs if pair.setpoint == "XR01:PS1:On-Cmd")
+    inferred = next(pair for pair in tables.pairs if pair.setpoint == "XR01-PS1:On-Cmd")
     assert inferred.basis == "inferred"
     assert inferred.revision is None
     assert {rule.value for rule in tables.health} >= {"0", "1", "!=0"}
@@ -106,10 +106,10 @@ def test_a_missing_column_is_refused_at_line_one(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("name", "row", "word"),
     [
-        ("health.csv", "XR01:IP1:State-Sts,0,green,screen,stated,s,r,l", "state"),
-        ("health.csv", "XR01:IP1:State-Sts,,bad,screen,stated,s,r,l", "value"),
-        ("health.csv", "XR01:IP1:State-Sts,0,bad,screen,stated,s,r", "fields"),
-        ("health.csv", "XR01:IP1:State-Sts,0,bad,screen,stated,s,r,l,extra", "fields"),
+        ("health.csv", "XR01-IP1:State-Sts,0,green,screen,stated,s,r,l", "state"),
+        ("health.csv", "XR01-IP1:State-Sts,,bad,screen,stated,s,r,l", "value"),
+        ("health.csv", "XR01-IP1:State-Sts,0,bad,screen,stated,s,r", "fields"),
+        ("health.csv", "XR01-IP1:State-Sts,0,bad,screen,stated,s,r,l,extra", "fields"),
         ("record_types.csv", "XR01:X,ai,gauge,stated,s,r,l", "drawn_as"),
         ("pairs.csv", "XR01:X-SP,XR01:X-RB,hardware,guessed,s,r,l", "basis"),
         ("excluded.csv", "cable,XR01:X,reason,s,r,l", "kind"),
@@ -154,8 +154,8 @@ def test_the_line_counts_a_quoted_field_spanning_two_lines(tmp_path: Path) -> No
 @pytest.mark.parametrize(
     ("name", "row"),
     [
-        ("pairs.csv", "XR01:QF1:Current-SP,XR01:QD1:Current-RB,hardware,stated,s,r,l"),
-        ("record_types.csv", "XR01:QF1:Current-SP,ao,setpoint,stated,s,r,l"),
+        ("pairs.csv", "XR01-QF1:Current-SP,XR01-QD1:Current-RB,hardware,stated,s,r,l"),
+        ("record_types.csv", "XR01-QF1:Current-SP,ao,setpoint,stated,s,r,l"),
         (
             "positions.csv",
             "XR01:QF1,XR-RING,1,2,3,0,0,0,1,0,0,,,stated,d,v,s,l",
