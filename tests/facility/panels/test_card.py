@@ -19,8 +19,15 @@ def _text(doc: dict, text: str) -> dict:
     return node
 
 
+def _columns(doc: dict) -> list[dict]:
+    """The nodes of the two columns: those above the calibration block, if any."""
+    found = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "CALIBRATION"]
+    end = found[0]["geometry"]["y"] if found else float("inf")
+    return [n for n in nodes(doc) if n["geometry"]["y"] < end]
+
+
 def _fields(doc: dict) -> dict[str, dict]:
-    return {n["props"]["pv"]: n for n in nodes(doc) if n["type"].startswith("pv-")}
+    return {n["props"]["pv"]: n for n in _columns(doc) if n["type"].startswith("pv-")}
 
 
 def test_a_device_card_has_its_signals_left_and_its_relations_right(panel_graph) -> None:
@@ -30,7 +37,7 @@ def test_a_device_card_has_its_signals_left_and_its_relations_right(panel_graph)
     assert fed["geometry"]["x"] >= layout.MARGIN + layout.CARD_LEFT
     assert fed["geometry"]["y"] == signals["geometry"]["y"]  # side by side, from the top
     left_edge = layout.MARGIN + layout.CARD_LEFT
-    for n in nodes(doc):  # nothing of the left column reaches into the right one
+    for n in _columns(doc):  # nothing of the left column reaches into the right one
         g = n["geometry"]
         if g["x"] < left_edge and n["type"] in ("text-label", "pv-label", "pv-text-input"):
             assert g["x"] + g["width"] <= left_edge, n
@@ -147,3 +154,51 @@ def test_a_value_field_is_framed_once_by_the_viewer(panel_graph) -> None:
         if field["type"] in ("pv-label", "pv-text-input"):
             assert field["props"]["alarmSensitiveBorder"] is False
             assert "alarmBorder" not in field["props"]
+
+
+def _calibration(doc: dict) -> list[dict]:
+    (head,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "CALIBRATION"]
+    return [n for n in nodes(doc) if n["geometry"]["y"] > head["geometry"]["y"]]
+
+
+def test_the_calibration_block_is_full_width_under_the_columns_and_read_only(panel_graph):
+    from osprey.facility.panels import symbols
+
+    doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
+    block = _calibration(doc)
+    texts = {n["props"]["text"]: n for n in block if n["type"] == "text-label"}
+    for head in ("PARAMETER", "VALUE IN FORCE", "BASIS", "DATE", "SOURCE", "HISTORY"):
+        assert head in texts
+    assert texts["HISTORY"]["geometry"]["x"] > layout.MARGIN + layout.CARD_LEFT
+    assert not [n for n in block if n["type"] in ("pv-text-input", "pv-button")]
+    (live,) = [n for n in block if n["type"] == "pv-label"]
+    assert live["props"]["pv"] == "XR01-QF1:Current-SP"  # held in EPICS: shown live
+    chips = {
+        n["props"]["text"]: n for n in block
+        if n["type"] == "text-label" and n["props"]["text"] in (
+            "bench · stretched wire", "beam wanted", "EPICS"
+        )
+    }  # fmt: skip
+    assert chips["bench · stretched wire"]["props"]["foregroundColor"] == symbols.BASIS_BENCH
+    boxes = [n for n in block if n["type"] == "rectangle" and n["props"].get("lineStyle")]
+    dashed = [n for n in boxes if n["props"]["lineStyle"] == "dashed"]
+    assert dashed and all(n["props"]["lineColor"] == symbols.MUTED_TEXT for n in dashed)
+    contested = stub_render(device_card(panel_graph, "XR02:QF1"), panel_graph)
+    (chip,) = [
+        n for n in _calibration(contested)
+        if n["type"] == "text-label" and n["props"]["text"] == "two sources disagree"
+    ]  # fmt: skip
+    assert chip["props"]["foregroundColor"] == symbols.DISAGREE
+
+
+def test_the_basis_colours_stay_clear_of_the_state_colours_and_read_on_every_ground():
+    from osprey.facility.panels import symbols
+    from tests.facility.panels.test_symbols import GROUNDS, _resolved, contrast
+
+    for basis, colour in symbols.BASIS_ROLES.items():
+        for theme in ("light", "dark"):
+            shade = _resolved(colour, theme)
+            if basis != "contested":
+                assert symbols.near_state(shade) is None, (basis, theme)
+            for ground in GROUNDS:
+                assert contrast(shade, _resolved(ground, theme)) >= 4.5, (basis, theme)

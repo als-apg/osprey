@@ -23,12 +23,15 @@ from tests.facility.panels._views import (
 )
 
 #: The colour roles each element kind may draw in.
+#: A calibration chip's outline and text: its basis, or disagree when contested.
+_BASIS = {role["$role"] for role in symbols.BASIS_ROLES.values()}
+
 ALLOWED = {
-    ("text-label", "foregroundColor"): {"Page_Text", "Text_Muted"},
+    ("text-label", "foregroundColor"): {"Page_Text", "Text_Muted", *_BASIS},
     ("text-label", "backgroundColor"): {"Transparent", "Field_Background"},
     ("line", "lineColor"): {"Page_Text", "Text_Muted", "MINOR", "MAJOR", "DISCONNECTED"},
     # Page_Text: a drawn outline, as the strip's symbols (the rack's frame)
-    ("rectangle", "lineColor"): {"Box_Border", "Transparent", "Page_Text"},
+    ("rectangle", "lineColor"): {"Box_Border", "Transparent", "Page_Text", "Text_Muted", *_BASIS},
     ("rectangle", "fillColor"): {"Field_Background", "Tile_Background"},
 }
 

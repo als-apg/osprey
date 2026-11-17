@@ -203,6 +203,7 @@ def test_card_sections_come_in_their_fixed_order(panel_graph):
     assert _titles(device_card(panel_graph, "XR01:QF1")) == [
         "signals",
         "fed by",
+        "calibration",
         "picture",
         "where",
         "sources",
@@ -240,6 +241,7 @@ def test_a_card_with_every_section_has_them_in_order(tmp_path):
         "health",
         "fed by",
         "feeds",
+        "calibration",
         "picture",
         "where",
         "sources",
@@ -1154,3 +1156,38 @@ def test_a_strip_element_carries_the_values_its_symbols_annotation_names(panel_g
     plain = place_view(panel_graph, "XR/XR01", symbols={**BEAMLINE, "Pump": "ion_pump"})
     (strip,) = _section(plain, "strip").items
     assert all(e.annotations == () for e in strip.elements)  # nothing named, nothing shown
+
+
+# -- calibration ----------------------------------------------------------------
+
+
+def _calibration_rows(graph, device):
+    (table,) = _section(device_card(graph, device), "calibration").items
+    return {row.title: row for row in table.rows}
+
+
+def test_a_card_has_a_calibration_row_per_kind_of_its_class(panel_graph):
+    rows = _calibration_rows(panel_graph, "XR01:QF1")
+    assert list(rows) == [
+        "Integrated gradient", "Excitation curve", "Magnetic centre",
+        "Strength scale from the beam", "Current offset",
+    ]  # fmt: skip
+    gradient = rows["Integrated gradient"]
+    assert (gradient.shown, gradient.note) == ("-4.9198 T", "+0.21 % from design")
+    assert gradient.conditions == "at 73.33 A" and gradient.state == "bench"
+    assert gradient.chip == "bench · stretched wire" and gradient.source == "XR-MAG-TEST A.2"
+    assert gradient.history == "replaces design -4.9094 T"
+    assert rows["Excitation curve"].shown == "2 points (0 A, 73.33 A)"
+    assert rows["Magnetic centre"].shown == "-2.5 · -14.5 um"
+    assert rows["Magnetic centre"].history == "first value"
+    scale = rows["Strength scale from the beam"]
+    assert (scale.shown, scale.chip, scale.below_wanted) == (None, "beam wanted", True)
+    live = rows["Current offset"]
+    assert (live.channel, live.chip) == ("XR01-QF1:Current-SP", "EPICS")
+    assert "calibration" not in _titles(device_card(panel_graph, "XR01:IP1"))
+
+
+def test_a_contested_row_names_the_other_claim(panel_graph):
+    row = _calibration_rows(panel_graph, "XR02:QF1")["Integrated gradient"]
+    assert row.state == "contested" and row.chip == "two sources disagree"
+    assert row.note == "also claimed: -4.9701 T"

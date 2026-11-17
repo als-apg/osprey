@@ -452,6 +452,50 @@ class Group:
     more: Link | None = None
 
 
+@dataclass(frozen=True)
+class CalibrationRow:
+    """One calibration kind of a device, as its card shows it. Read-only.
+
+    Attributes:
+        title: The kind's title.
+        conditions: What the value in force is valid for, or ``None``.
+        shown: The value in force as the records state it, with its unit (text, never
+            a live reading); ``None``: no value yet.
+        note: A second line under the value (the deviation from the design
+            value, a curve's range, a disagreeing claim), or ``None``.
+        state: ``contested``, a basis, or ``none``.
+        chip: The basis chip's text.
+        below_wanted: The value in force ranks under the wanted basis; the chip
+            is dashed.
+        date: The claim's date, or ``None``.
+        source: The claim's document and version, or ``None``.
+        history: What the claim replaced, or that it is the first value.
+        channel: The channel that holds the value in force live (the kind's
+            ``held_in``), or ``None``.
+        link: The calibration view of the kind over a set the device is in, or ``None``.
+    """
+
+    title: str
+    conditions: str | None
+    shown: str | None
+    note: str | None
+    state: str
+    chip: str
+    below_wanted: bool
+    date: str | None
+    source: str | None
+    history: str | None
+    channel: str | None = None
+    link: Link | None = None
+
+
+@dataclass(frozen=True)
+class Calibrations:
+    """A device's calibration block: one row per kind of its class."""
+
+    rows: tuple[CalibrationRow, ...]
+
+
 Item = (
     ValueRow
     | Light
@@ -467,6 +511,7 @@ Item = (
     | Band
     | CheckRow
     | Totals
+    | Calibrations
 )
 
 

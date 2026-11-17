@@ -116,6 +116,10 @@ def test_an_unknown_kind_is_refused() -> None:
 
 #: Every role the theme table may hold: neutral page roles, Disagree and the alarm roles.
 THEME_ROLES = {
+    "Basis_Design",
+    "Basis_Bench",
+    "Basis_Survey",
+    "Basis_Beam",
     "Page_Background",
     "Page_Text",
     "Field_Background",

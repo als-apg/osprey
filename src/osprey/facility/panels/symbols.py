@@ -87,7 +87,23 @@ ALARM_MINOR = role("MINOR", "#e0b400", "#f2cc0c")
 ALARM_MAJOR = role("MAJOR", "#c4162a", "#e05454")
 ALARM_DISCONNECTED = role("DISCONNECTED", "#86878f", "#6e6e77")
 TRANSPARENT = role("Transparent", "#00000000", "#00000000")
+# how a calibration value was found: an outline chip each, never a state colour
+BASIS_DESIGN = role("Basis_Design", "#6e6e77", "#9aa3ad")
+BASIS_BENCH = role("Basis_Bench", "#1f6fb8", "#5aa5e6")
+BASIS_SURVEY = role("Basis_Survey", "#0f766e", "#3cc0b8")
+BASIS_BEAM = role("Basis_Beam", "#1e7a46", "#46bd80")
 # --- end theme roles -----------------------------------------------------------
+
+#: The colour of each calibration basis, and of a contested value (the disagree role).
+BASIS_ROLES: Mapping[str, dict[str, str]] = MappingProxyType(
+    {
+        "design": BASIS_DESIGN,
+        "bench": BASIS_BENCH,
+        "survey": BASIS_SURVEY,
+        "beam": BASIS_BEAM,
+        "contested": DISAGREE,
+    }
+)
 
 #: The scheme roles that carry alarm meaning; no other colour does.
 ALARM_ROLES = frozenset({"MINOR", "MAJOR", "DISCONNECTED"})

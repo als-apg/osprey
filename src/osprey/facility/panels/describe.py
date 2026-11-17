@@ -42,10 +42,19 @@ from osprey.facility.panels.model import (
     PanelGraph,
     Thing,
     ThingKind,
+    calibration_numbers,
 )
-from osprey.facility.panels.tables import DRAWN_AS, Pose
+from osprey.facility.panels.tables import (
+    CURVE_PREFIX,
+    DRAWN_AS,
+    Calibration,
+    CalibrationKind,
+    Pose,
+)
 from osprey.facility.panels.view import (
     Band,
+    CalibrationRow,
+    Calibrations,
     CheckRow,
     Elevation,
     Fact,
@@ -671,6 +680,7 @@ def device_card(
             ("settings", settings),
             ("health", health),
             *_neighbours(graph, index, thing),
+            ("calibration", _calibration(graph, thing)),
             ("picture", _pictures(graph, thing)),
             ("where", _where(graph, index, thing, rack_classes)),
             ("sources", sources),
@@ -679,6 +689,102 @@ def device_card(
     crumbs = _crumbs(graph, index, thing.place) if thing.kind != "group" else ()
     target = Target("card", thing.kind, thing.id)
     return View(target, thing.id, crumbs, sections, alias=thing.short_name)
+
+
+# -- calibration -----------------------------------------------------------------
+
+_NO_VALUE = "no value yet"
+_WANTED = "{} wanted"
+_FIRST = "first value"
+_REPLACES = "replaces {}"
+_EARLIER = "{} earlier"
+_FROM_DESIGN = "{:+.2f} % from design"
+_ALSO_CLAIMED = "also claimed: {}"
+_POINTS = "{} points"
+_CONTESTED = "two sources disagree"
+_LIVE = "EPICS"
+
+
+def _with_unit(value: str, unit: str | None) -> str:
+    """A claim's value as text: a tuple's numbers joined by ``·``, with the unit."""
+    text = " · ".join(value.split(";"))
+    return f"{text} {unit}" if unit else text
+
+
+def _claim_text(claim: Calibration, kind: CalibrationKind, points: int = 0) -> str:
+    if claim.value.startswith(CURVE_PREFIX):
+        return _POINTS.format(points) if points else claim.value.removeprefix(CURVE_PREFIX)
+    return _with_unit(claim.value, claim.unit or kind.unit)
+
+
+def calibration_row(
+    graph: PanelGraph, device_id: str, kind: CalibrationKind, link: Link | None = None
+) -> CalibrationRow:
+    """The card row of *kind* for a device: the value in force, its basis, date,
+    source and history, or that there is none yet and which basis is wanted."""
+    found = graph.calibration(device_id, kind.kind)
+    claim = found.in_force
+    channel = None
+    if kind.held_in is not None:
+        channel = next(
+            (c.name for c in graph.channels(device_id, "device") if c.signal == kind.held_in),
+            None,
+        )
+    if claim is None:
+        chip = _LIVE if channel is not None else _WANTED.format(kind.wanted_basis)
+        return CalibrationRow(
+            kind.title, None, None, None, "none", chip, True, None, None, None, channel, link
+        )
+    value = _claim_text(claim, kind, len(found.points))
+    note = None
+    if found.rivals:
+        note = _ALSO_CLAIMED.format(", ".join(_claim_text(c, kind) for c in found.rivals))
+    elif found.design is not None and claim is not found.design:
+        mine, design = calibration_numbers(claim.value), calibration_numbers(found.design.value)
+        if mine and design and len(mine) == len(design) == 1 and design[0]:
+            note = _FROM_DESIGN.format((mine[0] / design[0] - 1) * 100)  # of its size
+    if found.points:
+        unit = (kind.unit or "").split(";")[0]
+        ends = ", ".join(f"{p.x:g} {unit}".strip() for p in (found.points[0], found.points[-1]))
+        value = f"{value} ({ends})"
+    if found.state == "contested":
+        chip = _CONTESTED
+    else:
+        chip = f"{claim.basis} · {claim.method}" if claim.method else claim.basis
+    replaced = next((c for c in found.earlier if c.id == claim.supersedes), None)
+    if not found.earlier:
+        history = _FIRST
+    elif replaced is not None:
+        history = _REPLACES.format(f"{replaced.basis} {_claim_text(replaced, kind)}")
+        if len(found.earlier) > 1:
+            history += " · " + _EARLIER.format(len(found.earlier))
+    else:
+        history = _EARLIER.format(len(found.earlier))
+    source = " ".join(t for t in (claim.document, claim.version) if t) or None
+    return CalibrationRow(
+        kind.title,
+        claim.conditions,
+        value,
+        note,
+        found.state,
+        _LIVE if channel is not None else chip,
+        found.below_wanted,
+        claim.date,
+        source,
+        history,
+        channel,
+        link,
+    )
+
+
+def _calibration(graph: PanelGraph, thing: Thing) -> list[Item]:
+    """A device's calibration block: a row per kind of its class, or nothing."""
+    if thing.kind != "device" or thing.cls is None:
+        return []
+    kinds = graph.calibration_kinds(thing.cls)
+    if not kinds:
+        return []
+    return [Calibrations(tuple(calibration_row(graph, thing.id, kind) for kind in kinds))]
 
 
 # -- set overview ----------------------------------------------------------------

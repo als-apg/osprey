@@ -51,6 +51,8 @@ from osprey.facility.panels.symbols import (
 )
 from osprey.facility.panels.view import (
     Band,
+    CalibrationRow,
+    Calibrations,
     CheckRow,
     Elevation,
     Fact,
@@ -130,6 +132,11 @@ LINE_WIDTH = 1
 AXIS_WIDTH = 2
 CELL_WIDTH = 110  # a checkout's column
 NAME_WIDTH = 260  # a checkout's first column
+# a card's calibration table: each column's left edge from the content's, and the
+# basis chip's width
+CAL_COLUMNS = (0, 250, 470, 650, 745, 895)
+CAL_CHIP_WIDTH = 170
+CHIP_INSET = 2  # a basis chip stands this far inside its row, above and below
 SET_CELL_WIDTH = 112  # one member of a set overview at the least: its value or name, a light
 SET_CELL_MAX = 220  # the widest a cell grows to when the columns are few
 SET_ROW_HEAD = 64  # a set overview's row heads: the place, short
@@ -348,6 +355,8 @@ _SOURCES = "sources"
 _RACK_COUNTS = "{} at a stated unit · {} not at a unit"
 _UNITS_FROM = "{} · {} devices"
 _SET_READBACK = "each cell: readback of {}"
+_CAL_HEADS = ("parameter", "value in force", "basis", "date", "source", "history")
+_NO_VALUE_YET = "no value yet"
 _SET_MORE = "{} more members: open by place"
 _SET_NAMES = "each cell: the member's short name and its light"
 _NO_CLASS = "no class stated"
@@ -1967,6 +1976,7 @@ class _Page:
             Band: self.band,
             CheckRow: self.check_row,
             Totals: self.totals,
+            Calibrations: self.calibrations,
         }[type(item)]
         draw(item)
 
@@ -2174,6 +2184,71 @@ class _Page:
             self.text(x0 + GAP / 2, y, name, size=SMALL_SIZE, w=min(nw, end - x0 - GAP))
         if isinstance(cell.member, Link):
             self.nav(x0, y, w, ROW, cell.member)
+
+    def calibrations(self, table: Calibrations) -> None:
+        """A device's calibration block: column heads, then a row per kind (see
+        :meth:`calibration_row`). Read-only."""
+        for word, dx in zip(_CAL_HEADS, CAL_COLUMNS, strict=True):
+            self.text(MARGIN + dx, self.y, word.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
+        self.y += ROW
+        for row in table.rows:
+            self.calibration_row(row)
+
+    def calibration_row(self, row: CalibrationRow) -> None:
+        """One kind: its title (a link to the kind's view over a set) with its
+        conditions muted under it; the value in force with a note under it, or the
+        live channel; the basis chip; date, source and history."""
+        x = [MARGIN + dx for dx in CAL_COLUMNS]
+        widths = [b - a - GAP for a, b in itertools.pairwise([*x, MARGIN + STRIP_WIDTH])]
+        top = self.y
+        title = _cut(row.title, widths[0], TEXT_SIZE)
+        self.text(x[0], top, title, w=min(text_width(title, TEXT_SIZE), widths[0]))
+        if row.link is not None:
+            self.nav(x[0], top, min(text_width(title, TEXT_SIZE), widths[0]), ROW, row.link)
+        second = False
+        if row.conditions:
+            self.small(x[0], top + ROW, _cut(row.conditions, widths[0], SMALL_SIZE), fg=MUTED_TEXT)
+            second = True
+        if row.channel is not None:
+            self.field(x[1], top, row.channel)
+        elif row.shown is None:
+            self.small(x[1], top + (ROW - SMALL_LINE) / 2, _NO_VALUE_YET, fg=MUTED_TEXT)
+        else:
+            value = _cut(row.shown, widths[1], TEXT_SIZE)
+            self.text(x[1], top, value, w=min(text_width(value, TEXT_SIZE), widths[1]))
+        if row.note:
+            self.small(x[1], top + ROW, _cut(row.note, widths[1], SMALL_SIZE), fg=MUTED_TEXT)
+            second = True
+        _name_x, _value_x, chip_x, *rest_x = x
+        self.basis_chip(chip_x, top, row)
+        _w0, _w1, _w2, *rest_w = widths
+        for left, width, text in zip(
+            rest_x, rest_w, (row.date, row.source, row.history), strict=True
+        ):
+            if text:
+                self.small(left, top + (ROW - SMALL_LINE) / 2, _cut(text, width, SMALL_SIZE))
+        self.y = top + ROW + (SMALL_LINE if second else 0) + ROW_GAP
+
+    def basis_chip(self, x: float, y: float, row: CalibrationRow) -> None:
+        """The basis chip: an outline in the basis role (the disagree role when
+        contested), dashed and muted for a value still wanted, page text for a
+        value held live."""
+        if row.channel is not None:
+            colour, dashed = PAGE_TEXT, False
+        elif row.shown is None:
+            colour, dashed = MUTED_TEXT, True
+        else:
+            colour, dashed = symbols.BASIS_ROLES.get(row.state, MUTED_TEXT), False
+        text = _cut(row.chip, CAL_CHIP_WIDTH - GAP, SMALL_SIZE)
+        w = min(text_width(text, SMALL_SIZE) + GAP, CAL_CHIP_WIDTH)
+        props = {
+            "lineColor": colour,
+            "lineWidth": LINE_WIDTH,
+            "fill": False,
+            "lineStyle": "dashed" if dashed else "solid",
+        }
+        self.s.widget("rectangle", x, y + CHIP_INSET, w, ROW - 2 * CHIP_INSET, props)
+        self.text(x + GAP / 2, y, text, size=SMALL_SIZE, w=w - GAP, fg=colour)
 
     def member_name(self, member: Link | Fact) -> str:
         """A member's short name: what ``names.csv`` states, else its id's last part."""
