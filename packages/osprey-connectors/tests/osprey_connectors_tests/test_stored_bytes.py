@@ -106,7 +106,7 @@ GRANT = Grant(
     issued_at=T0 + timedelta(seconds=100),
     expires_at=T0 + timedelta(seconds=200),
     lease_s=60,
-    approver=Approver(identity="alice", surface="chip", approved_at=T0 + timedelta(seconds=100)),
+    approver=Approver(by="alice", surface="chip", approved_at=T0 + timedelta(seconds=100)),
     label="run-1",
     revoked=Revocation(revoked_at=T0 + timedelta(seconds=150, microseconds=250_000), by="alice"),
 )
@@ -116,7 +116,7 @@ LEDGER = Ledger(
     holder_start="777",
     pid_ns="pid:[4026531836]",
     lease_expires_at=T0 + timedelta(seconds=300),
-    steps=(
+    spent=(
         LedgerStep(n=1, spent_at=T0 + timedelta(seconds=110), channels=("SR:A:SP",)),
         LedgerStep(
             n=2,
@@ -595,7 +595,7 @@ def _approved() -> Grant:
         issued_at=now,
         expires_at=now + timedelta(hours=12),
         lease_s=60.0,
-        approver=Approver(identity="alice", surface="chip", approved_at=now),
+        approver=Approver(by="alice", surface="chip", approved_at=now),
         label="run-1",
     )
     wa._issue_grant(grant)
@@ -641,10 +641,10 @@ def test_a_request_in_the_previous_format_is_listed_as_unreadable(tmp_path: Path
     current = evolve(REQUEST, id="ab" * 16)
     wa._write_json(directory / f"{current.id}.json", current.model_dump(mode="json"))
 
-    found, unreadable = wa.list_requests(directory)
+    listing = wa.list_requests(directory)
 
-    assert [request.id for request in found] == [current.id]
-    assert unreadable == (old,)
+    assert [request.id for request in listing.items] == [current.id]
+    assert listing.unreadable == (old,)
 
 
 def _load_hook_twin(monkeypatch: pytest.MonkeyPatch) -> ModuleType:

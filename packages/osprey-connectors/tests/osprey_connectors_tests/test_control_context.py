@@ -1875,7 +1875,8 @@ def test_status_reads_ok_with_the_record(data_root):
     from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 
     write_control_context(data_root, target="standin", generation=2)
-    record, status = control_context.read_record_status()
+    read = control_context.read_record_status()
+    record, status = read.value, read.status
     assert status == "ok"
     assert record is not None and record.target == "standin"
     assert record == control_context.read_record()
@@ -1883,7 +1884,8 @@ def test_status_reads_ok_with_the_record(data_root):
 
 @pytest.mark.usefixtures("data_root")
 def test_status_reads_missing_when_there_is_no_file():
-    assert control_context.read_record_status() == (None, "missing")
+    read = control_context.read_record_status()
+    assert (read.status, read.value, read.path) == ("missing", None, control_context.record_path())
     assert control_context.read_record() is None
 
 
@@ -1900,13 +1902,13 @@ def test_status_reads_missing_when_there_is_no_file():
 )
 def test_status_reads_unreadable_for_a_file_that_states_nothing(data_root, raw):
     _write_raw(data_root, raw)
-    assert control_context.read_record_status() == (None, "unreadable")
+    assert control_context.read_record_status().status == "unreadable"
     assert control_context.read_record() is None
 
 
 def test_status_reads_unreadable_for_a_record_that_is_not_utf8(data_root):
     _write_raw(data_root, json.dumps(_payload(detail="é")), encoding="utf-16")
-    assert control_context.read_record_status() == (None, "unreadable")
+    assert control_context.read_record_status().status == "unreadable"
 
 
 def test_status_reads_unreadable_when_the_path_cannot_be_stat_ed(data_root):
@@ -1914,37 +1916,35 @@ def test_status_reads_unreadable_when_the_path_cannot_be_stat_ed(data_root):
     blocker = data_root / "blocker"
     blocker.parent.mkdir(parents=True, exist_ok=True)
     blocker.write_text("", encoding="utf-8")
-    assert control_context.read_record_status(path=blocker / "record.json") == (
-        None,
-        "unreadable",
-    )
+    assert control_context.read_record_status(path=blocker / "record.json").status == "unreadable"
 
 
 @pytest.mark.usefixtures("rootless")
 def test_status_reads_unreadable_without_a_root():
-    assert control_context.read_record_status() == (None, "unreadable")
+    assert control_context.read_record_status().status == "unreadable"
     assert control_context.read_record() is None
 
 
 @pytest.mark.usefixtures("data_root")
 def test_status_honours_an_explicit_path(tmp_path):
     elsewhere = tmp_path / "elsewhere.json"
-    assert control_context.read_record_status(path=elsewhere) == (None, "missing")
+    assert control_context.read_record_status(path=elsewhere).status == "missing"
     control_context.write_record(
         control_context.ControlContext(target="va", generation=1), path=elsewhere
     )
-    record, status = control_context.read_record_status(path=elsewhere)
+    read = control_context.read_record_status(path=elsewhere)
+    record, status = read.value, read.status
     assert status == "ok" and record.target == "va"
-    assert control_context.read_record_status() == (None, "missing")
+    assert control_context.read_record_status().status == "missing"
 
 
 def test_status_follows_a_record_that_is_corrupted_after_it_was_read(data_root):
     from osprey_connectors_tests._harness._control_context_fixtures import write_control_context
 
     write_control_context(data_root)
-    assert control_context.read_record_status()[1] == "ok"
+    assert control_context.read_record_status().status == "ok"
     _write_raw(data_root, "{broken")
-    assert control_context.read_record_status() == (None, "unreadable")
+    assert control_context.read_record_status().status == "unreadable"
 
 
 # --- a record this version writes, read by the readers that predate it ---------

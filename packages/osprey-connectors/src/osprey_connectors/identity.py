@@ -50,6 +50,7 @@ historical import path costs no second implementation.
 
 import getpass
 import os
+from typing import TypeGuard
 
 __all__ = [
     "AUDIT_IDENTITY_ENV",
@@ -57,6 +58,7 @@ __all__ = [
     "TERMINAL_USER_ENV",
     "UNKNOWN_IDENTITY",
     "acting_identity",
+    "is_path_segment",
     "usable_identity",
 ]
 
@@ -94,6 +96,23 @@ _PATH_SEPARATORS: tuple[str, ...] = ("/", "\\", "\0")
 _RESERVED_NAMES: tuple[str, ...] = (".", "..")
 
 
+def is_path_segment(value: object) -> TypeGuard[str]:
+    """Whether *value* names exactly one directory: the rule every name used as one obeys.
+
+    A string that, stripped, is not empty, ``.`` or ``..``, and that holds no
+    path separator or NUL anywhere. The check strips only to judge; it returns
+    no name, so a caller that keeps the value keeps it exactly as given.
+    :func:`usable_identity` answers with the stripped value of one that passes,
+    and the control-context tree and the grants directories screen an owner
+    with it.
+    """
+    return (
+        isinstance(value, str)
+        and value.strip() not in ("", *_RESERVED_NAMES)
+        and not any(separator in value for separator in _PATH_SEPARATORS)
+    )
+
+
 def usable_identity(value: str | None) -> str:
     """Return *value* stripped, or ``""`` if it cannot serve as an identity.
 
@@ -110,14 +129,7 @@ def usable_identity(value: str | None) -> str:
     account name into :data:`UNKNOWN_IDENTITY`, which loses more than it
     protects.
     """
-    if not isinstance(value, str):
-        return ""
-    candidate = value.strip()
-    if not candidate or candidate in _RESERVED_NAMES:
-        return ""
-    if any(separator in candidate for separator in _PATH_SEPARATORS):
-        return ""
-    return candidate
+    return value.strip() if is_path_segment(value) else ""
 
 
 def acting_identity() -> str:

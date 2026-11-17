@@ -1991,7 +1991,8 @@ def _posture_post_facts(
     """
     section = section_of(rendered_config(config_path))
     configured = _configured_target_names(section)
-    record, status = control_context.read_record_status()
+    read = control_context.read_record_status()
+    record, status = read.value, read.status
     before = None
     if target != ALL_TARGETS and status != "unreadable":
         before = control_context.switch_position(record, target)
@@ -2868,8 +2869,9 @@ def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
     ledgers = write_authorization.self_issued_directories()
     now = datetime.now(UTC)
     holds: dict[str, list[dict[str, Any]]] = {}
-    found, _unreadable = write_authorization.listed_grants([] if own is None else [own], ledgers)
-    for grant, _directory in found:
+    listing = write_authorization.list_grants(*([] if own is None else [own]), self_issued=ledgers)
+    for listed in listing.items:
+        grant = listed.grant
         if grant.owner != login:
             continue
         standing = write_authorization.grant_standing(grant, record, ledgers, now=now)
@@ -2881,7 +2883,7 @@ def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
                 "holder": grant.holder,
                 "label": grant.label,
                 "steps": grant.steps,
-                "used": standing.used,
+                "used": standing.steps_spent,
                 "expires_in_s": max(0.0, round((grant.expires_at - now).total_seconds(), 1)),
                 "self_issued": grant.approver.surface == write_authorization.SELF_ISSUE_SURFACE,
             }
@@ -2948,7 +2950,8 @@ def _posture_view(
     config = rendered_config(config_path)
     derive_path = str(config_path) if config_path else None
     section = section_of(config)
-    record, record_status = control_context.read_record_status()
+    read = control_context.read_record_status()
+    record, record_status = read.value, read.status
     reports = _live_reports()
     login = acting_identity()
 

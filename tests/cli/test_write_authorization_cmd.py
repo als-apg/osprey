@@ -83,6 +83,11 @@ def laptop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+def _grants(directory: Path) -> tuple[wa.Grant, ...]:
+    """The grants a listing of *directory* reads."""
+    return tuple(listed.grant for listed in wa.list_grants(directory).items)
+
+
 def run(*args: str) -> Any:
     return CliRunner().invoke(write_authorization, list(args), catch_exceptions=False)
 
@@ -96,7 +101,7 @@ def ask(**fields: Any) -> wa.WriteRequest:
         "completion": "restore",
     }
     values.update(fields)
-    channels = values.pop("channels", {"SR:A": (1.0, 9.0)})
+    channels = values.pop("channels", {"SR:A": wa.ChannelRange.of(1.0, 9.0)})
     return wa.write_request("va", channels, **values)
 
 
@@ -110,7 +115,7 @@ class TestLaptop:
         assert result.exit_code == 0, result.output
         grant = wa.approved_grant(request.id)
         assert grant is not None
-        assert (grant.approver.identity, grant.approver.surface) == (acting_identity(), "cli")
+        assert (grant.approver.by, grant.approver.surface) == (acting_identity(), "cli")
         assert grant.owner == grant.holder == acting_identity()
         assert "Approved" in result.output
 
@@ -141,7 +146,10 @@ class TestLaptop:
 
     @pytest.mark.parametrize(
         ("channels", "reason"),
-        [({"SR:A": (0.0, 11.0)}, "outside_limits"), ({"SR:ENUM": (0.0, 1.0)}, "not_numeric")],
+        [
+            ({"SR:A": wa.ChannelRange.of(0.0, 11.0)}, "outside_limits"),
+            ({"SR:ENUM": wa.ChannelRange.of(0.0, 1.0)}, "not_numeric"),
+        ],
     )
     def test_a_range_the_limits_do_not_hold_is_refused(self, channels, reason):
         request = ask(channels=channels)
@@ -290,7 +298,7 @@ class TestDeployment:
             holder_start=None,
             pid_ns=None,
             lease_expires_at=FAR_FUTURE,
-            steps=(wa.LedgerStep(n=1, spent_at=LONG_AGO, channels=("SR:A",)),),
+            spent=(wa.LedgerStep(n=1, spent_at=LONG_AGO, channels=("SR:A",)),),
         )
         (self._own(repo, "alice") / f"{request.id}.ledger.json").write_text(
             json.dumps(ledger.model_dump(mode="json"))
@@ -319,9 +327,9 @@ class TestDeployment:
         result = run("approve", request.id, "--yes")
         assert result.exit_code == 0, result.output
         grants_dir = repo / "var" / "agent_data" / "control_target" / "alice" / "authorizations"
-        (grant,) = wa.list_grants(grants_dir)[0]
+        (grant,) = _grants(grants_dir)
         assert grant.id == request.id
-        assert (grant.owner, grant.approver.identity, grant.approver.surface) == (
+        assert (grant.owner, grant.approver.by, grant.approver.surface) == (
             "alice",
             acting_identity(),
             "cli",
@@ -335,7 +343,7 @@ class TestDeployment:
         # Nothing was written: no grant, and no record created on the bogus target.
         alice = repo / "var" / "agent_data" / "control_target" / "alice"
         assert not (alice / "control_context.json").exists()
-        assert wa.list_grants(alice / "authorizations") == ((), ())
+        assert _grants(alice / "authorizations") == ()
 
     def test_another_owners_program_on_the_channel_is_not_an_overlap(self, repo):
         first = self._put(repo, "alice", holder="optimizer")
@@ -344,7 +352,7 @@ class TestDeployment:
         result = run("approve", second.id, "--yes")
         assert result.exit_code == 0, result.output
         bob = repo / "var" / "agent_data" / "control_target" / "bob" / "authorizations"
-        assert [grant.id for grant in wa.list_grants(bob)[0]] == [second.id]
+        assert [grant.id for grant in _grants(bob)] == [second.id]
 
     def test_a_grant_whose_steps_are_spent_is_listed_ended_with_its_count(self, repo):
         request = self._put(repo, "alice")
@@ -355,7 +363,7 @@ class TestDeployment:
             holder_start=None,
             pid_ns=None,
             lease_expires_at=FAR_FUTURE,
-            steps=tuple(
+            spent=tuple(
                 wa.LedgerStep(n=n, spent_at=LONG_AGO + timedelta(seconds=n), channels=("SR:A",))
                 for n in (1, 2, 3)
             ),
@@ -401,10 +409,10 @@ class TestDeployment:
         request = self._put(repo, "gmartino", on_host=True)
         result = run("approve", request.id, "--yes")
         assert result.exit_code == 0, result.output
-        (grant,) = wa.list_grants(self._own(repo, "gmartino"))[0]
-        assert (grant.owner, grant.approver.identity) == ("gmartino", "gmartino")
+        (grant,) = _grants(self._own(repo, "gmartino"))
+        assert (grant.owner, grant.approver.by) == ("gmartino", "gmartino")
         assert run("revoke", request.id).exit_code == 0
-        (stored,) = wa.list_grants(self._own(repo, "gmartino"))[0]
+        (stored,) = _grants(self._own(repo, "gmartino"))
         assert stored.revoked is not None and stored.revoked.by == "gmartino"
 
     def test_a_programs_self_issued_grant_is_listed_and_revoked_in_the_ledger(self, repo):
@@ -424,9 +432,7 @@ class TestDeployment:
             issued_at=now,
             expires_at=FAR_FUTURE,
             lease_s=30.0,
-            approver=wa.Approver(
-                identity="tuning-scripts", surface="write_switch", approved_at=now
-            ),
+            approver=wa.Approver(by="tuning-scripts", surface="write_switch", approved_at=now),
             label="scan",
         )
         ledger = repo / "var" / "write_ledger"
@@ -438,7 +444,7 @@ class TestDeployment:
         assert "self-issued" in run("list").output
         result = run("revoke", grant.id)
         assert result.exit_code == 0, result.output
-        (stored,) = wa.list_grants(ledger)[0]
+        (stored,) = _grants(ledger)
         assert stored.revoked is not None and stored.revoked.by == acting_identity()
 
 

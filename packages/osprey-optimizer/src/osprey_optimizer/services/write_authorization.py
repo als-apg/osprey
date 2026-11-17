@@ -66,7 +66,7 @@ from osprey_optimizer.models.protocols import EnvironmentProtocol
 from osprey_optimizer.utils.interval_thread import IntervalThread
 
 if TYPE_CHECKING:
-    from osprey_connectors.write_authorization import RunCompletion
+    from osprey_connectors.write_authorization import ChannelRange, RunCompletion
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,18 @@ class WritePlan:
     def steps(self) -> int:
         """The write calls the run makes: one per evaluation, plus its completion's."""
         return self.evaluations + (0 if self.completion == "none" else 1)
+
+    def ranges(self) -> dict[str, ChannelRange]:
+        """Each channel's range as an authorization states it.
+
+        Raises:
+            ValueError: A range is not finite.
+        """
+        from osprey_connectors.write_authorization import ChannelRange
+
+        return {
+            channel: ChannelRange.of(low, high) for channel, (low, high) in self.channels.items()
+        }
 
 
 def _narrow(
@@ -354,7 +366,7 @@ class RunAuthorization:
             grant = wa.self_issue(
                 _control_system_section(),
                 plan.target,
-                plan.channels,
+                plan.ranges(),
                 steps=plan.steps,
                 expires_at=expires_at,
                 lease_s=LEASE_S,
@@ -376,7 +388,7 @@ class RunAuthorization:
         try:
             request = wa.write_request(
                 plan.target,
-                plan.channels,
+                plan.ranges(),
                 steps=plan.steps,
                 expires_at=expires_at,
                 lease_s=LEASE_S,

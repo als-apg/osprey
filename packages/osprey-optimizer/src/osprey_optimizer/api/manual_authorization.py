@@ -165,7 +165,7 @@ def authorize_manual_write(
         grant = wa.self_issue(
             _control_system_section(),
             target,
-            {channel: (value, value) for channel, value in channels.items()},
+            {channel: wa.ChannelRange.of(value, value) for channel, value in channels.items()},
             steps=1,
             expires_at=datetime.now(UTC) + timedelta(seconds=LEASE_S),
             lease_s=LEASE_S,

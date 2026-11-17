@@ -455,7 +455,8 @@ def verdict_word(app: Any, target: str) -> str:
     shown as off.
     """
     control_context.invalidate_cache()
-    record, status = control_context.read_record_status()
+    read = control_context.read_record_status()
+    record, status = read.value, read.status
     if status == "unreadable":
         return "locked"
     if control_context.switch_position(record, target) == "off":

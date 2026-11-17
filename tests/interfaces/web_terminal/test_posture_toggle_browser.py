@@ -1036,7 +1036,7 @@ def test_a_stop_the_store_cannot_record_says_not_taken_and_stays_armed(
             expect(popover_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "asked")
             assert_options(page, POSTURE_TARGET, checked="asked")
 
-            _record, status = control_context.read_record_status()
+            status = control_context.read_record_status().status
             assert status == "ok", status
             assert recorded_position(POSTURE_TARGET) == "asked"
             assert write_verdict_for(app, POSTURE_TARGET).allowed
@@ -1126,7 +1126,7 @@ def test_an_unreadable_record_shows_the_refusal_and_never_off(
             write_payload(record_path, "not a control context")
             record_path.parent.chmod(0o500)
             control_context.invalidate_cache()
-            assert control_context.read_record_status()[1] == "unreadable"
+            assert control_context.read_record_status().status == "unreadable"
 
             open_popover(page)
             for target in KINDS:
@@ -1145,7 +1145,7 @@ def test_an_unreadable_record_shows_the_refusal_and_never_off(
             expect(page.locator(f"{POPOVER} [data-state='off']")).to_have_count(0)
             assert_chip_matches_verdict(page, app)
             control_context.invalidate_cache()
-            assert control_context.read_record_status()[1] == "unreadable"
+            assert control_context.read_record_status().status == "unreadable"
         finally:
             record_path.parent.chmod(0o700)
             page.close()

@@ -18,7 +18,10 @@ def ask() -> wa.WriteRequest:
     # docs: ask begins
     request = wa.write_request(
         "standin",
-        {"SR:CORRECTOR:H1": (-0.5, 0.5), "SR:CORRECTOR:H2": (-0.5, 0.5)},
+        {
+            "SR:CORRECTOR:H1": wa.ChannelRange.of(-0.5, 0.5),
+            "SR:CORRECTOR:H2": wa.ChannelRange.of(-0.5, 0.5),
+        },
         steps=41,  # 40 evaluations + apply_best
         expires_at=datetime.now(UTC) + timedelta(hours=2),
         lease_s=30.0,

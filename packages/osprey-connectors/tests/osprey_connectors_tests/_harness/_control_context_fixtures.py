@@ -262,7 +262,7 @@ def _set_switch_to(path: Path, wanted: Mapping[str, str]) -> None:
     Per-target turn-offs and turn-ons only: neither moves an existing epoch,
     which a turn-off of every machine would.
     """
-    current, _status = control_context.read_record_status(path=path)
+    current = control_context.read_record_status(path=path).value
     stale = sorted(set(current.switch) - set(wanted)) if current is not None else []
     if stale:
         control_context.set_switch(stale, "off", path=path)

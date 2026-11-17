@@ -40,6 +40,7 @@ from osprey_connectors.write_authorization import (
     Ledger,
     LedgerStep,
     Revocation,
+    WriteRequest,
     _auth_overlap,
     _issue_grant,
     _parse_grant,
@@ -134,6 +135,12 @@ def switch(position: str) -> None:
     control_context.invalidate_cache()
 
 
+def _grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
+    """What a listing of *directory* reads: its grants, and the paths it could not read."""
+    listing = list_grants(directory)
+    return tuple(listed.grant for listed in listing.items), listing.unreadable
+
+
 def grants_dir() -> Path:
     path = wa.authorizations_dir()
     assert path is not None
@@ -153,7 +160,7 @@ def make_grant(**fields: Any) -> Grant:
         "issued_at": now,
         "expires_at": FAR_FUTURE,
         "lease_s": 60.0,
-        "approver": Approver(identity="alice", surface="chip", approved_at=now),
+        "approver": Approver(by="alice", surface="chip", approved_at=now),
         "label": "run-1",
         "revoked": None,
     }
@@ -304,7 +311,7 @@ def test_spending_answers_as_the_verdict_does(row: dict[str, Any], monkeypatch):
     after = ledger_path(grant_id).read_bytes() if ledger_path(grant_id).exists() else None
     if answer.allowed:
         assert before is not None and after is not None
-        assert len(_parse_ledger(after).steps) == len(_parse_ledger(before).steps) + 1
+        assert len(_parse_ledger(after).spent) == len(_parse_ledger(before).spent) + 1
     elif not row["id"].startswith("self-issued"):
         assert after == before
 
@@ -367,7 +374,7 @@ class TestFormats:
             holder_start="100",
             pid_ns="pid:[1]",
             lease_expires_at=T0 + timedelta(seconds=9),
-            steps=(LedgerStep(n=1, spent_at=T0 + timedelta(seconds=3), channels=("A:SP", "B:SP")),),
+            spent=(LedgerStep(n=1, spent_at=T0 + timedelta(seconds=3), channels=("A:SP", "B:SP")),),
         )
         assert _parse_ledger(json.dumps(entry.model_dump(mode="json"))) == entry
 
@@ -525,6 +532,92 @@ class TestFormats:
         with pytest.raises(ValueError):
             _parse_ledger(json.dumps(payload))
 
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: ChannelRange(min=2.0, max=1.0),
+            lambda: ChannelRange(min=math.nan, max=1.0),
+            lambda: ChannelRange.of(0.0, math.inf),
+            lambda: ChannelRange.of(-math.inf, 0),
+            lambda: make_grant(id="ABC"),
+            lambda: make_grant(owner=""),
+            lambda: make_grant(owner=" alice"),
+            lambda: make_grant(holder="bob "),
+            lambda: make_grant(switch_epoch=-1),
+            lambda: make_grant(channels={}),
+            lambda: make_grant(channels={" ": ChannelRange(min=0.0, max=1.0)}),
+            lambda: make_grant(steps=0),
+            lambda: make_grant(issued_at=wa._EPOCH - TICK),
+            lambda: make_grant(issued_at=T0, expires_at=T0),
+            lambda: make_grant(lease_s=0),
+            lambda: make_grant(lease_s=math.inf),
+            lambda: make_grant(lease_s=True),
+            lambda: Approver(by=" alice", surface="chip", approved_at=T0),
+            lambda: Approver(by="", surface="chip", approved_at=T0),
+            lambda: Revocation(revoked_at=T0, by="bob\n"),
+            lambda: Revocation(revoked_at=wa._EPOCH - TICK, by="bob"),
+            lambda: LedgerStep(n=0, spent_at=T0, channels=("A:SP",)),
+            lambda: LedgerStep(n=1, spent_at=T0, channels=()),
+            lambda: LedgerStep(n=1, spent_at=T0, channels=("",)),
+            lambda: Ledger(
+                authorization="a" * 32,
+                holder_pid=0,
+                holder_start=None,
+                pid_ns=None,
+                lease_expires_at=T0,
+            ),
+            lambda: Ledger(
+                authorization="a" * 32,
+                holder_pid=None,
+                holder_start=None,
+                pid_ns=None,
+                lease_expires_at=T0,
+                spent=(LedgerStep(n=2, spent_at=T0, channels=("A:SP",)),),
+            ),
+            lambda: WriteRequest(
+                id="a" * 32,
+                owner=ME,
+                holder=ME,
+                target=TARGET,
+                channels=CHANNELS,
+                steps=1,
+                requested_at=T0,
+                expires_at=T0,
+                lease_s=60.0,
+            ),
+        ],
+    )
+    def test_a_record_built_here_meets_the_readers_rules(self, build: Any):
+        """Every rule a file is read under refuses a record when it is built, in-process too."""
+        with pytest.raises(ValueError):
+            build()
+
+    def test_a_number_built_here_is_held_as_given_and_read_as_a_float(self):
+        """Only how a number is held depends on where it came from, never whether it is valid."""
+        grant = make_grant(lease_s=60, channels={"A:SP": ChannelRange(min=0, max=1)})
+        written = grant.model_dump(mode="json")
+        assert (written["lease_s"], written["channels"]["A:SP"]) == (60, {"min": 0, "max": 1})
+        assert type(written["lease_s"]) is int
+        read = _parse_grant(json.dumps(written))
+        assert type(read.lease_s) is float and type(read.channels["A:SP"].min) is float
+
+    def test_a_range_of_two_bounds_is_held_as_floats(self):
+        assert ChannelRange.of(0, 1).model_dump(mode="json") == {"min": 0.0, "max": 1.0}
+
+    def test_a_ledger_and_an_approver_keep_their_file_keys(self):
+        entry = Ledger(
+            authorization="a" * 32,
+            holder_pid=None,
+            holder_start=None,
+            pid_ns=None,
+            lease_expires_at=T0,
+            spent=(LedgerStep(n=1, spent_at=T0, channels=("A:SP",)),),
+        )
+        assert "steps" in entry.model_dump(mode="json") and "spent" not in entry.model_dump()
+        approver = Approver(by="alice", surface="chip", approved_at=T0)
+        assert set(approver.model_dump()) == {"identity", "surface", "approved_at"}
+        assert Approver.model_validate(approver.model_dump(mode="json")) == approver
+
     def test_a_channel_range_holds_finite_reals_only(self):
         bound = ChannelRange(min=0.0, max=1.0)
         assert bound.holds(0) and bound.holds(1.0) and bound.holds(0.5)
@@ -638,7 +731,7 @@ class TestFailClosedReads:
         ledger_path(grant.id).symlink_to(elsewhere)
         assert verdict(grant.id).reason == "auth_unreadable"
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
-        assert len(_parse_ledger(elsewhere.read_text()).steps) == 0
+        assert len(_parse_ledger(elsewhere.read_text()).spent) == 0
 
     def test_a_ledger_naming_another_authorization(self):
         grant = approve()
@@ -694,7 +787,7 @@ class TestFailClosedReads:
         lock.unlink(missing_ok=True)
         lock.symlink_to(tmp_path / "elsewhere")
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_unreadable"
-        assert ledger(grant.id).steps == ()
+        assert ledger(grant.id).spent == ()
 
 
 # -- the composition ----------------------------------------------------------
@@ -769,9 +862,9 @@ class TestComposition:
         grant = approve()
         answer = spend_authorized_write(SECTION, TARGET, OPS, authorization=grant.id)
         assert answer.allowed and answer.authorization == grant.id
-        assert len(ledger(grant.id).steps) == 1
+        assert len(ledger(grant.id).spent) == 1
         assert authorized_execution_verdict(SECTION, TARGET, OPS, authorization=grant.id).allowed
-        assert len(ledger(grant.id).steps) == 1
+        assert len(ledger(grant.id).spent) == 1
 
 
 # -- steps --------------------------------------------------------------------
@@ -781,7 +874,7 @@ class TestSteps:
     def test_a_batch_is_one_step(self):
         grant = approve()
         assert spend(SECTION, TARGET, [("A:SP", 1.0), ("B:SP", 0.0)], authorization=grant.id)
-        (entry,) = ledger(grant.id).steps
+        (entry,) = ledger(grant.id).spent
         assert (entry.n, entry.channels) == (1, ("A:SP", "B:SP"))
 
     def test_the_budget_ends_the_run_and_nothing_renews_it(self):
@@ -789,7 +882,7 @@ class TestSteps:
         answers = [spend(SECTION, TARGET, OPS, authorization=grant.id) for _ in range(4)]
         assert [a.allowed for a in answers] == [True, True, False, False]
         assert answers[-1].reason == "auth_exhausted"
-        assert [entry.n for entry in ledger(grant.id).steps] == [1, 2]
+        assert [entry.n for entry in ledger(grant.id).spent] == [1, 2]
         assert renew_lease(grant.id)
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).reason == "auth_exhausted"
 
@@ -797,7 +890,7 @@ class TestSteps:
         grant = approve()
         batch = iter([("A:SP", 1.0), ("B:SP", 0.0)])
         assert spend(SECTION, TARGET, batch, authorization=grant.id).allowed
-        assert ledger(grant.id).steps[0].channels == ("A:SP", "B:SP")
+        assert ledger(grant.id).spent[0].channels == ("A:SP", "B:SP")
 
     def test_a_refused_write_spends_nothing(self):
         grant = approve()
@@ -811,7 +904,7 @@ class TestSteps:
         grant = approve()
         for _ in range(5):
             assert verdict(grant.id).allowed
-        assert ledger(grant.id).steps == ()
+        assert ledger(grant.id).spent == ()
 
     def test_a_step_that_cannot_be_recorded_is_refused(self, monkeypatch):
         grant = approve()
@@ -840,7 +933,7 @@ class TestSteps:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
         assert answer.reason == "auth_unreadable"
-        assert ledger(grant.id).steps == ()
+        assert ledger(grant.id).spent == ()
 
 
 SPENDER = textwrap.dedent(
@@ -885,7 +978,7 @@ class TestConcurrentAppenders:
         outputs = [process.communicate(timeout=120) for process in spawned]
         assert all(process.returncode == 0 for process in spawned), outputs
         assert sum(int(out.strip()) for out, _err in outputs) == budget
-        steps = ledger(grant.id).steps
+        steps = ledger(grant.id).spent
         assert [entry.n for entry in steps] == list(range(1, budget + 1))
         assert all(entry.channels == ("A:SP", "B:SP") for entry in steps)
 
@@ -899,7 +992,7 @@ class TestConcurrentAppenders:
             )
         assert sum(answer.allowed for answer in answers) == 10
         assert {a.reason for a in answers if not a.allowed} == {"auth_exhausted"}
-        assert len(ledger(grant.id).steps) == 10
+        assert len(ledger(grant.id).spent) == 10
 
 
 # -- the lease ----------------------------------------------------------------
@@ -912,7 +1005,7 @@ class TestLease:
         assert entry.holder_pid == os.getpid()
         assert entry.pid_ns == wa._pid_namespace()
         assert entry.holder_start == wa._process_start_time(os.getpid())
-        assert entry.steps == ()
+        assert entry.spent == ()
 
     def test_a_lease_is_started_once(self):
         grant = approve()
@@ -1193,6 +1286,15 @@ class TestStops:
             by="bob",
         )
 
+    def test_a_revocation_by_a_name_that_is_not_a_login_marks_nothing(self):
+        """Refused when the mark is built: before, it wrote a grant no reader could read."""
+        grant = approve()
+        before = grant_path(grant.id).read_bytes()
+        with pytest.raises(ValueError):
+            revoke_grants(by=" alice")
+        assert grant_path(grant.id).read_bytes() == before
+        assert verdict(grant.id).allowed
+
     def test_revocation_leaves_an_unreadable_grant_as_it_is(self):
         grant = approve()
         grant_path(grant.id).write_text("{")
@@ -1219,7 +1321,7 @@ def _self_issue(**fields: Any) -> Grant:
         "label": "run-self",
     }
     values.update(fields)
-    return self_issue(SECTION, TARGET, {"A:SP": (0.0, 10.0)}, **values)
+    return self_issue(SECTION, TARGET, {"A:SP": ChannelRange.of(0.0, 10.0)}, **values)
 
 
 class TestSelfIssue:
@@ -1246,7 +1348,7 @@ class TestSelfIssue:
         with pytest.raises(AuthorizationRefusedError) as refused:
             _self_issue()
         assert refused.value.reason == reason
-        assert list_grants(grants_dir()) == ((), ())
+        assert _grants(grants_dir()) == ((), ())
 
     def test_a_pinned_launch_issues_nothing(self, monkeypatch):
         switch("allowed")
@@ -1268,7 +1370,7 @@ class TestSelfIssue:
         monkeypatch.setattr(wa, "_issue_grant", stop_after)
         with pytest.raises(AuthorizationRefusedError):
             _self_issue()
-        assert list_grants(grants_dir()) == ((), ())
+        assert _grants(grants_dir()) == ((), ())
 
     # On a host the holder's directory is the owner's, so a stop marks the
     # self-issued grant revoked as well; leaving for ``asked`` lapses its lease.
@@ -1288,7 +1390,7 @@ class TestSelfIssue:
         assert again.reason == after
         with pytest.raises(AuthorizationRefusedError):
             renew_lease(grant.id)
-        assert len(ledger(grant.id).steps) == 1
+        assert len(ledger(grant.id).spent) == 1
 
     def test_a_stop_of_every_machine_ends_it(self):
         switch("allowed")
@@ -1298,20 +1400,36 @@ class TestSelfIssue:
         control_context.invalidate_cache()
         assert verdict(grant.id).reason == "auth_revoked"
 
+    def test_no_ledger_directory_refuses_before_a_malformed_grant(self, tmp_path, monkeypatch):
+        """The ledger directory is judged before the grant is built, as before."""
+        switch("allowed")
+        monkeypatch.setenv(wa.LEDGER_DIR_ENV_VAR, str(tmp_path / "absent"))
+        with pytest.raises(AuthorizationRefusedError) as refused:
+            _self_issue(steps=0)
+        assert refused.value.reason == "auth_unreadable"
+
+    def test_a_range_that_is_not_a_channel_range_is_refused(self):
+        switch("allowed")
+        with pytest.raises(ValueError):
+            self_issue(
+                SECTION, TARGET, {"A:SP": (0.0, 1.0)}, steps=3, expires_at=FAR_FUTURE, lease_s=60.0
+            )
+        assert _grants(grants_dir()) == ((), ())
+
     def test_malformed_bounds_are_refused_before_anything_is_written(self):
         switch("allowed")
         with pytest.raises(ValueError):
             self_issue(
                 SECTION,
                 TARGET,
-                {"A:SP": (5.0, 1.0)},
+                {"A:SP": ChannelRange.of(5.0, 1.0)},
                 steps=3,
                 expires_at=FAR_FUTURE,
                 lease_s=60.0,
             )
         with pytest.raises(ValueError):
             _self_issue(steps=0)
-        assert list_grants(grants_dir()) == ((), ())
+        assert _grants(grants_dir()) == ((), ())
 
 
 # -- overlap at approval ------------------------------------------------------
@@ -1508,7 +1626,7 @@ class TestOverlap:
     def test_ledgers_and_locks_are_not_grants(self):
         grant = approve()
         assert spend(SECTION, TARGET, OPS, authorization=grant.id).allowed
-        assert list_grants(grants_dir()) == ((grant,), ())
+        assert _grants(grants_dir()) == ((grant,), ())
 
     def test_simultaneous_approvals_have_exactly_one_winner(self, tmp_path: Path):
         go = tmp_path / "go"
@@ -1528,7 +1646,7 @@ class TestOverlap:
         go.write_text("")
         answers = sorted(process.communicate(timeout=120)[0].strip() for process in spawned)
         assert answers == ["issued"] + ["refused auth_overlap"] * 5
-        grants, unreadable = list_grants(directory)
+        grants, unreadable = _grants(directory)
         assert (len(grants), unreadable) == (1, ())
 
 
@@ -1589,7 +1707,7 @@ class TestTree:
             issued_at=now,
             expires_at=FAR_FUTURE,
             lease_s=60.0,
-            approver=Approver(identity="alice", surface="chip", approved_at=now),
+            approver=Approver(by="alice", surface="chip", approved_at=now),
         )
         _issue_grant(grant, directory=tree / "alice" / wa.AUTHORIZATIONS_DIR_NAME)
         start_lease(grant.id)
@@ -1601,7 +1719,7 @@ class TestTree:
         assert posture_store.write_verdict(self.SECTION, TARGET).reason == "switch_off"
         answer = spend_authorized_write(self.SECTION, TARGET, OPS, authorization=grant.id)
         assert answer.allowed
-        assert len(ledger(grant.id).steps) == 1
+        assert len(ledger(grant.id).spent) == 1
 
     def test_another_identity_under_the_same_owner_gains_nothing(self, tree: Path, monkeypatch):
         grant = self.issue(tree)

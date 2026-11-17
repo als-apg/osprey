@@ -157,7 +157,7 @@ from osprey_connectors.connector_types import (
     MachineKind,
     is_control_target,
 )
-from osprey_connectors.identity import acting_identity
+from osprey_connectors.identity import acting_identity, is_path_segment
 from osprey_connectors.model import FrozenModel, FrozenTuple, Instant, evolve
 from osprey_connectors.posture_env import is_readonly_run
 from osprey_connectors.refusals import VerdictReason, VerdictReasonField
@@ -724,14 +724,6 @@ def parse_posture_value(value: object) -> dict[str, Posture]:
 # -- the read-only tree -----------------------------------------------------
 
 
-#: Characters that cannot appear in the one path segment an owner names. The
-#: same rule :func:`~osprey_connectors.identity.acting_identity` applies to an
-#: identity, restated for the name a queue item carries rather than shared with
-#: it, because that function ANSWERS a name while this one screens one somebody
-#: else supplied.
-_TREE_UNSAFE: Final = frozenset({"/", "\\", "\x00"})
-
-
 class _TreeContext(NamedTuple):
     """One read of one owner's whole record out of the read-only tree.
 
@@ -945,7 +937,7 @@ def _read_tree_context(tree: Path, owner: object) -> _TreeContext:
     # and must not be answered as an owner whose switches are off: the name
     # arrived on a queue item, and a name nobody can look up is a lookup that
     # did not happen rather than a lookup that found nothing.
-    if not isinstance(owner, str) or owner.strip() in {"", ".", ".."} or _TREE_UNSAFE & set(owner):
+    if not is_path_segment(owner):
         return _TreeContext(
             None,
             f"the owner {owner!r} is not a name the control-context tree can hold, "
@@ -1758,7 +1750,8 @@ def _write_refusal(
             return VerdictReason.RECORD_UNAVAILABLE
         record = read.record
     else:
-        record, status = control_context.read_record_status()
+        own = control_context.read_record_status()
+        record, status = own.value, own.status
         if status == "unreadable":
             logger.warning("Write record unreadable on this host; refusing")
             return VerdictReason.RECORD_UNAVAILABLE

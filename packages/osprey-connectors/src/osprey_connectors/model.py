@@ -38,6 +38,11 @@ An instant a record holds is an :data:`Instant`: a timezone-aware
 (:func:`parse_instant`) and written with an explicit ``+00:00``. A naive
 ``datetime`` is refused, never given a zone.
 
+A reader of a state file answers in one shape: one file read is a
+:class:`ReadResult` (how the read ended, in the :data:`ReadStatus` words, what
+it read and where), and a directory listed is a :class:`Listing` (what was
+read, and the paths that could not be).
+
 The module imports only pydantic, typing_extensions and the standard library,
 and nothing from the package.
 """
@@ -46,7 +51,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Annotated, NoReturn, Self, TypeAlias, TypeVar
+from pathlib import Path
+from typing import Annotated, Generic, Literal, NoReturn, Self, TypeAlias, TypeVar
 
 from pydantic import (
     AfterValidator,
@@ -57,6 +63,7 @@ from pydantic import (
     PlainSerializer,
     SerializerFunctionWrapHandler,
     WrapSerializer,
+    model_validator,
 )
 from typing_extensions import override
 
@@ -64,8 +71,11 @@ __all__ = [
     "FrozenModel",
     "FrozenTuple",
     "Instant",
+    "Listing",
     "MutableModel",
     "ReadOnlyMapping",
+    "ReadResult",
+    "ReadStatus",
     "empty_mapping",
     "evolve",
     "parse_instant",
@@ -229,3 +239,41 @@ def evolve(model: _Model, /, **changes: object) -> _Model:
     validators, field and model alike, on the result.
     """
     return type(model).model_validate({**dict(model), **changes})
+
+
+#: How one read of a state file ended: a usable value, no file at the path, or
+#: a file (or a root) that states nothing usable.
+ReadStatus: TypeAlias = Literal["ok", "missing", "unreadable"]
+
+
+class ReadResult(FrozenModel, Generic[_T]):
+    """One read of one state file: how it ended, what it read, and where.
+
+    Attributes:
+        status: ``ok`` comes with the value; ``missing`` and ``unreadable``
+            with none.
+        value: What the file states, or ``None``.
+        path: The file read, or ``None`` when no path resolved.
+    """
+
+    status: ReadStatus
+    value: _T | None
+    path: Path | None
+
+    @model_validator(mode="after")
+    def _value_only_when_read(self) -> Self:
+        if (self.value is None) == (self.status == "ok"):
+            raise ValueError("a value comes with status ok, and only with it")
+        return self
+
+
+class Listing(FrozenModel, Generic[_T]):
+    """One listing of state files: what was read, and the paths that could not be.
+
+    Attributes:
+        items: Every file read, in the listing's order.
+        unreadable: Every path there that could not be read.
+    """
+
+    items: FrozenTuple[_T]
+    unreadable: FrozenTuple[Path]

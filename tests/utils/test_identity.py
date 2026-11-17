@@ -27,6 +27,8 @@ from osprey_connectors.identity import (
     TERMINAL_USER_ENV,
     UNKNOWN_IDENTITY,
     acting_identity,
+    is_path_segment,
+    usable_identity,
 )
 
 
@@ -331,3 +333,73 @@ print(json.dumps(sorted(k for k in sys.modules if k == "osprey" or k.startswith(
         )
 
         assert completed.stdout.strip().endswith("[]"), completed.stdout
+
+
+# The three segment rules ``is_path_segment`` replaced, as each stood: the
+# identity ladder's (``usable_identity`` answering a non-empty name), the
+# control-context tree's screen of an owner, and the grants directory's.
+def _ladder_rule(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    candidate = value.strip()
+    if not candidate or candidate in (".", ".."):
+        return False
+    return not any(separator in candidate for separator in ("/", "\\", "\0"))
+
+
+def _tree_rule(owner: object) -> bool:
+    unsafe = frozenset({"/", "\\", "\x00"})
+    return not (
+        not isinstance(owner, str) or owner.strip() in {"", ".", ".."} or unsafe & set(owner)
+    )
+
+
+def _grants_rule(name: object) -> bool:
+    unsafe = frozenset({"/", "\\", "\x00"})
+    return (
+        isinstance(name, str) and name.strip() not in {"", ".", ".."} and not (unsafe & set(name))
+    )
+
+
+SEGMENTS = [
+    ("alice", True),
+    ("a.b", True),
+    ("...", True),
+    ("a b", True),
+    (" alice ", True),
+    ("\talice", True),
+    (" .. x", True),
+    ("", False),
+    ("   ", False),
+    ("\t\n", False),
+    (".", False),
+    ("..", False),
+    (" .. ", False),
+    ("\t.\n", False),
+    ("a/b", False),
+    ("/", False),
+    ("a\\b", False),
+    ("a\x00b", False),
+    ("\x00", False),
+    (" a/ ", False),
+    (None, False),
+    (7, False),
+    (b"alice", False),
+]
+
+
+class TestPathSegment:
+    @pytest.mark.parametrize(("value", "segment"), SEGMENTS, ids=repr)
+    def test_one_rule_answers_as_each_of_the_three_did(self, value: object, segment: bool) -> None:
+        assert is_path_segment(value) is segment
+        assert (_ladder_rule(value), _tree_rule(value), _grants_rule(value)) == (segment,) * 3
+
+    @pytest.mark.parametrize(("value", "segment"), SEGMENTS, ids=repr)
+    def test_a_usable_identity_is_a_segment_stripped(self, value: object, segment: bool) -> None:
+        expected = value.strip() if segment and isinstance(value, str) else ""
+        assert usable_identity(value) == expected  # type: ignore[arg-type]
+
+    def test_the_rule_judges_but_never_strips(self) -> None:
+        name = " alice "
+        assert is_path_segment(name)
+        assert name == " alice "

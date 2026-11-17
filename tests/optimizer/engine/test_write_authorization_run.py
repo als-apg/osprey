@@ -116,7 +116,7 @@ class Deployment:
 
     def spent(self, authorization: str) -> int:
         path = self.ledger / f"{authorization}.ledger.json"
-        return len(wa._parse_ledger(path.read_text()).steps) if path.exists() else 0
+        return len(wa._parse_ledger(path.read_text()).spent) if path.exists() else 0
 
     def approve(self, request_path: Path) -> wa.Grant:
         request = wa.read_request(request_path)
@@ -646,10 +646,10 @@ BODY = {"variables": {A: 1.5, B: -1.0}, "override_unhealthy": True}
 
 
 def _only_grant(directory: Path) -> wa.Grant:
-    grants, unreadable = wa.list_grants(directory)
-    assert unreadable == ()
-    [grant] = grants
-    return grant
+    listing = wa.list_grants(directory)
+    assert listing.unreadable == ()
+    [listed] = listing.items
+    return listed.grant
 
 
 def test_a_manual_write_at_allowed_is_one_self_issued_step_at_exactly_its_values(
@@ -693,7 +693,8 @@ def test_a_manual_write_below_allowed_is_refused_and_asks_for_allowed(
     assert SET_ALLOWED in detail["message"]
     assert deployment.values() == before
     assert deployment.requests() == []
-    assert wa.list_grants(deployment.ledger) == ((), ())
+    listing = wa.list_grants(deployment.ledger)
+    assert (listing.items, listing.unreadable) == ((), ())
 
 
 def test_a_manual_write_for_nobody_is_refused_owner_unknown(
@@ -766,7 +767,7 @@ def test_a_manual_restore_is_its_own_one_step_authorization_at_the_start_values(
     assert done.status_code == 200, done.text
     assert done.json()["restored"] == start
     assert deployment.values() == start
-    grants, _ = wa.list_grants(deployment.ledger)
+    grants = [listed.grant for listed in wa.list_grants(deployment.ledger).items]
     [grant] = [g for g in grants if g.id != first.id]
     assert dict(grant.channels) == {
         name: wa.ChannelRange(min=value, max=value) for name, value in start.items()

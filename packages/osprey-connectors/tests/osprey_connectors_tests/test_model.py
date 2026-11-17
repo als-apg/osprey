@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import pickle
+from pathlib import Path
 
 import pytest
 from pydantic import Field
@@ -12,7 +13,9 @@ from pydantic import Field
 from osprey_connectors.model import (
     FrozenModel,
     FrozenTuple,
+    Listing,
     ReadOnlyMapping,
+    ReadResult,
     empty_mapping,
     evolve,
 )
@@ -68,3 +71,28 @@ def test_a_copy_and_a_pickle_are_equal_and_still_frozen():
         assert again == record
         with pytest.raises(TypeError):
             again.counts["z"] = 1
+
+
+@pytest.mark.parametrize(
+    ("status", "value"),
+    [("ok", 1), ("missing", None), ("unreadable", None)],
+)
+def test_a_read_carries_a_value_exactly_when_it_read_one(status, value):
+    read = ReadResult[int](status=status, value=value, path=Path("x.json"))
+    assert (read.status, read.value, read.path) == (status, value, Path("x.json"))
+
+
+@pytest.mark.parametrize(
+    ("status", "value"),
+    [("ok", None), ("missing", 1), ("unreadable", 1), ("absent", None)],
+)
+def test_a_read_that_disagrees_with_itself_is_refused(status, value):
+    with pytest.raises(ValueError):
+        ReadResult[int](status=status, value=value, path=None)
+
+
+def test_a_listing_holds_what_it_read_and_what_it_could_not_as_tuples():
+    listing = Listing[int](items=[1, 2], unreadable=[Path("a.json")])
+    assert (listing.items, listing.unreadable) == ((1, 2), (Path("a.json"),))
+    with pytest.raises(ValueError):
+        Listing[int](items=["1"], unreadable=())
