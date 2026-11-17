@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -25,9 +26,11 @@ from osprey.facility.panels.layout import (
     FORMAT_REQUESTS,
     MIN_STRIP_SCALE,
     SYMBOL_UNIT,
+    aggregates,
     ladder,
     needs,
     render,
+    rule_length,
     text_width,
     unexpressed,
 )
@@ -36,6 +39,7 @@ from osprey.facility.panels.view import Light, Node, Section, Target, View
 from tests.facility.panels._fixture import copy_tables, write_fixture_facility
 from tests.facility.panels._views import (
     ABOVE,
+    RULED,
     SYMBOLS,
     Screens,
     card,
@@ -43,6 +47,7 @@ from tests.facility.panels._views import (
     invented_views,
     links,
     nodes,
+    rollup_view,
     strip_view,
 )
 
@@ -59,14 +64,6 @@ PINNED_WIDGETS = {
     "polygon",
 }
 VALUES = (-3, 0, 0.5, 1, 2, 2.5, 3, 4.5, 5, 6, 7)
-RULED = (
-    "XR01:IP1:State-Sts",
-    "XR01:PS1:On-Sts",
-    "XR02:IP1:Pressure-RB",
-    "XR02:QD1:Current-RB",
-    "XR02:QF1:Current-RB",
-    "XR02:BEND1:Current-RB",
-)
 TOKEN = re.compile(r"\{(\d+)\}")
 
 
@@ -165,10 +162,58 @@ def test_a_text_label_row_cannot_be_written_and_the_light_is_unknown(tmp_path) -
     assert "1 light(s) drawn unknown" in doc["metadata"]["description"]
 
 
-def test_a_roll_up_over_too_many_channels_is_unknown_and_counted(panel_graph) -> None:
-    doc, _ = draw(invented_views()[-1], panel_graph)
-    assert unexpressed(doc) == 1
-    assert needs(doc) == ["state light", "aggregate state"]
+def _limit_between_one_channel_and_three(graph) -> int:
+    singles = [rule_length(ladder(graph, [light(graph, c)])) for c in RULED]
+    three = ladder(graph, [light(graph, c) for c in RULED[1:4]])
+    assert rule_length(three) > max(singles)
+    return max(singles)
+
+
+def test_the_rule_limit_is_the_formula_engines_expression_limit() -> None:
+    assert layout.RULE_EXPRESSION_LIMIT == 2048
+    assert "max_expression_len" in Path(layout.__file__).read_text()
+
+
+def test_a_roll_up_over_the_limit_is_an_aggregate_over_a_mosaic(panel_graph, monkeypatch):
+    monkeypatch.setattr(
+        layout, "RULE_EXPRESSION_LIMIT", _limit_between_one_channel_and_three(panel_graph)
+    )
+    assert ladder(panel_graph, [light(panel_graph, c) for c in RULED]) == "aggregate state"
+    doc, _ = draw(rollup_view(), panel_graph)
+    assert aggregates(doc) == 2  # the root and the three-channel child
+    assert unexpressed(doc) == 0  # an aggregate is not an unknown light
+    assert "aggregate state" in needs(doc)
+    texts = _texts(doc)
+    assert texts.count(f"{len(RULED)} channels, open for detail") == 1
+    assert texts.count("3 channels, open for detail") == 1
+    shapes = _by_type(doc, "polygon")
+    look = symbols.look("aggregate")
+    aggregate = [
+        n for n in shapes if n["props"]["fillColor"] == look["fillColor"] and "rules" not in n
+    ]
+    # root row, three-child row, and the three-child's tile in the mosaic
+    assert len(aggregate) == 3
+    tiles = [n for n in shapes if n["geometry"]["width"] == layout.MOSAIC_LIGHT]
+    assert len(tiles) == len(RULED) + 1  # one per ruled child; none for the child with no rule
+    assert symbols.AGGREGATE_MARK in texts
+
+
+def test_a_roll_up_screen_draws_one_level(panel_graph) -> None:
+    doc, _ = draw(rollup_view(), panel_graph)
+    assert "deep" not in _texts(doc)
+    assert aggregates(doc) == 0
+
+
+def test_one_channel_over_the_limit_is_unknown_and_counted(panel_graph, monkeypatch) -> None:
+    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 10)
+    assert ladder(panel_graph, [light(panel_graph, "XR02:IP1:Pressure-RB")]) == "long rule"
+    doc, _ = draw(card("long", light(panel_graph, "XR02:IP1:Pressure-RB")), panel_graph)
+    assert unexpressed(doc) == 1 and "long rule" in needs(doc)
+
+
+def test_every_fixture_rule_fits_the_limit(panel_graph) -> None:
+    for view in fixture_views(panel_graph):
+        assert unexpressed(draw(view, panel_graph)[0]) == 0, view.id
 
 
 def test_a_lights_rules_carry_the_looks_of_their_states(panel_graph) -> None:
@@ -317,11 +362,11 @@ def test_a_node_without_a_rule_reads_no_rule_not_unknown(panel_graph) -> None:
     assert len(_by_type(doc, "polygon")) == len(found) - len(without)
 
 
-def test_a_picture_part_with_a_channel_gets_a_light(tmp_path) -> None:
+def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> None:
     def describe_switch(document) -> None:
         for channel in document["channels"]:
             if channel["id"] == "XR01:QF1:Current-RB":
-                channel["description"] = "Thermal switch 1"
+                channel["description"] = "Thermal switch 1"  # no matching by text
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as rows:
@@ -330,13 +375,21 @@ def test_a_picture_part_with_a_channel_gets_a_light(tmp_path) -> None:
     from osprey.facility.panels.describe import device_card
 
     view = device_card(graph, "XR01:QF1")
-    picture = View(view.id, view.title, (), tuple(s for s in view.sections if s.title == "picture"))
-    doc, _ = draw(picture, graph)
-    lights = [n for n in _by_type(doc, "polygon") if n.get("rules")]
-    assert [n["rules"][0]["pvs"][0]["name"] for n in lights] == ["XR01:QF1:Current-RB"]
-    markers = _by_type(doc, "ellipse")
-    assert [n["props"]["tooltip"] for n in markers] == ["pole 1"]
-    assert {"pole 1", "thermal switch 1"} <= set(_texts(doc))
+    (section,) = [s for s in view.sections if s.title == "picture"]
+    (picture,) = section.items
+    assert all(part.channel is None for part in picture.parts)
+    doc, _ = draw(View(view.id, view.title, (), (section,)), graph)
+    assert not _by_type(doc, "polygon")
+    assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == [
+        "pole 1",
+        "thermal switch 1",
+    ]
+
+    named = replace(picture, parts=(replace(picture.parts[1], channel="XR01:QF1:Current-RB"),))
+    doc, _ = draw(View(view.id, view.title, (), (Section("picture", (named,)),)), graph)
+    (shape,) = _by_type(doc, "polygon")
+    assert shape["rules"][0]["pvs"] == [{"name": "XR01:QF1:Current-RB", "trigger": True}]
+    assert not _by_type(doc, "ellipse")
 
 
 # --------------------------------------------------------------------------- whole documents
@@ -372,13 +425,20 @@ def test_every_navigation_target_comes_from_screens(panel_graph) -> None:
         assert set(screens.asked) == {link.target for link in links(view)}, view.id
 
 
-def test_the_format_requests_are_exactly_the_needs_the_views_hit(panel_graph) -> None:
+def test_the_format_requests_are_exactly_the_needs_the_views_hit(panel_graph, monkeypatch) -> None:
     hit: set[str] = set()
-    for view in [*fixture_views(panel_graph), *invented_views()]:
+    for view in [*fixture_views(panel_graph), *invented_views(), rollup_view()]:
         hit |= set(needs(draw(view, panel_graph)[0]))
+    # over the limit: an aggregate roll-up, and one channel's long rule
+    monkeypatch.setattr(
+        layout, "RULE_EXPRESSION_LIMIT", _limit_between_one_channel_and_three(panel_graph)
+    )
+    hit |= set(needs(draw(rollup_view(), panel_graph)[0]))
+    monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 10)
+    hit |= set(needs(draw(card("long", Light("XR02:IP1:Pressure-RB")), panel_graph)[0]))
     assert FORMAT_REQUESTS
-    assert {name for name, _ in FORMAT_REQUESTS} - {"label condition"} == hit
     # the label condition is hit in test_a_text_label_row_cannot_be_written...
+    assert {name for name, _ in FORMAT_REQUESTS} - {"label condition"} == hit
     assert all(why for _, why in FORMAT_REQUESTS)
 
 
@@ -452,10 +512,11 @@ def test_a_long_table_is_cut_and_its_remaining_rows_counted(panel_graph) -> None
     assert "rows not drawn" in note
 
 
-def test_a_light_over_too_many_channels_names_their_count_not_each(panel_graph) -> None:
+def test_a_light_over_many_channels_names_their_count_not_each(panel_graph) -> None:
     doc, _ = draw(invented_views()[-1], panel_graph)
     (shape,) = _by_type(doc, "polygon")
     assert shape["props"]["tooltip"] == "40 channels"
+    assert needs(doc) == ["state light"]  # forty channels with no rows make a short rule
 
 
 def test_agreeing_sources_write_a_condition_once_and_literals_never_disagree(tmp_path) -> None:

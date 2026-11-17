@@ -25,7 +25,9 @@ from typing import Any
 from osprey.facility.panels.health import State
 
 __all__ = [
+    "AGGREGATE_MARK",
     "ALARM_ROLES",
+    "APPEARANCES",
     "CONFLICT_MARK",
     "DISAGREE_MARK",
     "INFERRED_MARK",
@@ -79,11 +81,16 @@ INFERRED_MARK = "≈"
 DISAGREE_MARK = "≠"
 #: The mark inside a light whose state is unknown.
 UNKNOWN_MARK = "?"
+#: The mark inside an aggregate: a roll-up too large for one rule.
+AGGREGATE_MARK = "\u03a3"
 #: The mark beside a rack unit whose device is claimed into more than one unit.
 CONFLICT_MARK = "!"
 
 #: The health states, worst first after ``normal``.
 STATES: tuple[State, ...] = ("normal", "warn", "bad", "unknown", "disagree")
+
+#: Every look a light can take: the five states, and an aggregate's.
+APPEARANCES: tuple[str, ...] = (*STATES, "aggregate")
 
 #: The props of a light's shape that its rules set; the mark's text is :data:`MARK_PROP`.
 LIGHT_PROPS = ("fill", "fillColor", "lineColor", "lineStyle")
@@ -126,12 +133,19 @@ _LOOKS: Mapping[str, Mapping[str, Any]] = MappingProxyType(
             "lineStyle": "solid",
             "text": DISAGREE_MARK,
         },
+        "aggregate": {
+            "fill": True,
+            "fillColor": FIELD_BACKGROUND,
+            "lineColor": PAGE_TEXT,
+            "lineStyle": "solid",
+            "text": AGGREGATE_MARK,
+        },
     }
 )
 
 
 def look(state: str) -> Mapping[str, Any]:
-    """The props a light takes in *state*: its shape's :data:`LIGHT_PROPS` and the mark's text."""
+    """The props a light takes in *state* (one of :data:`APPEARANCES`): its shape's :data:`LIGHT_PROPS` and the mark's text."""
     return _LOOKS[state]
 
 

@@ -818,15 +818,16 @@ def health_rollup(
     *,
     system_of: Callable[[Thing], str | None] | None = None,
 ) -> View:
-    """The channels each node of a place's roll-up reads, as a tree one level deep.
+    """The channels each node of a place's roll-up reads: the root and one level below it.
 
     By ``place``, the nodes are the place's direct children; a child place
     links down to its own roll-up (its card when it has none), a device to
     its card. By ``system``, the devices within the place (any depth) are
     grouped by ``system_of`` (default: the device's class), the groups in
-    name order and :data:`NO_SYSTEM` last; each group's children are its
-    devices. A node that reads no rule-bearing channel is present and
-    marked ``no_rule``.
+    name order and :data:`NO_SYSTEM` last; a group node carries the union of
+    its devices' channels and no children, and has no screen of its own. A
+    node that reads no rule-bearing channel is present and marked ``no_rule``.
+    No node below the root has children: one screen shows one level.
 
     Raises:
         KeyError: No such place, or it is excluded.
@@ -852,9 +853,8 @@ def health_rollup(
                 systems.setdefault(key(thing), []).append(_device_node(graph, index, thing))
         names = sorted(name for name in systems if name is not None)
         for name in [*names, None] if None in systems else names:
-            nodes = tuple(systems[name])
-            read = (channel for node in nodes for channel in node.channels)
-            children.append(_node(name if name is not None else NO_SYSTEM, None, read, nodes))
+            read = (channel for node in systems[name] for channel in node.channels)
+            children.append(_node(name if name is not None else NO_SYSTEM, None, read))
     root = _node(root_id, None, rule_channels(graph, root_id, "place"), tuple(children))
     crumbs = _crumbs(graph, index, place.place, "rollup", by)
     title = f"{root_id} health by {by}"
@@ -881,7 +881,10 @@ def checkout(graph: PanelGraph, place_id: str) -> View:
 
     A row says whether the channel is on a device (always, here), typed
     (``drawn_as`` other than ``untyped``), rule-bearing, and sourced (a
-    record type, pair or health row names a source).
+    record type, pair or health row names a source). Sections: ``channels``,
+    ``totals``, then ``places within``: links to each child place's checkout
+    (its card when it has none), so a table cut on screen leaves no row
+    unreachable.
 
     Raises:
         KeyError: No such place, or it is excluded.
@@ -911,7 +914,14 @@ def checkout(graph: PanelGraph, place_id: str) -> View:
         has_rule=sum(row.has_rule for row in found),
         has_source=sum(row.has_source for row in found),
     )
-    sections = _sections([("channels", list(found)), ("totals", [totals])])
+    children = [
+        _place_link(graph, index, child.id, Target("checkout", "place", child.id))
+        for child in graph.within(place_id)
+        if child.kind == "place"
+    ]
+    sections = _sections(
+        [("channels", list(found)), ("totals", [totals]), ("places within", children)]
+    )
     crumbs = _crumbs(graph, index, place.place, "checkout")
     return View(Target("checkout", "place", place_id), f"{place_id} checkout", crumbs, sections)
 

@@ -291,6 +291,9 @@ class PicturePart:
     version: str | None
     state: str | None
     locator: str | None
+    #: The channel the part reads, for a light on the picture. A hook: the
+    #: table has no column for it yet, so every row read today gives ``None``.
+    channel: str | None = None
 
 
 @dataclass(frozen=True)

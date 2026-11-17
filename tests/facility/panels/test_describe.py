@@ -669,12 +669,15 @@ def test_rollup_by_system_groups_devices_by_class_by_default(panel_graph):
     assert systems["Pump"].channels == ("XR01:IP1:State-Sts", "XR02:IP1:Pressure-RB")
     assert systems["PowerSupply"].channels == ("XR01:PS1:On-Sts",)
     assert systems["ElectronicsChassis"].no_rule is True
-    assert [node.label for node in systems["Pump"].children] == [
-        "XR01:IP1",
-        "XR01:IP2",
-        "XR02:IP1",
-        "XR02:IP2",
-    ]
+    # one level: a system carries its devices' channels, not the devices
+    assert all(node.children == () and node.link is None for node in root.children)
+
+
+def test_a_rollup_shows_one_level_below_its_root(panel_graph):
+    for by in ("place", "system"):
+        (root,) = _section(health_rollup(panel_graph, "XR", by), "roll-up").items
+        assert root.children
+        assert all(child.children == () for child in root.children)
 
 
 def test_rollup_by_system_takes_the_system_key_from_a_function(panel_graph):
@@ -694,6 +697,17 @@ def test_rollup_refuses_an_unknown_grouping(panel_graph):
 
 
 # -- checkout ---------------------------------------------------------------------
+
+
+def test_checkout_links_each_child_place_to_its_checkout_or_card(panel_graph):
+    view = checkout(panel_graph, "XR")
+    links = _section(view, "places within").items
+    assert [(link.label, link.target) for link in links] == [
+        ("XR/XR01", Target("checkout", "place", "XR/XR01")),
+        ("XR/XR02", Target("checkout", "place", "XR/XR02")),
+    ]
+    rack = _section(checkout(panel_graph, "XR/XR01"), "places within").items
+    assert [link.target for link in rack] == [Target("card", "place", "XR/XR01/RK1")]
 
 
 def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):

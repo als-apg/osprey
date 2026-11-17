@@ -98,6 +98,31 @@ def invented_views() -> list[View]:
     ]
 
 
+#: Rule-bearing fixture channels, for an invented roll-up.
+RULED = (
+    "XR01:IP1:State-Sts",
+    "XR01:PS1:On-Sts",
+    "XR02:IP1:Pressure-RB",
+    "XR02:QD1:Current-RB",
+    "XR02:QF1:Current-RB",
+    "XR02:BEND1:Current-RB",
+)
+
+
+def rollup_view() -> View:
+    """A roll-up: a root over every ruled channel; one child per channel, a three-channel
+    child (with a grandchild the screen must not draw), and a child with no rule."""
+    grandchild = Node("deep", None, RULED[:1], False)
+    children = (
+        *(Node(c, Link(c, Target("card", "device", c)), (c,), False) for c in RULED),
+        Node("three", None, RULED[1:4], False, (grandchild,)),
+        Node("none", None, (), True),
+    )
+    root = Node("ROOT", None, RULED, False, children)
+    target = Target("rollup", "place", "ROOT", by="place")
+    return View(target, "ROOT health", (), (Section("roll-up", (root,)),))
+
+
 def links(value: Any) -> Iterator[Link]:
     """Every link inside a view, at any depth."""
     if isinstance(value, Link):

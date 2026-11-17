@@ -113,10 +113,15 @@ def _appearance(state: str) -> tuple:
     )
 
 
-def test_the_five_states_look_pairwise_different() -> None:
+def test_the_five_states_and_the_aggregate_look_pairwise_different() -> None:
     assert len(STATES) == 5
-    for a, b in combinations(STATES, 2):
+    assert symbols.APPEARANCES == (*STATES, "aggregate")
+    for a, b in combinations(symbols.APPEARANCES, 2):
         assert _appearance(a) != _appearance(b), (a, b)
+    aggregate = look("aggregate")
+    assert aggregate["text"] == symbols.AGGREGATE_MARK
+    roles = {c["$role"] for c in _colours(dict(aggregate))}
+    assert not roles & ALARM_ROLES  # an aggregate is not a state
 
 
 def test_normal_is_neutral_with_no_state_colour() -> None:

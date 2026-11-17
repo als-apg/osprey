@@ -21,6 +21,7 @@ Every size, spacing and font size is in the constants block below.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -64,8 +65,10 @@ __all__ = [
     "MIN_STRIP_SCALE",
     "Ladder",
     "ladder",
+    "aggregates",
     "needs",
     "render",
+    "rule_length",
     "screen_id",
     "text_width",
     "unexpressed",
@@ -118,7 +121,14 @@ RACK_U = 22  # one rack unit
 RACK_WIDTH = 420
 RACK_LABEL_WIDTH = 56
 UNPOSITIONED_GAP = 40
-MAX_LIGHT_CHANNELS = 32  # a light over more channels is drawn unknown
+# The longest expression a light's rule may compile to. The pinned viewer
+# compiles a rule's ladder into one Fox expression (``v0 if (c0) else (...)``);
+# CANOPY's formula engine refuses one longer than ``max_expression_len``
+# (canopy/formula_engine/config.py at 166989aa: 2048 characters).
+RULE_EXPRESSION_LIMIT = 2048
+TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts them
+MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
+MOSAIC_GAP = 3
 MAX_TABLE_ROWS = 400  # rows of one table drawn; the rest are counted under it
 SCREEN_ID_PREFIX = "panels"
 # --- end constants -------------------------------------------------------------
@@ -153,14 +163,24 @@ FORMAT_REQUESTS: tuple[tuple[str, str], ...] = (
     ),
     (
         "aggregate state",
-        "a roll-up over many channels is one light whose rule would bind every channel; above "
-        "a cap it is drawn unknown, and a viewer-side aggregate would draw it",
+        "a roll-up whose rule would be longer than the format's expression limit: the worst "
+        "state over many channels, computed by the viewer or a server, drawn as one light; "
+        "today it is an aggregate mark over a mosaic of its children's lights",
+    ),
+    (
+        "long rule",
+        "one channel whose health rows give a rule longer than the format's expression "
+        "limit; its light is drawn unknown",
     ),
 )
 _REQUEST_NAMES = frozenset(name for name, _ in FORMAT_REQUESTS)
 
 _REQUEST_TAG = "format-request: "
 _UNKNOWN_TAG = "unknown: "
+_AGGREGATE_ROW = "aggregate: row"
+_AGGREGATE_TILE = "aggregate: tile"
+_AGGREGATE_TEXT = "{} channels, open for detail"
+_IF_ELSE = " if () else ()"  # what the viewer adds around each arm when it compiles a ladder
 _NAVIGATION_TARGET = "tab"
 _HOVER_LABEL = "hoverLabel"
 _TOOLTIP = "tooltip"
@@ -297,14 +317,17 @@ def ladder(graph: PanelGraph, lights: Sequence[Light]) -> Ladder | str:
         The ladder, or the :data:`FORMAT_REQUESTS` name of why the format
         cannot write it.
     """
-    if len(lights) > MAX_LIGHT_CHANNELS:
-        return "aggregate state"
+    too_long = "aggregate state" if len(lights) > 1 else "long rule"
     per_channel: list[dict[str, str | None]] = []
+    written = 0
     for i, item in enumerate(lights):
         arms = _channel_arms(graph, item, f"{{{i}}}")
         if isinstance(arms, str):
             return arms
         per_channel.append(arms)
+        written += sum(len(c) for c in arms.values() if c)
+        if written > RULE_EXPRESSION_LIMIT:
+            return too_long  # every condition appears at least once in the ladder
     out: list[tuple[str, State]] = []
     for state in _STATE_ORDER:
         found = _any([c for arms in per_channel if (c := arms[state])])
@@ -314,7 +337,23 @@ def ladder(graph: PanelGraph, lights: Sequence[Light]) -> Ladder | str:
     if normals and all(normals):
         joined = normals[0] if len(normals) == 1 else " and ".join(f"({c})" for c in normals)
         out.append((joined, "normal"))  # type: ignore[arg-type]
-    return Ladder(tuple(item.channel for item in lights), tuple(out))
+    rule = Ladder(tuple(item.channel for item in lights), tuple(out))
+    return too_long if rule_length(rule) > RULE_EXPRESSION_LIMIT else rule
+
+
+def rule_length(rule: Ladder) -> int:
+    """The length of the expression the viewer compiles a light's rule to, at most.
+
+    Each arm is its condition, the value written as a literal (the longest
+    look a light's rules write) and the ``if () else ()`` around it; the
+    default ends the ladder.
+    """
+    longest = max(
+        len(json.dumps(symbols.look(state)[prop]))
+        for state in symbols.STATES
+        for prop in (*symbols.LIGHT_PROPS, symbols.MARK_PROP)
+    )
+    return sum(len(c) + longest + len(_IF_ELSE) for c, _ in rule.arms) + longest
 
 
 def _tolerance_ladder(row: ValueRow) -> Ladder | None:
@@ -441,6 +480,14 @@ def needs(doc: Mapping[str, Any]) -> list[str]:
     return found
 
 
+def aggregates(doc: Mapping[str, Any]) -> int:
+    """How many roll-up rows of a rendered document are drawn as an aggregate."""
+    return sum(
+        _AGGREGATE_ROW in n.get("meta", {}).get("comment", "").split("; ")
+        for n in _walk(doc["root"])
+    )
+
+
 def unexpressed(doc: Mapping[str, Any]) -> int:
     """How many lights of a rendered document are drawn unknown because no rule could be written."""
     return sum(
@@ -547,19 +594,36 @@ class _Page:
             return self.button(x, y, item)
         return self.text(x, y, item.text or item.label)
 
-    def light(self, x, y, lights: Sequence[Light], *, rule: Ladder | str | None = None) -> float:
-        """One light over *lights*; returns its right edge (after an inferred mark)."""
-        shape, mark = symbols.light(x, y + (ROW - LIGHT_SIZE) / 2, LIGHT_SIZE, "unknown")
-        names = ", ".join(item.channel for item in lights[:MAX_LIGHT_CHANNELS])
-        if len(lights) > MAX_LIGHT_CHANNELS:
-            names = f"{len(lights)} channels"
-        shape["props"][_TOOLTIP] = names
+    def light(
+        self,
+        x,
+        y,
+        lights: Sequence[Light],
+        *,
+        rule: Ladder | str | None = None,
+        size: float = LIGHT_SIZE,
+        tile: bool = False,
+    ) -> float:
+        """One light over *lights*; returns its right edge (after an inferred mark).
+
+        A light whose rule is too long for the format is the aggregate look; a
+        *tile* is one in an aggregate's mosaic and carries no inferred mark.
+        """
         if rule is None:
             rule = ladder(self.graph, lights)
+        aggregate = rule == "aggregate state"
+        look = "aggregate" if aggregate else "unknown"
+        shape, mark = symbols.light(x, y + (ROW - size) / 2, size, look)
+        names = ", ".join(item.channel for item in lights[:TOOLTIP_CHANNELS])
+        if len(lights) > TOOLTIP_CHANNELS:
+            names = f"{len(lights)} channels"
+        shape["props"][_TOOLTIP] = names
         tags = [_need("state light")]
         shape_rules: list[dict] = []
         mark_rules: list[dict] = []
-        if isinstance(rule, str):
+        if aggregate:
+            tags += [_need("aggregate state"), _AGGREGATE_TILE if tile else _AGGREGATE_ROW]
+        elif isinstance(rule, str):
             tags += [_need(rule), _UNKNOWN_TAG + rule]
             self.s.unknown += 1
         elif rule.arms:
@@ -572,8 +636,8 @@ class _Page:
         self.s.add(shape, rules=shape_rules, tags=tags)
         mark_tags = [_need("hatched fill")] if mark_rules else []
         self.s.add(mark, rules=mark_rules, tags=mark_tags)
-        right = x + LIGHT_SIZE
-        if any(item.inferred for item in lights):
+        right = x + size
+        if not tile and any(item.inferred for item in lights):
             right = self.mark(right + GAP, y, symbols.INFERRED_MARK)
         return right
 
@@ -749,18 +813,47 @@ class _Page:
         self.next_row()
 
     def node(self, node: Node, depth: int = 0) -> None:
+        """A roll-up node's row; the root's direct children follow it, one level only.
+
+        A node whose rule is too long for the format is drawn as an aggregate:
+        its mark and channel count, and on the root a mosaic of its children's
+        lights (each child that is itself too long is an aggregate tile).
+        """
         x = MARGIN + depth * INDENT
+        rule: Ladder | str | None = None
         if node.no_rule:
             x = self.text(x, self.y, _NO_RULE, size=SMALL_SIZE)
         else:
-            x = self.light(x, self.y, [describe_light(self.graph, c) for c in node.channels])
+            lights = [describe_light(self.graph, c) for c in node.channels]
+            rule = ladder(self.graph, lights)
+            x = self.light(x, self.y, lights, rule=rule)
         if node.link is not None:
-            self.button(x + GAP, self.y, node.link, label=node.label)
+            x = self.button(x + GAP, self.y, node.link, label=node.label)
         else:
-            self.text(x + GAP, self.y, node.label)
+            x = self.text(x + GAP, self.y, node.label)
+        if rule == "aggregate state":
+            self.text(x + GAP, self.y, _AGGREGATE_TEXT.format(len(node.channels)), size=SMALL_SIZE)
         self.next_row()
+        if depth:
+            return
+        if rule == "aggregate state":
+            self.mosaic(node.children, MARGIN + INDENT)
         for child in node.children:
-            self.node(child, depth + 1)
+            self.node(child, 1)
+
+    def mosaic(self, children: Sequence[Node], x0: float) -> None:
+        """One small light per child that reads a rule, in rows across the page."""
+        x = x0
+        for child in children:
+            if child.no_rule:
+                continue
+            if x + MOSAIC_LIGHT > MARGIN + STRIP_WIDTH:
+                self.y += MOSAIC_LIGHT + MOSAIC_GAP
+                x = x0
+            lights = [describe_light(self.graph, c) for c in child.channels]
+            self.light(x, self.y - (ROW - MOSAIC_LIGHT) / 2, lights, size=MOSAIC_LIGHT, tile=True)
+            x += MOSAIC_LIGHT + MOSAIC_GAP
+        self.y += MOSAIC_LIGHT + ROW_GAP
 
     # -- the strip ------------------------------------------------------------
 
@@ -863,11 +956,10 @@ class _Page:
         reach = max([max(abs(a), abs(b)) for a, b in coords] or [0]) or 1
         scale = (PICTURE_SIZE / 2 - PICTURE_PAD) / reach
         cx, cy = MARGIN + PICTURE_SIZE / 2, top + PICTURE_SIZE / 2
-        bound = self.part_channels()
         for part, (a, b) in zip(picture.parts, coords, strict=True):
             px, py = cx + a * scale, cy - b * scale
-            channel = bound.get(part.part.casefold())
-            if channel is not None:
+            channel = part.channel  # stated by the pictures row; no table states one yet
+            if channel is not None and self.graph.rule(channel):
                 self.light(px - LIGHT_SIZE / 2, py - ROW / 2, [describe_light(self.graph, channel)])
                 right = px + LIGHT_SIZE / 2
             else:
@@ -878,19 +970,6 @@ class _Page:
                 right = px + half
             self.text(right + GAP / 2, py - ROW / 2, part.part, size=SMALL_SIZE, w=PART_LABEL_WIDTH)
         self.y = top + PICTURE_SIZE + ROW_GAP
-
-    def part_channels(self) -> dict[str, str]:
-        """The card's rule-bearing channels by the part name they describe (alias or description)."""
-        if self.view.id.kind != "device":
-            return {}
-        out: dict[str, str] = {}
-        for channel in self.graph.channels(self.view.id.id, "device"):
-            if not self.graph.rule(channel.name):
-                continue
-            for name in (channel.alias, channel.description):
-                if name:
-                    out.setdefault(name.casefold(), channel.name)
-        return out
 
     def elevation(self, elevation: Elevation) -> None:
         top = self.y
