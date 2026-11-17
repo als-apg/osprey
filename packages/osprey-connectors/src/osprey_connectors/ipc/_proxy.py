@@ -60,9 +60,9 @@ fresh child and a fresh proxy is the supervisor's job, not this object's.
 :attr:`ConnectorHostProxy.dead_reason` says whether that has happened.
 
 Where a failure came from is its class. :class:`ChildLostError` and
-:class:`ChildUnresponsiveError` are made here, by the link, and are
-:class:`~osprey_connectors.errors.ChildLinkError` s; every other exception a
-call raises is the one the child sent, rebuilt from its error frame. That is
+:class:`ChildUnresponsiveError` are made here, by the link, and both derive
+from :class:`~osprey_connectors.errors.ChildLinkError`; every other exception
+a call raises is the one the child sent, rebuilt from its error frame. That is
 how a supervisor tells a dead child from a connection failure the connector
 itself raised and the child relayed, without asking the proxy what state it
 is in when the caller happens to resume.

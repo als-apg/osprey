@@ -5,7 +5,7 @@ The link to a connector-host child raises three classes of its own, all
 (:class:`~osprey_connectors.ipc.ChildUnresponsiveError`) and a missed call on a
 child kept because it still answers a ping
 (:class:`~osprey_connectors.ipc.ConnectorHostSlowCallError`), both
-``TimeoutError`` s under no contract root, and a lost pipe
+timeouts under no contract root, and a lost pipe
 (:class:`~osprey_connectors.ipc.ChildLostError`), a
 ``ConnectorUnavailableError``. The link base is no root, so each is read by
 the base its meaning names. Three orders read them, and each is pinned here
