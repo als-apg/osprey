@@ -36,6 +36,7 @@ from types import MappingProxyType
 from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
 from osprey.facility.panels.model import (
     PLACE_RELATION,
+    CalibrationState,
     Channel,
     Citation,
     Edge,
@@ -56,6 +57,8 @@ from osprey.facility.panels.view import (
     CalibrationCell,
     CalibrationRow,
     Calibrations,
+    CalibrationTallies,
+    CalibrationTally,
     CheckRow,
     Elevation,
     Fact,
@@ -280,6 +283,11 @@ def _build_index(graph: PanelGraph) -> _Index:
         MappingProxyType(set_class),
         MappingProxyType({device: tuple(found) for device, found in sets_of.items()}),
     )
+
+
+def _existing(graph: PanelGraph, index: _Index, target: Target) -> Target | None:
+    """*target* when it is a screen of the graph, else ``None``."""
+    return target if _has(graph, index, target) else None
 
 
 def _applies_in(graph: PanelGraph, kind: CalibrationKind, group_id: str) -> bool:
@@ -857,33 +865,65 @@ def _calibration(graph: PanelGraph, index: _Index, thing: Thing) -> list[Item]:
     ]
 
 
-_AT_WANTED = "{}: {} of {} at wanted basis"
+_TALLY = "{} {} / {}"
+_MORE_TALLIES = "more calibration kinds"
+#: A tally's states, worst first.
+TALLY_STATES = ("contested", "none", "below_wanted", "at_wanted")
 
 
-def _calibration_summary(graph: PanelGraph, index: _Index, place_id: str) -> list[Item]:
-    """Per calibration kind of a class with devices in the place: how many of them
-    have a value at or above the kind's wanted basis that no other claim contests,
-    as a link to the kind's view
-    over the set of that class holding most of them (a fact when no set does)."""
+def _tally_state(found: CalibrationState) -> str:
+    if found.state == "contested":
+        return "contested"
+    if found.in_force is None:
+        return "none"
+    return "below_wanted" if found.below_wanted else "at_wanted"
+
+
+def _calibration_summary(
+    graph: PanelGraph, index: _Index, place_id: str, more: Target | None = None
+) -> list[Item]:
+    """The place's calibration chips (:class:`CalibrationTallies`): per kind title,
+    over every class of a device under the place whose kind it is, how many are at
+    their wanted basis uncontested, of how many; the worst state present; the kind's
+    view over the set holding most of them. Titles with no value under the place
+    are counted, not shown. Nothing when no kind applies under the place."""
     devices = [t for t in graph.contents(place_id) if t.kind == "device" and t.cls is not None]
-    found: list[Item] = []
+    groups: dict[str, list[tuple[CalibrationKind, Thing]]] = {}
+    rank: dict[str, tuple[float, str]] = {}
     for kind in graph.calibration_kinds():
         mine = [d for d in devices if graph.applies(kind, d.id)]
         if not mine:
             continue
-        states = [graph.calibration(d.id, kind.kind) for d in mine]
-        good = sum(not f.below_wanted and f.state != "contested" for f in states)
-        text = _AT_WANTED.format(kind.title, good, len(mine))
+        title = kind.tally_title
+        groups.setdefault(title, []).extend((kind, d) for d in mine)
+        order = (kind.order if kind.order is not None else math.inf, title)
+        rank[title] = min(rank.get(title, order), order)
+    if not groups:
+        return []
+    tallies: list[CalibrationTally] = []
+    not_started = 0
+    for title in sorted(groups, key=lambda t: rank[t]):
+        pairs = groups[title]
+        found = [(kind, d, graph.calibration(d.id, kind.kind)) for kind, d in pairs]
+        if all(f.in_force is None for _k, _d, f in found):
+            not_started += 1
+            continue
+        states = [_tally_state(f) for _k, _d, f in found]
         here = Counter(
-            group for d in mine for group in index.sets_of.get(d.id, ())
-            if index.set_class.get(group) == kind.cls
+            (group, kind.kind) for kind, d, _f in found for group in index.sets_of.get(d.id, ())
+            if index.set_class.get(group) == d.cls
         )  # fmt: skip
+        good = states.count("at_wanted")
+        link = None
         if here:
-            group = min(here, key=lambda g: (-here[g], g))
-            found.append(Link(text, Target("calibration", "group", group, system=kind.kind)))
-        else:
-            found.append(Fact("calibration", text))
-    return found
+            group, kind_id = min(here, key=lambda g: (-here[g], g))
+            target = Target("calibration", "group", group, system=kind_id)
+            link = Link(_TALLY.format(title, good, len(found)), target)
+        worst = min(states, key=TALLY_STATES.index)
+        basis = pairs[0][0].wanted_basis
+        tallies.append(CalibrationTally(title, good, len(found), worst, basis, link))
+    folded = Link(_MORE_TALLIES, more) if more is not None else None
+    return [CalibrationTallies(tuple(tallies), not_started, folded)]
 
 
 _DESIGN_TEXT = "design"
@@ -1213,10 +1253,11 @@ def place_view(
         (root,) = section.items
         systems = [Group(_BY_SYSTEM, "rows", root.children)]  # type: ignore[union-attr]
     band = _band(graph, place, "place")
+    rollup = _existing(graph, index, Target("rollup", "place", place_id, by="place"))
     sections = _sections(
         [
             ("key numbers", [band] if band is not None else []),
-            ("calibration", _calibration_summary(graph, index, place_id)),
+            ("calibration", _calibration_summary(graph, index, place_id, rollup)),
             ("strip", [strip]),
             ("places within", within),
             (_BY_SYSTEM, systems),

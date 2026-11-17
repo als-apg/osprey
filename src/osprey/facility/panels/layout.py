@@ -53,6 +53,7 @@ from osprey.facility.panels.view import (
     Band,
     CalibrationRow,
     Calibrations,
+    CalibrationTallies,
     CheckRow,
     Elevation,
     Fact,
@@ -371,6 +372,10 @@ _SET_READBACK = "each cell: readback of {}"
 _CAL_HEADS = ("parameter", "value in force", "basis", "date", "source", "history")
 _NO_VALUE_YET = "no value yet"
 _CALIBRATION_SECTION = "calibration"
+_NOT_STARTED = "{} kinds not started"
+_MORE_CHIPS = "+{} more"
+#: A tally's state as the look of a calibration cell's; at wanted: the wanted basis's.
+_TALLY_LOOKS = {"contested": "contested", "none": "none", "below_wanted": "design"}
 _INFERRED = "inferred"  # an anchor row's state: its placement is inferred
 _PLACEMENT_INFERRED = "button placement inferred, not stated"
 _CHIPPED = ("set", "place", "rollup")  # views whose calibration section is chips
@@ -1973,6 +1978,10 @@ class _Page:
         self.y += PANEL_GAP
 
     def items(self, section: Section) -> None:
+        tallies = [i for i in section.items if isinstance(i, CalibrationTallies)]
+        if tallies:
+            self.tallies(tallies[0])
+            return
         if section.title == _CALIBRATION_SECTION and self.view.id.view in _CHIPPED:
             # calibration views, or how far a place's are: one row of chips
             entries = [
@@ -2901,6 +2910,62 @@ class _Page:
             right = self.text(x + w + GAP, cy - ROW / 2, word, size=SMALL_SIZE, fg=MUTED_TEXT)
             x = right + LEGEND_GAP
         self.y += LEGEND_ROW + ROW_GAP
+
+    def tallies(self, found: CalibrationTallies) -> None:
+        """A place's calibration chips in ONE line: "<title> <good> / <total>", tinted
+        by the worst state present, each opening its kind's view; the kinds with no
+        value yet in one muted chip last; the chips past the line folded, from the
+        end, into "+n more", which opens the place's roll-up."""
+        words = [f"{t.title} {t.good} / {t.total}" for t in found.tallies]
+        widths = [text_width(w, SMALL_SIZE) + GAP for w in words]
+        last = _NOT_STARTED.format(found.not_started) if found.not_started else None
+        room = STRIP_WIDTH + CHIP_GAP  # each chip takes its width and a gap
+        if last is not None:
+            room -= text_width(last, SMALL_SIZE) + GAP + CHIP_GAP
+        shown = len(words)
+        while shown and sum(widths[:shown]) + CHIP_GAP * shown > room - (
+            0
+            if shown == len(words)
+            else text_width(_MORE_CHIPS.format(len(words) - shown), SMALL_SIZE) + GAP + CHIP_GAP
+        ):
+            shown -= 1
+        x, y = MARGIN, self.y
+        for tally, word, w in zip(found.tallies[:shown], words, widths, strict=False):
+            self.tally_box(x, y, w, _TALLY_LOOKS.get(tally.state, tally.basis), word)
+            self.text(x + GAP / 2, y, word, size=SMALL_SIZE, h=CHIP_HEIGHT)
+            if tally.link is not None:
+                self.nav(x, y, w, CHIP_HEIGHT, replace(tally.link, label=word))
+            x += w + CHIP_GAP
+        if shown < len(words):
+            word = _MORE_CHIPS.format(len(words) - shown)
+            w = text_width(word, SMALL_SIZE) + GAP
+            self.tally_box(x, y, w, None, word)
+            self.text(x + GAP / 2, y, word, size=SMALL_SIZE, h=CHIP_HEIGHT)
+            if found.more is not None:
+                self.nav(x, y, w, CHIP_HEIGHT, replace(found.more, label=word))
+            x += w + CHIP_GAP
+        if last is not None:
+            w = text_width(last, SMALL_SIZE) + GAP
+            self.tally_box(x, y, w, "none", last)
+            self.text(x + GAP / 2, y, last, size=SMALL_SIZE, h=CHIP_HEIGHT, fg=MUTED_TEXT)
+        self.y += CHIP_HEIGHT + CHIP_GAP
+
+    def tally_box(self, x: float, y: float, w: float, look: str | None, tooltip: str) -> None:
+        """A calibration chip's box in the look of a calibration cell's state (a basis,
+        ``contested``, ``none``); a plain chip with ``None``."""
+        props: dict[str, Any] = {"lineWidth": LINE_WIDTH, _TOOLTIP: tooltip}
+        if look in symbols.BASIS_TINTS:
+            props |= {
+                "lineColor": symbols.BASIS_ROLES[look],
+                "fill": True,
+                "fillColor": symbols.BASIS_TINTS[look],
+                "lineStyle": "solid",
+            }
+        elif look == "none":
+            props |= {"lineColor": MUTED_TEXT, "fill": False, "lineStyle": "dashed"}
+        else:
+            props |= {"lineColor": BOX_BORDER, "fill": True, "fillColor": FIELD_BACKGROUND}
+        self.s.widget("rectangle", x, y, w, CHIP_HEIGHT, props)
 
     def chip(
         self, x: float, y: float, label: str, link: Link | None, node: Node | None = None

@@ -565,6 +565,40 @@ class Calibrations:
     rows: tuple[CalibrationRow, ...]
 
 
+@dataclass(frozen=True)
+class CalibrationTally:
+    """How far one calibration kind is under a place, summed over its classes.
+
+    Attributes:
+        title: The kind's short title (``short``, else ``title``).
+        good: The devices whose value in force is at their wanted basis, uncontested.
+        total: The devices the kind applies to under the place.
+        state: The worst present: ``contested`` > ``none`` > ``below_wanted`` >
+            ``at_wanted``.
+        basis: The wanted basis (an ``at_wanted`` chip's tint).
+        link: The calibration view over the set holding most of the devices, or ``None``.
+    """
+
+    title: str
+    good: int
+    total: int
+    state: str
+    basis: str
+    link: Link | None
+
+
+@dataclass(frozen=True)
+class CalibrationTallies:
+    """A place's calibration chips: one per kind title with a value somewhere under
+    it, in kind order; how many kinds have none yet; and where "more" leads (the
+    place's roll-up; drawn only when the chips overflow their line), ``None`` on the
+    roll-up itself."""
+
+    tallies: tuple[CalibrationTally, ...]
+    not_started: int
+    more: Link | None
+
+
 Item = (
     ValueRow
     | Light
@@ -582,6 +616,7 @@ Item = (
     | CheckRow
     | Totals
     | Calibrations
+    | CalibrationTallies
 )
 
 

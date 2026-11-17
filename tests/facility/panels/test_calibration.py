@@ -8,7 +8,7 @@ from osprey.facility.panels.describe import (
     device_card,
     set_overview,
 )
-from osprey.facility.panels.view import Calibrations, Fact, Grid, Link, Target
+from osprey.facility.panels.view import Calibrations, CalibrationTallies, Grid, Link, Target
 from tests.facility.panels._views import nodes, stub_render
 from tests.facility.panels.test_symbols import _resolved, contrast
 
@@ -95,24 +95,102 @@ def test_the_set_overview_lists_its_calibration_views_as_chips(panel_graph) -> N
     assert all(c["geometry"]["height"] == layout.CHIP_HEIGHT for c in chips)
 
 
-def test_a_place_says_per_kind_how_many_are_at_their_wanted_basis(panel_graph) -> None:
+def _tallies(view):
+    (section,) = [s for s in view.sections if s.title == "calibration"]
+    (item,) = section.items
+    assert isinstance(item, CalibrationTallies)
+    return item
+
+
+def test_a_place_tallies_each_kind_once_and_folds_those_not_started(panel_graph) -> None:
     from osprey.facility.panels.describe import health_rollup, place_view
 
     view = place_view(panel_graph, "XR/XR01")
     titles = [s.title for s in view.sections]
     assert titles.index("calibration") == titles.index("key numbers") + 1
-    (section,) = [s for s in view.sections if s.title == "calibration"]
-    first = section.items[0]
-    assert isinstance(first, Link)
-    assert first.label == "Integrated gradient: 1 of 2 at wanted basis"  # QF1 bench, QD1 design
-    assert first.target == Target("calibration", "group", "XR-QUAD", system="integrated_gradient")
-    rollup = health_rollup(panel_graph, "XR")
-    (summary,) = [s for s in rollup.sections if s.title == "calibration"]
-    assert summary.items[0].label == "Integrated gradient: 1 of 4 at wanted basis"
-    doc = stub_render(view, panel_graph)
-    chips = [n for n in nodes(doc) if "at wanted basis" in str(n["props"].get("tooltip"))]
-    assert len(chips) == len(section.items)
-    assert len(section.items) == len(panel_graph.calibration_kinds("Quadrupole"))  # pumps: none
+    found = _tallies(view)
+    shown = [(t.title, t.good, t.total, t.state) for t in found.tallies]
+    assert shown == [
+        ("Integrated gradient", 1, 2, "below_wanted"),  # QF1 bench, QD1 design
+        ("Excitation curve", 1, 2, "none"),  # QD1 has none: the worst state present
+        ("Magnetic centre", 0, 2, "none"),
+    ]
+    assert found.not_started == 2  # strength scale, current offset: no value anywhere
+    assert found.tallies[0].link.target == Target(
+        "calibration", "group", "XR-QUAD", system="integrated_gradient"
+    )
+    assert found.more.target == Target("rollup", "place", "XR/XR01", by="place")
+    rollup = _tallies(health_rollup(panel_graph, "XR"))
+    assert (rollup.tallies[0].good, rollup.tallies[0].total) == (1, 4)
+    assert rollup.tallies[0].state == "contested"  # XR02:QF1
+    assert rollup.more is None  # the roll-up is where "more" leads
+
+
+def test_kinds_of_one_short_title_are_summed_over_their_classes(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.describe import place_view
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    rows = (tables / "calibration_kinds.csv").read_text().splitlines()
+    rows[0] += ",short"
+    rows[1:] = [r + (",Centre" if r.startswith("centre,") else ",") for r in rows[1:]]
+    (tables / "calibration_kinds.csv").write_text("\n".join(rows) + "\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    assert graph.calibration_kind("centre", "Dipole").short == "Centre"
+    found = _tallies(place_view(graph, "XR/XR02"))
+    titles = [t.title for t in found.tallies]
+    assert "Centre" not in titles  # no value anywhere under XR/XR02: folded
+    assert found.not_started == 4  # integrated gradient has a value; four kinds have none
+    assert len({t.title for t in found.tallies}) == len(found.tallies)
+
+
+def _many_kinds(tmp_path):
+    """Twelve kinds of six classes, each with one bench value, under XR."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    devices = ["XR01:QF1", "XR01:QD1", "XR02:QF1", "XR02:QD1", "XR01:BEND1", "XR02:BEND1"]
+
+    def classes(document) -> None:
+        for record in document["devices"]:
+            if record["id"] in devices:
+                record["class"] = f"C{devices.index(record['id'])}"
+
+    tables = copy_tables(tmp_path / "panels")
+    kinds = ["kind,title,class,shape,unit,wanted_basis,tolerance,tolerance_source,held_in,order"]
+    claims = [(tables / "calibrations.csv").read_text().splitlines()[0]]
+    for k in range(12):
+        for c, device in enumerate(devices):
+            kinds.append(f"k{k},Quantity number {k} of the magnet,C{c},scalar,T,bench,,,,{k}")
+            claims.append(f"v{k}-{c},k{k},{device},1.0,T,,bench,,2024-01-01,D,A,Released,,accepted")
+    (tables / "calibration_kinds.csv").write_text("\n".join(kinds) + "\n")
+    (tables / "calibrations.csv").write_text("\n".join(claims) + "\n")
+    (tables / "calibration_curves.csv").write_text("id,x,y\n")
+    return load_graph(write_fixture_facility(tmp_path / "f.json", classes), tables)
+
+
+def test_the_chips_take_one_line_and_fold_the_rest_into_more(tmp_path) -> None:
+    from osprey.facility.panels.describe import place_view
+
+    graph = _many_kinds(tmp_path)
+    view = place_view(graph, "XR")
+    found = _tallies(view)
+    assert len(found.tallies) == 12 and found.tallies[0].total == 6
+    doc = stub_render(view, graph)
+    chips = [
+        n for n in nodes(doc)
+        if n["type"] == "rectangle" and str(n["props"].get("tooltip", "")).startswith("Quantity")
+    ]  # fmt: skip
+    more = [n for n in nodes(doc) if str(n["props"].get("tooltip", "")).endswith(" more")]
+    assert chips and more
+    assert len({n["geometry"]["y"] for n in [*chips, *more]}) == 1  # one line
+    right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in [*chips, *more])
+    assert right <= layout.MARGIN + layout.STRIP_WIDTH
+    assert "Quantity number 0 of the magnet 6 / 6" in {n["props"]["tooltip"] for n in chips}
+    texts = {n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"}
+    shown = {n["props"]["tooltip"] for n in chips}
+    assert f"+{12 - len(shown)} more" in texts
 
 
 _TRIM = "XR01-QF1:Trim-SP"
@@ -164,17 +242,9 @@ def test_a_kind_shows_only_on_the_devices_under_its_place(panel_graph) -> None:
     assert block("XR01:BEND1") == []
     from osprey.facility.panels.describe import place_view
 
-    def summary(place):
-        sections = [s for s in place_view(panel_graph, place).sections if s.title == "calibration"]
-        return [i.label if isinstance(i, Link) else i.text for s in sections for i in s.items]
-
-    assert "Field centre: 0 of 1 at wanted basis" in summary("XR/XR02")
-    assert not [t for t in summary("XR/XR01") if t.startswith("Field centre")]
-    facts = [
-        i for s in place_view(panel_graph, "XR/XR02").sections
-        if s.title == "calibration" for i in s.items if isinstance(i, Fact)
-    ]  # fmt: skip
-    assert len(facts) == 1
+    there = _tallies(place_view(panel_graph, "XR/XR02"))
+    assert "Field centre" not in [t.title for t in there.tallies]  # no value: folded
+    assert there.not_started == 5  # four quadrupole kinds and the dipole's, under XR02 only
 
 
 def test_a_cut_cell_shows_its_whole_text_on_hover(panel_graph, monkeypatch) -> None:

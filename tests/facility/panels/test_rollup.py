@@ -22,7 +22,7 @@ def _tiles(doc: dict) -> list[dict]:
         and n["props"].get("actions")
         and n["geometry"]["width"] >= layout.ROLLUP_TILE_WIDTH
         and n["geometry"]["x"] < layout.MARGIN + layout.ROLLUP_LEFT
-        and "at wanted basis" not in str(n["props"].get("tooltip"))  # a calibration chip
+        and n["geometry"]["height"] > layout.CHIP_HEIGHT  # not a calibration chip
     ]
 
 

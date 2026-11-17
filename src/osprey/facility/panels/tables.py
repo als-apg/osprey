@@ -182,6 +182,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "held_in",
             "order",
             "under",
+            "short",
         ],
         CALIBRATIONS: [
             "id",
@@ -225,7 +226,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
 
 #: The columns a file's header may leave out; an absent one reads as empty.
 OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
-    {CALIBRATION_KINDS: frozenset({"under"}), PROBE_PICTURES: frozenset({"under"})}
+    {CALIBRATION_KINDS: frozenset({"under", "short"}), PROBE_PICTURES: frozenset({"under"})}
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
@@ -529,7 +530,7 @@ class CalibrationKind:
     claims further apart disagree; ``None``: claims are never compared.
     A curve's ``unit`` is ``x;y``. ``held_in`` names the signal of the subject's
     channels that hold the value in force in the control system, or is ``None``
-    when the records hold it.
+    when the records hold it. ``short`` is the kind's name on a place's chip.
     """
 
     kind: str
@@ -543,6 +544,12 @@ class CalibrationKind:
     held_in: str | None
     order: float | None
     under: str | None = None
+    short: str | None = None
+
+    @property
+    def tally_title(self) -> str:
+        """What a place's chip calls the kind: ``short``, else ``title``."""
+        return self.short or self.title
 
 
 def _calibration_kind(**columns: Any) -> CalibrationKind:

@@ -51,7 +51,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
         "view,level,order,title,measure,signal,class,unit,caption,source"
     )
     assert ",".join(COLUMNS["calibration_kinds.csv"]) == (
-        "kind,title,class,shape,unit,wanted_basis,tolerance,tolerance_source,held_in,order,under"
+        "kind,title,class,shape,unit,wanted_basis,tolerance,tolerance_source,held_in,order,under,short"
     )
     assert ",".join(COLUMNS["calibrations.csv"]) == (
         "id,kind,subject,value,unit,conditions,basis,method,date,document,version,state,"

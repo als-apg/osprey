@@ -155,6 +155,8 @@ def links(value: Any) -> Iterator[Link]:
             yield from links(item)
     elif is_dataclass(value) and not isinstance(value, type):
         for f in fields(value):
+            if (type(value).__name__, f.name) == ("CalibrationTallies", "more"):
+                continue  # drawn only when the chips overflow their line
             yield from links(getattr(value, f.name))
 
 
