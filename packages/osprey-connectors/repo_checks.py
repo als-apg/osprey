@@ -94,12 +94,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.errors.NaiveDatetimeError": (
         "a caller tells an instant handed over without a zone from the other refusals"
     ),
-    "osprey_connectors.gateways.DEFAULT_CA_PORT": (
-        "a caller names the port a Channel Access gateway that names none derives"
-    ),
-    "osprey_connectors.gateways.DEFAULT_PVA_PORT": (
-        "a caller names the port a PVA name server that names none derives"
-    ),
     "osprey_connectors.gateways.GatewayMode": "a derived endpoint names its EPICS mode in this type",
     "osprey_connectors.gateways.GatewayRole": (
         "a derivation keys its endpoints by the gateway role in this type"
@@ -108,12 +102,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "a derivation says how its block spells the gateways table in this type"
     ),
     "osprey_connectors.gateways.LiveCollision": "a live-collision check answers in this type",
-    "osprey_connectors.gateways.NEVER_LIVE_TYPES": (
-        "a caller names the connector types a live-collision check judges"
-    ),
-    "osprey_connectors.gateways.same_endpoint": (
-        "a caller compares two derived endpoints the way a live-collision check does"
-    ),
     "osprey_connectors.ipc.ConnectorHostError": "a caller catches every host failure by its base",
     "osprey_connectors.ipc.ConnectorHostLostError": "a caller tells a lost host from the others",
     "osprey_connectors.ipc.ConnectorHostSlowCallError": (

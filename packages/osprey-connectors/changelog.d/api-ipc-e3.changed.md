@@ -1,7 +1,6 @@
 Gateway derivation has its own module, `osprey_connectors.gateways`:
 `derive_endpoints`, `TargetDerivation`, `Endpoint`, `declared_gateways`,
-`live_collision`, `LiveCollision`, `same_endpoint`, `NEVER_LIVE_TYPES`,
-`DEFAULT_CA_PORT`, `DEFAULT_PVA_PORT`, `readonly_gateway_refusal` and the types
+`live_collision`, `LiveCollision`, `readonly_gateway_refusal` and the types
 `GatewayRole`, `SelectedRole`, `GatewayMode` and `GatewaysDeclared`. Import them
 from there; `osprey_connectors.ipc` no longer lists them, and importing
 `gateways` loads neither `ipc` nor the wire codec.

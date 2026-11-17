@@ -10,7 +10,7 @@ stop being about this deployment.
 Why this file exists at all is one bug: ``derive_endpoints`` defaults its
 ``writes_enabled`` to config alone. A parent that took that default derived
 ``write_access`` for a target the operator had just switched off, the child came
-up on ``read_only`` because it read the record, and ``verify_child_report`` — doing
+up on ``read_only`` because it read the record, and ``_verify_child_report`` — doing
 exactly its job — aborted the switch on a ``selected_role`` mismatch neither
 side had got wrong. It fails closed, but it refuses a switch that is correctly
 configured, and on the shipped virtual-accelerator preset it is invisible

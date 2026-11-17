@@ -716,7 +716,7 @@ class TestPerTargetPosture:
     ):
         """Both switches verify, and they verify against different roles.
 
-        A switch that returns a result at all has passed ``verify_child_report``:
+        A switch that returns a result at all has passed ``_verify_child_report``:
         the role and endpoint the child reported were compared against the
         parent's derivation for that target. Here the two derivations disagree —
         'va' is switched on and selects the write-capable gateway, 'live' is

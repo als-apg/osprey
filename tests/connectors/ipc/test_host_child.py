@@ -1248,10 +1248,10 @@ def _install_addr_list(monkeypatch, address, port):
 def _verify(config, report, writes_enabled):
     """Run the parent's own verification against a child's report."""
     from osprey_connectors.gateways import derive_endpoints
-    from osprey_connectors.ipc._verification import verify_child_report
+    from osprey_connectors.ipc._verification import _verify_child_report
 
     derivation = derive_endpoints(config, "va", writes_enabled=writes_enabled)
-    return derivation, verify_child_report(derivation, report)
+    return derivation, _verify_child_report(derivation, report)
 
 
 @pytest.mark.usefixtures("switched_off_va")
@@ -1265,7 +1265,7 @@ def test_identical_gateways_report_the_role_the_switched_off_posture_selected(
     posture the report carries. Re-derived from config that posture is armed —
     the block arms the simulator — and the report would name ``write_access``
     where the parent, which derives with the store-aware value, expects
-    ``read_only``: the one field ``verify_child_report`` compares, and an
+    ``read_only``: the one field ``_verify_child_report`` compares, and an
     aborted switch on the deployment's default configuration.
     """
     config = va_deployment(IDENTICAL_VA_GATEWAYS)

@@ -53,9 +53,6 @@ from osprey_connectors.targets import resolve_target
 from osprey_connectors.write_tier import tier_allows
 
 __all__ = [
-    "DEFAULT_CA_PORT",
-    "DEFAULT_PVA_PORT",
-    "NEVER_LIVE_TYPES",
     "Endpoint",
     "GatewayMode",
     "GatewayRole",
@@ -67,7 +64,6 @@ __all__ = [
     "derive_endpoints",
     "live_collision",
     "readonly_gateway_refusal",
-    "same_endpoint",
 ]
 
 
@@ -76,8 +72,8 @@ __all__ = [
 #: are filled from ``services.virtual_accelerator.port`` first. The PVA default
 #: applies to name servers only (TCP); an address-list entry that names no port
 #: is passed to p4p without one, so its row carries ``None``.
-DEFAULT_CA_PORT = 5064
-DEFAULT_PVA_PORT = 5075
+_DEFAULT_CA_PORT = 5064
+_DEFAULT_PVA_PORT = 5075
 
 
 class Endpoint(FrozenModel):
@@ -245,7 +241,7 @@ def derive_endpoints(
     endpoints: dict[GatewayRole, Endpoint] = {}
     role: SelectedRole
     for role in ("read_only", "write_access"):
-        row = _row(gateways.get(role), DEFAULT_CA_PORT, f"{block_key}.gateways.{role}")
+        row = _row(gateways.get(role), _DEFAULT_CA_PORT, f"{block_key}.gateways.{role}")
         if row is not None:
             endpoints[role] = row
 
@@ -258,7 +254,7 @@ def derive_endpoints(
         # TCP default applies to name servers only.
         pva_key = f"{block_key}.pva_gateway"
         name_server = isinstance(pva_gateway, dict) and _mode(pva_gateway, pva_key) == "name_server"
-        pva_row = _row(pva_gateway, DEFAULT_PVA_PORT if name_server else None, pva_key)
+        pva_row = _row(pva_gateway, _DEFAULT_PVA_PORT if name_server else None, pva_key)
         if pva_row is not None:
             endpoints["pva"] = pva_row
 
@@ -325,7 +321,7 @@ def _host_key(host: object) -> str:
     return str(host).strip().lower() if host is not None else ""
 
 
-def same_endpoint(first: Endpoint, second: Endpoint) -> bool:
+def _same_endpoint(first: Endpoint, second: Endpoint) -> bool:
     """Whether two derived rows name the same address and port, as written.
 
     The CA/PVA *mode* is deliberately not compared: a name server and an
@@ -339,7 +335,7 @@ def same_endpoint(first: Endpoint, second: Endpoint) -> bool:
 
 #: Types that are never the facility's own machine, so an endpoint one of them
 #: selects must never be an endpoint ``live`` derives.
-NEVER_LIVE_TYPES = frozenset({VIRTUAL_ACCELERATOR, *STANDIN_TYPES})
+_NEVER_LIVE_TYPES = frozenset({VIRTUAL_ACCELERATOR, *STANDIN_TYPES})
 
 
 class LiveCollision(FrozenModel):
@@ -360,13 +356,13 @@ def live_collision(
 ) -> LiveCollision | None:
     """The live gateway *derivation*'s selected endpoint lands on, or ``None``.
 
-    Only a target whose type is in :data:`NEVER_LIVE_TYPES` is asked: its reads
-    and writes must not reach an endpoint ``live`` derives from the same config,
-    read-only or write-access alike, or they reach the real machine under a soft
-    label. Addresses are compared as written (:func:`same_endpoint`), never
-    resolved, so this is the negative half only — whatever the target is, it is
-    not the machine. A deployment with no live machine has nothing to collide
-    with.
+    Only a target whose type is never the facility's own machine (the virtual
+    accelerator and the stand-ins) is asked: its reads and writes must not reach
+    an endpoint ``live`` derives from the same config, read-only or write-access
+    alike, or they reach the real machine under a soft label. Addresses and
+    ports are compared as written (the CA/PVA mode is not), never resolved, so
+    this is the negative half only — whatever the target is, it is not the
+    machine. A deployment with no live machine has nothing to collide with.
 
     Args:
         config: The rendered config mapping *derivation* was derived from.
@@ -374,7 +370,7 @@ def live_collision(
         config_path: See :func:`derive_endpoints`; pass the one *derivation* used.
     """
     selected = derivation.selected_endpoint()
-    if selected is None or derivation.connector_type not in NEVER_LIVE_TYPES:
+    if selected is None or derivation.connector_type not in _NEVER_LIVE_TYPES:
         return None
     try:
         live = derive_endpoints(
@@ -384,7 +380,7 @@ def live_collision(
         return None
     for role in ("read_only", "write_access"):
         row = live.endpoints.get(role)
-        if row is not None and same_endpoint(selected, row):
+        if row is not None and _same_endpoint(selected, row):
             return LiveCollision(
                 selected=selected, live=row, role=role, connector_type=live.connector_type
             )

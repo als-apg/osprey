@@ -255,7 +255,7 @@ def target_write_verdict(section: Any, target: str) -> write_switch.WriteVerdict
     Every caller of :func:`derive_endpoints` in this stack passes the
     verdict's ``allowed`` as ``writes_enabled``. That is not a convenience:
     the child selects its gateway from exactly this verdict, so a parent
-    deriving anything else would hand :func:`verify_child_report` a
+    deriving anything else would hand :func:`~osprey_connectors.ipc.verify_host_report` a
     ``selected_role`` mismatch and abort a switch that was configured
     correctly.
 

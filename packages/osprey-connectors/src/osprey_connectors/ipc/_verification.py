@@ -3,7 +3,7 @@
 Every supervisor of :mod:`osprey_connectors.ipc._host` children asks this once
 per child start — the controls MCP server's target switch and the library's
 multi-target :class:`~osprey_connectors.ipc.ConnectorHostPool` alike.
-**Verification** (:func:`verify_host_report`, and :func:`verify_child_report`
+**Verification** (:func:`verify_host_report`, and ``_verify_child_report``
 for the gateway case) compares a child's post-connect report against the
 derivation :func:`~osprey_connectors.gateways.derive_endpoints` answers from
 config: not "nothing looked wrong" but "the child configured exactly this host,
@@ -37,7 +37,7 @@ class Verification(FrozenModel):
     detail: str = ""
 
 
-def verify_child_report(derivation: TargetDerivation, report: HostReport) -> Verification:
+def _verify_child_report(derivation: TargetDerivation, report: HostReport) -> Verification:
     """Assert a child came up exactly where the derivation said it would.
 
     Positive and role-aware: every field of the selected role's endpoint is
@@ -205,7 +205,7 @@ def verify_host_report(
     ``writes_enabled`` to equal *writes_enabled*. With neither given, only the
     endpoint check below runs.
 
-    :func:`verify_child_report` answers this for every target whose config
+    ``_verify_child_report`` answers this for every target whose config
     names a gateway. A deployment can also select a connector that talks to no
     gateway at all — the simulator served in process is one, and it is the
     fail-safe default — and for that one the derivation has no endpoint and the child reports
@@ -220,7 +220,7 @@ def verify_host_report(
     is a gateway deployment with a hole in it, not a gatewayless one: its child
     connects to a real control system over whatever default broadcast address
     it finds, and that is precisely the unpinned-CA case verification exists to
-    catch. It goes to :func:`verify_child_report`, which refuses it either for
+    catch. It goes to ``_verify_child_report``, which refuses it either for
     reporting no gateway or for having no derived endpoint to compare against.
 
     Args:
@@ -242,7 +242,7 @@ def verify_host_report(
             return refusal
 
     if derivation.endpoints:
-        return verify_child_report(derivation, report)
+        return _verify_child_report(derivation, report)
 
     if report.epics_configured or report.mode or report.host:
         return Verification(

@@ -14,8 +14,7 @@ The `init` payload and the post-connect report are records,
 `ipc.HostInit` (`control_system`, `target`, `config_file`, `execution_mode`)
 and `ipc.HostReport` (every key the child reports, with `_epics_configured`
 read as `epics_configured`). Both cross the pipe exactly as before.
-`verify_host_report` and `verify_child_report` take a `HostReport` instead of
-a mapping, and `PooledConnector.report` is a `HostReport`, or `None` when no
+`verify_host_report` takes a `HostReport` instead of a mapping, and `PooledConnector.report` is a `HostReport`, or `None` when no
 child is running (it was `{}`); read `handle.report.selected_role` rather than
 `handle.report["selected_role"]`. A child refuses an `init` payload that is not
 a `HostInit` (an unknown key, an `execution_mode` other than `"readonly"`, a
