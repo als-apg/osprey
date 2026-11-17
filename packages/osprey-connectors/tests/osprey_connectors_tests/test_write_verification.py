@@ -9,16 +9,23 @@ of any control-system client library.
 """
 
 import ast
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, get_type_hints
+from typing import get_type_hints
+
+import pytest
 
 from osprey_connectors.control_system import _base as base_module
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
+    ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
 from osprey_connectors.errors import RefusalReason
+
+_TS = datetime(2026, 11, 16, 8, 0, tzinfo=UTC)
 
 
 class TestChannelWriteResultShape:
@@ -28,7 +35,7 @@ class TestChannelWriteResultShape:
         """Only address, value and outcome are required; every other field defaults to None.
 
         A connector states what became of the write and nothing more, so a
-        ``refused`` result carries no observed value and a ``confirmed`` one
+        ``refused`` result carries no observed reading and a ``confirmed`` one
         carries no message.
         """
         model_fields = ChannelWriteResult.model_fields
@@ -39,10 +46,10 @@ class TestChannelWriteResultShape:
 
         assert defaults["refusal_reason"] is None
         assert defaults["error_message"] is None
-        assert defaults["observed_value"] is None
-        assert defaults["alarm_status"] is None
-        assert defaults["alarm_severity"] is None
+        assert defaults["observed"] is None
         assert defaults["notes"] is None
+        # The re-read's value and alarm live on the reading, not beside it.
+        assert {"observed_value", "alarm_status", "alarm_severity"}.isdisjoint(model_fields)
 
     def test_field_annotations_are_pinned(self):
         """The declared types are the contract.
@@ -58,43 +65,28 @@ class TestChannelWriteResultShape:
         assert hints["outcome"] == WriteOutcome
         assert hints["refusal_reason"] == (RefusalReason | None)
         assert hints["error_message"] == (str | None)
-        assert hints["alarm_status"] == (str | None)
-        assert hints["alarm_severity"] == (int | None)
         assert hints["notes"] == (str | None)
-        # Whatever the channel holds — a number, a string, an enum label, a
-        # waveform — reaches consumers untouched.
-        assert hints["observed_value"] == Any
+        # The confirming re-read itself: value, stamp, alarm and label.
+        assert hints["observed"] == (ChannelValue | None)
 
     def test_healthy_severity_zero_is_distinct_from_not_reported(self):
         """Severity 0 is a reported fact; ``None`` is the absence of one."""
-        reported = ChannelWriteResult(
-            address="TEST:CHANNEL",
-            value_written=100.0,
-            outcome=WriteOutcome.CONFIRMED,
-            alarm_severity=0,
+        reported = ChannelWriteResult.confirmed(
+            "TEST:CHANNEL", 100.0, _reading(100.0, alarm=Alarm(status="NO_ALARM", severity=0))
         )
-        absent = ChannelWriteResult(
-            address="TEST:CHANNEL",
-            value_written=100.0,
-            outcome=WriteOutcome.CONFIRMED,
-        )
+        absent = ChannelWriteResult.confirmed("TEST:CHANNEL", 100.0, _reading(100.0))
 
-        assert reported.alarm_severity == 0
-        assert reported.alarm_severity is not None
-        assert absent.alarm_severity is None
+        assert reported.observed is not None and reported.observed.alarm is not None
+        assert reported.observed.alarm.severity == 0
+        assert absent.observed is not None
+        assert absent.observed.alarm is None
 
     def test_full_field_set_round_trips_through_model_dump(self):
         """Every field survives a model -> dict -> model round trip."""
-        original = ChannelWriteResult(
-            address="TEST:CHANNEL",
-            value_written=100.0,
-            outcome=WriteOutcome.MISMATCH,
-            refusal_reason=None,
-            error_message=None,
-            observed_value=95.0,
-            alarm_status="HIHI",
-            alarm_severity=2,
-            notes="observed 95.0, sent 100.0",
+        original = ChannelWriteResult.mismatch(
+            "TEST:CHANNEL",
+            100.0,
+            _reading(95.0, alarm=Alarm(status="HIHI", severity=2), enum_label=None),
         )
 
         restored = ChannelWriteResult(**original.model_dump())
@@ -102,41 +94,83 @@ class TestChannelWriteResultShape:
         assert restored == original
         assert restored.model_dump() == original.model_dump()
         assert restored.outcome is WriteOutcome.MISMATCH
+        assert restored.observed == original.observed
 
     def test_observed_number_narrows_only_what_is_a_number(self):
         """A reading with no numeric form is reported as such, never coerced."""
-        numeric = ChannelWriteResult(
-            address="TEST:CHANNEL",
-            value_written=100.0,
-            outcome=WriteOutcome.CONFIRMED,
-            observed_value=100.0,
-        )
-        textual = ChannelWriteResult(
-            address="TEST:CHANNEL",
-            value_written="Open",
-            outcome=WriteOutcome.CONFIRMED,
-            observed_value="Open",
-        )
+        numeric = ChannelWriteResult.confirmed("TEST:CHANNEL", 100.0, _reading(100.0))
+        textual = ChannelWriteResult.confirmed("TEST:CHANNEL", "Open", _reading("Open"))
+        unread = ChannelWriteResult.unrequested("TEST:CHANNEL", 100.0)
 
         assert numeric.observed_number == 100.0
         assert textual.observed_number is None
+        assert unread.observed_number is None
+
+    @pytest.mark.parametrize("outcome", [WriteOutcome.CONFIRMED, WriteOutcome.MISMATCH])
+    def test_a_re_read_rides_on_the_outcomes_it_decided(self, outcome):
+        result = ChannelWriteResult(
+            address="TEST:CHANNEL", value_written=1.0, outcome=outcome, observed=_reading(1.0)
+        )
+
+        assert result.observed == _reading(1.0)
+
+    @pytest.mark.parametrize(
+        "outcome,extra",
+        [
+            (
+                WriteOutcome.REFUSED,
+                {"refusal_reason": RefusalReason.WRITES_DISABLED, "error_message": "off"},
+            ),
+            (WriteOutcome.FAILED, {"error_message": "not taken"}),
+            (WriteOutcome.UNCONFIRMED, {"error_message": "no acknowledgement"}),
+            (WriteOutcome.UNREQUESTED, {}),
+        ],
+    )
+    def test_a_re_read_on_any_other_outcome_is_refused_at_construction(self, outcome, extra):
+        """``observed`` is set only on ``confirmed`` or ``mismatch``, which a re-read decided."""
+        with pytest.raises(ValueError, match="observed must be None"):
+            ChannelWriteResult(
+                address="TEST:CHANNEL",
+                value_written=1.0,
+                outcome=outcome,
+                observed=_reading(1.0),
+                **extra,
+            )
 
 
-class TestChannelMetadataAlarmStatusNotWidened:
-    """``ChannelMetadata.alarm_status`` stays ``str | None`` — no type widening.
+def _reading(value, *, alarm=None, enum_label=None):
+    return ChannelValue(
+        address="TEST:CHANNEL",
+        value=value,
+        sampled_at=_TS,
+        alarm=alarm,
+        enum_label=enum_label,
+    )
 
-    Alarm *names* are produced at the protocol boundary (the EPICS connector
-    maps raw codes), so the shared metadata type does not need to admit ints.
-    """
 
-    def test_alarm_status_annotation_is_str_or_none(self):
+class TestReadingRecords:
+    """The alarm and the label ride on the reading; the metadata stays static."""
+
+    def test_alarm_fields_are_names_and_ints_reported_or_not(self):
         # get_type_hints, not ``field.type``: the latter degrades to a raw
         # string the moment the module adopts postponed annotations, and a
         # string never equals ``str | None``, so the pin would pass vacuously.
-        assert get_type_hints(ChannelMetadata)["alarm_status"] == (str | None)
+        hints = get_type_hints(Alarm)
+        assert hints == {"status": str | None, "severity": int | None}
+        assert Alarm() == Alarm(status=None, severity=None)
 
-    def test_alarm_status_defaults_to_none(self):
-        assert ChannelMetadata().alarm_status is None
+    def test_a_reading_names_its_channel_and_carries_its_alarm_and_label(self):
+        hints = get_type_hints(ChannelValue)
+
+        assert hints["address"] is str
+        assert hints["alarm"] == (Alarm | None)
+        assert hints["enum_label"] == (str | None)
+        assert ChannelValue.model_fields["address"].is_required()
+
+    def test_the_metadata_holds_no_per_reading_state(self):
+        assert {"alarm_status", "alarm_severity", "enum_label"}.isdisjoint(
+            ChannelMetadata.model_fields
+        )
 
 
 #: Protocol client libraries the shared core must never reach for.

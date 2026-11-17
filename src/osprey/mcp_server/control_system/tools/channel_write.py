@@ -206,6 +206,30 @@ OUTCOME_KEY = "outcome"
 UNEXECUTED_OUTCOMES = frozenset({"refused", "failed"})
 
 
+def _result_row(wr: "ChannelWriteResult") -> dict[str, Any]:
+    """One write result as the row this tool serves and keeps.
+
+    The served keys predate the result's nested ``observed`` reading: the
+    re-read's value is ``observed_value``, and its alarm is ``alarm_status`` and
+    ``alarm_severity``.
+    """
+    observed = wr.observed
+    alarm = None if observed is None else observed.alarm
+    return {
+        "channel": wr.address,
+        "value": wr.value_written,
+        OUTCOME_KEY: str(wr.outcome),
+        "refusal_reason": wr.refusal_reason,
+        "error": wr.error_message,
+        "observed_value": _project_observed_value(None if observed is None else observed.value),
+        # Absent alarm fields stay null: "not reported" is deliberately
+        # distinct from a reported healthy severity of 0.
+        "alarm_status": None if alarm is None else alarm.status,
+        "alarm_severity": None if alarm is None else alarm.severity,
+        "notes": wr.notes,
+    }
+
+
 def _project_observed_value(value: object) -> object:
     """One observed reading, bounded by the same budget a read is bounded by.
 
@@ -1092,22 +1116,7 @@ async def channel_write(
         # One list, built once: what the agent reads is what this tool keeps, so
         # a field cannot be present in the bookkeeping and missing from the
         # response.
-        results = [
-            {
-                "channel": wr.address,
-                "value": wr.value_written,
-                OUTCOME_KEY: str(wr.outcome),
-                "refusal_reason": wr.refusal_reason,
-                "error": wr.error_message,
-                "observed_value": _project_observed_value(wr.observed_value),
-                # Absent alarm fields stay null: "not reported" is deliberately
-                # distinct from a reported healthy severity of 0.
-                "alarm_status": wr.alarm_status,
-                "alarm_severity": wr.alarm_severity,
-                "notes": wr.notes,
-            }
-            for wr in connector_results
-        ]
+        results = [_result_row(wr) for wr in connector_results]
 
         outcomes: dict[str, int] = {}
         for entry in results:

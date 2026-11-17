@@ -41,6 +41,7 @@ from osprey.runtime import session as session_module
 from osprey.runtime.session import EXIT_BINDING_MOVED, EXIT_START_REFUSED, EXIT_TRANSPORT_STALE
 from osprey.services.python_executor.write_surface import _ARMED_CHECKED
 from osprey_connectors import control_context, posture_store, types
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.factory import ConnectorFactory
@@ -237,12 +238,12 @@ class _ScriptedFake(FakeConnector):
     def _read_value(self, address: str) -> ChannelValue:
         reading = super()._read_value(address)
         if address == "ALARMED":
-            return evolve(reading, metadata=ChannelMetadata(alarm_severity=2, alarm_status="HIHI"))
+            return evolve(reading, alarm=Alarm(status="HIHI", severity=2))
         if address == "CURRENT":
             return evolve(reading, metadata=ChannelMetadata(units="mA", precision=3))
         if address == "MODE":
             return evolve(
-                reading, metadata=ChannelMetadata(enum_labels=["Off", "On"], enum_label="On")
+                reading, enum_label="On", metadata=ChannelMetadata(enum_labels=["Off", "On"])
             )
         return reading
 
@@ -253,12 +254,14 @@ class _ScriptedFake(FakeConnector):
             # A PVA read's shape: a worker thread for the whole read.
             await asyncio.to_thread(type(self).rendezvous.wait)
         if address == "HUGE":
-            return ChannelValue(value=[0.0] * 100_000, sampled_at=datetime.now(UTC))
+            return ChannelValue(
+                address=address, value=[0.0] * 100_000, sampled_at=datetime.now(UTC)
+            )
         if address == "NO_TIMESTAMP":
             reading = await super().read_channel(address, timeout_s=timeout_s)
             # A reading no connector can build: skips the record's validation.
             return ChannelValue.model_construct(
-                value=reading.value, sampled_at=None, metadata=reading.metadata
+                address=address, value=reading.value, sampled_at=None, metadata=reading.metadata
             )
         return await super().read_channel(address, timeout_s=timeout_s)
 

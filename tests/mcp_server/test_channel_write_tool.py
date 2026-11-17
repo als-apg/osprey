@@ -26,6 +26,7 @@ The tool does its own limits validation via LimitsValidator.
 
 import json
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -33,7 +34,9 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelReadBatch,
+    ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
@@ -80,9 +83,12 @@ def _make_write_result(
 ):
     """A real ``ChannelWriteResult``, as a connector would return it.
 
-    ``observed_value`` defaults to the value sent on a confirmed write and to
-    ``None`` on every other outcome, which is what a connector reports: only a
-    re-read that came back has something to show.
+    The keywords are the served keys: ``observed_value``, ``alarm_status`` and
+    ``alarm_severity`` build the result's ``observed`` reading, which only a
+    ``confirmed`` or ``mismatch`` result carries. ``observed_value`` defaults to
+    the value sent on a confirmed write and to ``None`` on every other outcome,
+    which is what a connector reports: only a re-read that came back has
+    something to show.
 
     ``outcome`` is coerced to the enum member here as well as in the dataclass,
     so a word this contract does not have fails in the test that wrote it rather
@@ -91,15 +97,24 @@ def _make_write_result(
     outcome = WriteOutcome(outcome)
     if observed_value is _UNSET:
         observed_value = value if outcome == WriteOutcome.CONFIRMED else None
+    reported = alarm_status is not None or alarm_severity is not None
+    observed = None
+    if outcome in (WriteOutcome.CONFIRMED, WriteOutcome.MISMATCH):
+        observed = ChannelValue(
+            address=channel,
+            value=observed_value,
+            sampled_at=datetime.now(UTC),
+            alarm=Alarm(status=alarm_status, severity=alarm_severity) if reported else None,
+        )
+    else:
+        assert observed_value is None and not reported, "only a re-read has these to show"
     return ChannelWriteResult(
         address=channel,
         value_written=value,
         outcome=outcome,
         refusal_reason=refusal_reason,
         error_message=error_message,
-        observed_value=observed_value,
-        alarm_status=alarm_status,
-        alarm_severity=alarm_severity,
+        observed=observed,
         notes=notes,
     )
 
@@ -1447,7 +1462,10 @@ async def test_old_values_are_read_before_the_window_check(tmp_path, monkeypatch
     async def read(channels, **_kwargs):
         order.append("read")
         return ChannelReadBatch(
-            values={channel: ChannelValue(value=3.5, sampled_at=stamp) for channel in channels}
+            values={
+                channel: ChannelValue(address=channel, value=3.5, sampled_at=stamp)
+                for channel in channels
+            }
         )
 
     connector.read_multiple_channels.side_effect = read
@@ -1864,3 +1882,86 @@ async def test_an_asked_write_with_both_stamps_runs(tmp_path, monkeypatch):
 
     assert data["status"] == "success"
     connector.write_channel.assert_awaited_once()
+
+
+# -- the served row, byte for byte -------------------------------------------
+
+#: The row ``channel_write`` serves for each case, captured from the projection
+#: as it was before a write result carried its confirming re-read as a nested
+#: ``observed`` reading. The served keys and their order are the contract an
+#: agent reads; the record behind them is not.
+_SERVED_ROWS = {
+    "confirmed": (
+        '{"channel": "PV:A", "value": 1.5, "outcome": "confirmed", "refusal_reason": null, "error": null, "observed_value": 1.5, "alarm_status": null, "alarm_severity": null, "notes": null}'
+    ),
+    "confirmed_healthy": (
+        '{"channel": "PV:A", "value": 1.5, "outcome": "confirmed", "refusal_reason": null, "error": null, "observed_value": 1.5, "alarm_status": "NO_ALARM", "alarm_severity": 0, "notes": null}'
+    ),
+    "confirmed_alarm": (
+        '{"channel": "PV:A", "value": 1.5, "outcome": "confirmed", "refusal_reason": null, "error": null, "observed_value": 1.5, "alarm_status": "HIHI", "alarm_severity": 2, "notes": null}'
+    ),
+    "mismatch": (
+        '{"channel": "PV:A", "value": 1.5, "outcome": "mismatch", "refusal_reason": null, "error": null, "observed_value": 1.25, "alarm_status": null, "alarm_severity": null, "notes": "Channel holds 1.25, sent 1.5"}'
+    ),
+    "mismatch_alarm": (
+        '{"channel": "PV:A", "value": 1.5, "outcome": "mismatch", "refusal_reason": null, "error": null, "observed_value": 1.25, "alarm_status": "LOLO", "alarm_severity": 1, "notes": "Channel holds 1.25, sent 1.5"}'
+    ),
+    "refused": (
+        '{"channel": "PV:A", "value": 1.5, "outcome": "refused", "refusal_reason": "WRITES_DISABLED", "error": "Write to \'PV:A\' refused: writes are off", "observed_value": null, "alarm_status": null, "alarm_severity": null, "notes": null}'
+    ),
+}
+
+_SERVED_CASES = {
+    "confirmed": {"channel": "PV:A", "value": 1.5, "outcome": "confirmed", "observed_value": 1.5},
+    "confirmed_healthy": {
+        "channel": "PV:A",
+        "value": 1.5,
+        "outcome": "confirmed",
+        "alarm_status": "NO_ALARM",
+        "alarm_severity": 0,
+    },
+    "confirmed_alarm": {
+        "channel": "PV:A",
+        "value": 1.5,
+        "outcome": "confirmed",
+        "alarm_status": "HIHI",
+        "alarm_severity": 2,
+    },
+    "mismatch": {
+        "channel": "PV:A",
+        "value": 1.5,
+        "outcome": "mismatch",
+        "observed_value": 1.25,
+        "notes": "Channel holds 1.25, sent 1.5",
+    },
+    "mismatch_alarm": {
+        "channel": "PV:A",
+        "value": 1.5,
+        "outcome": "mismatch",
+        "observed_value": 1.25,
+        "alarm_status": "LOLO",
+        "alarm_severity": 1,
+        "notes": "Channel holds 1.25, sent 1.5",
+    },
+    "refused": {
+        "channel": "PV:A",
+        "value": 1.5,
+        "outcome": "refused",
+        "refusal_reason": "WRITES_DISABLED",
+        "error_message": "Write to 'PV:A' refused: writes are off",
+    },
+}
+
+
+@pytest.mark.parametrize("case", list(_SERVED_CASES))
+async def test_a_result_row_is_served_byte_identical(tmp_path, monkeypatch, case):
+    """``observed_value``, ``alarm_status`` and ``alarm_severity`` map from the re-read."""
+    _prepare(tmp_path, monkeypatch)
+    results = [
+        _make_write_result(channel="PV:OK", value=1.0),
+        _make_write_result(**_SERVED_CASES[case]),
+    ]
+
+    data, _ = await _run_batch(results)
+
+    assert json.dumps(data["summary"]["results"][1]) == _SERVED_ROWS[case]

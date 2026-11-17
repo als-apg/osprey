@@ -26,7 +26,9 @@ class MockDynamicConnector(ControlSystemConnector):
 
         from osprey_connectors.control_system._base import ChannelValue
 
-        return ChannelValue(value=self._held.get(address, 42), sampled_at=datetime.now(UTC))
+        return ChannelValue(
+            address=address, value=self._held.get(address, 42), sampled_at=datetime.now(UTC)
+        )
 
     async def _send(self, address, value, *, timeout_s, wait):  # noqa: ARG002 - the send hook fixes this signature
         from osprey_connectors.control_system._base import SendReport

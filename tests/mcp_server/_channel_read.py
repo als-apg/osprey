@@ -13,12 +13,12 @@ def make_channel_value(value, sampled_at=datetime(2024, 1, 15, 10, 30, tzinfo=UT
     cv.metadata = MagicMock()
     cv.metadata.units = "counts"
     cv.metadata.precision = 3
-    cv.metadata.alarm_status = "NO_ALARM"
-    cv.metadata.alarm_severity = 0
+    cv.alarm.status = "NO_ALARM"
+    cv.alarm.severity = 0
     cv.metadata.description = "Test channel"
     # Not an enum channel: a bare MagicMock attribute would be truthy, and the
     # read tool ships the enum keys only when they are not None.
-    cv.metadata.enum_label = None
+    cv.enum_label = None
     cv.metadata.enum_labels = None
     return cv
 

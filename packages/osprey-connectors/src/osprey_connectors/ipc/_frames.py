@@ -63,9 +63,10 @@ Supported values
 strings; tuples decode as lists), numpy arrays and numpy scalars (dtype and
 shape preserved), and the package's records:
 
-* the connector records a connector's calls return, ``ChannelValue``,
-  ``ChannelMetadata``, ``ChannelReadBatch`` and ``ChannelWriteResult``, and the
-  ``LimitsViolation`` a limits refusal carries, named by class name and
+* the connector records a connector's calls return, ``ChannelValue`` (with
+  its ``Alarm``), ``ChannelMetadata``, ``ChannelReadBatch`` and
+  ``ChannelWriteResult``, and the ``LimitsViolation`` a limits refusal
+  carries, named by class name and
   carried as their fields in declaration order. Each decodes as a real
   instance of its class, validated by the class itself. A subclass is
   refused: only the class the far side rebuilds crosses.
@@ -105,6 +106,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict
 
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
     ChannelReadBatch,
     ChannelValue,
@@ -150,8 +152,11 @@ MAGIC = b"OSPF"
 #: 3: a limits refusal crosses as a write result carrying its
 #: ``LimitsViolation`` (a version-2 peer raised it as an error frame), a blocked
 #: write's error frame carries that violation, a failed write's error frame
-#: carries its outcome alone, without the reason word, and a batch read answers
-#: a ``ChannelReadBatch`` whose failures cross as error nodes.
+#: carries its outcome alone, without the reason word, a batch read answers
+#: a ``ChannelReadBatch`` whose failures cross as error nodes, and a reading
+#: carries its address, its ``Alarm`` and its enum label beside a metadata that
+#: no longer holds them, while a write result carries its confirming re-read as
+#: a nested ``observed`` reading instead of ``observed_value`` and the alarm.
 PROTOCOL_VERSION = 3
 
 #: Refuse absurd lengths rather than trying to allocate them. Generous enough
@@ -233,6 +238,7 @@ class ErrorFrame(FrozenModel):
 _RECORDS: dict[str, type[BaseModel]] = {
     cls.__name__: cls
     for cls in (
+        Alarm,
         ChannelValue,
         ChannelMetadata,
         ChannelReadBatch,

@@ -589,7 +589,7 @@ async def settled_reading(
     while True:
         last = await reading(manager, address, timeout=timeout)
         matched = last.value == pytest.approx(expected, rel=1e-3) and (
-            alarm_status is None or last.metadata.alarm_status == alarm_status
+            alarm_status is None or last.alarm.status == alarm_status
         )
         if matched or time.monotonic() >= deadline:
             break
@@ -598,13 +598,13 @@ async def settled_reading(
     wanted = f"{expected}" + (f" with alarm {alarm_status}" if alarm_status else "")
     assert last.value == pytest.approx(expected, rel=1e-3), (
         f"{address} never settled at {wanted} within {timeout}s; "
-        f"the last reading was {last.value} (alarm {last.metadata.alarm_status})"
+        f"the last reading was {last.value} (alarm {last.alarm.status})"
     )
     if alarm_status is not None:
-        assert last.metadata.alarm_status == alarm_status, (
+        assert last.alarm.status == alarm_status, (
             f"{address} settled at {last.value} but never reported alarm "
             f"{alarm_status} within {timeout}s; the last reading said "
-            f"{last.metadata.alarm_status}"
+            f"{last.alarm.status}"
         )
     return last
 
@@ -940,17 +940,17 @@ class TestTheBenchRecordsKeepTheirEpicsTextures:
         assert mode.value == MODE_STATE_VALUE
         assert int(mode.value) == MODE_STATE_VALUE
         assert not isinstance(mode.value, str)
-        assert mode.metadata.enum_label == MODE_STATE_LABEL
+        assert mode.enum_label == MODE_STATE_LABEL
         # The whole state list, in index order: a reader can name any state the
         # record could report, not only the one it happens to be in.
         assert tuple(mode.metadata.enum_labels) == MODE_STATE_LABELS
         assert "enum" in str(mode.metadata.raw_metadata["type"])
-        assert mode.metadata.alarm_status == "NO_ALARM"
+        assert mode.alarm.status == "NO_ALARM"
         # The contrast that makes both assertions mean something: an analogue
         # record on the same IOC is not typed as an enumeration, and carries no
         # labels at all rather than empty ones.
         assert "enum" not in str(scaled.metadata.raw_metadata["type"])
-        assert scaled.metadata.enum_label is None
+        assert scaled.enum_label is None
         assert scaled.metadata.enum_labels is None
 
     async def test_the_calc_record_reports_its_derived_value(self, make_manager, deployment):
@@ -974,7 +974,7 @@ class TestTheBenchRecordsKeepTheirEpicsTextures:
         manager = await started_on(make_manager, deployment, "live")
         before = await reading(manager, ALARM_CHANNEL)
         assert before.value == pytest.approx(ALARM_SEEDED_VALUE)
-        assert before.metadata.alarm_status == "NO_ALARM"
+        assert before.alarm.status == "NO_ALARM"
 
         try:
             written = await manager.active_proxy().write_channel(
@@ -992,7 +992,7 @@ class TestTheBenchRecordsKeepTheirEpicsTextures:
             assert alarming.value == pytest.approx(ALARM_DRIVE_VALUE)
             # Exactly HIHI: HIGH would mean the record alarmed on the wrong
             # threshold, and MAJOR alone would not say which one.
-            assert alarming.metadata.alarm_status == "HIHI"
+            assert alarming.alarm.status == "HIHI"
             assert alarming.metadata.raw_metadata["severity"] == ALARM_MAJOR_SEVERITY
         finally:
             # Restore the seeded value: the bench IOC is shared by every test in

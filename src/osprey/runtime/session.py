@@ -1070,14 +1070,14 @@ class ControlSession:
                 outcome=OUTCOME_CONFIRMED,
                 reason=REASON_WRITE_LANDED,
                 message=MESSAGE_WRITTEN,
-                observed_value=result.observed_value,
+                observed_value=None if result.observed is None else result.observed.value,
             )
-        # ``unrequested``: the connector's confirm policy asked for no re-read.
+        # ``unrequested``: the connector's confirm policy asked for no re-read,
+        # so the result carries no observed reading.
         return SessionWriteResult(
             outcome=OUTCOME_UNCONFIRMED,
             reason=REASON_WRITE_UNCONFIRMED,
             message=MESSAGE_UNCONFIRMED,
-            observed_value=result.observed_value,
         )
 
     def _settle(

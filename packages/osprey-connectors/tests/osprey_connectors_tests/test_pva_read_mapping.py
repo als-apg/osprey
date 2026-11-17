@@ -94,13 +94,14 @@ class TestNtScalarMapping:
 
         result = _pva_connector()._pva_channel_value(CA_ADDRESS, value)
 
+        assert result.address == CA_ADDRESS
         assert result.value == 1.5
         assert result.metadata.units == "mA"
         assert result.metadata.description == "beam current"
         assert result.metadata.display_low == 0.0
         assert result.metadata.display_high == 10.0
-        assert result.metadata.alarm_status == "HIGH"
-        assert result.metadata.alarm_severity == 1
+        assert result.alarm.status == "HIGH"
+        assert result.alarm.severity == 1
         assert result.metadata.raw_metadata["nt_id"] == "epics:nt/NTScalar:1.0"
         assert result.metadata.raw_metadata["severity"] == 1
         assert result.metadata.raw_metadata["status"] == 3
@@ -163,7 +164,7 @@ class TestNtScalarMapping:
         assert result.metadata.precision == 4
         assert result.metadata.units == "mm"
         # A reported healthy severity stays 0 — distinct from "not reported".
-        assert result.metadata.alarm_severity == 0
+        assert result.alarm.severity == 0
 
     def test_absent_display_leaves_metadata_empty_rather_than_failing(self):
         value = FakeValue("epics:nt/NTScalar:1.0", {"value": 7.0})
@@ -173,8 +174,8 @@ class TestNtScalarMapping:
         assert result.value == 7.0
         assert result.metadata.units == ""
         assert result.metadata.precision is None
-        assert result.metadata.alarm_status is None
-        assert result.metadata.alarm_severity is None
+        # No NT alarm field: the reading reports no alarm at all.
+        assert result.alarm is None
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +201,7 @@ class TestNtEnumMapping:
 
         assert result.value == 2
         assert not isinstance(result.value, str)
-        assert result.metadata.enum_label == "On"
+        assert result.enum_label == "On"
         assert result.metadata.enum_labels == ("Off", "Standby", "On")
         assert result.metadata.raw_metadata["enum_index"] == 2
         assert result.metadata.raw_metadata["enum_choices"] == ["Off", "Standby", "On"]
@@ -213,7 +214,7 @@ class TestNtEnumMapping:
         result = _pva_connector()._pva_channel_value("SR:RF:STATE", value)
 
         assert result.value == 0
-        assert result.metadata.enum_label == "Off"
+        assert result.enum_label == "Off"
         assert result.metadata.raw_metadata["enum_index"] == 0
 
     def test_enum_without_choices_still_reports_the_index(self):
@@ -224,7 +225,7 @@ class TestNtEnumMapping:
         result = _pva_connector()._pva_channel_value("SR:RF:STATE", value)
 
         assert result.value == 1
-        assert result.metadata.enum_label is None
+        assert result.enum_label is None
         assert result.metadata.enum_labels is None
         assert result.metadata.raw_metadata["enum_choices"] == []
 
@@ -234,7 +235,7 @@ class TestNtEnumMapping:
 
         result = _pva_connector()._pva_channel_value(CA_ADDRESS, value)
 
-        assert result.metadata.enum_label is None
+        assert result.enum_label is None
         assert result.metadata.enum_labels is None
 
 

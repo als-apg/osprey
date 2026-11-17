@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.control_system import Alarm
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import (
     NO_VIEW_MESSAGE,
@@ -358,7 +359,7 @@ class TestVAInProcessConnector:
 
         assert result.outcome is WriteOutcome.CONFIRMED
         assert reading.value == 2
-        assert reading.metadata.enum_label == "PULSED"
+        assert reading.enum_label == "PULSED"
         assert reading.metadata.enum_labels == ("OFF", "CW", "PULSED")
 
         await connector.disconnect()
@@ -417,9 +418,9 @@ class TestVAInProcessConnector:
         live = await connector.read_channel("BEAM:LIVE")
 
         assert math.isnan(cut.value)
-        assert (cut.metadata.alarm_severity, cut.metadata.alarm_status) == (3, "UDF")
+        assert cut.alarm == Alarm(status="UDF", severity=3)
         assert live.value == pytest.approx(2.0)
-        assert live.metadata.alarm_severity is None
+        assert live.alarm is None
 
         await connector.disconnect()
 
@@ -1113,12 +1114,11 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         assert result.outcome is WriteOutcome.CONFIRMED
-        assert result.observed_value == pytest.approx(42.0)
+        assert result.observed.value == pytest.approx(42.0)
         assert result.error_message is None
         assert result.refusal_reason is None
         # Mock has no alarm metadata to report; "not reported" stays None.
-        assert result.alarm_status is None
-        assert result.alarm_severity is None
+        assert result.observed.alarm is None
 
         await connector.disconnect()
 
@@ -1138,7 +1138,7 @@ class TestInProcessWriteConfirmationContract:
         for _ in range(5):
             result = await connector.write_channel("MAGNET:CURRENT:SP", 42.0)
             assert result.outcome is WriteOutcome.CONFIRMED
-            assert result.observed_value == pytest.approx(42.0)
+            assert result.observed.value == pytest.approx(42.0)
 
         # The ordinary read path is untouched and still noisy.
         noisy = await connector.read_channel("MAGNET:CURRENT:RB")
@@ -1165,7 +1165,7 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         assert result.outcome is WriteOutcome.MISMATCH
-        assert result.observed_value == pytest.approx(10.0)
+        assert result.observed.value == pytest.approx(10.0)
         assert result.value_written == pytest.approx(42.0)
         assert result.error_message is None
 
@@ -1179,10 +1179,8 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         assert result.outcome is WriteOutcome.UNCONFIRMED
-        assert result.observed_value is None
+        assert result.observed is None
         assert "CA disconnected" in result.error_message
-        assert result.alarm_status is None
-        assert result.alarm_severity is None
 
         await connector.disconnect()
 
@@ -1194,7 +1192,7 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, confirm=False)
 
         assert result.outcome is WriteOutcome.UNREQUESTED
-        assert result.observed_value is None
+        assert result.observed is None
         assert result.error_message is None
 
         await connector.disconnect()
@@ -1207,7 +1205,7 @@ class TestInProcessWriteConfirmationContract:
         result = await connector.write_channel("TEST:CHANNEL:SP", "not-a-number")
 
         assert result.outcome is WriteOutcome.FAILED
-        assert result.observed_value is None
+        assert result.observed is None
         assert result.error_message is not None
 
         await connector.disconnect()
@@ -1227,13 +1225,7 @@ class TestInProcessWriteConfirmationContract:
         second = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         def structured(result):
-            return (
-                result.outcome,
-                result.refusal_reason,
-                result.observed_value,
-                result.alarm_status,
-                result.alarm_severity,
-            )
+            return (result.outcome, result.refusal_reason, result.observed)
 
         assert first.error_message != second.error_message, "messages should differ"
         assert structured(first) == structured(second)

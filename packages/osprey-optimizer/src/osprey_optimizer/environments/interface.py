@@ -63,7 +63,7 @@ from osprey_optimizer.models.protocols import PVReading
 from osprey_optimizer.models.types import PVValues, VariableInputs
 
 if TYPE_CHECKING:
-    from osprey_connectors.control_system import ControlSystem
+    from osprey_connectors.control_system import ChannelValue, ControlSystem
     from osprey_connectors.types import ControlTarget
 
 logger = logging.getLogger(__name__)
@@ -89,20 +89,24 @@ def _element_count(value: Any) -> int | None:
     return len(value) if isinstance(value, list) else 1 if value is not None else None
 
 
-def _reading(cv: Any) -> PVReading:
-    """Map an OSPREY ``ChannelValue`` onto a ``PVReading`` (metadata best-effort)."""
+def _reading(cv: ChannelValue) -> PVReading:
+    """Map an OSPREY ``ChannelValue`` onto a ``PVReading``.
+
+    The severity is the reading's alarm; the status stays the raw alarm code
+    the control system reported (``PVReading.status`` is an integer).
+    """
     md = cv.metadata
-    raw = getattr(md, "raw_metadata", None) or {}
+    raw = md.raw_metadata or {}
     value = _to_native(cv.value)
     return PVReading(
         value=value,
         connected=True,
-        units=getattr(md, "units", None) or None,
-        precision=getattr(md, "precision", None),
-        severity=raw.get("severity"),
+        units=md.units or None,
+        precision=md.precision,
+        severity=None if cv.alarm is None else cv.alarm.severity,
         status=raw.get("status"),
         timestamp=cv.sampled_at.timestamp(),
-        enum_strings=getattr(md, "enum_labels", None),
+        enum_strings=None if md.enum_labels is None else list(md.enum_labels),
         count=_element_count(value),
     )
 

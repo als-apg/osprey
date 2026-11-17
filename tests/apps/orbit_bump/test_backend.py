@@ -191,7 +191,7 @@ class StandInConnector:
         async def one(addr: str) -> ChannelValue:
             if addr in self.silent:
                 await asyncio.sleep(3600)
-            return ChannelValue(value=self.values[addr], sampled_at=datetime.now(UTC))
+            return ChannelValue(address=addr, value=self.values[addr], sampled_at=datetime.now(UTC))
 
         async def bounded(addr: str) -> ChannelValue | ChannelError:
             # The base class bounds each channel on its own and reports what times out.

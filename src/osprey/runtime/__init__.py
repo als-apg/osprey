@@ -870,10 +870,10 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
 
     # Reaching here means the outcome is confirmed, or confirmation was not
     # requested (unrequested) — every other outcome already raised above.
-    if result.observed_value is not None:
+    if result.observed is not None:
         logger.debug(
             f"Wrote {channel_address} = {value} [{result.outcome}, "
-            f"observed {result.observed_value}]"
+            f"observed {result.observed.value}]"
         )
     else:
         logger.debug(f"Wrote {channel_address} = {value} [{result.outcome}]")
@@ -1196,9 +1196,10 @@ def read_channel(channel_address: str, **kwargs) -> Any:
 
     Returns:
         Current value of the channel. An enum-typed channel reads as its
-        integer state index; the matching state names ride on the reading's
-        metadata as ``enum_label`` / ``enum_labels``, which the channel_read
-        tool reports and which this value-only helper does not return.
+        integer state index; the matching state name rides on the reading as
+        ``enum_label`` and every state name on its metadata as
+        ``enum_labels``, which the channel_read tool reports and which this
+        value-only helper does not return.
 
     Raises:
         RuntimeError: If read operation fails

@@ -96,7 +96,7 @@ def _assert_refusal(result, address, value):
     assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason == "VALIDATION_ERROR"
     assert result.address == address
-    assert result.observed_value is None
+    assert result.observed is None
     message = result.error_message
     assert message is not None
     assert address in message

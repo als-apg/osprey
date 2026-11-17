@@ -208,7 +208,7 @@ class TestDisconnectClosesPvaContext:
 
 class TestGetMetadataOverPva:
     @pytest.mark.asyncio
-    async def test_display_and_alarm_fields_are_mapped(self):
+    async def test_display_fields_are_mapped_and_the_alarm_stays_raw(self):
         context = FakeContext(reply=_metadata_value())
         connector = _pva_connector(context=context)
 
@@ -219,7 +219,9 @@ class TestGetMetadataOverPva:
         assert metadata.description == "Storage ring current"
         assert metadata.display_low == 0.0
         assert metadata.display_high == 500.0
-        assert metadata.alarm_status == "HIGH_ALARM"
+        # The alarm belongs to a reading; the metadata keeps the raw fields only.
+        assert "alarm_status" not in type(metadata).model_fields
+        assert metadata.raw_metadata["alarm_message"] == "HIGH_ALARM"
         assert metadata.raw_metadata["severity"] == 1
         assert metadata.raw_metadata["status"] == 3
         assert metadata.raw_metadata["nt_id"] == "epics:nt/NTScalar:1.0"
@@ -265,7 +267,7 @@ class TestGetMetadataOverPva:
 
         assert metadata.units == ""
         assert metadata.precision is None
-        assert metadata.alarm_status is None
+        assert "alarm_message" not in metadata.raw_metadata
 
     @pytest.mark.asyncio
     async def test_ca_address_on_a_pva_capable_connector_uses_channel_access(self):

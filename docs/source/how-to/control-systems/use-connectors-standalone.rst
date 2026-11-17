@@ -35,7 +35,7 @@ Against an IOC serving those three records, it prints:
    :language: text
 
 ``create_control_system_connector`` connects before it returns. A state channel
-reads as its integer index, with the state's name in ``metadata.enum_label``.
+reads as its integer index, with the state's name in ``enum_label``.
 ``read_multiple_channels`` returns a ``ChannelReadBatch``: each channel that
 answered is in its ``values``, and each that failed is in its ``failures``,
 with the error its own read raised. ``raise_for_failures()`` returns the batch

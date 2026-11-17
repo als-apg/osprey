@@ -105,7 +105,7 @@ async def _in_process_connector(
             value = _raise_or_value(MOCK_ADDRESSES, scenario, address)
         except RuntimeError:
             raise ChannelNotFoundError(address) from None
-        return ChannelValue(value=value, sampled_at=datetime.now(UTC))
+        return ChannelValue(address=address, value=value, sampled_at=datetime.now(UTC))
 
     monkeypatch.setattr(connector, "_reading", reading)
     return connector
@@ -272,7 +272,9 @@ class _StubConnector:
     async def read_multiple_channels(self, addresses, *, timeout_s=None):  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; the stub never blocks
         return ChannelReadBatch(
             values={
-                address: ChannelValue(value=self.table[address], sampled_at=datetime.now(UTC))
+                address: ChannelValue(
+                    address=address, value=self.table[address], sampled_at=datetime.now(UTC)
+                )
                 for address in addresses
                 if address in self.table
             },
@@ -353,7 +355,7 @@ async def test_a_cancelled_channel_read_is_raised_from_the_batch(connector_name)
         position = addresses.index(address)
         if position == FAILING:
             raise asyncio.CancelledError
-        return ChannelValue(value=VALUES[position], sampled_at=datetime.now(UTC))
+        return ChannelValue(address=address, value=VALUES[position], sampled_at=datetime.now(UTC))
 
     connector.read_channel = read_channel
 

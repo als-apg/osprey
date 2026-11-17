@@ -21,6 +21,7 @@ import logging
 import os
 import threading
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,7 @@ from osprey.runtime import session as session_module
 from osprey.runtime.budget import WriteBudget
 from osprey.runtime.session import ControlSession
 from osprey_connectors import control_context, posture_store, types
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
@@ -163,6 +164,11 @@ def connector_answers(monkeypatch, behaviour):
     return calls
 
 
+def _observed(value):
+    """The confirming re-read of :data:`CHANNEL` a result reports."""
+    return ChannelValue(address=CHANNEL, value=value, sampled_at=datetime.now(UTC))
+
+
 def returns(outcome, **fields):
     async def behaviour(address, value):
         return ChannelWriteResult(address=address, value_written=value, outcome=outcome, **fields)
@@ -268,14 +274,14 @@ CONNECTOR_ROWS = [
     ),
     (
         "10",
-        returns(WriteOutcome.CONFIRMED, observed_value=1.5),
+        returns(WriteOutcome.CONFIRMED, observed=_observed(1.5)),
         "confirmed",
         "write_landed",
         "written",
     ),
     (
         "11",
-        returns(WriteOutcome.MISMATCH, observed_value=1.25),
+        returns(WriteOutcome.MISMATCH, observed=_observed(1.25)),
         "mismatch",
         "write_unconfirmed",
         "written; the channel holds 1.25",
@@ -354,7 +360,9 @@ class TestConnectorRows:
         await session.close()
 
     async def test_a_mismatch_names_the_whole_observed_value(self, va, monkeypatch):
-        connector_answers(monkeypatch, returns(WriteOutcome.MISMATCH, observed_value="x" * 400))
+        connector_answers(
+            monkeypatch, returns(WriteOutcome.MISMATCH, observed=_observed("x" * 400))
+        )
         write_record(va)
         session = await opened()
 

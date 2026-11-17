@@ -211,18 +211,17 @@ class DOOCSConnector(ControlSystemConnector):
 
         sampled_at = datetime.fromtimestamp(timestamp_float, UTC)
 
-        # Compile metadata
+        # Compile metadata; DOOCS reports no alarm state, so the reading has none.
         metadata = ChannelMetadata(
             units="",
             precision=None,
-            alarm_status=None,
             raw_metadata={
                 "macropulse": macropulse,
                 "type": type(value).__name__,
             },
         )
 
-        return ChannelValue(value=value, sampled_at=sampled_at, metadata=metadata)
+        return ChannelValue(address=address, value=value, sampled_at=sampled_at, metadata=metadata)
 
     @override
     def current_value_reader(self) -> CurrentValueReader:
@@ -302,18 +301,19 @@ class DOOCSConnector(ControlSystemConnector):
 
             sampled_at = datetime.fromtimestamp(timestamp_float, UTC)
 
-            # Compile metadata
+            # Compile metadata; DOOCS reports no alarm state, so the reading has none.
             metadata = ChannelMetadata(
                 units="",
                 precision=None,
-                alarm_status=None,
                 raw_metadata={
                     "macropulse": macropulse,
                     "type": type(value).__name__,
                 },
             )
 
-            prop_value = ChannelValue(value=value, sampled_at=sampled_at, metadata=metadata)
+            prop_value = ChannelValue(
+                address=address, value=value, sampled_at=sampled_at, metadata=metadata
+            )
             # Schedule callback in event loop
             loop.call_soon_threadsafe(callback, prop_value)
 

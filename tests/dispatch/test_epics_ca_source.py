@@ -64,7 +64,7 @@ class _FakePV:
     def fire(self, value: Any) -> None:
         """Deliver ``value`` as the connector does: a ChannelValue, on the serving loop."""
         if not self.closed:
-            update = ChannelValue(value=value, sampled_at=datetime.now(UTC))
+            update = ChannelValue(address=self.pvname, value=value, sampled_at=datetime.now(UTC))
             self._loop.call_soon_threadsafe(self._callback, update)
 
 

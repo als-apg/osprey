@@ -172,6 +172,7 @@ class FakeRuntime:
         if self.on_poll is not None:
             self.on_poll(address)
         return ChannelValue(
+            address=address,
             value=self.values.get(address),
             sampled_at=datetime.now(UTC),
             metadata=ChannelMetadata(),
@@ -241,6 +242,7 @@ class DictConnector(ControlSystemConnector):
         if address not in self._state:
             raise ValueError(f"{address} is not served")
         return ChannelValue(
+            address=address,
             value=self._state[address],
             sampled_at=datetime.now(UTC),
             metadata=ChannelMetadata(),

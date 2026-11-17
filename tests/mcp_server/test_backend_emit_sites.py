@@ -33,12 +33,13 @@ are each tool's own subject, not this file's.
 """
 
 import contextlib
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
 
-from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
+from osprey_connectors.control_system._base import ChannelValue, ChannelWriteResult, WriteOutcome
 from osprey_connectors_tests._harness import (
     DEFAULT_GENERATION,
     isolate_verdict_environment,
@@ -100,7 +101,11 @@ def _make_write_result(
         outcome=outcome,
         refusal_reason=refusal_reason,
         error_message=error_message,
-        observed_value=value if outcome == WriteOutcome.CONFIRMED else None,
+        observed=(
+            ChannelValue(address=channel, value=value, sampled_at=datetime.now(UTC))
+            if outcome == WriteOutcome.CONFIRMED
+            else None
+        ),
     )
 
 

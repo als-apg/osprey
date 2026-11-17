@@ -165,6 +165,7 @@ class _PairConnector(ControlSystemConnector):
         if address == SLOW_CHANNEL:
             await asyncio.sleep(SLOW_SECONDS)
         return ChannelValue(
+            address=address,
             value=self.value_for(address),
             sampled_at=datetime.now(UTC),
             metadata=ChannelMetadata(units="mA"),

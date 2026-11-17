@@ -18,6 +18,7 @@ import asyncio
 import inspect
 import os
 import signal
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -30,6 +31,7 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system._base import (
+    ChannelValue,
     ChannelWriteResult,
     ConnectorContext,
     WriteOutcome,
@@ -191,7 +193,7 @@ class _FakeHandle:
             address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=value,
+            observed=ChannelValue(address=address, value=value, sampled_at=datetime.now(UTC)),
         )
 
     async def write_multiple_channels(self, operations, *, timeout_s=None, confirm=None):

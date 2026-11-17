@@ -18,6 +18,7 @@ import pytest
 from pydantic import BaseModel
 
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
     ChannelReadBatch,
     ChannelValue,
@@ -119,12 +120,13 @@ def test_new_request_id_is_unique():
 
 def test_channel_value_result_round_trips_as_a_real_dataclass():
     value = ChannelValue(
+        address="SR:DCCT",
         value=1.234,
         sampled_at=TS,
+        alarm=Alarm(status="NO_ALARM", severity=0),
         metadata=ChannelMetadata(
             units="mA",
             precision=3,
-            alarm_status="NO_ALARM",
             description="beam current",
             display_low=0.0,
             display_high=500.0,
@@ -134,8 +136,10 @@ def test_channel_value_result_round_trips_as_a_real_dataclass():
     frame = _round_trip(frames.encode_result("req-r", value))
 
     assert isinstance(frame.value, ChannelValue)
+    assert frame.value.address == "SR:DCCT"
     assert frame.value.value == 1.234
     assert frame.value.sampled_at == TS
+    assert frame.value.alarm == Alarm(status="NO_ALARM", severity=0)
     assert isinstance(frame.value.metadata, ChannelMetadata)
     assert frame.value.metadata.units == "mA"
     assert frame.value.metadata.precision == 3
@@ -144,7 +148,7 @@ def test_channel_value_result_round_trips_as_a_real_dataclass():
     # Not an enum channel: both enum fields survive as None rather than as
     # something the far side has to interpret.
     assert frame.value.metadata.enum_labels is None
-    assert frame.value.metadata.enum_label is None
+    assert frame.value.enum_label is None
 
 
 def test_enum_metadata_crosses_the_seam_as_the_tuple_of_labels_sent():
@@ -156,27 +160,28 @@ def test_enum_metadata_crosses_the_seam_as_the_tuple_of_labels_sent():
     tuple there too.
     """
     value = ChannelValue(
+        address="SR:MODE",
         value=2,
         sampled_at=TS,
-        metadata=ChannelMetadata(
-            alarm_status="NO_ALARM",
-            enum_labels=["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"],
-            enum_label="ACQUIRING",
-        ),
+        alarm=Alarm(status="NO_ALARM"),
+        enum_label="ACQUIRING",
+        metadata=ChannelMetadata(enum_labels=["OFFLINE", "STANDBY", "ACQUIRING", "FAULT"]),
     )
     frame = _round_trip(frames.encode_result("req-enum", value))
 
     assert frame.value.value == 2
-    assert frame.value.metadata.enum_label == "ACQUIRING"
+    assert frame.value.enum_label == "ACQUIRING"
     assert frame.value.metadata.enum_labels == ("OFFLINE", "STANDBY", "ACQUIRING", "FAULT")
     assert frame.value == value
 
 
 def test_batched_read_result_dict_round_trips():
     reading = {
-        "SR:A": ChannelValue(value=1.0, sampled_at=TS, metadata=ChannelMetadata(units="mA")),
-        "SR:B": ChannelValue(value="Off", sampled_at=TS),
-        "SR:C": ChannelValue(value=None, sampled_at=TS),
+        "SR:A": ChannelValue(
+            address="SR:A", value=1.0, sampled_at=TS, metadata=ChannelMetadata(units="mA")
+        ),
+        "SR:B": ChannelValue(address="SR:B", value="Off", sampled_at=TS),
+        "SR:C": ChannelValue(address="SR:C", value=None, sampled_at=TS),
     }
     frame = _round_trip(frames.encode_result("req-batch", reading))
 
@@ -190,7 +195,7 @@ def test_batched_read_result_dict_round_trips():
 
 def test_batch_read_round_trips_its_values_and_each_channel_s_own_error():
     batch = ChannelReadBatch(
-        values={"SR:A": ChannelValue(value=1.0, sampled_at=TS)},
+        values={"SR:A": ChannelValue(address="SR:A", value=1.0, sampled_at=TS)},
         failures={
             "SR:B": ChannelUnreachableError("SR:B", "SR:B did not answer within 2s"),
             "SR:C": ChannelNotFoundError("SR:C"),
@@ -242,29 +247,32 @@ def test_write_result_round_trips_the_verdict_reason():
 
 
 def test_write_result_round_trips_with_outcome_and_alarm():
-    result = ChannelWriteResult(
+    """A confirmed result crosses with its re-read as a nested reading, alarm and all."""
+    observed = ChannelValue(
         address="SR:BEND:1:CUR",
-        value_written=2.5,
-        outcome=WriteOutcome.CONFIRMED,
-        refusal_reason=None,
-        error_message=None,
-        observed_value=2.5,
-        alarm_status="NO_ALARM",
-        alarm_severity=0,
-        notes="observed 2.5, sent 2.5",
+        value=2.5,
+        sampled_at=TS,
+        alarm=Alarm(status="NO_ALARM", severity=0),
+        metadata=ChannelMetadata(units="A"),
     )
-    frame = _round_trip(frames.encode_result("req-w", result))
+    result = ChannelWriteResult.confirmed("SR:BEND:1:CUR", 2.5, observed)
+    payload = frames.encode_result("req-w", result)
+
+    node = _header_of(payload)["value"]
+    assert node[_TAG] == "ChannelWriteResult"
+    assert node["fields"]["observed"][_TAG] == "ChannelValue"
+    assert node["fields"]["observed"]["fields"]["alarm"][_TAG] == "Alarm"
+    frame = _round_trip(payload)
 
     assert isinstance(frame.value, ChannelWriteResult)
-    assert frame.value.address == "SR:BEND:1:CUR"
-    assert frame.value.value_written == 2.5
+    assert frame.value == result
     assert frame.value.outcome is WriteOutcome.CONFIRMED
     assert frame.value.refusal_reason is None
     assert frame.value.error_message is None
-    assert frame.value.observed_value == 2.5
-    assert frame.value.alarm_status == "NO_ALARM"
-    assert frame.value.alarm_severity == 0
-    assert frame.value.notes == "observed 2.5, sent 2.5"
+    assert type(frame.value.observed) is ChannelValue
+    assert frame.value.observed == observed
+    assert frame.value.observed.alarm == Alarm(status="NO_ALARM", severity=0)
+    assert frame.value.observed_number == 2.5
 
 
 def test_write_result_outcome_crosses_as_a_string_and_returns_an_enum():
@@ -283,7 +291,7 @@ def test_write_result_outcome_crosses_as_a_string_and_returns_an_enum():
             address="SR:BEND:1:CUR",
             value_written=2.5,
             outcome=WriteOutcome.MISMATCH,
-            observed_value=2.0,
+            observed=ChannelValue(address="SR:BEND:1:CUR", value=2.0, sampled_at=TS),
             notes="observed 2.0, sent 2.5",
         ),
     )
@@ -294,7 +302,7 @@ def test_write_result_outcome_crosses_as_a_string_and_returns_an_enum():
     assert type(frame.value.outcome) is WriteOutcome
     assert frame.value.outcome is WriteOutcome.MISMATCH
     assert frame.value.value_written == 2.5
-    assert frame.value.observed_value == 2.0
+    assert frame.value.observed.value == 2.0
     assert frame.value.error_message is None
     assert frame.value.notes == "observed 2.0, sent 2.5"
 
@@ -304,15 +312,17 @@ def test_write_result_carries_an_array_observed_value():
         address="SR:WF",
         value_written=[1.0, 2.0, 3.0],
         outcome=WriteOutcome.CONFIRMED,
-        observed_value=np.array([1.0, 2.0, 3.0], dtype=np.float32),
+        observed=ChannelValue(
+            address="SR:WF", value=np.array([1.0, 2.0, 3.0], dtype=np.float32), sampled_at=TS
+        ),
     )
     frame = _round_trip(frames.encode_result("req-wa", result))
 
     assert frame.value.outcome is WriteOutcome.CONFIRMED
     assert frame.value.value_written == [1.0, 2.0, 3.0]
-    assert isinstance(frame.value.observed_value, np.ndarray)
-    assert frame.value.observed_value.dtype == np.float32
-    assert frame.value.observed_value.tolist() == [1.0, 2.0, 3.0]
+    assert isinstance(frame.value.observed.value, np.ndarray)
+    assert frame.value.observed.value.dtype == np.float32
+    assert frame.value.observed.value.tolist() == [1.0, 2.0, 3.0]
 
 
 #: What the limits said of a refused value, as a limits refusal carries it.
@@ -344,7 +354,7 @@ def test_write_result_list_round_trips():
             address="SR:A",
             value_written=1,
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=1,
+            observed=ChannelValue(address="SR:A", value=1, sampled_at=TS),
         ),
         ChannelWriteResult(
             address="SR:B",
@@ -369,12 +379,12 @@ def test_write_result_list_round_trips():
         WriteOutcome.REFUSED,
         WriteOutcome.UNREQUESTED,
     ]
-    assert frame.value[0].observed_value == 1
+    assert frame.value[0].observed.value == 1
     assert frame.value[1].refusal_reason == "LIMITS"
     assert frame.value[1].limits_violation == _VIOLATION
     assert frame.value[1].error_message.startswith("Write to 'SR:B' blocked")
     assert frame.value[2].refusal_reason is None
-    assert frame.value[2].observed_value is None
+    assert frame.value[2].observed is None
 
 
 def test_disconnect_result_carries_none():
@@ -429,7 +439,9 @@ def test_int_array_round_trips_with_dtype_preserved():
 
 def test_array_inside_a_channel_value_round_trips():
     waveform = np.arange(6, dtype=np.float64) * 0.5
-    frame = _round_trip(frames.encode_result("req-wf", ChannelValue(value=waveform, sampled_at=TS)))
+    frame = _round_trip(
+        frames.encode_result("req-wf", ChannelValue(address="SR:WF", value=waveform, sampled_at=TS))
+    )
 
     assert isinstance(frame.value, ChannelValue)
     assert np.array_equal(frame.value.value, waveform)

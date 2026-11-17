@@ -22,6 +22,7 @@ from osprey.runtime import (
     write_channels,
 )
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelReadBatch,
     ChannelValue,
     ChannelWriteResult,
@@ -42,6 +43,11 @@ from osprey_connectors.errors import (
     ChannelWriteFailedError,
     ConnectorUnavailableError,
 )
+
+
+def _observed(address: str, value, *, alarm: Alarm | None = None) -> ChannelValue:
+    """The confirming re-read a canned result reports."""
+    return ChannelValue(address=address, value=value, sampled_at=datetime.now(UTC), alarm=alarm)
 
 
 class RecordingConnector(ControlSystemConnector):
@@ -73,7 +79,7 @@ class RecordingConnector(ControlSystemConnector):
             address=address,
             value_written=value,
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=value,
+            observed=_observed(address, value),
         )
 
     async def _send(self, address, value, *, timeout_s, wait):
@@ -177,7 +183,7 @@ class TestRuntimeWriteConfirmation:
                 address="TEST:PV",
                 value_written=42.0,
                 outcome=WriteOutcome.MISMATCH,
-                observed_value=0.0,
+                observed=_observed("TEST:PV", 0.0),
                 error_message=None,
             )
         )
@@ -205,7 +211,7 @@ class TestRuntimeWriteConfirmation:
                 address="TEST:PV1",
                 value_written=1.0,
                 outcome=WriteOutcome.MISMATCH,
-                observed_value=9.0,
+                observed=_observed("TEST:PV1", 9.0),
             )
         )
 
@@ -273,9 +279,7 @@ class TestRuntimeWriteConfirmation:
                 address="TEST:PV",
                 value_written=42.0,
                 outcome=WriteOutcome.CONFIRMED,
-                observed_value=42.0,
-                alarm_severity=2,
-                alarm_status="HIHI",
+                observed=_observed("TEST:PV", 42.0, alarm=Alarm(status="HIHI", severity=2)),
             )
         )
 
@@ -624,7 +628,7 @@ class PerChannelConnector(RecordingConnector):
             address=address,
             value_written=value,
             outcome=outcome,
-            observed_value=value if outcome is WriteOutcome.CONFIRMED else None,
+            observed=_observed(address, value) if outcome is WriteOutcome.CONFIRMED else None,
             refusal_reason="WRITES_DISABLED" if outcome is WriteOutcome.REFUSED else None,
             error_message=(
                 f"Write to '{address}' {outcome}"
@@ -671,7 +675,7 @@ class BatchReadConnector(RecordingConnector):
                 failures[address] = self.table[address]
             else:
                 values[address] = ChannelValue(
-                    value=self.table[address], sampled_at=datetime.now(UTC)
+                    address=address, value=self.table[address], sampled_at=datetime.now(UTC)
                 )
         return ChannelReadBatch(values=values, failures=failures)
 
@@ -1165,7 +1169,7 @@ class TestReadChannels:
             async def read_channel(self, address, *, timeout_s=None):  # noqa: ARG002 - the connector interface fixes this signature
                 if address == "B":
                     raise ConnectorUnavailableError("the gateway is gone")
-                return ChannelValue(value=1.0, sampled_at=datetime.now(UTC))
+                return ChannelValue(address=address, value=1.0, sampled_at=datetime.now(UTC))
 
         with _patched_factory(Lost()), pytest.raises(ConnectorUnavailableError):
             read_channels(["A", "B"])

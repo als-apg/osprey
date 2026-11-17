@@ -18,11 +18,13 @@ its instance answers ``write_channel`` with a canned result, which the final
 method's class-level guard does not see, so every outcome word can be served.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
 from osprey_connectors.control_system._base import (
+    Alarm,
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
@@ -87,6 +89,11 @@ def _result(**overrides) -> ChannelWriteResult:
     }
     base.update(overrides)
     return ChannelWriteResult(**base)
+
+
+def _observed(value: Any, *, alarm: Alarm | None = None) -> ChannelValue:
+    """The confirming re-read a result reports."""
+    return ChannelValue(address="TEST:PV", value=value, sampled_at=datetime.now(UTC), alarm=alarm)
 
 
 class TestRefusals:
@@ -170,7 +177,7 @@ class TestFailures:
             result=_result(
                 outcome=WriteOutcome.MISMATCH,
                 value_written=42.0,
-                observed_value=41.0,
+                observed=_observed(41.0),
             )
         )
 
@@ -210,7 +217,7 @@ class TestFailures:
         connector = _FakeConnector(
             result=_result(
                 outcome=WriteOutcome.MISMATCH,
-                observed_value=41.0,
+                observed=_observed(41.0),
                 notes="cannot be compared",
             )
         )
@@ -245,7 +252,7 @@ class TestReturns:
 
     @pytest.mark.asyncio
     async def test_confirmed_returns_result(self):
-        result = _result(outcome=WriteOutcome.CONFIRMED, observed_value=42.0)
+        result = _result(outcome=WriteOutcome.CONFIRMED, observed=_observed(42.0))
         connector = _FakeConnector(result=result)
 
         returned = await connector.write_channel_checked("TEST:PV", 42.0)
@@ -257,16 +264,15 @@ class TestReturns:
         """Alarm state is reported with the write, never a reason to raise."""
         result = _result(
             outcome=WriteOutcome.CONFIRMED,
-            observed_value=42.0,
-            alarm_status="HIHI",
-            alarm_severity=2,
+            observed=_observed(42.0, alarm=Alarm(status="HIHI", severity=2)),
         )
         connector = _FakeConnector(result=result)
 
         returned = await connector.write_channel_checked("TEST:PV", 42.0)
 
         assert returned is result
-        assert returned.alarm_severity == 2
+        assert returned.observed is not None and returned.observed.alarm is not None
+        assert returned.observed.alarm.severity == 2
 
     @pytest.mark.asyncio
     async def test_unrequested_returns_result(self):

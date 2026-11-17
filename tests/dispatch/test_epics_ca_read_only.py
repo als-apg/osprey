@@ -70,7 +70,7 @@ def _trigger(name: str, pv: str) -> TriggerConfig:
 
 
 def _update(value: float) -> ChannelValue:
-    return ChannelValue(value=value, sampled_at=datetime.now(tz=UTC))
+    return ChannelValue(address="SR:TRIGGER", value=value, sampled_at=datetime.now(tz=UTC))
 
 
 def _write_calls(connector: MagicMock) -> list[str]:

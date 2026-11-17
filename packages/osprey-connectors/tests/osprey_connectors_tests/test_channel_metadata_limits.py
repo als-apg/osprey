@@ -57,7 +57,7 @@ LIMIT_FIELDS = (
     ("record", "field", "value"),
     [
         (ChannelMetadata(), "units", "mA"),
-        (ChannelValue(value=1.0, sampled_at=datetime.now(UTC)), "value", 2.0),
+        (ChannelValue(address="A", value=1.0, sampled_at=datetime.now(UTC)), "value", 2.0),
         (
             ChannelWriteResult(address="A", value_written=1.0, outcome=WriteOutcome.UNREQUESTED),
             "outcome",

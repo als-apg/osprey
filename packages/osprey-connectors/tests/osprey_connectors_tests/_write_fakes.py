@@ -160,7 +160,9 @@ class RecordingConnector(ControlSystemConnector):
         return SendReport()
 
     async def _confirming_read(self, address: str, sent: SendReport, *, timeout_s: float):  # noqa: ARG002 - the read-back hook fixes this signature
-        return ChannelValue(value=self._held[address], sampled_at=datetime.now(UTC))
+        return ChannelValue(
+            address=address, value=self._held[address], sampled_at=datetime.now(UTC)
+        )
 
     async def subscribe(self, address, callback, *, on_connection=None):
         raise NotImplementedError

@@ -185,7 +185,7 @@ def _audit_batch(session: ControlSession, count: int) -> None:
 def _found_row(name: str, reading: ChannelValue) -> ValueRow:
     """The row of a channel that answered; a value too large to send is left out.
 
-    The unit, precision and enum label ride beside the value; an empty unit is none.
+    The alarm, unit, precision and enum label ride beside the value; an empty unit is none.
     """
     value = ipc.wire_value(reading.value)
     too_large = None
@@ -193,18 +193,19 @@ def _found_row(name: str, reading: ChannelValue) -> ValueRow:
     if size > ipc.MAX_VALUE_BYTES:
         value = None
         too_large = f"value of {size} bytes is too large to show"
+    alarm = reading.alarm
     return ValueRow(
         name=name,
         outcome=ipc.OUTCOME_FOUND,
         value=value,
         # Connectors stamp readings in UTC; the served stamp stays facility-local.
         timestamp=reading.sampled_at.astimezone(get_facility_timezone()).isoformat(),
-        severity=ipc.wire_value(reading.metadata.alarm_severity),
-        status=ipc.wire_value(reading.metadata.alarm_status),
+        severity=ipc.wire_value(None if alarm is None else alarm.severity),
+        status=ipc.wire_value(None if alarm is None else alarm.status),
         reason=too_large,
         units=reading.metadata.units or None,
         precision=reading.metadata.precision,
-        enum_label=reading.metadata.enum_label,
+        enum_label=reading.enum_label,
     )
 
 
