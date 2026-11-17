@@ -1023,14 +1023,16 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     A file without an address column holds one address per line.
 
     Each device a row names is written to devices.yaml beside the channels,
-    with its s and model where a row states them. Beside another source of
-    device records, one line names the devices only this list declares.
-    First replaces a bundled facility, saying so in one line, refuses hand-written channel and device records, and seeds
-    the knowledge stub. Exits 1 and writes no layer file when a row names both a device and a place, states an
-    unknown role, has no address or repeats one, states s or model with no
-    device or an s that is not a number, when two rows state different
-    positions for one device, when the header names an unknown column, or
-    while the profile does not resolve.
+    with its s and model where a row states them. A misspelt device cell makes
+    a device of its own: when other sources declare devices too, the import
+    prints a line naming those only this list declares. First replaces a
+    bundled facility, saying so in one line, refuses hand-written channel and
+    device records, and seeds the knowledge stub. Exits 1 and writes no layer
+    file when a row names both a device and a place, states an unknown role,
+    has no address or repeats one, states s or model with no device or an s
+    that is not a number, when two rows state different positions for one
+    device, when the header names an unknown column, or while the profile does
+    not resolve.
     """
     from osprey.facility.layers.list import import_list as run_import
     from osprey_connectors.errors import BuildProfileError
