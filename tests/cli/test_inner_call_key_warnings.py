@@ -19,10 +19,11 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli import web_cmd
-from osprey.cli.build_cmd import model_call_view
 from osprey.cli.build_environment import credential_environ, report_inner_call_keys
+from osprey.cli.build_profile_deploy import build_lint_view
 from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
+from osprey.deployment.web_terminals.lint import _nest_dotted
 from osprey.models.inner_calls import inner_model_calls
 from tests._config_render_context import PROVIDER_CATALOG, render_config
 
@@ -166,52 +167,67 @@ def test_validate_says_nothing_once_the_key_is_in_the_repo_env_file(deployment: 
     assert "needs ANTHROPIC_API_KEY" not in result.output
 
 
-# --- the view validate reads is the config the template renders ----------------------
+# --- the one mirror of the build's derived keys agrees with the template --------------
+
+
+def _view(config: dict[str, Any] | None = None, **fields: Any) -> dict[str, Any]:
+    return _nest_dotted(build_lint_view(None, config or {}, "demo", **fields))
+
+
+def _leaf(config: dict[str, Any], dotted: str) -> Any:
+    node: Any = config
+    for part in dotted.split("."):
+        node = node.get(part) if isinstance(node, dict) else None
+    return node
+
+
+#: Every key of ``build_lint_view`` that ``config.yml.j2`` is the producer of. The
+#: rest of the view (the deploy overrides, the render projection, the dispatch
+#: tier) is written by the build's injectors, which no template render reaches.
+TEMPLATE_WRITTEN_KEYS = (
+    "project_name",
+    "claude_code.provider",
+    "channel_finder.pipeline_mode",
+    "logbook.composition.provider",
+    "ariel.enhancement_modules.semantic_processor.provider",
+    "api.providers",
+)
 
 
 @pytest.mark.parametrize("ariel_server_on", [False, True])
 @pytest.mark.parametrize("pipeline", [None, "in_context", "hierarchical"])
-def test_the_validate_view_lists_what_the_rendered_config_lists(pipeline, ariel_server_on):
-    """``model_call_view`` restates template lines; the template is the authority."""
+def test_the_lint_view_states_what_the_template_renders(pipeline, ariel_server_on):
+    """The view restates template lines; the template is the producer."""
     context: dict[str, Any] = {"default_provider": "house", "ariel_server_on": ariel_server_on}
     if pipeline:
         context |= {"default_pipeline": pipeline, f"enable_{pipeline}": True}
     rendered = yaml.safe_load(render_config(**context))
 
-    view = model_call_view(
+    view = _view(
         provider="house",
         pipeline=pipeline,
         ariel_server_on=ariel_server_on,
         provider_catalog=PROVIDER_CATALOG,
-        config={},
     )
 
-    for key in ("claude_code", "channel_finder", "logbook", "ariel"):
-        rendered_block, view_block = rendered.get(key) or {}, view.get(key) or {}
-        if key == "channel_finder":
-            rendered_block = {"pipeline_mode": rendered_block.get("pipeline_mode")}
-            view_block = {"pipeline_mode": view_block.get("pipeline_mode")}
-        if key == "claude_code":
-            rendered_block = {"provider": rendered_block.get("provider")}
-        if key == "ariel":
-            # The template also states the model; the list reads the provider.
-            for block in (rendered_block, view_block):
-                module = (block.get("enhancement_modules") or {}).get("semantic_processor") or {}
-                module.pop("model", None)
-        assert view_block == rendered_block, key
-    assert view["api"]["providers"] == rendered["api"]["providers"]
+    for key in TEMPLATE_WRITTEN_KEYS:
+        assert _leaf(view, key) == _leaf(rendered, key), key
+    assert inner_model_calls(view, environ={}) == inner_model_calls(rendered, environ={})
 
 
-def test_the_profiles_config_block_is_laid_over_the_derived_keys():
-    view = model_call_view(
-        provider="anthropic",
-        pipeline="in_context",
-        ariel_server_on=False,
-        provider_catalog={"anthropic": {"api_key": "${ANTHROPIC_API_KEY}"}},
-        config={
+def test_the_web_lint_sees_no_model_call_keys_it_did_not_ask_for():
+    assert set(build_lint_view(None, {}, "demo")) == {"project_name"}
+
+
+def test_the_profiles_config_block_reaches_the_list_beside_the_derived_keys():
+    view = _view(
+        {
             "channel_finder.pipelines.in_context.subagent_provider": "cborg",
             "ariel.enhancement_modules.image_caption": {"enabled": True, "provider": "cborg"},
         },
+        provider="anthropic",
+        pipeline="in_context",
+        provider_catalog={"anthropic": {"api_key": "${ANTHROPIC_API_KEY}"}},
     )
     listed = {call.feature: call.provider for call in inner_model_calls(view, environ={})}
     assert listed["in-context channel finder"] == "cborg"
