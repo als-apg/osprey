@@ -772,6 +772,96 @@ class TestRecordNeverStartedIntegration:
         assert tracker.get_current_job() == "other-draft"
 
 
+def _age_to(job_id: str, seconds: int) -> list[str]:
+    """Leave every key of the job ``seconds`` to live, as after that much of its hour."""
+    str_client = get_redis_client(binary=False)
+    keys = _job_keys(job_id)
+    assert keys
+    for key in keys:
+        assert str_client.expire(key, seconds)
+    return keys
+
+
+def _finished(job_id: str) -> str:
+    """A job whose worker ran and exited through its own lifecycle."""
+    _launched(job_id)
+    with JobLifecycle(job_id):
+        get_cancellation_token(job_id)
+    return job_id
+
+
+def _assert_ttls_within(keys: list[str], seconds: int) -> None:
+    str_client = get_redis_client(binary=False)
+    ttls = {key: str_client.ttl(key) for key in keys}
+    assert all(0 < ttl <= seconds for ttl in ttls.values()), ttls
+
+
+@pytest.mark.usefixtures("tracker")
+class TestTerminalRecordLifetimeIntegration:
+    """A finished job's record expires counted from its end; a read never renews it."""
+
+    def test_a_full_read_of_a_finished_job_keeps_its_expiry(self, tracker: JobTracker):
+        job = _finished("ttl-full")
+        keys = _age_to(job, 100)
+
+        assert build_optimization_response(job, "full", tracker).status == JobStatus.COMPLETED
+
+        _assert_ttls_within(keys, 100)
+
+    def test_a_plain_and_a_summary_read_keep_the_expiry(self, tracker: JobTracker):
+        job = _finished("ttl-plain")
+        keys = _age_to(job, 100)
+
+        js.read_job_status(tracker, job)
+        build_optimization_response(job, "summary", tracker)
+
+        _assert_ttls_within(keys, 100)
+
+    def test_a_read_of_a_never_started_job_keeps_its_expiry(self, tracker: JobTracker):
+        job = _refused_after_lapse(tracker, "ttl-never")
+        keys = _age_to(job, 100)
+
+        response = build_optimization_response(job, "full", tracker)
+
+        assert response.status == JobStatus.ERROR
+        assert response.error_message == NEVER_STARTED_MESSAGE
+        _assert_ttls_within(keys, 100)
+
+    def test_a_read_does_not_finish_a_job_its_worker_left_unmarked(self, tracker: JobTracker):
+        str_client = get_redis_client(binary=False)
+        job = _launched("ttl-unmarked")
+        # The worker recorded its outcome and died before ending its record.
+        get_optimization_writer(job).set_status(JobStatus.COMPLETED)
+
+        build_optimization_response(job, "full", tracker)
+
+        meta = tracker.get_job(job)
+        assert meta is not None and meta.status is JobStatus.RUNNING
+        _assert_ttls_within(_job_keys(job), RUNNING_STATE_TTL_SECONDS)
+        assert str_client.get(ACTIVE_JOB_KEY) == job
+
+        _lapse(job)
+
+        assert tracker.get_active_job() is None
+        assert str_client.get(ACTIVE_JOB_KEY) is None
+        assert tracker.claim_active_job("ttl-next", 0)
+
+    def test_a_lapsed_finished_job_reads_as_not_found(self, tracker: JobTracker):
+        job = _finished("ttl-gone")
+        tracker.set_current_job(job)
+        _lapse(job)
+
+        for read in (
+            lambda: js.read_job_status(tracker, job),
+            lambda: build_optimization_response(job, "full", tracker),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                read()
+            assert exc.value.status_code == 404
+            assert exc.value.detail == f"Job {job} not found"
+        assert tracker.get_current_job() is None
+
+
 @pytest.mark.usefixtures("tracker")
 class TestJobLifecycleIntegration:
     """Integration tests with real Redis.
