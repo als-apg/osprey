@@ -70,9 +70,10 @@ from pydantic import AwareDatetime, ValidationError, model_validator
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError, require_aware
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.model import FrozenModel, FrozenTuple, evolve
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
+from osprey_connectors.simulation.records import SeedsDocument, VariablesDocument
 from osprey_connectors.simulation.series import (
     apply_events,
     epoch_seconds_array,
@@ -82,7 +83,7 @@ from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     resolve_active_scenarios,
 )
-from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, SimulatorView
+from osprey_connectors.simulation.view import SimulatorView
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from zoneinfo import ZoneInfo
@@ -106,6 +107,8 @@ __all__ = [
     "MANIFEST_ID",
     "ArchiveComposite",
     "FingerprintComparison",
+    "KnobChange",
+    "SeedFingerprint",
     "SeedKnobs",
     "SeedReport",
     "SeedState",
@@ -164,14 +167,61 @@ class SeedState(StrEnum):
     describes what the profile asks for. The store has to be rebuilt."""
 
 
+class SeedFingerprint(FrozenModel):
+    """The knobs a store's coverage depends on, as the seed manifest stores them.
+
+    The fields are in the order the manifest's ``fingerprint`` subdocument
+    states them; :meth:`model_dump` is that subdocument.
+
+    Attributes:
+        schema_version: The meaning of a stored document, bumped when an
+            existing store becomes wrong.
+        retention_days: The coarse tier's span.
+        hot_span_hours: The dense tier's span.
+        hot_cadence_sec: The dense tier's cadence.
+        tail_cadence_sec: The coarse tier's cadence.
+        compression: The collection's block compressor.
+        shape_version: The pulse shape every stored trace is drawn from.
+        topoff_shape_version: The top-off sawtooth every stored decaying
+            current is drawn from.
+        channel_count: The number of seeded channels.
+        channel_set_sha256: The SHA-256 of the sorted channel names, one per line.
+    """
+
+    schema_version: int
+    retention_days: int
+    hot_span_hours: int
+    hot_cadence_sec: int
+    tail_cadence_sec: int
+    compression: str
+    shape_version: str
+    topoff_shape_version: str
+    channel_count: int
+    channel_set_sha256: str
+
+
+class KnobChange(FrozenModel):
+    """One fingerprint field a store's manifest holds otherwise than the knobs now in force.
+
+    Attributes:
+        key: The fingerprint field.
+        stored: What the manifest holds, ``None`` when it lacks the field.
+        expected: What the knobs now in force give.
+    """
+
+    key: str
+    stored: object
+    expected: object
+
+
 class FingerprintComparison(FrozenModel):
     """The outcome of comparing a store's manifest against current knobs."""
 
     state: SeedState
-    differences: tuple[tuple[str, object, object], ...] = ()
-    """``(key, stored, expected)`` for each field that moved. Empty unless the
-    state is :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report*
-    what changed rather than announcing an unexplained reseed."""
+    differences: FrozenTuple[KnobChange] = ()
+    """Each field that moved, by field name. Empty unless the state is
+    :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report* what
+    changed rather than announcing an unexplained reseed."""
 
     seeded_at: AwareDatetime | None = None
     """The instant the stored seed was anchored at, when there is one. Metadata:
@@ -180,7 +230,8 @@ class FingerprintComparison(FrozenModel):
     def describe(self) -> str:
         """One line per changed knob, for a deploy-time report."""
         return "\n".join(
-            f"  {key}: {stored!r} -> {expected!r}" for key, stored, expected in self.differences
+            f"  {change.key}: {change.stored!r} -> {change.expected!r}"
+            for change in self.differences
         )
 
 
@@ -524,8 +575,7 @@ class ArchiveComposite:
         return out
 
     def _is_float(self, address: str) -> bool:
-        channel = self._channels[address]
-        return (channel.value_type or channel_values.DEFAULT_VALUE_TYPE) == "float"
+        return self._channels[address].value_type == "float"
 
     def _is_waveform(self, address: str) -> bool:
         return channel_values.is_waveform(self._channels[address].value_type)
@@ -590,10 +640,8 @@ class ArchiveComposite:
     @staticmethod
     def _wire(channel: ChannelRecord, value: object) -> object:
         """A stored value as the wire carries it: a label as its option index."""
-        value_type = channel.value_type
-        if value_type in channel_values.LABELLED_TYPES:
-            labels: Sequence[object] = channel_values.channel_labels(channel)
-            return labels.index(value)
+        if channel.value_type in channel_values.LABELLED_TYPES:
+            return channel.labels.index(value)
         return value
 
 
@@ -669,9 +717,9 @@ def build(
         scenario.name: scenario for scenario in view.scenarios()
     }
     records: dict[str, ChannelRecord] = {
-        channel.address: channel for channel in view.document(VARIABLES_FILE).channels
+        channel.address: channel for channel in view.document(VariablesDocument).channels
     }
-    seeds = view.document(SEEDS_FILE).seeds
+    seeds = view.document(SeedsDocument).seeds
     archived = sorted(view.channels())
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
@@ -865,8 +913,8 @@ def seed_fingerprint(
     addresses: Iterable[str],
     *,
     compression: str,
-) -> dict[str, int | str]:
-    """The knobs a store's coverage depends on, as a comparable dict.
+) -> SeedFingerprint:
+    """The knobs a store's coverage depends on, as a comparable record.
 
     Everything here changes what the store *contains*: the window's depth and
     density, which channels are in it, how it is compressed on disk, the
@@ -883,27 +931,28 @@ def seed_fingerprint(
         compression: The collection's block compressor.
 
     Returns:
-        The fingerprint, JSON-serializable and safe to store verbatim.
+        The fingerprint; its :meth:`~SeedFingerprint.model_dump` is what the
+        manifest stores.
     """
     names = sorted(set(addresses))
     digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
-    return {
-        "schema_version": _SEED_SCHEMA_VERSION,
-        "retention_days": knobs.retention_days,
-        "hot_span_hours": knobs.hot_span_hours,
-        "hot_cadence_sec": knobs.hot_cadence_sec,
-        "tail_cadence_sec": knobs.tail_cadence_sec,
-        "compression": compression,
-        "shape_version": pulse.SHAPE_VERSION,
-        "topoff_shape_version": topoff.SHAPE_VERSION,
-        "channel_count": len(names),
-        "channel_set_sha256": digest,
-    }
+    return SeedFingerprint(
+        schema_version=_SEED_SCHEMA_VERSION,
+        retention_days=knobs.retention_days,
+        hot_span_hours=knobs.hot_span_hours,
+        hot_cadence_sec=knobs.hot_cadence_sec,
+        tail_cadence_sec=knobs.tail_cadence_sec,
+        compression=compression,
+        shape_version=pulse.SHAPE_VERSION,
+        topoff_shape_version=topoff.SHAPE_VERSION,
+        channel_count=len(names),
+        channel_set_sha256=digest,
+    )
 
 
 def _write_manifest(
     collection: Collection[dict[str, object]],
-    fingerprint: Mapping[str, object],
+    fingerprint: SeedFingerprint,
     *,
     seeded_at: datetime,
     report: SeedReport | None = None,
@@ -923,7 +972,7 @@ def _write_manifest(
     """
     document = {
         "_id": MANIFEST_ID,
-        "fingerprint": dict(fingerprint),
+        "fingerprint": fingerprint.model_dump(),
         "seeded_at": seeded_at,
         "touched_windows": [],
     }
@@ -938,7 +987,7 @@ def _write_manifest(
 
 
 def compare_fingerprint(
-    collection: Collection[dict[str, object]], fingerprint: Mapping[str, object]
+    collection: Collection[dict[str, object]], fingerprint: SeedFingerprint
 ) -> FingerprintComparison:
     """Whether the store in front of us was built with the knobs now in force.
 
@@ -963,8 +1012,8 @@ def compare_fingerprint(
         # What reading a field off such a manifest raised before it was checked.
         raise AttributeError(f"{type(held).__name__!r} object has no attribute 'get'")
     differences = tuple(
-        (key, held.get(key), expected)
-        for key, expected in sorted(fingerprint.items())
+        KnobChange(key=key, stored=held.get(key), expected=expected)
+        for key, expected in sorted(fingerprint.model_dump().items())
         if held.get(key) != expected
     )
     if differences:

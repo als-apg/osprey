@@ -70,6 +70,7 @@ from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
     MANIFEST_ID,
+    KnobChange,
     SeedKnobs,
     SeedState,
     _synthesize_documents,
@@ -715,9 +716,11 @@ class TestKnobChange:
 
         comparison = compare_fingerprint(world.collection, world.fingerprint())
         assert comparison.state is SeedState.MISMATCH
-        assert ("retention_days", KNOBS.retention_days, KNOBS.retention_days + 2) in (
-            comparison.differences
-        )
+        assert KnobChange(
+            key="retention_days",
+            stored=KNOBS.retention_days,
+            expected=KNOBS.retention_days + 2,
+        ) in (comparison.differences)
         assert "retention_days" in comparison.describe()
 
         world.reseed(T0)

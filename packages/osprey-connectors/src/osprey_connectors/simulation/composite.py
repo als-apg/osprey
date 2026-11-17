@@ -131,7 +131,11 @@ from osprey_connectors.errors import ConnectorsError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import TEXTURE, values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
-from osprey_connectors.simulation.records import ResolvedCoupling
+from osprey_connectors.simulation.records import (
+    ResolvedCoupling,
+    SeedsDocument,
+    VariablesDocument,
+)
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -141,22 +145,14 @@ from osprey_connectors.simulation.state import (
     scenario_targets,
 )
 from osprey_connectors.simulation.status import STATUS_NO_DECK, STATUS_OK
-from osprey_connectors.simulation.texture import (
-    TextureModel,
-    channel_value_type,
-    channel_variable,
-    is_float_channel,
-)
+from osprey_connectors.simulation.texture import TextureModel, channel_variable
 from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
     MONITOR,
-    SEEDS_FILE,
     SETPOINT,
     UPTIME,
-    VARIABLES_FILE,
     IocHealthSignal,
-    Model,
     SimulatorView,
     ViewSchemaError,
 )
@@ -168,6 +164,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         ChannelRecord,
         CouplingTerm,
         DriveRecord,
+        ModelRecord,
         NoiseRecord,
         ScenarioRecord,
     )
@@ -348,7 +345,9 @@ class _Child:
     """One physics child and what the composite keeps for it."""
 
     name: str
-    source: Model
+    source: ModelRecord
+    #: The view's copy of the model's deck, or ``None``.
+    deck: Path | None
     owned: list[str]
     defaults: dict[str, object]
     setpoints: frozenset[str]
@@ -431,7 +430,7 @@ class Composite(LUMEModel):
         self._snapshot: dict[str, object] = {}
         self._texture_demands: dict[str, object] = {}
 
-        variables = view.document(VARIABLES_FILE)
+        variables = view.document(VariablesDocument)
         self._scenarios: dict[str, ScenarioRecord] = {
             scenario.name: scenario for scenario in view.scenarios()
         }
@@ -441,12 +440,14 @@ class Composite(LUMEModel):
         models = {model.name: model for model in view.physics_models()}
         physics = sorted(models)
 
-        self._texture = TextureModel(variables, view.document(SEEDS_FILE), clock=clock)
+        self._texture = TextureModel(variables, view.document(SeedsDocument), clock=clock)
         self._owner: dict[str, str] = {
             address: (owner if (owner := record.owner) in physics else TEXTURE)
             for address, record in self._channels.items()
         }
-        children = {name: self._child(models[name]) for name in physics}
+        children = {
+            name: self._child(models[name], view.deck_path(models[name])) for name in physics
+        }
         for child in children.values():
             for _, producer in child.takes:
                 if producer in children and producer != child.name:
@@ -487,24 +488,21 @@ class Composite(LUMEModel):
 
     # -- construction --------------------------------------------------------
 
-    def _child(self, source: Model) -> _Child:
+    def _child(self, source: ModelRecord, deck: Path | None) -> _Child:
         name = source.name
         owned = sorted(address for address, owner in self._owner.items() if owner == name)
-        wiring = [binding.record for binding in source.bindings]
         defaults = {
-            str(entry["address"]): entry.get("default")
-            for entry in wiring
-            if str(entry["address"]) in owned
+            record.address: record.default for record in source.wiring if record.address in owned
         }
         setpoints = frozenset(
-            str(entry["address"])
-            for entry in wiring
-            if entry.get("direction") == "write" and str(entry["address"]) in owned
+            record.address
+            for record in source.wiring
+            if record.direction == "write" and record.address in owned
         )
         groups: dict[str, list[str]] = {}
-        for binding in source.bindings:
-            if binding.engine_role == MONITOR and binding.element is not None:
-                groups.setdefault(str(binding.element), []).append(binding.address)
+        for record in source.wiring:
+            if record.engine_role == MONITOR and record.element is not None:
+                groups.setdefault(record.element, []).append(record.address)
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
         takes = tuple(
             (record, self._owner.get(str(record["address"]), TEXTURE)) for record in source.inputs
@@ -512,6 +510,7 @@ class Composite(LUMEModel):
         return _Child(
             name=name,
             source=source,
+            deck=deck,
             owned=owned,
             defaults=defaults,
             setpoints=setpoints,
@@ -522,13 +521,12 @@ class Composite(LUMEModel):
     def _start_value(self, child: _Child, address: str) -> values.StoredValue:
         """A physics channel's start value: its active write, its wiring default, or zero."""
         channel = self._channels[address]
-        value_type = channel.value_type
         if address in child.active:
-            return values.coerce(child.active[address], value_type, channel.options, channel.shape)
+            return channel.coerce(child.active[address])
         default = child.defaults.get(address)
         if default is not None:
-            return values.coerce(default, value_type, channel.options, channel.shape)
-        return values.zero(value_type, channel.options, channel.shape)
+            return channel.coerce(default)
+        return channel.zero()
 
     def _start_inputs(self, child: _Child) -> dict[str, values.StoredValue]:
         """A child's setpoints at their start values."""
@@ -559,7 +557,7 @@ class Composite(LUMEModel):
         child.engine = None
         child.starts = {}
         child.inputs = self._start_inputs(child)
-        if source.deck is None and not source.bindings:
+        if child.deck is None and not source.wiring:
             child.status = STATUS_NO_DECK
             self._log(child.name, {"event": "unbuilt", "status": STATUS_NO_DECK})
             return
@@ -567,9 +565,9 @@ class Composite(LUMEModel):
             child.engine = self._engine(str(source.engine))
             child.model = child.engine.build(
                 child.name,
-                [binding.record for binding in source.bindings],
-                source.deck,
-                source.settings,
+                [record.engine_entry() for record in source.wiring],
+                child.deck,
+                source.engine_settings(),
                 active=dict(child.active),
             )
             writable = [
@@ -1011,7 +1009,7 @@ class Composite(LUMEModel):
             fault = self._faulted.get(name)
             if fault is not None and fault.read is not None:
                 outputs[name] = fault.read(
-                    channel_value_type(self._channels[name]), self._snapshot.get(name)
+                    self._channels[name].value_type, self._snapshot.get(name)
                 )
         return {name: outputs[name] for name in names}
 
@@ -1028,7 +1026,7 @@ class Composite(LUMEModel):
 
     def _is_moving_readback(self, address: str) -> bool:
         channel = self._channels[address]
-        return channel.role != SETPOINT and is_float_channel(channel)
+        return channel.role != SETPOINT and channel.value_type == "float"
 
     def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, object]:
         """A physics child's channels at ``t_s``: readbacks with motion, readout and clamp."""
@@ -1127,15 +1125,14 @@ class Composite(LUMEModel):
         outputs: dict[str, object] = {}
         for name in names:
             channel = self._channels[name]
-            value_type = channel_value_type(channel)
             if name in child.inputs:
                 outputs[name] = child.inputs[name]
-            elif value_type == "float":
+            elif channel.value_type == "float":
                 outputs[name] = math.nan
             elif name in child.last_good:
                 outputs[name] = child.last_good[name]
             else:
-                outputs[name] = values.zero(value_type, channel.options, channel.shape)
+                outputs[name] = channel.zero()
         return outputs
 
     def readout_group(self, address: str) -> tuple[str, ...]:
@@ -1180,7 +1177,7 @@ class Composite(LUMEModel):
         self._require(names)
         for name in names:
             channel = self._channels.get(name)
-            if channel is None or not is_float_channel(channel):
+            if channel is None or channel.value_type != "float":
                 raise ValueError(f"{name} is not a float channel of the view")
         self._refresh()
         times = np.asarray(times_s, dtype=np.float64).reshape(-1)
@@ -1317,11 +1314,8 @@ class Composite(LUMEModel):
                 raise ReadOnlyError(f"Variable '{name}' is read-only. Cannot be set.")
             channel = self._channels[name]
             try:
-                coerced[name] = values.coerce(
-                    value.tolist() if isinstance(value, np.ndarray) else value,
-                    channel.value_type,
-                    channel.options,
-                    channel.shape,
+                coerced[name] = channel.coerce(
+                    value.tolist() if isinstance(value, np.ndarray) else value
                 )
                 variable.validate_value(_for_variable(variable, coerced[name]))
             except ValueError as exc:

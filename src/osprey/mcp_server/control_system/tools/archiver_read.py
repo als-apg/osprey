@@ -21,7 +21,7 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_context import published_machine_kind
 from osprey_connectors.deployment.archive_targets import archive_targets, archive_withheld
 from osprey_connectors.refusals import KIND_WORDS
-from osprey_connectors.simulation.values import LABELLED_TYPES, channel_labels
+from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
 
@@ -363,7 +363,7 @@ def _roster_labels(config: dict[str, Any]) -> dict[str, tuple[str, ...]]:
             continue
         if record.options is None and record.value_type != "bool":
             continue
-        labels[record.address] = tuple(channel_labels({"options": record.options}))
+        labels[record.address] = tuple(record.options or DEFAULT_BOOL_OPTIONS)
     return labels
 
 

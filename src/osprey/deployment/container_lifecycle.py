@@ -630,12 +630,15 @@ def _report_knob_diff(comparison) -> None:
     the printed block from arriving twice.
 
     Args:
-        comparison: The seeder's fingerprint verdict, carrying the
-            ``(key, stored, expected)`` triples for the fields that moved.
+        comparison: The seeder's fingerprint verdict, carrying a
+            ``KnobChange`` for each field that moved.
     """
     output.section(
         _KNOB_DIFF_TITLE,
-        [(key, f"{stored!r} -> {expected!r}") for key, stored, expected in comparison.differences],
+        [
+            (change.key, f"{change.stored!r} -> {change.expected!r}")
+            for change in comparison.differences
+        ],
     )
     logger.key_info(_KNOB_DIFF_TITLE)
     logger.key_info(comparison.describe())

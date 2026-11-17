@@ -17,26 +17,25 @@ from __future__ import annotations
 
 import math
 import numbers
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import (
-    TYPE_CHECKING,
     Literal,
     SupportsFloat,
     SupportsIndex,
     TypeAlias,
     TypeGuard,
+    get_args,
     overload,
 )
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation.records import ChannelRecord
-
-_VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
+#: A channel's value type, the facility schema's ``value_type_enum``.
+ValueType = Literal["float", "int", "bool", "enum", "string", "waveform"]
+_VALUE_TYPES: tuple[ValueType, ...] = get_args(ValueType)
 #: The value types whose channels carry labels.
-LABELLED_TYPES = ("bool", "enum")
+LABELLED_TYPES: tuple[ValueType, ...] = ("bool", "enum")
 #: The value types a seed's ``gate`` applies to.
-GATED_TYPES = ("float", "int", *LABELLED_TYPES)
-DEFAULT_VALUE_TYPE = "float"
+GATED_TYPES: tuple[ValueType, ...] = ("float", "int", *LABELLED_TYPES)
+DEFAULT_VALUE_TYPE: ValueType = "float"
 DEFAULT_BOOL_OPTIONS = ("FALSE", "TRUE")
 #: The value type of a channel that carries a flat ``list[float]`` trace.
 _WAVEFORM = "waveform"
@@ -50,7 +49,7 @@ __all__ = [
     "GATED_TYPES",
     "LABELLED_TYPES",
     "StoredValue",
-    "channel_labels",
+    "ValueType",
     "coerce",
     "is_waveform",
     "zero",
@@ -99,19 +98,6 @@ def _labels(value_type: str, options: Sequence[str] | None) -> list[str]:
             return list(DEFAULT_BOOL_OPTIONS)
         raise ValueError(f"value_type {value_type} needs options (its labels)")
     return [str(label) for label in options]
-
-
-def channel_labels(channel: ChannelRecord | Mapping[str, Sequence[str] | None]) -> list[str]:
-    """The labels of a bool or enum channel record.
-
-    Args:
-        channel: The channel record, or a mapping stating its ``options``.
-
-    Returns:
-        The record's ``options``, or :data:`DEFAULT_BOOL_OPTIONS` without them.
-    """
-    options = channel.get("options") if isinstance(channel, Mapping) else channel.options
-    return list(options or DEFAULT_BOOL_OPTIONS)
 
 
 def _size(shape: Sequence[int] | None) -> int:

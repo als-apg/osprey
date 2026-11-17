@@ -59,8 +59,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey_connectors.simulation.view import (
-    SERVED_MODELS_FILE,
-    VARIABLES_FILE,
     VIEW_RELPATH,
     NoSimulatorViewError,
     SimulatorView,
@@ -197,7 +195,7 @@ def _resolve_model_write_token() -> str | None:
 
 
 def _open_view(path: Path) -> SimulatorView:
-    """Open the simulator view at ``path`` and read the documents this process serves.
+    """Open the simulator view at ``path`` and read every one of its documents.
 
     Raises:
         SystemExit: A document is absent, is not JSON or is from another
@@ -205,9 +203,7 @@ def _open_view(path: Path) -> SimulatorView:
     """
     try:
         view = SimulatorView.open(path)
-        for name in (SERVED_MODELS_FILE, VARIABLES_FILE):
-            view.document(name)
-        view.models()
+        view.check()
     except NoSimulatorViewError as exc:
         raise SystemExit(
             f"FATAL: no simulator view file at {exc.path}. Bind-mount the render's data "

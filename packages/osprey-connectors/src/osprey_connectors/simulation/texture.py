@@ -51,7 +51,6 @@ the archive seed, a subscription comparing held values -- see it alike.
 
 from __future__ import annotations
 
-import math
 import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Final, Literal
@@ -78,7 +77,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey_connectors.simulation.records import (
         ChannelRecord,
         GateRecord,
-        ModelEntry,
+        ModelRecord,
         NoiseRecord,
         PulseRecord,
         ResolvedCoupling,
@@ -89,9 +88,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 __all__ = [
     "TextureModel",
-    "channel_value_type",
     "channel_variable",
-    "is_float_channel",
 ]
 
 _MS_PER_S = 1000.0
@@ -103,49 +100,16 @@ _SCENARIO_ABSOLUTE_SUBKEY = b":noise_abs"
 _INT_UNBOUNDED = 2**63 - 1
 
 
-def channel_value_type(channel: ChannelRecord) -> str:
-    """A channel record's ``value_type``, ``float`` when it states none."""
-    return channel.value_type or values.DEFAULT_VALUE_TYPE
-
-
-def is_float_channel(channel: ChannelRecord) -> bool:
-    """Whether a channel record holds a ``float``."""
-    return channel_value_type(channel) == "float"
-
-
-def _bounds(channel: ChannelRecord) -> tuple[float | None, float | None] | None:
-    """The view's ``value_range`` as ``(low, high)``; ``None`` when both sides are null."""
-    bounds = channel.value_range
-    if bounds is None:
-        return None
-    low, high = bounds
-    if low is None and high is None:
-        return None
-    return low, high
-
-
 def _int_range(channel: ChannelRecord) -> tuple[int, int] | None:
-    """An ``int`` variable's range from the view's ``value_range``; a null side is unbounded."""
-    bounds = _bounds(channel)
-    if bounds is None:
-        return None
-    low, high = bounds
-    return (
-        -_INT_UNBOUNDED if low is None else int(low),
-        _INT_UNBOUNDED if high is None else int(high),
-    )
+    """An ``int`` variable's range from the view's ``value_range``."""
+    bounds = channel.value_range
+    return None if bounds is None else (int(bounds[0]), int(bounds[1]))
 
 
 def _float_range(channel: ChannelRecord) -> tuple[float, float] | None:
-    """A scalar variable's range from the view's ``value_range``; a null side is unbounded."""
-    bounds = _bounds(channel)
-    if bounds is None:
-        return None
-    low, high = bounds
-    return (
-        -math.inf if low is None else float(low),
-        math.inf if high is None else float(high),
-    )
+    """A scalar variable's range from the view's ``value_range``."""
+    bounds = channel.value_range
+    return None if bounds is None else (float(bounds[0]), float(bounds[1]))
 
 
 def _linear_terms(linear: Mapping[str, float | LinearTerm]) -> list[tuple[str, float]]:
@@ -193,12 +157,11 @@ def channel_variable(channel: ChannelRecord, nominal: values.StoredValue) -> Var
     """
     address = channel.address
     read_only = not (channel.role == SETPOINT and channel.writable)
-    value_type = channel_value_type(channel)
+    value_type = channel.value_type
     unit = channel.unit
     if value_type in values.LABELLED_TYPES:
-        options = values.channel_labels(channel)
         return EnumVariable(
-            name=address, options=options, default_value=nominal, read_only=read_only
+            name=address, options=list(channel.labels), default_value=nominal, read_only=read_only
         )
     # The start value is in the stored representation of the channel's value
     # type, which the type checker does not see; ``model_validate`` validates
@@ -300,19 +263,18 @@ class TextureModel(LUMEModel):
         self.reset()
 
     @staticmethod
-    def _unserved_wiring_defaults(models: Sequence[ModelEntry]) -> dict[str, object]:
+    def _unserved_wiring_defaults(models: Sequence[ModelRecord]) -> dict[str, object]:
         defaults: dict[str, object] = {}
         for model in models:
             if model.served:
                 continue
             for record in model.wiring:
-                if "default" in record.model_fields_set:
+                if record.default is not None:
                     defaults.setdefault(record.address, record.default)
         return defaults
 
     def _coerce(self, address: str, value: object) -> values.StoredValue:
-        channel = self._channels[address]
-        return values.coerce(value, channel_value_type(channel), channel.options, channel.shape)
+        return self._channels[address].coerce(value)
 
     def _nominal(self, address: str, wiring_default: object) -> values.StoredValue:
         channel = self._channels[address]
@@ -324,7 +286,7 @@ class TextureModel(LUMEModel):
             return self._coerce(address, seed.nominal)
         if wiring_default is not None:
             return self._coerce(address, wiring_default)
-        return values.zero(channel_value_type(channel), channel.options, channel.shape)
+        return channel.zero()
 
     @property
     @override
@@ -436,7 +398,7 @@ class TextureModel(LUMEModel):
         if gate is None or not self._blocked(gate, held):
             return value
         gated = gate.gated
-        value_type = channel_value_type(self._channels[address])
+        value_type = self._channels[address].value_type
         if value_type == "float":
             return values._real(value) * values._real(gated)
         if value_type == "int":
@@ -501,7 +463,7 @@ class TextureModel(LUMEModel):
         flat = times.reshape(-1)
         total = np.zeros(flat.shape, dtype=np.float64)
         channel = self._channels.get(address)
-        if channel is None or not is_float_channel(channel) or address in self._still:
+        if channel is None or channel.value_type != "float" or address in self._still:
             return total.reshape(times.shape)
         seed = self._seeds.get(address)
         key = series.channel_key_bytes(address)
@@ -535,7 +497,7 @@ class TextureModel(LUMEModel):
         if self._pulse(address) is not None:
             return True
         channel = self._channels.get(address)
-        if channel is None or not is_float_channel(channel) or address in self._still:
+        if channel is None or channel.value_type != "float" or address in self._still:
             return False
         seed = self._seeds.get(address)
         if self._couple.get(address) or topoff.topoff_record(seed) is not None:
@@ -604,7 +566,7 @@ class TextureModel(LUMEModel):
     def _pulse(self, address: str) -> PulseRecord | None:
         """The ``pulse`` record of a waveform channel, ``None`` when it has none."""
         channel = self._channels.get(address)
-        if channel is None or not values.is_waveform(channel_value_type(channel)):
+        if channel is None or not values.is_waveform(channel.value_type):
             return None
         seed = self._seeds.get(address)
         return None if seed is None else seed.pulse
@@ -624,7 +586,7 @@ class TextureModel(LUMEModel):
         )
         enable = False
         if enable_address in self._held:
-            labels = values.channel_labels(self._channels[enable_address])
+            labels = self._channels[enable_address].labels
             enable = self._held_value(enable_address) == labels[-1]
         return pulse.trace(address, t_s, driver, enable)
 
@@ -643,10 +605,10 @@ class TextureModel(LUMEModel):
         for name in names:
             held = self._held_value(name)
             channel = self._channels[name]
-            if is_float_channel(channel):
+            if channel.value_type == "float":
                 level = values._real(held)
                 outputs[name] = self.clamp(name, level + float(self.motion(name, t_s, base=level)))
-            elif values.is_waveform(channel_value_type(channel)):
+            elif values.is_waveform(channel.value_type):
                 record = self._pulse(name)
                 array = held if record is None else self._pulse_trace(name, record, t_s)
                 outputs[name] = np.asarray(array, dtype=np.float64).reshape(channel.shape or ())

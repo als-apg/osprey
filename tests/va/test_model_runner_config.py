@@ -33,6 +33,7 @@ from osprey_connectors.simulation.view import (
     SCHEMAS,
     VARIABLES_FILE,
     SimulatorView,
+    ViewSchemaError,
 )
 from tests._builds import BuiltProject
 from tests._simulator_view import view_channel
@@ -149,7 +150,7 @@ VIEW: dict[str, Any] = {
             value_range=[-2.0, 2.0],
             precision=4,
         ),
-        view_channel("T:COUNT", value_type="int", precision=2),
+        view_channel("T:COUNT", value_type="int"),
         view_channel("M:SLICED", owner="M"),
         view_channel("M:TUNE:X", owner="M"),
         view_channel("T:LOCKED:SP", role="setpoint", writable=False, value_range=[0.0, 1.0]),
@@ -287,6 +288,15 @@ def test_only_float_channels_carry_a_precision(view: SimulatorView) -> None:
     floats = {c["address"] for c in VIEW["channels"] if c["value_type"] == "float"}
     carrying = {address for address, entry in config["variables"].items() if "precision" in entry}
     assert carrying == floats
+
+
+def test_a_view_refuses_a_precision_on_a_channel_other_than_float(tmp_path: Path) -> None:
+    document = copy.deepcopy(VIEW)
+    count = next(c for c in document["channels"] if c["address"] == "T:COUNT")
+    count["precision"] = 2
+
+    with pytest.raises(ViewSchemaError, match="int channel carries `precision`"):
+        SimulatorView.open(_write_view(tmp_path, document)).channel("T:COUNT")
 
 
 def test_the_default_float_precision_shows_a_tune_and_a_small_kick() -> None:

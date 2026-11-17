@@ -142,7 +142,7 @@ def device_of(view: Any, address: str) -> str | None:
 
 
 def _model(view: Any, model: object) -> Any:
-    candidates = [entry for entry in view.physics_models() if entry.deck is not None]
+    candidates = [entry for entry in view.physics_models() if view.deck_path(entry) is not None]
     listed = ", ".join(entry.name for entry in candidates)
     if not candidates:
         _refuse("this render serves no model with a deck", "Serve a deck model and rebuild.")
@@ -188,23 +188,23 @@ def _corrector_delta(render_root: Path, model: str) -> float:
 def _correctors(model: Any, correctors: object) -> dict[str, Any]:
     """The named correctors' wiring records, in column order."""
     wired = {
-        binding.address: binding
-        for binding in model.bindings
-        if binding.engine_role == "setpoint" and binding.plane in _PLANES
+        record.address: record
+        for record in model.wiring
+        if record.engine_role == "setpoint" and record.plane in _PLANES
     }
     if correctors is None:
         chosen = [
-            binding.address
+            record.address
             for plane in _PLANES
-            for binding in model.bindings
-            if binding.address in wired and binding.plane == plane
+            for record in model.wiring
+            if record.address in wired and record.plane == plane
         ]
         if not chosen:
             _refuse(
                 f"{model.name} wires no corrector setpoint",
                 "Wire a corrector setpoint in the model and rebuild.",
             )
-        return {address: wired[address].record for address in chosen}
+        return {address: wired[address].engine_entry() for address in chosen}
     if isinstance(correctors, str | bytes) or not isinstance(correctors, Sequence):
         _refuse(
             f"correctors must be a list of setpoint addresses, got {correctors!r}",
@@ -227,7 +227,7 @@ def _correctors(model: Any, correctors: object) -> dict[str, Any]:
                 f"corrector setpoint {address} appears more than once in correctors",
                 "Name each corrector once.",
             )
-        chosen_records[address] = wired[address].record
+        chosen_records[address] = wired[address].engine_entry()
     return chosen_records
 
 

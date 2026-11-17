@@ -44,15 +44,6 @@ COLUMN_POSITIONS_KEY = "column_positions"
 DEFAULT_KIND = RESPONSE_KINDS[0]
 
 
-def _thaw(value: Any) -> Any:
-    """A plain JSON copy of a value the view froze."""
-    if isinstance(value, Mapping):
-        return {str(key): _thaw(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_thaw(item) for item in value]
-    return value
-
-
 def _cause(exc: Exception, engine: Any) -> str | None:
     """The :data:`CAUSES` entry *exc* states for *engine*, or ``None`` for a failure."""
     from osprey.facility.errors import FacilityBuildError
@@ -149,9 +140,9 @@ def solve_and_print(payload: Mapping[str, Any]) -> None:
         print(RESULT_TAG, json.dumps({"refused": text, "cause": "request"}), flush=True)  # noqa: T201 -- stdout carries the result line the parent reads
         return
     arguments = (
-        model.deck,
-        [_thaw(binding.record) for binding in model.bindings],
-        _thaw(model.settings),
+        view.deck_path(model),
+        [record.engine_entry() for record in model.wiring],
+        model.engine_settings(),
         list(payload["correctors"]),
         dict(payload["steps"]),
     )

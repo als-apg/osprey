@@ -170,9 +170,11 @@ def closed_orbit_models(render_root: Path | None = None) -> list[str]:
 
 def _deck_model(view: Any, model: str) -> Any:
     for entry in view.physics_models():
-        if entry.name == model and entry.deck is not None:
+        if entry.name == model and view.deck_path(entry) is not None:
             return entry
-    served = ", ".join(entry.name for entry in view.physics_models() if entry.deck is not None)
+    served = ", ".join(
+        entry.name for entry in view.physics_models() if view.deck_path(entry) is not None
+    )
     raise ValueError(
         f"model {model!r} is not a served deck model of this render; the served ones: {served}"
     )
@@ -249,6 +251,7 @@ def model_members(model: str, render_root: Path | None = None) -> ModelMembers:
     root = _render_root() if render_root is None else Path(render_root)
     view = SimulatorView.of_render(root)
     chosen = _deck_model(view, model)
+    deck = view.deck_path(chosen)
     engine = _engine(chosen)
     element_index = _optional(engine, "element_index", model)
     deck_length = _optional(engine, "deck_length", model)
@@ -256,14 +259,14 @@ def model_members(model: str, render_root: Path | None = None) -> ModelMembers:
 
     bpms: list[Member] = []
     correctors: list[Member] = []
-    for binding in chosen.bindings:
+    for binding in chosen.wiring:
         if binding.plane not in _PLANES or binding.element is None:
             continue
         if binding.engine_role not in ("monitor", "setpoint"):
             continue
         element = str(binding.element)
-        index = int(element_index(chosen.deck, element, model=model))
-        s_m = float(engine.locate(chosen.deck, element, model=model)[0])
+        index = int(element_index(deck, element, model=model))
+        s_m = float(engine.locate(deck, element, model=model)[0])
         unit = _unit(view, binding.address)
         if binding.engine_role == "monitor":
             bpms.append(
@@ -300,7 +303,7 @@ def model_members(model: str, render_root: Path | None = None) -> ModelMembers:
 
     return ModelMembers(
         model=model,
-        length_m=float(deck_length(chosen.deck, model=model)),
+        length_m=float(deck_length(deck, model=model)),
         bpms=sorted(bpms, key=order),
         correctors=sorted(correctors, key=order),
     )

@@ -247,7 +247,8 @@ def _ground_truth(render: Path) -> dict:
 
     from osprey_connectors.simulation.view import SimulatorView
 
-    deck = SimulatorView.of_render(render).model("SR").deck
+    view = SimulatorView.of_render(render)
+    deck = view.deck_path(view.model("SR"))
     assert deck is not None, f"the simulator view under {render} holds no deck for SR"
     lattice = at.load_lattice(deck)
     lattice4d = copy.deepcopy(lattice)

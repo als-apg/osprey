@@ -56,6 +56,7 @@ from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.deployment.simulator import virtual_accelerator_port
 from osprey_connectors.ipc import derive_endpoints
+from osprey_connectors.simulation.records import VariablesDocument
 from osprey_connectors.simulation.values import is_waveform
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -337,7 +338,7 @@ def _waveform_addresses(view: SimulatorView, addresses: Sequence[str], root: Pat
     try:
         # Parsed up front so a file without a channel list is refused here,
         # not read below as "this address is not listed".
-        view.document(VARIABLES_FILE)
+        view.document(VariablesDocument)
         for address in addresses:
             try:
                 channel = view.channel(address)

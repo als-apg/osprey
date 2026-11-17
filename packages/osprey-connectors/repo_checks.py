@@ -129,6 +129,12 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.archive.FingerprintComparison": (
         "a fingerprint comparison answers in this type"
     ),
+    "osprey_connectors.simulation.archive.KnobChange": (
+        "a fingerprint comparison lists each field that moved in this type"
+    ),
+    "osprey_connectors.simulation.archive.SeedFingerprint": (
+        "a seed fingerprint answers, and is compared, in this type"
+    ),
     "osprey_connectors.simulation.archive.SeedReport": (
         "a seeding run reports, and reports progress, in this type"
     ),
@@ -142,6 +148,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "a caller reads which channel a refused write names"
     ),
     "osprey_connectors.simulation.logbook.PlotSeries": "a plot spec lists its series in this type",
+    "osprey_connectors.simulation.records.Direction": (
+        "a word of the wiring vocabulary a wiring record's direction states"
+    ),
     "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
         "the framework's archive rewrite reads the burst window"
     ),
@@ -149,9 +158,7 @@ EXTENSION_POINTS: Mapping[str, str] = {
         "the framework's archive rewrite reads the loss refill bound"
     ),
     "osprey_connectors.simulation.state.Overlap": "a composition check answers in this type",
-    "osprey_connectors.simulation.view.Binding": "a view lists its wiring records in this type",
     "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
-    "osprey_connectors.simulation.view.Channel": "a view answers a channel in this type",
     "osprey_connectors.simulation.view.ENGINE_ROLES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
@@ -159,6 +166,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.SCHEMAS": (
+        "a hand-written view stamps each file with its schema from this map"
+    ),
     "osprey_connectors.testing.invalidate_cache": (
         "a test drops the parsed control-context files through it"
     ),

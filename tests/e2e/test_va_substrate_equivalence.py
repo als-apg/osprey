@@ -355,7 +355,6 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
     from osprey_connectors.simulation import TEXTURE
     from osprey_connectors.simulation.records import WiringRecord
-    from osprey_connectors.simulation.view import Binding
 
     facility = build_facility(repo / "data" / "facility", project_name=repo.name)
     readback_of = {
@@ -369,7 +368,7 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
             continue
         name = str(model["name"])
         bindings = [
-            Binding.from_record(name, WiringRecord.model_validate(entry))
+            WiringRecord.model_validate(entry)
             for entry in simulator_wiring(FacilityRecords(facility), name)
         ]
         wired = {binding.address for binding in bindings}

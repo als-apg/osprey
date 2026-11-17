@@ -40,6 +40,9 @@ WRITER = "src/osprey/facility/views/simulator.py"
 
 #: Where a token matches without opening a view, each with why.
 ZONES: dict[str, str] = {
+    "packages/osprey-connectors/src/osprey_connectors/simulation/records.py": (
+        "each view document names its file as its FILE; only the reader opens one"
+    ),
     "src/osprey/facility/layers/**": (
         "the importers join their facility tree's own seeds.yaml as SEEDS_FILE, not the view"
     ),
@@ -100,7 +103,7 @@ def test_a_join_onto_a_view_file_under_the_connectors_is_flagged(tmp_path: Path)
             f"{_CONNECTORS}/control_system/joined.py": "path = root / SEEDS_FILE\n",
             f"{_CONNECTORS}/control_system/directory.py": 'view = data_root / "simulator"\n',
             f"{_CONNECTORS}/control_system/parts.py": 'view = Path(root, "data", "simulator")\n',
-            f"{_CONNECTORS}/control_system/reader.py": "document = view.document(VARIABLES_FILE)\n",
+            f"{_CONNECTORS}/control_system/reader.py": "document = view.document(VariablesDocument)\n",
             f"{_CONNECTORS}/control_system/docstring.py": '"""Reads ``addresses.json``."""\n',
             READER: 'ADDRESSES_FILE = "addresses.json"\n',
             WRITER: "target = root / VARIABLES_FILE\n",

@@ -29,6 +29,7 @@ from osprey_connectors.directory._contract import (
     DirectoryRow,
 )
 from osprey_connectors.service_answers import Outcome, Unavailable
+from osprey_connectors.simulation.records import ChannelRecord
 from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
@@ -36,7 +37,6 @@ from osprey_connectors.simulation.view import (
     SETPOINT,
     STATUS_SIGNAL,
     UPTIME,
-    Channel,
     NoSimulatorViewError,
     SimulatorView,
 )
@@ -77,9 +77,9 @@ def _first_sentence(text: str | None) -> str | None:
     return (f"{head}." if sep else head) or None
 
 
-def _channel_record(channel: Channel, server: str) -> DirectoryRecord:
+def _channel_record(channel: ChannelRecord, server: str) -> DirectoryRecord:
     types = _OUTPUT_RECORD_TYPES if channel.role == SETPOINT else _INPUT_RECORD_TYPES
-    properties = {"role": channel.role, "valueType": channel.value_type}
+    properties: dict[str, str] = {"role": channel.role, "valueType": channel.value_type}
     if channel.unit is not None:
         properties["unit"] = str(channel.unit)
     return DirectoryRecord(
