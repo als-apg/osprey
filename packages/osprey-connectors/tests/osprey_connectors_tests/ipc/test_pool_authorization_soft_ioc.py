@@ -154,7 +154,7 @@ async def test_the_holder_writes_its_listed_channels_in_range_and_nothing_else(
         held = await pool.connector("live", authorization=grant.id)
         other = await pool.connector("live")
         assert held.pid != other.pid
-        assert held.authorization == grant.id
+        assert held.key.authorization == grant.id
         assert (held.report["selected_role"], held.report["writes_enabled"]) == (
             "write_access",
             True,

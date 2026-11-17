@@ -22,7 +22,7 @@ from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.errors import ConnectRefusedError
 from osprey_connectors.ipc import _host, _pool
-from osprey_connectors.ipc._pool import ConnectorHostPool
+from osprey_connectors.ipc._pool import ConnectorHostPool, HostKey
 from osprey_connectors.ipc._verification import _selected_role, derive_endpoints
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
@@ -104,7 +104,7 @@ def test_the_pool_derivation_is_the_selected_role(monkeypatch, tmp_path, shape, 
         "connector": {"epics": {"gateways": GATEWAYS[shape]}},
     }
     pool = ConnectorHostPool(section)
-    key = ("live", "readonly" if readonly else None)
+    key = HostKey(target="live", execution_mode="readonly" if readonly else None)
 
     derivation, _, _ = pool._derive(key, pool._section)
     expected = _expected(shape, writes, readonly)
