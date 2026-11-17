@@ -93,3 +93,23 @@ def test_the_set_overview_lists_its_calibration_views_as_chips(panel_graph) -> N
     ]  # fmt: skip
     assert len(chips) == len(panel_graph.calibration_kinds("Quadrupole"))
     assert all(c["geometry"]["height"] == layout.CHIP_HEIGHT for c in chips)
+
+
+def test_a_place_says_per_kind_how_many_are_at_their_wanted_basis(panel_graph) -> None:
+    from osprey.facility.panels.describe import health_rollup, place_view
+
+    view = place_view(panel_graph, "XR/XR01")
+    titles = [s.title for s in view.sections]
+    assert titles.index("calibration") == titles.index("key numbers") + 1
+    (section,) = [s for s in view.sections if s.title == "calibration"]
+    first = section.items[0]
+    assert isinstance(first, Link)
+    assert first.label == "Integrated gradient: 1 of 2 at wanted basis"  # QF1 bench, QD1 design
+    assert first.target == Target("calibration", "group", "XR-QUAD", system="integrated_gradient")
+    rollup = health_rollup(panel_graph, "XR")
+    (summary,) = [s for s in rollup.sections if s.title == "calibration"]
+    assert summary.items[0].label == "Integrated gradient: 1 of 4 at wanted basis"
+    doc = stub_render(view, panel_graph)
+    chips = [n for n in nodes(doc) if "at wanted basis" in str(n["props"].get("tooltip"))]
+    assert len(chips) == len(section.items)
+    assert len(section.items) == len(panel_graph.calibration_kinds("Quadrupole"))  # pumps: none

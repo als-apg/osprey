@@ -358,6 +358,7 @@ _SET_READBACK = "each cell: readback of {}"
 _CAL_HEADS = ("parameter", "value in force", "basis", "date", "source", "history")
 _NO_VALUE_YET = "no value yet"
 _CALIBRATION_SECTION = "calibration"
+_CHIPPED = ("set", "place", "rollup")  # views whose calibration section is chips
 _CAL_WHAT = "each cell: {}, deviation from design (the value when no design value)"
 #: The states of a calibration view, in the order its legend and counts give them.
 _CAL_STATES = ("design", "bench", "survey", "beam", "contested", "none")
@@ -1957,11 +1958,15 @@ class _Page:
         self.y += PANEL_GAP
 
     def items(self, section: Section) -> None:
-        if self.view.id.view == "set" and all(isinstance(i, Link) for i in section.items):
-            links = [i for i in section.items if isinstance(i, Link)]
-            if section.title == _CALIBRATION_SECTION:  # the set's calibration views: chips
-                self.chips(self.x0, [(link.label, link, None) for link in links])
-                return
+        if section.title == _CALIBRATION_SECTION and self.view.id.view in _CHIPPED:
+            # calibration views, or how far a place's are: one row of chips
+            entries = [
+                (i.label, i, None) if isinstance(i, Link) else (i.text, None, None)
+                for i in section.items
+                if isinstance(i, Link | Fact)
+            ]
+            self.chips(self.x0, entries)
+            return
         previous: object = None
         rows = left_out = 0
         for item in section.items:

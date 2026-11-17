@@ -822,6 +822,35 @@ def _calibration(graph: PanelGraph, index: _Index, thing: Thing) -> list[Item]:
     ]
 
 
+_AT_WANTED = "{}: {} of {} at wanted basis"
+
+
+def _calibration_summary(graph: PanelGraph, index: _Index, place_id: str) -> list[Item]:
+    """Per calibration kind of a class with devices in the place: how many of them
+    have a value at or above the kind's wanted basis that no other claim contests,
+    as a link to the kind's view
+    over the set of that class holding most of them (a fact when no set does)."""
+    devices = [t for t in graph.contents(place_id) if t.kind == "device" and t.cls is not None]
+    found: list[Item] = []
+    for kind in graph.calibration_kinds():
+        mine = [d for d in devices if d.cls == kind.cls]
+        if not mine:
+            continue
+        states = [graph.calibration(d.id, kind.kind) for d in mine]
+        good = sum(not f.below_wanted and f.state != "contested" for f in states)
+        text = _AT_WANTED.format(kind.title, good, len(mine))
+        here = Counter(
+            group for d in mine for group in index.sets_of.get(d.id, ())
+            if index.set_class.get(group) == kind.cls
+        )  # fmt: skip
+        if here:
+            group = min(here, key=lambda g: (-here[g], g))
+            found.append(Link(text, Target("calibration", "group", group, system=kind.kind)))
+        else:
+            found.append(Fact("calibration", text))
+    return found
+
+
 _DESIGN_TEXT = "design"
 _NO_VALUE_SHORT = "no value"
 _DEVIATION = "{:+.2f} %"
@@ -1154,6 +1183,7 @@ def place_view(
     sections = _sections(
         [
             ("key numbers", [band] if band is not None else []),
+            ("calibration", _calibration_summary(graph, index, place_id)),
             ("strip", [strip]),
             ("places within", within),
             (_BY_SYSTEM, systems),
@@ -1488,6 +1518,8 @@ def health_rollup(
     title = f"{root_id} health by {by}"
     band = _band(graph, place, "rollup")
     head: tuple[Section, ...] = (Section("key numbers", (band,)),) if band is not None else ()
+    if by == "place":
+        head += _sections([("calibration", _calibration_summary(graph, index, root_id))])
     if arcs:
         head += (Section(_RING, (Group(_RING, "ring", tuple(arcs)),)),)
     if by == "place" and root_id in index.ruled:  # beside the places: the same by system
