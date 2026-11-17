@@ -8,8 +8,9 @@ under :data:`STATE_DIR_NAME` (the state directory,
 :func:`~osprey_connectors.posture_store.state_dir`), and this module is where
 it is written and read.
 
-The file has exactly one writer at a time — its **owner**: the web terminal
-when one is running, otherwise a controls MCP server. Everything else is a
+The file has exactly one writer at a time — its **writer**, stored under the
+key ``owner`` (:class:`RecordWriter`): the web terminal when one is running,
+otherwise a controls MCP server. Everything else is a
 reader: every chat session, every notebook kernel, every
 executor sandbox, every sibling MCP server, and the stdlib-only hooks, which
 cannot import this module and therefore restate the rules below. Treat
