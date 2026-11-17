@@ -911,9 +911,10 @@ def arm_deployed_queue_owner(
     baseline target; *position* is passed to :func:`set_switch_in_record`.
 
     At ``asked`` the worker asks a person to approve each plan's write
-    authorization before it writes, so a lane armed there needs
-    :func:`approving_write_requests` around its runs; a lane whose subject is
-    not the approval arms at ``allowed``.
+    authorization before it writes, so a lane armed there runs its plans inside
+    :func:`approving_write_requests`. ``allowed`` lets the worker issue its own
+    only where the deployment's tier is ``allowed`` too: the shipped presets'
+    is ``asked``, and the tier caps the switch.
     """
     from osprey.deployment.compose_generator import ensure_control_target_dir
     from osprey_connectors import posture_store
