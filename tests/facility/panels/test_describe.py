@@ -1037,3 +1037,20 @@ def test_a_rack_unit_light_reads_the_parts_placed_through_its_device(tmp_path) -
     assert "XR01-CARD1:Fault-Sts" in [item.channel for item in unit.lights]
     assert unit.link.target == card("XR01:CH1")
     assert "XR01:CARD1" not in [u.link.label for u in (*elevation.units, *elevation.unpositioned)]
+
+
+def test_a_device_claimed_into_a_rack_with_no_unit_is_unpositioned_there(tmp_path) -> None:
+    def claimed(document: dict[str, Any]) -> None:
+        document["relations"].append(
+            {
+                "id": "xr02-block1-rack",
+                "type": "located_in",
+                "subject": {"device": "XR02:BLOCK1"},
+                "object": {"place": "XR/XR01/RK1"},
+                "standing": "accepted",
+            }
+        )
+
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json", claimed), PANELS_DIR)
+    (elevation,) = _section(rack_elevation(graph, "XR/XR01/RK1"), "units").items
+    assert "XR02:BLOCK1" in [u.link.label for u in elevation.unpositioned]

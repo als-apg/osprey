@@ -874,7 +874,7 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     id, each with the claims' standing and the first ``size_u`` that parses
     as a number. The devices whose built place is the rack and that no unit claim
     positions are ``unpositioned``, by id, and so are those a claim puts in the
-    rack at a unit that is no integer (with the unit's text).
+    rack with no unit, or at a unit that is no integer (with the unit's text).
     Each entry links to the device's card and carries a :class:`Light` per
     rule channel of the device and of the parts placed through it, each once.
 
@@ -922,12 +922,15 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     for claim in graph.neighbours(rack_id, "place").get(PLACE_RELATION, ()):
         if claim.outgoing or claim.other_kind != "device" or claim.other in units_of:
             continue
-        text = claim.unit_text
-        if text is not None:
-            texts.setdefault(claim.other, []).append(text)
+        # claimed in with no unit, or a unit that is no integer: unpositioned here
+        stated = texts.setdefault(claim.other, [])
+        if claim.unit_text is not None:
+            stated.append(claim.unit_text)
     for device, stated in texts.items():
         thing = graph.thing(device, "device")
-        text = ", ".join(dict.fromkeys(stated))
+        text = ", ".join(dict.fromkeys(stated)) or None
+        if device in loose and text is None:
+            continue
         loose[device] = RackUnit(None, _ref(graph, index, thing), lights(thing), unit_text=text)
     unpositioned = list(loose.items())
     elevation = Elevation(
