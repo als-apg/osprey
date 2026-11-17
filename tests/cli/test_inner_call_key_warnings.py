@@ -198,21 +198,29 @@ TEMPLATE_WRITTEN_KEYS = (
 @pytest.mark.parametrize("pipeline", [None, "in_context", "hierarchical"])
 def test_the_lint_view_states_what_the_template_renders(pipeline, ariel_server_on):
     """The view restates template lines; the template is the producer."""
-    context: dict[str, Any] = {"default_provider": "house", "ariel_server_on": ariel_server_on}
+    # A registered provider that needs a key, so the list below is not empty.
+    catalog = {"anthropic": {"api_key": "${ANTHROPIC_API_KEY}"}, **PROVIDER_CATALOG}
+    context: dict[str, Any] = {
+        "default_provider": "anthropic",
+        "ariel_server_on": ariel_server_on,
+        "provider_catalog": catalog,
+    }
     if pipeline:
         context |= {"default_pipeline": pipeline, f"enable_{pipeline}": True}
     rendered = yaml.safe_load(render_config(**context))
 
     view = _view(
-        provider="house",
+        provider="anthropic",
         pipeline=pipeline,
         ariel_server_on=ariel_server_on,
-        provider_catalog=PROVIDER_CATALOG,
+        provider_catalog=catalog,
     )
 
     for key in TEMPLATE_WRITTEN_KEYS:
         assert _leaf(view, key) == _leaf(rendered, key), key
-    assert inner_model_calls(view, environ={}) == inner_model_calls(rendered, environ={})
+    listed = inner_model_calls(view, environ={})
+    assert "session naming" in {call.feature for call in listed}
+    assert listed == inner_model_calls(rendered, environ={})
 
 
 def test_the_web_lint_sees_no_model_call_keys_it_did_not_ask_for():

@@ -23,8 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, create_model
 
+from osprey.models.api_keys import api_key_env_var, api_key_missing
 from osprey.models.config import get_provider_config
-from osprey.models.inner_calls import api_key_env_var, api_key_missing
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:

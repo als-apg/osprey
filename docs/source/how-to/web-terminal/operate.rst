@@ -881,7 +881,9 @@ without ``allow_personal_login``. ``osprey validate``, ``osprey build`` and
 ``osprey web`` each name the enabled features whose key is missing, as
 warnings that do not change the exit status. A line reads
 ``session naming needs ANTHROPIC_API_KEY (not set): sessions keep their
-first-prompt title``.
+first-prompt title``. ``osprey validate`` reads the profile and not a build,
+so it misses a channel finder the profile takes from its preset;
+``osprey build`` reports it.
 
 Add the key to the deployment's ``.env`` to use them. A feature whose
 provider needs no key, such as a local Ollama server, is not listed.

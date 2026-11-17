@@ -16,9 +16,9 @@ added here is reported by each of them.
 A feature joins by adding one :class:`Feature` to :data:`FEATURES` in the change
 that adds its ``get_chat_completion`` call.
 
-:func:`api_key_missing` is the rule for "no key" that this module and
-:func:`osprey.models.completion.get_chat_completion` share, so a feature is
-reported here exactly when its call would be refused there.
+The rule for "no key" is :func:`osprey.models.api_keys.api_key_missing`, which
+this module and :func:`osprey.models.completion.get_chat_completion` both import,
+so a feature is reported here exactly when its call would be refused there.
 """
 
 from __future__ import annotations
@@ -27,57 +27,17 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from osprey_connectors.config import (
-    is_unresolved_placeholder,
-    resolve_env_vars,
-    unresolved_placeholders,
-)
+from osprey.models.api_keys import _placeholder_variable, api_key_missing
+from osprey_connectors.config import is_unresolved_placeholder, resolve_env_vars
 
 __all__ = [
     "FEATURES",
     "Feature",
     "SESSION_NAMING",
     "InnerModelCall",
-    "api_key_env_var",
-    "api_key_missing",
     "inner_model_calls",
     "missing_key_warnings",
 ]
-
-
-def api_key_missing(api_key: object) -> bool:
-    """Whether a provider entry's ``api_key`` is no key at all.
-
-    Empty or absent, or a ``${VAR}`` reference the config loader left verbatim
-    because ``VAR`` is unset
-    (:func:`osprey_connectors.config.is_unresolved_placeholder`). The second
-    case is a non-empty string, so a bare truth test would send it to the
-    provider as the key.
-    """
-    return not api_key or is_unresolved_placeholder(api_key)
-
-
-def api_key_env_var(provider: str, api_key: object = None) -> str | None:
-    """The environment variable *provider*'s API key arrives in.
-
-    The variable the config entry itself references when *api_key* is an
-    unresolved ``${VAR}``, since that is the one the deployment reads; else the
-    one the provider declares. ``None`` when neither names one.
-
-    Args:
-        provider: A provider name.
-        api_key: The provider entry's ``api_key`` value, raw or resolved.
-    """
-    if is_unresolved_placeholder(api_key):
-        return _placeholder_variable(api_key)
-    from osprey.models.provider_registry import get_provider_registry
-
-    return get_provider_registry().api_key_env_var(provider)
-
-
-def _placeholder_variable(placeholder: object) -> str:
-    """The variable a lone unresolved ``${VAR}`` or ``$VAR`` names."""
-    return unresolved_placeholders(placeholder)[0].strip("${}")
 
 
 def _section(config: Mapping[str, Any], *path: str) -> Mapping[str, Any]:

@@ -14,11 +14,10 @@ from typing import Any
 
 import pytest
 
+from osprey.models.api_keys import api_key_env_var, api_key_missing
 from osprey.models.inner_calls import (
     FEATURES,
     SESSION_NAMING,
-    api_key_env_var,
-    api_key_missing,
     inner_model_calls,
     missing_key_warnings,
 )
