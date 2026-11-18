@@ -608,7 +608,9 @@ def test_a_corrector_the_engine_refuses_stays_loud(spear3: Path) -> None:
     document = build_facility(facility, project_name="scratch")
     model = next(model for model in document["models"] if model["name"] == "StorageRing")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, match="corrector NOT:A:SETPOINT is not a wired setpoint on an element"
+    ):
         response_check._responses(
             response_check._engine("pyat"),
             facility / model["deck"],
