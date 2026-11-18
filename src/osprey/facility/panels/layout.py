@@ -278,7 +278,9 @@ PROBE_VALUE_WIDTH = 72
 PROBE_READOUT_WIDTH = 96
 WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
-COMMAND_LABEL = "send"  # what a command's button reads
+#: A command name's ending that says "this is a command", not what it does; the
+#: button's word is the name without it.
+_COMMAND_ENDING = re.compile(r"[-_.]?(?:cmd|command|cmnd)$", re.IGNORECASE)
 COMMAND_VALUE = 1  # what pressing a command's button writes
 # What one screen may bind. The formula engine allows 1,000 subscriptions per
 # client (``max_subscriptions_per_client``, canopy/formula_engine/config.py at
@@ -1608,7 +1610,7 @@ class _Page:
         elif widget == "pv-button":
             props = {
                 **common,
-                "label": COMMAND_LABEL,
+                "label": self.command_label(channel),
                 "pressValue": COMMAND_VALUE,
                 "backgroundColor": FIELD_BACKGROUND,
             }
@@ -1671,6 +1673,12 @@ class _Page:
         """The ``drawn_as`` ``record_types.csv`` states for *channel*, or ``None``."""
         row = self.graph.record_type(channel)
         return row.drawn_as if row is not None else None
+
+    def command_label(self, channel: str) -> str:
+        """The word a command's button reads: the word ``state_labels.csv`` states
+        for the value the button writes, else the action the channel's name says."""
+        stated = self.graph.state_label(channel, COMMAND_VALUE)
+        return stated or action_word(channel)
 
     def enumerated(self, channel: str) -> bool:
         """Whether *channel*'s record is a two- or multi-valued output
@@ -4627,6 +4635,17 @@ def _chip(title: str, item: object) -> tuple[str, Link | None]:
 def caps_width(text: str, size: float) -> float:
     """:func:`text_width` of *text* written in capitals."""
     return text_width(text, size) * CAPS_WIDTH / CHAR_WIDTH
+
+
+def action_word(channel: str) -> str:
+    """The action a command channel's name says: its last segment (after the last
+    ``:``), a command ending (``_Cmd``, ``-CMD``) cut off, ``_`` and ``-`` read as
+    spaces, the first letter upper case (``Fault_Reset_Cmd`` gives ``Fault Reset``).
+    A name that is all ending reads whole."""
+    segment = channel.rsplit(":", 1)[-1]
+    words = re.sub(r"[-_.]+", " ", _COMMAND_ENDING.sub("", segment)).strip()
+    words = words or segment
+    return words[:1].upper() + words[1:]
 
 
 def scale_note(body: drawing.Body) -> str | None:

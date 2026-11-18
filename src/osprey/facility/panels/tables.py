@@ -1,6 +1,6 @@
 """The rule tables a facility repository writes beside its facility file.
 
-A panels directory holds six CSV files; :data:`COLUMNS` is each one's header
+A panels directory holds the CSV files below; :data:`COLUMNS` is each one's header
 line, the schema this module holds them to:
 
 - ``positions.csv``: where a thing sits, one row per thing and frame;
@@ -17,7 +17,9 @@ line, the schema this module holds them to:
 - ``calibration_kinds.csv``: the calibration quantities a device class has;
 - ``calibrations.csv``: the calibration claims, one value of one kind for one
   subject each, with basis, date, source and standing;
-- ``calibration_curves.csv``: the points of a claim whose value is a curve.
+- ``calibration_curves.csv``: the points of a claim whose value is a curve;
+- ``state_labels.csv``: the word a discrete channel's value means, one row per
+  channel and value, as its record states it.
 
 ``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
 must be there; every other file may be absent, which reads as empty. Across
@@ -64,6 +66,7 @@ __all__ = [
     "PanelTables",
     "PicturePart",
     "ShortName",
+    "StateLabel",
     "Metric",
     "CalibrationKind",
     "Calibration",
@@ -88,6 +91,7 @@ CALIBRATION_KINDS = "calibration_kinds.csv"
 CALIBRATIONS = "calibrations.csv"
 CALIBRATION_CURVES = "calibration_curves.csv"
 PROBE_PICTURES = "probe_pictures.csv"
+STATE_LABELS = "state_labels.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -102,6 +106,7 @@ TABLE_FILES: tuple[str, ...] = (
     CALIBRATIONS,
     CALIBRATION_CURVES,
     PROBE_PICTURES,
+    STATE_LABELS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -157,6 +162,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "signal",
             "under",
         ],
+        STATE_LABELS: ["channel", "value", "label", "source", "revision", "locator"],
         NAMES: [
             "thing",
             "short_name",
@@ -256,6 +262,7 @@ OPTIONAL_FILES = frozenset(
         CALIBRATIONS,
         CALIBRATION_CURVES,
         PROBE_PICTURES,
+        STATE_LABELS,
     }
 )
 
@@ -321,6 +328,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CALIBRATIONS: ("id", "kind", "subject", "value", "basis", "standing"),
         CALIBRATION_CURVES: ("id", "x", "y"),
         PROBE_PICTURES: ("class", "element", "shape"),
+        STATE_LABELS: ("channel", "value", "label"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -338,6 +346,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CALIBRATIONS: {"basis": CALIBRATION_BASES, "standing": STANDINGS},
         CALIBRATION_CURVES: {},
         PROBE_PICTURES: {"shape": PROBE_SHAPES},
+        STATE_LABELS: {},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -369,6 +378,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         METRICS: ("view", "level", "order"),
         CALIBRATION_KINDS: ("kind", "class"),
         CALIBRATIONS: ("id",),
+        STATE_LABELS: ("channel", "value"),
     }
 )
 
@@ -617,6 +627,20 @@ class PicturePart:
 
 
 @dataclass(frozen=True)
+class StateLabel:
+    """One row of ``state_labels.csv``: the word a discrete channel's *value* means,
+    as its record states it (kept as stated, even where it reads inverted: the
+    colour of a state comes from ``health.csv``, never from the word)."""
+
+    channel: str
+    value: str
+    label: str
+    source: str | None
+    revision: str | None
+    locator: str | None
+
+
+@dataclass(frozen=True)
 class ShortName:
     """One row of ``names.csv``: the short name a strip shows for a thing.
 
@@ -787,6 +811,7 @@ class PanelTables:
     calibrations: tuple[Calibration, ...] = ()
     calibration_curves: tuple[CurvePoint, ...] = ()
     probe_pictures: tuple[ProbeElement, ...] = ()
+    state_labels: tuple[StateLabel, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -803,6 +828,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CALIBRATIONS: Calibration,
         CALIBRATION_CURVES: CurvePoint,
         PROBE_PICTURES: _probe_element,
+        STATE_LABELS: StateLabel,
     }
 )
 
@@ -1045,6 +1071,7 @@ def read_tables(panels_dir: Path) -> PanelTables:
         metrics=_read(directory, METRICS),
         **_read_calibrations(directory),
         probe_pictures=_read(directory, PROBE_PICTURES),
+        state_labels=_read(directory, STATE_LABELS),
     )
 
 

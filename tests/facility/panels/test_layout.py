@@ -904,6 +904,38 @@ def test_a_command_shown_as_a_value_prints_whole_and_its_input_keeps_its_precisi
     assert "precision" not in button["props"]
 
 
+@pytest.mark.parametrize(
+    ("channel", "word"),
+    [
+        ("XR01-PS1:Fault_Reset_Cmd", "Fault Reset"),
+        ("XR01-PS1:RampDown-CMD", "RampDown"),
+        ("XR01-PS1:reset", "Reset"),
+        ("XR01-PS1:Cmd", "Cmd"),  # all ending: the name whole, never an empty button
+        ("NOCOLON", "NOCOLON"),
+    ],
+)
+def test_a_command_names_its_action_from_its_channel(channel: str, word: str) -> None:
+    assert layout.action_word(channel) == word
+
+
+def test_a_command_button_reads_its_action_never_a_bare_send(tmp_path) -> None:
+    command = "XR01-PS1:On-Cmd"
+    row = ValueRow("on", command, None, None, True, drawn_as="command")
+    tables = copy_tables(tmp_path / "plain")
+    graph = load_graph(write_fixture_facility(tmp_path / "plain.json"), tables)
+    (button,) = [n for n in nodes(draw(card("one", row), graph)[0]) if n["type"] == "pv-button"]
+    assert button["props"]["label"] == "On"  # from the name
+    stated = copy_tables(tmp_path / "stated")
+    (stated / "state_labels.csv").write_text(
+        "channel,value,label,source,revision,locator\n"
+        f"{command},0,Rest,FIXTURE,X.1,l\n{command},1,Energise,FIXTURE,X.1,l\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "stated.json"), stated)
+    (button,) = [n for n in nodes(draw(card("one", row), graph)[0]) if n["type"] == "pv-button"]
+    assert button["props"]["label"] == "Energise"  # the word for the value it writes
+    assert button["props"]["pressValue"] == layout.COMMAND_VALUE
+
+
 def test_a_paired_state_readback_prints_whole_and_a_two_valued_setpoints_input_too(
     panel_graph,
 ) -> None:

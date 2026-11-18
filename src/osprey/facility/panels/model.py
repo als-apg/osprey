@@ -343,6 +343,16 @@ def _disagree(a: Calibration, b: Calibration, tolerance: tuple[str, float] | Non
     )
 
 
+def _value_key(value: object) -> str:
+    """A discrete value as one text: a whole number without its point."""
+    text = str(value).strip()
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    return str(int(number)) if number.is_integer() else text
+
+
 class PanelGraph:
     """The things, channels, relations, poses and rules screens are drawn from.
 
@@ -404,6 +414,9 @@ class PanelGraph:
             if part.document not in self._excluded_documents:
                 self._pictures.setdefault(part.device_class, []).append(part)
         self._read_calibrations(tables)
+        self._labels: dict[tuple[str, str], str] = {
+            (row.channel, _value_key(row.value)): row.label for row in tables.state_labels
+        }
 
     def _read_calibrations(self, tables: PanelTables) -> None:
         self._kinds = {(kind.kind, kind.cls): kind for kind in tables.calibration_kinds}
@@ -1143,6 +1156,11 @@ class PanelGraph:
         """
         found = self.picture_matches(device_id, signal)
         return found[0][1] if found else None
+
+    def state_label(self, channel: str, value: object) -> str | None:
+        """The word ``state_labels.csv`` states for *channel* at *value* (``1``,
+        ``1.0`` and ``"1"`` are one value), or ``None``."""
+        return self._labels.get((channel, _value_key(value)))
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""

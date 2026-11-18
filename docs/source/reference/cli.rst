@@ -1403,8 +1403,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
    sources give two states is ``disagree``) must be there;
    ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
-   ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv`` and
-   ``calibration_curves.csv`` may be absent. A table that breaks its schema
+   ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv``,
+   ``calibration_curves.csv`` and ``state_labels.csv`` (the word each value of a
+   discrete channel means; a command's button reads the word for the value it
+   writes, else the action its channel's name says) may be absent. A table that
+   breaks its schema
    prints the file and line and exits 1. A ``pictures.csv`` row with a place id
    in its optional ``under`` column draws only the devices of its class in that
    place, so two machines with devices of one class name each state their own
