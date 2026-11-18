@@ -535,9 +535,10 @@ uncaught error or leaves a rejection unhandled before its call is marked
 shared start-up marking the page first. Ready means "can be driven", not "has
 data". The hub marks itself once its rail, direct visit and dock grid are up;
 a pane's own window is marked by the hub once dressed, and never copies the
-hub's mark. An app panel takes the late route: `pending` in its markup and
-`markPageReady()` after its first refresh, error or not; `osprey app check`
-refuses one that does not.
+hub's mark. A panel takes the late route: `pending` in its markup and
+`markPageReady()` once its first state is drawn, error or not. The panel
+validator refuses one that does not, so discovery does not serve it and
+`osprey app check` fails it.
 
 ## 11. CANOPY host contract
 

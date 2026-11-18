@@ -24,7 +24,10 @@ alone (this is why they are cheap and never flake):
    ``<link ... href="/design-system/css/<sheet>">`` for each of
    :data:`PANEL_STYLESHEETS` (tokens, base, primitives). Each one missing
    is an error.
-3. **Token-only (no raw hex colors).** The panel's HTML/CSS/JS must style
+3. **Page-ready mark.** The entry HTML takes the late route to the page-ready
+   mark: ``data-page-ready="pending"`` on its ``<html>`` and a script it loads
+   calling ``markPageReady()``, as ``panels/page_ready.py`` reads it.
+4. **Token-only (no raw hex colors).** The panel's HTML/CSS/JS must style
    through ``var(--…)`` design tokens, never raw ``#rgb``/``#rrggbb``
    color literals. Third-party builds under the panel's ``vendor/``
    directory are not panel source and are skipped. Each hex-color-shaped literal is flagged with its file
@@ -46,6 +49,8 @@ machine-readable rule ids, a frozen :class:`PanelFinding` record rendering
 naming rule), a :class:`PanelValidationError` bundling *every* finding,
 and a :func:`validate_panel` that runs every check
 without short-circuiting so a caller sees the complete set in one pass.
+:func:`validate_entry` is the same rule set minus the manifest, for a page
+that has none (an application's panel).
 
 Stdlib-only (``json``, ``re``, ``dataclasses``, ``enum``, ``pathlib``,
 ``typing``).
@@ -66,6 +71,7 @@ from osprey.interfaces.design_system.panels.manifest import (
     PanelManifestError,
     parse_manifest,
 )
+from osprey.interfaces.design_system.panels.page_ready import route_problem
 
 __all__ = [
     "MANIFEST_FILENAME",
@@ -74,6 +80,7 @@ __all__ = [
     "PanelRule",
     "PanelFinding",
     "PanelValidationError",
+    "validate_entry",
     "validate_panel",
     "assert_valid_panel",
 ]
@@ -177,6 +184,8 @@ class PanelRule(StrEnum):
     MISSING_FONT_LINK = "missing_font_link"
     #: A raw hex color literal appears where a ``var(--…)`` token belongs.
     RAW_HEX_COLOR = "raw_hex_color"
+    #: The entry page never reaches the page-ready mark by the late route.
+    PAGE_READY = "page_ready"
 
 
 @dataclass(frozen=True)
@@ -328,6 +337,22 @@ def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[Panel
     return errors
 
 
+def _check_page_ready(entry_path: Path, entry_html: str) -> list[PanelFinding]:
+    """Require the entry HTML to take the late route to the page-ready mark.
+
+    Args:
+        entry_path: The entry HTML file; its relative script addresses resolve from here.
+        entry_html: Its full text.
+
+    Returns:
+        One :class:`PanelRule.PAGE_READY` finding naming what the page lacks, or none.
+    """
+    problem = route_problem(entry_html, entry_path, panel=True)
+    if problem is None:
+        return []
+    return [PanelFinding(rule=PanelRule.PAGE_READY, message=problem, source=str(entry_path))]
+
+
 def _check_no_raw_hex_colors(path: Path, text: str) -> list[PanelFinding]:
     """Flag every raw hex color literal in one file's text.
 
@@ -376,6 +401,30 @@ def _hex_scan_files(panel_dir: Path, entry_path: Path | None) -> list[Path]:
     return sorted(files)
 
 
+def validate_entry(entry_path: Path, panel_dir: Path) -> list[PanelFinding]:
+    """Run every rule that reads a panel's entry page and its own files, without a manifest.
+
+    The design-system references, the page-ready mark, then raw hex colours over the
+    entry page and every ``.css``/``.js`` file of the panel. Never stops at the first
+    failure.
+
+    Args:
+        entry_path: The panel's entry HTML file.
+        panel_dir: The panel directory whose files the hex-colour rule scans.
+
+    Returns:
+        Every :class:`PanelFinding`, in check order. Empty if the page passes.
+    """
+    entry_html = entry_path.read_text(encoding="utf-8")
+    errors = [
+        *_check_design_system_linked(entry_path, entry_html),
+        *_check_page_ready(entry_path, entry_html),
+    ]
+    for path in _hex_scan_files(panel_dir, entry_path):
+        errors.extend(_check_no_raw_hex_colors(path, path.read_text(encoding="utf-8")))
+    return errors
+
+
 def validate_panel(panel_dir: str | Path) -> list[PanelFinding]:
     """Run every panel check and collect every failure.
 
@@ -391,7 +440,7 @@ def validate_panel(panel_dir: str | Path) -> list[PanelFinding]:
         Every :class:`PanelFinding`, in check order. Empty if the panel
         is fully valid. When the manifest is missing/invalid or its entry
         file is absent, the HTML-dependent checks (design-system link,
-        theme boot) are skipped for the unknown entry — but sibling
+        theme boot, page-ready mark) are skipped for the unknown entry — but sibling
         ``.css``/``.js`` files are still scanned for raw hex colors, since
         that check does not depend on the manifest.
     """
@@ -402,10 +451,10 @@ def validate_panel(panel_dir: str | Path) -> list[PanelFinding]:
     errors.extend(manifest_errors)
 
     if entry_path is not None:
-        entry_html = entry_path.read_text(encoding="utf-8")
-        errors.extend(_check_design_system_linked(entry_path, entry_html))
+        errors.extend(validate_entry(entry_path, panel_dir))
+        return errors
 
-    for path in _hex_scan_files(panel_dir, entry_path):
+    for path in _hex_scan_files(panel_dir, None):
         errors.extend(_check_no_raw_hex_colors(path, path.read_text(encoding="utf-8")))
 
     return errors
