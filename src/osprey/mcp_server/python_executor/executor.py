@@ -701,12 +701,21 @@ def _target_is_resolvable(target: str) -> bool:
     A config that cannot be read at all also answers ``False``: not knowing
     whether the target resolves is not the same as knowing that it does.
     """
+    from osprey_connectors.errors import ConfigLoadError
+
     try:
         from osprey_connectors.config import get_config_value
         from osprey_connectors.targets import resolve_target
 
         section = get_config_value("control_system", {})
         resolve_target(section if isinstance(section, dict) else {}, target)
+    except ConfigLoadError:
+        # A config that did not load is a ValueError too (ConfigNotFoundError,
+        # ConfigParseError): it is the unreadable case below, not a refusal.
+        logger.debug(
+            "Could not check target resolvability; execution runs unstamped", exc_info=True
+        )
+        return False
     except ValueError:
         logger.warning(
             "Control target %r is not resolvable on this deployment; execution runs unstamped",
