@@ -1433,7 +1433,14 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    socket thing, ``socket``), a dashed "—" where nothing is stated and every thing,
    dashed and "contested", where a side has two; its state lamp, the section's
    roles of that connector and its presses (drawn there, not again under
-   operate). Clients the relation names on no stated port are drawn apart by
+   operate). A row's optional ``roles`` column (``;``-separated) names the section
+   roles its connectors carry; empty means every section role. A role binds to a
+   connector only through a row that lists it, so two groups numbered alike
+   (outlets 1-18, phases 1-3) never take each other's channels; on a connector
+   with no number the listed roles bind the device's channel of that role whose
+   name carries the connector's name. A ``{n}`` row with ``roles`` and no
+   ``channel`` is numbered by the last number of the device's channels of its
+   first role, with no lamp; a device that serves none gets no such group. Clients the relation names on no stated port are drawn apart by
    class; a range with nothing in it is left out. ``write`` prints per recipe the
    connectors with something stated, contested or nothing, and the devices with
    every connector stated, some or none. A ``ring-strip`` section draws a group
@@ -1466,10 +1473,14 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``index.json`` lists it under ``drawn_on`` with the owner's screen. A device
    whose owner is not stated gets no entry; ``check`` counts both. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
-   ``card`` whose ``level`` names its recipe, else its roles), its relations as
+   ``card`` whose ``level`` names its recipe, else its roles; a tile's measure is
+   ``value`` or ``word`` of the role's first channel, or over every channel of
+   the role on the device ``count_true`` shown "k of N", ``max`` or ``sum``, a
+   dash and "one of N has no value" while any member has none), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its
    writable channels: a choice of stated states, an action, or a typed value
-   applied with Apply; press groups side by side, up to three; a choice with one
+   applied with Apply, a line beside Apply saying what it will write from the
+   same formula as its press value; press groups side by side, up to three; a choice with one
    stated value is an action with the live status beside it; "no operator
    actions stated" when there is none), every channel the card is about in a
    grid (its own, and of a device its roles reach the channels beside the ones a

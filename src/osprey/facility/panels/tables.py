@@ -59,6 +59,7 @@ __all__ = [
     "EXCLUDED_KINDS",
     "HEALTH_STATES",
     "OPTIONAL_COLUMNS",
+    "CARD_MEASURES",
     "OPTIONAL_FILES",
     "TOLERANCE_TERMS",
     "PICTURE_SHAPES",
@@ -262,6 +263,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "far_port",
             "label",
             "source",
+            "roles",
         ],
         CARD_RECIPES: [
             "class",
@@ -359,6 +361,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
         METRICS: frozenset({"precision"}),
         CARD_RECIPES: frozenset({"devices"}),
         STRIP_SYMBOLS: frozenset({"devices"}),
+        FRONTS: frozenset({"roles"}),
     }
 )
 
@@ -409,7 +412,11 @@ MEASURES: tuple[str, ...] = (
     "rms",
     "max",
     "min",
+    "sum",
 )
+#: What a card's key number may compute: one value or word, or over every channel
+#: of its role on the device a count of the true ones, the largest or the sum.
+CARD_MEASURES: tuple[str, ...] = ("value", "word", "count_true", "max", "sum")
 
 #: How a calibration was found, in the order the screens rank it: a display order
 #: only (which basis to show as further along), not a rule of which value counts.
@@ -1000,7 +1007,11 @@ class FrontRow:
     the socket things that exist (``far_direction`` ``socket``), else by the ports
     the relation states. ``channel`` is the connector's state channel. What is on it
     is found by ``far_relation`` in ``far_direction`` on the port ``far_port`` (empty:
-    any port); ``label`` is its word under the socket."""
+    any port); ``label`` is its word under the socket. ``roles`` (optional,
+    ``;``-separated) are the section roles the row's connectors carry: empty, every
+    section role; a role binds to a connector only through a row that lists it.
+    A ``{n}`` row with no ``channel`` and with ``roles`` is numbered by the
+    device's channels of its first role."""
 
     recipe: str
     face: str
@@ -1015,6 +1026,7 @@ class FrontRow:
     far_port: str | None
     label: str | None
     source: str | None
+    roles: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1376,9 +1388,11 @@ def _check_metric(
     if metric.view == "card":
         if metric.cls is None:
             raise PanelTableError(METRICS, line, "a card's key number names its class")
-        if metric.measure not in ("value", "word"):
+        if metric.measure not in CARD_MEASURES:
             raise PanelTableError(
-                METRICS, line, f"a card's key number is a value or a word, not {metric.measure!r}"
+                METRICS,
+                line,
+                f"a card's key number is one of {', '.join(CARD_MEASURES)}, not {metric.measure!r}",
             )
         return
     if metric.measure == "word":

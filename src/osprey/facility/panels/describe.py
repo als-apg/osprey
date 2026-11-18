@@ -1061,6 +1061,10 @@ def _role_title(role: str) -> str:
     return role.replace("-", " ").replace("_", " ").capitalize()
 
 
+#: A card key number's measures over every channel of its role on the device.
+_OVER_ALL = ("count_true", "max", "sum")
+
+
 def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[KeyTile]:
     """The tiles: the ``metrics.csv`` rows of view ``card`` of the device's class
     whose ``level`` is its recipe or empty, by order, each
@@ -1085,6 +1089,22 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
             continue
         hit = found[0]
         unit, scale = _role_unit(graph, hit)
+        if row.measure in _OVER_ALL:  # over every channel of the role on the device
+            own = [h for h in found if h.owner == thing.id] or found
+            members = tuple(dict.fromkeys(h.channel for h in own))
+            counted = row.measure == "count_true"
+            tiles.append(
+                KeyTile(
+                    row.title,
+                    hit.channel,
+                    row.measure,
+                    None if counted else row.unit or unit,
+                    None if counted else scale,
+                    row.precision,
+                    channels=members,
+                )
+            )
+            continue
         shown = "word" if row.measure == "word" else "value"
         if shown == "word" and hit.role.shown_as == "lamp":
             shown = "lamp"
@@ -1830,6 +1850,16 @@ def front_numbers(graph: PanelGraph, device: str, row: FrontRow) -> list[str]:
     states; in number order, never as text."""
     if "{n}" not in row.connector:
         return [""]
+    listed = _row_roles(row)
+    if listed and not row.channel:  # numbered by the channels of its first role served
+        numbers = {
+            int(n)
+            for h in graph.roles(device)
+            if h.owner == device
+            and h.role.role == listed[0]
+            and (n := _last_number(h.channel)) is not None
+        }
+        return [str(k) for k in sorted(numbers)]
     if row.count is not None:
         return [str(k) for k in range(1, int(row.count) + 1)]
     found: set[int] = set()
@@ -1901,6 +1931,11 @@ def front_state(sides: tuple[tuple[FarEnd, ...], ...]) -> str:
     return FRONT_STATED if any(sides) else FRONT_NONE
 
 
+def _row_roles(row: FrontRow) -> list[str]:
+    """The section roles a ``fronts.csv`` row lists (empty: every section role)."""
+    return [r for r in (row.roles or "").split(";") if r]
+
+
 def _last_number(text: str) -> str | None:
     found = re.findall(r"\d+", text)
     return str(int(found[-1])) if found else None
@@ -1933,7 +1968,9 @@ def card_front(
         connectors: list[Connector] = []
         for row in rows:
             numbers = front_numbers(graph, thing.id, row)
-            if "{n}" in row.connector and row.far_direction == "in":  # clients of a range
+            numbered_by_role = bool(row.roles) and not row.channel
+            if "{n}" in row.connector and row.far_direction == "in" and not numbered_by_role:
+                # clients of a range; a range numbered by a role has no clients apart
                 loose_rows.append(row)
                 client_groups.add((face, group))
             for n in numbers:
@@ -1945,7 +1982,9 @@ def card_front(
                     lamp = next(
                         (c for c in sorted(channels) if fnmatch.fnmatchcase(c, pattern)), None
                     )
-                rows_, controls = _connector_roles(graph, own, roles, n, sides, lamp)
+                carried = [r for r in roles if r in _row_roles(row)] if row.roles else roles
+                literal = row.connector if not n and row.roles else None
+                rows_, controls = _connector_roles(graph, own, carried, n, sides, lamp, literal)
                 presses += controls
                 label = (row.label or row.connector).replace("{n}", n)
                 connectors.append(Connector(label, row.kind, lamp, sides, rows_, tuple(controls)))
@@ -1978,13 +2017,19 @@ def _connector_roles(
     n: str,
     sides: tuple[tuple[FarEnd, ...], ...],
     lamp: str | None,
+    literal: str | None = None,
 ) -> tuple[tuple[BlockRow, ...], list[Control]]:
-    """The values and presses of the section's roles on one connector."""
+    """The values and presses of *roles* on one connector: the device's channels of
+    the role whose last number is *n*, or, on a literal connector whose row lists
+    its roles, whose name carries the *literal*."""
     rows: list[BlockRow] = []
     controls: list[Control] = []
     single = [end.thing for side in sides for end in side]
     for role in roles:
-        found = [h for h in own if h.role.role == role and n and _last_number(h.channel) == n]
+        if literal is not None:
+            found = [h for h in own if h.role.role == role and literal in h.channel]
+        else:
+            found = [h for h in own if h.role.role == role and n and _last_number(h.channel) == n]
         if not found and len(single) == 1:  # the role on the one thing on it
             try:
                 found = [h for h in graph.roles(single[0]) if h.role.role == role][:1]

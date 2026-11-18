@@ -679,12 +679,15 @@ class KeyTile:
     Attributes:
         title: Its head.
         channel: The channel it shows, or ``None``: not served yet.
-        shown_as: ``value`` (a number with its unit), ``word`` (the state word)
-            or ``lamp`` (a light and the state word).
+        shown_as: ``value`` (a number with its unit), ``word`` (the state word),
+            ``lamp`` (a light and the state word), or a measure over *channels*:
+            ``count_true`` ("k of N"), ``max`` or ``sum``.
         unit: The unit printed after the number, or ``None``.
         scale: The divisor the raw value is shown through, or ``None`` (1).
         precision: The decimals of the number, or ``None`` (significant digits).
         words: The stated word per value, ``(value, word)``.
+        channels: For ``count_true``, ``max`` or ``sum``: every channel of the
+            role on the device, the figure computed over them all.
     """
 
     title: str
@@ -694,6 +697,7 @@ class KeyTile:
     scale: float | None = None
     precision: int | None = None
     words: tuple[tuple[str, str], ...] = ()
+    channels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

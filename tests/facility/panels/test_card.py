@@ -269,6 +269,69 @@ def test_card_key_numbers_name_their_roles_and_a_missing_one_is_not_served(tmp_p
     assert [n for n in _by_type(doc, "pv-label") if n["props"]["pv"] == "XR01-IP1:Pressure-RB"]
 
 
+def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_path) -> None:
+    """count_true reads "k of N", max and sum one formula over all members; while any
+    member has no value the figure is a dash and a line says so."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def outlets(document) -> None:
+        for n in (1, 2, 3):
+            for name in ("On-Sts", "Cur-RB"):
+                document["channels"].append(
+                    {"id": f"XR01-PS1:Out{n}{name}", "on": {"device": "XR01:PS1"}}
+                )
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "PowerSupply,on,*:Out[0-9]On-Sts,device,lamp,,,,,stated,S,1,l\n"
+        + "PowerSupply,load,*:Out[0-9]Cur-RB,device,value,A,,,,stated,S,1,l\n"
+    )
+    with (tables / "metrics.csv").open("a") as handle:
+        handle.write(
+            "card,,1,Outlets on,count_true,on,PowerSupply,,,S\n"
+            "card,,2,Largest load,max,load,PowerSupply,A,,S\n"
+            "card,,3,Total load,sum,load,PowerSupply,A,,S\n"
+        )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", outlets), tables)
+    view = device_card(graph, "XR01:PS1")
+    tiles = [i for s in view.sections for i in s.items if type(i).__name__ == "KeyTile"]
+    assert [(t.shown_as, len(t.channels)) for t in tiles] == [
+        ("count_true", 3),
+        ("max", 3),
+        ("sum", 3),
+    ]
+    doc = stub_render(view, graph)
+    formulas = {"formula://" + f["name"]: f for f in doc["formulas"]}
+    figures = [
+        n
+        for n in _by_type(doc, "text-label")
+        if any(
+            r.get("formula") in formulas and r["name"].endswith("figure")
+            for r in n.get("rules", ())
+        )
+    ]
+    assert len(figures) == 3
+    for node in figures:
+        (rule,) = node["rules"]
+        assert node["props"]["text"] == rule["default"] == layout.NO_VALUE  # no partial figure
+        assert len(formulas[rule["formula"]]["bindings"]) == 3  # every member
+    count = formulas[figures[0]["rules"][0]["formula"]]["expression"]
+    assert count.count("!= 0") == 3
+    assert "+" in formulas[figures[2]["rules"][0]["formula"]]["expression"]
+    assert "max((" in formulas[figures[1]["rules"][0]["formula"]]["expression"]
+    assert _text(doc, "of 3")
+    notes = [
+        n for n in _by_type(doc, "text-label") if n["props"]["text"] == "one of 3 has no value"
+    ]
+    assert len(notes) == 3
+    for note, figure in zip(notes, figures, strict=True):
+        (rule,) = note["rules"]
+        assert rule["pvs"] == [{"name": figure["rules"][0]["formula"], "trigger": True}]
+        assert rule["conditions"][0]["value"] == ""  # cleared once every member reports
+
+
 def test_a_row_named_by_its_raw_channel_shows_the_last_part_and_the_name_muted(
     panel_graph,
 ) -> None:
@@ -1093,6 +1156,106 @@ def test_a_connector_shows_its_roles_and_offers_only_stated_presses(tmp_path):
     doc = stub_render(view, graph)
     presses = [n for n in _by_type(doc, "pv-button") if n["props"]["pv"].startswith("XR01-PS1:Out")]
     assert sorted(n["props"]["pressValue"] for n in presses) == [1, 1, 3, 3]
+
+
+FRONTS_ROLES_HEADER = FRONTS_HEADER.rstrip("\n") + ",roles\n"
+
+_GROUP_ROLES = (
+    "PowerSupply,state,*:Out[0-9]-Sts,device,lamp,,,,,stated,S,1,l\n"
+    "PowerSupply,current,*:Ph[0-9]-Cur,device,value,,,,,stated,S,1,l\n"
+)
+
+
+def _two_groups(tmp_path, phases: bool, roles_column: bool = True):
+    """A supply whose outlets 1-2 and phases 1-2 share numbers: two groups of one front."""
+
+    def channels(document) -> None:
+        names = ["Out1-Sts", "Out2-Sts"] + (["Ph1-Cur", "Ph2-Cur"] if phases else [])
+        for name in names:
+            document["channels"].append({"id": f"XR01-PS1:{name}", "on": {"device": "XR01:PS1"}})
+
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    _fronted(tmp_path, channels, roles=_GROUP_ROLES)  # its tables, then this front's rows
+    tables = tmp_path / "panels"
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "supply,1,front,Outputs,,front,,state;current,,S\n"
+    )
+    if roles_column:
+        rows = (
+            "supply,front,outlets,1,Out{n},socket,,*:Out{n}-Sts,powered_by,in,{n},,S,state\n"
+            "supply,front,phases,2,Ph{n},socket,,,powered_by,in,{n},,S,current\n"
+        )
+        (tables / "fronts.csv").write_text(FRONTS_ROLES_HEADER + rows)
+    else:
+        rows = (
+            "supply,front,outlets,1,Out{n},socket,,*:Out{n}-Sts,powered_by,in,{n},,S\n"
+            "supply,front,phases,2,Ph{n},socket,2,,powered_by,in,{n},,S\n"
+        )
+        (tables / "fronts.csv").write_text(FRONTS_HEADER + rows)
+    return load_graph(write_fixture_facility(tmp_path / "g.json", channels), tables)
+
+
+def _carried(front) -> dict[str, list[str]]:
+    return {c.label: sorted(r.channel for r in c.rows) for g in front.groups for c in g.connectors}
+
+
+def test_two_groups_sharing_numbers_take_only_the_roles_their_rows_list(tmp_path):
+    graph = _two_groups(tmp_path, phases=True)
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    assert [g.title for g in front.groups] == ["outlets", "phases"]
+    assert _carried(front) == {
+        "Out1": [],  # its state is its lamp
+        "Out2": [],
+        "Ph1": ["XR01-PS1:Ph1-Cur"],  # numbered from its role's channels; no lamp
+        "Ph2": ["XR01-PS1:Ph2-Cur"],
+    }
+    assert [c.lamp for c in front.groups[0].connectors] == [
+        "XR01-PS1:Out1-Sts",
+        "XR01-PS1:Out2-Sts",
+    ]
+    assert all(c.lamp is None for c in front.groups[1].connectors)
+
+
+def test_without_the_roles_column_every_section_role_binds_by_number_as_before(tmp_path):
+    graph = _two_groups(tmp_path / "old", phases=True, roles_column=False)
+    carried = _carried(_front_of(device_card(graph, "XR01:PS1")))
+    assert carried["Ph1"] == ["XR01-PS1:Out1-Sts", "XR01-PS1:Ph1-Cur"]  # the old reading
+
+
+def test_a_group_numbered_from_a_role_the_device_does_not_serve_is_left_out(tmp_path):
+    graph = _two_groups(tmp_path, phases=False)
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    assert [g.title for g in front.groups] == ["outlets"]  # no phase channel: no connector
+
+
+def test_a_literal_connector_takes_its_listed_role_s_channel_carrying_its_name(tmp_path):
+    def channels(document) -> None:
+        for name in ("PSUA-Sts", "PSUB-Sts"):
+            document["channels"].append({"id": f"XR01-PS1:{name}", "on": {"device": "XR01:PS1"}})
+
+    roles = "PowerSupply,state,*:PSU?-Sts,device,lamp,,,,,stated,S,1,l\n"
+    _fronted(tmp_path, channels, roles=roles)
+    tables = tmp_path / "panels"
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "supply,1,front,Outputs,,front,,state,,S\n"
+    )
+    (tables / "fronts.csv").write_text(
+        FRONTS_ROLES_HEADER
+        + "supply,rear,supplies,1,PSUA,power,,,powered_by,in,,PSU A,S,state\n"
+        + "supply,rear,supplies,2,PSUB,power,,,powered_by,in,,PSU B,S,state\n"
+    )
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "g.json", channels), tables)
+    assert _carried(_front_of(device_card(graph, "XR01:PS1"))) == {
+        "PSU A": ["XR01-PS1:PSUA-Sts"],
+        "PSU B": ["XR01-PS1:PSUB-Sts"],
+    }
 
 
 def test_tables_without_fronts_still_build(panel_graph):

@@ -558,6 +558,7 @@ _NO_RULE_YET = "no health rule yet"
 _TRAY_TITLE = "in our lists, not placed"
 _NO_DATA = "no data yet"
 _NEEDS_SERVER = "needs a server-side aggregate"
+_A_MEMBER_MISSING = "one of {} has no value"
 _MANY_VALUES = "{} channels state it: the row names no one"
 _DASH = "—"
 NO_VALUE = _DASH  # an annotation's text until its formula delivers, and while disconnected
@@ -2331,11 +2332,88 @@ class _Page:
                 fg=MUTED_TEXT,
             )
             room = w - 2 * TILE_PAD - GAP
+            if tile.channels:  # a figure over every channel of the role
+                self.key_figure(inner, self.y + KEY_VALUE_TOP, room, tile)
+                continue
             self.shown_value(
                 inner, self.y + KEY_VALUE_TOP, room, tile.channel, tile.shown_as, tile.words,
                 unit=tile.unit, scale=tile.scale, size=KEY_VALUE_SIZE, h=KEY_VALUE_LINE,
             )  # fmt: skip
         self.y += KEY_TILE_HEIGHT + 2 * GAP
+
+    def key_figure(self, x: float, y: float, w: float, tile: KeyTile) -> None:
+        """A key tile's figure over every channel of its role: "k of N" true, the
+        largest or the sum, from one formula; while any of them has no value the
+        figure is a dash and a line under it says so, so no part is shown as whole."""
+        members = tile.channels
+        keys = [f"c{i}" for i in range(len(members))]
+        tokens = [f"{{{key}}}" for key in keys]
+        counted = tile.shown_as == "count_true"
+        if counted:
+            figure = " + ".join(f"1 * ({t} != 0)" for t in tokens)
+        elif tile.shown_as == "sum":
+            figure = " + ".join(tokens)
+        else:
+            figure = f"max(({', '.join(tokens)},))"
+        if not counted:
+            scaled = f"({figure}) / {_number(tile.scale)}" if tile.scale else figure
+            shape = (
+                fixed_expression("{v}", tile.precision)
+                if tile.precision is not None
+                else significant_expression("{v}")
+            )
+            figure = shape.replace("{v}", f"({scaled})")
+        bindings = dict(zip(keys, members, strict=True))
+        reads = frozenset(members)
+        if len(figure) > RULE_EXPRESSION_LIMIT or not self.budget.take([(1, reads)]):
+            self.small(x, y, _NEEDS_SERVER, fg=MUTED_TEXT)
+            return
+        name = f"figure-{len(self.s.formulas)}"
+        self.s.formulas.append(
+            {"name": name, "kind": "scalar", "expression": figure, "bindings": bindings}
+        )
+        pv = _FORMULA_PREFIX + name
+        beside = f"of {len(members)}" if counted else (tile.unit or "")
+        beside_w = text_width(beside, SMALL_SIZE) if beside else 0
+        number_w = max(w - beside_w - GAP, 0)
+        self.s._rules += 1
+        rule = {
+            "id": f"r-{self.s._rules:04d}",
+            "name": f"{tile.title} figure",
+            "targetProperty": "text",
+            "default": NO_VALUE,
+            "formula": pv,
+        }
+        props = {
+            "text": NO_VALUE,
+            "fontSize": KEY_VALUE_SIZE,
+            "foregroundColor": PAGE_TEXT,
+            "backgroundColor": TRANSPARENT,
+            "align": "left",
+            _TOOLTIP: f"{tile.shown_as.replace('_', ' ')} over {len(members)} channels",
+        }
+        high = KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE  # the figure, the note under it
+        self.s.widget("text-label", x, y, number_w, high, props, rules=[rule])
+        if beside:
+            self.small(x + number_w + GAP, y + high - SMALL_LINE, beside, fg=MUTED_TEXT)
+        # the line that names a missing member; empty once every one reports
+        self.s._rules += 1
+        missing = {
+            "id": f"r-{self.s._rules:04d}",
+            "name": f"{tile.title} every member reports",
+            "targetProperty": "text",
+            "pvs": [{"name": pv, "trigger": True}],
+            "conditions": [{"expression": "{0} == {0}", "value": ""}],
+            "default": _A_MEMBER_MISSING.format(len(members)),
+        }
+        note = {
+            "text": _A_MEMBER_MISSING.format(len(members)),
+            "fontSize": SMALL_SIZE,
+            "foregroundColor": MUTED_TEXT,
+            "backgroundColor": TRANSPARENT,
+            "align": "left",
+        }
+        self.s.widget("text-label", x, y + high, w, SMALL_LINE, note, rules=[missing])
 
     def shown_value(
         self,
@@ -6300,6 +6378,8 @@ def metric_formula(name: str, item: Tile) -> dict[str, Any]:
             expression = " + ".join(f"1 * ({t} == 0)" for t in tokens)
         elif item.measure == "rms":
             expression = f"sqrt(({' + '.join(f'{t} ** 2' for t in tokens)}) / {len(tokens)})"
+        elif item.measure == "sum":
+            expression = " + ".join(tokens)
         else:  # max, min: a reduction over one tuple
             expression = f"{item.measure}(({', '.join(tokens)},))"
     return {"name": name, "kind": "scalar", "expression": expression, "bindings": bindings}
