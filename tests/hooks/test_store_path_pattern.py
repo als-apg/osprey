@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.refusals import STORE_PATH_MARKERS
 from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import write_control_context
@@ -82,7 +83,7 @@ def write_case_config(tmp_path: Path, case: dict[str, Any]) -> Path:
     root = Path(stamped) if stamped else tmp_path / "var" / "agent_data"
     write_control_context(
         root,
-        target=baseline_target(WRITES_ALLOWED_SECTION),
+        target=baseline_target(ControlSystemSection.read(WRITES_ALLOWED_SECTION)),
         switch=SWITCHED_ON if case["switch"] == "on" else None,
     )
     return path

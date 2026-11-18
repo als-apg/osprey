@@ -26,6 +26,7 @@ from osprey.utils.workspace import (
     RETIRED_LAYER_DIRS,
     RUNTIME_DATA_DIR_NAME,
 )
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import configured_targets, resolve_target
 from osprey_connectors.write_tier import tier_allows, tier_writes
 
@@ -1470,7 +1471,7 @@ def _reseat_retired(
 
 def _machine(section: dict[str, Any], target: str) -> str:
     try:
-        return f"`{target}` (`{resolve_target(section, target)}`)"
+        return f"`{target}` (`{resolve_target(ControlSystemSection.read(section), target)}`)"
     except ValueError:
         return f"`{target}`"
 
@@ -1534,7 +1535,7 @@ def judge_retired_posture(
     if not origins:
         return
     section = _rendered_control_system(config)
-    tier = tier_writes(section)
+    tier = tier_writes(ControlSystemSection.read(section))
     retired: dict[tuple[str, ...], Any] = {}
     for origin in origins:
         retired.update(_retired_leaf_paths(origin))
@@ -1544,10 +1545,14 @@ def judge_retired_posture(
         if k != _document.WRITES_KEY_LEAF
     }
 
-    configured_now = configured_targets(section)
-    lost = [t for t in configured_targets(today_section) if t not in configured_now]
+    configured_now = configured_targets(ControlSystemSection.read(section))
+    lost = [
+        t
+        for t in configured_targets(ControlSystemSection.read(today_section))
+        if t not in configured_now
+    ]
     for machine in lost:
-        connector_type = resolve_target(today_section, machine)
+        connector_type = resolve_target(ControlSystemSection.read(today_section), machine)
         emptied = (
             f"{label}: the `{_CONTROL_SYSTEM_SECTION}.connector.{connector_type}` block holds only "
             f"the retired `{_document.RETIRED_WRITES_LEAF}` leaf, so without it the "
@@ -1565,7 +1570,7 @@ def judge_retired_posture(
         target for target, on in _document._retired_session_posture(today_section).items() if on
     ]
     today = _ALLOWED if armed else _NEVER
-    arms = tier_allows(section)
+    arms = tier_allows(ControlSystemSection.read(section))
     if bool(armed) != arms:
         _warn_once(
             dedupe,

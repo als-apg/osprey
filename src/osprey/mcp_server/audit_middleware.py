@@ -153,6 +153,7 @@ from osprey.mcp_server.approval_record import (
 )
 from osprey.mcp_server.errors import make_error
 from osprey.utils.session_hold_api import refusal_detail, session_hold_refusal
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_text
 from osprey_connectors.write_switch import backstop_verdict
@@ -811,7 +812,7 @@ def _backstop() -> WriteVerdict:
     tool's verdict and the connector's to decide, about the machine the write
     lands on, and a clamp on every write tool of the server cannot know it.
     """
-    return backstop_verdict(posture.control_system_section())
+    return backstop_verdict(ControlSystemSection.read(posture.control_system_section()))
 
 
 def _clamp_refusal(backstop: WriteVerdict, tool: str) -> Refused | None:

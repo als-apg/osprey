@@ -1305,6 +1305,7 @@ def _refuse_invented_history(config: dict) -> None:
         archiver, an unset ``archiver.type`` included.
     """
     from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import resolve_control_system_type
 
     pairing = pairing_in_rendered_config(config)
@@ -1315,7 +1316,9 @@ def _refuse_invented_history(config: dict) -> None:
     # just judged it with, so the message cannot name a machine other than the
     # one that was refused.
     control_system_type = resolve_control_system_type(
-        config.get("control_system") if isinstance(config, dict) else None
+        ControlSystemSection.read(
+            config.get("control_system") if isinstance(config, dict) else None
+        )
     )
 
     raise RuntimeError(

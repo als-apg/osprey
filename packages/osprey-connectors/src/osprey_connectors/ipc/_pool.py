@@ -221,6 +221,7 @@ from typing import TypeVar, get_args
 
 from osprey_connectors import write_authorization, write_switch
 from osprey_connectors.config import connector_block, resolve_env_vars, unresolved_placeholders
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import CONTROL_TARGETS, TRANSPORT_CA, ControlTarget
 from osprey_connectors.control_system._base import (
     ChannelReadBatch,
@@ -598,7 +599,7 @@ class ConnectorHostPool:
         if target not in CONTROL_TARGETS:
             # A key names a known target; an unknown one is refused with the
             # resolver's own sentence, before anything is started.
-            resolve_target(self._section, target)
+            resolve_target(ControlSystemSection.read(self._section), target)
         key = HostKey(
             target=target,
             execution_mode=execution_mode,
@@ -993,10 +994,11 @@ class ConnectorHostPool:
         a key that names none is judged by
         :func:`~osprey_connectors.write_switch.write_verdict`.
         """
+        read = ControlSystemSection.read(section)
         if authorization is None:
-            return write_switch.write_verdict(section, target, owner=owner).allowed
+            return write_switch.write_verdict(read, target, owner=owner).allowed
         return write_authorization.authorized_write_verdict(
-            section, target, authorization=authorization, owner=owner
+            read, target, authorization=authorization, owner=owner
         ).allowed
 
     def _writes_moved(
@@ -1059,7 +1061,9 @@ class ConnectorHostPool:
                 # Only a readonly run selects no endpoint while a write gateway
                 # is configured: it never selects write_access, and this block
                 # has no read gateway for it.
-                return readonly_gateway_refusal(machine_kind(section, target))
+                return readonly_gateway_refusal(
+                    machine_kind(ControlSystemSection.read(section), target)
+                )
             configured = sorted(derivation.endpoints) or "none"
             return (
                 f"it resolves to {connector_type!r}, which speaks Channel Access, and "

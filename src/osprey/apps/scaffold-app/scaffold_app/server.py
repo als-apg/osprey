@@ -33,6 +33,7 @@ from osprey.apps.sdk import (
     verify_launch_token,
 )
 from osprey_connectors.config import get_config_value
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.errors import (
     ChannelError,
@@ -96,15 +97,17 @@ async def build_connector(target: str) -> Any:
     """
     global _ca_target
     section = _section()
-    kind = resolve_target(section, target)
+    kind = resolve_target(ControlSystemSection.read(section), target)
     config = {**section, "type": kind}
-    channel_access = speaks_channel_access(section, kind)
+    channel_access = speaks_channel_access(ControlSystemSection.read(section), kind)
     if channel_access and _ca_target not in (None, target):
         raise ValueError(
             f"this backend's Channel Access serves {_ca_target}, and a process has one "
             f"Channel Access context: restart the application to serve {target}"
         )
-    if os.environ.get("EPICS_CA_NAME_SERVERS") and target == baseline_target(section):
+    if os.environ.get("EPICS_CA_NAME_SERVERS") and target == baseline_target(
+        ControlSystemSection.read(section)
+    ):
         # In its container: compose names the baseline's name server. The config's
         # gateways are the host's view, and connecting through them would replace it.
         # Any other target is reached through its own gateways.
@@ -115,7 +118,9 @@ async def build_connector(target: str) -> Any:
     if claimed:
         _ca_target = target  # before the connect, which is what points the context
     try:
-        return await ConnectorFactory.create_control_system_connector(config, control_target=target)
+        return await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config), control_target=target
+        )
     except BaseException:
         if claimed:
             _ca_target = None

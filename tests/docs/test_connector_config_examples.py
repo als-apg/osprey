@@ -33,6 +33,7 @@ import pytest
 import yaml
 
 from osprey_connectors.archiver_selection import archiver_settings_errors
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.limits_posture import incomplete_limits_blocks
 
@@ -148,7 +149,7 @@ def test_the_builds_own_checks_pass(path):
             assert archiver_settings_errors(archiver) == [], label
         control_system = document.get("control_system")
         if control_system is not None:
-            assert incomplete_limits_blocks(control_system) == [], label
+            assert incomplete_limits_blocks(ControlSystemSection.read(control_system)) == [], label
 
 
 def _with_section(section: str) -> list[Path]:
@@ -163,7 +164,9 @@ def _with_section(section: str) -> list[Path]:
 def test_the_factory_builds_the_control_system_connector(path):
     for label, document in _documents(path).items():
         section = document["control_system"]
-        connector, context = ConnectorFactory.build_control_system_connector(section)
+        connector, context = ConnectorFactory.build_control_system_connector(
+            ControlSystemSection.read(section)
+        )
         assert connector is not None, label
         block = (section.get("connector") or {}).get(section["type"])
         if block is not None:

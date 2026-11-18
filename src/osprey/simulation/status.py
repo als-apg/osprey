@@ -85,11 +85,12 @@ async def target_model_statuses(
     Returns:
         Each model's status text, by model name.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors.simulation.status import model_status, read_model_status
 
     connector = await ConnectorFactory.create_control_system_connector(
-        section, control_target=target
+        ControlSystemSection.read(section), control_target=target
     )
     try:
         if addresses is None:

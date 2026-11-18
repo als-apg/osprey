@@ -41,6 +41,7 @@ from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError, raw_put_block
 from osprey.services.python_executor.execution import wrapper
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
     ChannelWriteBlockedError,
@@ -861,7 +862,7 @@ class TestTheActionLine:
         pin is the one term that refuses — ``launch_pinned``, which the next
         cell's stamp turns around.
         """
-        baseline = baseline_target(writable_deployment)
+        baseline = baseline_target(ControlSystemSection.read(writable_deployment))
         write_control_context(control_context_root, target=baseline, switch={baseline: "on"})
         unstamped.setenv(write_switch.LAUNCH_PIN_ENV_VAR, "*=sandbox")
 
@@ -1155,7 +1156,9 @@ class TestTheCellStamp:
 
         monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
         unswitched = control_context.ControlContext(target="live", generation=0)
-        record = control_context.claimed(unswitched, baseline_target(section))
+        record = control_context.claimed(
+            unswitched, baseline_target(ControlSystemSection.read(section))
+        )
         write_control_context(control_context_root, target=record.target, generation=0)
 
         jupyter_kernel.pre_run_cell()
@@ -1220,7 +1223,10 @@ class TestTheCellStamp:
         assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
         # The consequence, not just the string: the cell's writes are allowed
         # by the very verdict the connector asks, launch pin included.
-        assert write_switch.write_verdict(writable_deployment, "va").allowed is True
+        assert (
+            write_switch.write_verdict(ControlSystemSection.read(writable_deployment), "va").allowed
+            is True
+        )
 
     @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_switching_off_refuses_the_next_write_of_a_running_cell(
@@ -1235,11 +1241,14 @@ class TestTheCellStamp:
         write_control_context(control_context_root, target="va", generation=3, switch={"va": "on"})
         jupyter_kernel.pre_run_cell()
         assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
-        assert write_switch.write_verdict(writable_deployment, "va").allowed is True
+        assert (
+            write_switch.write_verdict(ControlSystemSection.read(writable_deployment), "va").allowed
+            is True
+        )
 
         write_control_context(control_context_root, target="va", generation=3, switch={})
 
-        refused = write_switch.write_verdict(writable_deployment, "va")
+        refused = write_switch.write_verdict(ControlSystemSection.read(writable_deployment), "va")
         assert (refused.allowed, refused.reason) == (False, "switch_off")
         assert stamped(write_switch.LAUNCH_PIN_ENV_VAR) == "va=writes"
         jupyter_kernel._refusal_handler(shell, *raised(REFUSALS["write_blocked"]()))

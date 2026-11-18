@@ -87,6 +87,7 @@ def limits_database_errors(render_dir: Path) -> list[str]:
         loads. A ``database_path`` that is unset or not a string is left to
         the compose renderer, whose refusal already names it.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.control_system import (
         LimitsValidator,
         mapping_config_lookup,
@@ -106,8 +107,10 @@ def limits_database_errors(render_dir: Path) -> list[str]:
     )
 
     armed = None
-    for target in tier_limits_database_targets(section, path_configured=path_configured):
-        posture = target_limits_posture(section, target)
+    for target in tier_limits_database_targets(
+        ControlSystemSection.read(section), path_configured=path_configured
+    ):
+        posture = target_limits_posture(ControlSystemSection.read(section), target)
         if posture.incomplete:
             continue
         armed = (target, _tier_key(section), posture.key("enabled"))

@@ -340,6 +340,7 @@ class RunAuthorization:
                 request is withdrawn.
         """
         from osprey_connectors import write_authorization as wa
+        from osprey_connectors.config_sections import ControlSystemSection
 
         self._target = plan.target
         self._publish(
@@ -364,7 +365,7 @@ class RunAuthorization:
         expires_at = datetime.now(UTC) + timedelta(seconds=expires_s)
         try:
             grant = wa.self_issue(
-                _control_system_section(),
+                ControlSystemSection.read(_control_system_section()),
                 plan.target,
                 plan.ranges(),
                 steps=plan.steps,

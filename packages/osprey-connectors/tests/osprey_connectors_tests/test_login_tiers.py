@@ -15,6 +15,7 @@ import json
 import pytest
 
 from osprey_connectors import write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.write_switch import NO_OWNER, owner_tier_term
 from osprey_connectors_tests._harness._write_verdict_cases import LOGIN_TIERS_SHAPE_PATH
 
@@ -47,13 +48,13 @@ def test_the_leaf_names_the_documented_location():
 )
 @pytest.mark.usefixtures("no_tree")
 def test_no_map_and_no_tree_skips_the_rung(section):
-    assert owner_tier_term(section, "alice") == "skip"
+    assert owner_tier_term(ControlSystemSection.read(section), "alice") == "skip"
 
 
 @pytest.mark.usefixtures("no_tree")
 def test_no_map_and_no_tree_skips_even_without_an_owner():
-    assert owner_tier_term({"writes": "allowed"}, None) == "skip"
-    assert owner_tier_term({"writes": "allowed"}, NO_OWNER) == "skip"
+    assert owner_tier_term(ControlSystemSection.read({"writes": "allowed"}), None) == "skip"
+    assert owner_tier_term(ControlSystemSection.read({"writes": "allowed"}), NO_OWNER) == "skip"
 
 
 @pytest.mark.parametrize(
@@ -63,12 +64,12 @@ def test_no_map_and_no_tree_skips_even_without_an_owner():
 )
 @pytest.mark.usefixtures("tree")
 def test_tree_bound_and_no_map_is_unknown(section):
-    assert owner_tier_term(section, "alice") == "unknown"
+    assert owner_tier_term(ControlSystemSection.read(section), "alice") == "unknown"
 
 
 def test_a_blank_tree_bind_is_not_a_bound_tree(monkeypatch):
     monkeypatch.setenv(TREE_ENV, "   ")
-    assert owner_tier_term({"writes": "allowed"}, "alice") == "skip"
+    assert owner_tier_term(ControlSystemSection.read({"writes": "allowed"}), "alice") == "skip"
 
 
 @pytest.mark.parametrize("bound", [False, True], ids=["host", "tree"])
@@ -85,32 +86,35 @@ def test_an_owner_reads_as_the_tier_the_map_gives_them(monkeypatch, tmp_path, bo
         monkeypatch.setenv(TREE_ENV, str(tmp_path))
     else:
         monkeypatch.delenv(TREE_ENV, raising=False)
-    assert owner_tier_term(_section(tiers), "alice") == term
+    assert owner_tier_term(ControlSystemSection.read(_section(tiers)), "alice") == term
 
 
 @pytest.mark.usefixtures("no_tree")
 def test_an_empty_map_knows_no_owner():
-    assert owner_tier_term(_section({}), "alice") == "unknown"
+    assert owner_tier_term(ControlSystemSection.read(_section({})), "alice") == "unknown"
 
 
 @pytest.mark.usefixtures("tree")
 def test_a_mapped_allowed_is_allowed():
-    assert owner_tier_term(_section({"alice": "allowed"}), "alice") == "allowed"
+    assert (
+        owner_tier_term(ControlSystemSection.read(_section({"alice": "allowed"})), "alice")
+        == "allowed"
+    )
 
 
 @pytest.mark.usefixtures("no_tree")
 def test_a_map_carrying_all_three_words_is_readable():
     login_tiers = {"alice": "never", "bob": "asked", "carol": "allowed"}
     for login, tier in login_tiers.items():
-        assert owner_tier_term(_section(login_tiers), login) == tier
+        assert owner_tier_term(ControlSystemSection.read(_section(login_tiers)), login) == tier
 
 
 @pytest.mark.usefixtures("no_tree")
 def test_the_map_decides_even_over_the_section_tier():
     section = {"writes": "never", "login_tiers": {"alice": "allowed"}}
-    assert owner_tier_term(section, "alice") == "allowed"
+    assert owner_tier_term(ControlSystemSection.read(section), "alice") == "allowed"
     section = {"writes": "allowed", "login_tiers": {"alice": "asked"}}
-    assert owner_tier_term(section, "alice") == "asked"
+    assert owner_tier_term(ControlSystemSection.read(section), "alice") == "asked"
 
 
 @pytest.mark.parametrize(
@@ -120,7 +124,7 @@ def test_the_map_decides_even_over_the_section_tier():
 )
 @pytest.mark.usefixtures("no_tree")
 def test_a_map_that_is_not_a_dict_is_unknown(login_tiers):
-    assert owner_tier_term(_section(login_tiers), "alice") == "unknown"
+    assert owner_tier_term(ControlSystemSection.read(_section(login_tiers)), "alice") == "unknown"
 
 
 @pytest.mark.parametrize(
@@ -136,7 +140,7 @@ def test_a_map_that_is_not_a_dict_is_unknown(login_tiers):
 )
 @pytest.mark.usefixtures("no_tree")
 def test_a_non_string_value_for_the_owner_is_unknown(login_tiers):
-    assert owner_tier_term(_section(login_tiers), "alice") == "unknown"
+    assert owner_tier_term(ControlSystemSection.read(_section(login_tiers)), "alice") == "unknown"
 
 
 @pytest.mark.parametrize(
@@ -145,7 +149,9 @@ def test_a_non_string_value_for_the_owner_is_unknown(login_tiers):
 )
 @pytest.mark.usefixtures("no_tree")
 def test_a_string_outside_the_three_tiers_is_unknown(value):
-    assert owner_tier_term(_section({"alice": value}), "alice") == "unknown"
+    assert (
+        owner_tier_term(ControlSystemSection.read(_section({"alice": value})), "alice") == "unknown"
+    )
 
 
 @pytest.mark.parametrize(
@@ -160,7 +166,7 @@ def test_a_string_outside_the_three_tiers_is_unknown(value):
 )
 @pytest.mark.usefixtures("no_tree")
 def test_one_unreadable_entry_makes_the_whole_map_unreadable(login_tiers):
-    assert owner_tier_term(_section(login_tiers), "alice") == "unknown"
+    assert owner_tier_term(ControlSystemSection.read(_section(login_tiers)), "alice") == "unknown"
 
 
 @pytest.mark.parametrize(
@@ -170,7 +176,10 @@ def test_one_unreadable_entry_makes_the_whole_map_unreadable(login_tiers):
 )
 @pytest.mark.usefixtures("no_tree")
 def test_an_owner_that_is_not_a_mapped_name_is_unknown(owner):
-    assert owner_tier_term(_section({"alice": "allowed"}), owner) == "unknown"
+    assert (
+        owner_tier_term(ControlSystemSection.read(_section({"alice": "allowed"})), owner)
+        == "unknown"
+    )
 
 
 @pytest.mark.usefixtures("no_tree")
@@ -182,7 +191,7 @@ def test_the_reader_never_raises_on_an_odd_section():
         def __contains__(self, key):
             raise RuntimeError("boom")
 
-    assert owner_tier_term(Weird(), "alice") == "unknown"
+    assert owner_tier_term(ControlSystemSection.read(Weird()), "alice") == "unknown"
 
 
 # -- the shape fixture -------------------------------------------------------
@@ -225,7 +234,7 @@ def test_the_shape_fixture_example_validates_against_the_reader(monkeypatch, tmp
     assert leaf in example["section"]
     terms = set()
     for lookup in example["lookups"]:
-        term = owner_tier_term(example["section"], lookup["owner"])
+        term = owner_tier_term(ControlSystemSection.read(example["section"]), lookup["owner"])
         assert term == lookup["term"], lookup
         terms.add(term)
     assert terms == {"allowed", "never", "unknown"}

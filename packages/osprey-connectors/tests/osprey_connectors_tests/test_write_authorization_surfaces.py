@@ -21,6 +21,7 @@ import pytest
 
 from osprey_connectors import control_context, session_hold, testing, write_switch
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.errors import AlreadyApprovedError
 from osprey_connectors.model import evolve
 from osprey_connectors.write_authorization import (
@@ -590,7 +591,7 @@ class TestOverlap:
         control_context.set_switch([TARGET], "allowed", epoch=epoch())
         with pytest.raises(AuthorizationRefusedError) as refused:
             self_issue(
-                SECTION, TARGET, {"A:SP": ChannelRange.of(0.0, 1.0)}, steps=1, expires_at=FAR_FUTURE,
+                ControlSystemSection.read(SECTION), TARGET, {"A:SP": ChannelRange.of(0.0, 1.0)}, steps=1, expires_at=FAR_FUTURE,
                 lease_s=30.0,
             )  # fmt: skip
         assert refused.value.reason == "auth_overlap"

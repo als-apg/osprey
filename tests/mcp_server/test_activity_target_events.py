@@ -457,8 +457,9 @@ def test_build_time_gate_agrees_with_the_connector_host_manager(label, control_s
     """The anti-drift pin: the build and the server must answer identically, or
     the frozen rule describes a deployment the server does not run."""
     from osprey.mcp_server.control_system.connector_host_manager import switch_capable as runtime
+    from osprey_connectors.config_sections import ControlSystemSection
 
-    assert runtime({"control_system": control_system}) is expected, label
+    assert runtime(ControlSystemSection.read({"control_system": control_system})) is expected, label
 
 
 @pytest.mark.parametrize(("label", "control_system", "expected"), GATE_CASES)

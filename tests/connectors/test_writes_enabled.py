@@ -257,6 +257,7 @@ class TestFactoryTypeStamp:
     @pytest.mark.asyncio
     async def test_stamp_is_visible_inside_connect(self):
         from osprey_connectors import connector_types
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.factory import ConnectorFactory
         from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -265,7 +266,7 @@ class TestFactoryTypeStamp:
                 connector_types.VIRTUAL_ACCELERATOR, _TypeSeenConnector
             )
             connector = await ConnectorFactory.create_control_system_connector(
-                {"type": connector_types.VIRTUAL_ACCELERATOR}
+                ControlSystemSection.read({"type": connector_types.VIRTUAL_ACCELERATOR})
             )
 
         assert connector.type_seen_in_connect == connector_types.VIRTUAL_ACCELERATOR

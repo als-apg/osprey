@@ -217,13 +217,13 @@ from typing import TYPE_CHECKING, Literal, Protocol, SupportsFloat, get_args
 
 from pydantic import Field
 
+from osprey_connectors.config_sections import ControlSystemSection, GatewayMode, SelectedRole
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     ControlTarget,
     Transport,
     is_control_target,
 )
-from osprey_connectors.control_system._gateway_role import GatewayMode, SelectedRole
 from osprey_connectors.epics_env import EPICS_ENV_PREFIXES, scrub_epics_env
 from osprey_connectors.errors import ConnectorInternalError
 from osprey_connectors.execution_mode import (
@@ -499,7 +499,7 @@ def _writes_enabled_input() -> bool:
     from osprey_connectors.write_tier import tier_allows
 
     try:
-        section: object = get_config_value("control_system", {})
+        section = ControlSystemSection.read(get_config_value("control_system", {}))
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
     return tier_allows(section)
@@ -803,7 +803,8 @@ async def _build_connector(
     from osprey_connectors import connector_types, targets
     from osprey_connectors.factory import ConnectorFactory
 
-    connector_type = targets.resolve_target(section, target)
+    read = ControlSystemSection.read(section)
+    connector_type = targets.resolve_target(read, target)
     if marks is not None:
         marks.mark("imports")
 
@@ -817,14 +818,14 @@ async def _build_connector(
     # would build the other venue.
     config = (
         section
-        if connector_types.resolve_control_system_type(section) == connector_type
+        if connector_types.resolve_control_system_type(read) == connector_type
         else {**section, "type": connector_type}
     )
     # The target the parent pointed this child at — already validated above as
     # one of the three literals — is what indexes the per-target narrowing the reference monitor
     # reads. This child serves exactly one target, so the stamp is the payload's.
     connector = await ConnectorFactory.create_control_system_connector(
-        config, control_target=target
+        ControlSystemSection.read(config), control_target=target
     )
     if marks is not None:
         marks.mark("connected")

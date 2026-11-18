@@ -23,6 +23,7 @@ import yaml
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import config_view
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.write_target import KIND_BANNERS
 from osprey_connectors_tests._harness import write_control_context, write_server_report
@@ -435,7 +436,7 @@ def write_verdict_for(app: Any, target: str, login: str | None = None) -> write_
     """
     testing.invalidate_cache()
     return write_switch.write_verdict(
-        render_section(app),
+        ControlSystemSection.read(render_section(app)),
         target,
         owner=acting_identity() if login is None else login,
         ignore_launch_pin=True,

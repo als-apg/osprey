@@ -65,6 +65,7 @@ from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.queue_backend import RUN_ID_META_KEY
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
     ConnectorFactory,
@@ -288,17 +289,19 @@ def connector(armed_deployment: None, tmp_path: Path) -> Iterator[_RecordingInPr
         ConnectorFactory.register_control_system(_CONNECTOR_TYPE, _RecordingInProcessConnector)
         instance = asyncio.run(
             ConnectorFactory.create_control_system_connector(
-                {
-                    "type": _CONNECTOR_TYPE,
-                    "connector": {
-                        _CONNECTOR_TYPE: _without_venue(
-                            in_process_config(
-                                served_tree(tmp_path / "served", [_CHANNEL]),
-                                response_delay_ms=0,
+                ControlSystemSection.read(
+                    {
+                        "type": _CONNECTOR_TYPE,
+                        "connector": {
+                            _CONNECTOR_TYPE: _without_venue(
+                                in_process_config(
+                                    served_tree(tmp_path / "served", [_CHANNEL]),
+                                    response_delay_ms=0,
+                                )
                             )
-                        )
-                    },
-                },
+                        },
+                    }
+                ),
                 control_target=_TARGET,
             )
         )

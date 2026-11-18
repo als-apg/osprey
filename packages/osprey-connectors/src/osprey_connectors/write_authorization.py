@@ -160,6 +160,7 @@ from pydantic import (
 )
 
 from osprey_connectors import _control_state, control_context, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import ControlTarget, is_control_target
 from osprey_connectors.errors import (
     AlreadyApprovedError,
@@ -1128,7 +1129,7 @@ def _operations(operations: object) -> list[tuple[object, object]] | None:
 
 
 def _judge(
-    section: object,
+    section: ControlSystemSection,
     target: object,
     operations: object,
     authorization: object,
@@ -1242,7 +1243,7 @@ def _unreachable(target: object, authorization: object, what: str) -> Refused:
 
 
 def _verdict(
-    section: object,
+    section: ControlSystemSection,
     target: object,
     operations: object,
     authorization: object,
@@ -1408,7 +1409,7 @@ def _lapse(place: _Place, authorization: str) -> None:
 
 
 def _spend(
-    section: object,
+    section: ControlSystemSection,
     target: object,
     operations: object,
     authorization: object,
@@ -1463,7 +1464,7 @@ def _spend(
 
 
 def _authorized_basis(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     authorization: str,
     owner: str | NoOwner | None,
@@ -1487,7 +1488,7 @@ def _authorized_basis(
 
 
 def authorized_execution_verdict(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     operations: Sequence[tuple[str, object]] | Mapping[str, object],
     *,
@@ -1529,7 +1530,7 @@ def authorized_execution_verdict(
 
 
 def spend_authorized_write(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     operations: Sequence[tuple[str, object]] | Mapping[str, object],
     *,
@@ -1556,7 +1557,7 @@ def spend_authorized_write(
 
 
 def authorized_write_verdict(
-    section: object,
+    section: ControlSystemSection,
     target: str | None,
     *,
     authorization: str,
@@ -1946,7 +1947,7 @@ def revoke_grants(
 
 
 def self_issue(
-    section: object,
+    section: ControlSystemSection,
     target: str,
     channels: Mapping[str, ChannelRange],
     *,

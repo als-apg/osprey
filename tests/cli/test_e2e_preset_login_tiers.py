@@ -111,6 +111,7 @@ def single_user_repo(tmp_path_factory) -> Path:
 
 
 def test_dispatch_deploy_maps_the_firing_user_at_an_arming_tier(dispatch_repo: Path) -> None:
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import owner_tier_term
 
     user = dispatch_e2e.FIRING_USER
@@ -123,7 +124,7 @@ def test_dispatch_deploy_maps_the_firing_user_at_an_arming_tier(dispatch_repo: P
             f"owner_unknown or the tier. Map: {login_tiers}"
         )
         with _pinned_env():
-            assert owner_tier_term(section, user) == "asked"
+            assert owner_tier_term(ControlSystemSection.read(section), user) == "asked"
 
 
 def test_dispatch_worker_runs_the_tier_the_e2e_expects(dispatch_repo: Path) -> None:
@@ -135,6 +136,7 @@ def test_dispatch_worker_runs_the_tier_the_e2e_expects(dispatch_repo: Path) -> N
 
 
 def test_single_user_maps_the_host_identity_at_the_root_tier(single_user_repo: Path) -> None:
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import owner_tier_term
     from osprey_connectors.write_tier import tier_writes
 
@@ -143,11 +145,11 @@ def test_single_user_maps_the_host_identity_at_the_root_tier(single_user_repo: P
         "the build did not stamp the host login as deployment.host_identity"
     )
     root = rendered["control_system"]
-    assert tier_writes(root) == "asked"
+    assert tier_writes(ControlSystemSection.read(root)) == "asked"
     for rel, section in _staged_sections(single_user_repo).items():
         login_tiers = section.get("login_tiers")
         assert isinstance(login_tiers, dict), f"{rel} carries no control_system.login_tiers"
-        assert login_tiers.get(HOST_LOGIN) == tier_writes(root), (
+        assert login_tiers.get(HOST_LOGIN) == tier_writes(ControlSystemSection.read(root)), (
             f"{rel} does not map the host identity {HOST_LOGIN!r} at the root tier; "
             f"a single-user job the operator owns would be refused owner_unknown. "
             f"Map: {login_tiers}"
@@ -159,4 +161,4 @@ def test_single_user_maps_the_host_identity_at_the_root_tier(single_user_repo: P
         )
         assert "unknown" not in login_tiers
         with _pinned_env():
-            assert owner_tier_term(section, HOST_LOGIN) == "asked"
+            assert owner_tier_term(ControlSystemSection.read(section), HOST_LOGIN) == "asked"

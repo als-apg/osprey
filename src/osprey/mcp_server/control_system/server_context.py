@@ -91,6 +91,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiverConnector
 from osprey_connectors.config import mapping_or_empty
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.control_system import ControlSystem, ControlSystemConnector
 from osprey_connectors.errors import ConnectorUnavailableError, RecoveryAction, RecoveryRecord
@@ -387,8 +388,8 @@ class ControlSystemContext:
             # The targets this config configures, not every target the
             # connectors package names. Whether a write lands is the write
             # verdict's, per call; what is known at start is the tier alone.
-            list(configured_targets(self._config.control_system)),
-            tier_allows(self._config.control_system),
+            list(configured_targets(ControlSystemSection.read(self._config.control_system))),
+            tier_allows(ControlSystemSection.read(self._config.control_system)),
             "connector-host child" if self.switch_capable else "in-process connector",
         )
 
@@ -436,7 +437,7 @@ class ControlSystemContext:
         serves its tools in-process must never construct one, and the baseline
         is a property of the file it was built from either way.
         """
-        return baseline_target(self.config.raw)
+        return baseline_target(ControlSystemSection.read(self.config.raw))
 
     @property
     def switch_capable(self) -> bool:
@@ -448,7 +449,7 @@ class ControlSystemContext:
         change while the config is loaded.
         """
         if self._switch_capable is None:
-            self._switch_capable = switch_capable(self.config.raw)
+            self._switch_capable = switch_capable(ControlSystemSection.read(self.config.raw))
         return self._switch_capable
 
     async def control_system(self) -> _SupervisedConnector:
@@ -673,7 +674,7 @@ class ControlSystemContext:
             # invalidate_connector() take the write verdict for the same target
             # the instance it replaces was taking it for.
             instance = await ConnectorFactory.create_control_system_connector(
-                entry.config, control_target=self.baseline
+                ControlSystemSection.read(entry.config), control_target=self.baseline
             )
         elif name == "archiver":
             instance = await ConnectorFactory.create_archiver_connector(entry.config)
@@ -839,6 +840,7 @@ class ControlSystemContext:
         ``control_system:`` section does not name.
         """
         from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.connector_types import MONGODB_ARCHIVER, resolve_control_system_type
 
         pairing = pairing_in_rendered_config(self.config.raw)
@@ -847,7 +849,9 @@ class ControlSystemContext:
 
         # The same section the pairing just judged, read by the same resolver,
         # so the message cannot name a machine other than the refused one.
-        control_system_type = resolve_control_system_type(self.config.control_system)
+        control_system_type = resolve_control_system_type(
+            ControlSystemSection.read(self.config.control_system)
+        )
 
         raise ConfigurationError(
             f"Refusing to start: {self.config.config_path} pairs control_system.type "

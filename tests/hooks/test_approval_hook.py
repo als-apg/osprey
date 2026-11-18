@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_context import _record_path_under
 from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import (
@@ -86,7 +87,9 @@ def make_config(make_config, tmp_path):
         root = Path(stamped) if stamped else tmp_path / "var" / "agent_data"
         if not _record_path_under(root).exists():
             section = config_dict.get("control_system") if isinstance(config_dict, dict) else None
-            write_control_context(root, target=baseline_target(section), switch=SWITCHED_ON)
+            write_control_context(
+                root, target=baseline_target(ControlSystemSection.read(section)), switch=SWITCHED_ON
+            )
         return path
 
     return _make

@@ -40,6 +40,7 @@ from osprey.port_layout import (
 )
 from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     RETIRED_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
@@ -1641,11 +1642,11 @@ def render_served_models_error(
     shorthand = resolved.get(CONNECTOR_PROFILE_KEY)
     if isinstance(shorthand, str) and shorthand.strip():
         section["type"] = shorthand.strip()
-    target = baseline_target(section)
+    target = baseline_target(ControlSystemSection.read(section))
     if target not in (TARGET_VA, TARGET_STANDIN):
         return None
     try:
-        if not talks_to_network(section):
+        if not talks_to_network(ControlSystemSection.read(section)):
             return None
     except ValueError:
         return None

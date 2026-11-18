@@ -22,8 +22,9 @@ shown is what the package does.
 Read channels
 -------------
 
-A connector is built from a configuration dict by its type name. The dict has
-the shape of a deployment's ``control_system:`` section:
+A connector is built from a deployment's ``control_system:`` section, read
+once by ``ControlSystemSection.read`` from a dict of that shape. Its ``type``
+names the connector:
 
 .. literalinclude:: examples/read_channels.py
    :language: python
@@ -117,7 +118,7 @@ The simulator
    in it. A process started in a built project directory therefore reads that
    project's config with nothing set. The same file answers
    ``create_control_system_connector()`` and ``create_archiver_connector()``
-   called with no dict, which build the connector its ``control_system:`` or
+   called with no section, which build the connector its ``control_system:`` or
    ``archiver:`` section selects. Without a config they raise
    ``FileNotFoundError``, naming where they looked.
 

@@ -25,6 +25,7 @@ from osprey.facility.settings import (
     SERVED_PROBE_KEYS,
     fill_facility_settings,
 )
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import LIVE_STANDIN, TARGET_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.targets import configured_targets
@@ -235,4 +236,6 @@ def test_hello_world_derives_its_simulator_probe_and_declares_no_stand_in(
     assert probe == min(readbacks)
     assert "archiver" not in ((config.get("health") or {}).get("categories") or {})
     assert LIVE_STANDIN not in config["control_system"]["connector"]
-    assert TARGET_STANDIN not in configured_targets(config["control_system"])
+    assert TARGET_STANDIN not in configured_targets(
+        ControlSystemSection.read(config["control_system"])
+    )

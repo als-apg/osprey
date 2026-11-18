@@ -123,6 +123,7 @@ from osprey_connectors.config import (
     subsection,
     unresolved_placeholders,
 )
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     TARGET_LIVE,
@@ -267,7 +268,7 @@ def target_write_verdict(section: Any, target: str) -> write_switch.WriteVerdict
         The verdict: ``allowed``, and the ``reason`` when it refuses.
     """
     try:
-        return write_switch.write_verdict(section, target)
+        return write_switch.write_verdict(ControlSystemSection.read(section), target)
     except Exception:  # write_verdict never raises; a refusal is still the floor
         logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
         return write_switch.Refused(reason=VerdictReason.RECORD_UNAVAILABLE, target=None, kind=None)
@@ -574,7 +575,9 @@ def evaluate_eligibility(
         # table. Judging such a block on its gateways would report the protocol
         # as a key nobody filled in, or worse, walk a deployment on another
         # control system through checks that read a Channel Access address.
-        if not speaks_channel_access(control_system_section, connector_type):
+        if not speaks_channel_access(
+            ControlSystemSection.read(control_system_section), connector_type
+        ):
             transport = derivation.transport or "an unknown transport"
             return Eligibility(
                 False,
@@ -1163,10 +1166,10 @@ def _declared_gateways(config: Any, target: str) -> tuple[str | None, str]:
     """
     control_system = config_section(config, "control_system")
     try:
-        connector_type = resolve_target(control_system, target)
+        connector_type = resolve_target(ControlSystemSection.read(control_system), target)
     except ValueError:
         return None, ""
-    if not speaks_channel_access(control_system, connector_type):
+    if not speaks_channel_access(ControlSystemSection.read(control_system), connector_type):
         return None, connector_type
     return declared_gateways(connector_block(config, connector_type)), connector_type
 

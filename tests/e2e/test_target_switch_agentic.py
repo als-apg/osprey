@@ -96,6 +96,7 @@ from osprey.mcp_server.control_system.target_state import (
 )
 from osprey.mcp_server.control_system.tools.control_target import target_rows
 from osprey.utils.workspace import TIERS_DIRNAME
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import TARGET_LIVE, TARGET_VA
 from osprey_connectors.control_context import (
     RECORD_FILENAME,
@@ -1140,7 +1141,7 @@ def test_the_roster_makes_va_the_baseline_and_live_reachable(
       looks like the agent's fault.
     """
     config = switch_deployment.config
-    baseline = baseline_target(config)
+    baseline = baseline_target(ControlSystemSection.read(config))
     assert baseline == "va", (
         f"the deployment baseline is {baseline!r}, not 'va' — a switch to the live machine "
         "would no longer be a move away from home, so the acknowledgment "

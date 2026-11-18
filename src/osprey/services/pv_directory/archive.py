@@ -31,6 +31,7 @@ from typing import Any
 from osprey.cli.build_profile_archiver import VAArchiverConfig, freshness_max_age_s
 from osprey.services.pv_directory.vocabulary import service_failed
 from osprey_connectors.archiver_selection import resolve_archiver_type
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import MONGODB_ARCHIVER, TARGET_VA
 from osprey_connectors.deployment.archive_targets import archive_targets
 from osprey_connectors.simulation.archive import SeedKnobs
@@ -134,7 +135,7 @@ def served_targets(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     served = archive_targets(config)
     return [
         {"target": target, "archive": target in served}
-        for target in configured_targets(config.get("control_system"))
+        for target in configured_targets(ControlSystemSection.read(config.get("control_system")))
     ]
 
 

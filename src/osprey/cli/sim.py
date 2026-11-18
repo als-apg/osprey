@@ -243,6 +243,7 @@ def status_command(repo: Path | None, target: str | None) -> None:
     error otherwise. The command exits 1 when any model failed.
     """
     from osprey.simulation.status import MODEL_FAILED, model_state, target_model_statuses
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import (
         STANDIN_TYPES,
         TRANSPORT_IN_PROCESS,
@@ -254,10 +255,10 @@ def status_command(repo: Path | None, target: str | None) -> None:
     repo_root, config = _resolve_deployment(repo)
     section = config.get("control_system") or {}
     if target is None:
-        connector_type = resolve_control_system_type(section)
+        connector_type = resolve_control_system_type(ControlSystemSection.read(section))
     else:
         try:
-            connector_type = resolve_target(section, target)
+            connector_type = resolve_target(ControlSystemSection.read(section), target)
         except ValueError as exc:
             output.fail(f"The {target} target is not configured", str(exc))
             raise SystemExit(1) from None
@@ -265,7 +266,8 @@ def status_command(repo: Path | None, target: str | None) -> None:
     models = [model.name for model in view.physics_models()]
     addresses = (
         None
-        if connector_transport(section, connector_type) == TRANSPORT_IN_PROCESS
+        if connector_transport(ControlSystemSection.read(section), connector_type)
+        == TRANSPORT_IN_PROCESS
         else dict(view.status_addresses())
     )
     statuses = asyncio.run(target_model_statuses(section, target, models, addresses))

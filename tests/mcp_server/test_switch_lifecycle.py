@@ -42,6 +42,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
 )
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
@@ -1209,7 +1210,7 @@ class TestTheDestinationAlreadyAnswers:
 
         assert manager.has_child() is True
         assert len(manager.spawned) == 1
-        assert manager.active_target() == baseline_target(raw_config())
+        assert manager.active_target() == baseline_target(ControlSystemSection.read(raw_config()))
 
     async def test_ensure_started_on_a_named_target_still_starts(self, make_manager):
         manager = make_manager()
@@ -1866,9 +1867,17 @@ class TestVerificationRule:
 
 class TestConfigDerivedFacts:
     def test_baseline_is_va_only_for_a_virtual_accelerator_deployment(self):
-        assert baseline_target({"control_system": {"type": "virtual_accelerator"}}) == "va"
-        assert baseline_target({"control_system": {"type": "epics"}}) == "live"
-        assert baseline_target({}) == "va"
+        assert (
+            baseline_target(
+                ControlSystemSection.read({"control_system": {"type": "virtual_accelerator"}})
+            )
+            == "va"
+        )
+        assert (
+            baseline_target(ControlSystemSection.read({"control_system": {"type": "epics"}}))
+            == "live"
+        )
+        assert baseline_target(ControlSystemSection.read({})) == "va"
 
     def test_display_metadata_carries_the_probe_channel_and_the_real_machine_flag(self):
         metadata = target_display_metadata(raw_config())
@@ -1973,7 +1982,7 @@ class TestSwitchCapability:
     """Which deployments serve their tools from a child, and which do not."""
 
     def test_a_deployment_with_both_targets_configured_is_capable(self):
-        assert switch_capable(raw_config()) is True
+        assert switch_capable(ControlSystemSection.read(raw_config())) is True
 
     def test_a_virtual_accelerator_deployment_with_a_live_block_is_capable(self):
         config = {
@@ -1986,7 +1995,7 @@ class TestSwitchCapability:
             }
         }
 
-        assert switch_capable(config) is True
+        assert switch_capable(ControlSystemSection.read(config)) is True
 
     def test_an_in_process_deployment_with_an_epics_block_is_capable(self):
         """The simulator in process baselines on ``va``, and the epics block is ``live``."""
@@ -2000,16 +2009,20 @@ class TestSwitchCapability:
             }
         }
 
-        assert switch_capable(config) is True
+        assert switch_capable(ControlSystemSection.read(config)) is True
 
     def test_a_single_target_deployment_is_not_capable(self):
         assert (
-            switch_capable({"control_system": {"type": "epics", "connector": {"epics": {}}}})
+            switch_capable(
+                ControlSystemSection.read(
+                    {"control_system": {"type": "epics", "connector": {"epics": {}}}}
+                )
+            )
             is False
         )
 
     def test_a_config_with_no_control_system_section_is_not_capable(self):
-        assert switch_capable({}) is False
+        assert switch_capable(ControlSystemSection.read({})) is False
 
 
 class TestTheLiveTypeIsAParameter:
@@ -2027,7 +2040,7 @@ class TestTheLiveTypeIsAParameter:
         assert make_manager()._config.raw["control_system"]["type"] == CA_LIVE_TYPE
 
     def test_a_channel_access_live_type_is_still_switch_capable(self):
-        assert switch_capable(raw_config(live_type=CA_LIVE_TYPE)) is True
+        assert switch_capable(ControlSystemSection.read(raw_config(live_type=CA_LIVE_TYPE))) is True
 
 
 class TestServingFromTheChild:

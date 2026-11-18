@@ -336,6 +336,7 @@ def test_flatten_failure_fallback_still_stages_the_map(
 def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
     edited: Path,
 ) -> None:
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import owner_tier_term
     from osprey_connectors.write_tier import tier_writes
 
@@ -368,11 +369,12 @@ def test_sign_in_decided_card_is_absent_and_its_own_terminal_is_not_refused(
     # tree bound the owner rung does not apply, and the render's tier governs.
     terminal = _load(build / f"{EXEMPLAR_DIRNAME}-readwrite" / "config.yml")["control_system"]
     with _pinned_env():
-        assert owner_tier_term(terminal, "dave") == "skip"
-    assert tier_writes(terminal) == "asked"
+        assert owner_tier_term(ControlSystemSection.read(terminal), "dave") == "skip"
+    assert tier_writes(ControlSystemSection.read(terminal)) == "asked"
 
 
 def test_single_user_host_process_as_the_build_account_resolves(tiered: Path) -> None:
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import owner_tier_term
     from osprey_connectors.write_tier import tier_writes
 
@@ -381,9 +383,13 @@ def test_single_user_host_process_as_the_build_account_resolves(tiered: Path) ->
     shared = _load(build / _BLUESKY)["control_system"]
     with _pinned_env():
         # The host process reads the root render: no map, no tree, its own tier.
-        assert owner_tier_term(root, BUILD_ACCOUNT) == "skip"
+        assert owner_tier_term(ControlSystemSection.read(root), BUILD_ACCOUNT) == "skip"
         # A shared container carrying that account's job finds it at the root tier.
-        assert owner_tier_term(shared, BUILD_ACCOUNT) == tier_writes(root) == "asked"
+        assert (
+            owner_tier_term(ControlSystemSection.read(shared), BUILD_ACCOUNT)
+            == tier_writes(ControlSystemSection.read(root))
+            == "asked"
+        )
 
 
 # -- a profile never spells the key --------------------------------------------------

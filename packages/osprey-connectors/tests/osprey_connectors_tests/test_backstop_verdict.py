@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors import _control_state, control_context, limits_posture, targets, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.refusals import REASONS
 from osprey_connectors.write_switch import NO_OWNER, Allowed, WriteVerdict, backstop_verdict
 from osprey_connectors_tests._harness import write_control_context
@@ -75,7 +76,7 @@ def _refused(verdict: WriteVerdict, reason: str) -> None:
 @pytest.mark.usefixtures("blind")
 def test_allowed_tier_allows_with_no_target_and_no_kind():
     # Arrange / Act
-    verdict = backstop_verdict(LIVE)
+    verdict = backstop_verdict(ControlSystemSection.read(LIVE))
 
     # Assert
     assert verdict == Allowed(target=None, kind=None, position=None)
@@ -83,7 +84,7 @@ def test_allowed_tier_allows_with_no_target_and_no_kind():
 
 @pytest.mark.usefixtures("blind")
 def test_asked_tier_allows():
-    verdict = backstop_verdict(ASKED)
+    verdict = backstop_verdict(ControlSystemSection.read(ASKED))
 
     assert verdict == Allowed(target=None, kind=None, position=None)
 
@@ -93,7 +94,7 @@ def test_an_allow_reports_no_position_whatever_is_stored(tmp_path, stored):
     """The backstop is switch-blind: it never answers for a position."""
     write_control_context(tmp_path / "data", switch={"live": stored}, owned_by=None)
 
-    assert backstop_verdict(LIVE).position is None
+    assert backstop_verdict(ControlSystemSection.read(LIVE)).position is None
 
 
 @pytest.mark.usefixtures("blind")
@@ -103,7 +104,7 @@ def test_a_retired_leaf_does_not_arm_the_tier():
     Rows ``tier-absent-old-armed-flat`` / ``tier-absent-old-armed-connector``
     (ruling D2: no runtime retired-leaf fallback).
     """
-    verdict = backstop_verdict({"type": "epics", "writes_enabled": True})
+    verdict = backstop_verdict(ControlSystemSection.read({"type": "epics", "writes_enabled": True}))
 
     assert verdict.allowed is False
     assert verdict.reason == "tier_never"
@@ -112,7 +113,7 @@ def test_a_retired_leaf_does_not_arm_the_tier():
 @pytest.mark.usefixtures("blind")
 def test_allow_needs_no_record_no_switch_and_no_owner():
     """No record exists, no owner is bound: the backstop still allows."""
-    verdict = backstop_verdict(LIVE)
+    verdict = backstop_verdict(ControlSystemSection.read(LIVE))
 
     assert verdict.allowed is True
     assert write_switch._owner_var.get() is NO_OWNER
@@ -128,28 +129,28 @@ def test_allow_needs_no_record_no_switch_and_no_owner():
 )
 @pytest.mark.usefixtures("blind")
 def test_tier_that_does_not_allow_refuses_tier_never(section):
-    _refused(backstop_verdict(section), "tier_never")
+    _refused(backstop_verdict(ControlSystemSection.read(section)), "tier_never")
 
 
 @pytest.mark.usefixtures("blind")
 def test_readonly_run_refuses_with_tier_allowed(monkeypatch):
     monkeypatch.setenv(EXECUTION_MODE, "readonly")
 
-    _refused(backstop_verdict(LIVE), "readonly_run")
+    _refused(backstop_verdict(ControlSystemSection.read(LIVE)), "readonly_run")
 
 
 @pytest.mark.usefixtures("blind")
 def test_readonly_run_comes_before_tier_never(monkeypatch):
     monkeypatch.setenv(EXECUTION_MODE, "readonly")
 
-    _refused(backstop_verdict(NEVER), "readonly_run")
+    _refused(backstop_verdict(ControlSystemSection.read(NEVER)), "readonly_run")
 
 
 @pytest.mark.usefixtures("blind")
 def test_other_execution_modes_are_not_readonly(monkeypatch):
     monkeypatch.setenv(EXECUTION_MODE, "readwrite")
 
-    assert backstop_verdict(LIVE).allowed is True
+    assert backstop_verdict(ControlSystemSection.read(LIVE)).allowed is True
 
 
 def test_readonly_run_refuses_even_with_the_switch_on(monkeypatch, tmp_path):
@@ -157,14 +158,14 @@ def test_readonly_run_refuses_even_with_the_switch_on(monkeypatch, tmp_path):
     write_control_context(tmp_path / "data", switch={"live": "asked"}, owned_by=None)
     monkeypatch.setenv(EXECUTION_MODE, "readonly")
 
-    _refused(backstop_verdict(LIVE), "readonly_run")
+    _refused(backstop_verdict(ControlSystemSection.read(LIVE)), "readonly_run")
 
 
 def test_a_switched_off_record_does_not_refuse_the_backstop(tmp_path):
     """The switch is not a backstop term: an off switch on disk still allows."""
     write_control_context(tmp_path / "data", switch={"live": "off"}, owned_by=None)
 
-    assert backstop_verdict(LIVE).allowed is True
+    assert backstop_verdict(ControlSystemSection.read(LIVE)).allowed is True
 
 
 # --- never raises ---------------------------------------------------------
@@ -174,7 +175,7 @@ def test_a_switched_off_record_does_not_refuse_the_backstop(tmp_path):
 def test_a_tier_reader_that_raises_refuses_tier_never(monkeypatch):
     monkeypatch.setattr(write_switch, "tier_allows", _fail("tier_allows (raising)"))
 
-    _refused(backstop_verdict(LIVE), "tier_never")
+    _refused(backstop_verdict(ControlSystemSection.read(LIVE)), "tier_never")
 
 
 @pytest.mark.usefixtures("blind")
@@ -182,4 +183,4 @@ def test_readonly_run_does_not_read_the_tier(monkeypatch):
     monkeypatch.setenv(EXECUTION_MODE, "readonly")
     monkeypatch.setattr(write_switch, "tier_allows", _fail("tier_allows"))
 
-    _refused(backstop_verdict(LIVE), "readonly_run")
+    _refused(backstop_verdict(ControlSystemSection.read(LIVE)), "readonly_run")

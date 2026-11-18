@@ -1199,11 +1199,12 @@ def _mapped_tier(section, login):
     malformed map is unreadable as a whole; no staged map (*section* ``None``)
     is ``unknown`` too.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_switch import write_ceiling
 
     if section is None:
         return "unknown"
-    tier = write_ceiling(section, login, tree_bound=True)
+    tier = write_ceiling(ControlSystemSection.read(section), login, tree_bound=True)
     return tier if tier in TIER_WORDS else "unknown"
 
 
@@ -1291,6 +1292,7 @@ def writes_rows(config, repo_root):
     carries :data:`CAPPED_AT_ASKED`.
     """
     from osprey.deployment.compose_generator import control_target_tree_dir
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.control_context import (
         RECORD_FILENAME,
         read_record_status,
@@ -1308,7 +1310,7 @@ def writes_rows(config, repo_root):
     recorded = _recorded_identities(tree)
     logins: list[tuple[str, str]]
     if login_tiers is None:
-        own_tier = tier_writes(config.get("control_system"))
+        own_tier = tier_writes(ControlSystemSection.read(config.get("control_system")))
         logins = [(name, own_tier) for name in recorded]
     else:
         logins = list(login_tiers.items())

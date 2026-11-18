@@ -142,12 +142,13 @@ def login_tier(section: Any, login: str) -> WriteCeiling:
     if section is UNREADABLE:
         return TIER_UNKNOWN
     try:
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.write_tier import tier_writes
 
-        if tier_writes(section) == "never":
+        if tier_writes(ControlSystemSection.read(section)) == "never":
             return "never"
-        rung = write_switch.owner_tier_term(section, login)
-        ceiling = write_switch.write_ceiling(section, login)
+        rung = write_switch.owner_tier_term(ControlSystemSection.read(section), login)
+        ceiling = write_switch.write_ceiling(ControlSystemSection.read(section), login)
     except Exception:  # an unreadable tier is not an allowed one
         logger.warning("Could not read the write tier for login %s", login)
         return TIER_UNKNOWN

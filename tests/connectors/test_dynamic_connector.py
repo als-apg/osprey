@@ -5,6 +5,7 @@ import logging
 import pytest
 
 from osprey_connectors import connector_types
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
@@ -45,7 +46,9 @@ class TestDynamicConnectorImport:
 
         dotted = "osprey_connectors_tests._mock_dynamic_connector.MockDynamicConnector"
         config = {"type": dotted, "connector": {}}
-        connector = await ConnectorFactory.create_control_system_connector(config)
+        connector = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config)
+        )
         result = await connector.read_channel("TEST:CH")
         assert result.value == 42
         assert ConnectorFactory._control_system_connectors[dotted] is MockDynamicConnector
@@ -83,7 +86,7 @@ class TestDynamicConnectorImport:
 
         with pytest.raises(ValueError) as caught:
             await ConnectorFactory.create_control_system_connector(
-                {"type": connector_type, "connector": {}}
+                ControlSystemSection.read({"type": connector_type, "connector": {}})
             )
 
         assert message in str(caught.value)
@@ -157,7 +160,7 @@ class TestCustomConnectorConfirm:
         # Built for the simulator target, whose switch the module's fixture
         # turned on: the factory stamps the target the caller names.
         return await ConnectorFactory.create_control_system_connector(
-            config, control_target=ARMED_TARGET
+            ControlSystemSection.read(config), control_target=ARMED_TARGET
         )
 
     @pytest.mark.asyncio

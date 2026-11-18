@@ -56,6 +56,7 @@ from osprey.services.pv_directory.origin import Origin, mark
 from osprey.services.pv_directory.vocabulary import service_failed
 from osprey_connectors import control_context
 from osprey_connectors.archiver_selection import resolve_archiver_type
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.deployment.archive_targets import archive_targets
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.model import evolve
@@ -362,7 +363,7 @@ class DirectoryService:
         record = control_context.read_record()
         if record is not None:
             return record.target, record.generation
-        return baseline_target(self._config.get("control_system")), 0
+        return baseline_target(ControlSystemSection.read(self._config.get("control_system"))), 0
 
     async def _sync(self) -> str:
         """The current target, after dropping what belonged to a previous one."""

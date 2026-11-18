@@ -2,17 +2,20 @@
 
 import asyncio
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.factory import ConnectorFactory
 
-CONFIG = {
-    "type": "epics",
-    "connector": {
-        "epics": {
-            "gateways": {"read_only": {"address": "cagw.facility.edu", "port": 5064}},
-            "timeout_s": 5.0,
-        }
-    },
-}
+CONFIG = ControlSystemSection.read(
+    {
+        "type": "epics",
+        "connector": {
+            "epics": {
+                "gateways": {"read_only": {"address": "cagw.facility.edu", "port": 5064}},
+                "timeout_s": 5.0,
+            }
+        },
+    }
+)
 
 
 async def main() -> None:

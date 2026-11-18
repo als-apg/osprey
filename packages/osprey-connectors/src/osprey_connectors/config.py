@@ -33,6 +33,7 @@ import yaml
 # ``workspace`` and ``yaml_loader`` import nothing from osprey itself, so
 # there is no cycle.
 from osprey_connectors import yaml_loader
+from osprey_connectors._config_read import config_flag, is_unresolved_placeholder
 from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
@@ -182,38 +183,6 @@ def _resolved_dict(data: dict[str, object], lookup: "Mapping[str, str]") -> dict
     return resolved
 
 
-#: A string that is nothing but a single unresolved env-var placeholder, e.g.
-#: ``"${MISSING}"`` or ``"$MISSING"``. :func:`resolve_env_vars` leaves such a
-#: value verbatim when the variable is unset (there is nothing to substitute and
-#: no declared default), so every consumer that reads a config value has to know
-#: this shape to tell "not configured" from a value.
-#:
-#: The two branches are the two branches of the resolver's own pattern above,
-#: character class included: the braced form takes any name without ``}`` or
-#: ``:`` (a ``:-`` default always substitutes, so it never survives), the bare
-#: form the shell-style identifier. Narrowing either half here would fail to
-#: recognise a reference the resolver did leave verbatim.
-_LONE_PLACEHOLDER = re.compile(r"^\$\{[^}:]+\}$|^\$[A-Za-z_][A-Za-z0-9_]*$")
-
-
-def is_unresolved_placeholder(value: object) -> bool:
-    """Whether *value* is an env-var reference :func:`resolve_env_vars` left alone.
-
-    The counterpart to :func:`resolve_env_vars`: it keeps ``${VAR}`` verbatim
-    when ``VAR`` is unset, so a consumer that treats what it reads as data sees
-    the literal string ``"${VAR}"`` where a URL or a key belongs. This is the
-    one producer of that test, so a caller never has to re-state the syntax the
-    resolver accepts.
-
-    Args:
-        value: A config value, of any type. Only a ``str`` can be a placeholder.
-
-    Returns:
-        True when the value is exactly one unsubstituted reference.
-    """
-    return isinstance(value, str) and bool(_LONE_PLACEHOLDER.match(value))
-
-
 #: The placeholder shapes :func:`resolve_env_vars` substitutes; one still
 #: present after resolution named a variable the environment does not have.
 _PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
@@ -241,50 +210,6 @@ def unresolved_placeholders(value: object) -> list[str]:
     if isinstance(value, list | tuple):
         return [found for item in value for found in unresolved_placeholders(item)]
     return []
-
-
-_FLAG_ON = frozenset({"true", "yes", "on", "1"})
-_FLAG_OFF = frozenset({"false", "no", "off", "0", ""})
-
-
-def config_flag(value: object, *, key: str) -> bool:
-    """Read an on/off config value for what it spells.
-
-    :func:`resolve_env_vars` substitutes text, so ``${USE_NS:-false}`` reaches a
-    consumer as the *string* ``"false"`` — and ``bool("false")`` is True. Every
-    consumer of such a switch reads it through here, so they all agree on one
-    rule: a bool is itself, ``None`` is off, ``0``/``1`` are off/on, and a string
-    is matched case-insensitively against ``true/yes/on/1`` and
-    ``false/no/off/0`` (blank is off). Anything else — an unresolved
-    ``${VAR}``, a typo, another number — is refused rather than guessed, since
-    either guess would silently pick a behaviour nobody configured.
-
-    Args:
-        value: The raw config value.
-        key: The dotted config key, named in the refusal.
-
-    Returns:
-        The switch's state.
-
-    Raises:
-        ValueError: When the value spells neither on nor off.
-    """
-    if value is None:
-        return False
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int) and value in (0, 1):
-        return bool(value)
-    if isinstance(value, str):
-        word = value.strip().lower()
-        if word in _FLAG_ON:
-            return True
-        if word in _FLAG_OFF:
-            return False
-    raise ValueError(
-        f"{key} must be true or false, got {value!r}"
-        + (" (an unset environment variable)" if is_unresolved_placeholder(value) else "")
-    )
 
 
 #: The defaults :class:`ConfigBuilder` fills in for a config with no
