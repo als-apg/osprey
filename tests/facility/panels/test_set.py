@@ -14,7 +14,7 @@ from osprey.facility.panels.view import (
     Target,
     View,
 )
-from tests.facility.panels._views import nodes, stub_render
+from tests.facility.panels._views import nodes, printed, stub_render
 
 
 def _texts(doc: dict) -> dict[str, list[dict]]:
@@ -60,7 +60,11 @@ def test_a_cell_holds_the_readback_or_the_short_name_with_its_light(panel_graph)
     doc = stub_render(set_overview(panel_graph, "XR-QUAD"), panel_graph)
     cells = _cells(doc)
     inside = lambda g, c: c["x"] <= g["x"] and g["x"] + g["width"] <= c["x"] + c["width"]  # noqa: E731
-    values = {n["props"]["pv"]: n["geometry"] for n in nodes(doc) if n["type"] == "pv-label"}
+    values = {  # each readback, a number held to its cell
+        printed(doc, n): n["geometry"]
+        for n in nodes(doc)
+        if n["type"] == "text-label" and n.get("rules")
+    }
     assert inside(values["XR01-QF1:Current-RB"], cells["XR01:QF1"])
     assert not [n for n in nodes(doc) if n["type"] in ("pv-text-input", "pv-button")]
     (name,) = _texts(doc)["D1"]  # no pair: the short name names.csv states
@@ -236,3 +240,108 @@ def test_each_group_is_headed_by_the_short_names_its_own_members_share(panel_gra
     (heading,) = texts["NOT PLACED"]
     assert f1["geometry"]["y"] == d1["geometry"]["y"] < heading["geometry"]["y"]
     assert n1["geometry"]["y"] == n2["geometry"]["y"] > heading["geometry"]["y"]
+
+
+def _set_with_units(tmp_path, units: dict[str, str]):
+    """The fixture's quadrupole set, its readbacks given *units* (channel to unit)."""
+    from osprey.facility.panels.model import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def change(document) -> None:
+        for channel in document["channels"]:
+            if channel["id"] in units:
+                channel["unit"] = units[channel["id"]]
+
+    tables = copy_tables(tmp_path / "panels")
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def _cell_widgets(doc: dict, cell: dict) -> list[dict]:
+    """The widgets a set cell draws: those whose middle lies in its box, the box aside."""
+    out = []
+    for n in nodes(doc):
+        g = n["geometry"]
+        mx, my = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
+        if n["props"].get("actions") or n["type"] == "rectangle":
+            continue
+        inside = cell["x"] <= mx <= cell["x"] + cell["width"]
+        if inside and cell["y"] <= my <= cell["y"] + cell["height"] and g not in out:
+            out.append(g)  # a light's layers share one box: one widget
+    return out
+
+
+def _apart(a: dict, b: dict) -> bool:
+    return (
+        a["x"] + a["width"] <= b["x"] + 0.01
+        or b["x"] + b["width"] <= a["x"] + 0.01
+        or a["y"] + a["height"] <= b["y"] + 0.01
+        or b["y"] + b["height"] <= a["y"] + 0.01
+    )
+
+
+def _no_overlap_in_cells(doc: dict) -> None:
+    cells = _cells(doc)
+    assert cells
+    for member, cell in cells.items():
+        widgets = _cell_widgets(doc, cell)
+        assert len(widgets) >= 2, member  # a value or a name, and a light
+        for i, a in enumerate(widgets):
+            assert cell["x"] - 0.01 <= a["x"], member
+            assert a["x"] + a["width"] <= cell["x"] + cell["width"] + 0.01, member
+            for b in widgets[i + 1 :]:
+                assert _apart(a, b), (member, a, b)
+
+
+def test_a_set_cell_with_a_long_unit_keeps_its_number_and_light_apart(tmp_path) -> None:
+    long = "1/Meter^2"
+    graph = _set_with_units(tmp_path, {"XR01-QF1:Current-RB": long, "XR02-QF1:Current-RB": long})
+    doc = stub_render(set_overview(graph, "XR-QUAD"), graph)
+    _no_overlap_in_cells(doc)
+    texts = _texts(doc)
+    assert any(t.endswith(f"({long})") for t in texts)  # stated once, over the grid
+    assert long not in texts  # not in a cell
+    assert not [n for n in nodes(doc) if n["type"] == "pv-label"]  # the viewer would add it
+
+
+def test_a_set_whose_units_differ_keeps_each_unit_clear_of_the_light(tmp_path) -> None:
+    from dataclasses import replace
+
+    graph = _set_with_units(
+        tmp_path, {"XR01-QF1:Current-RB": "1/Meter^2", "XR01-QF1:Current-SP": "A"}
+    )
+    view = set_overview(graph, "XR-QUAD")
+    section = next(s for s in view.sections if any(isinstance(i, Grid) for i in s.items))
+    grid = next(i for i in section.items if isinstance(i, Grid))
+    cell = next(c for r in grid.rows for c in r.cells if c.pair is not None)
+    assert cell.pair is not None
+    other = replace(cell, pair=replace(cell.pair, readback="XR01-QF1:Current-SP"))
+    rows = (GridRow(grid.rows[0].label, (cell, other)),)
+    doc = stub_render(View(view.id, view.title, (), (Section("members", (replace(grid, rows=rows),)),)), graph)  # fmt: skip
+    _no_overlap_in_cells(doc)
+    texts = _texts(doc)
+    assert "1/Meter^2" in texts and "A" in texts  # each cell states its own
+    assert not any(t.endswith(("(1/Meter^2)", "(A)")) for t in texts)
+
+
+def test_a_group_whose_members_share_a_unit_states_it_after_its_heading(tmp_path) -> None:
+    from dataclasses import replace
+
+    graph = _set_with_units(
+        tmp_path, {"XR01-QF1:Current-RB": "1/Meter^2", "XR01-QF1:Current-SP": "A"}
+    )
+    view = set_overview(graph, "XR-QUAD")
+    section = next(s for s in view.sections if any(isinstance(i, Grid) for i in s.items))
+    grid = next(i for i in section.items if isinstance(i, Grid))
+    cell = next(c for r in grid.rows for c in r.cells if c.pair is not None)
+    assert cell.pair is not None
+    other = replace(cell, pair=replace(cell.pair, readback="XR01-QF1:Current-SP"))
+    rows = (GridRow(Fact("row", "ring"), (cell,)), GridRow(Fact("row", "booster"), (other,)))
+    doc = stub_render(View(view.id, view.title, (), (Section("members", (replace(grid, rows=rows),)),)), graph)  # fmt: skip
+    _no_overlap_in_cells(doc)
+    texts = _texts(doc)
+    for heading, unit in (("RING", "1/Meter^2"), ("BOOSTER", "A")):
+        (head,) = texts[heading]
+        (stated,) = texts[unit]  # once, after the heading, in no cell
+        assert stated["geometry"]["y"] == head["geometry"]["y"]
+        assert stated["geometry"]["x"] > head["geometry"]["x"]
+    assert not [n for n in nodes(doc) if n["type"] == "pv-label"]  # the viewer would add it

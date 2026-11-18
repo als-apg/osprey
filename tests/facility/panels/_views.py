@@ -178,6 +178,15 @@ def formulas(doc: dict) -> dict[str, dict]:
     return {FORMULA + f["name"]: f for f in doc.get("formulas", ())}
 
 
+def printed(doc: dict, node: dict) -> str | None:
+    """The channel whose value a formula text label prints, or ``None``."""
+    by_name = {f["name"]: f for f in doc.get("formulas", ())}
+    for rule in node.get("rules", ()):
+        if rule.get("targetProperty") == "text" and "formula" in rule:
+            return by_name[rule["formula"].removeprefix(FORMULA)]["bindings"]["v"]
+    return None
+
+
 def bound(doc: dict, node: dict) -> tuple[str, ...]:
     """The channels a node's rules read, each once, through the screen formulas they
     name: in the light's order (a formula's ``v<i>`` is its channel ``i``)."""

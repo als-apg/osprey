@@ -64,6 +64,7 @@ from tests.facility.panels._views import (
     invented_views,
     links,
     nodes,
+    printed,
     resolved,
     rollup_view,
     strip_view,
@@ -826,7 +827,9 @@ def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_gra
     labels = [n["props"]["tooltip"] for n in _links_drawn(doc)]
     for member in ("XR01:QF1", "XR01:QD1", "XR02:QF1", "XR02:QD1"):
         assert labels.count(member) == 1
-    assert [n["props"]["pv"] for n in _by_type(doc, "pv-label")] == ["XR01-QF1:Current-RB"]
+    values = [printed(doc, n) for n in _by_type(doc, "text-label") if printed(doc, n)]
+    assert values == ["XR01-QF1:Current-RB"]  # a number held to its cell: a formula's text
+    assert not _by_type(doc, "pv-label")
     read = [bound(doc, n) for n in _by_type(doc, "polygon") if n.get("rules")]
     assert ("XR01-QF1:Current-SP", "XR01-QF1:Current-RB") in read  # the deviation light
     assert ("XR02-QD1:Current-RB",) in read  # the member's own light

@@ -1330,6 +1330,8 @@ class _Page:
         self.lit: set[str] = set()  # channels whose light a card's table drew
         self.facts_bottom: float = 0  # a rack's right column, where it ends
         self.cell_w: float = SET_CELL_WIDTH  # a set overview's cell width
+        self.cell_units = "number"  # how a set overview's cells state their unit
+        self.one_unit = True  # the set's cells share one unit, stated over the grid
         self.drawn = 0  # a set overview's cells drawn so far
         self.parts_listed: set[str] = set()  # parts a card's picture legend has listed
 
@@ -1583,13 +1585,17 @@ class _Page:
         writable: bool = False,
         w: float = VALUE_WIDTH,
         units: bool = False,
+        within: str | None = None,
     ) -> float:
         """A channel's value in the widget :data:`WIDGETS` names for its ``drawn_as``.
 
         A writable widget only on a device card, and only for a writable
         channel; anywhere else the value is a label, a number printed to
         :data:`SIGNIFICANT_DIGITS` significant digits, with its unit when *units*.
-        Returns the right edge.
+        A label is widened to print its unit whole, unless *within* holds it to
+        *w*: ``"number"`` prints the number alone (the unit is stated once
+        elsewhere), ``"unit"`` the number and its unit, the unit's width kept
+        clear first. Returns the right edge.
         """
         widget, kind = self.widget_for(drawn_as, writable)
         common = {"pv": channel, "fontSize": TEXT_SIZE, "foregroundColor": PAGE_TEXT}
@@ -1622,22 +1628,29 @@ class _Page:
                 "align": "right",
             }
             rules = []
-            w = max(w, self.value_span(channel))  # the unit printed whole
             own = self.own_kind(channel)
             if own is not None and own in _WHOLE_KINDS:  # a readback shown without its row's kind
                 kind = own
-            if kind in _PRINTED and self.cuts_unit(channel):
+            if within is None:
+                w = max(w, self.value_span(channel))  # the unit printed whole
+            # the viewer prints a label's unit whatever showUnits says, and cuts a long
+            # one: a number held to w, or one whose unit is cut, is a formula's text
+            # with the whole unit, if any, beside it
+            unit = "" if within == "number" else (self.unit_of(channel) or "")
+            number_only = within is not None or self.cuts_unit(channel)
+            if kind in _PRINTED and number_only and self.budget.take([(1, frozenset({channel}))]):
+                unit_w = text_width(unit, TEXT_SIZE) if unit else 0.0
+                number_w = max(0.0, w - (UNIT_GAP + unit_w if unit else 0.0))
                 expression = self.number_expression(channel, kind)
-                if self.budget.take([(1, frozenset({channel}))]):
-                    unit = self.unit_of(channel) or ""
-                    unit_w = text_width(unit, TEXT_SIZE)
-                    number_w = w - UNIT_GAP - unit_w
-                    self.formula_text(
-                        x, y, number_w, ROW, channel, expression, size=TEXT_SIZE, fg=PAGE_TEXT,
-                        bg=FIELD_BACKGROUND, align="right",
-                    )  # fmt: skip
+                self.formula_text(
+                    x, y, number_w, ROW, channel, expression, size=TEXT_SIZE, fg=PAGE_TEXT,
+                    bg=FIELD_BACKGROUND, align="right",
+                )  # fmt: skip
+                if unit:
                     self.text(x + number_w + UNIT_GAP, y, unit, w=unit_w)
-                    return x + w
+                return x + w
+            if within is not None:  # no formula to spare: the viewer's label, unit and all
+                props["showUnits"] = within == "unit"
             if kind in _WHOLE_KINDS or self.prints_whole(channel):
                 props["precision"] = 0
             elif kind in _NUMBERS:
@@ -2438,6 +2451,7 @@ class _Page:
         shown = max(1, min(fit, width or fit))
         self.cell_w = min(SET_CELL_MAX, (room - (shown - 1) * GAP) / shown)
         what = self.grid_what(grid)
+        self.one_unit = len(self.readback_units(grid.rows)) <= 1  # stated in that line
         w = text_width(what, SMALL_SIZE)
         x_what = self.set_x(0) if gridded else MARGIN
         self.text(x_what, self.y, what, size=SMALL_SIZE, w=w, fg=MUTED_TEXT, tags=tags)
@@ -2459,7 +2473,7 @@ class _Page:
                 self.column_heads(first, heads[here[0][0]], tags)
             for title, rows in here:
                 self.y += ROW_GAP
-                self.text(MARGIN, self.y, title.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+                self.group_heading(title, rows)
                 self.y += ROW
                 if not shared:  # each group under its own heads
                     self.column_heads(first, heads[title], tags)
@@ -2515,7 +2529,7 @@ class _Page:
         then its cells in lines at full width, no column heads, no row head. Cells
         past :data:`SET_MEMBERS` drawn on the screen are not drawn; returns how many."""
         self.y += SET_BLOCK_GAP - ROW_GAP
-        self.text(MARGIN, self.y, title.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+        self.group_heading(title, [row])
         if isinstance(row.label, Link):
             w = text_width(title.upper(), HEADING_SIZE)
             self.nav(MARGIN, self.y, w, ROW, row.label)
@@ -2532,6 +2546,27 @@ class _Page:
             self.y += ROW + ROW_GAP
         return len(row.cells) - len(cells)
 
+    def readback_units(self, rows: Sequence[GridRow]) -> set[str | None]:
+        """The units of the readbacks the cells of *rows* show."""
+        return {
+            self.unit_of(cell.pair.readback)
+            for row in rows
+            for cell in row.cells
+            if cell.pair is not None and cell.pair.readback is not None
+        }
+
+    def group_heading(self, title: str, rows: Sequence[GridRow]) -> None:
+        """A group's heading over its rows of cells. It sets how the group's cells state
+        their unit: not at all when the set's line states the one unit; once, after
+        the heading, when the group's members share one; else in each cell, clear of
+        the light (:meth:`field`)."""
+        x = self.text(MARGIN, self.y, title.upper(), size=HEADING_SIZE, fg=MUTED_TEXT)
+        units = self.readback_units(rows)
+        self.cell_units = "number" if self.one_unit or len(units) <= 1 else "unit"
+        (unit,) = units if len(units) == 1 and not self.one_unit else (None,)
+        if unit:
+            self.text(x + GAP, self.y, unit, size=HEADING_SIZE, fg=MUTED_TEXT)
+
     def grid_what(self, grid: Grid) -> str:
         """What a set overview's cells show: the readback of the primary pair's signal
         with the readback's unit, or the members' short names; in a calibration view,
@@ -2544,8 +2579,9 @@ class _Page:
         ]  # fmt: skip
         if grid.signal is None or not pairs:
             return _SET_NAMES
-        unit = self.graph.channel(pairs[0].readback).unit  # type: ignore[arg-type]
+        units = {self.unit_of(p.readback) for p in pairs if p.readback is not None}
         what = _SET_READBACK.format(grid.signal.replace("_", " "))
+        (unit,) = units if len(units) == 1 else (None,)  # several: each cell states its own
         return f"{what} ({unit})" if unit else what
 
     def column_heads(self, first: int, heads: Sequence[str], tags) -> None:
@@ -2608,7 +2644,8 @@ class _Page:
             self.no_rule(right, y, CHIP_LIGHT)
         end = right - GAP / 2
         if pair is not None and pair.readback is not None:
-            self.field(x0, y, pair.readback, w=end - x0)  # the viewer frames it
+            # the viewer frames it; the number (and its unit, when the set's differ) in it
+            self.field(x0, y, pair.readback, w=end - x0, within=self.cell_units)
         else:
             self.box(x0, y, end - x0, ROW, fill=FIELD_BACKGROUND)
             name = self.member_name(cell.member)
