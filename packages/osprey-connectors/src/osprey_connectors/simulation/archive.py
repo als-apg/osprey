@@ -54,13 +54,11 @@ option index. ``lume`` is imported inside :func:`build` only.
 from __future__ import annotations
 
 import hashlib
-import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -70,33 +68,31 @@ from pydantic import AwareDatetime, ValidationError, model_validator
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError, require_aware
 from osprey_connectors.logger import get_logger
-from osprey_connectors.model import FrozenModel, evolve
+from osprey_connectors.model import FrozenModel, FrozenTuple, evolve
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation import values as channel_values
+from osprey_connectors.simulation.records import SeedsDocument, StepEvent, VariablesDocument
 from osprey_connectors.simulation.series import (
-    apply_events,
-    epoch_seconds_array,
-    event_positions,
+    _apply_events,
+    _epoch_seconds_array,
+    _event_positions,
 )
-from osprey_connectors.simulation.state import (
-    ACTIVE_SCENARIOS_FILENAME,
-    resolve_active_scenarios,
-)
-from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, SimulatorView
+from osprey_connectors.simulation.view import SimulatorView
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from pathlib import Path
     from zoneinfo import ZoneInfo
 
     from pymongo.collection import Collection
 
-    from osprey_connectors.simulation.composite import Composite, ServingInstance
+    from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.records import (
         ArchiverEvent,
         ChannelRecord,
         PulseRecord,
-        ScenarioRecord,
         TopoffRecord,
     )
+    from osprey_connectors.simulation.state import ActiveState, ServingInstance
 
 logger = get_logger("archive")
 
@@ -106,13 +102,14 @@ __all__ = [
     "MANIFEST_ID",
     "ArchiveComposite",
     "FingerprintComparison",
+    "KnobChange",
+    "SeedFingerprint",
     "SeedKnobs",
     "SeedReport",
     "SeedState",
     "build",
     "compare_fingerprint",
     "oldest_sample",
-    "scenario_events",
     "seed_base",
     "seed_fingerprint",
     "stored_date_utc",
@@ -164,14 +161,61 @@ class SeedState(StrEnum):
     describes what the profile asks for. The store has to be rebuilt."""
 
 
+class SeedFingerprint(FrozenModel):
+    """The knobs a store's coverage depends on, as the seed manifest stores them.
+
+    The fields are in the order the manifest's ``fingerprint`` subdocument
+    states them; :meth:`model_dump` is that subdocument.
+
+    Attributes:
+        schema_version: The meaning of a stored document, bumped when an
+            existing store becomes wrong.
+        retention_days: The coarse tier's span.
+        hot_span_hours: The dense tier's span.
+        hot_cadence_sec: The dense tier's cadence.
+        tail_cadence_sec: The coarse tier's cadence.
+        compression: The collection's block compressor.
+        shape_version: The pulse shape every stored trace is drawn from.
+        topoff_shape_version: The top-off sawtooth every stored decaying
+            current is drawn from.
+        channel_count: The number of seeded channels.
+        channel_set_sha256: The SHA-256 of the sorted channel names, one per line.
+    """
+
+    schema_version: int
+    retention_days: int
+    hot_span_hours: int
+    hot_cadence_sec: int
+    tail_cadence_sec: int
+    compression: str
+    shape_version: str
+    topoff_shape_version: str
+    channel_count: int
+    channel_set_sha256: str
+
+
+class KnobChange(FrozenModel):
+    """One fingerprint field a store's manifest holds otherwise than the knobs now in force.
+
+    Attributes:
+        key: The fingerprint field.
+        stored: What the manifest holds, ``None`` when it lacks the field.
+        expected: What the knobs now in force give.
+    """
+
+    key: str
+    stored: object
+    expected: object
+
+
 class FingerprintComparison(FrozenModel):
     """The outcome of comparing a store's manifest against current knobs."""
 
     state: SeedState
-    differences: tuple[tuple[str, object, object], ...] = ()
-    """``(key, stored, expected)`` for each field that moved. Empty unless the
-    state is :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report*
-    what changed rather than announcing an unexplained reseed."""
+    differences: FrozenTuple[KnobChange] = ()
+    """Each field that moved, by field name. Empty unless the state is
+    :attr:`SeedState.MISMATCH`. Carried so the deploy step can *report* what
+    changed rather than announcing an unexplained reseed."""
 
     seeded_at: AwareDatetime | None = None
     """The instant the stored seed was anchored at, when there is one. Metadata:
@@ -180,7 +224,8 @@ class FingerprintComparison(FrozenModel):
     def describe(self) -> str:
         """One line per changed knob, for a deploy-time report."""
         return "\n".join(
-            f"  {key}: {stored!r} -> {expected!r}" for key, stored, expected in self.differences
+            f"  {change.key}: {change.stored!r} -> {change.expected!r}"
+            for change in self.differences
         )
 
 
@@ -305,8 +350,6 @@ class SeedReport(FrozenModel):
 #: The serving instance the archive composite's log lines name.
 _ARCHIVE_INSTANCE: ServingInstance = "virtual_accelerator"
 
-_STEP = "step"
-
 
 class ArchiveComposite:
     """A simulator view's history for one active scenario set.
@@ -327,8 +370,6 @@ class ArchiveComposite:
             from: the activation anchor.
         tz: The facility zone ``at_when`` calendar days are counted in and a
             daily ``at_time`` event is placed in.
-        state: The directory holding ``composite``'s active set, removed by
-            ``close``.
         pulses: Each pulsed waveform channel's ``pulse`` seed, by address: the
             ``driver`` and ``enable`` channels its trace is computed from.
         topoffs: Each channel's ``topoff`` seed record, by address, for the
@@ -349,7 +390,6 @@ class ArchiveComposite:
         *,
         anchor_at: datetime,
         tz: ZoneInfo,
-        state: tempfile.TemporaryDirectory[str] | None = None,
         pulses: Mapping[str, PulseRecord] | None = None,
         topoffs: Mapping[str, TopoffRecord] | None = None,
     ) -> None:
@@ -366,7 +406,6 @@ class ArchiveComposite:
         self._held: dict[str, object] = dict(held)
         self._events = {address: list(scripts) for address, scripts in events.items()}
         self._composite = composite
-        self._state = state
         # Epoch seconds from here on: the per-sample arithmetic is float.
         self._anchor_s = require_aware(anchor_at, name="anchor_at").timestamp()
         self._tz = tz
@@ -374,17 +413,6 @@ class ArchiveComposite:
     def topoff_record(self, address: str) -> TopoffRecord | None:
         """The ``topoff`` seed record that refills ``address``'s ``loss`` events, or None."""
         return self._topoffs.get(address)
-
-    def close(self) -> None:
-        """Remove the state directory, when the composite holds one; a second call does nothing."""
-        if self._state is not None:
-            self._state.cleanup()
-
-    def __enter__(self) -> ArchiveComposite:
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        self.close()
 
     @property
     def addresses(self) -> list[str]:
@@ -524,8 +552,7 @@ class ArchiveComposite:
         return out
 
     def _is_float(self, address: str) -> bool:
-        channel = self._channels[address]
-        return (channel.value_type or channel_values.DEFAULT_VALUE_TYPE) == "float"
+        return self._channels[address].value_type == "float"
 
     def _is_waveform(self, address: str) -> bool:
         return channel_values.is_waveform(self._channels[address].value_type)
@@ -554,7 +581,7 @@ class ArchiveComposite:
         count = len(times)
         start = np.full(count, channel_values._real(self._held[address]), dtype=np.float64)
         events = self._events.get(address, [])
-        return apply_events(
+        return _apply_events(
             start,
             events,
             count,
@@ -575,12 +602,10 @@ class ArchiveComposite:
         stored = [held] * len(times)
         fractions = np.linspace(0.0, 1.0, len(times))
         for event in events:
-            if event.shape != _STEP:
+            if not isinstance(event, StepEvent):
                 continue
-            target = channel_values.coerce(
-                event.to, channel.value_type, channel.options, channel.shape
-            )
-            for axis, at in event_positions(
+            target = channel.coerce(event.to)
+            for axis, at in _event_positions(
                 event, fractions, times, anchor_s=self._anchor_s, tz=self._tz
             ):
                 for index in np.flatnonzero(axis >= at):
@@ -590,43 +615,13 @@ class ArchiveComposite:
     @staticmethod
     def _wire(channel: ChannelRecord, value: object) -> object:
         """A stored value as the wire carries it: a label as its option index."""
-        value_type = channel.value_type
-        if value_type in channel_values.LABELLED_TYPES:
-            labels: Sequence[object] = channel_values.channel_labels(channel)
-            return labels.index(value)
+        if channel.value_type in channel_values.LABELLED_TYPES:
+            return channel.labels.index(value)
         return value
 
 
-def scenario_events(
-    scenarios: Mapping[str, ScenarioRecord], names: Sequence[str]
-) -> dict[str, list[ArchiverEvent]]:
-    """The archiver events a scenario set writes, by channel.
-
-    Args:
-        scenarios: The simulator view's scenarios, by name.
-        names: The scenario names of the set, in set order; a name
-            ``scenarios`` does not list contributes nothing.
-
-    Returns:
-        Each channel's events in set order; a channel an ``archiver`` entry
-        names with no events maps to an empty list.
-    """
-    events: dict[str, list[ArchiverEvent]] = {}
-    for name in names:
-        scenario = scenarios.get(name)
-        if scenario is None:
-            continue
-        for entry in scenario.archiver:
-            events.setdefault(entry.channel, []).extend(entry.events)
-    return events
-
-
 def build(
-    view: SimulatorView | Path | str,
-    active_set: Sequence[str],
-    *,
-    anchor_at: datetime | None = None,
-    tz: ZoneInfo,
+    view: SimulatorView | Path | str, active: ActiveState, *, tz: ZoneInfo
 ) -> ArchiveComposite:
     """Build the archive composite of a simulator view at one active set's start state.
 
@@ -638,9 +633,8 @@ def build(
     Args:
         view: The simulator view, ``<render>/data/simulator``, opened or as
             its directory, which is opened with :meth:`SimulatorView.open`.
-        active_set: The active scenario names; ``nominal`` is always active.
-        anchor_at: The instant the set was applied at, from which an
-            ``at_offset`` or ``at_when`` event is placed; ``None`` is the time
+        active: The active set; its anchor places an ``at_offset`` or
+            ``at_when`` event, and a set without one is placed from the time
             of the build.
         tz: The facility zone ``at_when`` calendar days are counted in and a
             daily ``at_time`` event is placed in.
@@ -649,7 +643,6 @@ def build(
         The archive composite.
 
     Raises:
-        NaiveDatetimeError: ``anchor_at`` is naive.
         RuntimeError: A physics model fails to build or read at the start
             state; the message names it and its engine's error. A model without
             a deck is unbuilt by design (``no deck``) and does not raise.
@@ -660,68 +653,49 @@ def build(
     from osprey_connectors.simulation.composite import Composite
     from osprey_connectors.simulation.status import is_error
 
-    if anchor_at is None:
-        anchor_at = datetime.fromtimestamp(time.time(), UTC)
-    require_aware(anchor_at, name="anchor_at")
+    anchor_at = active.anchor_at or datetime.fromtimestamp(time.time(), UTC)
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
-    scenarios: dict[str, ScenarioRecord] = {
-        scenario.name: scenario for scenario in view.scenarios()
-    }
     records: dict[str, ChannelRecord] = {
-        channel.address: channel for channel in view.document(VARIABLES_FILE).channels
+        channel.address: channel for channel in view.document(VariablesDocument).channels
     }
-    seeds = view.document(SEEDS_FILE).seeds
+    seeds = view.document(SeedsDocument).seeds
     archived = sorted(view.channels())
-    names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
-    state = tempfile.TemporaryDirectory(prefix="osprey-archive-")
-    try:
-        (Path(state.name) / ACTIVE_SCENARIOS_FILENAME).write_text(
-            "".join(f"{name}\n" for name in names), encoding="utf-8"
+    composite = Composite(view, active=active, instance=_ARCHIVE_INSTANCE, model_log=False)
+    held = composite.held(archived)
+    failed = {
+        model: status for model in composite.models if is_error(status := composite.status(model))
+    }
+    if failed:
+        raise RuntimeError(
+            "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
         )
-        composite = Composite(
-            view, state_dir=state.name, instance=_ARCHIVE_INSTANCE, model_log=False
-        )
-        held = composite.held(archived)
-        failed = {
-            model: status
-            for model in composite.models
-            if is_error(status := composite.status(model))
-        }
-        if failed:
-            raise RuntimeError(
-                "; ".join(f"{model}: {status}" for model, status in sorted(failed.items()))
-            )
 
-        events = scenario_events(scenarios, composite.active)
-        pulses = {
-            address: pulse_seed
-            for address in archived
-            if channel_values.is_waveform(records[address].value_type)
-            and (seed := seeds.get(address)) is not None
-            and (pulse_seed := seed.pulse) is not None
-        }
+    events = composite.composed.archiver_events
+    pulses = {
+        address: pulse_seed
+        for address in archived
+        if channel_values.is_waveform(records[address].value_type)
+        and (seed := seeds.get(address)) is not None
+        and (pulse_seed := seed.pulse) is not None
+    }
 
-        return ArchiveComposite(
-            {address: records[address] for address in archived},
-            held,
-            {address: scripts for address, scripts in events.items() if address in records},
-            composite,
-            anchor_at=anchor_at,
-            tz=tz,
-            state=state,
-            pulses=pulses,
-            topoffs={
-                address: record
-                for address in events
-                if address in records
-                and (record := topoff.topoff_record(seeds.get(address))) is not None
-            },
-        )
-    except BaseException:
-        state.cleanup()
-        raise
+    return ArchiveComposite(
+        {address: records[address] for address in archived},
+        held,
+        {address: scripts for address, scripts in events.items() if address in records},
+        composite,
+        anchor_at=anchor_at,
+        tz=tz,
+        pulses=pulses,
+        topoffs={
+            address: record
+            for address in events
+            if address in records
+            and (record := topoff.topoff_record(seeds.get(address))) is not None
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +817,7 @@ def _synthesize_documents(
     # their stored dates, not at the ones the grid was built from. Datetimes
     # carry microseconds, so a grid time with finer resolution than that would
     # otherwise be stored as one instant and valued as another.
-    reader_times_s = epoch_seconds_array(stamps)
+    reader_times_s = _epoch_seconds_array(stamps)
     assert reader_times_s is not None  # datetimes always convert
 
     addresses = archive.scalar_addresses
@@ -865,8 +839,8 @@ def seed_fingerprint(
     addresses: Iterable[str],
     *,
     compression: str,
-) -> dict[str, int | str]:
-    """The knobs a store's coverage depends on, as a comparable dict.
+) -> SeedFingerprint:
+    """The knobs a store's coverage depends on, as a comparable record.
 
     Everything here changes what the store *contains*: the window's depth and
     density, which channels are in it, how it is compressed on disk, the
@@ -883,27 +857,28 @@ def seed_fingerprint(
         compression: The collection's block compressor.
 
     Returns:
-        The fingerprint, JSON-serializable and safe to store verbatim.
+        The fingerprint; its :meth:`~SeedFingerprint.model_dump` is what the
+        manifest stores.
     """
     names = sorted(set(addresses))
     digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
-    return {
-        "schema_version": _SEED_SCHEMA_VERSION,
-        "retention_days": knobs.retention_days,
-        "hot_span_hours": knobs.hot_span_hours,
-        "hot_cadence_sec": knobs.hot_cadence_sec,
-        "tail_cadence_sec": knobs.tail_cadence_sec,
-        "compression": compression,
-        "shape_version": pulse.SHAPE_VERSION,
-        "topoff_shape_version": topoff.SHAPE_VERSION,
-        "channel_count": len(names),
-        "channel_set_sha256": digest,
-    }
+    return SeedFingerprint(
+        schema_version=_SEED_SCHEMA_VERSION,
+        retention_days=knobs.retention_days,
+        hot_span_hours=knobs.hot_span_hours,
+        hot_cadence_sec=knobs.hot_cadence_sec,
+        tail_cadence_sec=knobs.tail_cadence_sec,
+        compression=compression,
+        shape_version=pulse.SHAPE_VERSION,
+        topoff_shape_version=topoff.SHAPE_VERSION,
+        channel_count=len(names),
+        channel_set_sha256=digest,
+    )
 
 
 def _write_manifest(
     collection: Collection[dict[str, object]],
-    fingerprint: Mapping[str, object],
+    fingerprint: SeedFingerprint,
     *,
     seeded_at: datetime,
     report: SeedReport | None = None,
@@ -923,7 +898,7 @@ def _write_manifest(
     """
     document = {
         "_id": MANIFEST_ID,
-        "fingerprint": dict(fingerprint),
+        "fingerprint": fingerprint.model_dump(),
         "seeded_at": seeded_at,
         "touched_windows": [],
     }
@@ -938,7 +913,7 @@ def _write_manifest(
 
 
 def compare_fingerprint(
-    collection: Collection[dict[str, object]], fingerprint: Mapping[str, object]
+    collection: Collection[dict[str, object]], fingerprint: SeedFingerprint
 ) -> FingerprintComparison:
     """Whether the store in front of us was built with the knobs now in force.
 
@@ -963,8 +938,8 @@ def compare_fingerprint(
         # What reading a field off such a manifest raised before it was checked.
         raise AttributeError(f"{type(held).__name__!r} object has no attribute 'get'")
     differences = tuple(
-        (key, held.get(key), expected)
-        for key, expected in sorted(fingerprint.items())
+        KnobChange(key=key, stored=held.get(key), expected=expected)
+        for key, expected in sorted(fingerprint.model_dump().items())
         if held.get(key) != expected
     )
     if differences:
@@ -1186,7 +1161,7 @@ def _waveform_documents(
     if not stamps:
         return []
     expiry = _as_utc_datetimes(expire_times_s)
-    reader_times_s = epoch_seconds_array(stamps)
+    reader_times_s = _epoch_seconds_array(stamps)
     assert reader_times_s is not None  # datetimes always convert
     documents: list[dict[str, object]] = []
     for address in archive.waveform_addresses:

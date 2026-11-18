@@ -35,7 +35,7 @@ from osprey.simulation.sessions import (
     resolve,
 )
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.simulation.series import anchored_instant
+from osprey_connectors.simulation.series import _instant
 from tests._archiver_events import event as view_event
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
@@ -101,8 +101,15 @@ def _figure_layout(html: str) -> dict[str, Any]:
 
 
 def _event_instant() -> float:
-    event = view_event({"shape": "spike", "at_when": {"days_ago": 1, "time": "14:32:08"}})
-    return anchored_instant(event, anchor_s=ANCHOR.timestamp(), tz=get_facility_timezone())
+    event = view_event(
+        {
+            "shape": "spike",
+            "at_when": {"days_ago": 1, "time": "14:32:08"},
+            "amplitude": 1.0,
+            "width": 1.0,
+        }
+    )
+    return _instant(event.placement, anchor_s=ANCHOR.timestamp(), tz=get_facility_timezone())
 
 
 def _axis_seconds(axis: list[str]) -> list[float]:
@@ -252,6 +259,7 @@ def test_each_channel_reads_on_its_own_panel_in_its_stated_unit(payloads) -> Non
 
 def test_the_plot_samples_are_the_archive_samples(project: Path, payloads) -> None:
     from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
     traces = {
@@ -262,10 +270,12 @@ def test_the_plot_samples_are_the_archive_samples(project: Path, payloads) -> No
     }
     seconds = _axis_seconds(traces[DCCT]["x"])
     assert seconds[1] - seconds[0] == PLOT_STEP_S
-    with build(
-        SimulatorView.of_project(project), NAMES, anchor_at=ANCHOR, tz=get_facility_timezone()
-    ) as archive:
-        archived = archive.samples([DCCT, SR07], seconds)
+    archive = build(
+        SimulatorView.of_project(project),
+        ActiveState(names=NAMES, anchor_at=ANCHOR),
+        tz=get_facility_timezone(),
+    )
+    archived = archive.samples([DCCT, SR07], seconds)
 
     assert traces[DCCT]["y"] == [float(v) for v in archived[DCCT]]
     assert traces[SR07]["y"] == [float(v) for v in archived[SR07]]

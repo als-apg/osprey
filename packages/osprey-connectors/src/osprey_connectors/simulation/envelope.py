@@ -31,29 +31,28 @@ into its record first.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Final
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING
 
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.records import (
-    CouplingTerm,
-    DriveRecord,
-    NoiseRecord,
+    AbsoluteNoise,
+    Noise,
+    RelativeNoise,
     ResolvedCoupling,
-    ScenarioRecord,
     SeedRecord,
 )
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.state import ComposedSet
+
 __all__ = [
     "active_envelopes",
-    "declares_motion",
     "motion_envelope",
 ]
 
 #: Gaussian headroom on a noise sigma: a per-draw miss rate near 1e-9.
 _MOTION_SIGMAS = 6.0
-
-_ABSOLUTE: Final = "absolute"
 
 
 def _number(value: object) -> float | None:
@@ -63,7 +62,7 @@ def _number(value: object) -> float | None:
     return float(value)
 
 
-def _noise_sigma(noise: NoiseRecord | None, nominal: object = None) -> float:
+def _noise_sigma(noise: Noise | None, nominal: object = None) -> float:
     """The sigma a noise record draws with, in the channel's unit.
 
     Args:
@@ -72,33 +71,35 @@ def _noise_sigma(noise: NoiseRecord | None, nominal: object = None) -> float:
         nominal: The seed's ``nominal``, which a relative term is taken of.
 
     Returns:
-        ``|absolute|``, or ``|relative| x |nominal|``; 0.0 for no record. A
-        record stating ``absolute`` draws with it, whatever else it states.
+        ``|absolute|``, or ``|relative| x |nominal|``; 0.0 for no record.
 
     Raises:
         ValueError: The record is relative and ``nominal`` is not a number.
     """
-    if noise is None:
-        return 0.0
-    if _ABSOLUTE in noise.model_fields_set:
-        return abs(float(noise.absolute or 0.0))
-    relative = abs(float(noise.relative or 0.0))
-    if not relative:
-        return 0.0
-    base = _number(nominal)
-    if base is None:
-        raise ValueError(f"a relative noise is taken of a numeric nominal, not {nominal!r}")
-    return relative * abs(base)
+    match noise:
+        case None:
+            return 0.0
+        case AbsoluteNoise(absolute=absolute):
+            return abs(float(absolute))
+        case RelativeNoise(relative=relative) if relative:
+            base = _number(nominal)
+            if base is None:
+                raise ValueError(f"a relative noise is taken of a numeric nominal, not {nominal!r}")
+            return abs(float(relative)) * abs(base)
+        case RelativeNoise():
+            return 0.0
 
 
-def _term(noise: NoiseRecord | None) -> float:
+def _term(noise: Noise | None) -> float:
     """The noise record's one term, signed as stated; 0.0 for no record."""
-    if noise is None:
-        return 0.0
-    return float(noise.absolute or noise.relative or 0.0)
+    match noise:
+        case None:
+            return 0.0
+        case AbsoluteNoise(absolute=term) | RelativeNoise(relative=term):
+            return float(term)
 
 
-def declares_motion(seed: SeedRecord | None) -> bool:
+def _declares_motion(seed: SeedRecord | None) -> bool:
     """Whether a seed states motion: a non-zero noise term, ``drift``, or ``topoff``."""
     if seed is None:
         return False
@@ -108,7 +109,7 @@ def declares_motion(seed: SeedRecord | None) -> bool:
 def motion_envelope(
     seed: SeedRecord | None,
     *,
-    noise: NoiseRecord | None = None,
+    noise: Noise | None = None,
     couplings: Iterable[ResolvedCoupling] = (),
     still: bool = False,
 ) -> float:
@@ -141,69 +142,36 @@ def motion_envelope(
         )
     shape = topoff.topoff_record(seed)
     if shape is not None:
-        envelope += topoff.tooth_depth(shape)
+        envelope += topoff._tooth_depth(shape)
     held = topoff.held_value(seed)
     record = noise if noise is not None else (None if seed is None else seed.noise)
     nominal = held if held is not None else (None if seed is None else seed.nominal)
     return envelope + _MOTION_SIGMAS * _noise_sigma(record, nominal)
 
 
-def active_envelopes(
-    seeds: Mapping[str, SeedRecord],
-    scenarios: Mapping[str, ScenarioRecord],
-    active: Sequence[str],
-) -> dict[str, float]:
-    """Every seeded, coupled or noise-replaced channel's envelope under ``active``.
+def active_envelopes(seeds: Mapping[str, SeedRecord], composed: ComposedSet) -> dict[str, float]:
+    """Every seeded, coupled or noise-replaced channel's envelope under a served set.
 
-    The active scenarios' ``noise`` and ``couple`` blocks merge in order, a
-    later scenario's noise record replacing an earlier one's, and each
-    coupling takes its driver's ``drive`` from the merged ``drivers``; a
-    coupling to an undeclared driver adds nothing, as it serves nothing. A
-    reading any active scenario's ``still`` list names has an envelope of 0.0.
+    The set's ``noise`` and ``couple`` blocks are merged as
+    :func:`~osprey_connectors.simulation.state.compose` merges them for the
+    composite: a later scenario's noise record replaces an earlier one's, and
+    a coupling to an undeclared driver adds nothing, as it serves nothing. A
+    reading the set stills has an envelope of 0.0.
 
     Args:
         seeds: Seeds by address.
-        scenarios: Scenario records by name; only ``still``, ``drivers``,
-            ``couple`` and ``noise`` are read.
-        active: The active scenario names, in order; a name ``scenarios``
-            lacks adds nothing.
+        composed: The served set.
 
     Returns:
         The envelope by address, sorted.
     """
-    drivers: dict[str, DriveRecord] = {}
-    couple: dict[str, list[CouplingTerm]] = {}
-    noise: dict[str, NoiseRecord] = {}
-    still: set[str] = set()
-    for name in active:
-        scenario = scenarios.get(name)
-        if scenario is None:
-            continue
-        still.update(scenario.still)
-        drivers.update(scenario.drivers)
-        for address, terms in scenario.couple.items():
-            couple.setdefault(address, []).extend(terms)
-        noise.update(scenario.noise)
-    resolved: dict[str, list[ResolvedCoupling]] = {}
-    for address, merged in couple.items():
-        for term in merged:
-            drive = drivers.get(term.driver)
-            if drive is not None:
-                resolved.setdefault(address, []).append(
-                    ResolvedCoupling(
-                        driver=term.driver,
-                        gain=term.gain,
-                        gain_wander=term.gain_wander,
-                        drive=drive,
-                    )
-                )
-    addresses = set(seeds) | set(couple) | set(noise)
+    addresses = set(seeds) | set(composed.couplings) | set(composed.noise)
     return {
         address: motion_envelope(
             seeds.get(address),
-            noise=noise.get(address),
-            couplings=resolved.get(address, ()),
-            still=address in still,
+            noise=composed.noise.get(address),
+            couplings=composed.couplings.get(address, ()),
+            still=address in composed.still,
         )
         for address in sorted(addresses)
     }

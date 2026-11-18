@@ -7,10 +7,19 @@ from datetime import UTC, datetime
 import pytest
 
 from osprey_connectors.simulation import state, status
+from osprey_connectors.simulation.records import ScenarioRecord
+
+
+def _writing(**writes: list[str]) -> dict[str, ScenarioRecord]:
+    """Scenarios by name, each overriding the addresses it is given."""
+    return {
+        name: ScenarioRecord(name=name, overrides=dict.fromkeys(addresses, 1.0))
+        for name, addresses in writes.items()
+    }
 
 
 def test_two_scenarios_writing_one_address_give_one_overlap_naming_it():
-    view = {"a": {"SR:BPM1:X", "SR:Q1:I"}, "b": {"SR:BPM1:X", "SR:Q2:I"}}
+    view = _writing(a=["SR:BPM1:X", "SR:Q1:I"], b=["SR:BPM1:X", "SR:Q2:I"])
 
     overlaps = state.validate_composition(view, ["nominal", "a", "b"])
 
@@ -19,14 +28,12 @@ def test_two_scenarios_writing_one_address_give_one_overlap_naming_it():
 
 
 def test_disjoint_scenarios_compose():
-    view = {"a": {"X"}, "b": {"Y"}}
-
-    assert state.validate_composition(view, ["a", "b"]) == []
+    assert state.validate_composition(_writing(a=["X"], b=["Y"]), ["a", "b"]) == []
 
 
 def test_an_unknown_scenario_is_refused_by_name():
     with pytest.raises(ValueError, match="'c'"):
-        state.validate_composition({"a": {"X"}}, ["a", "c"])
+        state.validate_composition(_writing(a=["X"]), ["a", "c"])
 
 
 def test_the_state_file_parser_reads_names_and_the_anchor():
@@ -34,7 +41,7 @@ def test_the_state_file_parser_reads_names_and_the_anchor():
 
     active = state.parse_active_state(text)
 
-    assert active.names == ("burst", "late-burst")
+    assert active.names == ("nominal", "burst", "late-burst")
     assert active.anchor_at == datetime(2026, 1, 1, tzinfo=UTC)
 
 
@@ -65,20 +72,35 @@ def test_the_composite_reads_the_state_file_through_the_state_parser():
     assert not hasattr(composite, "_active_state_names")
 
 
-def test_overlap_record_prints_its_log_origin():
-    overlap = state.Overlap(target="SR:BPM1:X", first="a", second="b")
+def test_an_overlap_record_reads_back_from_its_line_and_prints_its_log_origin():
+    line = (
+        '{"event": "scenario-overlap", "instance": "live_standin", "model": "SR", '
+        '"pid": 4242, "target": "SR:BPM1:X"}'
+    )
 
-    record = state.overlap_record(overlap, instance="live_standin", pid=4242)
-    line = state.format_overlap_record("SR", record)
+    record = state.OverlapLogRecord.from_line(line)
 
-    assert record == {
-        "instance": "live_standin",
-        "pid": 4242,
-        "event": state.OVERLAP_EVENT,
-        "target": "SR:BPM1:X",
-    }
-    assert line.startswith("SR (log, instance live_standin, pid 4242): ")
-    assert "SR:BPM1:X" in line
+    assert record == state.OverlapLogRecord(
+        instance="live_standin", pid=4242, model="SR", target="SR:BPM1:X"
+    )
+    assert record.describe() == (
+        "SR (log, instance live_standin, pid 4242): scenario-overlap on SR:BPM1:X"
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "not json",
+        "[1, 2]",
+        '{"event": "built", "instance": "inprocess", "model": "SR", "pid": 1}',
+        '{"event": "scenario-overlap", "instance": "inprocess", "model": "SR", "pid": 1}',
+        '{"event": "scenario-overlap", "instance": "elsewhere", "model": "SR", "pid": 1, '
+        '"target": "X"}',
+    ],
+)
+def test_a_line_that_is_not_an_overlap_record_reads_as_none(line):
+    assert state.OverlapLogRecord.from_line(line) is None
 
 
 def _modules_after(statement: str) -> set[str]:
@@ -105,7 +127,7 @@ def test_the_package_root_imports_no_lume_and_no_engine():
 
 
 def test_the_model_status_lookup_imports_no_lume_and_no_engine():
-    modules = _modules_after("from osprey_connectors.simulation import model_status")
+    modules = _modules_after("from osprey_connectors.simulation.status import model_status")
 
     assert not {m for m in modules if m == "lume" or m.startswith(("lume.", "lume_"))}
     assert not {
@@ -125,11 +147,14 @@ def test_the_values_module_imports_no_numpy_and_no_lume():
     assert not {m for m in modules if m == "lume" or m.startswith(("lume.", "lume_"))}
 
 
-def test_the_package_root_holds_the_status_lookups_and_no_engine():
+def test_the_status_lookups_have_one_home_and_the_package_root_no_engine():
     import osprey_connectors.simulation as package
 
-    assert package.model_status is status.model_status
-    assert package.read_model_status is status.read_model_status
+    assert {"model_status", "read_model_status"} <= set(status.__all__)
+    assert not {"model_status", "read_model_status", "GATED_TYPES", "LABELLED_TYPES"} & set(
+        package.__all__
+    )
+    assert not hasattr(package, "model_status")
     assert not hasattr(package, "SimulationEngine")
 
 
@@ -181,7 +206,7 @@ def test_a_status_channel_is_read_through_the_connector_and_decoded(value):
     import asyncio
     from types import SimpleNamespace
 
-    from osprey_connectors.simulation import read_model_status
+    from osprey_connectors.simulation.status import read_model_status
 
     read: list[str] = []
 

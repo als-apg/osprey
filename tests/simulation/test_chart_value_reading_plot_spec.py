@@ -22,7 +22,7 @@ import yaml
 from osprey.facility.scenarios import scenario_logbook
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.logbook import PlotSpec, parse_plot_spec
-from osprey_connectors.simulation.records import SeedRecord
+from osprey_connectors.simulation.records import ScenarioRecord, SeedRecord
 from tests._preset_data import packaged_facility_dir
 from tests.e2e.fixtures.chart_value_reading import plot_spec as fixture
 
@@ -156,12 +156,15 @@ def test_installed_scenarios_build_with_the_preset_facility(tmp_path: Path) -> N
     recent = scenarios[fixture.RECENT_SCENARIO]
     assert [entry["channel"] for entry in recent["archiver"]] == [fixture.DCCT_CHANNEL]
     # The recent scenario is telemetry only: it narrates nothing.
-    assert scenario_logbook(recent) == ()
+    assert not recent.get("logbook")
 
     logged = scenarios[fixture.LOGBOOK_SCENARIO]
+    record = ScenarioRecord.model_validate(
+        {"name": fixture.LOGBOOK_SCENARIO, "logbook": logged["logbook"]}
+    )
     entries = {
         e.entry_id: e
-        for e in scenario_logbook(logged, facility / "scenarios" / fixture.LOGBOOK_SCENARIO)
+        for e in scenario_logbook(record, facility / "scenarios" / fixture.LOGBOOK_SCENARIO)
     }
     target = entries[fixture.TARGET_ENTRY_ID]
     assert len(target.attachments) == 1 and isinstance(target.attachments[0], PlotSpec)

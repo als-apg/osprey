@@ -40,8 +40,8 @@ from osprey_connectors.simulation.archive import (
     waveform_document,
 )
 from osprey_connectors.simulation.records import SeedsDocument, VariablesDocument
+from osprey_connectors.simulation.state import ActiveState
 from osprey_connectors.simulation.texture import TextureModel
-from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
 from tests._container_support import require_container_runtime
 
 if TYPE_CHECKING:
@@ -94,8 +94,8 @@ def demo_view(built_demo: BuiltProject, tmp_path_factory) -> Path:
 
 def live_texture(view: Path, clock) -> TextureModel:
     """The texture model the virtual accelerator serves SEK from, on ``clock``."""
-    variables = VariablesDocument.model_validate_json((view / VARIABLES_FILE).read_text())
-    seeds = SeedsDocument.model_validate_json((view / SEEDS_FILE).read_text())
+    variables = VariablesDocument.model_validate_json((view / VariablesDocument.FILE).read_text())
+    seeds = SeedsDocument.model_validate_json((view / SeedsDocument.FILE).read_text())
     return TextureModel(variables, seeds, clock=clock)
 
 
@@ -107,7 +107,7 @@ def live_trace(texture: TextureModel) -> np.ndarray:
 @pytest.fixture(scope="module")
 def seeded(demo_view: Path):
     """The archive composite of the example facility, nominal active, anchored at T."""
-    return build(demo_view, [], anchor_at=T, tz=get_facility_timezone())
+    return build(demo_view, ActiveState(names=[], anchor_at=T), tz=get_facility_timezone())
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +117,8 @@ def seeded(demo_view: Path):
 
 def test_the_built_facility_serves_sek_as_a_pulse_of_its_setpoint_and_on_state(demo_view):
     """The premise: the build carries SEK as a pulsed waveform of driver and enable."""
-    seeds = json.loads((demo_view / SEEDS_FILE).read_text())["seeds"]
-    variables = json.loads((demo_view / VARIABLES_FILE).read_text())
+    seeds = json.loads((demo_view / SeedsDocument.FILE).read_text())["seeds"]
+    variables = json.loads((demo_view / VariablesDocument.FILE).read_text())
     (channel,) = [c for c in variables["channels"] if c["address"] == SEK]
 
     assert seeds[SEK]["pulse"] == {"driver": DRIVER, "enable": ENABLE}

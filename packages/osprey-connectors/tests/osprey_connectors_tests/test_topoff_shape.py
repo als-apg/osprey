@@ -15,13 +15,14 @@ import pytest
 from osprey_connectors.simulation import envelope, topoff
 from osprey_connectors.simulation.archive import SeedKnobs, seed_fingerprint
 from osprey_connectors.simulation.records import (
-    NoiseRecord,
+    AbsoluteNoise,
     ScenarioRecord,
     SeedRecord,
     SeedsDocument,
     TopoffRecord,
     VariablesDocument,
 )
+from osprey_connectors.simulation.state import ActiveState, compose
 from osprey_connectors.simulation.texture import TextureModel
 
 T0 = 1_760_000_010.0  # a whole multiple of PERIOD_S: a refill instant
@@ -89,7 +90,7 @@ assert T0 % PERIOD_S == 0.0
 
 @pytest.mark.parametrize("offset", [0.0, 1.0, 7.5, 15.0, 29.0])
 def test_tau_and_period_give_the_shape_at_chosen_instants(offset):
-    tau, period = topoff.tau_period(RECORD)
+    tau, period = topoff._tau_period(RECORD)
     assert (tau, period) == (TAU, PERIOD_S)
     shape = math.exp(-((T0 + offset) % period) / tau)
     assert shape == pytest.approx(math.exp(-offset / TAU), rel=1e-12)
@@ -115,7 +116,7 @@ def test_refill_at_each_period_boundary(period):
 
 def test_tooth_depth_is_the_larger_swing_from_the_held_level():
     floor = CEILING * math.exp(-PERIOD_S / TAU)
-    depth = topoff.tooth_depth(RECORD)
+    depth = topoff._tooth_depth(RECORD)
     assert depth == pytest.approx(max(CEILING - LEVEL, LEVEL - floor), rel=1e-12)
     # The full tooth near these numbers is about 0.52 mA peak to peak.
     assert CEILING - floor == pytest.approx(0.52, abs=0.01)
@@ -127,7 +128,7 @@ def test_tooth_depth_is_the_larger_swing_from_the_held_level():
 
 
 def test_held_level_equals_the_period_mean():
-    assert topoff.period_mean(RECORD) == pytest.approx(MEAN, rel=1e-12)
+    assert topoff._period_mean(RECORD) == pytest.approx(MEAN, rel=1e-12)
     assert topoff.held_value(SEEDS[CURRENT]) == pytest.approx(LEVEL, rel=1e-12)
     model = _model()
     assert model.held([CURRENT])[CURRENT] == pytest.approx(LEVEL, rel=1e-12)
@@ -160,7 +161,9 @@ def test_a_stilled_channel_serves_its_held_level():
     assert not model.has_motion(CURRENT)
     assert envelope.motion_envelope(SEEDS[CURRENT], still=True) == 0.0
     quiet = ScenarioRecord(name="quiet", still=(CURRENT,))
-    stilled = envelope.active_envelopes(SEEDS, {"quiet": quiet}, ["quiet"])
+    stilled = envelope.active_envelopes(
+        SEEDS, compose({"quiet": quiet}, ActiveState(names=["quiet"]))
+    )
     assert stilled[CURRENT] == 0.0
 
 
@@ -174,21 +177,21 @@ def test_a_stilled_channel_has_no_motion():
 def test_an_unstilled_channel_moves_and_has_an_envelope():
     model = _model()
     assert model.has_motion(CURRENT)
-    assert envelope.declares_motion(SEEDS[CURRENT])
+    assert envelope._declares_motion(SEEDS[CURRENT])
     assert envelope.motion_envelope(SEEDS[CURRENT]) == pytest.approx(
-        topoff.tooth_depth(RECORD), rel=1e-12
+        topoff._tooth_depth(RECORD), rel=1e-12
     )
-    assert envelope.active_envelopes(SEEDS, {}, [])[CURRENT] == pytest.approx(
-        topoff.tooth_depth(RECORD), rel=1e-12
-    )
+    assert envelope.active_envelopes(SEEDS, compose({}, ActiveState(names=[])))[
+        CURRENT
+    ] == pytest.approx(topoff._tooth_depth(RECORD), rel=1e-12)
     # A scenario noise replacement keeps the tooth moving.
-    model.set_motion({}, {CURRENT: NoiseRecord(absolute=0.0)})
+    model.set_motion({}, {CURRENT: AbsoluteNoise(absolute=0.0)})
     assert model.has_motion(CURRENT)
 
 
 def test_the_envelope_adds_noise_taken_of_the_held_level():
     seed = {"topoff": _RECORD, "noise": {"relative": 0.001}}
-    expected = topoff.tooth_depth(RECORD) + envelope._MOTION_SIGMAS * 0.001 * LEVEL
+    expected = topoff._tooth_depth(RECORD) + envelope._MOTION_SIGMAS * 0.001 * LEVEL
     assert envelope.motion_envelope(SeedRecord.model_validate(seed)) == pytest.approx(
         expected, rel=1e-12
     )
@@ -226,7 +229,7 @@ def test_lifetime_is_a_held_constant():
     model = _model()
     assert model.held([LIFETIME])[LIFETIME] == LIFETIME_H
     assert not model.has_motion(LIFETIME)
-    assert not envelope.declares_motion(SEEDS[LIFETIME])
+    assert not envelope._declares_motion(SEEDS[LIFETIME])
     assert envelope.motion_envelope(SEEDS[LIFETIME]) == 0.0
     for offset in (0.0, 10.0, 29.9, 300.0):
         assert _read(model, LIFETIME, T0 + offset) == LIFETIME_H
@@ -244,4 +247,4 @@ def test_lifetime_without_a_topoff_source_holds_nothing():
 def test_the_fingerprint_names_the_shape_version():
     knobs = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
     fingerprint = seed_fingerprint(knobs, [CURRENT], compression="zstd")
-    assert fingerprint["topoff_shape_version"] == topoff.SHAPE_VERSION
+    assert fingerprint.topoff_shape_version == topoff.SHAPE_VERSION

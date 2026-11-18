@@ -9,12 +9,17 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
+from pydantic import TypeAdapter
+
 from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
+
+#: The reader of one event, as the view reads it.
+EVENT: TypeAdapter[ArchiverEvent] = TypeAdapter(ArchiverEvent)
 
 
 def event(raw: Mapping[str, object] | ArchiverEvent) -> ArchiverEvent:
     """One event as the view's record."""
-    return raw if isinstance(raw, ArchiverEvent) else ArchiverEvent.model_validate(raw)
+    return EVENT.validate_python(raw)
 
 
 def events(raws: Iterable[Mapping[str, object] | ArchiverEvent]) -> list[ArchiverEvent]:

@@ -21,10 +21,9 @@ are genuinely different files:
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import click
 
@@ -36,6 +35,7 @@ from osprey_connectors.logger import get_logger
 from .repo_resolver import find_repo_root, repo_option
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.state import OverlapLogRecord
     from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("sim")
@@ -120,20 +120,18 @@ def _require_simulator_view(repo_root: Path) -> SimulatorView:
     Exits with a clear message when the render carries none, or carries one
     an older OSPREY wrote.
     """
-    from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+    from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError, view_path
 
     try:
         view = SimulatorView.find(repo_root)
         if view is not None:
-            for name in SCHEMAS:
-                view.document(name)
-            view.models()
+            view.check()
     except ViewSchemaError as exc:
         output.fail("The simulator view is from another OSPREY", str(exc))
         raise SystemExit(1) from None
     if view is None:
         output.fail(
-            f"No simulator view in {SimulatorView.path_for_project(repo_root)}",
+            f"No simulator view in {view_path(repo_root)}",
             "The simulator view is written by the build.",
             "run 'osprey build' first",
         )
@@ -153,23 +151,15 @@ def format_model_status(status: str) -> str:
     return f"FAILED: {status}"
 
 
-def _overlap_records(log: Path) -> list[dict[str, Any]]:
+def _overlap_records(log: Path) -> list[OverlapLogRecord]:
     """The overlap records a model log holds, in file order; none when it is absent."""
-    from osprey_connectors.simulation.state import OVERLAP_EVENT
+    from osprey_connectors.simulation.state import OverlapLogRecord
 
     try:
         text = log.read_text(encoding="utf-8")
     except FileNotFoundError:
         return []
-    records: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(record, dict) and record.get("event") == OVERLAP_EVENT:
-            records.append(record)
-    return records
+    return [record for line in text.splitlines() if (record := OverlapLogRecord.from_line(line))]
 
 
 def _confirm_archive_rewrite(store: dict) -> None:
@@ -219,13 +209,12 @@ def sim_group() -> None:
 @repo_option
 def list_command(repo: Path | None) -> None:
     """List available scenarios (the active set is marked with *)."""
-    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
+    from osprey_connectors.simulation.state import read_active_state
     from osprey_connectors.workspace import resolve_simulation_state_dir
 
     repo_root, config = _resolve_deployment(repo)
     view = _require_simulator_view(repo_root)
-    names = read_active_state(resolve_simulation_state_dir(config, repo_root)).names
-    active = set(resolve_active_scenarios(names))
+    active = set(read_active_state(resolve_simulation_state_dir(config, repo_root)).names)
     for scenario in view.scenarios():
         name = scenario.name
         marker = "*" if name in active else " "
@@ -298,7 +287,6 @@ def status_command(repo: Path | None, target: str | None) -> None:
 def _report_logs(logs: Path, models: list[str], standin: bool) -> None:
     """Print each model's log path and the overlap records it holds."""
     from osprey.utils.workspace import SIMULATOR_STANDIN_LOG_SUBDIR
-    from osprey_connectors.simulation.state import format_overlap_record
 
     # The stand-in appends its model logs in its own subdirectory of the simulator
     # log directory, so the line and the records name the file its server writes.
@@ -308,7 +296,7 @@ def _report_logs(logs: Path, models: list[str], standin: bool) -> None:
         log = logs / f"{model}.log"
         output.report(f"log: {log}")
         for record in _overlap_records(log):
-            output.report(format_overlap_record(model, record))
+            output.report(record.describe())
 
 
 @sim_group.command("apply")
@@ -353,11 +341,7 @@ def apply_command(
         preflight_archive_rewrite,
         require_view_scenarios,
     )
-    from osprey_connectors.simulation.state import (
-        resolve_active_scenarios,
-        scenario_targets,
-        validate_composition,
-    )
+    from osprey_connectors.simulation.state import resolve_active_scenarios, validate_composition
 
     seed_logbook = not (no_seed or no_seed_logbook)
     seed_archive = not (no_seed or no_seed_archiver)
@@ -377,10 +361,7 @@ def apply_command(
     # would refuse to serve.
     try:
         scenarios = require_view_scenarios(repo_root)
-        overlaps = validate_composition(
-            {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
-            resolve_active_scenarios(names),
-        )
+        overlaps = validate_composition(scenarios, resolve_active_scenarios(names))
     except ValueError as exc:
         output.fail("Cannot activate these scenarios", str(exc))
         raise SystemExit(1) from None

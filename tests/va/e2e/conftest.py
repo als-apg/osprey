@@ -417,10 +417,7 @@ def demo_state_dir() -> Path:
     view lists, so the set is validated as an apply validates it. Readable by
     the container's user, which is not this process's.
     """
-    from osprey_connectors.simulation.state import (
-        scenario_targets,
-        write_active_state,
-    )
+    from osprey_connectors.simulation.state import write_active_state
 
     global _DEMO_STATE_DIR
     if _DEMO_STATE_DIR is None:
@@ -428,11 +425,9 @@ def demo_state_dir() -> Path:
         state_dir = Path(tempfile.mkdtemp(prefix="osprey-va-demo-state-"))
         atexit.register(shutil.rmtree, state_dir, ignore_errors=True)
         active = write_active_state(
-            state_dir,
-            {scenario.name: scenario_targets(scenario) for scenario in view.scenarios()},
-            SUITE_SCENARIOS,
+            state_dir, {scenario.name: scenario for scenario in view.scenarios()}, SUITE_SCENARIOS
         )
-        assert STILL_MONITORS_SCENARIO_NAME in active, active
+        assert STILL_MONITORS_SCENARIO_NAME in active.names, active
         state_dir.chmod(0o755)
         _DEMO_STATE_DIR = state_dir
     return _DEMO_STATE_DIR
@@ -459,9 +454,9 @@ BURST_VALUE = 3.0e-6
 #: fails: the quadrupole at twice its demo current has no stable orbit.
 UNSTABLE_SCENARIO_NAME = "va-e2e-unstable"
 UNSTABLE_QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"
-_unstable_binding = PRESET_VIEW.binding(UNSTABLE_QUADRUPOLE)
+_unstable_binding = PRESET_VIEW.wiring_of(UNSTABLE_QUADRUPOLE)
 assert _unstable_binding is not None, f"no served model wires {UNSTABLE_QUADRUPOLE}"
-UNSTABLE_CURRENT = 2 * float(_unstable_binding.record["default"])
+UNSTABLE_CURRENT = 2 * float(_unstable_binding.engine_entry()["default"])
 
 #: Synthetic scenario that excites one vertical corrector, so the vertical
 #: closed orbit at :data:`KICK_MONITOR` is nonzero: at rest the demo's closed
@@ -1158,7 +1153,7 @@ def corrector_at_slot(slot: int) -> Corrector:
     model = lane_model(view)
     kicks = [
         binding.address
-        for binding in view.bindings(engine_role="setpoint", model=model)
+        for binding in view.wiring(engine_role="setpoint", model=model)
         if binding.plane is not None
     ]
     assert len(kicks) > slot, (

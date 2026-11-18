@@ -15,7 +15,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.scenarios import _value_errors
 from osprey_connectors.simulation.envelope import active_envelopes
-from osprey_connectors.simulation.state import STILL_SCENARIO
+from osprey_connectors.simulation.state import STILL_SCENARIO, ActiveState, compose
 from osprey_connectors.simulation.view import SimulatorView
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
@@ -104,7 +104,9 @@ def test_the_still_value_the_build_accepts_renders_the_trees_float_channels(
     assert floats
     assert list(hush.still) == floats
     seeds = {address: {"nominal": 1.0, "noise": {"absolute": 0.1}} for address in floats}
-    assert set(active_envelopes(seeds, {name: hush}, [name]).values()) == {0.0}
+    assert set(
+        active_envelopes(seeds, compose({name: hush}, ActiveState(names=[name]))).values()
+    ) == {0.0}
 
 
 def test_a_still_value_other_than_the_sentinel_stops_the_build(tmp_path: Path) -> None:

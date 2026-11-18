@@ -86,7 +86,7 @@ async def target_model_statuses(
         Each model's status text, by model name.
     """
     from osprey_connectors.factory import ConnectorFactory
-    from osprey_connectors.simulation import model_status, read_model_status
+    from osprey_connectors.simulation.status import model_status, read_model_status
 
     connector = await ConnectorFactory.create_control_system_connector(
         section, control_target=target

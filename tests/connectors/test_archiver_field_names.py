@@ -197,7 +197,7 @@ def test_the_reserved_list_is_every_field_the_archive_writes_besides_a_channel()
     manifest = _Recording()
     archive._write_manifest(
         manifest,
-        {"schema_version": 2},
+        archive.seed_fingerprint(archive.SeedKnobs(), ["A"], compression="zstd"),
         seeded_at=instant,
         report=archive.SeedReport(channels=1),
     )

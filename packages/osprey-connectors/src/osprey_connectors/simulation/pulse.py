@@ -155,10 +155,10 @@ def _clean(key: bytes, t_ms: float) -> npt.NDArray[np.float64]:
     """The noise-free trace of unit driver level for the shot at epoch millisecond ``t_ms``."""
     times_s = np.asarray(t_ms / _MS_PER_S, dtype=np.float64)
     gain = 1.0 + float(
-        series.wander(key + _AMPLITUDE_SUBKEY, times_s, _AMPLITUDE_DRIFT_FRACTION, _DRIFT_PERIOD_S)
+        series._wander(key + _AMPLITUDE_SUBKEY, times_s, _AMPLITUDE_DRIFT_FRACTION, _DRIFT_PERIOD_S)
     )
     shift = float(
-        series.wander(
+        series._wander(
             key + _TIMING_SUBKEY, times_s, _MAX_TIMING_DRIFT_SAMPLES / 2.0, _DRIFT_PERIOD_S
         )
     )

@@ -22,7 +22,8 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.archive import ArchiveComposite, _synthesize_documents, build
 from osprey_connectors.simulation.records import SeedRecord, TopoffRecord
-from osprey_connectors.simulation.series import anchored_instant, step_end
+from osprey_connectors.simulation.series import _instant, _step_end
+from osprey_connectors.simulation.state import ActiveState
 from tests._archiver_events import event as view_event
 
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
@@ -51,8 +52,7 @@ def archive(built_demo) -> ArchiveComposite:
     view = built_demo.build_dir / "data" / "simulator"
     return build(
         view,
-        ["rf-thermal"],
-        anchor_at=datetime.fromtimestamp(RF_ANCHOR_S, UTC),
+        ActiveState(names=["rf-thermal"], anchor_at=datetime.fromtimestamp(RF_ANCHOR_S, UTC)),
         tz=get_facility_timezone(),
     )
 
@@ -64,8 +64,9 @@ def dump(facility) -> dict[str, Any]:
         item["events"] for item in facility["scenario"]["archiver"] if item["channel"] == DCCT
     )
     tz = get_facility_timezone()
-    start = anchored_instant(view_event(stated), anchor_s=RF_ANCHOR_S, tz=tz)
-    end = step_end(view_event(stated), anchor_s=RF_ANCHOR_S, tz=tz)
+    step = view_event(stated)
+    start = _instant(step.placement, anchor_s=RF_ANCHOR_S, tz=tz)
+    end = _step_end(step, anchor_s=RF_ANCHOR_S, tz=tz)
     assert end is not None, "the dump is a bounded step"
     return {"event": stated, "start": start, "end": end}
 
@@ -100,7 +101,7 @@ def test_after_the_recovery_the_stored_current_carries_the_sawtooth(
     field = field_name(DCCT)
     stored = np.array([document[field] for document in _synthesize_documents(archive, epoch)])
     # A full tooth: from a refill to just before the next.
-    tau, period = topoff.tau_period(TopoffRecord.model_validate(record))
+    tau, period = topoff._tau_period(TopoffRecord.model_validate(record))
     full_tooth = record["ceiling"] * (1.0 - np.exp(-(period - 1e-6) / tau))
     assert np.ptp(stored) >= full_tooth, (float(np.ptp(stored)), full_tooth)
     assert np.ptp(stored) <= full_tooth + 2 * NOISE_SIGMAS * _noise(seed)

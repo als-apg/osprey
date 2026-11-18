@@ -26,7 +26,14 @@ from osprey_connectors.simulation.composite import (
     Composite,
     WriteRefusedError,
 )
-from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 from tests._simulator_view import view_channel
 from tests.connectors._view_records import activate
 
@@ -201,12 +208,12 @@ def _view(
         *(trace if waveform else []),
     ]
     documents = {
-        "served_models.json": {"models": ["M", "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": ["M", "texture"]},
+        AddressesDocument: {
             "channels": sorted(channel["address"] for channel in channels),
             "status": [STATUS],
         },
-        "variables.json": {
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -228,7 +235,7 @@ def _view(
             ],
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
-        "seeds.json": {
+        SeedsDocument: {
             "seeds": {
                 "T:SP": {"nominal": 5.0},
                 "T:NOISY": {"nominal": 10.0, "noise": {"absolute": 0.5}},
@@ -238,13 +245,13 @@ def _view(
                 "T:STEP:SP": {"nominal": 3.0},
             }
         },
-        "scenarios.json": {"scenarios": [{"name": "nominal"}, *(scenarios or [])]},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}, *(scenarios or [])]},
     }
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 
@@ -750,8 +757,70 @@ def test_scenarios_touching_one_target_twice_serve_without_them(tmp_path: Path) 
     assert composite.held(["T:SP"]) == {"T:SP": 5.0}
 
 
+#: The line the previous composite wrote for an overlap, its pid replaced by ``{pid}``.
+_BASE_OVERLAP_LINE = (
+    '{{"event": "scenario-overlap", "instance": "inprocess", "model": "M", '
+    '"pid": {pid}, "target": "T:SP"}}'
+)
+
+
+def test_an_overlap_appends_the_previous_versions_line_to_the_model_log(tmp_path: Path) -> None:
+    scenarios = [
+        {"name": "a", "overrides": {"T:SP": 1.0}},
+        {"name": "b", "overrides": {"T:SP": 2.0}},
+    ]
+    logs = tmp_path / "logs"
+    activate(tmp_path / "state", "a", "b")
+
+    Composite(
+        _view(tmp_path, scenarios=scenarios),
+        state_dir=tmp_path / "state",
+        log_dir=logs,
+        clock=lambda: T0,
+    )
+
+    lines = (logs / "M.log").read_text(encoding="utf-8").splitlines()
+    assert [line for line in lines if "scenario-overlap" in line] == [
+        _BASE_OVERLAP_LINE.format(pid=os.getpid())
+    ]
+
+
+def test_a_composite_handed_its_set_serves_it_and_never_reads_the_state_file(
+    tmp_path: Path,
+) -> None:
+    from osprey_connectors.simulation.state import ActiveState
+
+    scenarios = [
+        {"name": "a", "overrides": {"T:SP": 1.0}},
+        {"name": "b", "overrides": {"T:SP": 2.0}},
+    ]
+    view = _view(tmp_path, scenarios=scenarios)
+    logs = tmp_path / "logs"
+
+    composite = Composite(view, active=ActiveState(names=("a",)), log_dir=logs, clock=lambda: T0)
+    activate(tmp_path / "state", "b")
+
+    assert composite.active == ["nominal", "a"]
+    assert composite.held(["T:SP"]) == {"T:SP": 1.0}
+    overlapping = Composite(
+        view, active=ActiveState(names=("a", "b")), log_dir=logs, clock=lambda: T0
+    )
+    assert overlapping.active == ["nominal"]
+    lines = (logs / "M.log").read_text(encoding="utf-8").splitlines()
+    assert [line for line in lines if "scenario-overlap" in line] == [
+        _BASE_OVERLAP_LINE.format(pid=os.getpid())
+    ]
+
+
+def test_a_state_directory_and_a_handed_set_are_refused_together(tmp_path: Path) -> None:
+    from osprey_connectors.simulation.state import ActiveState
+
+    with pytest.raises(ValueError, match="pass one"):
+        Composite(_view(tmp_path), state_dir=tmp_path / "state", active=ActiveState())
+
+
 def _driver(t_s: float) -> float:
-    return float(series.wander(series.driver_key_bytes("d"), np.array([t_s]), 1.0, 300.0)[0])
+    return float(series._wander(series._driver_key_bytes("d"), np.array([t_s]), 1.0, 300.0)[0])
 
 
 def test_a_scenarios_drivers_move_the_readbacks_it_couples(tmp_path: Path) -> None:

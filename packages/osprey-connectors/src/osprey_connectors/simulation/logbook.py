@@ -2,16 +2,18 @@
 
 :class:`ScenarioLogEntry` is the one entry shape the logbook seed reads.
 An entry's pictures are shipped image files or :class:`PlotSpec` records the
-seeder draws against the entry's timestamp; :func:`parse_log_attachments`
-resolves and checks an entry's ``attachments`` list, and
-:func:`parse_plot_spec` validates one decoded plot spec.
+seeder draws against the entry's timestamp. A scenario's entry is a
+:class:`~osprey_connectors.simulation.records.LogEntryRecord`, whose ``resolve``
+reads and checks its pictures; :func:`parse_plot_spec` validates one decoded
+plot spec.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 
 from pydantic import BeforeValidator, Field, ValidationError, ValidationInfo, field_validator
 from pydantic_core import ErrorDetails, PydanticCustomError
@@ -26,14 +28,8 @@ __all__ = [
     "PlotSpec",
     "ScenarioLogEntry",
     "matches_signature",
-    "parse_log_attachments",
     "parse_plot_spec",
 ]
-
-# Logbook attachment-item schema: closed. An item
-# carries exactly one of these keys: 'path' names a shipped picture, 'plot' a
-# plot spec drawn at seed time against the entry's own timestamp.
-_ATTACHMENT_KEYS = ("path", "plot")
 
 # Plot-spec schema: closed. Every key but 'ylim' is required.
 _PLOT_SPEC_KEYS = ("filename", "title", "ylabel", "hours_before", "series", "ylim")
@@ -177,34 +173,23 @@ class ScenarioLogEntry(FrozenModel):
     attachments: tuple[Path | PlotSpec, ...] = ()
 
 
-def parse_log_attachments(prefix: str, raw: object, bundle: Path) -> tuple[Path | PlotSpec, ...]:
-    """Resolve a logbook entry's ``attachments`` list to the pictures it carries.
+def _parse_log_attachments(
+    prefix: str, attachments: Sequence[tuple[Literal["path", "plot"], str]], bundle: Path
+) -> tuple[Path | PlotSpec, ...]:
+    """Resolve a logbook entry's attachments to the pictures it carries.
 
-    Each item holds exactly one key. ``{"path": "<relative path>"}`` names a
-    shipped picture: it must name an existing file with an image suffix that
-    starts with that image format's signature. ``{"plot": "<relative path>"}``
-    names a plot spec: a ``.json`` file holding a valid spec (see
-    :func:`parse_plot_spec`). Either path is relative to the bundle directory
-    and must stay inside it, and no two pictures of one entry may share a file
-    name, so a misnamed, missing or malformed picture is a load error rather
-    than a seed failure.
+    Each attachment is ``("path", <relative path>)``, a shipped picture, which
+    must name an existing file with an image suffix that starts with that
+    image format's signature, or ``("plot", <relative path>)``, a plot spec: a
+    ``.json`` file holding a valid spec (see :func:`parse_plot_spec`). Either
+    path is relative to the bundle directory and must stay inside it, and no
+    two pictures of one entry may share a file name, so a misnamed, missing or
+    malformed picture is a load error rather than a seed failure.
     """
-    if not isinstance(raw, list):
-        raise ValueError(f"{prefix}: 'attachments' must be a list, got {raw!r}")
     root = bundle.resolve()
     pictures: list[Path | PlotSpec] = []
     names: set[str] = set()
-    for item in raw:
-        if not isinstance(item, dict):
-            raise ValueError(f"{prefix}: each attachment must be a mapping, got {item!r}")
-        unknown = sorted(set(item) - set(_ATTACHMENT_KEYS))
-        if unknown:
-            raise ValueError(f"{prefix}: attachment has unknown keys {unknown}")
-        if len(item) != 1:
-            raise ValueError(
-                f"{prefix}: an attachment names exactly one of 'path' or 'plot', got {item!r}"
-            )
-        (key, rel), *_ = item.items()
+    for key, rel in attachments:
         path = _bundle_file(prefix, key, rel, root)
         picture = (
             _shipped_picture(prefix, rel, path) if key == "path" else _plot_spec(prefix, rel, path)

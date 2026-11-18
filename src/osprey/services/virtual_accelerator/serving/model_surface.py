@@ -47,7 +47,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.services.virtual_accelerator.serving.health import ServingHealth
 from osprey.services.virtual_accelerator.serving.model_rpc import ModelRpcError
-from osprey_connectors.simulation.view import ADDRESSES_FILE
+from osprey_connectors.simulation.records import AddressesDocument
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.variables import Variable
@@ -432,7 +432,7 @@ def served_addresses(view: SimulatorView) -> list[str]:
     ioc_health = getattr(view, "ioc_health_by_model", None)
     return [
         *view.channels(),
-        *view.document(ADDRESSES_FILE).status,
+        *view.document(AddressesDocument).status,
         *(
             address
             for signals in (ioc_health() if ioc_health is not None else {}).values()

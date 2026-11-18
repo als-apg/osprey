@@ -37,7 +37,15 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import DEFAULT_TICK_S, archive
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import SCHEMAS, SimulatorView
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
+from osprey_connectors.simulation.state import ActiveState
+from osprey_connectors.simulation.view import SimulatorView
 from tests._builds import BuiltProject
 from tests._simulator_view import view_channel
 
@@ -111,9 +119,9 @@ def _view(path: Path, settings: Mapping[str, Any] | None = None) -> Path:
     ]
     addresses = {"channels": sorted(c["address"] for c in channels), "status": [STATUS]}
     documents = {
-        "served_models.json": {"models": ["M", "texture"]},
-        "addresses.json": addresses,
-        "variables.json": {
+        ServedModelsDocument: {"models": ["M", "texture"]},
+        AddressesDocument: addresses,
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -140,14 +148,14 @@ def _view(path: Path, settings: Mapping[str, Any] | None = None) -> Path:
             ],
             "channels": channels,
         },
-        "seeds.json": {"seeds": {"T:SP": {"nominal": 5.0}}},
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        SeedsDocument: {"seeds": {"T:SP": {"nominal": 5.0}}},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 
@@ -568,9 +576,9 @@ def _gate_view(path: Path, *, paddle: str = "FALSE") -> Path:
     ]
     inputs = {GATE_RB: "TRUE"}
     documents = {
-        "served_models.json": {"models": ["texture"]},
-        "addresses.json": {"channels": sorted(c["address"] for c in channels), "status": []},
-        "variables.json": {
+        ServedModelsDocument: {"models": ["texture"]},
+        AddressesDocument: {"channels": sorted(c["address"] for c in channels), "status": []},
+        VariablesDocument: {
             "code": "G",
             "models": [
                 {
@@ -584,7 +592,7 @@ def _gate_view(path: Path, *, paddle: str = "FALSE") -> Path:
             ],
             "channels": channels,
         },
-        "seeds.json": {
+        SeedsDocument: {
             "seeds": {
                 GATE_SP: {"nominal": paddle},
                 GATED_SUM: {
@@ -596,13 +604,13 @@ def _gate_view(path: Path, *, paddle: str = "FALSE") -> Path:
                 GATED_COUNT: {"nominal": 0, "gate": {"inputs": inputs, "gated": 1}},
             }
         },
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 
@@ -661,10 +669,10 @@ def test_the_seeded_value_at_t_equals_the_live_value_at_t(tmp_path: Path, paddle
     _, composite, _ = _gate_surface(tmp_path, paddle=paddle)
     live = composite.get(list(GATED))
 
-    with archive.build(
-        tmp_path / "simulator", ["nominal"], tz=get_facility_timezone()
-    ) as seeded_archive:
-        seeded = seeded_archive.samples(list(GATED), [T0])
+    seeded_archive = archive.build(
+        tmp_path / "simulator", ActiveState(), tz=get_facility_timezone()
+    )
+    seeded = seeded_archive.samples(list(GATED), [T0])
 
     labels = ["FALSE", "TRUE"]
     assert seeded[GATED_SUM] == [pytest.approx(live[GATED_SUM], rel=1e-12)]

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -3451,7 +3451,7 @@ def staged_archiver(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: nullcontext(SimpleNamespace(addresses=["SR:BPM1:X"])),
+        lambda config, project_dir: SimpleNamespace(addresses=["SR:BPM1:X"]),
     )
     monkeypatch.setattr(
         container_lifecycle,
@@ -3614,10 +3614,10 @@ def test_mismatched_fingerprint_rebuilds_and_reapplies(staged_archiver, tmp_path
     """Changed knobs make the stored coverage wrong, so the base is rebuilt and
     the active scenario set re-applied onto it — otherwise the deployment would
     claim a fault whose history it had just erased."""
-    from osprey_connectors.simulation.archive import SeedState
+    from osprey_connectors.simulation.archive import KnobChange, SeedState
 
     staged_archiver["fingerprint_state"] = SeedState.MISMATCH
-    staged_archiver["differences"] = (("retention_days", 30, 1),)
+    staged_archiver["differences"] = (KnobChange(key="retention_days", stored=30, expected=1),)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     assert staged_archiver["collection"].dropped
@@ -3660,10 +3660,10 @@ def test_keep_archiver_base_suppresses_only_the_mismatch_rebuild(
     silently leave the deployment with no history at all. This is also why
     `rebuild` needs no flag of its own: it always lands on the absent path.
     """
-    from osprey_connectors.simulation.archive import SeedState
+    from osprey_connectors.simulation.archive import KnobChange, SeedState
 
     staged_archiver["fingerprint_state"] = getattr(SeedState, state)
-    staged_archiver["differences"] = (("retention_days", 30, 1),)
+    staged_archiver["differences"] = (KnobChange(key="retention_days", stored=30, expected=1),)
     container_lifecycle.deploy_up(
         str(tmp_path / "config.yml"), detached=True, keep_archiver_base=True
     )
@@ -3861,9 +3861,9 @@ def test_seed_inputs_are_the_archive_composite_of_the_render_s_simulator_view(tm
     write_texture_view(tmp_path / "build", {"SR:BPM1:X": {"nominal": 0.5}})
     (tmp_path / "build" / "config.yml").write_text("{}\n")
 
-    with container_lifecycle._archiver_seed_inputs({}, tmp_path) as archive:
-        assert archive.addresses == ["SR:BPM1:X"]
-        assert archive.series("SR:BPM1:X", [1_760_000_000.0]) == [0.5]
+    archive = container_lifecycle._archiver_seed_inputs({}, tmp_path)
+    assert archive.addresses == ["SR:BPM1:X"]
+    assert archive.series("SR:BPM1:X", [1_760_000_000.0]) == [0.5]
 
 
 def test_seed_inputs_refuse_a_render_without_a_simulator_view(tmp_path):

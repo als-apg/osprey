@@ -28,12 +28,8 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     periodic_addresses,
     setting_records,
 )
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    SCHEMAS,
-    VARIABLES_FILE,
-    SimulatorView,
-)
+from osprey_connectors.simulation.records import AddressesDocument, VariablesDocument
+from osprey_connectors.simulation.view import SimulatorView, ViewSchemaError
 from tests._builds import BuiltProject
 from tests._simulator_view import view_channel
 
@@ -50,7 +46,7 @@ def _binding(record: dict[str, Any], role: str, plane: str | None, refresh: str)
 
 
 VIEW: dict[str, Any] = {
-    "schema": SCHEMAS[VARIABLES_FILE],
+    "schema": VariablesDocument.SCHEMA,
     "code": "T",
     "models": [
         {
@@ -149,7 +145,7 @@ VIEW: dict[str, Any] = {
             value_range=[-2.0, 2.0],
             precision=4,
         ),
-        view_channel("T:COUNT", value_type="int", precision=2),
+        view_channel("T:COUNT", value_type="int"),
         view_channel("M:SLICED", owner="M"),
         view_channel("M:TUNE:X", owner="M"),
         view_channel("T:LOCKED:SP", role="setpoint", writable=False, value_range=[0.0, 1.0]),
@@ -162,13 +158,13 @@ VIEW: dict[str, Any] = {
 def _write_view(directory: Path, variables: dict[str, Any]) -> Path:
     """Write ``variables`` and its ``addresses.json`` as a view under ``directory``."""
     addresses = {
-        "schema": SCHEMAS[ADDRESSES_FILE],
+        "schema": AddressesDocument.SCHEMA,
         "channels": sorted(channel["address"] for channel in variables["channels"]),
         "status": [STATUS],
     }
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / ADDRESSES_FILE).write_text(json.dumps(addresses), encoding="utf-8")
-    (directory / VARIABLES_FILE).write_text(json.dumps(variables), encoding="utf-8")
+    (directory / AddressesDocument.FILE).write_text(json.dumps(addresses), encoding="utf-8")
+    (directory / VariablesDocument.FILE).write_text(json.dumps(variables), encoding="utf-8")
     return directory
 
 
@@ -289,6 +285,15 @@ def test_only_float_channels_carry_a_precision(view: SimulatorView) -> None:
     assert carrying == floats
 
 
+def test_a_view_refuses_a_precision_on_a_channel_other_than_float(tmp_path: Path) -> None:
+    document = copy.deepcopy(VIEW)
+    count = next(c for c in document["channels"] if c["address"] == "T:COUNT")
+    count["precision"] = 2
+
+    with pytest.raises(ViewSchemaError, match="int channel carries `precision`"):
+        SimulatorView.open(_write_view(tmp_path, document)).channel("T:COUNT")
+
+
 def test_the_default_float_precision_shows_a_tune_and_a_small_kick() -> None:
     # A tune is read to 1e-4 and a corrector kick in mrad to a microradian;
     # both must survive the display rather than round to 0.
@@ -347,8 +352,8 @@ def test_the_refresh_words_are_the_view_vocabulary() -> None:
 def _demo_view(built: BuiltProject) -> tuple[SimulatorView, dict[str, Any], dict[str, Any]]:
     """The built demo's view, and its ``variables.json`` and ``addresses.json`` as written."""
     view = SimulatorView.of_render(built.build_dir)
-    variables = json.loads((view.path / VARIABLES_FILE).read_text(encoding="utf-8"))
-    addresses = json.loads((view.path / ADDRESSES_FILE).read_text(encoding="utf-8"))
+    variables = json.loads((view.path / VariablesDocument.FILE).read_text(encoding="utf-8"))
+    addresses = json.loads((view.path / AddressesDocument.FILE).read_text(encoding="utf-8"))
     return view, variables, addresses
 
 

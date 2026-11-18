@@ -100,7 +100,15 @@ pytestmark = pytest.mark.usefixtures("empty_ledger", "container_runtime_is_up")
 #: A scenario carrying a logbook narrative, as the simulator view writes it.
 LOGBOOK_SCENARIO = {
     "name": "nominal",
-    "logbook": [{"entry_id": "DEMO-001", "title": "Shift start"}],
+    "logbook": [
+        {
+            "entry_id": "DEMO-001",
+            "when": {"days_ago": 0, "time": "08:00:00"},
+            "author": "operator",
+            "title": "Shift start",
+            "text": "Beam stored.",
+        }
+    ],
 }
 
 #: A scenario with no logbook block: the view omits a block the scenario does

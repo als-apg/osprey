@@ -15,7 +15,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey_connectors.simulation import view as view_module
 from osprey_connectors.simulation.records import WiringRecord
-from osprey_connectors.simulation.view import COMMAND_MARK, ENGINE_ROLES, REFRESH, Binding
+from osprey_connectors.simulation.view import _COMMAND_MARK, _ENGINE_ROLES, REFRESH
 
 MODEL = {"name": "M", "engine": "fake"}
 WRITE = {"id": "M/M:CMD", "address": "M:CMD", "direction": "write", "element": "E"}
@@ -81,14 +81,13 @@ def test_the_view_copies_the_marks_from_the_built_record() -> None:
     assert entry["marks"] == ["command"]
 
 
-def test_a_binding_carries_the_records_marks() -> None:
+def test_a_wiring_record_carries_its_marks() -> None:
     record = {"id": "w1", "address": "M:CMD", "direction": "write", "engine_role": "setpoint"}
     record |= {"plane": None, "refresh": "pass"}
-    assert Binding.from_record("M", WiringRecord.model_validate(record)).marks == frozenset()
-    marked = Binding.from_record(
-        "M", WiringRecord.model_validate({**record, "marks": [COMMAND_MARK]})
-    )
-    assert marked.marks == frozenset({COMMAND_MARK})
+    assert WiringRecord.model_validate(record).marks == ()
+    marked = WiringRecord.model_validate({**record, "marks": [_COMMAND_MARK]})
+    assert marked.marks == (_COMMAND_MARK,)
+    assert marked.engine_entry()["marks"] == [_COMMAND_MARK]
 
 
 #: The modules that read engine roles and refresh from the view.
@@ -107,6 +106,6 @@ def test_the_role_readers_name_no_role_of_their_own(path: Path) -> None:
         for node in tree.body
         if isinstance(node, ast.Assign | ast.AnnAssign)
         and isinstance(node.value, ast.Constant)
-        and node.value.value in (*ENGINE_ROLES, *REFRESH)
+        and node.value.value in (*_ENGINE_ROLES, *REFRESH)
     ]
     assert named == []

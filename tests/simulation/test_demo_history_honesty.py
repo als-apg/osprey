@@ -39,7 +39,7 @@ from osprey.simulation.session_artifacts import PLOT_DIV_ID, render_session_arti
 from osprey.simulation.sessions import parse_sessions, resolve
 from osprey_connectors.archiver import field_name
 from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.simulation.series import anchored_instant
+from osprey_connectors.simulation.series import _instant
 from tests._archiver_events import event as view_event
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
@@ -104,8 +104,15 @@ def plot(project: Path) -> dict[str, dict[str, Any]]:
 
 
 def _event_instant() -> float:
-    event = view_event({"shape": "spike", "at_when": {"days_ago": 1, "time": "14:32:08"}})
-    return anchored_instant(event, anchor_s=ANCHOR.timestamp(), tz=get_facility_timezone())
+    event = view_event(
+        {
+            "shape": "spike",
+            "at_when": {"days_ago": 1, "time": "14:32:08"},
+            "amplitude": 1.0,
+            "width": 1.0,
+        }
+    )
+    return _instant(event.placement, anchor_s=ANCHOR.timestamp(), tz=get_facility_timezone())
 
 
 def _axis_seconds(axis: list[str]) -> list[float]:
@@ -121,24 +128,27 @@ def _seeded(
     Its own composite (at the persisted anchor), its own windows and its own reader.
     """
     from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
     persisted = persisted_scenario_anchor(config, project)
     assert persisted is not None
     events = {pv: script for pv, script in active_archiver_events(project, NAMES).items() if script}
     tz = get_facility_timezone()
-    with build(
-        SimulatorView.of_project(project), NAMES, anchor_at=persisted, tz=get_facility_timezone()
-    ) as archive:
-        spans = {
-            pv: event_window(
-                script, ANCHOR.timestamp(), HORIZON_START, tz=tz, topoff=archive.topoff_record(pv)
-            )
-            for pv, script in events.items()
-            if pv in set(archive.addresses)
-        }
-        assert {DCCT, SR07} <= set(spans)
-        return _recomputed_values(archive, spans, [DCCT, SR07], epochs), spans
+    archive = build(
+        SimulatorView.of_project(project),
+        ActiveState(names=NAMES, anchor_at=persisted),
+        tz=get_facility_timezone(),
+    )
+    spans = {
+        pv: event_window(
+            script, ANCHOR.timestamp(), HORIZON_START, tz=tz, topoff=archive.topoff_record(pv)
+        )
+        for pv, script in events.items()
+        if pv in set(archive.addresses)
+    }
+    assert {DCCT, SR07} <= set(spans)
+    return _recomputed_values(archive, spans, [DCCT, SR07], epochs), spans
 
 
 def _base(project: Path, epochs: list[float]) -> dict[str, list[Any]]:
@@ -148,15 +158,15 @@ def _base(project: Path, epochs: list[float]) -> dict[str, list[Any]]:
     which no active event moves; ``rf-thermal`` touches neither channel.
     """
     from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
-    with build(
+    archive = build(
         SimulatorView.of_project(project),
-        ["rf-thermal"],
-        anchor_at=ANCHOR,
+        ActiveState(names=["rf-thermal"], anchor_at=ANCHOR),
         tz=get_facility_timezone(),
-    ) as archive:
-        return archive.samples([DCCT, SR07], epochs)
+    )
+    return archive.samples([DCCT, SR07], epochs)
 
 
 # ---------------------------------------------------------------------------
@@ -240,15 +250,18 @@ def test_the_archive_drops_and_spikes_at_the_plotted_instant(
 def test_the_dense_sample_at_the_burst_is_the_plotted_peak(project: Path, plot) -> None:
     """The rewrite inserts a dense sample at the event instant; it carries the plot's value."""
     from osprey_connectors.simulation.archive import build
+    from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
     event = _event_instant()
     seconds = _axis_seconds(plot[DCCT]["x"])
     at = seconds.index(event)
-    with build(
-        SimulatorView.of_project(project), NAMES, anchor_at=ANCHOR, tz=get_facility_timezone()
-    ) as archive:
-        (document,) = _dense_documents(archive, {}, {event: (DCCT, SR07)})
+    archive = build(
+        SimulatorView.of_project(project),
+        ActiveState(names=NAMES, anchor_at=ANCHOR),
+        tz=get_facility_timezone(),
+    )
+    (document,) = _dense_documents(archive, {}, {event: (DCCT, SR07)})
 
     assert document["date"] == datetime.fromtimestamp(event, UTC)
     assert document[field_name(DCCT)] == plot[DCCT]["y"][at]

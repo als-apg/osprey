@@ -8,7 +8,14 @@ from pathlib import Path
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
+from osprey_connectors.simulation.state import ActiveState
 
 T0 = 1_760_000_000.0
 
@@ -28,9 +35,9 @@ def _view(path: Path) -> Path:
         "on": None,
     }
     documents = {
-        "served_models.json": {"models": ["D", "texture"]},
-        "addresses.json": {"channels": ["T:RB"], "status": ["T:SIM:D:STATUS"]},
-        "variables.json": {
+        ServedModelsDocument: {"models": ["D", "texture"]},
+        AddressesDocument: {"channels": ["T:RB"], "status": ["T:SIM:D:STATUS"]},
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -44,14 +51,14 @@ def _view(path: Path) -> Path:
             ],
             "channels": [channel],
         },
-        "seeds.json": {"seeds": {"T:RB": {"nominal": 5.0}}},
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        SeedsDocument: {"seeds": {"T:RB": {"nominal": 5.0}}},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     view = path / "simulator"
     view.mkdir()
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 
@@ -62,8 +69,8 @@ def test_a_deckless_model_does_not_stop_the_archive_of_the_other_channels(
     view = _view(tmp_path)
     times = [T0 + second for second in range(5)]
 
-    with build(view, [], tz=get_facility_timezone()) as archive:
-        archived = archive.series("T:RB", times)
+    archive = build(view, ActiveState(), tz=get_facility_timezone())
+    archived = archive.series("T:RB", times)
 
     assert Composite(view, model_log=False).status("D") == "no deck"
     assert archived == [5.0] * len(times)

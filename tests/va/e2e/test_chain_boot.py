@@ -38,7 +38,8 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.simulation.view import Model, SimulatorView
+from osprey_connectors.simulation.records import ModelRecord
+from osprey_connectors.simulation.view import SimulatorView
 from tests.va._collection import assert_module_collected
 from tests.va._still import assert_readings_still
 from tests.va.e2e import _guarded_measure as gm
@@ -121,15 +122,15 @@ def served(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Any]:
         yield running
 
 
-def _model(served: Any, name: str) -> Model:
+def _model(served: Any, name: str) -> ModelRecord:
     """The served view's record of one model."""
-    model: Model = served.tree.view.model(name)
+    model: ModelRecord = served.tree.view.model(name)
     return model
 
 
 def _channels(served: Any, name: str) -> list[str]:
     """Every address one model drives, sorted."""
-    bindings = served.tree.view.bindings(model=name, served_only=False)
+    bindings = served.tree.view.wiring(model=name, served_only=False)
     return sorted({binding.address for binding in bindings})
 
 
@@ -142,7 +143,8 @@ def test_the_view_serves_both_models_of_the_chain(served: Any) -> None:
     for name in MODELS:
         model = _model(served, name)
         assert model.served, name
-        assert model.deck is not None and model.deck.is_file(), name
+        deck = served.tree.view.deck_path(model)
+        assert deck is not None and deck.is_file(), name
 
 
 @pytest.mark.parametrize("name", MODELS)
@@ -252,7 +254,7 @@ async def test_a_pyaml_measure_on_the_chain_writes_the_simulator_alone(
     """The orbit response of LTB, approved, under the run lock, which it releases."""
     deployment = _measuring(served)
     readings = sorted(
-        {b.address for b in served.tree.view.bindings(model=MEASURED, served_only=False)}
+        {b.address for b in served.tree.view.wiring(model=MEASURED, served_only=False)}
     )
     assert_readings_still(served.tree.view, readings, deployment.active_scenarios())
     assert gm.only_simulated_targets(deployment.config) == []

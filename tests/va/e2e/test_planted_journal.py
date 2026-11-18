@@ -44,8 +44,9 @@ import pytest
 
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.simulation import TEXTURE
+from osprey_connectors.simulation.records import ChannelRecord
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, LABELLED_TYPES
-from osprey_connectors.simulation.view import VIEW_RELPATH, Channel, SimulatorView
+from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
@@ -93,10 +94,10 @@ MIN_COLLECTED_TESTS = 3
 def _wiring_defaults(view: SimulatorView) -> dict[str, float]:
     """Every writable setpoint the view's wiring gives a default, with that default."""
     return {
-        binding.address: float(binding.record["default"])
-        for binding in view.bindings(served_only=False)
+        binding.address: float(binding.engine_entry()["default"])
+        for binding in view.wiring(served_only=False)
         if binding.direction == "write"
-        and binding.record.get("default") is not None
+        and binding.default is not None
         and _writable_setpoint(view.channel(binding.address))
     }
 
@@ -118,7 +119,7 @@ def _seed_nominals(view: SimulatorView) -> dict[str, float]:
     return nominals
 
 
-def _writable_setpoint(channel: Channel) -> bool:
+def _writable_setpoint(channel: ChannelRecord) -> bool:
     return channel.role == "setpoint" and channel.writable
 
 

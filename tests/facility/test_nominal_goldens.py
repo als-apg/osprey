@@ -236,7 +236,7 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
         key = series.channel_key_bytes(address)
         drift = seed.get("drift")
         if drift:
-            reading = reading - series.wander(
+            reading = reading - series._wander(
                 key, INSTANTS, float(drift["amplitude"]), float(drift["period_s"])
             )
         expected = sigma * series.keyed_normals(key, counters_ms)

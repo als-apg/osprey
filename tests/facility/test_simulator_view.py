@@ -32,12 +32,8 @@ from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation import TEXTURE
-from osprey_connectors.simulation.view import (
-    IOC_HEALTH_SIGNALS,
-    SCENARIOS_SCHEMA,
-    SEEDS_SCHEMA,
-    SimulatorView,
-)
+from osprey_connectors.simulation.records import ScenariosDocument, SeedsDocument
+from osprey_connectors.simulation.view import IOC_HEALTH_SIGNALS, SimulatorView
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
@@ -117,6 +113,25 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
     assert [
         outputs.render_dir.name for outputs in built_demo.outputs if CHANNEL_INDEX in outputs.files
     ] == ["demo-channel-finder"] * 2
+
+
+#: The demo view's five documents as the build wrote them before it wrote them
+#: through the view's document models: the models write the same bytes.
+_DEMO_VIEW_SHA256 = {
+    ADDRESSES: "7b61c123d560ff12f690bb8d1761bddce332afb108a2f0c8704951dd84add702",
+    SCENARIOS: "b106ecf59f594639f9866bfc771eb4a6df3f5bc73623877e6ee9a78dfa1a4efd",
+    SEEDS: "adf279c55a063c64133757531b1b2b8f8c543893bae188ae278b4a92709d8ecf",
+    SERVED: "b61644b836c1fa9f3cae52739e54c0fd37c6b62336264533dfe4187f5bdb64b4",
+    VARIABLES: "002ee9da7598c20d4f6bced8927255175359a79d9a6da8ea6f9f5e9a9b26b795",
+}
+
+
+def test_the_demo_view_documents_keep_their_bytes(built_demo: BuiltProject) -> None:
+    for outputs in built_demo.outputs:
+        written = {
+            name: hashlib.sha256(outputs.files[name]).hexdigest() for name in _DEMO_VIEW_SHA256
+        }
+        assert written == _DEMO_VIEW_SHA256, outputs.render_dir
 
 
 def test_addresses_are_the_facility_file_channels_and_the_served_status(
@@ -606,7 +621,7 @@ def test_seeds_are_each_channel_seed_record(built_demo: BuiltProject) -> None:
     }
 
     assert set(seeds) == {"schema", "seeds"}
-    assert seeds["schema"] == SEEDS_SCHEMA
+    assert seeds["schema"] == SeedsDocument.SCHEMA
     assert seeds["seeds"] == expected
     assert list(seeds["seeds"]) == sorted(expected)
 
@@ -619,7 +634,7 @@ def test_scenarios_carry_every_scenario_and_its_blocks(
     names = sorted([*(path.stem for path in source.glob("*.yaml")), "still"])
 
     assert set(scenarios) == {"schema", "scenarios"}
-    assert scenarios["schema"] == SCENARIOS_SCHEMA
+    assert scenarios["schema"] == ScenariosDocument.SCHEMA
     assert [entry["name"] for entry in scenarios["scenarios"]] == names
     for entry in scenarios["scenarios"]:
         if entry["name"] == "still":
@@ -717,7 +732,7 @@ def test_a_withdrawn_scenario_is_neither_listed_nor_copied(
     withdraw_scenarios(view, ["nominal"])
 
     document = _view(render_dir, SCENARIOS)
-    assert document["schema"] == SCENARIOS_SCHEMA
+    assert document["schema"] == ScenariosDocument.SCHEMA
     assert [entry["name"] for entry in document["scenarios"]] == [
         name for name in listed if name != "nominal"
     ]
@@ -882,9 +897,10 @@ def _physics_monitors(root: Path) -> dict[str, list[str]]:
     """Each physics model's float monitor addresses, sorted, in the view at ``root``."""
     view = SimulatorView.open(root / "data" / "simulator")
     monitors: dict[str, list[str]] = {}
-    for binding in view.bindings(engine_role="monitor", served_only=False):
-        if view.channel(binding.address).value_type == "float":
-            monitors.setdefault(binding.model, []).append(binding.address)
+    for model in view.models():
+        for binding in view.wiring(model=model.name, engine_role="monitor", served_only=False):
+            if view.channel(binding.address).value_type == "float":
+                monitors.setdefault(model.name, []).append(binding.address)
     return {model: sorted(addresses) for model, addresses in monitors.items()}
 
 

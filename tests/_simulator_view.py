@@ -9,18 +9,25 @@ from typing import Any
 
 from osprey.facility.sources import read_yaml
 from osprey.facility.views import view_bytes
-from osprey.facility.views.simulator import SCENARIOS_DIR, SCENARIOS_FILE, SCENARIOS_SCHEMA
-from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+    ViewDocument,
+)
+from osprey_connectors.simulation.view import SCENARIOS_DIR
 
-#: The documents of a texture-only view with no channels, by file name.
-_MINIMAL_VIEW: Mapping[str, Mapping[str, Any]] = {
-    "served_models.json": {"models": ["texture"]},
-    "addresses.json": {
+#: The documents of a texture-only view with no channels, by document.
+_MINIMAL_VIEW: Mapping[type[ViewDocument], Mapping[str, Any]] = {
+    ServedModelsDocument: {"models": ["texture"]},
+    AddressesDocument: {
         "channels": [],
         "status": [],
         "ioc_health": ["T:SIM:texture:HEARTBEAT", "T:SIM:texture:UPTIME", "T:SIM:texture:ENGINEER"],
     },
-    "variables.json": {
+    VariablesDocument: {
         "code": "T",
         "models": [
             {
@@ -34,7 +41,7 @@ _MINIMAL_VIEW: Mapping[str, Mapping[str, Any]] = {
         ],
         "channels": [],
     },
-    "seeds.json": {"seeds": {}},
+    SeedsDocument: {"seeds": {}},
 }
 
 
@@ -62,15 +69,15 @@ def write_scenarios_view(
         The file written.
     """
     document = {
-        "schema": SCENARIOS_SCHEMA,
+        "schema": ScenariosDocument.SCHEMA,
         "scenarios": [_view_scenario(name, scenarios[name]) for name in sorted(scenarios)],
     }
-    path = render / "data" / "simulator" / SCENARIOS_FILE
+    path = render / "data" / "simulator" / ScenariosDocument.FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(view_bytes(document))
-    for name, minimal in _MINIMAL_VIEW.items():
-        if not (path.parent / name).is_file():
-            (path.parent / name).write_bytes(view_bytes({"schema": SCHEMAS[name], **minimal}))
+    for kind, minimal in _MINIMAL_VIEW.items():
+        if not (path.parent / kind.FILE).is_file():
+            (path.parent / kind.FILE).write_bytes(view_bytes({"schema": kind.SCHEMA, **minimal}))
     if files is not None:
         for name in scenarios:
             if (files / name).is_dir():
@@ -171,8 +178,8 @@ def write_texture_view(
     names = sorted(str(model["name"]) for model in physics)
     view = render / "data" / "simulator"
     documents = {
-        "served_models.json": {"models": [*names, "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": [*names, "texture"]},
+        AddressesDocument: {
             "channels": sorted(channels),
             "status": [f"T:SIM:{name}:STATUS" for name in names],
             "ioc_health": [
@@ -181,11 +188,11 @@ def write_texture_view(
                 for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
             ],
         },
-        "variables.json": {"code": "T", "models": physics, "channels": records},
-        "seeds.json": {"seeds": seeds},
+        VariablesDocument: {"code": "T", "models": physics, "channels": records},
+        SeedsDocument: {"seeds": seeds},
     }
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_bytes(view_bytes({"schema": SCHEMAS[name], **document}))
+    for kind, document in documents.items():
+        (view / kind.FILE).write_bytes(view_bytes({"schema": kind.SCHEMA, **document}))
     write_scenarios_view(render, {"nominal": {}, **(scenarios or {})})
     return view

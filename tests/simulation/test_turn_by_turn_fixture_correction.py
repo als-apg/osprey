@@ -205,9 +205,7 @@ def test_the_trajectory_columns_are_placed_from_the_injection_element(built, tra
     request = model_request.resolve_model_request(
         RING, None, render_root=built["render"], kind="trajectory"
     )
-    element = {
-        binding.address: str(binding.element) for binding in request.view.model(RING).bindings
-    }
+    element = {binding.address: str(binding.element) for binding in request.view.model(RING).wiring}
     assert trajectory[model_request.COLUMN_POSITIONS_KEY] == [
         place[element[column]] for column in trajectory["columns"]
     ]
@@ -227,9 +225,7 @@ def test_a_corrector_moves_no_row_placed_before_it(trajectory):
 def test_the_orbit_rows_and_columns_are_placed_from_the_decks_first_element(built, orbit):
     names = [element.FamName for element in at.load_lattice(str(DECK))]
     request = model_request.resolve_model_request(RING, None, render_root=built["render"])
-    element = {
-        binding.address: str(binding.element) for binding in request.view.model(RING).bindings
-    }
+    element = {binding.address: str(binding.element) for binding in request.view.model(RING).wiring}
     rows, columns = model_request.line_positions(orbit)
     assert rows == [names.index(element[row]) for row in orbit["rows"]]
     assert columns == [names.index(element[column]) for column in orbit["columns"]]

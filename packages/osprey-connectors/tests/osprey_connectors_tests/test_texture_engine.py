@@ -16,10 +16,11 @@ from lume.variables import (
     ScalarVariable,
     StrVariable,
 )
+from pydantic import TypeAdapter, ValidationError
 
 from osprey_connectors.simulation import pulse, series
 from osprey_connectors.simulation.records import (
-    NoiseRecord,
+    Noise,
     ResolvedCoupling,
     SeedsDocument,
     VariablesDocument,
@@ -50,7 +51,7 @@ def _set_motion(
             address: [ResolvedCoupling.model_validate(term) for term in terms]
             for address, terms in couple.items()
         },
-        {address: NoiseRecord.model_validate(record) for address, record in noise.items()},
+        {address: TypeAdapter(Noise).validate_python(record) for address, record in noise.items()},
         **kwargs,
     )
 
@@ -103,7 +104,17 @@ def _view() -> tuple[dict[str, Any], dict[str, Any]]:
                 "served": False,
                 "settings": {},
                 "deck": None,
-                "wiring": [{"id": "w1", "address": "P:IDLE:SP", "default": 2.5}],
+                "wiring": [
+                    {
+                        "id": "w1",
+                        "address": "P:IDLE:SP",
+                        "default": 2.5,
+                        "direction": "write",
+                        "engine_role": "setpoint",
+                        "plane": None,
+                        "refresh": "pass",
+                    }
+                ],
             },
             {
                 "name": "served",
@@ -111,7 +122,17 @@ def _view() -> tuple[dict[str, Any], dict[str, Any]]:
                 "served": True,
                 "settings": {},
                 "deck": None,
-                "wiring": [{"id": "w2", "address": "P:SERVED:RB", "default": 9.0}],
+                "wiring": [
+                    {
+                        "id": "w2",
+                        "address": "P:SERVED:RB",
+                        "default": 9.0,
+                        "direction": "read",
+                        "engine_role": "readback",
+                        "plane": None,
+                        "refresh": "pass",
+                    }
+                ],
             },
         ],
         "channels": channels,
@@ -147,7 +168,7 @@ def test_noise_is_keyed_on_address_and_epoch_ms():
     expected = (
         0.5
         * series.keyed_normals(series.channel_key_bytes("T:NOISY"), np.array([round(T0 * 1000)]))[0]
-        + series.wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
+        + series._wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
     )
 
     first = _model().get("T:NOISY")
@@ -307,15 +328,15 @@ def test_a_writable_setpoint_without_limits_has_no_range():
     assert variable.value_range is None
 
 
-def test_a_one_sided_range_leaves_the_other_side_unbounded():
+def test_a_one_sided_range_is_refused_at_read():
+    """The build writes ``value_range`` only when the limits state both sides."""
     variables, seeds = _view()
     variables["channels"].append(
         _channel("T:HALF:SP", role="setpoint", writable=True, value_range=[None, 3.0])
     )
 
-    variable = _texture(variables, seeds).supported_variables["T:HALF:SP"]
-
-    assert variable.value_range == (-math.inf, 3.0)
+    with pytest.raises(ValidationError, match="channels.16.value_range"):
+        _texture(variables, seeds)
 
 
 def test_a_served_model_keeps_its_channels_and_texture_still_moves_them():
@@ -348,7 +369,7 @@ _DRIVE = {"kind": "wander", "amplitude": 1.0, "period_s": 300.0}
 
 
 def _driver_at(t_s: float) -> float:
-    return float(series.wander(series.driver_key_bytes("d1"), np.array([t_s]), 1.0, 300.0)[0])
+    return float(series._wander(series._driver_key_bytes("d1"), np.array([t_s]), 1.0, 300.0)[0])
 
 
 def test_channels_coupled_to_one_driver_move_by_their_gains():
@@ -372,7 +393,7 @@ def test_a_gain_wander_coupling_differs_from_the_plain_one():
     waxing = _coupled_model(
         {"T:A": [{"driver": "d1", "gain": 0.5, "gain_wander": wander, "drive": _DRIVE}]}
     )
-    envelope = series.wander(
+    envelope = series._wander(
         series.channel_key_bytes("T:A") + b":gain_wander:d1", np.array([T0]), 0.8, 900.0
     )[0]
 
@@ -382,7 +403,7 @@ def test_a_gain_wander_coupling_differs_from_the_plain_one():
 
 def test_a_zero_noise_replacement_silences_a_seeded_channel():
     model = _coupled_model({}, {"T:NOISY": {"absolute": 0.0}})
-    drift = series.wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
+    drift = series._wander(series.channel_key_bytes("T:NOISY"), np.array([T0]), 1.0, 600)[0]
 
     assert model.get("T:NOISY") == pytest.approx(10.0 + drift)
 

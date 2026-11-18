@@ -11,22 +11,25 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import TypeAdapter
 
 from osprey.facility.views import view_bytes
 from osprey_connectors.simulation.envelope import (
     _MOTION_SIGMAS,
+    _declares_motion,
     _noise_sigma,
     active_envelopes,
-    declares_motion,
     motion_envelope,
 )
 from osprey_connectors.simulation.records import (
-    NoiseRecord,
+    Noise,
     ResolvedCoupling,
     ScenarioRecord,
     SeedRecord,
+    SeedsDocument,
 )
-from osprey_connectors.simulation.view import SCHEMAS, SEEDS_FILE, SimulatorView
+from osprey_connectors.simulation.state import ActiveState, compose
+from osprey_connectors.simulation.view import SimulatorView
 from tests._simulator_view import write_scenarios_view
 
 _DRIFT = {"amplitude": 0.005, "period_s": 600.0}
@@ -37,8 +40,8 @@ def _seed(record: dict | None) -> SeedRecord | None:
     return None if record is None else SeedRecord.model_validate(record)
 
 
-def _noise(record: dict) -> NoiseRecord:
-    return NoiseRecord.model_validate(record)
+def _noise(record: dict) -> Noise:
+    return TypeAdapter(Noise).validate_python(record)
 
 
 def _seeds(records: dict) -> dict[str, SeedRecord]:
@@ -139,15 +142,27 @@ def test_active_envelopes_merge_like_the_composite() -> None:
         }
     )
 
-    assert active_envelopes(seeds, scenarios, []) == pytest.approx(
+    assert active_envelopes(seeds, compose(scenarios, ActiveState(names=[]))) == pytest.approx(
         {"T:A": 0.6, "T:B": 0.005, "T:SP": 0.0}
     )
-    assert active_envelopes(seeds, scenarios, ["warm"]) == pytest.approx(
-        {"T:A": 1.8, "T:B": 0.005 + 1.0, "T:SP": 0.0}
+    assert active_envelopes(
+        seeds, compose(scenarios, ActiveState(names=["warm"]))
+    ) == pytest.approx({"T:A": 1.8, "T:B": 0.005 + 1.0, "T:SP": 0.0})
+    # Both replace T:A's noise, so the set does not compose and serves nominal's envelope.
+    assert active_envelopes(seeds, compose(scenarios, ActiveState(names=["warm", "quiet"])))[
+        "T:A"
+    ] == pytest.approx(0.6)
+    assert active_envelopes(seeds, compose(scenarios, ActiveState(names=["quiet"])))["T:A"] == 0.0
+    assert (
+        active_envelopes(seeds, compose(scenarios, ActiveState(names=["orphan", "unknown"])))["T:C"]
+        == 0.0
     )
-    assert active_envelopes(seeds, scenarios, ["warm", "quiet"])["T:A"] == 0.0
-    assert active_envelopes(seeds, scenarios, ["orphan", "unknown"])["T:C"] == 0.0
-    assert list(active_envelopes(seeds, scenarios, ["orphan"])) == ["T:A", "T:B", "T:C", "T:SP"]
+    assert list(active_envelopes(seeds, compose(scenarios, ActiveState(names=["orphan"])))) == [
+        "T:A",
+        "T:B",
+        "T:C",
+        "T:SP",
+    ]
 
 
 def test_a_stilled_reading_has_no_envelope() -> None:
@@ -177,18 +192,28 @@ def test_active_envelopes_honour_still_all_and_a_list() -> None:
         }
     )
 
-    assert active_envelopes(seeds, scenarios, ["one"]) == pytest.approx({"T:A": 0.0, "T:B": 0.005})
-    assert active_envelopes(seeds, scenarios, ["warm", "one"]) == pytest.approx(
-        {"T:A": 0.0, "T:B": 0.005, "T:C": 1.0}
+    assert active_envelopes(seeds, compose(scenarios, ActiveState(names=["one"]))) == pytest.approx(
+        {"T:A": 0.0, "T:B": 0.005}
     )
-    assert set(active_envelopes(seeds, scenarios, ["warm", "every"]).values()) == {0.0}
+    assert active_envelopes(
+        seeds, compose(scenarios, ActiveState(names=["warm", "one"]))
+    ) == pytest.approx({"T:A": 0.0, "T:B": 0.005, "T:C": 1.0})
+    assert set(
+        active_envelopes(seeds, compose(scenarios, ActiveState(names=["every"]))).values()
+    ) == {0.0}
+    # ``every`` stills the reading ``warm`` couples: the set serves nominal's envelope.
+    assert active_envelopes(
+        seeds, compose(scenarios, ActiveState(names=["warm", "every"]))
+    ) == pytest.approx({"T:A": 0.6, "T:B": 0.005})
 
 
 def test_nominal_counts_in_the_readers_envelope(tmp_path: Path) -> None:
     view = tmp_path / "data" / "simulator"
     view.mkdir(parents=True)
     seeds = {"T:A": {"nominal": 1.0, "noise": {"absolute": 0.1}}}
-    (view / SEEDS_FILE).write_bytes(view_bytes({"schema": SCHEMAS[SEEDS_FILE], "seeds": seeds}))
+    (view / SeedsDocument.FILE).write_bytes(
+        view_bytes({"schema": SeedsDocument.SCHEMA, "seeds": seeds})
+    )
     write_scenarios_view(tmp_path, {"nominal": {"still": ["T:A"]}, "loud": {}})
     reader = SimulatorView.open(view)
 
@@ -209,4 +234,4 @@ def test_nominal_counts_in_the_readers_envelope(tmp_path: Path) -> None:
     ],
 )
 def test_declares_motion_ignores_a_zero_term(seed: dict | None, expected: bool) -> None:
-    assert declares_motion(_seed(seed)) is expected
+    assert _declares_motion(_seed(seed)) is expected

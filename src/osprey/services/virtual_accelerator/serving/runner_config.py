@@ -56,6 +56,7 @@ import math
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
+from osprey_connectors.simulation import TEXTURE
 from osprey_connectors.simulation.view import PERIODIC, REFRESH, SETPOINT
 
 try:
@@ -188,9 +189,7 @@ def periodic_addresses(view: SimulatorView) -> frozenset[str]:
 def _refreshing(view: SimulatorView, refresh: str) -> frozenset[str]:
     """The addresses whose binding refreshes ``refresh``, across every model of the view."""
     return frozenset(
-        binding.address
-        for binding in view.bindings(served_only=False)
-        if binding.refresh == refresh
+        binding.address for binding in view.wiring(served_only=False) if binding.refresh == refresh
     )
 
 
@@ -255,22 +254,27 @@ def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:
         model's records that are no setpoint and no readback paired with one,
         and the model's status address.
     """
-    bindings = view.bindings(served_only=False)
-    settings = [binding for binding in bindings if binding.engine_role == SETPOINT]
-    pairs = {binding.address: view.channel(binding.address).pair for binding in settings}
+    wired = [
+        (model.name, record)
+        for model in view.models()
+        if model.engine != TEXTURE
+        for record in model.wiring
+    ]
+    settings = [(model, record) for model, record in wired if record.engine_role == SETPOINT]
+    pairs = {record.address: view.channel(record.address).pair for _, record in settings}
     paired = {pair for pair in pairs.values() if pair is not None}
     computed: dict[str, set[str]] = {}
-    for binding in bindings:
-        if binding.engine_role != SETPOINT and binding.address not in paired:
-            computed.setdefault(binding.model, set()).add(binding.address)
+    for model, record in wired:
+        if record.engine_role != SETPOINT and record.address not in paired:
+            computed.setdefault(model, set()).add(record.address)
     for model, address in view.status_addresses().items():
         computed.setdefault(model, set()).add(address)
     records: dict[str, frozenset[str]] = {}
-    for binding in settings:
-        own = {binding.address, *computed.get(binding.model, ())}
-        if (pair := pairs[binding.address]) is not None:
+    for model, record in settings:
+        own = {record.address, *computed.get(model, ())}
+        if (pair := pairs[record.address]) is not None:
             own.add(pair)
-        records[binding.address] = frozenset(own)
+        records[record.address] = frozenset(own)
     return records
 
 

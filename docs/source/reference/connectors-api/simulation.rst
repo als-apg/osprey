@@ -12,6 +12,8 @@ neither numpy nor lume; the heavier modules are imported by their own names.
 
 .. automodule:: osprey_connectors.simulation.view
 
+.. automodule:: osprey_connectors.simulation.records
+
 .. automodule:: osprey_connectors.simulation.values
 
 .. automodule:: osprey_connectors.simulation.status

@@ -11,19 +11,18 @@ import pytest
 from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
 from osprey_connectors.directory._simulator import SimulatorDirectory
 from osprey_connectors.service_answers import BackendSpec, Outcome, Source, Unavailable
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
 from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    ADDRESSES_SCHEMA,
     ENGINEER,
     HEARTBEAT,
     IOC_HEALTH_SIGNALS,
-    SERVED_MODELS_FILE,
-    SERVED_MODELS_SCHEMA,
     SERVED_SIGNAL_PROPERTY,
     STATUS_SIGNAL,
     UPTIME,
-    VARIABLES_FILE,
-    VARIABLES_SCHEMA,
     VIEW_RELPATH,
 )
 
@@ -84,20 +83,20 @@ def _write_view(
     """
     listed = _CHANNELS if channels is None else channels
     addresses: dict[str, Any] = {
-        "schema": ADDRESSES_SCHEMA,
+        "schema": AddressesDocument.SCHEMA,
         "channels": sorted(entry["address"] for entry in listed),
         "status": ["T:SIM:BARE:STATUS", "T:SIM:SR:STATUS"],
     }
     if ioc_health is not None:
         addresses["ioc_health"] = ioc_health
     documents = {
-        ADDRESSES_FILE: addresses,
-        SERVED_MODELS_FILE: {
-            "schema": SERVED_MODELS_SCHEMA,
+        AddressesDocument.FILE: addresses,
+        ServedModelsDocument.FILE: {
+            "schema": ServedModelsDocument.SCHEMA,
             "models": ["BARE", "SR", "texture"],
         },
-        VARIABLES_FILE: {
-            "schema": VARIABLES_SCHEMA,
+        VariablesDocument.FILE: {
+            "schema": VariablesDocument.SCHEMA,
             "code": "T",
             "models": [
                 {"name": "BARE", "engine": "pyat", "served": True},
@@ -314,7 +313,9 @@ async def test_a_channel_row_carries_the_view_as_a_directory_states_it(
 async def test_the_record_type_comes_from_role_and_value_type(
     tmp_path: Path, role: str, value_type: str, record_type: str
 ) -> None:
-    _write_view(tmp_path, channels=[_channel("T:X", role=role, value_type=value_type)])
+    # A waveform channel states its shape, as the build writes it.
+    shape = {"shape": [4]} if value_type == "waveform" else {}
+    _write_view(tmp_path, channels=[_channel("T:X", role=role, value_type=value_type, **shape)])
     directory = SimulatorDirectory(_spec(), project_dir=tmp_path)
 
     record = await directory.describe("T:X", timeout_s=DEADLINE)
@@ -558,7 +559,7 @@ async def test_no_project_directory_is_unavailable() -> None:
 
 async def test_a_view_of_another_schema_is_unavailable_and_says_rebuild(tmp_path: Path) -> None:
     _write_view(tmp_path)
-    (tmp_path / VIEW_RELPATH / ADDRESSES_FILE).write_text(
+    (tmp_path / VIEW_RELPATH / AddressesDocument.FILE).write_text(
         json.dumps({"schema": "osprey.facility.addresses/0"}), encoding="utf-8"
     )
 
@@ -572,7 +573,7 @@ async def test_a_view_of_another_schema_is_unavailable_and_says_rebuild(tmp_path
 @pytest.mark.parametrize("broken", ["{ not json", '{"schema": "osprey.facility.simulator/2"}'])
 async def test_a_broken_variables_file_is_unavailable(tmp_path: Path, broken: str) -> None:
     _write_view(tmp_path)
-    (tmp_path / VIEW_RELPATH / VARIABLES_FILE).write_text(broken, encoding="utf-8")
+    (tmp_path / VIEW_RELPATH / VariablesDocument.FILE).write_text(broken, encoding="utf-8")
 
     answers = await _every_answer(SimulatorDirectory(_spec(), project_dir=tmp_path))
 

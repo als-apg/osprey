@@ -3,7 +3,7 @@
 A model whose engine raises while it is built or read is failed: its float
 outputs read NaN, its other outputs their last good value or their type's zero,
 every one of its channels reports the ``udf`` condition, the texture serves on
-unchanged, and :func:`~osprey_connectors.simulation.model_status` answers with
+unchanged, and :func:`~osprey_connectors.simulation.status.model_status` answers with
 the engine's error text, capped at 1023 UTF-8 bytes. A write the model cannot
 solve is refused and leaves the model serving.
 """
@@ -34,9 +34,15 @@ from osprey_connectors.control_system._va_in_process_connector import (
     simulation_state_dir,
 )
 from osprey_connectors.simulation import composite as composite_module
-from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, Composite
-from osprey_connectors.simulation.view import SCHEMAS
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
+from osprey_connectors.simulation.status import model_status
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests._by_path import load_module
 from tests._simulator_view import view_channel
@@ -385,12 +391,12 @@ def _stub_view(root: Path, settings: Mapping[str, Any] | None = None) -> Path:
         for index, channel in enumerate(channels[:3])
     ]
     documents = {
-        "served_models.json": {"models": ["M", "texture"]},
-        "addresses.json": {
+        ServedModelsDocument: {"models": ["M", "texture"]},
+        AddressesDocument: {
             "channels": sorted(channel["address"] for channel in channels),
             "status": [STUB_STATUS],
         },
-        "variables.json": {
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -412,14 +418,14 @@ def _stub_view(root: Path, settings: Mapping[str, Any] | None = None) -> Path:
             ],
             "channels": sorted(channels, key=lambda channel: channel["address"]),
         },
-        "seeds.json": {"seeds": {"T:SP": {"nominal": 5.0}}},
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        SeedsDocument: {"seeds": {"T:SP": {"nominal": 5.0}}},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     view = root / "stub" / "data" / "simulator"
     view.mkdir(parents=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 

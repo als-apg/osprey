@@ -13,42 +13,14 @@ from osprey_connectors.simulation.records import ScenarioRecord
 from osprey_connectors.simulation.state import (
     ActiveState,
     Overlap,
-    composed_set,
+    _scenario_targets,
+    _Targets,
+    compose,
     parse_active_state,
-    scenario_targets,
     validate_composition,
     write_active_state,
 )
 from osprey_connectors_tests._paths import REPO_ROOT
-
-VIEW = {
-    "nominal": set(),
-    "burst": {"SR:VAC:PRESSURE"},
-    "leak": {"SR:VAC:PRESSURE"},
-    "thermal": {"SR:RF:TEMP"},
-}
-
-
-def test_a_composing_set_is_served_as_it_is() -> None:
-    assert composed_set(VIEW, ["nominal", "burst", "thermal"]) == (
-        ["nominal", "burst", "thermal"],
-        [],
-    )
-
-
-def test_a_set_writing_one_target_twice_is_served_as_nominal_alone() -> None:
-    assert composed_set(VIEW, ["nominal", "burst", "leak"]) == (
-        ["nominal"],
-        [Overlap(target="SR:VAC:PRESSURE", first="burst", second="leak")],
-    )
-
-
-def test_an_unknown_name_is_refused() -> None:
-    with pytest.raises(ValueError, match="Unknown scenarios \\['nope'\\]"):
-        composed_set(VIEW, ["nominal", "nope"])
-
-
-# -- still -------------------------------------------------------------------------
 
 
 def _record(name: str, scenario: dict) -> ScenarioRecord:
@@ -62,12 +34,110 @@ def _record(name: str, scenario: dict) -> ScenarioRecord:
     )
 
 
-def _targets(**scenarios: dict) -> dict[str, set[str]]:
-    return {name: scenario_targets(_record(name, scenario)) for name, scenario in scenarios.items()}
+def _scenarios(**scenarios: dict) -> dict[str, ScenarioRecord]:
+    return {name: _record(name, scenario) for name, scenario in scenarios.items()}
+
+
+VIEW = _scenarios(
+    nominal={},
+    burst={"overrides": {"SR:VAC:PRESSURE": 1.0}},
+    leak={"overrides": {"SR:VAC:PRESSURE": 2.0}},
+    thermal={"overrides": {"SR:RF:TEMP": 30.0}},
+)
+
+
+# -- the active set and its composition -------------------------------------------
+
+
+def test_an_active_state_resolves_its_names() -> None:
+    assert ActiveState().names == ("nominal",)
+    assert ActiveState(names=["thermal", "nominal", "burst", "thermal"]).names == (
+        "nominal",
+        "thermal",
+        "burst",
+    )
+
+
+def test_a_composing_set_is_served_as_it_is() -> None:
+    composed = compose(VIEW, ActiveState(names=("burst", "thermal")))
+
+    assert composed.names == ("nominal", "burst", "thermal")
+    assert [scenario.name for scenario in composed.served] == ["nominal", "burst", "thermal"]
+    assert composed.overlaps == ()
+    assert composed.overrides == {"SR:VAC:PRESSURE": 1.0, "SR:RF:TEMP": 30.0}
+
+
+def test_a_set_writing_one_target_twice_is_served_as_nominal_alone() -> None:
+    composed = compose(VIEW, ActiveState(names=("burst", "leak")))
+
+    assert composed.names == ("nominal",)
+    assert composed.overlaps == (Overlap(target="SR:VAC:PRESSURE", first="burst", second="leak"),)
+    assert composed.overrides == {}
+
+
+def test_an_unknown_name_is_refused_by_the_check_and_dropped_by_the_composition(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with pytest.raises(ValueError, match="Unknown scenarios \\['nope'\\]"):
+        validate_composition(VIEW, ["nominal", "nope"])
+
+    composed = compose(VIEW, ActiveState(names=("nope", "thermal")))
+
+    assert composed.names == ("nominal", "thermal")
+    assert "Unknown scenario 'nope' in the active set; ignoring" in caplog.text
+
+
+def test_nominal_is_served_when_the_view_does_not_list_it() -> None:
+    view = {name: record for name, record in VIEW.items() if name != "nominal"}
+
+    composed = compose(view, ActiveState(names=("thermal",)))
+
+    assert composed.names == ("nominal", "thermal")
+    assert [scenario.name for scenario in composed.served] == ["thermal"]
+
+
+def test_the_blocks_merge_in_set_order(caplog: pytest.LogCaptureFixture) -> None:
+    drive = {"kind": "wander", "amplitude": 2.0, "period_s": 300.0}
+    view = _scenarios(
+        warm={
+            "drivers": {"hall": drive},
+            "couple": {"T:A": [{"driver": "hall", "gain": 0.5}, {"driver": "hall", "gain": 2.0}]},
+            "noise": {"T:A": {"absolute": 0.1}},
+            "faults": {"SR": {"writes": {"k": 1}}, "LTB": {"writes": {"q": 2}, "inactive": "off"}},
+            "archiver": [{"channel": "T:A", "events": [{"shape": "step", "at": 0.5, "to": 1}]}],
+        },
+        later={
+            "couple": {
+                "T:B": [{"driver": "nowhere", "gain": 9.0}],
+                "T:F": [{"driver": "hall", "gain": 3.0}],
+            },
+            "noise": {"T:E": {"relative": 0.01}},
+            "faults": {"SR": {"writes": {"j": 4}}},
+            "still": ["T:C"],
+            "channel_faults": {"T:D": "frozen"},
+            "archiver": [{"channel": "T:A", "events": [{"shape": "step", "at": 0.7, "to": 2}]}],
+        },
+    )
+
+    composed = compose(view, ActiveState(names=("warm", "later")))
+
+    assert composed.overlaps == ()
+    assert [term.gain for term in composed.couplings["T:A"]] == [0.5, 2.0]
+    assert [term.drive.amplitude for term in composed.couplings["T:F"]] == [2.0]
+    assert composed.couplings["T:B"] == ()
+    assert "T:B couples to undeclared driver 'nowhere'" in caplog.text
+    assert sorted(composed.noise) == ["T:A", "T:E"]
+    assert composed.faults == {"SR": {"k": 1, "j": 4}}
+    assert composed.still == frozenset({"T:C"})
+    assert composed.channel_faults == {"T:D": "frozen"}
+    assert [event.to for event in composed.archiver_events["T:A"]] == [1, 2]
+
+
+# -- still -------------------------------------------------------------------------
 
 
 def test_still_composes_with_overrides_and_faults_on_the_same_address() -> None:
-    view = _targets(
+    view = _scenarios(
         quiet={"still": ["SR:BPM1:X"]},
         pinned={"overrides": {"SR:BPM1:X": 1.0}},
         faulted={"faults": {"optics": {"writes": {"SR:BPM1:X": {"offset": 1e-4}}}}},
@@ -80,7 +150,7 @@ def test_still_composes_with_overrides_and_faults_on_the_same_address() -> None:
 
 
 def test_a_still_overlaps_a_noise_scenario_on_each_reading_they_share() -> None:
-    view = _targets(
+    view = _scenarios(
         quiet={"still": ["SR:BPM1:X", "SR:BPM2:X", "SR:BPM3:X"]},
         loud={"noise": {"SR:BPM1:X": {"absolute": 0.1}, "SR:BPM2:X": {"absolute": 0.1}}},
     )
@@ -97,7 +167,7 @@ def test_a_still_overlaps_a_noise_scenario_on_each_reading_they_share() -> None:
 
 
 def test_a_listed_still_overlaps_a_couple_on_that_address_only() -> None:
-    view = _targets(
+    view = _scenarios(
         quiet={"still": ["SR:BPM1:X"]},
         thermal={
             "couple": {
@@ -113,7 +183,7 @@ def test_a_listed_still_overlaps_a_couple_on_that_address_only() -> None:
 
 
 def test_a_channel_fault_and_an_override_on_one_address_overlap() -> None:
-    view = _targets(
+    view = _scenarios(
         frozen={"channel_faults": {"SR:BPM1:X": "frozen"}},
         pinned={"overrides": {"SR:BPM1:X": 1.0}},
         disconnected={"channel_faults": {"SR:BPM1:X": "disconnected"}},
@@ -130,7 +200,7 @@ def test_a_channel_fault_and_an_override_on_one_address_overlap() -> None:
 
 
 def test_two_stills_on_one_reading_compose() -> None:
-    view = _targets(
+    view = _scenarios(
         a={"still": ["SR:BPM1:X"]},
         b={"still": ["SR:BPM1:X", "SR:BPM2:X"]},
         c={"still": ["SR:BPM1:X"]},
@@ -178,20 +248,36 @@ def _demo_history() -> dict:
 def test_an_archiver_entry_writes_no_target() -> None:
     scenario = _record("logged", {"archiver": [{"channel": "SR:VAC:PRESSURE", "events": []}]})
 
-    assert scenario_targets(scenario) == set()
+    assert _scenario_targets(scenario) == _Targets()
 
 
 def test_archiver_events_on_one_channel_compose() -> None:
-    view = _targets(
-        burst={"archiver": [{"channel": "SR:VAC:PRESSURE", "events": [{"shape": "spike"}]}]},
-        leak={"archiver": [{"channel": "SR:VAC:PRESSURE", "events": [{"shape": "step"}]}]},
+    view = _scenarios(
+        burst={
+            "archiver": [
+                {
+                    "channel": "SR:VAC:PRESSURE",
+                    "events": [
+                        {"shape": "spike", "at_offset": -60, "amplitude": 1.0, "width": 5.0}
+                    ],
+                }
+            ]
+        },
+        leak={
+            "archiver": [
+                {
+                    "channel": "SR:VAC:PRESSURE",
+                    "events": [{"shape": "step", "at_offset": -60, "to": 1.0}],
+                }
+            ]
+        },
     )
 
     assert validate_composition(view, ["nominal", "burst", "leak"]) == []
 
 
 def test_the_shipped_vacuum_burst_and_rf_thermal_compose() -> None:
-    view = _targets(**{name: _example(name) for name in ("vacuum-burst", "rf-thermal")})
+    view = _scenarios(**{name: _example(name) for name in ("vacuum-burst", "rf-thermal")})
 
     assert validate_composition(view, ["vacuum-burst", "rf-thermal"]) == []
     assert validate_composition(view, ["rf-thermal", "vacuum-burst"]) == []
@@ -200,7 +286,7 @@ def test_the_shipped_vacuum_burst_and_rf_thermal_compose() -> None:
 @pytest.mark.parametrize("other", ["rf-thermal", "vacuum-burst"])
 def test_demo_history_composes_with_a_scenario_scripting_its_channels(other: str) -> None:
     demo_history = _demo_history()
-    view = _targets(**{other: _example(other), "demo-history": demo_history})
+    view = _scenarios(**{other: _example(other), "demo-history": demo_history})
     shared = {str(entry["channel"]) for entry in demo_history.get("archiver") or []} & {
         str(entry["channel"]) for entry in _example(other).get("archiver") or []
     }
@@ -211,8 +297,17 @@ def test_demo_history_composes_with_a_scenario_scripting_its_channels(other: str
 
 
 def test_an_override_on_a_channel_another_scenario_archives_composes() -> None:
-    view = _targets(
-        logged={"archiver": [{"channel": "SR:RF:TEMP", "events": [{"shape": "spike"}]}]},
+    view = _scenarios(
+        logged={
+            "archiver": [
+                {
+                    "channel": "SR:RF:TEMP",
+                    "events": [
+                        {"shape": "spike", "at_offset": -60, "amplitude": 1.0, "width": 5.0}
+                    ],
+                }
+            ]
+        },
         pinned={"overrides": {"SR:RF:TEMP": 26.5}},
         repinned={"overrides": {"SR:RF:TEMP": 30.0}},
     )
@@ -232,12 +327,10 @@ ANCHOR = datetime(2026, 3, 14, 9, 26, 53, 120000, tzinfo=UTC)
 def test_a_written_set_and_anchor_read_back_through_the_parser(tmp_path: Path) -> None:
     path = tmp_path / "state" / "active_scenarios"
 
-    resolved = write_active_state(path.parent, VIEW, ["thermal", "burst"], anchor_at=ANCHOR)
+    written = write_active_state(path.parent, VIEW, ["thermal", "burst"], anchor_at=ANCHOR)
 
-    assert resolved == ["nominal", "thermal", "burst"]
-    assert parse_active_state(path.read_text(encoding="utf-8")) == ActiveState(
-        names=("thermal", "burst"), anchor_at=ANCHOR
-    )
+    assert written == ActiveState(names=("nominal", "thermal", "burst"), anchor_at=ANCHOR)
+    assert parse_active_state(path.read_text(encoding="utf-8")) == written
     assert [entry.name for entry in path.parent.iterdir()] == ["active_scenarios"]
 
 
@@ -251,6 +344,28 @@ def test_the_anchor_is_written_with_its_own_offset(tmp_path: Path) -> None:
         b"anchor=2026-03-14T02:26:53.120000-07:00\nthermal\n"
     )
     assert parse_active_state("anchor=2026-03-14T02:26:53.120000-07:00\n").anchor_at == ANCHOR
+
+
+@pytest.mark.parametrize(
+    ("names", "anchor_at", "expected"),
+    [
+        ([], None, b"nominal\n"),
+        (["nominal"], ANCHOR, b"anchor=2026-03-14T09:26:53.120000+00:00\nnominal\n"),
+        (
+            ["thermal", "burst", "thermal", "nominal"],
+            ANCHOR,
+            b"anchor=2026-03-14T09:26:53.120000+00:00\nthermal\nburst\n",
+        ),
+        (["burst"], datetime(2026, 1, 1, tzinfo=UTC), b"anchor=2026-01-01T00:00:00+00:00\nburst\n"),
+    ],
+)
+def test_the_file_holds_the_bytes_the_previous_writer_wrote(
+    tmp_path: Path, names: list[str], anchor_at: datetime | None, expected: bytes
+) -> None:
+    """Captured from the writer that took a target map and returned a list."""
+    write_active_state(tmp_path, VIEW, names, anchor_at=anchor_at)
+
+    assert (tmp_path / "active_scenarios").read_bytes() == expected
 
 
 def test_a_naive_anchor_is_refused_before_the_file_is_written(tmp_path: Path) -> None:
@@ -267,7 +382,7 @@ def test_a_naive_anchor_is_refused_before_the_file_is_written(tmp_path: Path) ->
 def test_nominal_alone_is_written_as_nominal_without_an_anchor(tmp_path: Path) -> None:
     path = tmp_path / "active_scenarios"
 
-    assert write_active_state(tmp_path, VIEW, []) == ["nominal"]
+    assert write_active_state(tmp_path, VIEW, []) == ActiveState()
     assert path.read_text(encoding="utf-8") == "nominal\n"
     assert parse_active_state(path.read_text(encoding="utf-8")) == ActiveState(names=("nominal",))
 

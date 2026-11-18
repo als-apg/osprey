@@ -22,7 +22,8 @@ from pathlib import Path
 from tests._builds import BuiltProject
 
 import osprey
-from osprey_connectors.simulation.view import VARIABLES_FILE, VIEW_RELPATH
+from osprey_connectors.simulation.records import VariablesDocument
+from osprey_connectors.simulation.view import VIEW_RELPATH
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -222,7 +223,7 @@ _REFERENCE_FACILITY_LATTICE_SYMBOLS = ("facility_spec", "FacilitySpec", "ALS_U_A
 
 #: What a channel does to the deck is read from the simulator view's variables
 #: file, named by its path relative to the deployment repo root.
-_BINDINGS_PATH = f"{BUILD_DIR_NAME}/{VIEW_RELPATH}/{VARIABLES_FILE}"
+_BINDINGS_PATH = f"{BUILD_DIR_NAME}/{VIEW_RELPATH}/{VariablesDocument.FILE}"
 
 #: The section of the lattice-agent prompt that turns that path into an
 #: instruction: read the bindings before answering anything about a channel.

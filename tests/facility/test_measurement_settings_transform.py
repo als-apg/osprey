@@ -22,7 +22,7 @@ from osprey.facility import kinds
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import fault_roster
 from osprey.facility.views.simulator import write_simulator_view
-from osprey_connectors.simulation.view import VARIABLES_FILE
+from osprey_connectors.simulation.records import VariablesDocument
 from tests.facility._pyaml_trees import (
     built_document,
     measured_tree,
@@ -96,7 +96,7 @@ def test_a_listed_kinds_patch_reaches_the_document_and_the_simulator_view(tmp_pa
     assert sr["provenance"]["defaults"] == ["settings.pyat.rest_mass_gev"]
     view = tmp_path / "view"
     write_simulator_view(view, view_inputs(tmp_path / "again", tree))
-    variables = json.loads((view / VARIABLES_FILE).read_text("utf-8"))
+    variables = json.loads((view / VariablesDocument.FILE).read_text("utf-8"))
     (served,) = [model for model in variables["models"] if model["name"] == "SR"]
     assert served["settings"] == _PATCHED
 

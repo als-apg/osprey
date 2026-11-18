@@ -14,8 +14,15 @@ from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.records import (
+    AddressesDocument,
+    ScenariosDocument,
+    SeedsDocument,
+    ServedModelsDocument,
+    VariablesDocument,
+)
 from osprey_connectors.simulation.status import STATUS_NO_DECK
-from osprey_connectors.simulation.view import SCHEMAS, ViewSchemaError
+from osprey_connectors.simulation.view import ViewSchemaError
 
 STATUS = "T:SIM:M:STATUS"
 SETPOINT = "T:SP"
@@ -40,9 +47,9 @@ def _view(path: Path, health: tuple[str, ...] | None = (HEARTBEAT, UPTIME, ENGIN
     if health is not None:
         addresses["ioc_health"] = [*health, *TEXTURE_HEALTH]
     documents = {
-        "served_models.json": {"models": ["M", "texture"]},
-        "addresses.json": addresses,
-        "variables.json": {
+        ServedModelsDocument: {"models": ["M", "texture"]},
+        AddressesDocument: addresses,
+        VariablesDocument: {
             "code": "T",
             "models": [
                 {
@@ -70,14 +77,14 @@ def _view(path: Path, health: tuple[str, ...] | None = (HEARTBEAT, UPTIME, ENGIN
                 }
             ],
         },
-        "seeds.json": {"seeds": {SETPOINT: {"nominal": 5.0}}},
-        "scenarios.json": {"scenarios": [{"name": "nominal"}]},
+        SeedsDocument: {"seeds": {SETPOINT: {"nominal": 5.0}}},
+        ScenariosDocument: {"scenarios": [{"name": "nominal"}]},
     }
     view = path / "simulator"
     view.mkdir(parents=True, exist_ok=True)
-    for name, document in documents.items():
-        (view / name).write_text(
-            json.dumps({"schema": SCHEMAS[name], **document}), encoding="utf-8"
+    for kind, document in documents.items():
+        (view / kind.FILE).write_text(
+            json.dumps({"schema": kind.SCHEMA, **document}), encoding="utf-8"
         )
     return view
 

@@ -9,7 +9,7 @@ def test_the_series_module_imports_with_its_primitives() -> None:
     series = importlib.import_module("osprey_connectors.simulation.series")
 
     assert callable(series.keyed_normals)
-    assert callable(series.wander)
+    assert callable(series._wander)
     assert callable(series.clamp)
 
 

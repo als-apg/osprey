@@ -159,6 +159,7 @@ def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenari
     from osprey.facility.validate import _motion_record
     from osprey_connectors.simulation.envelope import active_envelopes
     from osprey_connectors.simulation.records import SeedRecord
+    from osprey_connectors.simulation.state import ActiveState, compose
 
     result = load_sources(TREE)
     assert result.errors == []
@@ -172,7 +173,7 @@ def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenari
         channel for channel in read_yaml(reseed_module().stamp()) if "tolerance" in channel
     ]
     for name in sorted(scenarios):
-        envelopes = active_envelopes(seeds, scenarios, [name])
+        envelopes = active_envelopes(seeds, compose(scenarios, ActiveState(names=[name])))
         for channel in toleranced:
             envelope = envelopes.get(channel["pair"], 0.0)
             assert envelope <= channel["tolerance"]["absolute"], (name, channel["pair"], envelope)

@@ -3,8 +3,9 @@
 These functions turn a baseline series plus a scenario's archiver events
 (step/ramp/spike/burst/loss, positioned by window fraction, wall-clock offset, or daily
 time-of-day) into a concrete value series, and supply the keyed draws and the
-band-limited texture the texture engine layers on a served value. They hold no
-state: the caller supplies the channel values and events and these functions
+band-limited texture the texture engine layers on a served value, and say
+which stretch of stored history one occurrence of an event changes
+(:func:`occurrence_span`), for the archive rewrite. They hold no state: the caller supplies the channel values and events and these functions
 do the math (see ``tests/simulation/test_series_primitives.py``).
 """
 
@@ -21,26 +22,29 @@ import numpy as np
 import numpy.typing as npt
 
 from osprey_connectors.logger import get_logger
-from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.relative_time import resolve_relative_timestamp
+from osprey_connectors.simulation.records import (
+    AnchorOffset,
+    BurstEvent,
+    CalendarDay,
+    DailyTime,
+    LossEvent,
+    RampEvent,
+    SpikeEvent,
+    StepEvent,
+    WindowFraction,
+)
 from osprey_connectors.simulation.values import _real
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord, _When
+    from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
 
 __all__ = [
-    "anchored_instant",
-    "BURST_WINDOW_TAUS",
-    "apply_events",
-    "loss_refill_bound",
     "channel_key_bytes",
     "clamp",
-    "daily_occurrences",
-    "driver_key_bytes",
-    "epoch_seconds_array",
-    "event_positions",
     "keyed_normals",
-    "step_end",
-    "wander",
+    "occurrence_span",
+    "occurrences",
 ]
 
 logger = get_logger("simulation_series")
@@ -72,7 +76,12 @@ _WANDER_JITTER_OCTAVES = 0.15
 
 #: How many of a ``burst``'s slowest time constants count as inside its window:
 #: ``exp(-10)`` leaves under 0.005% of the burst outside it.
-BURST_WINDOW_TAUS = 10.0
+_BURST_WINDOW_TAUS = 10.0
+#: How many sigmas either side of a spike count as "inside" its window. A
+#: Gaussian is never exactly zero, so the window has to be cut somewhere; four
+#: sigmas leaves under 0.01% of the bump outside it, which is far below the
+#: channel's own noise and therefore invisible in the restored history.
+_SPIKE_WINDOW_SIGMAS = 4.0
 #: Injector shots per second while top-off refills a ``loss``.
 _REFILL_RATE_HZ = 1.0
 #: Charge one refill shot adds, as a fraction of the top-off ``ceiling``
@@ -100,12 +109,12 @@ def channel_key_bytes(channel: str) -> bytes:
     return hashlib.sha256(channel.encode("utf-8")).digest()
 
 
-def driver_key_bytes(driver: str) -> bytes:
+def _driver_key_bytes(driver: str) -> bytes:
     """Key for a scenario's shared latent driver, addressed by the driver's name.
 
     A driver is the common cause behind several channels, so its draws must not
     depend on which channel asks for them: every channel coupled to the driver
-    evaluates :func:`wander` under this one key and sees the identical value at
+    evaluates :func:`_wander` under this one key and sees the identical value at
     the same instant. The ``driver:`` namespace keeps a driver that happens to
     share a channel's name from replaying that channel's own texture stream.
 
@@ -236,7 +245,7 @@ def _wander_components(
     return periods, phases, np.asarray(weights / weights.sum())
 
 
-def wander(
+def _wander(
     channel_key: bytes, times_s: npt.ArrayLike, amplitude: float, period_s: float
 ) -> npt.NDArray[np.float64]:
     """Band-limited quasi-random baseline texture, evaluated on absolute time.
@@ -291,7 +300,7 @@ def clamp(value: float, min_value: float | None, max_value: float | None) -> flo
     return value
 
 
-def epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64] | None:
+def _epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64] | None:
     """Convert timestamps to epoch seconds, or None when not convertible."""
     values: list[float] = []
     for ts in timestamps:
@@ -304,68 +313,49 @@ def epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64]
     return np.asarray(values, dtype=np.float64)
 
 
-def anchored_instant(event: ArchiverEvent, *, anchor_s: float, tz: ZoneInfo) -> float:
-    """Epoch seconds of an event placed relative to the activation anchor.
+def _instant(placement: AnchorOffset | CalendarDay, *, anchor_s: float, tz: ZoneInfo) -> float:
+    """Epoch seconds of a placement relative to the activation anchor.
 
-    ``at_offset`` is seconds from the anchor. ``at_when`` is the logbook's own
-    ``{days_ago, time}``: the calendar day ``days_ago`` days before the anchor's
-    date, at ``time``, both read in ``tz`` -- the same rule a scenario's
-    logbook entries resolve by, so an event and the entry narrating it name
-    one instant.
-
-    Args:
-        event: An event carrying ``at_offset`` or ``at_when``.
-        anchor_s: The activation anchor T0, in epoch seconds.
-        tz: The facility timezone calendar days are counted in.
-
-    Returns:
-        The event's instant in epoch seconds.
-
-    Raises:
-        KeyError: the event states neither ``at_offset`` nor ``at_when``.
+    An :class:`AnchorOffset` is seconds from the anchor. A :class:`CalendarDay`
+    is the logbook's own ``{days_ago, time}``: the calendar day ``days_ago``
+    days before the anchor's date, at ``time``, both read in ``tz`` -- the
+    same rule a scenario's logbook entries resolve by, so an event and the
+    entry narrating it name one instant.
     """
-    if event.at_offset is not None:
-        return anchor_s + float(event.at_offset)
-    return _calendar_instant(event.at_when, "at_when", anchor_s, tz)
+    match placement:
+        case AnchorOffset(offset_s=offset):
+            return anchor_s + float(offset)
+        case CalendarDay(when=when):
+            return resolve_relative_timestamp(
+                when, datetime.fromtimestamp(anchor_s, tz)
+            ).timestamp()
 
 
-def _calendar_instant(when: _When | None, key: str, anchor_s: float, tz: ZoneInfo) -> float:
-    """Epoch seconds of a ``{days_ago, time}`` placement, counted back from the anchor in ``tz``.
-
-    Raises:
-        KeyError: ``when`` is ``None``: the event does not state ``key``.
-    """
-    if when is None:
-        raise KeyError(key)
-    spec = RelativeTimestamp(days_ago=when.days_ago, time=dtime.fromisoformat(when.time))
-    return resolve_relative_timestamp(spec, datetime.fromtimestamp(anchor_s, tz)).timestamp()
-
-
-def step_end(event: ArchiverEvent, *, anchor_s: float, tz: ZoneInfo) -> float | None:
+def _step_end(event: StepEvent, *, anchor_s: float, tz: ZoneInfo) -> float | None:
     """Where a bounded ``step`` ends, on the same axis as its start; ``None`` when unbounded.
 
-    ``until`` is a window fraction (paired with ``at``), ``until_offset`` is
-    seconds from the anchor (paired with ``at_offset``) and ``until_when`` is a
-    ``{days_ago, time}`` placed exactly as ``at_when`` is (paired with it).
-
-    Args:
-        event: A ``step`` event.
-        anchor_s: The activation anchor T0, in epoch seconds.
-        tz: The facility timezone ``until_when`` calendar days are counted in.
-
-    Returns:
-        The end position, or ``None`` when the step states no end.
+    ``until`` is a window fraction, ``until_offset`` seconds from the anchor and
+    ``until_when`` a ``{days_ago, time}`` placed exactly as ``at_when`` is.
     """
-    if event.until_offset is not None:
-        return anchor_s + float(event.until_offset)
-    if event.until_when is not None:
-        return _calendar_instant(event.until_when, "until_when", anchor_s, tz)
-    if event.until is not None:
-        return float(event.until)
-    return None
+    match event.end:
+        case None:
+            return None
+        case WindowFraction(at=until):
+            return float(until)
+        case AnchorOffset() | CalendarDay() as end:
+            return _instant(end, anchor_s=anchor_s, tz=tz)
 
 
-def event_positions(
+def _ramp_end(event: RampEvent, *, anchor_s: float) -> float:
+    """Where a ``ramp`` reaches ``to``: a window fraction, or epoch seconds when anchored."""
+    match event.end:
+        case WindowFraction(at=until):
+            return float(until)
+        case AnchorOffset(offset_s=offset):
+            return anchor_s + float(offset)
+
+
+def _event_positions(
     event: ArchiverEvent,
     t_frac: npt.NDArray[np.float64],
     times_s: npt.NDArray[np.float64] | None,
@@ -383,51 +373,46 @@ def event_positions(
     when an anchored or time-of-day event cannot be placed because the
     timestamps were not convertible to epoch seconds.
     """
-    if event.at_offset is not None or event.at_when is not None:
-        if times_s is None:
-            logger.debug("Skipping anchored event: timestamps not convertible to epoch seconds")
-            return []
-        return [(times_s, anchored_instant(event, anchor_s=anchor_s, tz=tz))]
-    if event.at_time is not None:
-        if times_s is None:
-            logger.debug("Skipping time-of-day event: timestamps not convertible to epoch seconds")
-            return []
-        return [(times_s, at) for at in daily_occurrences(event.at_time, times_s, tz=tz)]
-    return [(t_frac, float(_stated(event.at, "at")))]
+    match event.placement:
+        case WindowFraction(at=at):
+            return [(t_frac, float(at))]
+        case DailyTime(time=time_of_day):
+            if times_s is None:
+                logger.debug(
+                    "Skipping time-of-day event: timestamps not convertible to epoch seconds"
+                )
+                return []
+            return [(times_s, at) for at in _daily_occurrences(time_of_day, times_s, tz=tz)]
+        case AnchorOffset() | CalendarDay() as placement:
+            if times_s is None:
+                logger.debug("Skipping anchored event: timestamps not convertible to epoch seconds")
+                return []
+            return [(times_s, _instant(placement, anchor_s=anchor_s, tz=tz))]
 
 
-def _stated(value: float | None, key: str) -> float:
-    """An event's ``key``, which the event's shape states.
-
-    Raises:
-        KeyError: the event does not state ``key``.
-    """
-    if value is None:
-        raise KeyError(key)
-    return value
-
-
-def daily_occurrences(
-    at_time: str, times_s: npt.NDArray[np.float64], *, tz: ZoneInfo
+def _daily_occurrences(
+    time_of_day: dtime, times_s: npt.NDArray[np.float64], *, tz: ZoneInfo
 ) -> list[float]:
     """Epoch-second positions of a daily time-of-day within ``[times_s[0], times_s[-1]]``.
 
     Walks calendar dates from the window start to its end (in timezone ``tz``)
-    and keeps every occurrence of ``at_time`` that falls inside the window.
+    and keeps every occurrence of ``time_of_day`` that falls inside the window.
     Placing the time-of-day in an explicit zone — rather than the deploy host's
     local zone — makes the result independent of the box ``$TZ``. Callers
     resolve and pass the facility zone, so this module stays free of config.
-    Assumes ascending timestamps (the same contract ``apply_events`` relies
+    Assumes ascending timestamps (the same contract ``_apply_events`` relies
     on via ``np.searchsorted``).
     """
-    tod = dtime.fromisoformat(at_time)
     start = datetime.fromtimestamp(float(times_s[0]), tz)
     end = datetime.fromtimestamp(float(times_s[-1]), tz)
     cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
     positions: list[float] = []
     while cursor <= end:
         candidate = cursor.replace(
-            hour=tod.hour, minute=tod.minute, second=tod.second, microsecond=tod.microsecond
+            hour=time_of_day.hour,
+            minute=time_of_day.minute,
+            second=time_of_day.second,
+            microsecond=time_of_day.microsecond,
         )
         if start <= candidate <= end:
             positions.append(candidate.timestamp())
@@ -435,7 +420,84 @@ def daily_occurrences(
     return positions
 
 
-def _burst_profile(event: ArchiverEvent, dt: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+def occurrences(
+    event: ArchiverEvent, *, start_s: float, end_s: float, anchor_s: float, tz: ZoneInfo
+) -> list[float]:
+    """Every instant an event placed in stored history fires at, in epoch seconds.
+
+    An anchored event (``at_offset``, ``at_when``) fires once, wherever that
+    falls; a daily ``at_time`` event fires on every calendar date of ``tz``
+    whose occurrence lies inside ``[start_s, end_s]``.
+
+    Args:
+        event: An event placed by ``at_offset``, ``at_when`` or ``at_time``.
+        start_s: The oldest instant a daily occurrence may fall at.
+        end_s: The latest instant a daily occurrence may fall at.
+        anchor_s: The activation anchor T0, in epoch seconds.
+        tz: The facility timezone anchored days and daily times are placed in.
+
+    Returns:
+        The instants, ascending.
+
+    Raises:
+        ValueError: The event is placed by window fraction (``at``), which
+            names a position in a reader's window and no instant.
+    """
+    match event.placement:
+        case WindowFraction():
+            raise ValueError("an event placed by window fraction (`at`) fires at no instant")
+        case DailyTime(time=time_of_day):
+            return _daily_occurrences(
+                time_of_day, np.asarray([start_s, end_s], dtype=np.float64), tz=tz
+            )
+        case AnchorOffset() | CalendarDay() as placement:
+            return [_instant(placement, anchor_s=anchor_s, tz=tz)]
+
+
+def occurrence_span(
+    event: ArchiverEvent,
+    at_s: float,
+    *,
+    anchor_s: float,
+    tz: ZoneInfo,
+    topoff: TopoffRecord | None,
+) -> tuple[float, float]:
+    """The stretch one occurrence of an event at ``at_s`` changes, in epoch seconds.
+
+    A spike reaches four sigmas either side of its instant. A burst starts at
+    its instant and reaches ten of its slowest time constants after it. A loss
+    starts at its instant and lasts until top-off has surely refilled it, or to
+    the anchor on a channel no top-off refills. A step runs from its instant to
+    its end, or to the anchor; a ramp to the anchor.
+
+    Args:
+        event: The event.
+        at_s: The instant of this occurrence, in epoch seconds.
+        anchor_s: The activation anchor T0, in epoch seconds.
+        tz: The facility timezone a step's ``until_when`` is placed in.
+        topoff: The channel's ``topoff`` seed record, which alone refills a loss.
+
+    Returns:
+        ``(start, end)`` in epoch seconds.
+    """
+    match event:
+        case SpikeEvent(width=width):
+            half = float(width) * _SPIKE_WINDOW_SIGMAS
+            return at_s - half, at_s + half
+        case BurstEvent(decay_s=decay, tail_decay_s=tail):
+            slowest = max(float(decay), 0.0 if tail is None else float(tail))
+            return at_s, at_s + _BURST_WINDOW_TAUS * slowest
+        case LossEvent():
+            bound = _loss_refill_bound(event, topoff)
+            return at_s, anchor_s if bound is None else at_s + bound
+        case StepEvent():
+            until = _step_end(event, anchor_s=anchor_s, tz=tz)
+            return at_s, anchor_s if until is None else until
+        case RampEvent():
+            return at_s, anchor_s
+
+
+def _burst_profile(event: BurstEvent, dt: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """A ``burst``'s excursion at ``dt`` seconds after its instant.
 
     Zero before the instant, ``amplitude`` at it, then a fast exponential
@@ -451,8 +513,8 @@ def _burst_profile(event: ArchiverEvent, dt: npt.NDArray[np.float64]) -> npt.NDA
     Returns:
         The excursion, same shape as ``dt``.
     """
-    amplitude = _stated(event.amplitude, "amplitude")
-    decay = _stated(event.decay_s, "decay_s")
+    amplitude = event.amplitude
+    decay = event.decay_s
     share = 0.0 if event.tail_share is None else event.tail_share
     tail = decay if event.tail_decay_s is None else event.tail_decay_s
     after = np.maximum(dt, 0.0)
@@ -461,7 +523,7 @@ def _burst_profile(event: ArchiverEvent, dt: npt.NDArray[np.float64]) -> npt.NDA
 
 
 def _loss_deficit(
-    event: ArchiverEvent,
+    event: LossEvent,
     at: float,
     x: npt.NDArray[np.float64],
     topoff: TopoffRecord | None,
@@ -485,8 +547,7 @@ def _loss_deficit(
         The deficit, ``amount`` right after ``at`` and 0 before it and once
         refilled.
     """
-    amount = _stated(event.amount, "amount")
-    deficit = np.where(x >= at, amount, 0.0)
+    deficit = np.where(x >= at, event.amount, 0.0)
     if topoff is None:
         return deficit
     period = topoff.period_s
@@ -496,7 +557,7 @@ def _loss_deficit(
     return np.maximum(deficit - shot * shots, 0.0)
 
 
-def loss_refill_bound(event: ArchiverEvent, topoff: TopoffRecord | None) -> float | None:
+def _loss_refill_bound(event: LossEvent, topoff: TopoffRecord | None) -> float | None:
     """Seconds after its instant by which a ``loss`` is surely refilled; None if never.
 
     One top-off period to the first refill, wherever in the period the loss
@@ -505,11 +566,11 @@ def loss_refill_bound(event: ArchiverEvent, topoff: TopoffRecord | None) -> floa
     if topoff is None:
         return None
     shot = _REFILL_SHOT_FRACTION * abs(float(topoff.ceiling))
-    shots = np.ceil(_stated(event.amount, "amount") / shot) if shot > 0 else 0.0
+    shots = np.ceil(event.amount / shot) if shot > 0 else 0.0
     return float(topoff.period_s) + float(shots) / _REFILL_RATE_HZ
 
 
-def apply_events(
+def _apply_events(
     series: npt.NDArray[np.float64],
     events: Sequence[ArchiverEvent],
     n: int,
@@ -521,7 +582,7 @@ def apply_events(
 ) -> npt.NDArray[np.float64]:
     """Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).
 
-    A step with an end (see :func:`step_end`) holds ``to`` over ``[start, end)``
+    A step with an end (see :func:`_step_end`) holds ``to`` over ``[start, end)``
     and leaves later samples on the baseline; without one it holds to the end.
     A ``burst`` (:func:`_burst_profile`) and a ``loss`` (:func:`_loss_deficit`)
     start at their instant and never move a sample before it; ``topoff`` is the
@@ -535,34 +596,28 @@ def apply_events(
     series = series.copy()
     for event in events:
         # A ``to`` is a number on the float channels whose series these events move.
-        shape = event.shape
-        offset_anchored = event.at_offset is not None
-        for x, at in event_positions(event, t_frac, times_s, anchor_s=anchor_s, tz=tz):
-            if shape == "step":
-                end = step_end(event, anchor_s=anchor_s, tz=tz)
-                inside = x >= at if end is None else (x >= at) & (x < end)
-                series[inside] = _real(event.to)
-            elif shape == "ramp":
-                until = (
-                    anchor_s + _stated(event.until_offset, "until_offset")
-                    if offset_anchored
-                    else float(_stated(event.until, "until"))
-                )
-                to = _real(event.to)
-                if until <= at:
-                    series[x >= at] = to
-                    continue
-                idx = int(np.searchsorted(x, at))
-                start = float(series[min(idx, n - 1)])
-                mask = (x >= at) & (x <= until)
-                series[mask] = start + (to - start) * (x[mask] - at) / (until - at)
-                series[x > until] = to
-            elif shape == "burst":
-                series = series + _burst_profile(event, x - at)
-            elif shape == "loss":
-                series = series - _loss_deficit(event, at, x, topoff)
-            else:  # spike (gaussian bump; width as window fraction, or seconds when anchored)
-                amplitude = _stated(event.amplitude, "amplitude")
-                width = _stated(event.width, "width")
-                series = series + amplitude * np.exp(-((x - at) ** 2) / (2.0 * width**2))
+        for x, at in _event_positions(event, t_frac, times_s, anchor_s=anchor_s, tz=tz):
+            match event:
+                case StepEvent():
+                    end = _step_end(event, anchor_s=anchor_s, tz=tz)
+                    inside = x >= at if end is None else (x >= at) & (x < end)
+                    series[inside] = _real(event.to)
+                case RampEvent():
+                    until = _ramp_end(event, anchor_s=anchor_s)
+                    to = _real(event.to)
+                    if until <= at:
+                        series[x >= at] = to
+                        continue
+                    idx = int(np.searchsorted(x, at))
+                    start = float(series[min(idx, n - 1)])
+                    mask = (x >= at) & (x <= until)
+                    series[mask] = start + (to - start) * (x[mask] - at) / (until - at)
+                    series[x > until] = to
+                case BurstEvent():
+                    series = series + _burst_profile(event, x - at)
+                case LossEvent():
+                    series = series - _loss_deficit(event, at, x, topoff)
+                case SpikeEvent(amplitude=amplitude, width=width):
+                    # A gaussian bump; ``width`` is a window fraction, or seconds when anchored.
+                    series = series + amplitude * np.exp(-((x - at) ** 2) / (2.0 * width**2))
     return series

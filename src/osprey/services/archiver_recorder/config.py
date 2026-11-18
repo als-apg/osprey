@@ -56,13 +56,9 @@ from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.deployment.simulator import virtual_accelerator_port
 from osprey_connectors.gateways import derive_endpoints
+from osprey_connectors.simulation.records import AddressesDocument, VariablesDocument
 from osprey_connectors.simulation.values import is_waveform
-from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    VARIABLES_FILE,
-    NoSimulatorViewError,
-    SimulatorView,
-)
+from osprey_connectors.simulation.view import NoSimulatorViewError, SimulatorView
 
 #: Where the compose template mounts the render's simulator view,
 #: ``build/data/simulator``: the same directory the virtual accelerator serves
@@ -316,12 +312,12 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> ChannelSet:
             but unreadable.
     """
     root = Path(data_dir) if data_dir is not None else Path(DEFAULT_DATA_DIR)
-    path = root / ADDRESSES_FILE
+    path = root / AddressesDocument.FILE
     try:
         view = SimulatorView.open(root)
     except (NoSimulatorViewError, OSError, ValueError) as exc:
         raise RecorderConfigError(
-            f"cannot record: the simulator view's {ADDRESSES_FILE} ({path}) could not be "
+            f"cannot record: the simulator view's {AddressesDocument.FILE} ({path}) could not be "
             f"loaded: {exc}. `osprey build` writes it under build/data/simulator."
         ) from exc
     # Opening the view held its `channels` to a list of addresses.
@@ -331,13 +327,13 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> ChannelSet:
 
 def _waveform_addresses(view: SimulatorView, addresses: Sequence[str], root: Path) -> list[str]:
     """The ``addresses`` whose value type in ``variables.json`` is a waveform."""
-    if not (root / VARIABLES_FILE).is_file():
+    if not (root / VariablesDocument.FILE).is_file():
         return []
     waveforms: list[str] = []
     try:
         # Parsed up front so a file without a channel list is refused here,
         # not read below as "this address is not listed".
-        view.document(VARIABLES_FILE)
+        view.document(VariablesDocument)
         for address in addresses:
             try:
                 channel = view.channel(address)
@@ -347,7 +343,7 @@ def _waveform_addresses(view: SimulatorView, addresses: Sequence[str], root: Pat
                 waveforms.append(address)
     except (NoSimulatorViewError, OSError, ValueError, TypeError, KeyError) as exc:
         raise RecorderConfigError(
-            f"cannot record: the simulator view's {VARIABLES_FILE} ({root / VARIABLES_FILE}) "
+            f"cannot record: the simulator view's {VariablesDocument.FILE} ({root / VariablesDocument.FILE}) "
             f"could not be read for the channels' value types: {exc}. "
             f"Rebuild the project with `osprey build`."
         ) from exc

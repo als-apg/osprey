@@ -159,7 +159,7 @@ def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Served]:
 
 def _readings(served: Served) -> list[str]:
     """Every reading the measured model wires: what a measurement of it compares."""
-    bindings = served.deployment.view().bindings(model=served.model, served_only=False)
+    bindings = served.deployment.view().wiring(model=served.model, served_only=False)
     return sorted({b.address for b in bindings if b.direction == "read"})
 
 

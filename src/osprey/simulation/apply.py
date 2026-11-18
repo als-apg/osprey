@@ -36,10 +36,9 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import resolve_relative_timestamp
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
-    composed_set,
+    ActiveState,
+    compose,
     read_active_state,
-    resolve_active_scenarios,
-    scenario_targets,
     write_active_state,
 )
 from osprey_connectors.workspace import resolve_simulation_state_dir
@@ -54,7 +53,6 @@ if TYPE_CHECKING:
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
     from osprey_connectors.simulation.records import ArchiverEvent, ScenarioRecord, TopoffRecord
-    from osprey_connectors.simulation.state import ActiveState
     from osprey_connectors.simulation.view import SimulatorView
 
 logger = get_logger("simulation_apply")
@@ -205,7 +203,7 @@ def apply_scenarios(
         ValueError: If the render carries no simulator view, a scenario name is
             unknown, or the requested set does not compose (channel collision).
     """
-    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView, view_path
 
     project_dir = Path(project_dir)
     config = load_config(str(_config_file(project_dir)))
@@ -214,7 +212,7 @@ def apply_scenarios(
     if view is None:
         raise ValueError(
             f"Project {project_dir} has no simulator view in "
-            f"{SimulatorView.path_for_project(project_dir)}; "
+            f"{view_path(project_dir)}; "
             "`sim apply` only applies to simulation-backed projects (guards a real DB). "
             "Run 'osprey build'."
         )
@@ -232,11 +230,8 @@ def apply_scenarios(
     # reseed closes with a step naming the same scenarios. The anchor is
     # internal -- the reseed reuses the persisted one precisely so nothing slides.
     active = write_active_state(
-        resolve_simulation_state_dir(config, project_dir),
-        {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
-        names,
-        anchor_at=t0,
-    )
+        resolve_simulation_state_dir(config, project_dir), scenarios, names, anchor_at=t0
+    ).names
 
     seeded = 0
     purged = False
@@ -294,12 +289,6 @@ DENSIFIED_FIELD = "osprey_densified"
 #: cross the server's 16 MB command limit long before it became merely slow.
 _WRITE_CHUNK = 1000
 
-#: How many sigmas either side of a spike count as "inside" its window. A
-#: Gaussian is never exactly zero, so the window has to be cut somewhere; four
-#: sigmas leaves under 0.01% of the bump outside it, which is far below the
-#: channel's own noise and therefore invisible in the restored history.
-_SPIKE_WINDOW_SIGMAS = 4.0
-
 
 def view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord] | None:
     """The scenarios the simulator view lists, by name; ``None`` without a view.
@@ -330,14 +319,11 @@ def require_view_scenarios(project_dir: Path) -> dict[str, ScenarioRecord]:
     Raises:
         ValueError: If the render carries no simulator view.
     """
-    from osprey_connectors.simulation.view import SimulatorView
+    from osprey_connectors.simulation.view import view_path
 
     scenarios = view_scenarios(project_dir)
     if scenarios is None:
-        raise ValueError(
-            f"No simulator view in {SimulatorView.path_for_project(project_dir)}. "
-            "Run 'osprey build'."
-        )
+        raise ValueError(f"No simulator view in {view_path(project_dir)}. Run 'osprey build'.")
     return scenarios
 
 
@@ -661,7 +647,7 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
     See :func:`active_logbook_entries`; the entries are empty when the render
     carries no simulator view.
     """
-    from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
+    from osprey_connectors.simulation.view import SCENARIOS_DIR, view_path
 
     # Read in the facility zone, as the simulator reads the same anchor: a logbook
     # entry's ``days_ago`` and an ``at_when`` event's count the same calendar days.
@@ -673,18 +659,9 @@ def _active_narrative(config: dict, project_dir: Path) -> tuple[list[ScenarioLog
     if scenarios is None:
         return [], anchor
 
-    names: list[str] = []
-    for name in _active_state(config, project_dir).names:
-        if name in scenarios:
-            names.append(name)
-        else:
-            logger.warning(f"Unknown scenario {name!r} in the active set; ignoring")
     # A set that does not compose is served as nominal alone, so that is what it narrates.
-    served, _ = composed_set(
-        {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
-        resolve_active_scenarios(names),
-    )
-    files = SimulatorView.path_for_project(project_dir) / SCENARIOS_DIR
+    served = compose(scenarios, _active_state(config, project_dir)).names
+    files = view_path(project_dir) / SCENARIOS_DIR
     return _view_logbook(scenarios, served, files), anchor
 
 
@@ -705,7 +682,7 @@ def _view_logbook(
         entry
         for name in names
         if name in scenarios
-        for entry in scenario_logbook(_stated(scenarios[name]), files / name)
+        for entry in scenario_logbook(scenarios[name], files / name)
     ]
 
 
@@ -988,23 +965,22 @@ def active_archiver_events(
         names: The requested scenario names.
 
     Returns:
-        Each channel's events, in active-set order.
+        Each channel's events, in active-set order, of the set the archive
+        serves (:func:`~osprey_connectors.simulation.state.compose`).
 
     Raises:
         ValueError: If the render carries no simulator view, or a requested
             scenario is not in it.
     """
-    from osprey_connectors.simulation.archive import scenario_events
-
     scenarios = require_view_scenarios(project_dir)
 
-    resolved = resolve_active_scenarios(names)
+    active = ActiveState(names=tuple(names))
     # The first name is the always-active baseline, which a facility need not state.
-    unknown = [name for name in resolved[1:] if name not in scenarios]
+    unknown = [name for name in active.names[1:] if name not in scenarios]
     if unknown:
         raise ValueError(f"Unknown scenario(s) {unknown!r}; available: {sorted(scenarios)}")
 
-    return scenario_events(scenarios, resolved)
+    return compose(scenarios, active).archiver_events
 
 
 def _refuse_window_fraction(event: ArchiverEvent) -> None:
@@ -1077,7 +1053,7 @@ def event_window(
             happens to ask for, which is not a place in stored history at all —
             there is no honest timestamp to write it at.
     """
-    from osprey_connectors.simulation.series import anchored_instant
+    from osprey_connectors.simulation.series import occurrence_span, occurrences
 
     _require_events(events)
     start = anchor_s
@@ -1088,8 +1064,8 @@ def event_window(
             # A daily time-of-day recurs on every date the archive covers, so
             # the span its values reach over is the archive.
             return horizon_start, anchor_s
-        at = anchored_instant(event, anchor_s=anchor_s, tz=tz)
-        low, high = _occurrence_span(event, at, anchor_s, tz, topoff)
+        (at,) = occurrences(event, start_s=horizon_start, end_s=anchor_s, anchor_s=anchor_s, tz=tz)
+        low, high = occurrence_span(event, at, anchor_s=anchor_s, tz=tz, topoff=topoff)
         start, end = min(start, low), max(end, high)
     return max(start, horizon_start), min(end, anchor_s)
 
@@ -1134,13 +1110,17 @@ def event_subwindows(
     Raises:
         ValueError: As :func:`event_window`.
     """
+    from osprey_connectors.simulation.series import occurrence_span, occurrences
+
     _require_events(events)
     windows: list[tuple[float, float]] = []
     for event in events:
         _refuse_window_fraction(event)
         windows.extend(
-            _occurrence_span(event, at, anchor_s, tz, topoff)
-            for at in _event_instants(event, anchor_s, horizon_start, tz)
+            occurrence_span(event, at, anchor_s=anchor_s, tz=tz, topoff=topoff)
+            for at in occurrences(
+                event, start_s=horizon_start, end_s=anchor_s, anchor_s=anchor_s, tz=tz
+            )
         )
     clamped = [
         (max(start, horizon_start), min(end, anchor_s))
@@ -1148,64 +1128,6 @@ def event_subwindows(
         if end >= horizon_start and start <= anchor_s
     ]
     return _merge_intervals(clamped)
-
-
-def _occurrence_span(
-    event: ArchiverEvent,
-    at: float,
-    anchor_s: float,
-    tz: ZoneInfo,
-    topoff: TopoffRecord | None,
-) -> tuple[float, float]:
-    """The stretch one occurrence of an event at ``at`` changes, in epoch seconds.
-
-    A spike reaches four sigmas either side of its instant. A burst starts at its
-    instant and reaches :data:`BURST_WINDOW_TAUS` of its slowest decay after it. A
-    loss starts at its instant and lasts until top-off has surely refilled it, or
-    to the anchor on a channel no top-off refills. A step or a ramp runs from its
-    instant to its end, or to the anchor.
-    """
-    from osprey_connectors.simulation.series import BURST_WINDOW_TAUS, loss_refill_bound, step_end
-
-    shape = event.shape
-    if shape == "spike":
-        half = _event_number(event.width) * _SPIKE_WINDOW_SIGMAS
-        return at - half, at + half
-    if shape == "burst":
-        tail = event.tail_decay_s
-        slowest = max(_event_number(event.decay_s), 0.0 if tail is None else float(tail))
-        return at, at + BURST_WINDOW_TAUS * slowest
-    if shape == "loss":
-        bound = loss_refill_bound(event, topoff)
-        return at, anchor_s if bound is None else at + bound
-    # Only a ``step`` states an end; any other event persists to the anchor.
-    until = step_end(event, anchor_s=anchor_s, tz=tz) if shape == "step" else None
-    return at, anchor_s if until is None else until
-
-
-def _event_number(value: float | None) -> float:
-    """An archiver event's number, which its shape states.
-
-    ``osprey build`` checks that every number an event's shape needs is stated
-    (:func:`osprey.facility.scenarios.check_scenario_events`).
-
-    Raises:
-        TypeError: the event does not state it.
-    """
-    if value is None:
-        raise TypeError("float() argument must be a string or a real number, not 'NoneType'")
-    return float(value)
-
-
-def _event_instants(
-    event: ArchiverEvent, anchor_s: float, horizon_start: float, tz: ZoneInfo
-) -> list[float]:
-    """Every instant one event fires at, inside ``[horizon_start, anchor_s]``."""
-    from osprey_connectors.simulation.series import anchored_instant, daily_occurrences
-
-    if event.at_time is not None:
-        return daily_occurrences(event.at_time, _np_array([horizon_start, anchor_s]), tz=tz)
-    return [anchored_instant(event, anchor_s=anchor_s, tz=tz)]
 
 
 def _merge_intervals(windows: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -1313,66 +1235,68 @@ def seed_archiver(
             )
 
         persisted = persisted_scenario_anchor(config, project_dir)
-        with build(
-            SimulatorView.of_project(project_dir), names, anchor_at=persisted, tz=tz
-        ) as archive:
-            # A channel the view does not archive has no stored history to rewrite.
-            archived = set(archive.addresses)
-            events = {pv: script for pv, script in events.items() if pv in archived}
+        archive = build(
+            SimulatorView.of_project(project_dir),
+            ActiveState(names=tuple(names), anchor_at=persisted),
+            tz=tz,
+        )
+        # A channel the view does not archive has no stored history to rewrite.
+        archived = set(archive.addresses)
+        events = {pv: script for pv, script in events.items() if pv in archived}
 
-            anchor_s = anchor.timestamp()
-            horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
-            previous = _ledger_windows(manifest)
-            current = {
-                pv: event_window(
-                    script, anchor_s, horizon_start, tz=tz, topoff=archive.topoff_record(pv)
-                )
-                for pv, script in events.items()
-            }
-            live = {
-                pv: event_subwindows(
-                    script, anchor_s, horizon_start, tz=tz, topoff=archive.topoff_record(pv)
-                )
-                for pv, script in events.items()
-            }
-            spans = _union_spans(previous, current)
-
-            result = ArchiverSeedResult(channels=tuple(sorted(current)))
-
-            # The ledger goes down first, and it names the *union* — every window
-            # this run is about to disturb, not the ones it means to leave marked.
-            # A process that dies mid-rewrite has already written event values into
-            # windows the new ledger would not mention, and a window no ledger names
-            # is a window no later apply ever comes back for: the marks would be
-            # permanent and unsignalled. A superset costs the next apply one extra
-            # recompute over a stretch that is already at its base value.
-            #
-            # Written whenever there is anything at all to disturb, including when
-            # the union happens to equal the new windows — which is exactly the case
-            # on a store no scenario has touched yet. Skipping it there because "the
-            # ledger would say the same thing at the end anyway" would leave the
-            # *first* eventful apply on every fresh deployment writing marks under
-            # an empty ledger, which is the one crash nothing could recover from.
-            #
-            # Any guard here must be phrased against what is already *on disk*,
-            # never against what this run intends to leave behind; the unconditional
-            # form is the one that cannot be got wrong, and it costs one small
-            # manifest write per eventful apply.
-            if spans:
-                _write_ledger(collection, spans, anchor_s)
-
-            # Dense inserts are keyed to the windows that needed them; a window that
-            # is no longer an event window must not keep resolution nothing asked
-            # for, so they go before anything is recomputed.
-            regions = _merge_intervals(list(spans.values()))
-            result.removed = _drop_densified(collection, regions)
-
-            result.updated, result.restored = _rewrite_documents(
-                collection, archive, knobs, spans, live
+        anchor_s = anchor.timestamp()
+        horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
+        previous = _ledger_windows(manifest)
+        current = {
+            pv: event_window(
+                script, anchor_s, horizon_start, tz=tz, topoff=archive.topoff_record(pv)
             )
-            result.inserted, result.uncovered = _densify(collection, archive, live, knobs)
+            for pv, script in events.items()
+        }
+        live = {
+            pv: event_subwindows(
+                script, anchor_s, horizon_start, tz=tz, topoff=archive.topoff_record(pv)
+            )
+            for pv, script in events.items()
+        }
+        spans = _union_spans(previous, current)
 
-            _write_ledger(collection, current, anchor_s)
+        result = ArchiverSeedResult(channels=tuple(sorted(current)))
+
+        # The ledger goes down first, and it names the *union* — every window
+        # this run is about to disturb, not the ones it means to leave marked.
+        # A process that dies mid-rewrite has already written event values into
+        # windows the new ledger would not mention, and a window no ledger names
+        # is a window no later apply ever comes back for: the marks would be
+        # permanent and unsignalled. A superset costs the next apply one extra
+        # recompute over a stretch that is already at its base value.
+        #
+        # Written whenever there is anything at all to disturb, including when
+        # the union happens to equal the new windows — which is exactly the case
+        # on a store no scenario has touched yet. Skipping it there because "the
+        # ledger would say the same thing at the end anyway" would leave the
+        # *first* eventful apply on every fresh deployment writing marks under
+        # an empty ledger, which is the one crash nothing could recover from.
+        #
+        # Any guard here must be phrased against what is already *on disk*,
+        # never against what this run intends to leave behind; the unconditional
+        # form is the one that cannot be got wrong, and it costs one small
+        # manifest write per eventful apply.
+        if spans:
+            _write_ledger(collection, spans, anchor_s)
+
+        # Dense inserts are keyed to the windows that needed them; a window that
+        # is no longer an event window must not keep resolution nothing asked
+        # for, so they go before anything is recomputed.
+        regions = _merge_intervals(list(spans.values()))
+        result.removed = _drop_densified(collection, regions)
+
+        result.updated, result.restored = _rewrite_documents(
+            collection, archive, knobs, spans, live
+        )
+        result.inserted, result.uncovered = _densify(collection, archive, live, knobs)
+
+        _write_ledger(collection, current, anchor_s)
 
     if result.uncovered:
         logger.warning(

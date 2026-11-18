@@ -21,9 +21,8 @@ from osprey_connectors.errors import (
     StateLockedError,
     StateUnavailableError,
 )
+from osprey_connectors.simulation.records import AddressesDocument, VariablesDocument
 from osprey_connectors.simulation.view import (
-    ADDRESSES_FILE,
-    VARIABLES_FILE,
     NoSimulatorViewError,
     SimulatorView,
     SimulatorViewError,
@@ -205,16 +204,17 @@ def test_a_place_with_no_view_names_the_file_it_lacks(tmp_path):
     root = _view_dir(tmp_path)
     with pytest.raises(NoSimulatorViewError) as caught:
         SimulatorView.open(root)
-    assert caught.value.path == root / ADDRESSES_FILE
+    assert caught.value.path == root / AddressesDocument.FILE
     assert isinstance(caught.value, SimulatorViewError)
 
 
 def _opened(tmp_path: Path) -> SimulatorView:
-    from osprey_connectors.simulation.view import ADDRESSES_SCHEMA
+    from osprey_connectors.simulation.records import AddressesDocument
 
     root = _view_dir(tmp_path)
-    (root / ADDRESSES_FILE).write_text(
-        json.dumps({"schema": ADDRESSES_SCHEMA, "channels": [], "status": []}), encoding="utf-8"
+    (root / AddressesDocument.FILE).write_text(
+        json.dumps({"schema": AddressesDocument.SCHEMA, "channels": [], "status": []}),
+        encoding="utf-8",
     )
     return SimulatorView.open(root)
 
@@ -222,33 +222,32 @@ def _opened(tmp_path: Path) -> SimulatorView:
 def test_a_missing_view_file_is_no_view_naming_that_file(tmp_path):
     view = _opened(tmp_path)
     with pytest.raises(NoSimulatorViewError) as caught:
-        view.document(VARIABLES_FILE)
-    assert caught.value.path == view.path / VARIABLES_FILE
-    assert str(view.path / VARIABLES_FILE) in str(caught.value)
+        view.document(VariablesDocument)
+    assert caught.value.path == view.path / VariablesDocument.FILE
+    assert str(view.path / VariablesDocument.FILE) in str(caught.value)
 
 
 def test_a_view_file_that_is_not_json_is_a_schema_error_naming_it(tmp_path):
     view = _opened(tmp_path)
-    (view.path / VARIABLES_FILE).write_text("{", encoding="utf-8")
+    (view.path / VariablesDocument.FILE).write_text("{", encoding="utf-8")
     with pytest.raises(ViewSchemaError) as caught:
-        view.document(VARIABLES_FILE)
-    assert caught.value.path == view.path / VARIABLES_FILE
-    assert str(view.path / VARIABLES_FILE) in str(caught.value)
+        view.document(VariablesDocument)
+    assert caught.value.path == view.path / VariablesDocument.FILE
+    assert str(view.path / VariablesDocument.FILE) in str(caught.value)
 
 
 def test_a_schema_refusal_carries_path_key_found_and_expected(tmp_path):
-    from osprey_connectors.simulation.view import SCHEMAS
 
     view = _opened(tmp_path)
-    (view.path / VARIABLES_FILE).write_text(json.dumps({"schema": "old"}), encoding="utf-8")
+    (view.path / VariablesDocument.FILE).write_text(json.dumps({"schema": "old"}), encoding="utf-8")
     with pytest.raises(ViewSchemaError) as caught:
-        view.document(VARIABLES_FILE)
+        view.document(VariablesDocument)
     error = caught.value
     assert (error.path, error.key, error.found, error.expected) == (
-        view.path / VARIABLES_FILE,
+        view.path / VariablesDocument.FILE,
         "schema",
         "old",
-        SCHEMAS[VARIABLES_FILE],
+        VariablesDocument.SCHEMA,
     )
     # The message is the one an operator already reads.
     assert "is schema 'old'; this OSPREY reads" in str(error)

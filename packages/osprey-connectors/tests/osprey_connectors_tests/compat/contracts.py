@@ -167,10 +167,10 @@ def _read_simulator_view(render_root: Path) -> str:
     for address in channels:
         view.channel(address)
         view.seed(address)
-        if view.binding(address) is not None:
+        if view.wiring_of(address) is not None:
             bound += 1
     _require(not physics or bound > 0, "physics models are served but no channel is bound to one")
-    list(view.bindings())
+    list(view.wiring())
     dict(view.status_addresses())
     scenarios = view.scenarios()
     for scenario in scenarios:

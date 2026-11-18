@@ -1912,6 +1912,41 @@ class TestGenericConvertEntry:
                 {"id": "1", "title": "T", "when": {"days_ago": 1, "time": time_value}}
             )
 
+    @pytest.mark.parametrize("time_value", ["08:00:00+02:00", "08:00:00Z"], ids=["offset", "utc"])
+    @pytest.mark.usefixtures("facility_tz")
+    def test_a_when_time_with_an_offset_refuses_the_entry(self, time_value):
+        """An offset on a relative ``when.time`` is refused, not dropped.
+
+        The facility zone places the time; dropping the offset would land the
+        entry at another instant than its source states.
+        """
+        adapter = _generic_adapter("/tmp/entries.json")
+
+        with pytest.raises(ValueError, match="must not carry a timezone offset") as caught:
+            adapter._convert_entry(
+                {"id": "1", "title": "T", "when": {"days_ago": 1, "time": time_value}}
+            )
+        assert time_value in str(caught.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("facility_tz")
+    async def test_an_offset_when_time_skips_only_its_entry(self, tmp_path, caplog):
+        """The ingest refuses the one entry and keeps the rest of the file."""
+        path = tmp_path / "entries.json"
+        entries = [
+            {"id": "bad", "title": "Bad", "when": {"days_ago": 1, "time": "08:00:00+02:00"}},
+            {"id": "good", "title": "Good", "when": {"days_ago": 1, "time": "08:00:00"}},
+        ]
+        path.write_text(json.dumps({"entries": entries}))
+        adapter = _generic_adapter(str(path))
+
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            read = await _collect(adapter.fetch_entries())
+
+        assert [e["entry_id"] for e in read] == ["good"]
+        assert "must not carry a timezone offset" in caplog.text
+        assert adapter.unreadable_entries == 1
+
     @pytest.mark.usefixtures("facility_tz")
     def test_absolute_timestamp_ignores_the_facility_anchor(self):
         """An absolute timestamp is parsed verbatim, not shifted toward ``now``."""

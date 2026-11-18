@@ -9,6 +9,7 @@ import hashlib
 import math
 import time
 from datetime import datetime
+from datetime import time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -17,29 +18,32 @@ import pytest
 
 from osprey_connectors.simulation import series as series_module
 from osprey_connectors.simulation.series import (
+    _daily_occurrences,
+    _epoch_seconds_array,
+    _wander,
     channel_key_bytes,
     clamp,
-    daily_occurrences,
-    epoch_seconds_array,
     keyed_normals,
-    wander,
 )
 from tests._archiver_events import event, events
+
+#: The daily time of day the occurrence cases place.
+NOON = dtime(12, 0, 0)
 
 #: The zone the helpers place events in; no event these cases place reads a calendar day.
 UTC_ZONE = ZoneInfo("UTC")
 
 
 def apply_events(values, scripted, n, times_s, anchor_s, tz=UTC_ZONE, topoff=None):
-    """:func:`series_module.apply_events` of events stated as mappings."""
-    return series_module.apply_events(
+    """:func:`series_module._apply_events` of events stated as mappings."""
+    return series_module._apply_events(
         values, events(scripted), n, times_s, anchor_s=anchor_s, tz=tz, topoff=topoff
     )
 
 
 def event_positions(raw, t_frac, times_s, anchor_s, tz=UTC_ZONE):
-    """:func:`series_module.event_positions` of an event stated as a mapping."""
-    return series_module.event_positions(event(raw), t_frac, times_s, anchor_s=anchor_s, tz=tz)
+    """:func:`series_module._event_positions` of an event stated as a mapping."""
+    return series_module._event_positions(event(raw), t_frac, times_s, anchor_s=anchor_s, tz=tz)
 
 
 # --------------------------------------------------------------------------
@@ -124,20 +128,20 @@ class TestClamp:
 class TestEpochSecondsArray:
     def test_datetime_objects(self):
         dts = [datetime(2026, 1, 1, 0, 0, 0), datetime(2026, 1, 1, 1, 0, 0)]
-        out = epoch_seconds_array(dts)
+        out = _epoch_seconds_array(dts)
         assert out is not None
         np.testing.assert_allclose(out, [dts[0].timestamp(), dts[1].timestamp()])
 
     def test_epoch_floats_pass_through(self):
-        out = epoch_seconds_array([100.0, 200, 300.5])
+        out = _epoch_seconds_array([100.0, 200, 300.5])
         np.testing.assert_allclose(out, [100.0, 200.0, 300.5])
 
     def test_non_convertible_returns_none(self):
-        assert epoch_seconds_array(["not-a-time", 1.0]) is None
+        assert _epoch_seconds_array(["not-a-time", 1.0]) is None
 
     def test_bool_is_rejected(self):
         # bool is an int subclass but must not be treated as an epoch second.
-        assert epoch_seconds_array([True]) is None
+        assert _epoch_seconds_array([True]) is None
 
 
 class TestEventPositions:
@@ -151,12 +155,25 @@ class TestEventPositions:
 
     def test_offset_anchored_needs_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
-        assert event_positions({"shape": "spike", "at_offset": 10.0}, t_frac, None, 100.0) == []
+        assert (
+            event_positions(
+                {"shape": "spike", "at_offset": 10.0, "amplitude": 1.0, "width": 1.0},
+                t_frac,
+                None,
+                100.0,
+            )
+            == []
+        )
 
     def test_offset_anchored_with_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
         t_abs = np.array([0.0, 10.0, 20.0, 30.0, 40.0])
-        positions = event_positions({"shape": "spike", "at_offset": 10.0}, t_frac, t_abs, 100.0)
+        positions = event_positions(
+            {"shape": "spike", "at_offset": 10.0, "amplitude": 1.0, "width": 1.0},
+            t_frac,
+            t_abs,
+            100.0,
+        )
         assert len(positions) == 1
         axis, at = positions[0]
         assert at == 110.0
@@ -164,7 +181,10 @@ class TestEventPositions:
 
     def test_time_of_day_needs_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
-        assert event_positions({"shape": "step", "at_time": "12:00:00"}, t_frac, None, 0.0) == []
+        assert (
+            event_positions({"shape": "step", "at_time": "12:00:00", "to": 1.0}, t_frac, None, 0.0)
+            == []
+        )
 
 
 class TestDailyOccurrences:
@@ -177,7 +197,7 @@ class TestDailyOccurrences:
         start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=tz)
         end = datetime(2026, 1, 2, 23, 0, 0, tzinfo=tz)
         t_abs = np.array([start.timestamp(), end.timestamp()])
-        occ = daily_occurrences("12:00:00", t_abs, tz=tz)
+        occ = _daily_occurrences(NOON, t_abs, tz=tz)
         assert len(occ) == 2
         assert occ[0] == datetime(2026, 1, 1, 12, 0, 0, tzinfo=tz).timestamp()
         assert occ[1] == datetime(2026, 1, 2, 12, 0, 0, tzinfo=tz).timestamp()
@@ -188,7 +208,7 @@ class TestDailyOccurrences:
         start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=tz)
         end = datetime(2026, 1, 1, 6, 0, 0, tzinfo=tz)
         t_abs = np.array([start.timestamp(), end.timestamp()])
-        assert daily_occurrences("12:00:00", t_abs, tz=tz) == []
+        assert _daily_occurrences(NOON, t_abs, tz=tz) == []
 
     def test_positions_are_box_tz_independent(self):
         """A UTC ``tz`` yields UTC-noon epochs even when the host ``$TZ`` is a
@@ -204,7 +224,7 @@ class TestDailyOccurrences:
             mp.setenv("TZ", "Pacific/Kiritimati")  # UTC+14, maximally far from UTC
             time.tzset()
             try:
-                occ = daily_occurrences("12:00:00", t_abs, tz=tz)
+                occ = _daily_occurrences(NOON, t_abs, tz=tz)
             finally:
                 mp.undo()
                 time.tzset()
@@ -223,7 +243,7 @@ class TestDailyOccurrences:
         end = datetime(2026, 3, 10, 23, 0, tzinfo=ny)
         t_abs = np.array([start.timestamp(), end.timestamp()])
 
-        occ = daily_occurrences("12:00:00", t_abs, tz=ny)
+        occ = _daily_occurrences(NOON, t_abs, tz=ny)
 
         assert len(occ) == 4  # Mar 7, 8, 9, 10
         dates = {datetime.fromtimestamp(e, ny).date() for e in occ}
@@ -461,7 +481,7 @@ class TestKeyedNormals:
 
 
 class TestWanderComponents:
-    """Structural pins on the component stack behind :func:`wander`."""
+    """Structural pins on the component stack behind :func:`series._wander`."""
 
     def test_component_count_is_in_the_declared_range(self):
         periods, phases, weights = series_module._wander_components(
@@ -538,7 +558,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 200_000.0, 20_001)
 
         for name in [f"SR:BPM:{i}:X" for i in range(20)]:
-            out = wander(channel_key_bytes(name), t, amplitude, 3600.0)
+            out = _wander(channel_key_bytes(name), t, amplitude, 3600.0)
 
             assert np.all(np.abs(out) <= amplitude)
             assert np.isfinite(out).all()
@@ -549,8 +569,8 @@ class TestWander:
         key = channel_key_bytes("SR:BPM:3:X")
         t = np.linspace(1.7e9, 1.7e9 + 50_000.0, 5_001)
 
-        single = wander(key, t, 1.0, 3600.0)
-        double = wander(key, t, 2.0, 3600.0)
+        single = _wander(key, t, 1.0, 3600.0)
+        double = _wander(key, t, 2.0, 3600.0)
 
         np.testing.assert_array_equal(double, 2.0 * single)
         # Nothing piles up at the bound the way a clip would.
@@ -560,11 +580,11 @@ class TestWander:
         key = channel_key_bytes("SR:BPM:4:X")
         t = np.linspace(1.7e9, 1.7e9 + 10_000.0, 1_001)
 
-        np.testing.assert_array_equal(wander(key, t, 10.0, 3600.0), wander(key, t, 10.0, 3600.0))
+        np.testing.assert_array_equal(_wander(key, t, 10.0, 3600.0), _wander(key, t, 10.0, 3600.0))
         # Order-independent: a reordered request returns reordered values.
         order = np.array([500, 3, 999, 0, 3], dtype=np.intp)
         np.testing.assert_array_equal(
-            wander(key, t[order], 10.0, 3600.0), wander(key, t, 10.0, 3600.0)[order]
+            _wander(key, t[order], 10.0, 3600.0), _wander(key, t, 10.0, 3600.0)[order]
         )
 
     def test_overlapping_windows_agree_exactly_on_shared_timestamps(self):
@@ -576,8 +596,8 @@ class TestWander:
         window_a = np.arange(1_764_000_000.0, 1_764_000_600.0, 5.0)
         window_b = np.arange(1_764_000_300.0, 1_764_000_900.0, 5.0)
 
-        draws_a = wander(key, window_a, 10.0, 3600.0)
-        draws_b = wander(key, window_b, 10.0, 3600.0)
+        draws_a = _wander(key, window_a, 10.0, 3600.0)
+        draws_b = _wander(key, window_b, 10.0, 3600.0)
 
         shared = 60  # 300 s of overlap at 5 s spacing
         np.testing.assert_array_equal(window_a[shared:], window_b[:shared])
@@ -592,7 +612,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 400 * period_s, 200_001)
 
         for name in ["SR:BPM:1:X", "SR:BPM:2:Y", "SR:HCM:9:CURRENT:RB"]:
-            out = wander(channel_key_bytes(name), t, amplitude, period_s)
+            out = _wander(channel_key_bytes(name), t, amplitude, period_s)
 
             assert abs(float(out.mean())) < 0.02 * amplitude
 
@@ -604,7 +624,7 @@ class TestWander:
 
         offsets = np.array(
             [
-                float(wander(channel_key_bytes(f"SR:BPM:{i}:X"), t, amplitude, 86400.0).mean())
+                float(_wander(channel_key_bytes(f"SR:BPM:{i}:X"), t, amplitude, 86400.0).mean())
                 for i in range(144)
             ]
         )
@@ -618,7 +638,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 60.0, 61)  # 60 s window vs a 24 h period
 
         for name in [f"SR:BPM:{i}:X" for i in range(20)]:
-            out = wander(channel_key_bytes(name), t, amplitude, 86400.0)
+            out = _wander(channel_key_bytes(name), t, amplitude, 86400.0)
 
             assert float(out.max() - out.min()) < 0.1 * amplitude
 
@@ -630,7 +650,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 2 * period_s, 4_001)
 
         for name in [f"SR:BPM:{i}:X" for i in range(20)]:
-            out = wander(channel_key_bytes(name), t, amplitude, period_s)
+            out = _wander(channel_key_bytes(name), t, amplitude, period_s)
 
             assert float(out.max() - out.min()) > 0.3 * amplitude
 
@@ -641,8 +661,8 @@ class TestWander:
         period_s = 3600.0
         t = np.linspace(1.7e9, 1.7e9 + period_s, 2_001)
 
-        now = wander(key, t, 20.0, period_s)
-        one_period_later = wander(key, t + period_s, 20.0, period_s)
+        now = _wander(key, t, 20.0, period_s)
+        one_period_later = _wander(key, t + period_s, 20.0, period_s)
 
         assert float(np.abs(now - one_period_later).max()) > 0.1 * 20.0
 
@@ -654,7 +674,7 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 1800.0, 1_801)  # 30 min of a 24 h period
 
         spans = [
-            float(np.ptp(wander(channel_key_bytes(f"SR:BPM:{i}:X"), t, amplitude, 86400.0)))
+            float(np.ptp(_wander(channel_key_bytes(f"SR:BPM:{i}:X"), t, amplitude, 86400.0)))
             for i in range(20)
         ]
 
@@ -666,15 +686,15 @@ class TestWander:
         t = np.linspace(1.7e9, 1.7e9 + 1000.0, 101)
         original = t.copy()
 
-        first = wander(key, t, 10.0, 3600.0)
-        wander(channel_key_bytes("SR:BPM:8:X"), t, 99.0, 60.0)  # interleaved other call
-        second = wander(key, t, 10.0, 3600.0)
+        first = _wander(key, t, 10.0, 3600.0)
+        _wander(channel_key_bytes("SR:BPM:8:X"), t, 99.0, 60.0)  # interleaved other call
+        second = _wander(key, t, 10.0, 3600.0)
 
         np.testing.assert_array_equal(t, original)
         np.testing.assert_array_equal(first, second)
 
     def test_zero_amplitude_is_flat(self):
-        out = wander(
+        out = _wander(
             channel_key_bytes("SR:BPM:9:X"), np.linspace(1.7e9, 1.7e9 + 100.0, 11), 0.0, 60.0
         )
 
@@ -683,11 +703,11 @@ class TestWander:
     def test_shape_dtype_and_empty_input(self):
         key = channel_key_bytes("SR:BPM:10:X")
 
-        out = wander(key, np.full((2, 3), 1.7e9), 5.0, 3600.0)
+        out = _wander(key, np.full((2, 3), 1.7e9), 5.0, 3600.0)
         assert out.shape == (2, 3)
         assert out.dtype == np.float64
 
-        empty = wander(key, np.array([]), 5.0, 3600.0)
+        empty = _wander(key, np.array([]), 5.0, 3600.0)
         assert empty.shape == (0,)
         assert empty.dtype == np.float64
 
@@ -699,9 +719,9 @@ class TestWander:
         key = channel_key_bytes("SR:BPM:12:X")
         now = 1_764_000_000.5
 
-        live = wander(key, now, 30.0, 86400.0)
+        live = _wander(key, now, 30.0, 86400.0)
         window = np.array([now - 1.0, now, now + 1.0])
-        synthesized = wander(key, window, 30.0, 86400.0)
+        synthesized = _wander(key, window, 30.0, 86400.0)
 
         assert float(live) == float(synthesized[1])
         assert np.asarray(live).shape == ()
@@ -714,4 +734,4 @@ class TestWander:
 
         for bad in (0.0, -1.0):
             with pytest.raises(ValueError, match="period_s"):
-                wander(key, t, 10.0, bad)
+                _wander(key, t, 10.0, bad)

@@ -2376,7 +2376,7 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(
     assert bpms, f"model {model} serves no monitor the worker registered"
     view = _facility_select.repo_view(repo)
     model_monitors = {
-        binding.address for binding in view.bindings(engine_role="monitor", model=model)
+        binding.address for binding in view.wiring(engine_role="monitor", model=model)
     }
     assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
 
@@ -3119,7 +3119,8 @@ def test_the_va_and_the_recorder_resolve_the_same_addresses_file() -> None:
     """The IOC serves and the recorder records one ``addresses.json`` on the host."""
     from osprey.services.archiver_recorder.config import DEFAULT_DATA_DIR as RECORDER_VIEW
     from osprey.services.virtual_accelerator import entrypoint
-    from osprey_connectors.simulation.view import ADDRESSES_FILE, VIEW_RELPATH
+    from osprey_connectors.simulation.records import AddressesDocument
+    from osprey_connectors.simulation.view import VIEW_RELPATH
 
     deployed = ["mongodb", "archiver_recorder", "virtual_accelerator"]
     va = yaml.safe_load(
@@ -3130,8 +3131,8 @@ def test_the_va_and_the_recorder_resolve_the_same_addresses_file() -> None:
     recorder = _recorder_service(va_co_deployed=True)
 
     va_data = va["environment"].get("VA_DATA_DIR") or entrypoint.DEFAULT_DATA_DIR
-    va_file = f"{va_data}/{VIEW_RELPATH.name}/{ADDRESSES_FILE}"
-    recorder_file = f"{RECORDER_VIEW}/{ADDRESSES_FILE}"
+    va_file = f"{va_data}/{VIEW_RELPATH.name}/{AddressesDocument.FILE}"
+    recorder_file = f"{RECORDER_VIEW}/{AddressesDocument.FILE}"
 
     assert _host_path(va["volumes"], va_file) == "./build/data/simulator/addresses.json"
     assert _host_path(recorder["volumes"], recorder_file) == _host_path(va["volumes"], va_file)
