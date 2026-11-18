@@ -546,7 +546,9 @@ def test_hostile_svg_opened_directly_runs_no_script_and_fetches_nothing(
     context = chromium_browser.new_context()
     probe = RequestProbe(context)
     page = probe.watch(context.new_page())
-    response = page.goto(f"{panel_url}{_SVG_ASSET_QUERY}", wait_until="load")
+    response = page.goto(  # page-ready: the document is the bundle's SVG, not an OSPREY page
+        f"{panel_url}{_SVG_ASSET_QUERY}", wait_until="load"
+    )
     assert response is not None and response.status == 200, response
     assert response.headers["content-type"].startswith("image/svg+xml"), response.headers
     # The figure itself is the document: it rendered, and its script never ran.
