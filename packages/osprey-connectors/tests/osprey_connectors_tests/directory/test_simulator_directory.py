@@ -532,7 +532,7 @@ async def _every_answer(directory: SimulatorDirectory) -> list[Any]:
     page = await directory.search(DirectoryQuery(words="x"), timeout_s=DEADLINE)
     assert page.outcome is Outcome.UNAVAILABLE
     return [
-        Unavailable(reason=page.reason or ""),
+        Unavailable(cause="unreachable", reason=page.reason or ""),
         await directory.count(DirectoryQuery(), timeout_s=DEADLINE),
         await directory.describe("T:X", timeout_s=DEADLINE),
         await directory.property_names(timeout_s=DEADLINE),

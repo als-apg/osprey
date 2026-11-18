@@ -29,7 +29,7 @@ from pathlib import Path
 from pydantic import ConfigDict, ValidationError
 from typing_extensions import override
 
-from osprey_connectors._service_http import ReadOnlyTransport, Transport
+from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
 from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.put_log._contract import PutLog, PutRow
@@ -45,7 +45,6 @@ from osprey_connectors.service_answers import (
 _SEARCH_PATH = "/search"
 _WHERE = "pv_directory.put_log.settings"
 _NO_ROWS_REASON = "no logged puts"
-_MALFORMED_REASON = "malformed response"
 
 #: The most rows one call returns, because a page ends up in a tool result.
 _MAX_ROWS = 200
@@ -134,7 +133,7 @@ class CaPutLog(PutLog):
         try:
             return _Envelope.model_validate(answer)
         except ValidationError:
-            return Unavailable(reason=_MALFORMED_REASON)
+            return MALFORMED
 
     def _page(
         self,

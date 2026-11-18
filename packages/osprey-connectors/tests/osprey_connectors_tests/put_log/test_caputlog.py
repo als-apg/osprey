@@ -316,7 +316,7 @@ async def test_an_empty_result_says_no_logged_puts_and_never_that_it_never_chang
 
 
 async def test_a_service_with_no_answer_is_unavailable_with_its_reason() -> None:
-    backend, _ = _backend(Unavailable(reason="no answer within 5 s"))
+    backend, _ = _backend(Unavailable(cause="timeout", reason="no answer within 5 s"))
 
     page = await backend.history(PV, None, 25, timeout_s=5.0)
 
@@ -365,14 +365,14 @@ async def test_probe_says_the_search_answered_through_the_only_allowed_request()
 @pytest.mark.parametrize(
     ("answer", "reason"),
     [
-        (Unavailable(reason="answered HTTP 503"), "answered HTTP 503"),
+        (Unavailable(cause="bad_reply", reason="answered HTTP 503"), "answered HTTP 503"),
         ({"status": "ok"}, "malformed response"),
     ],
 )
 async def test_probe_reports_why_not(answer: Any, reason: str) -> None:
     backend, _ = _backend(answer)
 
-    assert await backend.probe(timeout_s=3.0) == Unavailable(reason=reason)
+    assert await backend.probe(timeout_s=3.0) == Unavailable(cause="bad_reply", reason=reason)
 
 
 def test_it_is_a_put_log_and_building_one_touches_nothing() -> None:

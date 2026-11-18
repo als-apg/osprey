@@ -166,7 +166,7 @@ class RecordingTransport:
         pairs = list(params.items() if isinstance(params, dict) else params or [])
         self.sent.append(Sent(method, path, pairs, json_body, timeout_s))
         if timeout_s <= 0:
-            return Unavailable(reason=f"no answer within {timeout_s:g} s")
+            return Unavailable(cause="timeout", reason=f"no answer within {timeout_s:g} s")
         return self._answer(method, path, params)
 
 
@@ -264,7 +264,7 @@ def _http_answers(recorded: Answer, empty: Answer) -> dict[str, Answer]:
     return {
         "recorded": recorded,
         "empty": empty,
-        "unavailable": _always(Unavailable(reason=NO_ANSWER)),
+        "unavailable": _always(Unavailable(cause="timeout", reason=NO_ANSWER)),
         **{mode: _always(value) for mode, value in _MALFORMED.items()},
     }
 
@@ -595,7 +595,7 @@ async def test_a_page_that_arrives_while_the_count_times_out_is_a_partial_page(
     channels = _fixture("channels.json")
     built = await _build(case, "recorded", tmp_path, monkeypatch)
     built.transport._answer = _by_path(
-        {CF_CHANNELS: channels, CF_COUNT: Unavailable(reason=NO_ANSWER)}, []
+        {CF_CHANNELS: channels, CF_COUNT: Unavailable(cause="timeout", reason=NO_ANSWER)}, []
     )
 
     page = await built.backend.search(DirectoryQuery(words="cooling"), timeout_s=DEADLINE)
@@ -812,7 +812,7 @@ async def test_a_login_page_reads_as_the_access_proxy_on_every_method(case, redi
             assert answer.outcome is Outcome.UNAVAILABLE, method
             assert answer.reason == LOGIN_PAGE_REASON, method
         else:
-            assert answer == Unavailable(reason=LOGIN_PAGE_REASON), method
+            assert answer == Unavailable(cause="refused", reason=LOGIN_PAGE_REASON), method
     assert login_proxy.received
     assert all(_is_read_or_search(method, path, None) for method, path in login_proxy.received)
     assert "/sso/login" not in {path for _, path in login_proxy.received}

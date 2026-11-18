@@ -130,8 +130,14 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.put_log.PutLog": "an out-of-tree put-log backend subclasses it",
     "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
+    "osprey_connectors.service_answers.NotListed": (
+        "an out-of-tree backend answers an exact lookup that holds nothing in this type"
+    ),
     "osprey_connectors.service_answers.SourceKind": (
         "an answer names the kind of service it came from in this type"
+    ),
+    "osprey_connectors.service_answers.UnavailableCause": (
+        "an out-of-tree backend names why it gave no answer in this type"
     ),
     "osprey_connectors.settle.ChannelReading": (
         "a ChannelReader's read_channel answers in this type"

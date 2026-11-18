@@ -261,9 +261,9 @@ async def test_history_drops_rows_of_a_name_the_search_matched_loosely():
 
 
 async def test_history_service_failure_carries_its_reason():
-    page = await _logger(Recording(search=Unavailable(reason=LOGIN_PAGE_REASON))).history(
-        PV, None, 50, timeout_s=DEADLINE
-    )
+    page = await _logger(
+        Recording(search=Unavailable(cause="refused", reason=LOGIN_PAGE_REASON))
+    ).history(PV, None, 50, timeout_s=DEADLINE)
     assert page.outcome is Outcome.UNAVAILABLE
     assert page.reason == LOGIN_PAGE_REASON
 
@@ -333,10 +333,10 @@ async def test_config_not_in_tree_when_the_logger_holds_nothing():
 
 async def test_config_search_failure_keeps_its_reason():
     # A lookup with no answer at all carries why; the record has no field for a reason.
-    record = await _logger(Recording(search=Unavailable(reason="no answer within 6 s"))).config_for(
-        PV, timeout_s=DEADLINE
-    )
-    assert record == Unavailable(reason="no answer within 6 s")
+    record = await _logger(
+        Recording(search=Unavailable(cause="timeout", reason="no answer within 6 s"))
+    ).config_for(PV, timeout_s=DEADLINE)
+    assert record == Unavailable(cause="timeout", reason="no answer within 6 s")
 
 
 async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
@@ -351,7 +351,7 @@ async def test_config_fallback_runs_only_after_state_rows_with_no_config_row():
 @pytest.mark.parametrize(
     "fallback",
     [
-        Unavailable(reason="answered HTTP 404"),
+        Unavailable(cause="bad_reply", reason="answered HTTP 404"),
         [],
         [_config("2026-10-29", path="/Demo/other")],
         {"a": 1},
@@ -416,11 +416,11 @@ async def test_probe_sends_only_the_slashed_root():
 
 
 async def test_probe_failure_and_a_root_that_is_not_an_object():
-    assert await _logger(Recording(root=Unavailable(reason="x"))).probe(
+    assert await _logger(Recording(root=Unavailable(cause="unreachable", reason="x"))).probe(
         timeout_s=DEADLINE
-    ) == Unavailable(reason="x")
+    ) == Unavailable(cause="unreachable", reason="x")
     answer = await _logger(Recording(root=[1])).probe(timeout_s=DEADLINE)
-    assert answer == Unavailable(reason="malformed response")
+    assert answer == Unavailable(cause="bad_reply", reason="malformed response")
 
 
 async def test_probe_names_nothing_it_was_not_told():

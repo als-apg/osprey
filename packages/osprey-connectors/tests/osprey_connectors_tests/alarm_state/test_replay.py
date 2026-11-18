@@ -29,8 +29,8 @@ OLD_FEED = FIXTURES / "old-feed.ndjson"
 STOPPED_FEED = FIXTURES / "stopped-feed.ndjson"
 PV = "DEMO:RF1:CAV:Temp-I"
 ACKED_PV = "DEMO:VAC1:GAUGE:Pres-I"
-LOADING = Unavailable(reason="alarm feed still loading")
-EMPTY = Unavailable(reason="no message from the feed yet")
+LOADING = Unavailable(cause="not_ready", reason="alarm feed still loading")
+EMPTY = Unavailable(cause="unreachable", reason="no message from the feed yet")
 LOAD_MOMENT = datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC)
 
 MESSAGES = [

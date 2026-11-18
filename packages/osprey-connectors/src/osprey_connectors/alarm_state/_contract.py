@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import AwareDatetime, SerializerFunctionWrapHandler, model_serializer
+from typing_extensions import override
 
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import Unavailable, _Backend
@@ -99,18 +100,21 @@ class AlarmState(_Backend, ABC):
 
     :meth:`start` begins whatever feeds the snapshot and :meth:`aclose` ends it;
     both are idempotent. Until the feed has caught up, reads answer
-    ``Unavailable(reason="alarm feed still loading")``, and once caught up with no
-    message at all, ``Unavailable(reason="no message from the feed yet")``: never a
+    ``Unavailable(cause="not_ready", reason="alarm feed still loading")``, and once
+    caught up with no message at all, ``Unavailable(cause="unreachable",
+    reason="no message from the feed yet")``: never a
     clear state and never ``in_tree: "no"``. A read of a started feed waits for
     catch-up up to its deadline and only then answers ``alarm feed still
     loading``; a feed that already knows its answer, unreachable or unbuildable,
     answers at once.
     """
 
+    @override
     @abstractmethod
     async def start(self) -> None:
         """Begin feeding the snapshot."""
 
+    @override
     @abstractmethod
     async def aclose(self) -> None:
         """Stop feeding the snapshot."""

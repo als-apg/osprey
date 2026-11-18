@@ -555,7 +555,10 @@ class DirectoryService:
         if extent is None:
             return None
         if extent.channels is None:
-            return Unavailable(reason=extent.reason or "the archive does not say what it holds")
+            return Unavailable(
+                cause="unsupported",
+                reason=extent.reason or "the archive does not say what it holds",
+            )
         return extent.channels
 
     # -- searching -------------------------------------------------------
@@ -595,7 +598,7 @@ class DirectoryService:
         left = max(deadline - (time.monotonic() - started), 0.0)
         answer = await backend.search(evolve(server, page=0, page_size=total), timeout_s=left)
         if answer.outcome == Outcome.UNAVAILABLE:
-            return Unavailable(reason=answer.reason or "no answer")
+            return Unavailable(cause="failed", reason=answer.reason or "no answer")
         fetched = _FullSet(list(answer.rows), answer.request)
         self._store(at, key, fetched)
         return fetched
@@ -608,12 +611,12 @@ class DirectoryService:
         """
         backend, _source, reason = await self._resolve("alarm_state")
         if backend is None:
-            return (
-                None if reason is None or reason == NO_SOURCE_REASON else Unavailable(reason=reason)
-            )
+            if reason is None or reason == NO_SOURCE_REASON:
+                return None
+            return Unavailable(cause="misconfigured", reason=reason)
         snapshot = await self.snapshot()
         if snapshot is None:
-            return Unavailable(reason="the target moved")
+            return Unavailable(cause="not_ready", reason=_MOVED_REASON)
         answer = await snapshot.states(deadline)
         if isinstance(answer, Unavailable):
             return answer
@@ -703,10 +706,10 @@ class DirectoryService:
         try:
             return await asyncio.wait_for(call, deadline)
         except TimeoutError:
-            return Unavailable(reason=f"no answer within {deadline:g} s")
+            return Unavailable(cause="timeout", reason=f"no answer within {deadline:g} s")
         except Exception as failure:
             logger.warning("directory backend failed", exc_info=True)
-            return Unavailable(reason=service_failed(failure))
+            return Unavailable(cause="failed", reason=service_failed(failure))
 
     def _cached(self, at: Any, key: tuple[Any, ...]) -> Any:
         entry = self._sets.get((at, *key))
@@ -755,14 +758,12 @@ async def _cancel(tasks: Iterable[asyncio.Task[Any]]) -> None:
 
 def _result(task: asyncio.Task[Any] | None, late: str) -> Any:
     """A finished task's answer; ``Unavailable`` when it is not done or raised."""
-    if task is None:
-        return Unavailable(reason=late)
-    if not task.done() or task.cancelled():
-        return Unavailable(reason=late)
+    if task is None or not task.done() or task.cancelled():
+        return Unavailable(cause="timeout", reason=late)
     failure = task.exception()
     if failure is not None:
         logger.warning("directory backend failed", exc_info=failure)
-        return Unavailable(reason=service_failed(failure))
+        return Unavailable(cause="failed", reason=service_failed(failure))
     return task.result()
 
 
@@ -797,12 +798,17 @@ def _unfiltered(
 ) -> Unavailable | None:
     """Why an alarm or archive filter cannot be applied: no answer, or no such service."""
     if alarms and not isinstance(index, dict):
-        reason = index.reason if isinstance(index, Unavailable) else NO_SOURCE_REASON
-        return Unavailable(reason=f"cannot filter by alarm: {reason}")
+        return _cannot_filter("alarm", index)
     if archived and not isinstance(held, frozenset):
-        reason = held.reason if isinstance(held, Unavailable) else NO_SOURCE_REASON
-        return Unavailable(reason=f"cannot filter by archive: {reason}")
+        return _cannot_filter("archive", held)
     return None
+
+
+def _cannot_filter(by: str, answer: Any) -> Unavailable:
+    """Why the *by* filter cannot be applied: its service's *answer*, or no such service."""
+    if isinstance(answer, Unavailable):
+        return evolve(answer, reason=f"cannot filter by {by}: {answer.reason}")
+    return Unavailable(cause="unsupported", reason=f"cannot filter by {by}: {NO_SOURCE_REASON}")
 
 
 def _kept(

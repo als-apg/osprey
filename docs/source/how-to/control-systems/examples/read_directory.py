@@ -27,7 +27,7 @@ async def main() -> None:
     if isinstance(record, DirectoryRecord):
         print(f"{record.row.address}: {record.row.status} on {record.row.host}")
     else:
-        print(record)  # Outcome.NOT_LISTED, or Unavailable(reason=...)
+        print(record)  # Outcome.NOT_LISTED, or Unavailable(cause=..., reason=...)
 
 
 if __name__ == "__main__":

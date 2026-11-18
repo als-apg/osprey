@@ -27,7 +27,7 @@ FIXTURES = Path(osprey_connectors_tests.__file__).parent / "alarm_state" / "fixt
 OLD_FEED = FIXTURES / "old-feed.ndjson"
 STOPPED_FEED = FIXTURES / "stopped-feed.ndjson"
 PV = "DEMO:RF1:CAV:Temp-I"
-LOADING = Unavailable(reason="alarm feed still loading")
+LOADING = Unavailable(cause="not_ready", reason="alarm feed still loading")
 LOAD_MOMENT = datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC)
 
 
@@ -176,7 +176,7 @@ async def test_a_snapshot_read_reads_the_backend_once_with_the_deadline_left():
     ],
 )
 async def test_a_feed_that_cannot_answer_is_passed_on_never_no_alarm(reason):
-    answer = Unavailable(reason=reason)
+    answer = Unavailable(cause="unreachable", reason=reason)
     snapshot = AlarmSnapshot(_Answering(answer), "live")
     try:
         assert await snapshot.state_for(PV, 0.5) is answer
@@ -302,7 +302,7 @@ async def test_a_list_read_waits_for_the_start_then_reads_once_with_the_deadline
 
 
 async def test_a_list_the_feed_cannot_answer_is_passed_on():
-    answer = Unavailable(reason="alarm broker cannot be reached")
+    answer = Unavailable(cause="unreachable", reason="alarm broker cannot be reached")
     backend = _Answering(answer)
     snapshot = AlarmSnapshot(backend, "live")
     try:

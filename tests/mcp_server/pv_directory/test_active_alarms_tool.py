@@ -163,7 +163,7 @@ async def test_a_limit_out_of_range_is_refused(tmp_path: Path) -> None:
 
 
 async def test_a_feed_that_cannot_answer_refuses_service_unavailable(tmp_path: Path) -> None:
-    FakeAlarmState.listed = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.listed = Unavailable(cause="not_ready", reason="alarm feed still loading")
     _install(tmp_path, LIVE_BUILD, FEED)
 
     with assert_raises_error(error_type="service_unavailable") as refused:

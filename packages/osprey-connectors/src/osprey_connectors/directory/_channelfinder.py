@@ -35,7 +35,7 @@ from typing import Annotated, Literal
 from pydantic import ConfigDict, Field, OnErrorOmit, TypeAdapter, ValidationError
 from typing_extensions import override
 
-from osprey_connectors._service_http import ReadOnlyTransport, Transport
+from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
     DirectoryPage,
@@ -57,7 +57,6 @@ _CHANNELS = "/resources/channels"
 _COUNT = "/resources/channels/count"
 _PROPERTIES = "/resources/properties"
 
-_MALFORMED = Unavailable(reason="malformed response")
 
 #: The RecSync property that fills each ``DirectoryRow`` field, by field, in field order.
 #: ``description`` is not here: its property is the section's ``description_property``.
@@ -183,7 +182,7 @@ def _channels(body: object) -> list[_Channel] | Unavailable:
     try:
         return _CHANNELS_ANSWER.validate_python(body, strict=True)
     except ValidationError:
-        return _MALFORMED
+        return MALFORMED
 
 
 def _total(body: object) -> int | Unavailable:
@@ -192,7 +191,7 @@ def _total(body: object) -> int | Unavailable:
     try:
         return _COUNT_ANSWER.validate_python(body, strict=True)
     except ValidationError:
-        return _MALFORMED
+        return MALFORMED
 
 
 def _names(body: object) -> list[str] | Unavailable:
@@ -201,7 +200,7 @@ def _names(body: object) -> list[str] | Unavailable:
     try:
         return [entry.name for entry in _NAMES_ANSWER.validate_python(body, strict=True)]
     except ValidationError:
-        return _MALFORMED
+        return MALFORMED
 
 
 def _properties_of(channel: _Channel) -> dict[str, str]:

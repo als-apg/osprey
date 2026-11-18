@@ -153,7 +153,7 @@ class FakeAlarmState(FakeBackend):
         return AlarmStateRecord(severity="MAJOR")
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return Unavailable(reason="no message from the feed yet")
+        return Unavailable(cause="unreachable", reason="no message from the feed yet")
 
     async def states(self, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if isinstance(self.held, Unavailable):
@@ -550,7 +550,7 @@ async def test_search_marks_each_row_with_the_feed_state(tmp_path: Path) -> None
 
 async def test_a_feed_without_an_answer_marks_no_row_and_says_why(tmp_path: Path) -> None:
     directory = _alarmed_directory(tmp_path)
-    FakeAlarmState.held = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.held = Unavailable(cause="not_ready", reason="alarm feed still loading")
 
     page = await directory.search(words="SR")
 

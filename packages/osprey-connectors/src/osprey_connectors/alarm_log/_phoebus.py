@@ -32,7 +32,7 @@ from pathlib import Path
 from pydantic import ConfigDict, OnErrorOmit, TypeAdapter
 from typing_extensions import override
 
-from osprey_connectors._service_http import ReadOnlyTransport, Transport
+from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
 from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
 from osprey_connectors.alarm_state import AlarmConfigRecord
 from osprey_connectors.errors import require_aware
@@ -54,7 +54,6 @@ _SETTINGS_KEY = "pv_directory.alarm_log.settings"
 _CONFIG_SEARCH_SIZE = 200
 
 _NO_LOGGED_EVENTS = "no logged events"
-_MALFORMED_REASON = "malformed response"
 _UNESCAPED_SLASH = re.compile(r"(?<!\\)/")
 _PV_SCHEME = re.compile(r"^(?:ca|pva)://")
 
@@ -192,7 +191,7 @@ class PhoebusAlarmLogger(AlarmLog):
         if isinstance(answer, Unavailable):
             return answer
         if not isinstance(answer, Mapping):
-            return Unavailable(reason=_MALFORMED_REASON)
+            return MALFORMED
         service = " ".join(str(answer[key]) for key in ("name", "version") if answer.get(key))
         return f"root answered ({service or 'unnamed service'}); this does not prove ingestion"
 
@@ -207,7 +206,7 @@ class PhoebusAlarmLogger(AlarmLog):
         )
         if isinstance(answer, Unavailable | list):
             return answer
-        return Unavailable(reason=_MALFORMED_REASON)
+        return MALFORMED
 
     def _page(
         self,

@@ -158,10 +158,19 @@ def test_every_record_is_frozen(record):
     assert record.model_config["frozen"]
 
 
-def test_unavailable_takes_its_reason_by_keyword_and_requires_it():
-    assert Unavailable(reason="alarm feed still loading").reason == "alarm feed still loading"
+def test_unavailable_takes_its_cause_and_reason_by_keyword_and_requires_both():
+    answer = Unavailable(cause="not_ready", reason="alarm feed still loading")
+
+    assert (answer.cause, answer.reason) == ("not_ready", "alarm feed still loading")
+    with pytest.raises(ValidationError, match="cause"):
+        Unavailable(reason="alarm feed still loading")  # type: ignore[call-arg]
     with pytest.raises(ValidationError, match="reason"):
-        Unavailable()  # type: ignore[call-arg]
+        Unavailable(cause="not_ready")  # type: ignore[call-arg]
+
+
+def test_an_unavailable_cause_is_one_of_the_closed_words():
+    with pytest.raises(ValidationError, match="cause"):
+        Unavailable(cause="loading", reason="alarm feed still loading")  # type: ignore[arg-type]
 
 
 def _row(channel: str, severity: str | None) -> AlarmStateRow:
