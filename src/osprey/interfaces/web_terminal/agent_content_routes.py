@@ -72,6 +72,7 @@ _ARIEL_ROUTES = "osprey.interfaces.ariel.api.routes"
 _ARIEL_DRAFTS = "osprey.interfaces.ariel.api.drafts"
 _CF_REVIEW = "osprey.interfaces.channel_finder.pending_review_api"
 _CF_DIRECTORY_SEARCH = "osprey.interfaces.channel_finder.directory_search_api"
+_OKF_PANEL = "osprey.interfaces.okf_panel.app"
 _TERMINAL_PANELS = "osprey.interfaces.web_terminal.routes.panels"
 _TERMINAL_PROXY = "osprey.interfaces.web_terminal.routes.proxy"
 _JUPYTER_FILES = "jupyter_server.files.handlers"
@@ -127,6 +128,13 @@ AGENT_CONTENT_ROUTES: tuple[AgentContentRoute, ...] = (
         routes=(RouteRef(_CF_DIRECTORY_SEARCH, "/export.csv"),),
         sample_path="/panel/channel-finder/api/directory/export.csv",
         sandboxed_by=("panel_sandbox",),
+    ),
+    AgentContentRoute(
+        kind="knowledge-asset",
+        panel_id="okf",
+        routes=(RouteRef(_OKF_PANEL, "/api/asset"),),
+        sample_path="/panel/okf/api/asset?target=figures/a.svg&from=",
+        sandboxed_by=("route_sandbox", "panel_sandbox"),
     ),
     AgentContentRoute(
         kind="discovered-panel",

@@ -560,7 +560,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
         },
-        permissions_allow=["capabilities", "list_concepts", "read_concept", "search"],
+        permissions_allow=["capabilities", "list_concepts", "read_concept", "search", "view_asset"],
         permissions_ask=["draft_concept"],
         hooks_pre=[
             HookRule(

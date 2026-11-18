@@ -26,7 +26,9 @@ KB_NOTE = (
     "For ANY question about documented facility content — procedures, subsystem "
     "descriptions, device specs, safety rules, or facility-specific terminology — "
     "delegate to **kb-fixture**. Do NOT call `list_concepts`, `read_concept`, or "
-    "`search` yourself; use **kb-fixture** to retrieve and synthesize bundle content."
+    "`search` yourself; use **kb-fixture** to retrieve and synthesize bundle content. "
+    "You may call `view_asset` yourself with an image path **kb-fixture** returned; "
+    "finding images stays delegated."
 )
 
 

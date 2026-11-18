@@ -42,9 +42,12 @@ import {
   graphHash,
   graphTarget,
   hashChangeTarget,
+  imageFailureReason,
+  imageFallback,
   isFallback,
   linkedConceptId,
   readPanelParams,
+  sanitizeMarkdownHtml,
   STRUCTURE_MARKER,
   tagList,
 } from './helpers.js';
@@ -138,7 +141,7 @@ onHeaderAction(onPanelMenu);
  * load.
  *
  * @param {Window} [win]
- * @returns {{ sanitize: (html: string) => string } | null}
+ * @returns {{ sanitize: (html: string, config?: object) => string } | null}
  */
 export function resolveSanitizer(win = window) {
   const own = /** @type {any} */ (win).DOMPurify;
@@ -153,27 +156,73 @@ export function resolveSanitizer(win = window) {
  * ({@link resolveSanitizer}) are available, and only DOMPurify's output ever
  * reaches `innerHTML` — bundle markdown is files on disk an agent can write,
  * so raw `marked` output is untrusted HTML (`<img onerror>`, `<script>`,
- * `javascript:` links). Missing either library, or either step throwing,
+ * `javascript:` links). The sanitiser ({@link sanitizeMarkdownHtml}) also
+ * points every image at the panel's asset route or replaces it with its alt
+ * text, so nothing in a concept makes the panel contact another host.
+ * Missing either library, a DOMPurify without hooks, or either step throwing,
  * writes the source as inert `textContent` instead (the chat-render.js
  * precedent).
  *
  * @param {HTMLElement} target - its contents are replaced
  * @param {unknown} markdown - raw markdown; `null`/`undefined` render empty
+ * @param {string} [conceptId] - the concept the markdown is, which its image
+ *   targets resolve from; empty for the structure overview (the bundle root)
  * @returns {void}
  */
-export function renderMarkdownInto(target, markdown) {
+export function renderMarkdownInto(target, markdown, conceptId = '') {
   const text = markdown != null ? String(markdown) : '';
   const parser = /** @type {any} */ (globalThis).marked;
   const purify = resolveSanitizer();
   if (purify && parser && typeof parser.parse === 'function') {
     try {
-      target.innerHTML = purify.sanitize(String(parser.parse(text)));
+      const clean = sanitizeMarkdownHtml(purify, String(parser.parse(text)), conceptId);
+      target.innerHTML = clean;
       return;
     } catch {
       // Fall through to inert text.
     }
   }
   target.textContent = text;
+}
+
+/**
+ * Show an in-bundle image that fails to load as its alt text and a short
+ * reason. The image's URL is requested once more to read the asset route's
+ * error code; a reply without a known code (an image the browser cannot
+ * decode is served normally) gives a generic reason.
+ *
+ * @param {ParentNode} container - a freshly rendered reading pane
+ * @returns {void}
+ */
+export function watchImageFailures(container) {
+  const images = /** @type {NodeListOf<HTMLImageElement>} */ (container.querySelectorAll('img'));
+  images.forEach(function (img) {
+    if (img.dataset.okfWatched === '1') return;
+    img.dataset.okfWatched = '1';
+    img.addEventListener('error', () => void explainImageFailure(img), { once: true });
+  });
+}
+
+/**
+ * @param {HTMLImageElement} img
+ * @returns {Promise<void>}
+ */
+async function explainImageFailure(img) {
+  const src = img.getAttribute('src') || '';
+  let code = '';
+  if (src.includes('/api/asset?')) {
+    try {
+      const resp = await fetch(src);
+      if (!resp.ok) {
+        const body = await resp.json();
+        if (body && typeof body.error === 'string') code = body.error;
+      }
+    } catch {
+      // No reply, or not JSON: the generic reason.
+    }
+  }
+  const alt = img.getAttribute('alt') || '';
+  img.replaceWith(imageFallback(img.ownerDocument, alt, imageFailureReason(code)));
 }
 
 /**
@@ -348,6 +397,7 @@ function requireEl(id) {
     // data-okf-wired and skip already-marked ones, so this stays correct even if
     // afterRender is ever called twice on the same container.
     if (!container) return;
+    watchImageFailures(container);
     const anchors = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('a[href]'));
     anchors.forEach(function (a) {
       if (a.dataset.okfWired === '1') return;
@@ -564,7 +614,7 @@ function requireEl(id) {
     // so the gallery markdown CSS applies. Rendered through the one sanitising
     // sink (renderMarkdownInto): a bundle is files on disk an agent can write.
     const bodyEl = el('div', { class: 'osprey-md-rendered' });
-    renderMarkdownInto(bodyEl, doc.body);
+    renderMarkdownInto(bodyEl, doc.body, id);
     readerEl.appendChild(bodyEl);
 
     currentFacilityReferences = doc.facility_references || null;
@@ -604,7 +654,7 @@ function requireEl(id) {
     delete readerEl.dataset.conceptId;
     readerEl.innerHTML = '';
     const container = el('div', { class: 'osprey-md-rendered' });
-    renderMarkdownInto(container, data.markdown);
+    renderMarkdownInto(container, data.markdown, '');
     readerEl.appendChild(container);
     afterRender(container);
     const section = opts && opts.section;

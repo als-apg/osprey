@@ -62,7 +62,7 @@ from osprey.agent_runner.tool_policy import (
 )
 from osprey.apps.projection import APP_NAME_ENV
 from osprey.build.claude_code_telemetry import TERMINAL_SESSION_ENV, WATCHDOG_SESSION_PREFIX
-from osprey.services.watchdog.config import WatchdogDefinition
+from osprey.services.watchdog.config import JUDGE_EXCLUDED_TOOL, WatchdogDefinition
 from osprey.services.watchdog.history import (
     SessionNodes,
     SessionView,
@@ -456,7 +456,9 @@ class AgentEngine:
         routed = build_agent_options(
             self._build_dir, disallowed_tools=[], model=defn.model, setting_sources=[]
         )
-        disallowed = read_only_disallowed_tools(self._build_dir)
+        # A judge reads text only: the image tool stays refused even under a
+        # whole-server or wildcard ``tools`` entry.
+        disallowed = [*read_only_disallowed_tools(self._build_dir), JUDGE_EXCLUDED_TOOL]
         session = _watchdog_terminal_session()
         servers, required = _mcp_servers(self._build_dir, defn.tools, terminal_session=session)
         gate = _ToolGate(

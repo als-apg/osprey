@@ -428,7 +428,10 @@ body {
 
 .osprey-md-rendered strong { color: var(--text-primary); font-weight: var(--weight-semibold); }
 .osprey-md-rendered em { color: var(--text-secondary); font-style: italic; }
-.osprey-md-rendered img { max-width: 100%; border-radius: var(--radius-md); margin: 0.5em 0; }
+.osprey-md-rendered img { max-width: 100%; height: auto; border-radius: var(--radius-md); margin: 0.5em 0; }
+/* An image that is not shown: its alt text, the reason, and a remote source's link. */
+.osprey-md-rendered .okf-image-fallback { display: inline-block; max-width: 100%; overflow-wrap: anywhere; color: var(--text-muted); border: 1px dashed var(--text-muted); border-radius: var(--radius-md); padding: 2px 6px; margin: 0.25em 0; }
+.osprey-md-rendered .okf-image-fallback__reason { font-size: var(--text-sm); }
 
 /* ================================================================
    Graph view (js/graph-view.js)

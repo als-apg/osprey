@@ -154,7 +154,7 @@ class TestOptions:
     def test_every_write_tool_is_in_the_disallowed_set(self, build_dir, tmp_path, monkeypatch):
         kwargs = _ran(build_dir, tmp_path, monkeypatch).kwargs
         floor = read_only_disallowed_tools(build_dir)
-        assert kwargs["disallowed_tools"] == floor
+        assert kwargs["disallowed_tools"] == [*floor, VIEW_TOOL]
         for tool in (*READ_ONLY_DENIED_BUILTINS, "mcp__controls__channel_write"):
             assert tool in floor
 
@@ -907,3 +907,47 @@ class TestJudgeReadCredential:
         asyncio.run(scenario())
         assert len(grants.minted) == 1
         assert grants.live == set()
+
+
+VIEW_TOOL = "mcp__osprey_facility_knowledge__view_asset"
+
+
+class TestImageToolExclusion:
+    """A judge reads text only: the knowledge server's image tool is never its own."""
+
+    @pytest.mark.parametrize(
+        "entry", ["mcp__osprey_facility_knowledge", "mcp__osprey_facility_knowledge__*"]
+    )
+    def test_a_whole_server_entry_does_not_reach_the_image_tool(
+        self, build_dir, tmp_path, monkeypatch, entry
+    ):
+        stream = _ran(build_dir, tmp_path, monkeypatch, tools=(entry,))
+        assert VIEW_TOOL in stream.kwargs["disallowed_tools"]
+        hook, backstop, _ = _gate_of(build_dir, tmp_path, monkeypatch, tools=(entry,))
+        assert _denied(_hook(hook, VIEW_TOOL))
+        context = SimpleNamespace(agent_id=None, tool_use_id="t")
+        assert isinstance(asyncio.run(backstop(VIEW_TOOL, {}, context)), PermissionResultDeny)
+
+    def test_a_refused_image_call_is_recorded_as_disallowed(self, build_dir, tmp_path, monkeypatch):
+        stream = _Scripted(
+            ToolUseEvent(tool_use_id="v1", name=VIEW_TOOL, input={}, parent_tool_use_id=None),
+            ToolResultEvent(
+                tool_use_id="v1", content="refused", is_error=True, parent_tool_use_id=None
+            ),
+            _result(),
+        )
+        defn = _definition(tmp_path, tools=("mcp__osprey_facility_knowledge",))
+        verdict = _judge(build_dir, defn, stream, monkeypatch)
+        assert [(c.tool, c.reason) for c in verdict.refused_tool_calls] == [
+            (VIEW_TOOL, "disallowed")
+        ]
+
+    @pytest.mark.parametrize(
+        "entry", ["mcp__osprey_facility_knowledge", "mcp__osprey_facility_knowledge__*"]
+    )
+    def test_the_other_knowledge_tools_are_still_admitted(
+        self, build_dir, tmp_path, monkeypatch, entry
+    ):
+        hook, _, _ = _gate_of(build_dir, tmp_path, monkeypatch, tools=(entry,))
+        assert _hook(hook, "mcp__osprey_facility_knowledge__read_concept") == {}
+        assert _hook(hook, "mcp__osprey_facility_knowledge__search") == {}

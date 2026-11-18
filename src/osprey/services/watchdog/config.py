@@ -83,6 +83,11 @@ TURN_STATE_HOOK = "turn-state"
 _COMMON_KEYS = frozenset({"engine", "enabled"})
 _DECISION_KEYS = frozenset({"threshold", "options"})
 _AGENT_KEYS = frozenset({"tools", "model", "timeout_s", "max_cost_usd"})
+
+#: The knowledge server's image tool. A judge reads text only: its run refuses this
+#: tool even when ``tools`` names the whole server, and a definition naming it is
+#: refused at load.
+JUDGE_EXCLUDED_TOOL = "mcp__osprey_facility_knowledge__view_asset"
 _OPTION_KEYS = frozenset({"id", "text", "flag"})
 
 #: What may not appear in a ``tools`` entry once ``.*`` reads as ``*``: a pattern
@@ -207,6 +212,11 @@ def _engine_key_errors(label: str, entry: Mapping[Any, Any], engine: str) -> lis
                 for tool in tools
                 if _is_unreadable_pattern(tool)
             )
+            if JUDGE_EXCLUDED_TOOL in tools:
+                errors.append(
+                    f"{label}.tools entry {JUDGE_EXCLUDED_TOOL!r} is not given to a judge: "
+                    f"a judge cannot view images; remove the entry"
+                )
         model = entry.get("model")
         if model is not None and (not isinstance(model, str) or not model.strip()):
             errors.append(f"{label}.model must be a model name or null (got {model!r})")

@@ -695,3 +695,255 @@ def test_tilde_bundle_path_is_expanded(monkeypatch, tmp_path):
     c = TestClient(create_app("~/kb"))
     assert c.get("/health").json()["configured"] is True
     assert any(g["id"] == "refs" for g in c.get("/api/concepts").json()["groups"])
+
+
+# ---------------------------------------------------------------------------
+# /api/asset — images served from the bundle (C5)
+# ---------------------------------------------------------------------------
+
+_SVG_BYTES = b'<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>'
+_SECRET = b"\x89PNG-not-really-but-secret-outside-the-bundle"
+
+
+def _picture(fmt: str) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 3), (200, 10, 10)).save(buf, format=fmt)
+    return buf.getvalue()
+
+
+def _put(path: Path, data: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+@pytest.fixture
+def asset_bundle(tmp_path) -> Path:
+    """A bundle with one concept, ``devices/bpm``, and a figures directory."""
+    root = tmp_path / "kb"
+    _write_min_concept(root, "devices/bpm")
+    return root
+
+
+def _asset(root: Path, target: str, from_: str = "devices/bpm"):
+    return TestClient(create_app(str(root))).get(
+        "/api/asset", params={"target": target, "from": from_}
+    )
+
+
+def _assert_refused(resp, code: str, *forbidden: bytes) -> None:
+    assert resp.status_code != 200
+    assert resp.json() == {"error": code}
+    assert resp.headers["content-type"].startswith("application/json")
+    for data in forbidden:
+        assert data not in resp.content
+
+
+@pytest.mark.parametrize(
+    ("name", "data", "mime"),
+    [
+        ("a.png", _picture("PNG"), "image/png"),
+        ("a.jpg", _picture("JPEG"), "image/jpeg"),
+        ("a.gif", _picture("GIF"), "image/gif"),
+        ("a.webp", _picture("WEBP"), "image/webp"),
+        ("a.svg", _SVG_BYTES, "image/svg+xml"),
+    ],
+)
+def test_asset_serves_each_panel_type(asset_bundle, name, data, mime):
+    _put(asset_bundle / "devices" / "figures" / name, data)
+    resp = _asset(asset_bundle, f"figures/{name}")
+    assert resp.status_code == 200
+    assert resp.content == data
+    assert resp.headers["content-type"] == mime
+    # The shared /api/ middleware widens the route's own no-cache; the
+    # directive must survive either way.
+    directives = {d.strip() for d in resp.headers["cache-control"].split(",")}
+    assert "no-cache" in directives
+    assert resp.headers["x-content-type-options"] == "nosniff"
+
+
+def test_asset_raster_carries_no_sandbox_policy(asset_bundle):
+    _put(asset_bundle / "devices" / "a.png", _picture("PNG"))
+    resp = _asset(asset_bundle, "a.png")
+    assert resp.status_code == 200
+    assert "content-security-policy" not in resp.headers
+
+
+def test_asset_root_relative_and_parent_targets(asset_bundle):
+    data = _picture("PNG")
+    _put(asset_bundle / "shared" / "a.png", data)
+    assert _asset(asset_bundle, "/shared/a.png").content == data
+    assert _asset(asset_bundle, "../shared/a.png").content == data
+
+
+def test_asset_percent_encoded_name_resolves(asset_bundle):
+    data = _picture("PNG")
+    _put(asset_bundle / "devices" / "my plot.png", data)
+    # The client encodes the query once; the target itself carries %20.
+    assert _asset(asset_bundle, "my%20plot.png").content == data
+
+
+def test_asset_leading_slash_from_resolves_like_plain_id(asset_bundle):
+    data = _picture("PNG")
+    _put(asset_bundle / "devices" / "figures" / "a.png", data)
+    plain = _asset(asset_bundle, "figures/a.png", "devices/bpm")
+    slashed = _asset(asset_bundle, "figures/a.png", "/devices/bpm")
+    assert plain.status_code == slashed.status_code == 200
+    assert plain.content == slashed.content == data
+
+
+def test_asset_empty_from_resolves_from_the_root(asset_bundle):
+    data = _picture("PNG")
+    _put(asset_bundle / "figures" / "a.png", data)
+    assert _asset(asset_bundle, "figures/a.png", "").content == data
+
+
+def test_asset_reads_from_disk_on_every_request(asset_bundle):
+    path = _put(asset_bundle / "devices" / "a.png", _picture("PNG"))
+    c = TestClient(create_app(str(asset_bundle)))
+    params = {"target": "a.png", "from": "devices/bpm"}
+    assert c.get("/api/asset", params=params).content == path.read_bytes()
+    newer = _picture("GIF")
+    path.write_bytes(newer)
+    resp = c.get("/api/asset", params=params)
+    assert resp.content == newer
+    assert resp.headers["content-type"] == "image/gif"
+
+
+# -- each C2 code ------------------------------------------------------------
+
+
+def test_asset_outside_bundle_by_dotdot(asset_bundle):
+    _put(asset_bundle.parent / "secret.png", _SECRET)
+    _assert_refused(_asset(asset_bundle, "../../secret.png"), "outside_bundle", _SECRET)
+
+
+def test_asset_outside_bundle_by_percent_encoding(asset_bundle):
+    _put(asset_bundle.parent / "secret.png", _SECRET)
+    _assert_refused(_asset(asset_bundle, "%2e%2e/%2e%2e/secret.png"), "outside_bundle", _SECRET)
+    _assert_refused(_asset(asset_bundle, "..%2f..%2fsecret.png"), "outside_bundle", _SECRET)
+
+
+def test_asset_symlink_escape(asset_bundle):
+    outside = _put(asset_bundle.parent / "secret.png", _picture("PNG"))
+    (asset_bundle / "devices" / "link.png").symlink_to(outside)
+    _assert_refused(_asset(asset_bundle, "link.png"), "symlink_escape", outside.read_bytes())
+
+
+def test_asset_dot_path(asset_bundle):
+    data = _picture("PNG")
+    _put(asset_bundle / "devices" / ".hidden" / "a.png", data)
+    _assert_refused(_asset(asset_bundle, ".hidden/a.png"), "dot_path", data)
+
+
+def test_asset_not_found(asset_bundle):
+    _assert_refused(_asset(asset_bundle, "figures/missing.png"), "not_found")
+
+
+def test_asset_directory_is_not_found(asset_bundle):
+    (asset_bundle / "devices" / "figures").mkdir()
+    _assert_refused(_asset(asset_bundle, "figures"), "not_found")
+
+
+def test_asset_misnamed_text_file_is_refused(asset_bundle):
+    data = b"just some text, not an image at all\n"
+    _put(asset_bundle / "devices" / "a.png", data)
+    _assert_refused(_asset(asset_bundle, "a.png"), "not_an_image", data)
+
+
+def test_asset_pdf_is_refused(asset_bundle):
+    data = b"%PDF-1.4\n%secret pdf body\n%%EOF\n"
+    _put(asset_bundle / "devices" / "a.pdf", data)
+    resp = _asset(asset_bundle, "a.pdf")
+    _assert_refused(resp, resp.json()["error"], data)
+    assert resp.json()["error"] in {"not_an_image", "disallowed_type"}
+
+
+def test_asset_disallowed_image_type(asset_bundle):
+    data = _picture("BMP")
+    _put(asset_bundle / "devices" / "a.bmp", data)
+    _assert_refused(_asset(asset_bundle, "a.bmp"), "disallowed_type", data)
+
+
+def test_asset_too_large(asset_bundle):
+    from osprey.services.facility_knowledge.okf.assets import MAX_IMAGE_BYTES
+
+    head = _picture("PNG")
+    data = head + b"\x00" * (MAX_IMAGE_BYTES + 1 - len(head))
+    _put(asset_bundle / "devices" / "big.png", data)
+    resp = _asset(asset_bundle, "big.png")
+    _assert_refused(resp, "too_large")
+    assert len(resp.content) < 1024
+
+
+def test_asset_from_naming_no_concept_is_outside_bundle(asset_bundle):
+    _put(asset_bundle / "devices" / "a.png", _picture("PNG"))
+    _assert_refused(_asset(asset_bundle, "a.png", "devices/nope"), "outside_bundle")
+    _assert_refused(_asset(asset_bundle, "a.png", "../outside"), "outside_bundle")
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["https://example.org/a.png", "//example.org/a.png", "data:image/png;base64,AAAA", ""],
+)
+def test_asset_external_target_is_outside_bundle(asset_bundle, target):
+    _assert_refused(_asset(asset_bundle, target), "outside_bundle")
+
+
+def test_asset_unconfigured_panel_is_guarded():
+    c = TestClient(create_app(bundle_path=None))
+    r = c.get("/api/asset", params={"target": "x.png", "from": ""})
+    assert r.status_code == 503
+    assert r.json()["error"] == "facility_knowledge.bundle_path not configured"
+
+
+# -- SVG policy (decision 3) -------------------------------------------------
+
+
+def _svg_policies(resp) -> list[str]:
+    return [
+        p.strip()
+        for value in resp.headers.get_list("content-security-policy")
+        for p in value.split(",")
+    ]
+
+
+def _directives(policy: str) -> dict[str, list[str]]:
+    out = {}
+    for part in policy.split(";"):
+        tokens = part.split()
+        if tokens:
+            out[tokens[0].lower()] = tokens[1:]
+    return out
+
+
+def test_asset_svg_carries_opaque_policy_nosniff_and_its_own_policy(asset_bundle):
+    from osprey.interfaces.opaque_origin import OPAQUE_CSP
+
+    _put(asset_bundle / "devices" / "a.svg", _SVG_BYTES)
+    resp = _asset(asset_bundle, "a.svg")
+    assert resp.status_code == 200
+    assert resp.headers["x-content-type-options"] == "nosniff"
+    policies = _svg_policies(resp)
+    assert OPAQUE_CSP in policies
+    own = [p for p in policies if p != OPAQUE_CSP]
+    assert len(own) == 1, policies
+    d = _directives(own[0])
+    # No network: everything defaults to 'none'.
+    assert d["default-src"] == ["'none'"]
+    # No script: no script source is granted anywhere.
+    for name in ("script-src", "script-src-elem", "script-src-attr"):
+        assert name not in d
+    # Inline styling and data: still work.
+    assert "'unsafe-inline'" in d["style-src"]
+    assert "data:" in d["img-src"]
+    assert "data:" in d["font-src"]
+    # No source anywhere names a host, 'self' or a script escape hatch.
+    for name, sources in d.items():
+        assert not name.startswith("script"), name
+        for source in sources:
+            assert source in {"'none'", "'unsafe-inline'", "data:"}, (name, source)

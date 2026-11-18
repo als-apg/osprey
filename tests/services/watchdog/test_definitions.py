@@ -248,3 +248,31 @@ def test_a_profile_watchdog_with_no_files_is_refused(tmp_path: Path) -> None:
 def test_a_missing_profile_is_refused(tmp_path: Path) -> None:
     with pytest.raises(BuildProfileError, match="not found"):
         load_profile_watchdogs(tmp_path)
+
+
+def test_a_profile_watchdog_naming_the_image_tool_is_refused(tmp_path: Path) -> None:
+    """A judge reads text only, so naming the knowledge server's image tool is an error."""
+    _profile(
+        _files(tmp_path, "viewer"),
+        {"viewer": _agent(tools=["mcp__osprey_facility_knowledge__view_asset"])},
+    )
+
+    with pytest.raises(BuildProfileError) as raised:
+        load_profile_watchdogs(tmp_path)
+    message = str(raised.value)
+    assert "watchdogs.viewer.tools" in message
+    assert "mcp__osprey_facility_knowledge__view_asset" in message
+    assert "cannot view images" in message
+
+
+@pytest.mark.parametrize(
+    "entry", ["mcp__osprey_facility_knowledge", "mcp__osprey_facility_knowledge__*"]
+)
+def test_a_profile_watchdog_naming_the_whole_knowledge_server_loads(
+    tmp_path: Path, entry: str
+) -> None:
+    """The run refuses the image tool under these entries; the definition itself is fine."""
+    _profile(_files(tmp_path, "reader"), {"reader": _agent(tools=[entry])})
+
+    [definition] = load_profile_watchdogs(tmp_path)
+    assert definition.tools == (entry,)

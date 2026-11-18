@@ -10,7 +10,7 @@ description: "Answers questions about facility design, accelerator physics conce
 summary: Looks up facility knowledge concepts and documents
 model: claude-sonnet-5
 maxTurns: 20
-tools: mcp__osprey_facility_knowledge__list_concepts, mcp__osprey_facility_knowledge__read_concept, mcp__osprey_facility_knowledge__search, mcp__osprey_workspace__submit_response
+tools: mcp__osprey_facility_knowledge__list_concepts, mcp__osprey_facility_knowledge__read_concept, mcp__osprey_facility_knowledge__search, mcp__osprey_facility_knowledge__view_asset, mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 
@@ -27,8 +27,11 @@ MCP tools.
 - `search` — Case-insensitive substring match over frontmatter values and body text.
   Use this to locate relevant concepts by keyword.
 - `read_concept` — Fetch the full document body for a specific concept ID.
-  Use this after `list_concepts` or `search` has identified a candidate.
+  Use this after `list_concepts` or `search` has identified a candidate. Its `images`
+  list names each image the concept embeds, by bundle `path`.
 - Every result names each concept's `url` — the link that opens it in the KNOWLEDGE panel.
+- `view_asset` — Look at an image stored in the bundle, by the `path` that
+  `read_concept` lists. Only an image listed with `viewable: true` can be viewed.
 
 ## Retrieval Strategy
 
@@ -42,6 +45,8 @@ Follow this pattern to answer a user's question:
 
 3. **Read to synthesize**: Call `read_concept(concept_id=...)` for each relevant
    concept to get the full document body. One to three reads is usually enough.
+   When a figure the concept embeds bears on the question, you may view it with
+   `view_asset(path=...)` while you research.
 
 4. **Synthesize and submit**: Combine the retrieved content into a clear, accurate
    answer and call `submit_response` to persist your findings.
@@ -53,6 +58,9 @@ Follow this pattern to answer a user's question:
 - **Cite each concept as a link** — every result carries a `url` for the concept.
   Write it as a markdown link, `[<title>](<url>)`, so the operator can open the
   document; name the `concept_id` in the text as well.
+- **Name the figures you rely on** — when your answer relies on a figure, give
+  its bundle path (e.g. `devices/figures/bpm-button-pickups.png`) in your answer,
+  so the parent can view it with `view_asset`.
 - **State when no results are found** — if searches and listings return nothing
   relevant, say so clearly rather than guessing.
 - **Stay within the bundle** — do not use web search or filesystem tools to

@@ -201,17 +201,20 @@ Working with a Bundle
    .. tab-item:: Connecting to OSPREY
 
       The ``osprey_facility_knowledge`` MCP server reads the OKF bundle at
-      startup and exposes it to the agent through five tools:
+      startup and exposes it to the agent through six tools:
 
       * ``list_concepts`` — browse the index to discover what topics exist
       * ``read_concept`` — retrieve a document by its concept ID (its bundle
-        path minus the ``.md`` extension, e.g. ``subsystems/timing-system``)
+        path minus the ``.md`` extension, e.g. ``subsystems/timing-system``),
+        with the images it embeds (see `Images`_)
       * ``search`` — ranked search across all concept documents (see
         `Searching the Bundle`_)
+      * ``view_asset`` — look at an image stored in the bundle, by the path
+        ``read_concept`` lists
       * ``capabilities`` — report the bundle's path, size and concept types
       * ``draft_concept`` — author a new concept document (requires human approval)
 
-      Each of the three read tools also names a ``url`` per concept — the link
+      Each of the three concept tools also names a ``url`` per concept — the link
       that opens it in the KNOWLEDGE panel. It is relative to the page the
       operator is on, so the agent can cite a concept as a markdown link on a
       single-user deployment and behind a per-user mount alike. In the operator
@@ -221,10 +224,10 @@ Working with a Bundle
       **The facility-knowledge subagent.** When it is enabled in a project's
       config, the main OSPREY agent delegates facility knowledge questions to this
       dedicated specialist rather than handling them inline. The subagent has
-      access only to the three read-only tools (``list_concepts``,
-      ``read_concept``, ``search``) and follows a fixed retrieval strategy: list
-      first to orient, search to narrow, read to synthesize, then submit the
-      result.
+      access only to the four read-only tools (``list_concepts``,
+      ``read_concept``, ``search``, ``view_asset``) and follows a fixed
+      retrieval strategy: list first to orient, search to narrow, read to
+      synthesize, then submit the result.
 
       It is enabled by default in the ``demo`` preset. To enable or
       disable it in a generated project, set the agent's ``enabled`` flag under
@@ -297,8 +300,10 @@ Working with a Bundle
       whose name starts with ``.`` are not in the bundle.  Index files are checked
       for frontmatter compliance (OKF §8) and must match what ``regen-index``
       writes, so a page added, removed or retitled without regenerating fails; a
-      ``log.md`` must have no frontmatter.  The command exits 0 on a clean bundle, 1
-      if any file fails.
+      ``log.md`` must have no frontmatter.  Each image a concept embeds that is
+      missing, of a type the bundle does not allow, over the size limit or
+      without alt text gets a warning (see `Images`_).  The command exits 0 on a
+      clean bundle, 1 if any file fails; image warnings do not fail it.
 
       **seed-from-ttl** — seeds one OKF stub document per device of the build's
       graph view, ``build/data/graph/facility.ttl`` in the deployment repo
@@ -331,6 +336,46 @@ Working with a Bundle
       ``osprey build`` and ``osprey facility validate`` warn, once per page,
       when the value is no device id in ``facility.json``, and go on building.
       A page without the key is not linked and never warns.
+
+
+Images
+======
+
+A concept embeds a picture stored in the bundle with any of the three Markdown
+forms: inline, reference-style, or a raw HTML ``<img>``. On a page in
+``devices/``, each of these shows the same figure:
+
+.. code-block:: markdown
+
+   ![Cross-section of a button BPM](figures/bpm-button-pickups.png)
+
+   ![The four button pickups, A to D][pickups]
+
+   <img src="/devices/figures/bpm-button-pickups.png" alt="Button BPM, beam off centre">
+
+   [pickups]: figures/bpm-button-pickups.png
+
+The example bundle's ``devices/bpm`` concept embeds
+``devices/figures/bpm-button-pickups.png`` this way. A target resolves like a
+link (see `The Core Ideas`_). Keep a concept's figures in a ``figures/``
+directory beside it.
+
+* **Types** — PNG, JPEG, GIF, WebP and SVG, judged by the file's content, not
+  its name. At most 10 MB.
+* **Alt text** — every image needs it: the panel shows it when the image cannot
+  be drawn, and the agent reads it before deciding to look.
+* **Remote images are not loaded.** An ``https:``, protocol-relative ``//``
+  or ``data:`` target shows its alt text, with a link for a remote source.
+* **SVG is panel-only.** The agent cannot view it.
+* **Markdown inside a raw HTML block**, such as ``![…](…)`` within a
+  ``<div>``, is reported by ``validate`` and listed to the agent, but the panel
+  may not draw it. Use ``<img>`` there.
+
+``read_concept`` lists each in-bundle image with its path, alt text and whether
+the agent can view it; ``view_asset`` returns the picture. An image larger than
+512 KiB or longer than 1024 px on a side reaches the agent scaled down. A model
+provider without image input gets a note in place of the picture; the reply
+still names the image's path and type.
 
 
 Searching the Bundle

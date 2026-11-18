@@ -151,6 +151,7 @@ class TestFacilityKnowledgeAgentTemplate:
             pytest.param("mcp__osprey_facility_knowledge__list_concepts", id="list_concepts_tool"),
             pytest.param("mcp__osprey_facility_knowledge__read_concept", id="read_concept_tool"),
             pytest.param("mcp__osprey_facility_knowledge__search", id="search_tool"),
+            pytest.param("mcp__osprey_facility_knowledge__view_asset", id="view_asset_tool"),
             pytest.param("mcp__osprey_workspace__submit_response", id="submit_response_tool"),
             pytest.param("name: facility-knowledge", id="frontmatter_name_field"),
         ],
