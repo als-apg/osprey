@@ -4,8 +4,8 @@
 ``osprey app check`` reports what ``osprey build`` reports of them, through the same
 :func:`osprey.apps.loader.check_deployment`, then what only the application's own source
 can tell (:func:`app_violations`), for an application under ``apps/`` and one an installed
-package ships alike: the import boundary over each of its Python packages, the design-system
-styling and page-ready mark of ``panel/``, ESLint over ``panel/`` when it holds JS, and Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. A
+package ships alike: the import boundary over each of its Python packages, the panel
+validator's page rules and a CSS rule for every class of ``panel/``, ESLint over ``panel/`` when it holds JS, and Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. A
 deployment repository has no JS toolchain, so the command installs the one pinned in
 ``osprey/apps/js_check/`` into the user's cache once and runs it from there; an application
 with no JS needs no Node.
@@ -34,11 +34,7 @@ from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, re
 from osprey.apps.manifest import APP_NAME_PATTERN, AppManifest
 from osprey.apps.origin import AppOrigin, origin_of
 from osprey.apps.rules import shadows_installed, taken_package
-from osprey.interfaces.design_system.panels.page_ready import route_problem
-from osprey.interfaces.design_system.panels.validator import (
-    PANEL_STYLESHEETS,
-    missing_stylesheets,
-)
+from osprey.interfaces.design_system.panels.validator import validate_entry
 from osprey.utils.config_writer import load_config_document
 from osprey.utils.workspace import APPS_DIRNAME
 
@@ -95,13 +91,12 @@ def checked_apps(manifests: Iterable[AppManifest], root: Path) -> list[CheckedAp
 def app_violations(apps: Sequence[CheckedApp]) -> list[Violation]:
     """What only an application's own source can tell, for each of *apps*.
 
-    The import boundary, the panel's design-system styling and page-ready mark, and the
-    application's JS checks: what ``osprey app check`` adds to the build's checks.
+    The import boundary, the panel validator's page rules and a CSS rule for every class
+    of the panel, and the application's JS checks: what ``osprey app check`` adds to the build's checks.
     """
     return [
         *_boundary_violations(apps),
-        *_style_violations(apps),
-        *_ready_violations(apps),
+        *_panel_violations(apps),
         *_js_violations(apps),
     ]
 
@@ -222,7 +217,7 @@ def check(ctx: click.Context, repo: Path | None) -> None:
     and its violations name the distribution.
 
     Reports every violation with its application, field and rule, and adds the import
-    boundary, each panel's design-system styling and each application's own JS checks. The JS checks execute the
+    boundary, each panel's page rules and class rules and each application's own JS checks. The JS checks execute the
     application's JS tests, with no secret of this shell's environment. Exits 1 on any
     violation.
     """
@@ -336,25 +331,26 @@ _JS_CLASS = (
 _CLASS_NAME = re.compile(r"^-?[A-Za-z_][\w-]*$")
 
 
-def _style_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
-    """Each panel loads the design-system sheets, and every class it sets has a CSS rule."""
+def _panel_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
+    """Each application's panel, held to the panel validator's page rules, then to the one
+    rule only an application has: a CSS rule for every class it sets."""
     found: list[Violation] = []
     for checked in apps:
         app_dir = checked.directory
         index = app_dir / "panel" / "index.html"
         if not index.is_file():
             continue
-        html = index.read_text(encoding="utf-8")
         found += [
             Violation(
                 checked.name,
                 "",
-                "design_system_css",
-                f"does not load {sheet}; a panel links {', '.join(PANEL_STYLESHEETS)}",
-                source=checked.origin.display("panel/index.html"),
+                finding.rule.value,
+                finding.message,
+                source=checked.origin.display(_app_relative(finding.source, app_dir)),
             )
-            for sheet in missing_stylesheets(html)
+            for finding in validate_entry(index, app_dir / "panel")
         ]
+        html = index.read_text(encoding="utf-8")
         defined = _defined_classes(app_dir, _stylesheet_links(html))
         for rel, used in _used_classes(app_dir):
             if undefined := sorted(used - defined):
@@ -369,6 +365,15 @@ def _style_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
                     )
                 )
     return found
+
+
+def _app_relative(source: str, app_dir: Path) -> str:
+    """A validator finding's ``path`` or ``path:line``, relative to *app_dir*."""
+    path, colon, line = source.rpartition(":")
+    if not (colon and line.isdigit()):
+        path, line = source, ""
+    rel = Path(path).relative_to(app_dir).as_posix()
+    return f"{rel}:{line}" if line else rel
 
 
 def _stylesheet_links(html: str) -> set[str]:
@@ -416,32 +421,6 @@ def _used_classes(app_dir: Path) -> list[tuple[str, set[str]]]:
         }
         used.append((rel, names))
     return used
-
-
-def _ready_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
-    """Each panel takes the late route to the page-ready mark, or whatever waits on it fails.
-
-    ``index.html`` declares ``data-page-ready="pending"`` and a script it loads calls
-    ``markPageReady()`` on its success and failure paths; otherwise whatever waits to drive
-    the panel hangs, or drives it before its first state is drawn.
-    """
-    found: list[Violation] = []
-    for checked in apps:
-        index = checked.directory / "panel" / "index.html"
-        if not index.is_file():
-            continue
-        problem = route_problem(index.read_text(encoding="utf-8"), index, panel=True)
-        if problem is not None:
-            found.append(
-                Violation(
-                    checked.name,
-                    "",
-                    "page_ready",
-                    problem,
-                    source=checked.origin.display("panel/index.html"),
-                )
-            )
-    return found
 
 
 def _js_violations(apps: Iterable[CheckedApp]) -> list[Violation]:

@@ -1176,8 +1176,9 @@ is :doc:`/how-to/apps/index`.
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
    ``profile.yml`` names, then the import boundary over each of their Python
-   packages, that ``panel/index.html`` loads the design-system ``tokens.css``,
-   ``base.css`` and ``primitives.css`` and every class the panel sets has a CSS
+   packages, that ``panel/index.html`` passes the panel validator's page rules
+   (the three design-system sheets, the theme boot script, the font sheet, no raw
+   hex colour, the page-ready mark) and every class the panel sets has a CSS
    rule, ESLint over ``panel/`` when it holds JS, and Vitest over
    ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
    with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
