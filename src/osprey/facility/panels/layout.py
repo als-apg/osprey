@@ -2677,12 +2677,14 @@ class _Page:
                     self.y += CONTROL_HEIGHT + GAP
                 self.press(x, self.y, control, group.kind == "choice")
                 x += CONTROL_WIDTH + GAP
-                if group.kind == "action" and control.status:  # what it is now, beside it
+                # what it is now, beside it: a status channel of its own, not the command
+                status = control.status
+                if group.kind == "action" and status is not None and status != control.channel:
                     room = min(VALUE_WIDTH, x0 + width - x)
                     if room > GRID_VALUE / 2:
                         self.shown_value(
-                            x, self.y + (CONTROL_HEIGHT - ROW) / 2, room, control.status, "word",
-                            self.graph_words(control.status), size=BLOCK_TEXT_SIZE,
+                            x, self.y + (CONTROL_HEIGHT - ROW) / 2, room, status, "word",
+                            self.graph_words(status), size=BLOCK_TEXT_SIZE,
                         )  # fmt: skip
                         x += room + GAP
             self.y += CONTROL_HEIGHT + ROW_GAP

@@ -143,7 +143,7 @@ def test_a_setpoint_is_an_entry_and_its_readback_stands_in_the_channels(panel_gr
         "XR01-QF1:Current-RB",
         "XR01-QF1:Current-SP",  # every channel, the one operate sets too
     ]
-    assert grid.rows[0][0] == "XR01-QF1:Current-RB"  # no device prefix to cut
+    assert grid.rows[0][0] == "Current-RB"  # no device prefix: the shared segment is cut
 
 
 def test_the_channels_grid_keeps_the_channel_order(panel_graph):
@@ -1224,3 +1224,19 @@ def test_the_default_network_hop_takes_a_device_and_one_thing_is_not_contested(t
     )
     blocks = [b for b in _blocks(device_card(two, "XR01:QF1")) if b.title.startswith("Network")]
     assert [b.standing for b in blocks] == ["contested", "contested"]  # both named, none picked
+
+
+def test_grid_names_lose_the_segments_they_share_when_no_device_id_cuts_them():
+    from osprey.facility.panels.describe import _shared_cut
+
+    rows = [
+        ("PLC:IN2:Relay_Sts", "PLC:IN2:Relay_Sts"),
+        ("PLC:IN2:Relay_FF", "PLC:IN2:Relay_FF"),
+        ("P", "DEV:P"),
+    ]
+    assert _shared_cut(rows) == (
+        ("Relay_Sts", "PLC:IN2:Relay_Sts"),
+        ("Relay_FF", "PLC:IN2:Relay_FF"),
+        ("P", "DEV:P"),
+    )
+    assert _shared_cut(rows[:1]) == tuple(rows[:1])  # one alone keeps its name

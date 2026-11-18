@@ -1685,7 +1685,25 @@ def _card_channels(
             if channel.name not in seen and channel.name.startswith(tuple(prefixes)):
                 seen.add(channel.name)
                 rows.append((_short_channel(channel.name, owner), channel.name))
-    return tuple(rows)
+    return _shared_cut(rows)
+
+
+def _shared_cut(rows: list[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
+    """Rows whose short name is still the whole channel name (a name that does not
+    start with its device's id) lose the ``:``-segments they all share."""
+    whole = [short for short, channel in rows if short == channel and ":" in channel]
+    if len(whole) < 2:
+        return tuple(rows)
+    parts = [name.split(":")[:-1] for name in whole]
+    shared = 0
+    while all(len(p) > shared and p[shared] == parts[0][shared] for p in parts):
+        shared += 1
+    if not shared:
+        return tuple(rows)
+    cut = ":".join(parts[0][:shared]) + ":"
+    return tuple(
+        (short.removeprefix(cut) if short == channel else short, channel) for short, channel in rows
+    )
 
 
 def _channel_count(

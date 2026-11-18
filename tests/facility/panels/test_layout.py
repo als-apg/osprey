@@ -1078,7 +1078,7 @@ def test_a_cards_grid_prints_a_value_with_its_unit_beside_its_short_name(panel_g
     value = labels["XR01-QF1:Current-RB"]
     assert value["props"]["showUnits"] is True  # the unit with the value, whole
     assert value["geometry"]["width"] >= layout.value_width("A", layout.TEXT_SIZE)
-    assert "XR01-QF1:Current-RB" in _texts(doc)  # its name, muted, left of it
+    assert "Current-RB" in _texts(doc)  # its name, the shared segment cut, left of it
 
 
 def _picture_view(parts, *, signal: str | None = None) -> View:
