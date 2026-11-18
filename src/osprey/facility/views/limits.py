@@ -74,12 +74,9 @@ def write_limits_view(root: Path, inputs: ViewInputs) -> list[Path]:
     Returns:
         The file written.
     """
-    import json
+    from osprey.facility.views import json_bytes
 
     root.mkdir(parents=True, exist_ok=True)
     target = root / LIMITS_FILE
-    text = json.dumps(
-        limits_document(inputs.records), indent=2, ensure_ascii=False, allow_nan=False
-    )
-    target.write_bytes((text + "\n").encode("utf-8"))
+    target.write_bytes(json_bytes(limits_document(inputs.records), sort_keys=False))
     return [target]

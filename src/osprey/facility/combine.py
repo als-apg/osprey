@@ -141,7 +141,7 @@ class _Fix:
         return {"op": self.op, "kind": self.kind, "id": self.id, "why": self.why}
 
 
-@dataclass
+@dataclass(slots=True)
 class _Value:
     layer: str | None
     file: str | None
@@ -149,7 +149,7 @@ class _Value:
     filled: frozenset[int] = frozenset()
 
 
-@dataclass
+@dataclass(slots=True)
 class _Record:
     kind: str
     id: str
@@ -838,7 +838,10 @@ class _Combiner:
             if chosen is None and _unioned(record.kind, name, candidates):
                 fields[name] = _union(record.kind, name, candidates)
             else:
-                fields[name] = copy.deepcopy(candidates[0].value)
+                # The record's own copy, made by _normalize when it was stated
+                # and read by nothing once merged: a second copy here would
+                # double the field values of a large facility for nothing.
+                fields[name] = candidates[0].value
             if name == "slices" and frozenset.intersection(*(c.filled for c in candidates)):
                 defaults.add("slices.weight")
         return fields, defaults

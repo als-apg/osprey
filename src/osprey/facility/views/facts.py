@@ -99,10 +99,37 @@ NO_CLASS = "-"
 #: The page's template, relative to the packaged templates directory.
 FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
 
-#: The facility file last parsed and the document it parsed to: every render of
-#: one build carries byte-equal ``facility.json``, so it is parsed once and the
-#: views it is handed to see one document, whose wiring they memoize.
-_parsed: tuple[bytes, dict[str, Any]] | None = None
+#: The digest of the facility file last parsed and the document it parsed to:
+#: every render of one build carries byte-equal ``facility.json``, so it is
+#: parsed once and the views it is handed to see one document, whose wiring they
+#: memoize. Keyed by digest, so the memo does not also hold the file's bytes.
+_parsed: tuple[str, dict[str, Any]] | None = None
+
+
+def parsed_facility_file(path: Path) -> Any:
+    """``facility.json`` at ``path``, as :func:`parsed_facility` gives it.
+
+    A file holding the bytes the build serialised gives the build's document
+    without being read into memory (:func:`~osprey.facility.render.serialised_file_document`);
+    any other file is read and parsed.
+
+    Args:
+        path: The facility file.
+
+    Returns:
+        The parsed document, shared; callers read it and never change it.
+
+    Raises:
+        OSError: The file cannot be read; :exc:`FileNotFoundError` when it is
+            not there.
+        ValueError: The bytes are not UTF-8 JSON.
+    """
+    from osprey.facility.render import serialised_file_document
+
+    built = serialised_file_document(path)
+    if built is not None:
+        return built
+    return parsed_facility(path.read_bytes())
 
 
 def parsed_facility(raw: bytes) -> Any:
@@ -113,14 +140,23 @@ def parsed_facility(raw: bytes) -> Any:
 
     Returns:
         The parsed document, shared with every caller handed the same bytes;
-        callers read it and never change it.
+        callers read it and never change it. Bytes the build serialised from
+        its own document give that document back
+        (:func:`~osprey.facility.render.serialised_document`), unparsed.
 
     Raises:
         ValueError: The bytes are not UTF-8 JSON.
     """
+    from osprey.facility.render import serialised_document
+
+    built = serialised_document(raw)
+    if built is not None:
+        return built
     global _parsed
-    if _parsed is None or _parsed[0] != raw:
-        _parsed = (raw, json.loads(raw.decode("utf-8")))
+    digest = hashlib.sha256(raw).hexdigest()
+    if _parsed is None or _parsed[0] != digest:
+        _parsed = None  # the previous document goes before the next is parsed
+        _parsed = (digest, json.loads(raw.decode("utf-8")))
     return _parsed[1]
 
 
