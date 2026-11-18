@@ -45,11 +45,9 @@ from osprey.simulation.apply import (
     persisted_scenario_anchor,
     preflight_archive_rewrite,
 )
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD, field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
-    EXPIRE_FIELD,
     MANIFEST_ID,
     SeedKnobs,
     build,

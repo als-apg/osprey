@@ -377,7 +377,7 @@ def _archiver_address(
             raise ValueError("archiver url is not set")
         return url, {}, None
 
-    from osprey_connectors.archiver import address_overrides
+    from osprey_connectors.archive_store import address_overrides
 
     auth = _mapping(settings.get("auth"))
     extras = {"collection": need(settings, "collection", "")}

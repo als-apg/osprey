@@ -63,10 +63,9 @@ from osprey.simulation.apply import (
     event_subwindows,
     event_window,
 )
+from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
-    EXPIRE_FIELD,
     MANIFEST_ID,
     KnobChange,
     SeedKnobs,

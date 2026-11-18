@@ -28,12 +28,11 @@ from unittest.mock import AsyncMock, patch
 import numpy as np
 import pytest
 
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archive_store import DATE_FIELD, field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.service_answers import Unavailable
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
     SeedKnobs,
     build,
     seed_base,
@@ -221,7 +220,7 @@ def store(mongodb_container):
 @pytest.fixture
 def connector_config(mongodb_container, store, monkeypatch):
     """The connector config of the store, password by environment name."""
-    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archive_store import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 
     monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
     monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)

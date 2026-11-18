@@ -22,17 +22,19 @@ import pandas as pd
 from typing_extensions import override
 
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.archive_store import (
+    CA_FILE_ERRORS,
+    RESERVED_FIELDS,
+    _address_of,
+    address_overrides,
+    field_name,
+    mongo_client_kwargs,
+)
 from osprey_connectors.archiver._base import (
     ArchiveCoverage,
     ArchiveExtent,
     ChannelArchive,
     _NoAnswer,
-)
-from osprey_connectors.archiver._field_names import _RESERVED_FIELDS, _address_of, field_name
-from osprey_connectors.archiver._mongo_client import (
-    CA_FILE_ERRORS,
-    address_overrides,
-    mongo_client_kwargs,
 )
 from osprey_connectors.archiver._timerange import (
     Processing,
@@ -766,7 +768,7 @@ class MongoDBArchiverConnector(ChannelArchive):
                 newest.append(stored_date_utc(last_at))
                 for document in store.find({"date": last_at}):
                     channels.update(
-                        _address_of(field) for field in document if field not in _RESERVED_FIELDS
+                        _address_of(field) for field in document if field not in RESERVED_FIELDS
                     )
             return ArchiveExtent(
                 addresses=frozenset(channels),

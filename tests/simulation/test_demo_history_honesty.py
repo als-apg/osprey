@@ -37,7 +37,7 @@ from osprey.simulation.apply import (
 )
 from osprey.simulation.session_artifacts import PLOT_DIV_ID, render_session_artifacts
 from osprey.simulation.sessions import parse_sessions, resolve
-from osprey_connectors.archiver import field_name
+from osprey_connectors.archive_store import field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.series import _instant
 from tests._archiver_events import event as view_event

@@ -13,13 +13,16 @@ import pandas as pd
 import pytest
 
 from osprey.port_layout import default_port
+from osprey_connectors.archive_store import (
+    HOST_OVERRIDE_ENV,
+    PORT_OVERRIDE_ENV,
+    address_overrides,
+    field_name,
+)
 from osprey_connectors.archiver._base import ArchiveCoverage, ArchiveExtent
-from osprey_connectors.archiver._field_names import field_name
-from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 from osprey_connectors.archiver._mongodb_archiver_connector import (
     DEPLOY_HINT,
     MongoDBArchiverConnector,
-    address_overrides,
 )
 from osprey_connectors.errors import ArchiveQueryError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory

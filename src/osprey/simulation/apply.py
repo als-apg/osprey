@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from osprey_connectors.archive_store import field_name, mongo_client_kwargs
 from osprey_connectors.archiver_selection import resolve_archiver_type
 from osprey_connectors.config import get_facility_timezone, load_config
 from osprey_connectors.connector_types import MONGODB_ARCHIVER
@@ -929,8 +930,6 @@ def archiver_collection(store: dict):
     _require_pymongo()
     from pymongo import MongoClient
 
-    from osprey_connectors.archiver import mongo_client_kwargs
-
     client: Any = MongoClient(
         **mongo_client_kwargs(
             url=None,
@@ -1440,10 +1439,6 @@ def _union_spans(
 
 def _region_documents(collection, channels: Sequence[str], start: float, end: float) -> list[dict]:
     """Existing documents in a span, projected to ``date`` and these channels."""
-    # Imported here: the archive package needs the connectors' service modules,
-    # which a render against the connectors floor does not import.
-    from osprey_connectors.archiver import field_name
-
     projection = {
         "date": 1,
         EXPIRE_FIELD_NAME: 1,
@@ -1518,9 +1513,6 @@ def _rewrite_documents(
         retention. A document whose values and expiry are already correct is not
         rewritten and not counted, so re-applying the set in force reports zero.
     """
-    # Imported here: the archive package needs the connectors' service modules,
-    # which a render against the connectors floor does not import.
-    from osprey_connectors.archiver import field_name
     from osprey_connectors.simulation.archive import tier_expiry
 
     if not spans:
@@ -1740,10 +1732,6 @@ def _dense_documents(
     wanted: Mapping[float, tuple[str, ...]],
 ) -> list[dict]:
     """The documents to insert: one per instant, carrying the channels live at it."""
-    # Imported here: the archive package needs the connectors' service modules,
-    # which a render against the connectors floor does not import.
-    from osprey_connectors.archiver import field_name
-
     moments = sorted(wanted)
     stamps = [datetime.fromtimestamp(moment, UTC) for moment in moments]
     columns: dict[str, dict[int, Any]] = {}
@@ -1770,10 +1758,6 @@ def _stored_types(collection, channels: Sequence[str]) -> dict[str, Any]:
     an insert has no document of its own to read that from — so it reads one
     from the channel's existing history instead.
     """
-    # Imported here: the archive package needs the connectors' service modules,
-    # which a render against the connectors floor does not import.
-    from osprey_connectors.archiver import field_name
-
     samples: dict[str, Any] = {}
     for pv in channels:
         field = field_name(pv)

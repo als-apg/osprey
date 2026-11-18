@@ -1,26 +1,120 @@
-"""How an OSPREY process reaches the archive's MongoDB store.
+"""The archive's MongoDB store: how a channel is stored in it, and how a process reaches it.
 
-The MongoDB archiver connector is not the only process that opens a client to
-the archive store: the archive recorder writes to it and ``osprey sim apply``
-rewrites it. All of them take the store's address overrides and pymongo's
-keyword arguments from here, so one configured block can never produce two
-different clients. Nothing in this module imports pymongo or the connector, or
-does I/O beyond reading two environment variables, so a caller pays for neither
-by importing it.
+The MongoDB archive is not the only process that opens the store: the archive
+recorder writes to it, ``osprey sim apply`` rewrites it and the deploy-time seed
+fills it. Every one of them names a channel's field, the store's own fields and
+the client it opens from here, so a channel is written and read back under one
+name and one configured block can never produce two different clients.
+
+The store holds one document per instant: :data:`DATE_FIELD` plus one field per
+channel sampled at that instant. MongoDB does not take a field name as a plain
+string everywhere it appears: in an update, a query filter or a projection a
+``.`` separates the parts of a path into sub-documents, a leading ``$`` names an
+operator, and a NUL byte cannot be stored at all. A channel address carrying any
+of these is therefore stored under an escaped name.
+
+The escape is ``%XX``, the uppercase hex of the byte: ``%`` is written as
+``%25``, ``.`` as ``%2E`` and NUL as ``%00`` wherever they appear, and ``$``
+as ``%24`` in the first position only. Every other character is kept.
+
+The store's documents carry fields of their own, :data:`RESERVED_FIELDS`. An
+address equal to one of them has its first character escaped too (``date`` is
+stored as ``%64ate``), so no channel shares a field with the document that holds
+it.
+
+So an address with no ``%``, no ``.``, no NUL, no leading ``$`` and not equal
+to one of those fields is its own field name, byte for byte, and the escape is
+injective: two distinct addresses never share a field.
+
+Nothing in this module imports pymongo or the archive, or does I/O beyond
+reading two environment variables, so a caller pays for neither by importing
+it. It imports only the standard library and the package's ``Any`` alias.
 """
 
+from __future__ import annotations
+
 import os
+import re
 import ssl
 
 from osprey_connectors._contract_types import ContractAny
 
 __all__ = [
     "CA_FILE_ERRORS",
+    "DATE_FIELD",
+    "EXPIRE_FIELD",
     "HOST_OVERRIDE_ENV",
     "PORT_OVERRIDE_ENV",
+    "RESERVED_FIELDS",
     "address_overrides",
+    "field_name",
     "mongo_client_kwargs",
 ]
+
+#: Field naming the instant a document's sample was taken. The archive queries
+#: and sorts on it; the seed manifest deliberately has none, which is what keeps
+#: it out of every archive read without needing a filter.
+DATE_FIELD = "date"
+
+#: Field the TTL index acts on. A document without it never expires.
+EXPIRE_FIELD = "expireAt"
+
+#: The fields the store's own documents carry beside channels: every document's
+#: ``_id``; a sample document's :data:`DATE_FIELD`, :data:`EXPIRE_FIELD` and the
+#: densify marker ``osprey_densified``; and the seed manifest's ``fingerprint``,
+#: ``seeded_at``, ``touched_windows``, ``touched_anchor`` and ``coverage``, which
+#: live in the same collection. A test pins this set against the code that
+#: writes those fields.
+RESERVED_FIELDS = frozenset(
+    {
+        "_id",
+        "coverage",
+        DATE_FIELD,
+        EXPIRE_FIELD,
+        "fingerprint",
+        "osprey_densified",
+        "seeded_at",
+        "touched_anchor",
+        "touched_windows",
+    }
+)
+
+
+def field_name(address: str) -> str:
+    """The field name the archive stores ``address`` under.
+
+    Args:
+        address: A channel address.
+
+    Returns:
+        ``address`` with ``%``, ``.`` and NUL escaped as ``%25``, ``%2E`` and
+        ``%00``, a leading ``$`` as ``%24``, and the first character of an
+        address equal to one of the archive's own document fields;
+        ``address`` itself when none of these applies.
+
+    Raises:
+        ValueError: for the empty address, which has no field name.
+    """
+    if not address:
+        raise ValueError("an empty channel address has no archive field name")
+    reserved = address in RESERVED_FIELDS
+    parts: list[str] = []
+    for position, character in enumerate(address):
+        if character in "%.\x00" or (position == 0 and (character == "$" or reserved)):
+            parts.append(f"%{ord(character):02X}")
+        else:
+            parts.append(character)
+    return "".join(parts)
+
+
+def _address_of(field: str) -> str:
+    """The channel address stored under ``field``: the inverse of :func:`field_name`.
+
+    :func:`field_name` escapes every ``%``, so every ``%XX`` in a field name is
+    an escape and decoding them restores the address.
+    """
+    return re.sub(r"%([0-9A-F]{2})", lambda match: chr(int(match.group(1), 16)), field)
+
 
 #: Environment overrides for the two connection keys whose configured value is
 #: only correct when read from the host.

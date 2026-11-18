@@ -1161,7 +1161,7 @@ async def _connected_reader(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """The agent's archive, reading the collection ``settings`` names."""
-    from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archive_store import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
     from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
     from osprey_connectors.service_answers import BackendSpec
 
@@ -1200,7 +1200,7 @@ async def test_a_dotted_address_is_stored_and_read_back_under_its_own_name(
     The stored field is ``field_name`` of the address, so MongoDB never reads
     the ``.`` as a path into a sub-document nor the leading ``$`` as an operator.
     """
-    from osprey_connectors.archiver._field_names import field_name
+    from osprey_connectors.archive_store import field_name
 
     settings, collection, password = archive_collection
     samples = {"SR:REC.RBV": 1.5, "SR:REC.HLS": 0.0, "$SR:LEAD": 2.0}
@@ -1248,7 +1248,7 @@ async def test_a_channel_named_like_a_document_field_is_stored_and_read_back(
     The sample document keeps its ``date``, ``expireAt`` and ``_id``; the seed
     manifest beside it in the collection is never read as a channel's history.
     """
-    from osprey_connectors.archiver._field_names import field_name
+    from osprey_connectors.archive_store import field_name
     from osprey_connectors.simulation.archive import (
         SeedKnobs,
         SeedReport,

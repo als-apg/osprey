@@ -35,13 +35,11 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors.archive_store import DATE_FIELD, EXPIRE_FIELD, field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.errors import NaiveDatetimeError
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation.archive import (
-    DATE_FIELD,
-    EXPIRE_FIELD,
     MANIFEST_ID,
     FingerprintComparison,
     SeedKnobs,
