@@ -545,3 +545,81 @@ def test_a_word_with_no_stated_meaning_keeps_inside_its_block(tmp_path):
         and box["geometry"]["x"] <= n["geometry"]["x"] < right
     ]  # fmt: skip
     assert inside and all(n["geometry"]["x"] + n["geometry"]["width"] <= right for n in inside)
+
+
+def _stripped(tmp_path, *, raft: bool = False):
+    """A pump recipe whose first section is a strip of pumps and quadrupoles."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\nPump,,,pump,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "pump,1,strip,Where it sits,,Pump;Quadrupole,3,pressure,the strip's caption,S\n"
+    )
+    (tables / "symbols.csv").write_text(
+        "class,devices,symbol,lane,source\nPump,,pump,below,S\nQuadrupole,*:QF*,quad,beam,S\n"
+    )
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
+    )
+    if raft:  # the place is placed; the second pump only by it
+        with (tables / "positions.csv").open("a") as handle:
+            handle.write(
+                "XR/XR01,XR-RING,0,0,0,,,,1.5,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 9\n"
+            )
+    return load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+
+
+def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
+    from osprey.facility.panels.view import CardStrip
+
+    graph = _stripped(tmp_path)
+    view = device_card(graph, "XR01:IP1")
+    strip = next(i for s in view.sections for i in s.items if isinstance(i, CardStrip))
+    assert strip.window == (-1.75, 4.25) and strip.bracket is None
+    assert [(m.thing, m.symbol, m.lane, m.focus) for m in strip.members] == [
+        ("XR01:IP1", "pump", "below", True),
+        ("XR01:QF1", "quad", "beam", False),  # QD1 matches no symbols row: not drawn
+    ]
+    assert strip.members[0].channel == "XR01-IP1:Pressure-RB"
+    doc = stub_render(view, graph)
+    assert _text(doc, "XR01:IP1 · here")["props"]["foregroundColor"]["$role"] == "Focus"
+    assert _text(doc, "2 m") and _text(doc, "-1 m")  # a tick every metre
+    opens = [n for n in _by_type(doc, "rectangle") if n["props"].get("tooltip") == "XR01:QF1"]
+    assert opens and opens[0]["props"]["actions"]
+
+
+def test_a_device_placed_only_by_its_place_is_a_dashed_bracket_and_one_placed_by_none_says_so(
+    tmp_path,
+) -> None:
+    from osprey.facility.panels.describe import STRIP_NOWHERE, STRIP_ON_RAFT, strip_state
+    from osprey.facility.panels.view import CardHead, CardStrip
+
+    graph = _stripped(tmp_path, raft=True)
+    view = device_card(graph, "XR01:IP2")
+    strip = next(i for s in view.sections for i in s.items if isinstance(i, CardStrip))
+    assert strip.bracket == (0.0, 3.0, "on XR/XR01, place on the raft not stated")
+    assert [m.thing for m in strip.members if m.focus] == ["XR01:IP2"]
+    doc = stub_render(view, graph)
+    assert _text(doc, "on XR/XR01, place on the raft not stated")
+    assert strip_state(graph, graph.thing("XR01:IP2", "device")) == STRIP_ON_RAFT
+    nowhere = _stripped(tmp_path / "b")
+    view = device_card(nowhere, "XR01:IP2")
+    assert not [i for s in view.sections for i in s.items if isinstance(i, CardStrip)]
+    head = next(i for s in view.sections for i in s.items if isinstance(i, CardHead))
+    assert head.nowhere
+    assert _text(stub_render(view, nowhere), "where it sits is not stated")
+    assert strip_state(nowhere, nowhere.thing("XR01:IP2", "device")) == STRIP_NOWHERE
+
+
+def test_strip_states_count_the_devices_of_a_recipe_by_how_they_are_placed(tmp_path):
+    from osprey.facility.panels.describe import strip_states
+
+    graph = _stripped(tmp_path, raft=True)
+    assert strip_states(graph, ["XR01:IP1", "XR01:IP2", "XR01:QF1"]) == {
+        "pump": {"placed": 1, "on a raft": 1}
+    }

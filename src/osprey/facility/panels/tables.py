@@ -26,7 +26,8 @@ line, the schema this module holds them to:
   pattern (see :class:`ChannelRole`);
 - ``card_recipes.csv``: a class's card recipe and its title-line sentence;
 - ``card_sections.csv``: a recipe's drawn sections in order;
-- ``chains.csv``: the hops of a recipe's chains.
+- ``chains.csv``: the hops of a recipe's chains;
+- ``symbols.csv``: how a card's strip draws a device of a class: its symbol and lane.
 
 ``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
 must be there; every other file may be absent, which reads as empty. Across
@@ -79,6 +80,7 @@ __all__ = [
     "CardRecipe",
     "CardSection",
     "ChainStep",
+    "StripSymbol",
     "Metric",
     "CalibrationKind",
     "Calibration",
@@ -109,6 +111,7 @@ CHANNEL_ROLES = "channel_roles.csv"
 CARD_RECIPES = "card_recipes.csv"
 CARD_SECTIONS = "card_sections.csv"
 CHAINS = "chains.csv"
+STRIP_SYMBOLS = "symbols.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -129,6 +132,7 @@ TABLE_FILES: tuple[str, ...] = (
     CARD_RECIPES,
     CARD_SECTIONS,
     CHAINS,
+    STRIP_SYMBOLS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -227,6 +231,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "roles",
             "source",
         ],
+        STRIP_SYMBOLS: ["class", "devices", "symbol", "lane", "source"],
         CARD_RECIPES: [
             "class",
             "under",
@@ -322,6 +327,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
         PROBE_PICTURES: frozenset({"under"}),
         METRICS: frozenset({"precision"}),
         CARD_RECIPES: frozenset({"devices"}),
+        STRIP_SYMBOLS: frozenset({"devices"}),
     }
 )
 
@@ -342,6 +348,7 @@ OPTIONAL_FILES = frozenset(
         CARD_RECIPES,
         CARD_SECTIONS,
         CHAINS,
+        STRIP_SYMBOLS,
     }
 )
 
@@ -406,6 +413,18 @@ SECTION_KINDS: tuple[str, ...] = (
     "curve",
     "ladder",
 )
+#: The symbols a card's strip draws a member as, and the lanes it puts them in.
+STRIP_SYMBOL_WORDS: tuple[str, ...] = (
+    "pump",
+    "gauge",
+    "valve",
+    "dipole",
+    "quad",
+    "sext",
+    "bpm",
+    "sensor",
+)
+STRIP_LANES: tuple[str, ...] = ("below", "beam", "above")
 #: Which way a chain hop walks its relation: from the subject (``out``) or to it.
 DIRECTIONS: tuple[str, ...] = ("out", "in")
 #: The ways of showing that are a control a press or a typed value writes.
@@ -435,6 +454,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CARD_RECIPES: ("class", "recipe"),
         CARD_SECTIONS: ("recipe", "order", "kind", "title"),
         CHAINS: ("recipe", "chain", "step", "relation", "direction", "title"),
+        STRIP_SYMBOLS: ("class", "symbol", "lane"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -458,6 +478,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CARD_RECIPES: {},
         CARD_SECTIONS: {"kind": SECTION_KINDS},
         CHAINS: {"direction": DIRECTIONS, "many": ("yes",)},
+        STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -499,6 +520,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CARD_RECIPES: ("class", "under", "devices"),
         CARD_SECTIONS: ("recipe", "order"),
         CHAINS: ("recipe", "chain", "step"),
+        STRIP_SYMBOLS: ("class", "devices"),
     }
 )
 
@@ -876,6 +898,23 @@ class ChainStep:
 
 
 @dataclass(frozen=True)
+class StripSymbol:
+    """One row of ``symbols.csv``: a card's strip draws the devices of ``cls`` (whose
+    id matches the pattern ``devices``, when given) as ``symbol`` in ``lane``; the
+    first row that takes a device wins."""
+
+    cls: str
+    devices: str | None
+    symbol: str
+    lane: str
+    source: str | None
+
+
+def _strip_symbol(**columns: Any) -> StripSymbol:
+    return StripSymbol(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
 class ShortName:
     """One row of ``names.csv``: the short name a strip shows for a thing.
 
@@ -1052,6 +1091,7 @@ class PanelTables:
     card_recipes: tuple[CardRecipe, ...] = ()
     card_sections: tuple[CardSection, ...] = ()
     chains: tuple[ChainStep, ...] = ()
+    strip_symbols: tuple[StripSymbol, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -1074,6 +1114,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CARD_RECIPES: _card_recipe,
         CARD_SECTIONS: CardSection,
         CHAINS: ChainStep,
+        STRIP_SYMBOLS: _strip_symbol,
     }
 )
 
@@ -1365,6 +1406,7 @@ def read_tables(panels_dir: Path) -> PanelTables:
         card_recipes=_read(directory, CARD_RECIPES),
         card_sections=_read(directory, CARD_SECTIONS),
         chains=_read(directory, CHAINS),
+        strip_symbols=_read(directory, STRIP_SYMBOLS),
     )
 
 

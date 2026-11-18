@@ -81,6 +81,7 @@ from osprey.facility.panels.tables import (
     Pose,
     ProbeElement,
     RecordType,
+    StripSymbol,
     read_tables,
 )
 from osprey.facility.records import FacilityRecords
@@ -479,6 +480,9 @@ class PanelGraph:
         self._sections: dict[str, list[CardSection]] = {}
         for section in sorted(tables.card_sections, key=lambda r: r.order):
             self._sections.setdefault(section.recipe, []).append(section)
+        self._symbols: dict[str, list[StripSymbol]] = {}
+        for symbol in tables.strip_symbols:
+            self._symbols.setdefault(symbol.cls, []).append(symbol)
         self._steps: dict[tuple[str, str], list[ChainStep]] = {}
         for step in sorted(tables.chains, key=lambda r: r.step):
             self._steps.setdefault((step.recipe, step.chain), []).append(step)
@@ -1251,6 +1255,18 @@ class PanelGraph:
                 for r in self._recipes.get(thing.cls or "", [])
                 if (r.under is None or device_id in self._held(r.under))
                 and (r.devices is None or fnmatch.fnmatchcase(device_id, r.devices))
+            ),
+            None,
+        )
+
+    def strip_symbol(self, thing: Thing) -> StripSymbol | None:
+        """The ``symbols.csv`` row that draws a device on a card's strip: the first of
+        its class's rows whose pattern matches its id (an empty one matches any)."""
+        return next(
+            (
+                r
+                for r in self._symbols.get(thing.cls or "", [])
+                if r.devices is None or fnmatch.fnmatchcase(thing.id, r.devices)
             ),
             None,
         )

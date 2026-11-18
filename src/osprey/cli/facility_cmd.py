@@ -1329,7 +1329,21 @@ def panels_write(
             f"  device cards: {recipes['default']} with the default recipe"
             + (f", {named}" if named else "")
         )
-        from osprey.facility.panels.describe import HOP_FOUND, chain_states
+        from osprey.facility.panels.describe import (
+            HOP_FOUND,
+            STRIP_NOWHERE,
+            STRIP_ON_RAFT,
+            STRIP_PLACED,
+            chain_states,
+            strip_states,
+        )
+
+        for recipe_name, where in sorted(strip_states(graph, devices).items()):
+            total = sum(where.values())
+            report(
+                f"  strip {recipe_name}: {where[STRIP_PLACED]} / {total} placed, "
+                f"{where[STRIP_ON_RAFT]} on a raft, {where[STRIP_NOWHERE]} not stated"
+            )
 
         for chain, states in sorted(chain_states(graph, devices).items()):
             drawn = states.pop(HOP_FOUND, 0)

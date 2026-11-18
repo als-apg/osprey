@@ -71,6 +71,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     assert ",".join(COLUMNS["chains.csv"]) == (
         "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source"
     )
+    assert ",".join(COLUMNS["symbols.csv"]) == "class,devices,symbol,lane,source"
     assert ",".join(COLUMNS["card_recipes.csv"]) == (
         "class,under,devices,recipe,description,channels_cols,source"
     )
@@ -90,6 +91,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
             "card_recipes.csv",
             "card_sections.csv",
             "chains.csv",
+            "symbols.csv",
         }
     )
 

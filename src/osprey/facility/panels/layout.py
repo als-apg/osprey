@@ -65,6 +65,7 @@ from osprey.facility.panels.view import (
     Calibrations,
     CalibrationTallies,
     CardHead,
+    CardStrip,
     Chain,
     ChainBlock,
     ChannelGrid,
@@ -232,6 +233,34 @@ GRID_ROW = ROW + ROW_GAP
 GRID_VALUE = 100
 GRID_NAME_LEAST = 80  # a grid row's name, however wide its value and unit
 CARD_END = 30  # the stated height: the last section's end and this
+# a card's strip: the pipe, the lanes above and below it, the metre ticks
+CARD_PIPE = 14
+CARD_LANE = 44  # a lane's symbols from the pipe's axis
+CARD_SYMBOL_UNIT = 16  # px per symbol shape unit
+CARD_DIPOLE_M = 0.8  # a dipole's drawn length when none is stated, m
+CARD_DIPOLE_HEIGHT = 3 * CARD_PIPE  # a dipole's box round the pipe
+CARD_TICK = 6
+CARD_STRIP_VALUE = 90
+CARD_TICK_LEAST = 40  # the least px between two labelled ticks
+CARD_LEAST_SPAN = 1e-9  # m: a window of no length is drawn as this
+CARD_ABOVE_ROOM = 2 * ROW + CARD_LANE  # over the pipe: a lane, a name, a value
+CARD_BELOW_ROOM = 3 * ROW + CARD_LANE  # under it: a lane, a name, a value
+#: The drawing kind of each strip symbol word ``symbols.csv`` may name.
+STRIP_KINDS: Mapping[str, str] = MappingProxyType(
+    {
+        "pump": "ion_pump",
+        "gauge": "gauge",
+        "valve": "gate_valve",
+        "dipole": "bend",
+        "quad": "quadrupole",
+        "sext": "sextupole",
+        "bpm": "bpm",
+        "sensor": "generic",
+    }
+)
+_DIPOLE_DRAWN = "dipoles drawn {:g} m long"
+_HERE = "{} · here"
+_NOWHERE = "where it sits is not stated"
 #: The kinds of control, as the operate block's legend names and explains them.
 CONTROL_LEGEND: tuple[tuple[str, str], ...] = (
     ("ACTION", "writes once, when pressed"),
@@ -2057,6 +2086,9 @@ class _Page:
                 self.title_line(first)
             elif isinstance(first, KeyTile):
                 self.key_tiles([i for i in section.items if isinstance(i, KeyTile)])
+            elif isinstance(first, CardStrip):
+                number += 1
+                self.framed(f"{number} · {section.title}", partial(self.card_strip, first))
             elif isinstance(first, Chain):
                 number += 1
                 self.framed(f"{number} · {section.title}", partial(self.chain_blocks, first))
@@ -2144,6 +2176,9 @@ class _Page:
         x = self.text(MARGIN, self.y, name, size=CARD_NAME_SIZE, h=CARD_NAME_LINE)
         self.text(x + WORD_GAP, self.y + GAP, head.kind, size=CARD_KIND_SIZE, fg=MUTED_TEXT)
         self.y += CARD_NAME_LINE
+        if head.nowhere:
+            self.small(MARGIN, self.y, _NOWHERE, fg=MUTED_TEXT)
+            self.y += SMALL_LINE
         if head.description:
             for line in _wrap(head.description, STRIP_WIDTH, CARD_DESCRIPTION_SIZE):
                 self.text(
@@ -2286,6 +2321,101 @@ class _Page:
             _TOOLTIP: channel,
         }
         self.s.widget("text-label", x, y, w, h, props, rules=[rule])
+
+    def card_strip(self, strip: CardStrip) -> None:
+        """The beam pipe across the card, to scale over the strip's window; each member
+        as its symbol on the pipe or in its lane above or below it, its name and its
+        value; the device in the focus colour; metre ticks under it; a dashed bracket
+        where only the device's raft is placed."""
+        lo, hi = strip.window
+        scale = STRIP_WIDTH / max(hi - lo, CARD_LEAST_SPAN)  # px per m
+
+        def at(s_m: float) -> float:
+            return self.x0 + (s_m - lo) * scale
+
+        axis = self.y + CARD_ABOVE_ROOM
+        self.box(self.x0, axis - CARD_PIPE / 2, STRIP_WIDTH, CARD_PIPE, fill=FIELD_BACKGROUND)
+        if strip.bracket is not None:
+            b0, b1, _label = strip.bracket
+            left, right = at(max(b0, lo)), at(min(b1, hi))
+            reach = CARD_LANE - CARD_PIPE  # clear of the lanes' symbols
+            self.box(left, axis - reach, right - left, 2 * reach, line=symbols.FOCUS, dashed=True)
+        dipoles = False
+        for member in strip.members:
+            x = at(member.s_m)
+            kind = STRIP_KINDS[member.symbol]
+            if member.lane == "beam":
+                y = axis
+            else:
+                y = axis + (CARD_LANE if member.lane == "below" else -CARD_LANE)
+                self.line([(x, axis), (x, y)], MUTED_TEXT)  # its stem to the pipe
+            if member.symbol == "dipole":  # a box round the pipe, its length drawn
+                dipoles = True
+                w, h = CARD_DIPOLE_M * scale, CARD_DIPOLE_HEIGHT
+                outline = symbols.FOCUS if member.focus else PAGE_TEXT
+                props: dict[str, Any] = {
+                    "lineColor": outline,
+                    "lineWidth": BLOCK_LINE,
+                    "fill": False,
+                }
+                geometry = {"x": x - w / 2, "y": y - h / 2, "width": w, "height": h}
+                nodes: list[dict[str, Any]] = [
+                    {"type": "rectangle", "props": props, "geometry": geometry}
+                ]
+            else:
+                nodes = symbols.draw(kind, x, y, unit=CARD_SYMBOL_UNIT)
+            for node in nodes:
+                if member.focus:
+                    node["props"]["lineColor"] = symbols.FOCUS
+                self.s.add(node)
+            left = min(n["geometry"]["x"] for n in nodes)
+            top = min(n["geometry"]["y"] for n in nodes)
+            right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in nodes)
+            bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in nodes)
+            label = _HERE.format(member.label) if member.focus else member.label
+            colour = symbols.FOCUS if member.focus else PAGE_TEXT
+            lw = min(text_width(label, SMALL_SIZE), CARD_STRIP_VALUE * 2)
+            if member.lane == "above" or member.lane == "beam" and member.symbol == "dipole":
+                ty = top - SMALL_LINE - ROW_GAP
+                vy = ty - ROW
+            else:
+                ty = bottom + ROW_GAP
+                vy = ty + SMALL_LINE
+            lx = min(max(x - lw / 2, self.x0), self.x0 + STRIP_WIDTH - lw)
+            self.text(lx, ty, _cut(label, lw, SMALL_SIZE), size=SMALL_SIZE, w=lw, h=SMALL_LINE, fg=colour)  # fmt: skip
+            if member.channel is not None and member.symbol != "dipole":
+                vx = min(
+                    max(x - CARD_STRIP_VALUE / 2, self.x0), self.x0 + STRIP_WIDTH - CARD_STRIP_VALUE
+                )
+                self.field(vx, vy, member.channel, w=CARD_STRIP_VALUE, units=True, within="unit")
+            if member.link is not None:
+                self.nav(left, top, right - left, bottom - top, member.link)
+        ticks = axis + CARD_BELOW_ROOM
+        step = 1.0
+        while step * scale < CARD_TICK_LEAST:
+            step *= 2
+        first = math.ceil(lo / step) * step
+        mark = first
+        while mark <= hi + CARD_LEAST_SPAN:
+            x = at(mark)
+            self.line([(x, ticks), (x, ticks + CARD_TICK)], MUTED_TEXT)
+            word = f"{mark:g} m"
+            ww = text_width(word, SMALL_SIZE)
+            self.small(min(max(x - ww / 2, self.x0), self.x0 + STRIP_WIDTH - ww), ticks + CARD_TICK, word, fg=MUTED_TEXT)  # fmt: skip
+            mark += step
+        self.y = ticks + CARD_TICK + SMALL_LINE + GAP
+        if strip.bracket is not None:  # under the ticks, from the bracket's left
+            b0, _b1, label = strip.bracket
+            lw = text_width(label, SMALL_SIZE)
+            lx = min(max(at(max(b0, lo)), self.x0), self.x0 + STRIP_WIDTH - lw)
+            self.text(lx, self.y, label, size=SMALL_SIZE, w=lw, h=SMALL_LINE, fg=symbols.FOCUS)
+            self.y += SMALL_LINE + ROW_GAP
+        notes = [strip.caption or "", _DIPOLE_DRAWN.format(CARD_DIPOLE_M) if dipoles else ""]
+        line = "; ".join(n for n in notes if n)
+        if line:
+            for text in _wrap(line, STRIP_WIDTH, SMALL_SIZE):
+                self.small(self.x0, self.y, text, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
 
     def chain_blocks(self, chain: Chain) -> None:
         """Blocks left to right, centred, as many a row as fit the width (at most

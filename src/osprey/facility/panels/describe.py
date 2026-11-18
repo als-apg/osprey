@@ -66,6 +66,7 @@ from osprey.facility.panels.view import (
     CalibrationTallies,
     CalibrationTally,
     CardHead,
+    CardStrip,
     Chain,
     ChainBlock,
     ChannelGrid,
@@ -92,6 +93,7 @@ from osprey.facility.panels.view import (
     Section,
     Strip,
     StripElement,
+    StripMember,
     Target,
     Tile,
     Totals,
@@ -111,12 +113,16 @@ __all__ = [
     "ENUMERATED_OUTPUTS",
     "action_word",
     "chain_states",
+    "strip_states",
     "RELATION_TITLES",
     "CARD_SECTIONS",
     "DEFAULT_RECIPE",
     "HOP_CONTESTED",
     "HOP_FOUND",
     "HOP_NOT_STATED",
+    "STRIP_NOWHERE",
+    "STRIP_ON_RAFT",
+    "STRIP_PLACED",
     "checkout",
     "describe",
     "device_card",
@@ -1275,6 +1281,129 @@ def _block_rows(
     return rows, used
 
 
+#: How far round a raft's stated point a device placed only on the raft is drawn, m:
+#: the raft's own extent is not stated in the tables.
+RAFT_HALF_M = 1.5
+_RAFT_BRACKET = "on {}, place on the raft not stated"
+#: How a card's strip came out for a device.
+STRIP_PLACED, STRIP_ON_RAFT, STRIP_NOWHERE = "placed", "on a raft", "not stated"
+
+
+def _ring_order(graph: PanelGraph) -> list[tuple[float, Thing]]:
+    """Every device with a ring position, by it; built once per graph."""
+    found = _RING_ORDERS.get(graph)
+    if found is None:
+        found = sorted(
+            (
+                (s_m, thing)
+                for thing in graph.things()
+                if thing.kind == "device"
+                for s_m in [_ring_s(graph.pose(thing.id))]
+                if s_m is not None
+            ),
+            key=lambda pair: (pair[0], pair[1].id),
+        )
+        _RING_ORDERS[graph] = found
+    return found
+
+
+_RING_ORDERS: weakref.WeakKeyDictionary[PanelGraph, list[tuple[float, Thing]]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _where_on_strip(graph: PanelGraph, thing: Thing) -> tuple[float, str | None] | None:
+    """Where a device is along the beam: its own ring position (no raft), else the
+    ring position of the nearest place around it that has one (that place), else
+    ``None``."""
+    s_m = _ring_s(graph.pose(thing.id))
+    if s_m is not None:
+        return s_m, None
+    place = thing.place
+    while place is not None:
+        s_m = _ring_s(graph.pose(place))
+        if s_m is not None:
+            return s_m, place
+        try:
+            place = graph.thing(place, "place").place
+        except KeyError:
+            return None
+    return None
+
+
+def strip_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:
+    """Per recipe that draws a strip, how many of *devices* are placed, placed only
+    by a place around them, or not placed (:func:`strip_state`)."""
+    found: dict[str, Counter[str]] = {}
+    for device in devices:
+        recipe = graph.recipe(device)
+        name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
+        if any(r.kind == "strip" for r in graph.card_sections(name)):
+            thing = graph.thing(device, "device")
+            found.setdefault(name, Counter())[strip_state(graph, thing)] += 1
+    return found
+
+
+def strip_state(graph: PanelGraph, thing: Thing) -> str:
+    """:data:`STRIP_PLACED`, :data:`STRIP_ON_RAFT` or :data:`STRIP_NOWHERE`."""
+    where = _where_on_strip(graph, thing)
+    if where is None:
+        return STRIP_NOWHERE
+    return STRIP_PLACED if where[1] is None else STRIP_ON_RAFT
+
+
+def card_strip(
+    graph: PanelGraph, index: _Index, thing: Thing, section: CardSection
+) -> CardStrip | None:
+    """A card's strip: the devices of the section's ``members`` classes that
+    ``symbols.csv`` draws, within ``window_m`` of the device along the beam, each
+    with the first channel of the section's first role. A device placed only by its
+    raft (or another place around it) is a dashed bracket round that place's point;
+    one placed by neither has no strip (``None``)."""
+    where = _where_on_strip(graph, thing)
+    if where is None:
+        return None
+    centre, raft = where
+    half = section.window_m or RAFT_HALF_M * 2
+    lo, hi = centre - half, centre + half
+    classes = {c for c in (section.members or "").split(";") if c}
+    role = next((r for r in (section.roles or "").split(";") if r), None)
+    members: list[StripMember] = []
+    seen: set[str] = set()
+    for s_m, other in _ring_order(graph):
+        if s_m < lo or s_m > hi or (other.cls not in classes and other.id != thing.id):
+            continue
+        symbol = graph.strip_symbol(other)
+        if symbol is None:
+            continue
+        seen.add(other.id)
+        members.append(_strip_member(graph, index, other, s_m, symbol, role, thing.id))
+    bracket = None
+    if raft is not None:
+        bracket = (centre - RAFT_HALF_M, centre + RAFT_HALF_M, _RAFT_BRACKET.format(raft))
+        symbol = graph.strip_symbol(thing)
+        if symbol is not None and thing.id not in seen:  # drawn in the bracket's middle
+            members.append(_strip_member(graph, index, thing, centre, symbol, role, thing.id))
+    members.sort(key=lambda m: (m.s_m, m.thing))
+    return CardStrip((lo, hi), tuple(members), bracket, section.caption)
+
+
+def _strip_member(graph, index, other: Thing, s_m: float, symbol, role, focus: str) -> StripMember:
+    channel = unit = None
+    if role is not None:
+        hit = next((h for h in graph.roles(other.id) if h.role.role == role), None)
+        if hit is not None:
+            channel, unit = hit.channel, _role_unit(graph, hit)[0]
+    link = None
+    if other.id != focus:
+        item = _ref(graph, index, other)
+        link = item if isinstance(item, Link) else None
+    label = other.short_name or other.id
+    return StripMember(
+        other.id, label, s_m, symbol.symbol, symbol.lane, link, channel, unit, other.id == focus
+    )
+
+
 def recipe_chain(
     graph: PanelGraph,
     index: _Index,
@@ -1403,11 +1532,19 @@ def _drawn_card(
     name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
     drawings: list[tuple[str, list[Item]]] = []
     in_chain: set[str] = set()
+    nowhere = False
     for row in graph.card_sections(name):
         if row.kind == "chain" and row.members:
             chain, used, _state = recipe_chain(graph, index, thing, hits, name, row)
             drawings.append((row.title, [chain]))
             in_chain |= used
+        elif row.kind == "strip":
+            strip = card_strip(graph, index, thing, row)
+            if strip is None:
+                nowhere = True
+            else:
+                drawings.append((row.title, [strip]))
+                in_chain |= {m.channel for m in strip.members if m.focus and m.channel}
     if not graph.card_sections(name):  # no recipe rows: the built-in relations chain
         chain, in_chain = _default_chain(graph, index, thing, hits)
         drawings.append((CARD_SECTIONS["relations"], [chain]))
@@ -1423,7 +1560,7 @@ def _drawn_card(
         (_short_channel(c.name, thing.id), c.name) for c in channels if c.name not in drawn
     )
     pairs: list[tuple[str, list[Item]]] = [
-        (CARD_SECTIONS["head"], [CardHead(kind, description, recipe is None)]),
+        (CARD_SECTIONS["head"], [CardHead(kind, description, recipe is None, nowhere)]),
         (CARD_SECTIONS["tiles"], list(tiles)),
         *drawings,
         *extra,

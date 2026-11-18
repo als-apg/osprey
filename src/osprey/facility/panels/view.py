@@ -20,6 +20,8 @@ __all__ = [
     "Band",
     "BlockRow",
     "CardHead",
+    "CardStrip",
+    "StripMember",
     "Chain",
     "ChainBlock",
     "ChannelGrid",
@@ -624,11 +626,13 @@ class CardHead:
             recipe"``.
         description: The recipe's sentence, its relation slots filled.
         default: The card is drawn with the default recipe (its class has no row).
+        nowhere: The recipe draws a strip, and where the device sits is not stated.
     """
 
     kind: str
     description: str | None
     default: bool = True
+    nowhere: bool = False
 
 
 @dataclass(frozen=True)
@@ -713,6 +717,52 @@ class Chain:
 
 
 @dataclass(frozen=True)
+class StripMember:
+    """One thing on a card's strip.
+
+    Attributes:
+        thing: Its id.
+        label: What is written under it (its short name, else its id).
+        s_m: Where it is along the beam, m.
+        symbol: The strip symbol ``symbols.csv`` names (``pump``, ``valve``, ...).
+        lane: ``below``, ``beam`` or ``above`` the pipe.
+        link: Its card, or ``None`` (the card's own device has none).
+        channel: The channel of the section's role on it, or ``None``.
+        unit: That channel's unit, or ``None``.
+        focus: It is the card's own device.
+    """
+
+    thing: str
+    label: str
+    s_m: float
+    symbol: str
+    lane: str
+    link: Link | None = None
+    channel: str | None = None
+    unit: str | None = None
+    focus: bool = False
+
+
+@dataclass(frozen=True)
+class CardStrip:
+    """A card's strip: the things of the stated classes within a window of the
+    device along the beam, to scale.
+
+    Attributes:
+        window: The stretch drawn, ``(from, to)`` in m.
+        members: The things on it, by ``s_m``.
+        bracket: Where the device is when only its raft (or chamber) is placed:
+            ``(from, to, label)`` in m; ``None`` when the device is placed.
+        caption: The line under it, or ``None``.
+    """
+
+    window: tuple[float, float]
+    members: tuple[StripMember, ...]
+    bracket: tuple[float, float, str] | None = None
+    caption: str | None = None
+
+
+@dataclass(frozen=True)
 class Control:
     """One press or entry of a drawn card's operate block.
 
@@ -783,6 +833,7 @@ Item = (
     | CardHead
     | KeyTile
     | Chain
+    | CardStrip
     | Operate
     | ChannelGrid
 )

@@ -1415,7 +1415,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    (the hops of a recipe's chains: each walks one relation in one direction from
    the device or an earlier hop, keeps the things its ``to`` filter takes, and
    shows its roles in the block; a hop that reaches nothing is a dashed "not
-   stated" block, two answers are stacked as contested) may be absent. A device card is drawn:
+   stated" block, two answers are stacked as contested) and ``symbols.csv`` (how
+   a card's strip draws a device of a class: a symbol and a lane above, on or
+   below the beam pipe) may be absent. A strip section draws the devices of its
+   classes within its window of the device along the beam, to scale, each with
+   the value of the section's role; a device placed only by a place around it
+   (its raft) is drawn in a dashed bracket round that place's point, and a card
+   whose device is placed by neither says "where it sits is not stated". A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
    ``card`` whose ``level`` names its recipe, else its roles), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its
@@ -1424,7 +1430,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    sources. A class with no recipe row is drawn with the default recipe (the
    sections stated for the recipe ``default``, else a chain of its place, power,
    network and controller); ``write`` prints how many device cards each recipe
-   drew and, per chain, how many were drawn whole and the hop most often missing. A table that breaks its schema
+   drew, per chain, how many were drawn whole and the hop most often missing, and
+   per strip, how many devices are placed, on a raft or not placed. A table that breaks its schema
    prints the file and line and exits 1. A ``pictures.csv`` row with a place id
    in its optional ``under`` column draws only the devices of its class in that
    place, so two machines with devices of one class name each state their own
