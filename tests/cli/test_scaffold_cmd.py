@@ -30,6 +30,7 @@ from osprey.cli.scaffold_cmd import (
 from osprey.cli.templates.manifest import MANIFEST_FILENAME
 from osprey.docs_links import SETUP_DOCS_URL
 from osprey.utils.workspace import TIERS_DIRNAME
+from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV, load_project_dotenv
 from tests._renders import tier_render
 from tests.cli._lifecycle_build import invoke_build
 
@@ -1022,11 +1023,12 @@ class TestWebTerminalsReadsTheBuiltConfig:
         """One loader: the verb resolves `${VAR}` through the `.env` passthrough.
 
         The discriminating case is a variable set in BOTH the shell environment
-        and the project's `.env`. `ConfigBuilder` — the loader the deploy path
-        uses — loads `.env` over the environment, so the `.env` value is the one
-        a deploy would bake in. A bare `yaml.safe_load` + `resolve_env_vars`
-        here would never read `.env` at all and would render the shell value,
-        producing an artifact the deploy would not have produced.
+        and the project's `.env`. The CLI entry point (`osprey.cli.main`) loads
+        the working directory's `.env` over the environment before any verb
+        runs, and the verb's config load resolves against that environment, so
+        the `.env` value is the one a deploy would bake in. The load itself
+        reads no `.env`: invoked here past the entry point, the test takes the
+        entry point's step first, as `osprey` does.
 
         `monkeypatch.setenv` first is deliberate: the product code mutates
         `os.environ` for real, and pre-registering the name is what gets it
@@ -1047,6 +1049,8 @@ class TestWebTerminalsReadsTheBuiltConfig:
         # `.env` is read from the working directory, which is how a deploy run
         # from inside the project sees it.
         monkeypatch.chdir(project)
+        monkeypatch.delenv(ENV_CHAIN_APPLIED_ENV, raising=False)
+        load_project_dotenv()
         out = tmp_path / "deploy"
 
         result = CliRunner().invoke(scaffold, ["web-terminals", "render", "-o", str(out)])

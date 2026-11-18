@@ -31,7 +31,6 @@ from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._ca_loop import get_ca_loop
 from osprey_connectors.control_system._epics_connector import EPICSConnector
-from osprey_connectors_tests._config_lookup import config_lookup_patched
 from tests._live import async_wait_until
 
 RESULT_MARKER = "__RESULT__"
@@ -443,7 +442,16 @@ def _writes_armed() -> Iterator[None]:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
         testing.invalidate_cache()
         with (
-            config_lookup_patched(_armed_config),
+            # The write path reads the loaded config's section, everything else
+            # the lookup: serve both. (This driver runs as a script, outside the
+            # suite's import path, so it does not use the suite's helper.)
+            patch("osprey_connectors.config.get_config_value", _armed_config),
+            patch(
+                "osprey_connectors.config.current_config",
+                lambda: testing.config_of(
+                    {"control_system": _armed_config("control_system", {})}, environ={}
+                ),
+            ),
             patch.object(
                 ControlSystemConnector, "_context", ConnectorContext(control_target=_ARMED_TARGET)
             ),

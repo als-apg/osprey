@@ -69,9 +69,9 @@ import shutil
 import sys
 import time
 from typing import Any
+from unittest.mock import patch
 
 from osprey_connectors import testing
-from osprey_connectors_tests._config_lookup import config_lookup_patched
 
 RESULT_MARKER = "__HOST_CA_RESULT__"
 
@@ -186,7 +186,15 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     arm_target = spec.get("arm_target")
     armed_root = _arm_switch(arm_target) if arm_target is not None else None
 
-    with config_lookup_patched(_get_config_value):
+    # The write path reads the loaded config's section, everything else the
+    # lookup: serve both. (A script, outside the suite's import path.)
+    loaded = testing.config_of(
+        {"control_system": _get_config_value("control_system", {})}, environ={}
+    )
+    with (
+        patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value),
+        patch("osprey_connectors.config.current_config", return_value=loaded),
+    ):
         connector = await ConnectorFactory.create_control_system_connector(
             ControlSystemSection.read(spec["connector_config"]), control_target=arm_target
         )
