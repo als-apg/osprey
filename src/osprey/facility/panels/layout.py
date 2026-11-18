@@ -317,6 +317,7 @@ _MEANING_NOT_STATED = "meaning not stated"
 _GRID_NOTE = "hover a row for the full channel name"
 _APPLY = "Apply"
 _TYPE_FIRST = "type a value first"
+_WILL_WRITE = "will write"
 #: An entry's Apply button's press value until a number is entered, and its rule's
 #: default: text, never a number, so no state of the button writes a number nobody
 #: typed. The button is off the canvas in that state (see APPLY_AWAY).
@@ -3295,6 +3296,29 @@ class _Page:
             _TOOLTIP: f"writes the new value to {target}",
         }
         self.s.widget("pv-button", APPLY_AWAY, self.y, width, ROW, button, rules=rules)
+        # what Apply writes, from the same formula as its press value: when the
+        # field's text is no number, both keep the last number, so the line still
+        # says what a press writes
+        x += width + GAP
+        self.small(x, self.y + (ROW - SMALL_LINE) / 2, _WILL_WRITE, fg=MUTED_TEXT)
+        x += text_width(_WILL_WRITE, SMALL_SIZE) + GAP
+        self.s._rules += 1
+        shown = {
+            "id": f"r-{self.s._rules:04d}",
+            "name": f"{control.channel} what apply writes",
+            "targetProperty": "text",
+            "default": NOTHING_ENTERED,
+            "formula": _FORMULA_PREFIX + name,
+        }
+        props = {
+            "text": NOTHING_ENTERED,
+            "fontSize": TEXT_SIZE,
+            "align": "left",
+            "foregroundColor": PAGE_TEXT,
+            "backgroundColor": TRANSPARENT,
+            _TOOLTIP: f"what Apply writes to {target}",
+        }
+        self.s.widget("text-label", x, self.y, VALUE_WIDTH, ROW, props, rules=[shown])
         self.y += ROW + ROW_GAP
 
     def channel_grid(self, grid: ChannelGrid) -> None:

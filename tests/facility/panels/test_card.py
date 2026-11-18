@@ -137,6 +137,36 @@ def test_a_setpoint_is_typed_checked_and_applied(panel_graph) -> None:
         assert [n for n in _by_type(doc, "text-label") if n["props"]["text"] == kind]
 
 
+def test_written_apply_shows_what_it_writes_from_the_same_local(panel_graph, tmp_path) -> None:
+    """On the written card the line beside Apply that says what it will write and the
+    button's press value come from one formula over the field's own local: when the
+    field's text stops being a number, both keep the last number."""
+    import json
+
+    from osprey.facility.panels import layout
+    from osprey.facility.panels.emit import write
+
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    (card,) = out.glob("card/*xr01-qf1.screen.json")
+    doc = json.loads(card.read_text())
+    (field,) = _by_type(doc, "pv-text-input")
+    (apply,) = _apply_buttons(doc)
+    (press,) = [r for r in apply["rules"] if r["targetProperty"] == "pressValue"]
+    (shown,) = [
+        n
+        for n in _by_type(doc, "text-label")
+        if any(r["targetProperty"] == "text" for r in n.get("rules", ()))
+        and n["props"].get("tooltip") == f"what Apply writes to {apply['props']['pv']}"
+    ]
+    (rule,) = shown["rules"]
+    assert rule["formula"] == press["formula"]  # one value: shown is written
+    assert rule["default"] == press["default"] == shown["props"]["text"] == layout.NOTHING_ENTERED
+    (formula,) = [f for f in doc["formulas"] if "formula://" + f["name"] == press["formula"]]
+    assert formula["bindings"] == {"v": field["props"]["pv"]}
+    assert _text(doc, "will write")["geometry"]["x"] < shown["geometry"]["x"]
+
+
 def test_a_press_whose_value_no_source_states_is_left_out_and_counted(tmp_path) -> None:
     from osprey.facility.panels.describe import PressCount, press_counts
 
