@@ -38,7 +38,7 @@ from osprey_connectors.simulation.view import (
     SEEDS_SCHEMA,
     SimulatorView,
 )
-from osprey_connectors.workspace import BUILD_DIR_NAME
+from tests._builds import init_project
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -295,17 +295,11 @@ def test_an_omitted_view_is_named_on_stderr_alone(
     assert (render_dir / SERVED).is_file()
 
 
-def test_validate_names_an_unknown_served_model(tmp_path: Path, built_demo: BuiltProject) -> None:
+def test_validate_names_an_unknown_served_model(tmp_path: Path) -> None:
+    """The stop is the served-model resolution's, so the smallest preset's tree meets it."""
     from osprey.cli.main import cli
 
-    source = built_demo.repo
-    repo = tmp_path / source.name
-    shutil.copytree(
-        source,
-        repo,
-        symlinks=True,
-        ignore=lambda folder, _names: [BUILD_DIR_NAME] if Path(folder) == source else [],
-    )
+    repo = init_project(tmp_path, "hello-world", "demo")
     profile = repo / "profile.yml"
     document = yaml.safe_load(profile.read_text(encoding="utf-8"))
     document.setdefault("config", {})["simulation.models"] = ["NOPE"]
