@@ -71,7 +71,7 @@ def validator_under(monkeypatch: pytest.MonkeyPatch, db_file: Path, mode: str) -
         "osprey_connectors.config.get_config_value",
         lambda key, default=None: values.get(key, default),
     )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
     return validator

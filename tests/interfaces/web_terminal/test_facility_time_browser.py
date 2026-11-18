@@ -63,7 +63,7 @@ _TIMELINE = [
 def _facility_web_terminal(tmp_path, monkeypatch):
     """A live web terminal whose facility zone is :data:`FACILITY_ZONE`."""
     with patch(
-        "osprey.interfaces.web_terminal.app.get_facility_timezone",
+        "osprey.interfaces.web_terminal.app.facility_timezone",
         return_value=ZoneInfo(FACILITY_ZONE),
     ):
         with launch_web_terminal(tmp_path, monkeypatch) as base_url:

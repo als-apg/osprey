@@ -1,428 +1,487 @@
-"""Tests for configuration system.
+"""The config loader, the config it loads, and the process default.
 
-Tests the ConfigBuilder class and configuration loading mechanism,
-including YAML loading, environment variable resolution, and nested access.
+:func:`~osprey_connectors.config.load_config` reads one file into a
+:class:`~osprey_connectors.config.LoadedConfig`; the process default
+(``current_config`` and its kin) is which one an unqualified lookup reads; the
+facility zone is read at load and never raises.
 """
+
+import logging
+import os
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
-import yaml
 
-from osprey_connectors.config import ConfigBuilder
+from osprey_connectors import config as config_module
+from osprey_connectors.config import (
+    FacilityZone,
+    UnresolvedRef,
+    active_config,
+    current_config,
+    facility_timezone,
+    get_config_value,
+    install_config,
+    load_config,
+    localize_facility,
+    locate_config,
+    using_config,
+)
+from osprey_connectors.errors import (
+    ConfigLoadError,
+    ConfigNotFoundError,
+    ConfigParseError,
+    ConfigurationError,
+)
+from osprey_connectors.testing import config_of
 
 
-class TestConfigBuilder:
-    """Test ConfigBuilder class."""
+def _write(path: Path, body: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body, encoding="utf-8")
+    return path
 
-    def test_config_builder_loads_yaml(self, tmp_path):
-        """Test that ConfigBuilder loads valid YAML configuration."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-project_root: /test/project
-registry_path: ./my_app/registry.py
-models:
-  orchestrator:
-    provider: openai
-    model_id: gpt-4
-"""
+
+class TestLoadConfig:
+    def test_loads_yaml(self, tmp_path):
+        config_file = _write(
+            tmp_path / "config.yml",
+            "project_root: /test/project\n"
+            "registry_path: ./my_app/registry.py\n"
+            "models:\n  orchestrator:\n    provider: openai\n    model_id: gpt-4\n",
         )
 
-        builder = ConfigBuilder(str(config_file))
+        loaded = load_config(config_file)
 
-        assert builder.raw_config is not None
-        assert builder.raw_config["project_root"] == "/test/project"
-        assert builder.raw_config["registry_path"] == "./my_app/registry.py"
-        assert builder.raw_config["models"]["orchestrator"]["provider"] == "openai"
+        assert loaded.path == config_file
+        assert loaded.get("project_root") == "/test/project"
+        assert loaded.get("models.orchestrator.provider") == "openai"
 
-    def test_config_path_is_a_directory_raises_clear_error(self, tmp_path):
-        """A directory at the config path (e.g. a missing bind-mount source the
-        container runtime materialized as an empty dir) fails fast with an
-        actionable IsADirectoryError, not a raw loader error."""
+    def test_a_directory_is_a_load_error_and_not_a_missing_file(self, tmp_path):
+        """A bind-mount whose source was missing is created as a directory.
+
+        It is refused as a load error, never as a ``FileNotFoundError``: the
+        readers that degrade on a missing config (no limits validator, writes
+        off) must not read a broken mount as "no config here".
+        """
         config_dir = tmp_path / "config.yml"
         config_dir.mkdir()
 
-        with pytest.raises(IsADirectoryError, match="is a directory, not a file"):
-            ConfigBuilder(str(config_dir))
+        with pytest.raises(ConfigLoadError, match="is a directory, not a file") as caught:
+            load_config(config_dir)
+        assert not isinstance(caught.value, FileNotFoundError)
+        assert caught.value.path == config_dir
 
-    def test_missing_explicit_config_path_raises_file_not_found(self, tmp_path):
-        """An explicitly provided path that does not exist fails fast with a
-        clear FileNotFoundError rather than a later open() error."""
+    def test_a_missing_file_is_a_file_not_found_error_naming_where_it_looked(self, tmp_path):
         missing = tmp_path / "does_not_exist" / "config.yml"
 
-        with pytest.raises(FileNotFoundError, match="Config file not found"):
-            ConfigBuilder(str(missing))
+        with pytest.raises(ConfigNotFoundError, match="Config file not found") as caught:
+            load_config(missing)
+        assert isinstance(caught.value, FileNotFoundError)
+        assert isinstance(caught.value, ConfigurationError)
+        assert caught.value.searched == (missing,)
+        assert "OSPREY_CONFIG" in str(caught.value)
+        assert "CONFIG_FILE" not in str(caught.value)
 
-    def test_unreadable_env_file_does_not_crash(self, tmp_path, monkeypatch):
-        """A ``.env`` that exists but can't be read (e.g. a 0600 file owned by
-        another uid, as happens when the non-root dispatch worker reads a
-        host-owned secrets file) must degrade gracefully, not crash-loop the
-        process. Regression test for the worker startup PermissionError."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("project_root: /test/project\n")
-        (tmp_path / ".env").write_text("SOME_KEY=value\n")
+    def test_no_config_named_and_none_found_lists_both_places(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        def _raise_permission_error(*args, **kwargs):
-            raise PermissionError(13, "Permission denied")
+        with pytest.raises(ConfigNotFoundError, match="No config.yml found") as caught:
+            load_config()
+        assert caught.value.searched == (tmp_path / "build" / "config.yml", tmp_path / "config.yml")
+        assert "OSPREY_CONFIG" in str(caught.value)
 
-        monkeypatch.setattr("dotenv.dotenv_values", _raise_permission_error)
-
-        builder = ConfigBuilder(str(config_file))
-
-        assert builder.raw_config["project_root"] == "/test/project"
-
-    def test_environment_variable_resolution(self, tmp_path, monkeypatch):
-        """Test that environment variables are resolved in config."""
-        # Set environment variables
-        monkeypatch.setenv("TEST_API_KEY", "secret-key-123")
-        monkeypatch.setenv("TEST_PROJECT_ROOT", "/home/user/project")
-
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-project_root: ${TEST_PROJECT_ROOT}
-api:
-  providers:
-    openai:
-      api_key: ${TEST_API_KEY}
-      base_url: https://api.openai.com
-"""
+    def test_invalid_yaml_is_a_parse_error_with_its_line(self, tmp_path):
+        config_file = _write(
+            tmp_path / "config.yml",
+            "\ninvalid: yaml: syntax:\n  - this is broken\n    - nested incorrectly\n",
         )
 
-        builder = ConfigBuilder(str(config_file))
+        with pytest.raises(ConfigParseError) as caught:
+            load_config(config_file)
+        assert caught.value.path == config_file
+        assert caught.value.line == 2
 
-        assert builder.raw_config["project_root"] == "/home/user/project"
-        assert builder.raw_config["api"]["providers"]["openai"]["api_key"] == "secret-key-123"
-        # Non-env-var values should remain unchanged
-        assert (
-            builder.raw_config["api"]["providers"]["openai"]["base_url"] == "https://api.openai.com"
-        )
-
-    def test_nested_path_access_with_get(self, tmp_path):
-        """Test accessing nested configuration via dot notation."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-control_system:
-  limits:
-    max_channels: 100
-    timeout: 30
-models:
-  orchestrator:
-    provider: openai
-"""
-        )
-
-        builder = ConfigBuilder(str(config_file))
-
-        # Test nested path access
-        assert builder.get("control_system.limits.max_channels") == 100
-        assert builder.get("control_system.limits.timeout") == 30
-        assert builder.get("models.orchestrator.provider") == "openai"
-
-        # Test missing paths return default
-        assert builder.get("nonexistent.path", "default") == "default"
-        assert builder.get("models.nonexistent", None) is None
-
-    def test_missing_config_file_raises_error(self, tmp_path, monkeypatch):
-        """Test that missing config file raises clear error."""
-        # Change to empty directory where no config.yml exists
-        monkeypatch.chdir(tmp_path)
-
-        with pytest.raises(FileNotFoundError, match="No config.yml found"):
-            ConfigBuilder(None)
-
-    def test_empty_config_file_handled(self, tmp_path):
-        """Test that empty config file is handled gracefully."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("")  # Empty file
-
-        builder = ConfigBuilder(str(config_file))
-
-        # Should return empty dict, not crash
-        assert builder.raw_config == {}
-
-    def test_invalid_yaml_raises_error(self, tmp_path):
-        """Test that invalid YAML raises clear error."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-invalid: yaml: syntax:
-  - this is broken
-    - nested incorrectly
-"""
-        )
-
-        with pytest.raises(yaml.YAMLError):
-            ConfigBuilder(str(config_file))
-
-    def test_configurable_dict_building(self, tmp_path):
-        """Test that configurable dict is built correctly."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-project_root: /test/project
-registry_path: ./app/registry.py
-models:
-  orchestrator:
-    provider: openai
-control_system:
-  limits:
-    max_channels: 100
-"""
-        )
-
-        configurable = ConfigBuilder(str(config_file)).configurable
-
-        assert configurable["project_root"] == "/test/project"
-        assert configurable["model_configs"]["orchestrator"]["provider"] == "openai"
-
-    def test_model_configs_loaded(self, tmp_path):
-        """Test that model configurations are loaded correctly."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-models:
-  orchestrator:
-    provider: cborg
-    model_id: anthropic/claude-sonnet
-  response:
-    provider: openai
-    model_id: gpt-4
-    max_tokens: 4096
-"""
-        )
-
-        builder = ConfigBuilder(str(config_file))
-
-        model_configs = builder.configurable["model_configs"]
-        assert "orchestrator" in model_configs
-        assert model_configs["orchestrator"]["provider"] == "cborg"
-        assert model_configs["orchestrator"]["model_id"] == "anthropic/claude-sonnet"
-
-        assert "response" in model_configs
-        assert model_configs["response"]["provider"] == "openai"
-        assert model_configs["response"]["max_tokens"] == 4096
-
-    def test_registry_path_from_config(self, tmp_path):
-        """Test that registry_path is accessible from config."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-registry_path: ./src/my_app/registry.py
-application:
-  registry_path: ./src/other_app/registry.py
-"""
-        )
-
-        builder = ConfigBuilder(str(config_file))
-
-        # Should support both formats
-        assert builder.get("registry_path") == "./src/my_app/registry.py"
-        assert builder.get("application.registry_path") == "./src/other_app/registry.py"
-
-    def test_get_unexpanded_config_preserves_env_var_placeholders(self, tmp_path, monkeypatch):
-        """Test that get_unexpanded_config() preserves ${VAR} placeholders.
-
-        This is critical for deployment security - we must NOT write actual
-        API keys to config files in the build directory. Instead, ${VAR}
-        placeholders should be preserved and resolved at container runtime.
-
-        Fixes: https://github.com/als-apg/osprey/issues/118
-        """
-        # Set environment variable that would normally be expanded
-        monkeypatch.setenv("MY_SECRET_API_KEY", "actual-secret-value-12345")
-
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-api:
-  providers:
-    cborg:
-      api_key: ${MY_SECRET_API_KEY}
-      base_url: https://api.example.com/v1
-project_root: /test/project
-"""
-        )
-
-        builder = ConfigBuilder(str(config_file))
-
-        # raw_config should have the expanded (resolved) value
-        assert (
-            builder.raw_config["api"]["providers"]["cborg"]["api_key"]
-            == "actual-secret-value-12345"
-        )
-
-        # get_unexpanded_config() should preserve the ${VAR} placeholder
-        unexpanded = builder.get_unexpanded_config()
-        assert unexpanded["api"]["providers"]["cborg"]["api_key"] == "${MY_SECRET_API_KEY}"
-
-        # Non-env-var values should be the same in both
-        assert unexpanded["api"]["providers"]["cborg"]["base_url"] == "https://api.example.com/v1"
-        assert unexpanded["project_root"] == "/test/project"
-
-    def test_get_unexpanded_config_returns_deep_copy(self, tmp_path):
-        """Test that get_unexpanded_config() returns a deep copy (mutations don't affect original)."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            """
-api:
-  key: ${SECRET}
-"""
-        )
-
-        builder = ConfigBuilder(str(config_file))
-
-        # Get unexpanded config and mutate it
-        unexpanded1 = builder.get_unexpanded_config()
-        unexpanded1["api"]["key"] = "MUTATED"
-
-        # Second call should return original value, not mutated
-        unexpanded2 = builder.get_unexpanded_config()
-        assert unexpanded2["api"]["key"] == "${SECRET}"
-
-
-class TestRequiredConfig:
-    """``_require_config``: a missing key is an error unless a default is given."""
-
-    @pytest.fixture
-    def builder(self, tmp_path):
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("present: 7\nexplicit_null: null\n")
-        return ConfigBuilder(str(config_file))
-
-    @pytest.mark.parametrize("path", ["absent.key", "explicit_null"])
-    def test_a_missing_required_key_raises_naming_it(self, builder, path):
-        with pytest.raises(ValueError, match=f"Missing required configuration: '{path}'"):
-            builder._require_config(path)
-
-    def test_a_missing_key_with_a_default_uses_it_and_warns(self, builder, caplog):
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            value = builder._require_config("absent.key", default=42)
-
-        assert value == 42
-        assert "Using default value for 'absent.key' = 42." in caplog.text
-
-    def test_a_present_key_is_returned_without_a_warning(self, builder, caplog):
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            assert builder._require_config("present", default=0) == 7
-        assert "Using default value" not in caplog.text
-
-
-class TestConfigFileShape:
     @pytest.mark.parametrize(
-        ("body", "message"),
+        ("body", "message", "key"),
         [
-            ("- a\n- b\n", "Configuration file must contain a dictionary/mapping"),
-            ("just a string\n", "Configuration file must contain a dictionary/mapping"),
-            ("42\n", "Configuration file must contain a dictionary/mapping"),
-            ("execution: subprocess\n", "'execution' in .* must be a mapping, got str"),
+            ("- a\n- b\n", "Configuration file must contain a dictionary/mapping", None),
+            ("just a string\n", "Configuration file must contain a dictionary/mapping", None),
+            ("42\n", "Configuration file must contain a dictionary/mapping", None),
+            (
+                "execution: subprocess\n",
+                "'execution' in .* must be a mapping, got str",
+                "execution",
+            ),
+            (
+                "api:\n  providers: [a]\n",
+                "'api.providers' in .* must be a mapping",
+                "api.providers",
+            ),
         ],
-        ids=["list", "string", "number", "non-mapping-execution-section"],
+        ids=["list", "string", "number", "execution", "providers"],
     )
-    def test_a_config_file_of_the_wrong_shape_is_refused(self, tmp_path, body, message):
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(body)
+    def test_a_file_of_the_wrong_shape_is_refused(self, tmp_path, body, message, key):
+        config_file = _write(tmp_path / "config.yml", body)
 
-        with pytest.raises(ValueError, match=message):
-            ConfigBuilder(str(config_file))
+        with pytest.raises(ConfigParseError, match=message) as caught:
+            load_config(config_file)
+        assert caught.value.key == key
+        assert isinstance(caught.value, ValueError)
+
+    def test_an_empty_file_loads_as_an_empty_tree(self, tmp_path):
+        assert load_config(_write(tmp_path / "config.yml", "")).raw_tree() == {}
+
+    def test_an_empty_section_reads_as_no_settings(self, tmp_path):
+        loaded = load_config(_write(tmp_path / "config.yml", "models:\nservices:\n"))
+
+        assert loaded.section("models") == {}
+        assert loaded.section("services") == {}
+
+    def test_placeholders_resolve_against_the_environment_given(self, tmp_path):
+        config_file = _write(
+            tmp_path / "config.yml",
+            "project_root: ${ROOT}\napi:\n  key: ${KEY}\n  url: https://x\n",
+        )
+
+        loaded = load_config(config_file, environ={"ROOT": "/home/p", "KEY": "k-1"})
+
+        assert loaded.get("project_root") == "/home/p"
+        assert loaded.get("api.key") == "k-1"
+        assert loaded.get("api.url") == "https://x"
+
+    def test_the_tree_as_written_keeps_its_placeholders(self, tmp_path):
+        """A deployment writing the config out again must not bake a secret into it."""
+        config_file = _write(tmp_path / "config.yml", "api:\n  key: ${SECRET}\n")
+
+        loaded = load_config(config_file, environ={"SECRET": "actual-secret"})
+
+        assert loaded.get("api.key") == "actual-secret"
+        assert loaded.unexpanded_tree()["api"]["key"] == "${SECRET}"
+
+    def test_an_unset_variable_stays_verbatim_and_is_recorded(self, tmp_path):
+        """A lone ``${VAR}`` is data, never absent; the reference is named for diagnostics."""
+        config_file = _write(
+            tmp_path / "config.yml",
+            "control_system:\n  limits_checking:\n    enabled: ${LIMITS_ON}\n"
+            "items:\n  - ${FIRST}\n"
+            "claude_code:\n  servers:\n    a:\n      env:\n        TOKEN: ${KEPT_FOR_LAUNCH}\n",
+        )
+
+        loaded = load_config(config_file, environ={})
+
+        assert loaded.get("control_system.limits_checking.enabled") == "${LIMITS_ON}"
+        assert loaded.unresolved == (
+            UnresolvedRef(key="control_system.limits_checking.enabled", var="LIMITS_ON"),
+            UnresolvedRef(key="items.0", var="FIRST"),
+        )
+
+    def test_the_load_reads_no_env_chain_and_writes_no_environment(self, tmp_path, monkeypatch):
+        _write(tmp_path / ".env", "OSPREY_LOAD_PURITY_PROBE=from-the-file\n")
+        config_file = _write(tmp_path / "config.yml", "value: ${OSPREY_LOAD_PURITY_PROBE}\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("OSPREY_LOAD_PURITY_PROBE", raising=False)
+
+        loaded = load_config(config_file)
+
+        assert loaded.get("value") == "${OSPREY_LOAD_PURITY_PROBE}"
+        assert "OSPREY_LOAD_PURITY_PROBE" not in os.environ
+
+    def test_the_repo_root_of_a_render_is_the_repo(self, tmp_path):
+        loaded = load_config(_write(tmp_path / "build" / "config.yml", "a: 1\n"))
+
+        assert loaded.repo_root == tmp_path
+
+    def test_an_existing_project_root_names_the_repo_root(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        loaded = load_config(_write(tmp_path / "flat" / "config.yml", f"project_root: {repo}\n"))
+
+        assert loaded.repo_root == repo
+
+    def test_a_project_root_that_is_not_here_does_not(self, tmp_path):
+        """A container reads a config staged on the host, whose root names nothing here."""
+        config_file = _write(tmp_path / "config.yml", "project_root: /host/only/path\n")
+
+        assert load_config(config_file).repo_root == tmp_path
+
+    def test_a_renamed_timeout_key_is_refused_at_load(self, tmp_path):
+        config_file = _write(
+            tmp_path / "config.yml",
+            "control_system:\n  connector:\n    epics:\n      timeout: 5\n",
+        )
+
+        with pytest.raises(ConfigurationError, match="timeout_s") as caught:
+            load_config(config_file)
+        assert caught.value.key == "control_system.connector.epics.timeout"
 
 
-class TestGetFacilityTimezone:
-    """``get_facility_timezone`` must never raise — it is the safe default for
-    every synthesis primitive and timestamp render site, so an unloaded config
-    or a misconfigured zone name must degrade to UTC, not blow up the caller."""
+class TestLoadedConfig:
+    def test_get_walks_dotted_keys_and_answers_the_default_when_absent(self):
+        loaded = config_of({"a": {"b": {"c": 3}}, "n": None, "lst": [1]})
 
-    @staticmethod
-    def _reset_config_singleton():
-        from osprey_connectors import config as config_module
+        assert loaded.get("a.b.c") == 3
+        assert loaded.get("a.x", "d") == "d"
+        assert loaded.get("lst.0", "d") == "d"
+        assert loaded.get("n", "d") is None
 
-        config_module._default_config = None
-        config_module._default_configurable = None
+    def test_get_hands_out_a_copy(self):
+        loaded = config_of({"control_system": {"writes": "allowed"}})
 
-    def test_returns_utc_when_no_config_loaded(self, tmp_path, monkeypatch):
-        """No config.yml in cwd and no CONFIG_FILE → UTC, not FileNotFoundError."""
-        from zoneinfo import ZoneInfo
+        handed = loaded.get("control_system")
+        assert isinstance(handed, dict)
+        handed["writes"] = "never"
+        loaded.raw_tree()["control_system"]["writes"] = "never"
+        loaded.section("control_system")["writes"] = "never"
 
-        from osprey_connectors.config import get_facility_timezone
+        assert loaded.get("control_system.writes") == "allowed"
 
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
-        monkeypatch.chdir(tmp_path)  # empty dir, no config.yml
-        self._reset_config_singleton()
+    def test_an_empty_key_is_refused(self):
+        with pytest.raises(ConfigurationError):
+            config_of({}).get("")
 
-        assert get_facility_timezone() == ZoneInfo("UTC")
+    def test_a_section_that_is_not_a_mapping_is_refused_by_key(self):
+        loaded = config_of({"web": "on", "empty": None})
 
-    def test_returns_utc_when_configured_zone_is_invalid(self, tmp_path, monkeypatch):
-        """A typo'd system.timezone → UTC fallback, not ZoneInfoNotFoundError."""
-        from zoneinfo import ZoneInfo
+        assert loaded.section("empty") == {}
+        assert loaded.section("absent") == {}
+        with pytest.raises(ConfigurationError, match="'web'") as caught:
+            loaded.section("web")
+        assert caught.value.key == "web"
 
-        from osprey_connectors.config import get_facility_timezone
+    @pytest.mark.parametrize(
+        ("value", "expected"), [(True, True), ("false", False), ("on", True), (None, False)]
+    )
+    def test_a_flag_reads_what_it_spells(self, value, expected):
+        assert config_of({"switch": value}).flag("switch", default=False) is expected
 
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("system:\n  timezone: Not/ARealZone\n")
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-        self._reset_config_singleton()
+    def test_an_absent_flag_is_its_default(self):
+        assert config_of({}).flag("switch", default=True) is True
 
-        assert get_facility_timezone() == ZoneInfo("UTC")
+    def test_a_flag_that_spells_neither_is_refused_by_key(self):
+        with pytest.raises(ConfigurationError, match="switch") as caught:
+            config_of({"switch": "${UNSET}"}).flag("switch", default=False)
+        assert caught.value.key == "switch"
 
-    def test_returns_configured_zone_when_valid(self, tmp_path, monkeypatch):
-        """A valid system.timezone is honored — the fallback must not swallow it."""
-        from zoneinfo import ZoneInfo
 
-        from osprey_connectors.config import get_facility_timezone
+class TestFacilityZone:
+    @pytest.mark.parametrize(
+        ("tree", "name", "source"),
+        [
+            ({"system": {"timezone": "America/Los_Angeles"}}, "America/Los_Angeles", "configured"),
+            ({}, "UTC", "default"),
+            ({"system": "not a mapping"}, "UTC", "default"),
+            ({"system": {"timezone": "Not/ARealZone"}}, "UTC", "fallback"),
+            ({"system": {"timezone": 5}}, "UTC", "fallback"),
+            ({"system": {"timezone": None}}, "UTC", "fallback"),
+            ({"system": {"timezone": "${UNSET_ZONE}"}}, "UTC", "fallback"),
+        ],
+        ids=["configured", "absent", "no-system", "typo", "number", "null", "unset-var"],
+    )
+    def test_the_zone_is_read_at_load_and_never_raises(self, tree, name, source):
+        zone = config_of(tree, environ={}).system_zone
 
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("system:\n  timezone: America/Los_Angeles\n")
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-        self._reset_config_singleton()
+        assert (zone.name, zone.source) == (name, source)
+        assert (zone.problem is None) == (source != "fallback")
+        assert zone.zone == ZoneInfo(name)
 
-        assert get_facility_timezone() == ZoneInfo("America/Los_Angeles")
+    def test_an_unset_variable_says_so(self):
+        zone = config_of({"system": {"timezone": "${UNSET_ZONE}"}}, environ={}).system_zone
 
-    def test_an_unresolvable_config_is_reported_once_not_once_per_call(
-        self, tmp_path, monkeypatch, caplog
-    ):
-        """The fallback must say its piece once, then stop.
+        assert zone == FacilityZone(name="UTC", source="fallback", problem=zone.problem)
+        assert "unset environment variable" in (zone.problem or "")
 
-        This resolver is called once per channel per chunk by the archiver
-        seeder — thousands of times on a first deploy — and a failed load is
-        never cached, so the fallback is re-taken every time. Unguarded, the
-        eight-line "no config.yml found" remedy is re-rendered for each call and
-        a seed that is working normally reads as a hung terminal.
 
-        Once is not zero: a deploy resolving the wrong config still has to be
-        diagnosable from its own log.
-        """
-        import logging
+class TestProcessDefault:
+    def test_the_lazy_default_is_the_located_file(self, tmp_path, monkeypatch):
+        config_file = _write(tmp_path / "build" / "config.yml", "marker: build\n")
+        _write(tmp_path / "config.yml", "marker: flat\n")
+        monkeypatch.chdir(tmp_path)
 
-        from osprey_connectors.config import get_facility_timezone
+        assert locate_config() == config_file
+        assert current_config().get("marker") == "build"
+        assert get_config_value("marker") == "build"
+        assert active_config() is current_config()
 
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
-        monkeypatch.chdir(tmp_path)  # empty dir, no config.yml
-        self._reset_config_singleton()
+    def test_osprey_config_names_the_file_and_config_file_does_not(self, tmp_path, monkeypatch):
+        named = _write(tmp_path / "named.yml", "marker: named\n")
+        other = _write(tmp_path / "other.yml", "marker: other\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CONFIG_FILE", str(other))
+        monkeypatch.setenv("OSPREY_CONFIG", str(named))
+
+        assert current_config().get("marker") == "named"
+
+    def test_a_re_rendered_file_is_read_again_without_a_reset(self, tmp_path, monkeypatch):
+        config_file = _write(tmp_path / "config.yml", "marker: first\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+        assert current_config().get("marker") == "first"
+
+        config_file.write_text("marker: second\n", encoding="utf-8")
+        stat = config_file.stat()
+        os.utime(config_file, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+
+        assert current_config().get("marker") == "second"
+
+    def test_nothing_to_find_is_a_missing_config(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        assert active_config() is None
+        with pytest.raises(ConfigNotFoundError):
+            current_config()
+        with pytest.raises(FileNotFoundError):
+            get_config_value("anything")
+
+    def test_an_installed_config_answers_ahead_of_the_located_one(self, tmp_path, monkeypatch):
+        _write(tmp_path / "config.yml", "marker: located\n")
+        monkeypatch.chdir(tmp_path)
+        installed = config_of({"marker": "installed"})
+
+        assert install_config(installed) is None
+        assert current_config() is installed
+        assert install_config(None) is installed
+        assert current_config().get("marker") == "located"
+
+    def test_a_scoped_config_answers_inside_its_block_only(self):
+        install_config(config_of({"marker": "process"}))
+        inner = config_of({"marker": "scoped"})
+
+        with using_config(inner) as scoped:
+            assert scoped is inner
+            assert get_config_value("marker") == "scoped"
+            with using_config(config_of({"marker": "nested"})):
+                assert get_config_value("marker") == "nested"
+            assert active_config() is inner
+        assert get_config_value("marker") == "process"
+
+    def test_a_scope_named_by_path_loads_it(self, tmp_path):
+        config_file = _write(tmp_path / "config.yml", "marker: from-path\n")
+
+        with using_config(config_file) as scoped:
+            assert scoped.path == config_file
+            assert get_config_value("marker") == "from-path"
+
+    def test_an_explicit_path_is_read_without_becoming_the_default(self, tmp_path):
+        config_file = _write(tmp_path / "config.yml", "marker: explicit\n")
+
+        assert get_config_value("marker", None, str(config_file)) == "explicit"
+        assert active_config() is None
+
+    def test_the_lazy_default_applies_the_env_chain_before_it_loads(self, tmp_path, monkeypatch):
+        _write(tmp_path / ".env", "OSPREY_LAZY_CHAIN_PROBE=from-the-chain\n")
+        _write(tmp_path / "config.yml", "value: ${OSPREY_LAZY_CHAIN_PROBE}\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("OSPREY_LAZY_CHAIN_PROBE", raising=False)
+
+        assert get_config_value("value") == "from-the-chain"
+
+
+class TestFacilityTimezone:
+    """``facility_timezone`` never raises: it is the safe default for every synthesis
+    primitive and timestamp render site."""
+
+    def test_utc_when_no_config_can_be_found(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+
+        assert facility_timezone() == ZoneInfo("UTC")
+
+    def test_utc_when_the_configured_zone_is_invalid(self, tmp_path, monkeypatch):
+        config_file = _write(tmp_path / "config.yml", "system:\n  timezone: Not/ARealZone\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+
+        assert facility_timezone() == ZoneInfo("UTC")
+
+    def test_the_configured_zone_when_valid(self, tmp_path, monkeypatch):
+        config_file = _write(tmp_path / "config.yml", "system:\n  timezone: America/Los_Angeles\n")
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+
+        assert facility_timezone() == ZoneInfo("America/Los_Angeles")
+
+    def test_the_zone_of_the_config_given(self):
+        loaded = config_of({"system": {"timezone": "Asia/Tokyo"}})
+
+        assert facility_timezone(loaded) == ZoneInfo("Asia/Tokyo")
+
+    def test_no_config_is_reported_once_not_once_per_call(self, tmp_path, monkeypatch, caplog):
+        """Synthesis calls this per channel per chunk; once is not zero, though."""
+        monkeypatch.chdir(tmp_path)
 
         with caplog.at_level(logging.WARNING, logger="CONFIG"):
             for _ in range(5):
-                get_facility_timezone()
+                facility_timezone()
 
         fallback = [r for r in caplog.records if "Falling back to UTC" in r.message]
-        assert len(fallback) == 1, f"expected one fallback warning, got {len(fallback)}"
+        assert len(fallback) == 1
+
+    def test_a_bad_zone_is_reported_once_per_load(self, caplog):
+        loaded = config_of({"system": {"timezone": "Not/ARealZone"}})
+
+        with caplog.at_level(logging.WARNING, logger="CONFIG"):
+            for _ in range(5):
+                facility_timezone(loaded)
+            facility_timezone(config_of({"system": {"timezone": "Not/ARealZone"}}))
+
+        fallback = [r for r in caplog.records if "Falling back to UTC" in r.message]
+        assert len(fallback) == 2
+
+
+class TestTimezoneDriftWarning:
+    """A container ``$TZ`` that disagrees with an explicit ``system.timezone`` is
+    reported once per load; the zone read stays ``system.timezone``."""
+
+    def test_warns_once_on_drift(self, monkeypatch, caplog):
+        loaded = config_of({"system": {"timezone": "America/Los_Angeles"}})
+        monkeypatch.setenv("TZ", "UTC")
+
+        with caplog.at_level(logging.WARNING, logger="CONFIG"):
+            facility_timezone(loaded)
+            facility_timezone(loaded)
+
+        drift = [r for r in caplog.records if "differs from the facility" in r.message]
+        assert len(drift) == 1
+        assert facility_timezone(loaded) == ZoneInfo("America/Los_Angeles")
+
+    def test_no_warning_when_tz_matches(self, monkeypatch, caplog):
+        loaded = config_of({"system": {"timezone": "America/Los_Angeles"}})
+        monkeypatch.setenv("TZ", "America/Los_Angeles")
+
+        with caplog.at_level(logging.WARNING, logger="CONFIG"):
+            facility_timezone(loaded)
+
+        assert not [r for r in caplog.records if "differs from the facility" in r.message]
+
+    def test_no_warning_when_the_zone_is_not_configured(self, monkeypatch, caplog):
+        """The implicit UTC must stay quiet, or every CI run with $TZ set would warn."""
+        monkeypatch.setenv("TZ", "America/New_York")
+
+        with caplog.at_level(logging.WARNING, logger="CONFIG"):
+            facility_timezone(config_of({}))
+
+        assert not [r for r in caplog.records if "differs from the facility" in r.message]
+
+
+class TestLocalizeFacility:
+    def test_a_naive_time_is_stamped_with_the_zone_named(self):
+        from datetime import datetime
+
+        tokyo = ZoneInfo("Asia/Tokyo")
+
+        assert localize_facility(datetime(2026, 6, 1, 9, 0), tokyo).utcoffset().total_seconds() == (
+            9 * 3600
+        )
+
+    def test_an_aware_time_and_none_pass_through(self):
+        from datetime import UTC, datetime
+
+        aware = datetime(2026, 6, 1, 9, 0, tzinfo=UTC)
+
+        assert localize_facility(aware, ZoneInfo("Asia/Tokyo")) is aware
+        assert localize_facility(None, ZoneInfo("Asia/Tokyo")) is None
 
 
 class TestToFacilityIso:
-    """``to_facility_iso`` is the single shared timestamp-egress transform for the
-    ARIEL MCP and web output paths — both must render the same facility-local ISO
-    string so the two paths can't drift again."""
-
-    @staticmethod
-    def _reset_config_singleton():
-        from osprey_connectors import config as config_module
-
-        config_module._default_config = None
-        config_module._default_configurable = None
+    """``to_facility_iso`` is the one timestamp-egress transform for ARIEL's MCP and web
+    output, so both render the same facility-local string."""
 
     def test_none_passes_through(self):
         from osprey.utils.facility import to_facility_iso
@@ -430,122 +489,40 @@ class TestToFacilityIso:
         assert to_facility_iso(None) is None
 
     def test_non_datetime_degrades_to_str(self):
-        """A value already serialized upstream (or any non-datetime) must not crash."""
         from osprey.utils.facility import to_facility_iso
 
         assert to_facility_iso("2026-06-01T00:00:00+00:00") == "2026-06-01T00:00:00+00:00"
 
-    def test_naive_datetime_is_stamped_facility_local_not_box_local(self, tmp_path, monkeypatch):
-        """A naive datetime is assumed facility-local wall-clock (stamped, not
-        re-interpreted as box-local). Guards against ``astimezone`` reintroducing
-        $TZ dependence on the egress side — mirrors the parse-side contract."""
+    def test_naive_datetime_is_stamped_facility_local_not_box_local(self, monkeypatch):
         from datetime import datetime
 
         from osprey.utils.facility import to_facility_iso
 
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("system:\n  timezone: Asia/Tokyo\n")  # +09:00
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-        # A divergent box $TZ must NOT influence the result.
+        install_config(config_of({"system": {"timezone": "Asia/Tokyo"}}))
         monkeypatch.setenv("TZ", "America/Los_Angeles")
-        self._reset_config_singleton()
 
-        out = to_facility_iso(datetime(2026, 6, 1, 9, 0, 0))  # naive 09:00
-        assert out == "2026-06-01T09:00:00+09:00"  # 09:00 stamped Tokyo, not shifted
+        assert to_facility_iso(datetime(2026, 6, 1, 9, 0, 0)) == "2026-06-01T09:00:00+09:00"
 
-    def test_aware_datetime_rendered_in_facility_zone(self, tmp_path, monkeypatch):
-        """A UTC instant is rendered in the configured facility zone, with offset."""
+    def test_aware_datetime_rendered_in_facility_zone(self):
         from datetime import UTC, datetime
 
         from osprey.utils.facility import to_facility_iso
 
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("system:\n  timezone: Asia/Tokyo\n")  # +09:00, no DST
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-        self._reset_config_singleton()
+        install_config(config_of({"system": {"timezone": "Asia/Tokyo"}}))
 
-        out = to_facility_iso(datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC))  # midnight UTC
-        assert out == "2026-06-01T09:00:00+09:00"  # 09:00 Tokyo, explicit offset
+        out = to_facility_iso(datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC))
+        assert out == "2026-06-01T09:00:00+09:00"
 
 
-class TestTimezoneDriftWarning:
-    """``get_facility_timezone`` warns once if the effective container ``$TZ``
-    disagrees with an explicitly-configured ``system.timezone`` — a guardrail for
-    a misconfigured deploy where the OS clock and the agent zone diverge. The
-    resolver reads ``$TZ`` at call time, so tests set it after loading config."""
-
-    @staticmethod
-    def _reset(monkeypatch):
-        from osprey_connectors import config as config_module
-
-        config_module._default_config = None
-        config_module._default_configurable = None
-        monkeypatch.setattr(config_module, "_tz_drift_warned", False, raising=False)
-
-    def _load_explicit_zone(self, tmp_path, monkeypatch, zone: str):
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(f"system:\n  timezone: {zone}\n")
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-        self._reset(monkeypatch)
-        # Trigger the one-time config load (runs load_dotenv) before we pin $TZ,
-        # so the value we set below is what the resolver reads at call time.
-        from osprey_connectors.config import get_config_value
-
-        get_config_value("system.timezone", None)
-
-    def test_warns_once_on_drift(self, tmp_path, monkeypatch, caplog):
-        import logging
-        from zoneinfo import ZoneInfo
-
-        from osprey_connectors.config import get_facility_timezone
-
-        self._load_explicit_zone(tmp_path, monkeypatch, "America/Los_Angeles")
-        monkeypatch.setenv("TZ", "UTC")  # diverges from system.timezone
-
-        with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            get_facility_timezone()
-            get_facility_timezone()  # second call must not re-warn
-
-        drift = [r for r in caplog.records if "differs from the facility" in r.message]
-        assert len(drift) == 1
-        # The value returned is still authoritative system.timezone, not $TZ.
-        assert get_facility_timezone() == ZoneInfo("America/Los_Angeles")
-
-    def test_no_warning_when_tz_matches(self, tmp_path, monkeypatch, caplog):
-        import logging
-
-        from osprey_connectors.config import get_facility_timezone
-
-        self._load_explicit_zone(tmp_path, monkeypatch, "America/Los_Angeles")
-        monkeypatch.setenv("TZ", "America/Los_Angeles")
-
-        with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            get_facility_timezone()
-
-        assert not [r for r in caplog.records if "differs from the facility" in r.message]
-
-    def test_no_warning_when_timezone_not_explicitly_configured(
-        self, tmp_path, monkeypatch, caplog
+def test_the_module_keeps_no_view_of_the_config():
+    """The derived ``configurable`` view and its aliases are gone: one tree, one spelling."""
+    for name in (
+        "ConfigBuilder",
+        "get_configurable",
+        "get_full_configuration",
+        "_build_configurable",
     ):
-        """Config absent → implicit-UTC default; a set $TZ must stay quiet (else
-        every CI run with $TZ set but no system.timezone would warn spuriously)."""
-        import logging
-
-        from osprey_connectors.config import get_config_value, get_facility_timezone
-
-        config_file = tmp_path / "config.yml"
-        config_file.write_text(
-            "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
-        )  # no system.timezone
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-        self._reset(monkeypatch)
-        get_config_value("system.timezone", None)
-        monkeypatch.setenv("TZ", "America/New_York")
-
-        with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            get_facility_timezone()
-
-        assert not [r for r in caplog.records if "differs from the facility" in r.message]
+        assert not hasattr(config_module, name)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ from osprey.simulation.apply import (
     preflight_archive_rewrite,
 )
 from osprey_connectors.archiver._field_names import field_name
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
     EXPIRE_FIELD,
@@ -92,7 +92,7 @@ def event_window(events: list[dict], *args, **kwargs) -> tuple[float, float]:
 
     In the facility zone unless a case names its own, as the rewrite places them.
     """
-    kwargs.setdefault("tz", get_facility_timezone())
+    kwargs.setdefault("tz", facility_timezone())
     return apply.event_window(view_events(events), *args, **kwargs)
 
 
@@ -101,7 +101,7 @@ def event_subwindows(events: list[dict], *args, **kwargs) -> list[tuple[float, f
 
     In the facility zone unless a case names its own, as the rewrite places them.
     """
-    kwargs.setdefault("tz", get_facility_timezone())
+    kwargs.setdefault("tz", facility_timezone())
     return apply.event_subwindows(view_events(events), *args, **kwargs)
 
 
@@ -338,7 +338,7 @@ def _seeded(root: Path, mongo_store: dict):
     # and the disagreement would look exactly like a scenario that failed to
     # restore.
     archive = build(
-        root / "data" / "simulator", ActiveState(names=[], anchor_at=T0), tz=get_facility_timezone()
+        root / "data" / "simulator", ActiveState(names=[], anchor_at=T0), tz=facility_timezone()
     )
     seed_base(collection, archive, KNOBS, anchor_at=T0, chunk_size=256)
     try:

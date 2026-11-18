@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation.archive import build
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.records import (
@@ -69,7 +69,7 @@ def test_a_deckless_model_does_not_stop_the_archive_of_the_other_channels(
     view = _view(tmp_path)
     times = [T0 + second for second in range(5)]
 
-    archive = build(view, ActiveState(), tz=get_facility_timezone())
+    archive = build(view, ActiveState(), tz=facility_timezone())
     archived = archive.series("T:RB", times)
 
     assert Composite(view, model_log=False).status("D") == "no deck"

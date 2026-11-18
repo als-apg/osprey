@@ -518,8 +518,8 @@ class GraphContext:
             default: Value to use when the key cannot be read at all.
 
         Returns:
-            The configured value, or ``default``. ``get_config_value`` builds
-            the project's ConfigBuilder on first use, so where
+            The configured value, or ``default``. ``get_config_value`` loads
+            the project's config on first use, so where
             :meth:`_load_config` degrades a *missing* config file this degrades
             the same file being missing one call later — without it the server
             would still die at startup over a config the graph tools are not

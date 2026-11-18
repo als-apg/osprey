@@ -45,7 +45,7 @@ from osprey.interfaces.ariel.api.schemas import (
     ThreadResponse,
 )
 from osprey.utils.facility import to_facility_iso
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -647,20 +647,20 @@ async def get_capabilities(request: Request) -> dict:
     panel_enabled = bool(getattr(request.app.state, "config_panel_enabled", False))
     # Never raises: an invalid configuration answers UTC, which is also the
     # zone to_facility_iso renders in then.
-    facility_timezone = get_facility_timezone().key
+    zone_name = facility_timezone().key
 
     if status == CONFIG_STATUS_INVALID or (errors and status is None and service is None):
         return {
             **_invalid_capabilities(errors, remedy),
             "config_panel_enabled": panel_enabled,
-            "facility_timezone": facility_timezone,
+            "facility_timezone": zone_name,
         }
 
     service = _require_service(request)
     payload = {
         **_get_caps(service.config),
         "config_panel_enabled": panel_enabled,
-        "facility_timezone": facility_timezone,
+        "facility_timezone": zone_name,
     }
     if errors:
         payload = {

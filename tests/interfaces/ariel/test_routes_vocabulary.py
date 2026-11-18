@@ -110,7 +110,7 @@ def test_capabilities_configuration_invalid_payload_is_service_independent():
         config_panel_enabled=True,
     )
 
-    with patch.object(routes, "get_facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
+    with patch.object(routes, "facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
         response = TestClient(app).get("/api/capabilities")
 
     assert response.status_code == 200
@@ -178,7 +178,7 @@ def test_capabilities_configuration_warning_names_the_facility_zone():
         ariel_service=_make_service(),
     )
 
-    with patch.object(routes, "get_facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
+    with patch.object(routes, "facility_timezone", return_value=ZoneInfo("Asia/Tokyo")):
         payload = TestClient(app).get("/api/capabilities").json()
 
     assert payload["facility_timezone"] == "Asia/Tokyo"

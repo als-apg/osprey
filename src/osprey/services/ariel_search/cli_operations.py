@@ -1089,7 +1089,7 @@ async def run_ingest(
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
     from osprey.services.ariel_search.ingestion.ingest import ingest_one
-    from osprey_connectors.config import localize_facility
+    from osprey_connectors.config import facility_timezone, localize_facility
 
     if "ingestion" not in config_dict:
         config_dict["ingestion"] = {}
@@ -1099,7 +1099,7 @@ async def run_ingest(
 
     config = _ariel_config(config_dict)
     _resolve_entry_expander(config, progress)
-    since = localize_facility(since)
+    since = localize_facility(since, facility_timezone())
     adapter_instance = get_adapter(config)
 
     if progress:

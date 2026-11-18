@@ -224,17 +224,17 @@ def _reset_singletons(monkeypatch):
         reset_backend()
         _reset_facility_knowledge_bundle()
         reset_config_cache()
-        _cfg._config_cache.clear()
+        _cfg._loads.clear()
 
-    monkeypatch.setattr(_cfg, "_default_config", None)
-    monkeypatch.setattr(_cfg, "_default_configurable", None)
-    saved_cache = _cfg._config_cache.copy()
+    monkeypatch.setattr(_cfg, "_installed", None)
+    monkeypatch.setattr(_cfg, "_last_lazy", None)
+    saved_cache = _cfg._loads.copy()
     _reset_all()
 
     yield
 
     _reset_all()
-    _cfg._config_cache.update(saved_cache)
+    _cfg._loads.update(saved_cache)
 
 
 @pytest.fixture(autouse=True)

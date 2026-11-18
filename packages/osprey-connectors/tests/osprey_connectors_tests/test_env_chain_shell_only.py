@@ -1,6 +1,6 @@
 """The env chain never sets a shell-only launch variable.
 
-:func:`osprey_connectors.config.apply_env_chain` is the one code path that
+:func:`osprey_connectors.dotenv.apply_env_chain` is the one code path that
 applies the chain to a process environment. A launch variable a chain file sets
 leaves the environment exactly as the shell gave it, and the operator is told
 which names were ignored, never their values.
@@ -18,16 +18,16 @@ from pathlib import Path
 
 import pytest
 
-from osprey_connectors import config
-from osprey_connectors.config import (
+from osprey_connectors import dotenv
+from osprey_connectors.dotenv import (
     _SHELL_ONLY_ENV_PREFIXES,
     _SHELL_ONLY_ENV_VARS,
+    ENV_CHAIN_APPLIED_ENV,
     _is_shell_only_env_var,
     apply_env_chain,
     dotenv_shell_overrides,
     load_project_dotenv,
 )
-from osprey_connectors.dotenv import ENV_CHAIN_APPLIED_ENV
 
 #: Every shell-only name, plus one name per loader prefix.
 PROBE_NAMES = sorted(_SHELL_ONLY_ENV_VARS) + [
@@ -53,7 +53,7 @@ def _write_chain(directory: Path, filename: str, extra: dict[str, str]) -> Path:
 
 @pytest.fixture(autouse=True)
 def _fresh_report_record(monkeypatch):
-    monkeypatch.setattr(config, "_shell_only_reported", set())
+    monkeypatch.setattr(dotenv, "_shell_only_reported", set())
 
 
 @pytest.fixture
@@ -301,7 +301,7 @@ def test_second_call_on_the_same_file_does_not_warn_again(chain, caplog):
 def test_load_project_dotenv_skips_and_does_not_record_shell_only(chain, monkeypatch):
     monkeypatch.chdir(chain[0].parent)
     monkeypatch.delenv(ENV_CHAIN_APPLIED_ENV, raising=False)
-    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.setattr(dotenv, "_shell_overrides", {})
     for name in PROBE_NAMES:
         monkeypatch.setenv(name, _shell_value(name))
     monkeypatch.setenv("OSPREY_BOTH", "shell")

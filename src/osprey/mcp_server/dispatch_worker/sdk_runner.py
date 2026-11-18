@@ -410,7 +410,7 @@ async def run_dispatch(
         make_pretooluse_hook,
         narrow_allowed_tools,
     )
-    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors.config import facility_timezone
 
     sdk_env = build_clean_env(project_cwd=render_dir)
 
@@ -444,7 +444,7 @@ async def run_dispatch(
     # hook subprocesses (which the agent's working directory does not relocate)
     # falling back to their working directory and failing with "No config.yml
     # found in current directory" on every dispatch.
-    sdk_env["CONFIG_FILE"] = str(deployed_config_path())
+    sdk_env["OSPREY_CONFIG"] = sdk_env["CONFIG_FILE"] = str(deployed_config_path())
 
     # The agent's Claude state (its transcripts) lives on the worker's agent-data
     # volume: the container layer is discarded at every recreate. The image
@@ -663,7 +663,7 @@ async def run_dispatch(
         user_content,
         allowed_tools=effective_tools,
         disallowed_tools=sorted(disallowed),
-        system_prompt=build_system_prompt(get_facility_timezone(), extra=surface_prompt),
+        system_prompt=build_system_prompt(facility_timezone(), extra=surface_prompt),
         can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
         pre_tool_use_hooks=[policy_hook],
         permission_mode=None,

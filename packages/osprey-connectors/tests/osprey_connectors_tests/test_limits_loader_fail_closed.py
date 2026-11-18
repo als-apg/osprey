@@ -39,7 +39,7 @@ def _patch_config(monkeypatch, db_file, mode: str = "exclusive"):
         "osprey_connectors.config.get_config_value",
         lambda key, default=None: values.get(key, default),
     )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
 
 def _write_db(tmp_path, db: dict):

@@ -222,7 +222,7 @@ async def _agent_env(monkeypatch, tmp_path, worker_env: dict[str, str], **kwargs
         "osprey.agent_runner.sdk_context.make_tool_allowlist",
         lambda tools, denied=(): lambda *a, **k: None,
     )
-    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda *a, **k: "UTC")
+    monkeypatch.setattr("osprey_connectors.config.facility_timezone", lambda *a, **k: "UTC")
     captured: dict = {}
 
     async def fake_stream(project_dir, prompt, **kw):  # noqa: ARG001 - stream_query signature

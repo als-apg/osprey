@@ -334,7 +334,7 @@ def _create_lifespan(
         import httpx
 
         from osprey.services.channel_finder.utils.detection import detect_pipeline_config
-        from osprey_connectors.config import default_config_path
+        from osprey_connectors.config import active_config
         from osprey_connectors.workspace import resolve_config_path
 
         cf_config = config.get("channel_finder", {})
@@ -353,11 +353,9 @@ def _create_lifespan(
         app.state.project_cwd = project_cwd or str(Path.cwd())
         # The render is where the loaded config sits; a process that loaded
         # none still names the file it would have read.
-        loaded_config = default_config_path()
+        loaded_config = active_config()
         render_root = (
-            Path(loaded_config).parent
-            if loaded_config is not None
-            else resolve_config_path().parent
+            loaded_config.path.parent if loaded_config is not None else resolve_config_path().parent
         )
         identity = facility_identity(render_root, config.get("project_name"))
         app.state.facility_name = identity["name"] if identity is not None else ""

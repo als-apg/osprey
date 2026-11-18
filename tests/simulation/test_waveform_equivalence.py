@@ -29,7 +29,7 @@ import numpy as np
 import pytest
 
 from osprey_connectors.archiver._field_names import field_name
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation import pulse
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -107,7 +107,7 @@ def live_trace(texture: TextureModel) -> np.ndarray:
 @pytest.fixture(scope="module")
 def seeded(demo_view: Path):
     """The archive composite of the example facility, nominal active, anchored at T."""
-    return build(demo_view, ActiveState(names=[], anchor_at=T), tz=get_facility_timezone())
+    return build(demo_view, ActiveState(names=[], anchor_at=T), tz=facility_timezone())
 
 
 # ---------------------------------------------------------------------------

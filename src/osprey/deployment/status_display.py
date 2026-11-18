@@ -52,7 +52,7 @@ from osprey.deployment.errors import DeploymentError, DeploymentRecordError, NoC
 from osprey.deployment.runtime_helper import get_ps_command
 from osprey.deployment.staleness import BUILD_DIRNAME
 from osprey.deployment.web_terminals.naming import web_container_name
-from osprey_connectors.config import load_project_config
+from osprey_connectors.config import load_config
 from osprey_connectors.logger import get_logger
 from osprey_connectors.write_tier import TIER_WORDS
 
@@ -1628,9 +1628,7 @@ def show_repo_status(
     repo_root = Path(repo_root)
     build_dir = repo_root / BUILD_DIRNAME
     config_path = as_built_config_path(repo_root)
-    config = (
-        load_project_config(str(config_path), wrap_errors=True) if config_path.is_file() else None
-    )
+    config = load_config(str(config_path)).raw_tree() if config_path.is_file() else None
 
     output.report("")
     output.report(str(repo_root), style=Styles.BOLD)
@@ -1738,7 +1736,7 @@ def logs_command(repo_root, *, service=None, follow=False, tail=None):
             ),
         )
 
-    config = load_project_config(str(config_path), wrap_errors=True)
+    config = load_config(str(config_path)).raw_tree()
     compose_files = list(as_built_compose_files(config, repo_root))
     web_compose = web_compose_file(repo_root)
     if web_compose.is_file():

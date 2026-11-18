@@ -61,9 +61,9 @@ def _parse_now(now_iso: str) -> datetime:
         )
         raise SystemExit(1) from None
     if anchor.tzinfo is None:
-        from osprey_connectors.config import get_facility_timezone
+        from osprey_connectors.config import facility_timezone
 
-        anchor = anchor.replace(tzinfo=get_facility_timezone())
+        anchor = anchor.replace(tzinfo=facility_timezone())
     return anchor
 
 
@@ -93,12 +93,12 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
     facility timezone is the one that bites: it decides what wall-clock a
     seeded logbook entry lands on, and the fallback is a plausible-looking UTC
     rather than an error. Unwound with the click context, so the anchor cannot
-    outlive the verb (see :func:`~osprey_connectors.config.config_anchored_at`).
+    outlive the verb (see :func:`~osprey.utils.config_paths.deployment_config`).
 
     Raises:
         RepoNotFoundError: When no ``profile.yml`` encloses the search start.
     """
-    from osprey_connectors.config import config_anchored_at
+    from osprey.utils.config_paths import deployment_config
     from osprey_connectors.workspace import BUILD_DIR_NAME, rendered_config_path
 
     repo_root = find_repo_root(repo)
@@ -110,8 +110,8 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
             "run 'osprey build' first",
         )
         raise SystemExit(1)
-    click.get_current_context().with_resource(config_anchored_at(config_path))
-    return repo_root, load_config(str(config_path))
+    click.get_current_context().with_resource(deployment_config(config_path))
+    return repo_root, load_config(config_path).raw_tree()
 
 
 def _require_simulator_view(repo_root: Path) -> SimulatorView:

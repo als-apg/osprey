@@ -248,11 +248,11 @@ def _unexpanded_config(config_path: Path) -> dict:
         The unexpanded document, or an empty dict when it cannot be read.
     """
     try:
-        from osprey_connectors.config import get_config_builder
+        from osprey_connectors.config import load_config
 
-        return get_config_builder(config_path=str(config_path)).get_unexpanded_config()
+        return load_config(config_path).unexpanded_tree()
     except Exception:
-        logger.warning("Could not load %s through ConfigBuilder; reading it as YAML", config_path)
+        logger.warning("Could not load %s through load_config; reading it as YAML", config_path)
 
     try:
         return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}

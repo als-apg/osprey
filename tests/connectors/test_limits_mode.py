@@ -64,7 +64,7 @@ def _validator(monkeypatch, tmp_path: Path, mode: Any) -> LimitsValidator:
         "osprey_connectors.config.get_config_value",
         lambda key, default=None: values.get(key, default),
     )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
     return validator
@@ -107,7 +107,7 @@ class TestTheModeDecidesAChannelWithNoRecord:
             "osprey_connectors.config.get_config_value",
             lambda key, default=None: values.get(key, default),
         )
-        monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+        monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
         refusal = _refusal(LimitsValidator.from_config(), UNLISTED, 499.5)
 

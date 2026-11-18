@@ -93,7 +93,7 @@ def gated(
     installed, it tells the altitude gate a lifecycle verb owns the terminal,
     and every later CLI run on the worker paints no WARNING at all.
     """
-    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.dotenv.load_project_dotenv", lambda *a, **k: None)
     configure_logging()
     install_gate()
     assert gate_installed(), "the fixture failed to install the gate it is about to watch"

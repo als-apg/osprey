@@ -51,7 +51,7 @@ def _armed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Writes reach the simulator: the switch on and a write tier that allows."""
     arm_switch(monkeypatch, tmp_path / "armed-data")
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
 
 
 @pytest.fixture

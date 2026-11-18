@@ -152,7 +152,7 @@ services:
       # before dropping privileges, so the worker can take a lock another
       # container created.
       OSPREY_GUARDED_RUN_DIR: /app/golden-project/var/guarded_run
-      # The worker process reads OSPREY config directly (e.g. get_facility_timezone
+      # The worker process reads OSPREY config directly (e.g. facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
       # subprocess resolve config from the mounted project (via env inheritance),
@@ -392,7 +392,7 @@ services:
       # before dropping privileges, so the worker can take a lock another
       # container created.
       OSPREY_GUARDED_RUN_DIR: /app/golden-project/var/guarded_run
-      # The worker process reads OSPREY config directly (e.g. get_facility_timezone
+      # The worker process reads OSPREY config directly (e.g. facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
       # subprocess resolve config from the mounted project (via env inheritance),

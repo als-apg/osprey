@@ -7,7 +7,7 @@ reads ``enabled`` first and treats a section that is off as off, validating
 nothing further. The build refuses a superset of what runtime refuses, so a
 malformed section never reaches a session.
 
-The file is read here, uncached, rather than through ``ConfigBuilder``: an edit
+The file is read here, uncached, rather than through ``load_config``: an edit
 must reach the next review, and a defect in some other section is not this
 feature's concern. It is not read through ``load_osprey_config`` either, which
 would turn a broken file into "off".

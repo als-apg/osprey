@@ -16,7 +16,7 @@ import pytest
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
@@ -90,7 +90,7 @@ def engine(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(
         Composite, "_engine", staticmethod(lambda name: stub if name == "stub" else real(name))
     )
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     return stub
 
 
@@ -172,7 +172,7 @@ def _view(
 def test_the_composite_is_built_and_read_once_per_active_set(
     tmp_path: Path, engine: SimpleNamespace
 ) -> None:
-    archive = build(_view(tmp_path), ActiveState(), tz=get_facility_timezone())
+    archive = build(_view(tmp_path), ActiveState(), tz=facility_timezone())
 
     for address in archive.addresses:
         archive.series(address, HOUR)
@@ -184,7 +184,7 @@ def test_the_composite_is_built_and_read_once_per_active_set(
 
 def test_an_address_outside_the_view_is_refused(tmp_path: Path, engine: SimpleNamespace) -> None:
     del engine
-    archive = build(_view(tmp_path), ActiveState(), tz=get_facility_timezone())
+    archive = build(_view(tmp_path), ActiveState(), tz=facility_timezone())
 
     with pytest.raises(KeyError, match="NOT:A:CHANNEL is not a channel of the simulator view"):
         archive.series("NOT:A:CHANNEL", HOUR)
@@ -197,7 +197,7 @@ def test_an_opened_view_archives_as_its_path_does(tmp_path: Path, engine: Simple
     opened = build(
         SimulatorView.open(view),
         ActiveState(names=[], anchor_at=datetime.fromtimestamp(T0, UTC)),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
 
     assert (
@@ -205,13 +205,13 @@ def test_an_opened_view_archives_as_its_path_does(tmp_path: Path, engine: Simple
         == build(
             view,
             ActiveState(names=[], anchor_at=datetime.fromtimestamp(T0, UTC)),
-            tz=get_facility_timezone(),
+            tz=facility_timezone(),
         ).addresses
     )
     assert opened.series("T:NOISY", HOUR[:5]) == build(
         view,
         ActiveState(names=[], anchor_at=datetime.fromtimestamp(T0, UTC)),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     ).series("T:NOISY", HOUR[:5])
 
 
@@ -225,7 +225,7 @@ def test_a_view_from_an_older_build_is_refused_with_rebuild(
     path.write_text(json.dumps({**document, "schema": None}), encoding="utf-8")
 
     with pytest.raises(ViewSchemaError, match="rebuild"):
-        build(view, ActiveState(), tz=get_facility_timezone())
+        build(view, ActiveState(), tz=facility_timezone())
 
 
 # -- the samples ---------------------------------------------------------------
@@ -236,7 +236,7 @@ def test_a_texture_channel_archives_what_the_texture_serves_at_each_instant(
 ) -> None:
     del engine
     view = _view(tmp_path)
-    archive = build(view, ActiveState(), tz=get_facility_timezone())
+    archive = build(view, ActiveState(), tz=facility_timezone())
     times = HOUR[:50]
 
     archived = archive.series("T:NOISY", times)
@@ -249,7 +249,7 @@ def test_a_physics_readback_carries_drift_and_keyed_noise_on_its_held_value(
     tmp_path: Path, engine: SimpleNamespace
 ) -> None:
     del engine
-    archive = build(_view(tmp_path), ActiveState(), tz=get_facility_timezone())
+    archive = build(_view(tmp_path), ActiveState(), tz=facility_timezone())
     key = series.channel_key_bytes("M:RB")
     expected = (
         4.0
@@ -265,7 +265,7 @@ def test_the_active_writes_are_the_start_state(tmp_path: Path, engine: SimpleNam
     del engine
     view = _view(tmp_path, scenarios=[{"name": "lift", "overrides": {"M:SP": 7.0, "T:SP": 9.0}}])
 
-    archive = build(view, ActiveState(names=["lift"]), tz=get_facility_timezone())
+    archive = build(view, ActiveState(names=["lift"]), tz=facility_timezone())
 
     assert archive.series("M:SP", HOUR[:3]) == [7.0, 7.0, 7.0]
     assert archive.series("T:RB", HOUR[:3]) == [9.0, 9.0, 9.0]
@@ -283,7 +283,7 @@ def test_a_relative_noise_replacement_scales_with_the_held_value(
             tmp_path / str(nominal), scenarios=noisy, seeds={"T:NOISY": {"nominal": nominal}}
         )
         archived = np.asarray(
-            build(view, ActiveState(names=["noisy"]), tz=get_facility_timezone()).series(
+            build(view, ActiveState(names=["noisy"]), tz=facility_timezone()).series(
                 "T:NOISY", times
             )
         )
@@ -303,7 +303,7 @@ def test_a_relative_noise_replacement_matches_the_texture_sample_for_sample(
     (state / "active_scenarios").write_text("nominal\nnoisy\n", encoding="utf-8")
     times = HOUR[:50]
 
-    archived = build(view, ActiveState(names=["noisy"]), tz=get_facility_timezone()).series(
+    archived = build(view, ActiveState(names=["noisy"]), tz=facility_timezone()).series(
         "T:NOISY", times
     )
     served = [
@@ -326,7 +326,7 @@ def test_an_archiver_event_moves_the_level_the_motion_rides_on(
     archive = build(
         view,
         ActiveState(names=["burst"], anchor_at=datetime.fromtimestamp(T0 + 3600.0, UTC)),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
     samples = np.asarray(archive.series("T:RB", HOUR))
 
@@ -348,7 +348,7 @@ def test_a_step_event_on_an_enum_channel_archives_option_indices(
     archive = build(
         view,
         ActiveState(names=["trip"], anchor_at=datetime.fromtimestamp(T0 + 20.0, UTC)),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
 
     assert archive.series("T:MODE", HOUR[:12]) == [2] * 10 + [1] * 2
@@ -375,7 +375,7 @@ def test_scenarios_writing_one_target_twice_are_archived_without_them(
     archive = build(
         view,
         ActiveState(names=["a", "b"], anchor_at=datetime.fromtimestamp(T0, UTC)),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
 
     assert archive.series("T:RB", [T0]) == [5.0]
@@ -396,7 +396,7 @@ def test_the_archive_composite_is_handed_its_set_and_no_state_directory(
 
     monkeypatch.setattr(composite_module, "Composite", RecordingComposite)
 
-    archived = build(view, ActiveState(), tz=get_facility_timezone()).series("T:RB", HOUR[:20])
+    archived = build(view, ActiveState(), tz=facility_timezone()).series("T:RB", HOUR[:20])
 
     assert handed == [(None, ActiveState())]
     assert archived == [5.0] * 20
@@ -406,7 +406,7 @@ def test_the_archive_composite_is_handed_its_set_and_no_state_directory(
 def test_a_real_readout_fault_archives_the_monitor_the_composite_serves(
     demo_view: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     planes = ["SR:DIAG:BPM:17:POSITION:X", "SR:DIAG:BPM:17:POSITION:Y"]
     times = HOUR[:5]
     state = tmp_path / "state"
@@ -414,7 +414,7 @@ def test_a_real_readout_fault_archives_the_monitor_the_composite_serves(
     now = [float(times[0])]
     served = Composite(demo_view, state_dir=state, clock=lambda: now[0])
 
-    archive = build(demo_view, ActiveState(names=["bpm-polarity"]), tz=get_facility_timezone())
+    archive = build(demo_view, ActiveState(names=["bpm-polarity"]), tz=facility_timezone())
     archived = {plane: archive.series(plane, times) for plane in planes}
     reads = []
     for t_s in times:
@@ -442,7 +442,7 @@ def test_a_physics_readback_archives_the_engine_readout_the_composite_serves(
     view = _view(tmp_path)
     times = HOUR[:50]
 
-    archived = build(view, ActiveState(), tz=get_facility_timezone()).series("M:RB", times)
+    archived = build(view, ActiveState(), tz=facility_timezone()).series("M:RB", times)
     served = [Composite(view, clock=lambda t=t: float(t)).get("M:RB") for t in times]
 
     assert archived == served
@@ -459,7 +459,7 @@ def test_a_physics_setpoint_archives_its_held_value_without_motion(
     )
     times = HOUR[:20]
 
-    archived = build(view, ActiveState(), tz=get_facility_timezone()).series("M:SP", times)
+    archived = build(view, ActiveState(), tz=facility_timezone()).series("M:SP", times)
     served = [Composite(view, clock=lambda t=t: float(t)).get("M:SP") for t in times]
 
     assert archived == served == [2.0] * 20
@@ -475,7 +475,7 @@ def test_a_physics_model_that_fails_to_build_stops_the_archive(
     engine.build = refuse
 
     with pytest.raises(RuntimeError, match="M: deck unreadable"):
-        build(_view(tmp_path), ActiveState(), tz=get_facility_timezone())
+        build(_view(tmp_path), ActiveState(), tz=facility_timezone())
 
 
 def test_a_deckless_model_is_archived_without_it_and_does_not_stop_the_archive(
@@ -491,7 +491,7 @@ def test_a_deckless_model_is_archived_without_it_and_does_not_stop_the_archive(
 
     times = HOUR[:5]
 
-    archived = build(view, ActiveState(), tz=get_facility_timezone()).series("M:RB", times)
+    archived = build(view, ActiveState(), tz=facility_timezone()).series("M:RB", times)
     served = Composite(view, clock=lambda: float(T0))
 
     assert served.status("D") == "no deck"
@@ -511,7 +511,7 @@ def test_a_failed_read_at_the_start_state_raises_it(
     monkeypatch.setattr(Composite, "held", missing)
 
     with pytest.raises(KeyError, match="T:RB"):
-        build(_view(tmp_path), ActiveState(), tz=get_facility_timezone())
+        build(_view(tmp_path), ActiveState(), tz=facility_timezone())
 
 
 def test_a_failed_model_is_raised_by_name(tmp_path: Path, engine: SimpleNamespace) -> None:
@@ -522,7 +522,7 @@ def test_a_failed_model_is_raised_by_name(tmp_path: Path, engine: SimpleNamespac
     engine.build = refuse
 
     with pytest.raises(RuntimeError, match="M: deck unreadable"):
-        build(_view(tmp_path), ActiveState(), tz=get_facility_timezone())
+        build(_view(tmp_path), ActiveState(), tz=facility_timezone())
 
 
 def test_the_archive_composite_serves_the_set_it_is_handed_without_a_state_file(
@@ -531,7 +531,7 @@ def test_the_archive_composite_serves_the_set_it_is_handed_without_a_state_file(
     del engine
     view = _view(tmp_path, scenarios=[{"name": "a", "overrides": {"T:SP": 9.0}}])
 
-    archive = build(view, ActiveState(names=["a"]), tz=get_facility_timezone())
+    archive = build(view, ActiveState(names=["a"]), tz=facility_timezone())
 
     assert archive.held("T:SP") == 9.0
     assert not list(tmp_path.rglob("active_scenarios"))
@@ -551,7 +551,7 @@ def test_building_an_archive_appends_nothing_to_the_model_log(
         ],
     )
 
-    build(view, ActiveState(names=["a", "b"]), tz=get_facility_timezone()).series("M:RB", HOUR[:3])
+    build(view, ActiveState(names=["a", "b"]), tz=facility_timezone()).series("M:RB", HOUR[:3])
 
     assert not logs.exists()
 
@@ -592,7 +592,7 @@ def demo_view(built_demo: BuiltProject, tmp_path: Path) -> Path:
 def test_an_hour_of_a_quiet_monitor_stays_on_its_held_value_inside_its_clamp(
     demo_view: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     seeds_path = demo_view / "seeds.json"
     seeds = json.loads(seeds_path.read_text(encoding="utf-8"))
     record = seeds["seeds"][BPM_X]
@@ -604,12 +604,12 @@ def test_an_hour_of_a_quiet_monitor_stays_on_its_held_value_inside_its_clamp(
         float(record["drift"]["period_s"]),
     )
     max_drift = float(np.max(np.abs(drift)))
-    held = float(build(demo_view, ActiveState(), tz=get_facility_timezone()).held(BPM_X))
+    held = float(build(demo_view, ActiveState(), tz=facility_timezone()).held(BPM_X))
     band = max_drift + 10.0 * sigma
     record["clamp"] = [held - band, held + band]
     seeds_path.write_text(json.dumps(seeds), encoding="utf-8")
 
-    archive = build(demo_view, ActiveState(), tz=get_facility_timezone())
+    archive = build(demo_view, ActiveState(), tz=facility_timezone())
     samples = np.asarray(archive.series(BPM_X, HOUR))
 
     assert float(archive.held(BPM_X)) == held

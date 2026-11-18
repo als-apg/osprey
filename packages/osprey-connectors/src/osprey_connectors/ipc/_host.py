@@ -37,7 +37,7 @@ whose kwargs are a :class:`HostInit`'s fields, as the plain mapping
     {
       "control_system": {...},          # the full control_system config section
       "target": "live" | "va",          # the control target, never defaulted
-      "config_file": "/abs/config.yml", # optional: what CONFIG_FILE to read
+      "config_file": "/abs/config.yml", # optional: the project config to read
       "execution_mode": "readonly"      # optional: restrict this child to reads
     }
 
@@ -613,8 +613,9 @@ class HostInit(FrozenModel):
         control_system: The ``control_system`` config section, whole.
         target: The control target the child serves.
         config_file: The project config the child reads its write posture
-            and limits from, or ``None`` for whatever ``CONFIG_FILE`` (or
-            ``./config.yml``) its environment leads it to.
+            and limits from, or ``None`` for the one
+            :func:`~osprey_connectors.config.locate_config` finds in its
+            environment.
         execution_mode: ``"readonly"`` for a child that refuses every write
             whatever the config arms, or ``None``. It can only take writes
             away.
@@ -768,6 +769,33 @@ def _host_init(kwargs: object) -> HostInit:
     return HostInit.model_validate({**kwargs, "control_system": section})
 
 
+def _install_config_file(config_file: str) -> None:
+    """Make *config_file* this child's process config, and name it to anything it loads.
+
+    The file is installed as the process default, so every lookup the
+    connector makes reads it; ``OSPREY_CONFIG`` names it as well, for framework
+    code the connector loads that locates its own config (and ``CONFIG_FILE``,
+    which some framework readers still read). The working directory's env
+    chain is applied first, as the lazy default would before its load.
+
+    A file that does not load installs nothing: every lookup then locates the
+    same file through ``OSPREY_CONFIG`` and fails as it did before the child
+    installed anything, so a reader that degrades on a missing config (writes
+    off, no limits validator) degrades the same way.
+    """
+    from osprey_connectors.config import install_config, load_config
+    from osprey_connectors.dotenv import load_project_dotenv
+    from osprey_connectors.errors import ConfigLoadError, ConfigurationError
+
+    os.environ["OSPREY_CONFIG"] = config_file
+    os.environ["CONFIG_FILE"] = config_file
+    load_project_dotenv()
+    try:
+        install_config(load_config(config_file))
+    except (ConfigLoadError, ConfigurationError) as exc:
+        logger.debug(f"connector host: {config_file} did not load ({exc}); nothing installed")
+
+
 async def _build_connector(
     init: HostInit, marks: _StartMarks | None = None
 ) -> tuple[ControlSystemConnector, HostReport]:
@@ -795,7 +823,7 @@ async def _build_connector(
         # The connector reads writes_enabled and the limits database — the home
         # of the per-channel confirm policy — from the project config, so the
         # child must be pointed at the same file the parent resolved against.
-        os.environ["CONFIG_FILE"] = init.config_file
+        _install_config_file(init.config_file)
     if init.execution_mode == READONLY_MODE:
         # Restriction only: an inherited readonly claim is never cleared here.
         os.environ[EXECUTION_MODE_ENV_VAR] = READONLY_MODE

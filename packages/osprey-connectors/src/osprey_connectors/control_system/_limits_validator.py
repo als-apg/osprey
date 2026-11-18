@@ -310,14 +310,14 @@ class LimitsValidator:
         A relative ``database_path`` is written alongside the config it appears
         in, so the anchor is the directory of the config that is actually in
         use: *config_path*, when the caller can name the file it loaded (see
-        :func:`osprey_connectors.config.default_config_path`). This is what
+        :func:`osprey_connectors.config.active_config`). This is what
         makes the resolution independent of how the process was launched — a
-        Claude Code hook, an MCP server, and a host verb anchored via
-        ``config_anchored_at`` all load the render's config and find the
+        Claude Code hook, an MCP server, and a host verb that installed its
+        deployment's config all load the render's config and find the
         ``data/`` tree the build copied next to it.
 
         Fallbacks, for callers that cannot name the loaded config:
-        ``Path(CONFIG_FILE).parent`` when that variable is set (a container
+        ``Path(OSPREY_CONFIG).parent`` when that variable is set (a container
         deploy names the config mounted inside the container while
         ``project_root`` may record a host path the container does not have),
         else the config's own ``project_root`` key. Note that under the
@@ -333,7 +333,7 @@ class LimitsValidator:
             return db_path
         if config_path:
             return str(Path(config_path).parent / db_path)
-        config_file = os.environ.get("CONFIG_FILE")
+        config_file = os.environ.get("OSPREY_CONFIG")
         if config_file:
             return str(Path(config_file).parent / db_path)
         if project_root:
@@ -365,22 +365,26 @@ class LimitsValidator:
                 :func:`mapping_config_lookup` for a config held as a dict.
             config_path: The config file the lookup answers from, which is the
                 anchor a relative path resolves against (see
-                :meth:`resolve_database_path`). Defaults to
-                :func:`osprey_connectors.config.default_config_path` when the
-                lookup is the live one; a caller supplying its own lookup
-                names its own anchor, or leaves it to the fallbacks.
+                :meth:`resolve_database_path`). Defaults to the path of
+                :func:`osprey_connectors.config.active_config` when the lookup
+                is the live one; a caller supplying its own lookup names its
+                own anchor, or leaves it to the fallbacks.
 
         Returns:
             The resolved path as a string, or ``None``.
         """
         if config_lookup is None:
-            from osprey_connectors.config import default_config_path, get_config_value
+            from osprey_connectors.config import active_config, get_config_value
 
             # Bound through a ConfigLookup, so the lookup answers ``object``.
             live_lookup: ConfigLookup = get_config_value
             config_lookup = live_lookup
             if config_path is None:
-                config_path = default_config_path()
+                # Read before the lookup below loads anything, as the anchor
+                # always was: a process that has loaded no config yet falls
+                # back on OSPREY_CONFIG and project_root.
+                active = active_config()
+                config_path = str(active.path) if active is not None else None
 
         raw = config_lookup(LIMITS_DATABASE_CONFIG_KEY, None)
         if not isinstance(raw, str) or not raw.strip():

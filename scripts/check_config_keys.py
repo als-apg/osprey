@@ -1164,14 +1164,19 @@ class ConfigKeyGuard:
         return [name for name, text in self.preset_texts() if self.has_match(pattern, text)]
 
     def loader_default_paths(self) -> set[str]:
-        """Paths the config loader synthesizes when the file omits them."""
-        from osprey_connectors.config import ConfigBuilder
+        """Paths the config loader synthesizes when the file omits them.
+
+        The tree a probe file holding one key loads as, less that key: the
+        loader hands out the file's own tree, so this is empty unless a load
+        starts adding keys of its own.
+        """
+        from osprey_connectors.config import load_config
 
         with tempfile.TemporaryDirectory() as tmp:
             probe = Path(tmp) / "config.yml"
             probe.write_text("project_name: config-key-guard-probe\n")
-            builder = ConfigBuilder(str(probe), load_env=False)
-        return set(walk_paths(builder.configurable))
+            tree = load_config(probe, environ={}).raw_tree()
+        return set(walk_paths(tree)) - {"project_name"}
 
     def check_deleted(self) -> None:
         union = self.union()

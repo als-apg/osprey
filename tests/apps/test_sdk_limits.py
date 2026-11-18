@@ -62,7 +62,7 @@ def _configure(
         "osprey_connectors.config.get_config_value",
         lambda key, default=None: values.get(key, default),
     )
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
 
 def _on(mode: str | None) -> dict[str, Any]:

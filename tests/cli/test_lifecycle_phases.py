@@ -26,6 +26,7 @@ from osprey.cli.phase_reporter import (
     current_reporter,
     is_verbose,
 )
+from osprey_connectors.testing import config_of
 from tests.cli._reporters import installed
 
 
@@ -90,7 +91,7 @@ def deploy_stubs(monkeypatch, repo: Path, seen: list):
     )
     monkeypatch.setattr(deploy_cmd, "gate_start_from_build", lambda *a, **k: None)
     monkeypatch.setattr(deploy_cmd, "ensure_repo_env", lambda *a, **k: None)
-    monkeypatch.setattr(deploy_cmd, "load_project_config", lambda *a, **k: {})
+    monkeypatch.setattr(deploy_cmd, "load_config", lambda *a, **k: config_of({}))
     monkeypatch.setattr(
         container_lifecycle, "as_built_config_path", lambda root: repo / "build" / "config.yml"
     )
@@ -519,7 +520,7 @@ def init_stubs(monkeypatch, seen):
     monkeypatch.setattr(build_cmd, "_build_repo", lambda *a, **k: _seen(seen, "build"))
     monkeypatch.setattr(deploy_cmd, "gate_start_from_build", lambda *a, **k: None)
     monkeypatch.setattr(deploy_cmd, "ensure_repo_env", lambda *a, **k: None)
-    monkeypatch.setattr(deploy_cmd, "load_project_config", lambda *a, **k: {})
+    monkeypatch.setattr(deploy_cmd, "load_config", lambda *a, **k: config_of({}))
     monkeypatch.setattr(container_lifecycle, "as_built_config_path", rendered_config)
     monkeypatch.setattr(container_lifecycle, "up_as_built", lambda *a, **k: _seen(seen, "up"))
     return seen

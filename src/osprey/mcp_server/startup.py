@@ -45,10 +45,10 @@ def startup_timer(label: str):
 
 
 def prime_config_builder() -> None:
-    """Prime the main ConfigBuilder with config.yml from OSPREY_CONFIG.
+    """Install config.yml from OSPREY_CONFIG as the process config.
 
-    Sets the global ConfigBuilder singleton so that ``get_config_value()``
-    works throughout MCP tool code. Does NOT initialize the full framework
+    Installs it (:func:`osprey_connectors.config.install_config`) so that
+    ``get_config_value()`` works throughout MCP tool code. Does NOT initialize the full framework
     registry — MCP servers don't need it (they use their own lightweight
     registries for connectors, ARIEL, channel-finder, etc.).
     """
@@ -58,11 +58,11 @@ def prime_config_builder() -> None:
     if osprey_config:
         osprey_config = os.path.expandvars(osprey_config)
         try:
-            from osprey_connectors.config import get_config_builder
+            from osprey_connectors.config import install_config, load_config
 
             with startup_timer("config_builder"):
-                get_config_builder(config_path=osprey_config, set_as_default=True)
-            logger.info("Main ConfigBuilder primed from OSPREY_CONFIG: %s", osprey_config)
+                install_config(load_config(osprey_config))
+            logger.info("Process config installed from OSPREY_CONFIG: %s", osprey_config)
             try:
                 from osprey.stores.type_registry import load_extension_types
 
@@ -70,7 +70,7 @@ def prime_config_builder() -> None:
             except Exception as exc:
                 logger.warning("Extension type loading failed (non-fatal): %s", exc)
         except Exception as exc:
-            logger.warning("ConfigBuilder priming failed (non-fatal): %s", exc)
+            logger.warning("Config priming failed (non-fatal): %s", exc)
 
 
 def initialize_workspace_singletons() -> None:

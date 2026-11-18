@@ -1153,9 +1153,9 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
     global _facility_parsed
 
     from osprey.channel_roster.sources import facility_file_path
-    from osprey_connectors.config import get_full_configuration
+    from osprey_connectors.config import current_config
 
-    config = get_full_configuration()
+    config = current_config().raw_tree()
     path = facility_file_path(config)
     try:
         mtime_ns = path.stat().st_mtime_ns

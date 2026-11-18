@@ -35,7 +35,7 @@ _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
 _LIMITS_PATCH = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
-_TZ_PATCH = "osprey_connectors.config.get_facility_timezone"
+_TZ_PATCH = "osprey_connectors.config.facility_timezone"
 
 # How long an offload test waits on a threading.Event before giving up. It only
 # elapses when the code under test is broken; a passing run never waits on it.

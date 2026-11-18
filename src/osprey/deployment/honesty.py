@@ -34,7 +34,7 @@ guards resolves it — otherwise the divergence *is* the bypass.**
   therefore live, and :func:`pairing_in_profile` fails closed when they
   disagree: whichever one wins, the profile has stated the archive twice and is
   free to be wrong once.
-- A rendered ``config.yml`` is read by :class:`~osprey_connectors.config.ConfigBuilder`
+- A rendered ``config.yml`` is read by :func:`~osprey_connectors.config.load_config`
   and by ``MCPServerConfig``, and both walk *nested sections only* — a top-level
   ``archiver.type:`` line there sets nothing at all. So
   :func:`pairing_in_rendered_config` resolves nested-only. A flat line is not

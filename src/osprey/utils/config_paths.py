@@ -44,9 +44,13 @@ answers "which ``config.yml`` is this process running against".
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 __all__ = [
+    "deployment_config",
     "resolve_config_dir",
     "resolve_config_relative_path",
     "resolve_render_relative_path",
@@ -156,3 +160,50 @@ def resolve_render_relative_path(value: str | Path, config_dir: Path | None = No
     if config_dir is None:
         return path.resolve()
     return (Path(config_dir) / path).resolve()
+
+
+@contextmanager
+def deployment_config(config_path: str | Path) -> Iterator[None]:
+    """Make *config_path* this process's config for the block; put the previous one back after.
+
+    For a verb that acts on one deployment named by its repo (``--repo``,
+    ``osprey up`` on another checkout): it stands in neither the deployment's
+    container nor its repo root, so every lookup that names no config (the
+    facility zone, the limits database, a scenario apply) would otherwise
+    answer from the working directory, and degrade to a default without
+    failing. A whole archive could be synthesized against the wrong clock.
+
+    Process-wide (:func:`osprey_connectors.config.install_config`), not a
+    context-scoped :func:`~osprey_connectors.config.using_config`, because the
+    work the block does runs in executor and server threads that a context
+    variable does not reach. Deliberately in-process rather than an exported
+    ``OSPREY_CONFIG``: the attached start path ``os.execvpe``-replaces itself
+    with the container runtime, and an exported variable would ride into that
+    process's interpolation environment.
+
+    Never raises: a config that will not load leaves the previous default in
+    place and warns, because a verb whose anchor aborted it would turn a
+    degraded lookup into a failed deploy.
+
+    Args:
+        config_path: The rendered config this process is acting on, normally
+            ``<repo>/build/config.yml``.
+    """
+    from osprey_connectors.config import install_config, load_config
+    from osprey_connectors.errors import ConfigLoadError, ConfigurationError
+
+    try:
+        loaded = load_config(config_path)
+    except (ConfigLoadError, ConfigurationError) as exc:
+        logging.getLogger("CONFIG").warning(
+            f"Could not anchor configuration at {config_path} "
+            f"({type(exc).__name__}: {exc}). Values this process reads without an "
+            "explicit path will fall back to their defaults."
+        )
+        yield
+        return
+    previous = install_config(loaded)
+    try:
+        yield
+    finally:
+        install_config(previous)

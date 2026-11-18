@@ -35,7 +35,7 @@ TOOL_MODULES = (
 def project(tmp_path, monkeypatch):
     """A minimal project with no ``services.graphdb`` block.
 
-    ``create_server()`` primes the real ConfigBuilder, which reads a config.yml
+    ``create_server()`` installs the real process config, which reads a config.yml
     from the working directory, so the startup tests need one to exist.
     """
     config = tmp_path / "config.yml"

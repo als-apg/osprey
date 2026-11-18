@@ -59,7 +59,7 @@ from osprey.stores.artifact_manifest import (
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
 from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES, PRESET_TRACKING_DIRNAME
 from osprey_connectors import write_switch
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR
 from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
@@ -538,7 +538,7 @@ def _create_execution_folder() -> Path:
     base = resolve_agent_data_root() / "data" / "python_executions"
     base.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now(get_facility_timezone()).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(facility_timezone()).strftime("%Y%m%d_%H%M%S")
     folder_name = f"{timestamp}_{uuid.uuid4().hex[:8]}"
     folder = base / folder_name
     folder.mkdir(parents=True, exist_ok=True)

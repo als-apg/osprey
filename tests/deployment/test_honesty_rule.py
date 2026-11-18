@@ -4,7 +4,7 @@ There are two kinds of config, read by different readers, and the guard has to
 resolve a key exactly as the reader it guards resolves it. A build profile's
 ``config:`` block reaches the rendered project through the emitter, which honors
 the dotted spelling and a nested mapping alike, so both are live there. A
-rendered ``config.yml`` is read by ``ConfigBuilder`` and ``MCPServerConfig``,
+rendered ``config.yml`` is read by ``load_config`` and ``MCPServerConfig``,
 which walk nested sections only — a top-level ``archiver.type:`` line in that
 file configures nothing.
 
@@ -147,7 +147,7 @@ def test_a_rendered_machine_with_a_nested_store_is_honest(machine: str) -> None:
 
 @each_machine
 def test_a_flat_archiver_line_cannot_excuse_a_nested_mock(machine: str) -> None:
-    """BYPASS REGRESSION. ConfigBuilder and MCPServerConfig walk nested sections
+    """BYPASS REGRESSION. load_config and MCPServerConfig walk nested sections
     only, so the flat line configures nothing while the nested mock is what the
     factory builds. Reading the flat key as the archiver would wave through a
     running VA+mock (or stand-in+mock) stack."""

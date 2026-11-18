@@ -1,7 +1,7 @@
 """Tests for MCP server shared utilities and startup wiring.
 
 Covers: config loading, make_error format, and the config bridge
-(create_server primes ConfigBuilder).
+(create_server installs the process config).
 """
 
 import pytest
@@ -9,23 +9,23 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_config_builder_globals():
-    """Reset ConfigBuilder module globals so each test starts clean.
+    """Restore the config module's process state so each test starts clean.
 
-    load_osprey_config() now delegates to get_config_builder(), which uses
-    its own per-path cache and default singleton.  Both must be cleared
-    between tests to prevent cross-contamination.
+    load_osprey_config() installs the config it loads as the process default
+    and caches the load; both are put back between tests to prevent
+    cross-contamination.
     """
     import osprey_connectors.config as cfg_mod
 
-    orig_default = cfg_mod._default_config
-    orig_configurable = cfg_mod._default_configurable
-    orig_cache = cfg_mod._config_cache.copy()
+    orig_default = cfg_mod._installed
+    orig_configurable = cfg_mod._last_lazy
+    orig_cache = cfg_mod._loads.copy()
 
     yield
 
-    cfg_mod._default_config = orig_default
-    cfg_mod._default_configurable = orig_configurable
-    cfg_mod._config_cache = orig_cache
+    cfg_mod._installed = orig_default
+    cfg_mod._last_lazy = orig_configurable
+    cfg_mod._loads = orig_cache
 
 
 async def test_load_osprey_config(tmp_path, monkeypatch):
@@ -130,29 +130,29 @@ async def test_make_error_no_suggestions():
 
 
 # ---------------------------------------------------------------------------
-# Config bridge tests (create_server primes ConfigBuilder from OSPREY_CONFIG)
+# Config bridge tests (create_server installs the config OSPREY_CONFIG names)
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture()
 def _reset_config_globals():
-    """Reset ConfigBuilder module globals so each test starts clean."""
+    """Restore the config module's process state so each test starts clean."""
     import osprey_connectors.config as cfg_mod
 
-    orig_default = cfg_mod._default_config
-    orig_configurable = cfg_mod._default_configurable
-    orig_cache = cfg_mod._config_cache.copy()
+    orig_default = cfg_mod._installed
+    orig_configurable = cfg_mod._last_lazy
+    orig_cache = cfg_mod._loads.copy()
 
     yield
 
-    cfg_mod._default_config = orig_default
-    cfg_mod._default_configurable = orig_configurable
-    cfg_mod._config_cache = orig_cache
+    cfg_mod._installed = orig_default
+    cfg_mod._last_lazy = orig_configurable
+    cfg_mod._loads = orig_cache
 
 
 @pytest.mark.usefixtures("_reset_config_globals")
 async def test_create_server_primes_config_builder(tmp_path, monkeypatch):
-    """create_server() primes ConfigBuilder when OSPREY_CONFIG is set."""
+    """create_server() installs the process config when OSPREY_CONFIG is set."""
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  writes_enabled: false\n"
@@ -164,10 +164,9 @@ async def test_create_server_primes_config_builder(tmp_path, monkeypatch):
 
     create_server()
 
-    from osprey_connectors.config import get_config_builder
+    from osprey_connectors.config import current_config
 
-    builder = get_config_builder()
-    assert builder.raw_config["control_system"]["type"] == "virtual_accelerator"
+    assert current_config().get("control_system.type") == "virtual_accelerator"
 
 
 @pytest.mark.usefixtures("_reset_config_globals")
@@ -177,7 +176,7 @@ async def test_create_server_works_without_osprey_config(tmp_path, monkeypatch):
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.chdir(tmp_path)
 
-    # Provide a config.yml in cwd so ConfigBuilder doesn't raise
+    # Provide a config.yml in cwd so the lazy load does not raise
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"

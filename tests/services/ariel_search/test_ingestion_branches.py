@@ -1462,12 +1462,12 @@ class TestCleanAlsTextBackslashEscapes:
 def facility_tz(monkeypatch) -> ZoneInfo:
     """Pin the facility timezone the generic converter anchors relative times in.
 
-    ``_convert_entry`` builds its ``now`` from ``get_facility_timezone()``, so an
+    ``_convert_entry`` builds its ``now`` from ``facility_timezone()``, so an
     unpinned zone would make the resolved wall-clock time depend on whatever
     config the test host happens to load.
     """
     zone = ZoneInfo("America/Los_Angeles")
-    monkeypatch.setattr(generic_module, "get_facility_timezone", lambda: zone)
+    monkeypatch.setattr(generic_module, "facility_timezone", lambda: zone)
     return zone
 
 
@@ -1479,7 +1479,7 @@ def facility_berlin(monkeypatch) -> ZoneInfo:
     zone there.
     """
     zone = ZoneInfo("Europe/Berlin")
-    monkeypatch.setattr("osprey_connectors.config.get_facility_timezone", lambda: zone)
+    monkeypatch.setattr("osprey_connectors.config.facility_timezone", lambda: zone)
     return zone
 
 

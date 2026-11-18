@@ -133,7 +133,7 @@ def default_altitude(
     ``load_project_dotenv`` is stubbed because it writes an ancestor ``.env``
     straight into ``os.environ``, which would outlive the test.
     """
-    monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
+    monkeypatch.setattr("osprey_connectors.dotenv.load_project_dotenv", lambda *a, **k: None)
     result = CliRunner().invoke(cli, [])
     assert result.exit_code == 0, result.output
     logging.getLogger().setLevel(logging.INFO)
@@ -517,7 +517,7 @@ class TestVerboseKeepsThePrimaryOutput:
     ):
         from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 
-        monkeypatch.setattr("osprey_connectors.config.load_project_dotenv", lambda *a, **k: None)
+        monkeypatch.setattr("osprey_connectors.dotenv.load_project_dotenv", lambda *a, **k: None)
         assert CliRunner().invoke(cli, ["-v"]).exit_code == 0
 
         (tmp_path / ENV_SHARED_FILENAME).write_text("ARIEL_DB_PASSWORD=shared\n", encoding="utf-8")

@@ -429,17 +429,17 @@ def setup_llm_test_environment(test_config, monkeypatch):
     from osprey_connectors import config as config_module
 
     reset_registry()
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
+    config_module._installed = None
+    config_module._last_lazy = None
+    config_module._loads.clear()
     initialize_registry(config_path=str(test_config))
 
     yield
 
     reset_registry()
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
+    config_module._installed = None
+    config_module._last_lazy = None
+    config_module._loads.clear()
 
 
 # =============================================================================

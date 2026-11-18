@@ -7,7 +7,7 @@ comments, formatting, or ordering.
 This module consolidates the former ``yaml_config.py`` and ``config_updater.py``
 into a single source of truth for config file modifications.
 
-For read-only config access, use ``utils/config.py`` (ConfigBuilder, get_config_value).
+For read-only config access, use :mod:`osprey_connectors.config` (``load_config``, ``current_config``).
 
 Typical usage:
     from osprey.utils.config_writer import config_add_to_list, config_update_fields

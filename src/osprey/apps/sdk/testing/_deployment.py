@@ -353,12 +353,12 @@ class ServedTree:
         unqualified configuration lookups answer from the login's render.
         """
         from osprey.interfaces.web_auth import reset_web_credentials
-        from osprey_connectors.config import config_anchored_at
+        from osprey.utils.config_paths import deployment_config
 
         with _environ(self.env):
             reset_web_credentials()
             try:
-                with config_anchored_at(self.config_path):
+                with deployment_config(self.config_path):
                     yield self
             finally:
                 reset_web_credentials()

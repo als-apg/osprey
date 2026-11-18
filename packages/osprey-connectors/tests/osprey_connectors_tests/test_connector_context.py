@@ -48,7 +48,7 @@ def _serve(monkeypatch, tmp_path: Path, section: dict[str, Any]) -> None:
         return default
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
 
 class TestTheContextCarriesNoJudgement:

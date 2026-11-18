@@ -64,7 +64,7 @@ UNSTABLE_CURRENT = 712.2
 @pytest.fixture(autouse=True)
 def _no_model_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """No model log file, and a write tier that allows with the simulator switched on."""
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
     arm_switch(monkeypatch, tmp_path / "agent-data")
 
