@@ -13,8 +13,9 @@ from osprey.cli.main import cli
 from osprey.facility.settings import NO_READBACK_WARNING, SERVED_PROBE_KEYS
 from osprey.facility.views.facts import zero_source_facts
 from tests._builds import init_machineless
+from tests.facility.conftest import MACHINELESS_PROJECT, MachinelessBuild
 
-PROJECT = "machineless"
+PROJECT = MACHINELESS_PROJECT
 
 
 @pytest.fixture
@@ -22,13 +23,11 @@ def repo(tmp_path: Path) -> Path:
     return init_machineless(tmp_path, PROJECT)
 
 
-def test_a_repo_with_no_facility_tree_builds(repo: Path) -> None:
-    result = CliRunner().invoke(
-        cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
-    )
+def test_a_repo_with_no_facility_tree_builds(built_machineless: MachinelessBuild) -> None:
+    repo = built_machineless.repo
 
-    assert result.exit_code == 0, result.output
-    assert result.stderr.count(NO_READBACK_WARNING) == 1
+    assert built_machineless.exit_code == 0, built_machineless.output
+    assert built_machineless.stderr.count(NO_READBACK_WARNING) == 1
     facts = json.loads((repo / "build" / "data" / "facility_facts.json").read_text("utf-8"))
     assert facts == zero_source_facts(facts["identity"])
     assert facts["identity"]["name"] == PROJECT
