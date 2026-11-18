@@ -127,6 +127,7 @@ from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
     preflight_web_terminals,
+    web_stack_service_names,
 )
 from osprey.deployment.web_terminals.render import PROXY_ENV_NAMES
 from osprey.deployment.web_terminals.render_images import (
@@ -6610,11 +6611,15 @@ def _start_stack(
 
     # Written before the first step that touches this project's containers: a start
     # refused earlier leaves the previous record, and any start that gets this far —
-    # attached or detached, refused later or not — has recorded the runtime and
-    # project it acts on.
+    # attached or detached, refused later or not — has recorded the runtime, the
+    # project and the compose services it acts on.
     write_deployment_record(
         Path(repo_root),
-        DeploymentRecord(get_runtime_command(config)[0], resolve_project_name(config)),
+        DeploymentRecord(
+            get_runtime_command(config)[0],
+            resolve_project_name(config),
+            compose_services=_driven_service_names(config, compose_files, Path(repo_root)),
+        ),
     )
 
     # Reconcile the web slice's orphans FIRST: a terminal whose user was renamed
@@ -7919,6 +7924,25 @@ def _started_services(
                 spec = {**earlier, **spec}
             started[name] = spec
     return started
+
+
+def _driven_service_names(
+    config: dict, compose_files: Sequence[str | Path], repo_root: Path
+) -> tuple[str, ...]:
+    """The compose service keys a start drives: its files' and the web stack's.
+
+    Relative entries of *compose_files* are resolved against *repo_root*, as
+    :func:`_started_services` resolves them. The web stack's keys come from the
+    roster and the auth method, not from its compose file, which the start
+    renders only after this is asked.
+    """
+    names: set[str] = set()
+    for path in compose_files:
+        file = repo_root / path if not Path(path).is_absolute() else Path(path)
+        names.update(rendered_compose_services(file) or {})
+    if _web_terminals_enabled(config):
+        names.update(web_stack_service_names(config))
+    return tuple(sorted(names))
 
 
 def _refuse_services_not_running(
