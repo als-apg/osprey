@@ -79,8 +79,9 @@ class _RecordingFactory:
 
     @staticmethod
     def _context(config: Any, control_target: str | None) -> ConnectorContext:
-        connector_type = (config or {}).get("type")
-        settings = (config or {}).get("connector", {}).get(connector_type, {})
+        raw = {} if config is None else config.raw
+        connector_type = raw.get("type")
+        settings = raw.get("connector", {}).get(connector_type, {})
         return ConnectorContext(
             connector_type=connector_type, control_target=control_target, settings=settings
         )
@@ -92,7 +93,7 @@ class _RecordingFactory:
         control_target: str | None = None,
         readonly_wording: str = "script",  # noqa: ARG002 - the factory's signature
     ) -> Any:
-        self.calls.append((config, control_target))
+        self.calls.append((None if config is None else dict(config.raw), control_target))
         return _RecordedConnector(self._context(config, control_target))
 
     def build(
@@ -102,7 +103,7 @@ class _RecordingFactory:
         control_target: str | None = None,
         readonly_wording: str = "script",  # noqa: ARG002 - the factory's signature
     ) -> tuple[Any, ConnectorContext]:
-        self.calls.append((config, control_target))
+        self.calls.append((None if config is None else dict(config.raw), control_target))
         context = self._context(config, control_target)
         return _RecordedConnector(ConnectorContext()), context
 

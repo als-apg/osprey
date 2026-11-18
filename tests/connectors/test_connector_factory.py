@@ -237,10 +237,11 @@ class TestBuiltinsRegisterOnFirstUse:
         import sys
 
         code = (
+            "from osprey_connectors.config_sections import ControlSystemSection;"
             "from osprey_connectors.factory import ConnectorFactory;"
             "assert not ConnectorFactory._control_system_connectors;"
             "connector, context = ConnectorFactory.build_control_system_connector("
-            "{'type': 'epics', 'connector': {'epics': {'timeout_s': 1.0}}});"
+            "ControlSystemSection.read({'type': 'epics', 'connector': {'epics': {'timeout_s': 1.0}}}));"
             "print(type(connector).__name__, context.connector_type)"
         )
         result = subprocess.run(

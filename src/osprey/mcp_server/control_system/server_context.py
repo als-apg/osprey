@@ -437,7 +437,7 @@ class ControlSystemContext:
         serves its tools in-process must never construct one, and the baseline
         is a property of the file it was built from either way.
         """
-        return baseline_target(ControlSystemSection.read(self.config.raw))
+        return baseline_target(self.config.raw)
 
     @property
     def switch_capable(self) -> bool:
@@ -449,7 +449,7 @@ class ControlSystemContext:
         change while the config is loaded.
         """
         if self._switch_capable is None:
-            self._switch_capable = switch_capable(ControlSystemSection.read(self.config.raw))
+            self._switch_capable = switch_capable(self.config.raw)
         return self._switch_capable
 
     async def control_system(self) -> _SupervisedConnector:

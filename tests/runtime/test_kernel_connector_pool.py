@@ -35,6 +35,7 @@ from osprey_connectors.control_system._base import (
     ChannelValue,
     ChannelWriteResult,
     ConnectorContext,
+    ConnectorSettings,
     WriteOutcome,
 )
 from osprey_connectors.errors import ChannelWriteBlockedError
@@ -133,10 +134,11 @@ class _FirstContextConnector:
     """A connector whose client keeps the first context the process created."""
 
     disconnected: list["_FirstContextConnector"] = []
+    settings_model = ConnectorSettings
 
     async def connect(self, context: ConnectorContext) -> None:
         self._control_target = context.control_target
-        self.server = context.settings["server"]
+        self.server = (context.settings.model_extra or {})["server"]
         _FIRST_SERVER.setdefault("server", self.server)
 
     async def read_channel(self, address: str, *, timeout_s: float | None = None):  # noqa: ARG002 - a connector's read_channel takes a timeout

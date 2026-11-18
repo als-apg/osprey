@@ -128,6 +128,7 @@ from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     TARGET_LIVE,
     TARGET_STANDIN,
+    ControlTarget,
     is_control_target,
     speaks_channel_access,
 )
@@ -416,6 +417,24 @@ def unknown_target_detail(target: object) -> str:
     return f"Unknown control target {target!r}. Valid targets are {valid}, spelled exactly."
 
 
+def _placeholder_detail(config: Any, target: ControlTarget) -> str | None:
+    """Why *target*'s block cannot be dialled when it still carries a ``${VAR}``, else ``None``."""
+    try:
+        connector_type = resolve_target(
+            ControlSystemSection.read(config_section(config, "control_system")), target
+        )
+    except ValueError:
+        return None
+    unresolved = unresolved_placeholders(connector_block(config, connector_type))
+    if not unresolved:
+        return None
+    return (
+        f"Refusing target {target!r}: 'control_system.connector.{connector_type}' still "
+        f"carries {', '.join(sorted(set(unresolved)))} after environment resolution. "
+        "Set the variable before switching to this target."
+    )
+
+
 def evaluate_eligibility(
     config: Any,
     target: str,
@@ -517,8 +536,12 @@ def evaluate_eligibility(
     except ValueError as exc:
         # Fail-closed at the resolver becomes a reason here: eligibility is the
         # one caller whose job is to answer "no, and here is why" rather than to
-        # propagate. Every other caller establishes a target exists first.
-        return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
+        # propagate. Every other caller establishes a target exists first. A
+        # gateway the derivation refuses because a variable was never set is
+        # named as that, the remedy the operator needs.
+        return Eligibility(
+            False, REASON_TARGET_UNRESOLVABLE, _placeholder_detail(config, target) or str(exc)
+        )
 
     connector_type = derivation.connector_type
     control_system_section = config_section(config, "control_system")
@@ -537,15 +560,9 @@ def evaluate_eligibility(
     # Never waived on a return: a placeholder is not an endpoint anything can
     # dial, and left verbatim it would compare equal to itself in the
     # post-connect check.
-    unresolved = unresolved_placeholders(raw_block)
-    if unresolved:
-        return Eligibility(
-            False,
-            REASON_TARGET_UNRESOLVABLE,
-            f"Refusing target {target!r}: '{block_key}' still carries "
-            f"{', '.join(sorted(set(unresolved)))} after environment resolution. "
-            "Set the variable before switching to this target.",
-        )
+    placeholder = _placeholder_detail(config, target)
+    if placeholder is not None:
+        return Eligibility(False, REASON_TARGET_UNRESOLVABLE, placeholder)
 
     # Returning to a deployment's own baseline is exempt — a session stranded on
     # the simulator, unable to come home, is the less safe outcome of the two

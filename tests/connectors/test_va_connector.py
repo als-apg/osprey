@@ -129,5 +129,5 @@ class TestConfigBlockRouting:
         )
 
         assert isinstance(connector, VirtualAcceleratorConnector)
-        assert captured["config"] == va_only_config
-        assert captured["config"] != epics_config
+        assert captured["config"].timeout_s == va_only_config["timeout_s"]
+        assert captured["config"].timeout_s != epics_config["timeout_s"]

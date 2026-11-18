@@ -565,12 +565,11 @@ class ControlContextOwnerTask:
         record writer should carry.
         """
         from osprey.mcp_server.control_system.connector_host_manager import baseline_target
-        from osprey_connectors.config_sections import ControlSystemSection
 
         config = self._rendered_config()
         if config is UNREADABLE:
             raise ValueError(unreadable_config_refusal(self._config_path() or ""))
-        return baseline_target(ControlSystemSection.read(config))
+        return baseline_target(config)
 
     # -- answering a switch request ----------------------------------------
 

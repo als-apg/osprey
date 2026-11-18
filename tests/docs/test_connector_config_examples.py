@@ -170,7 +170,11 @@ def test_the_factory_builds_the_control_system_connector(path):
         assert connector is not None, label
         block = (section.get("connector") or {}).get(section["type"])
         if block is not None:
-            assert context.settings == block, label
+            # The factory reads the block the page shows into the type's model.
+            model = type(context.settings)
+            assert context.settings == model.from_block(block, connector_type=section["type"]), (
+                label
+            )
 
 
 def test_the_archiver_appliance_settings_connect():

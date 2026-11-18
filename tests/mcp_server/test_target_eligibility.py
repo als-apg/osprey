@@ -1870,7 +1870,7 @@ def test_the_deployments_own_simulator_is_judged_on_loopback_and_its_published_p
         _simulator_config(), Endpoint(host="localhost", port=5064, mode="name_server")
     )
     assert te.endpoint_is_virtual_accelerator(
-        _simulator_config(), Endpoint(host="127.0.0.1", port="5064", mode="name_server")
+        _simulator_config(), Endpoint(host="127.0.0.1", port=5064, mode="name_server")
     )
 
 
@@ -1881,9 +1881,9 @@ def test_the_deployments_own_simulator_is_judged_on_loopback_and_its_published_p
             Endpoint(host="va.example.org", port=5064, mode="name_server"), id="off-the-host"
         ),
         pytest.param(Endpoint(host="localhost", port=5074, mode="name_server"), id="another-port"),
-        pytest.param(
-            Endpoint(host="localhost", port="not-a-port", mode="name_server"), id="unreadable-port"
-        ),
+        # A port that is not an integer is refused when it is derived, so the
+        # endpoint that names no port is the one left to judge.
+        pytest.param(Endpoint(host="localhost", port=None, mode="addr_list"), id="no-port"),
         pytest.param(None, id="no-endpoint"),
     ],
 )

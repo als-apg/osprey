@@ -22,9 +22,9 @@ shown is what the package does.
 Read channels
 -------------
 
-A connector is built from a deployment's ``control_system:`` section, read
-once by ``ControlSystemSection.read`` from a dict of that shape. Its ``type``
-names the connector:
+A connector is built from a configuration dict by its type name. The dict has
+the shape of a deployment's ``control_system:`` section, and
+``ControlSystemSection.read`` reads it once for the factory:
 
 .. literalinclude:: examples/read_channels.py
    :language: python

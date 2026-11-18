@@ -71,7 +71,9 @@ from osprey.mcp_server.control_system.tools.channel_write import _limits_violati
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import control_context, testing, write_switch
-from osprey_connectors.control_system._base import ChannelValue, ConnectorContext
+from osprey_connectors.config_sections import GatewayRow
+from osprey_connectors.control_system._base import ChannelValue, ConnectorContext, ConnectorSettings
+from osprey_connectors.control_system._epics_connector import EpicsSettings
 from osprey_connectors.control_system._va_connector import fill_gateway_ports
 from osprey_connectors.errors import ChannelNotFoundError, ChannelUnreachableError, LimitsViolation
 from osprey_connectors.factory import ConnectorFactory
@@ -632,21 +634,13 @@ class _CapturingConnector:
     """Records the type-specific config block the factory handed ``connect()``."""
 
     last_config: Mapping[str, Any] | None = None
+    settings_model = ConnectorSettings
 
     async def connect(self, context: ConnectorContext) -> None:
-        type(self).last_config = context.settings
+        type(self).last_config = context.settings.model_extra
 
     async def disconnect(self) -> None:  # pragma: no cover - cleanup path
         return None
-
-
-def _endpoint_of(gateway: dict[str, Any]) -> tuple[str, Any, str]:
-    """``(host, port, mode)`` for one gateway block, as the child will install it."""
-    return (
-        str(gateway.get("address", "")),
-        gateway.get("port"),
-        "name_server" if gateway.get("use_name_server", False) else "addr_list",
-    )
 
 
 class TestSandboxEndpointMatchesTheDerivation:
@@ -721,12 +715,18 @@ class TestSandboxEndpointMatchesTheDerivation:
         # The port is unset in config and filled from the deployed service, so
         # the block is put through the connector's own filler — the same helper
         # the derivation used — before the two endpoints are compared.
-        gateway = fill_gateway_ports(block)["gateways"][derivation.selected_role]
-        assert _endpoint_of(gateway) == (expected.host, expected.port, expected.mode)
+        rows = EpicsSettings.from_block(block, connector_type="virtual_accelerator").gateways
+        gateway = fill_gateway_ports(rows)[derivation.selected_role]
+        assert isinstance(gateway, GatewayRow)
+        assert (gateway.address, gateway.port, gateway.mode) == (
+            expected.host,
+            expected.port,
+            expected.mode,
+        )
         assert (expected.host, expected.port) == (SANDBOX_VA_HOST, SANDBOX_VA_PORT)
         # The live gateway is what a sandbox reading the wrong block would have
         # reached, so its absence is part of the claim.
-        assert gateway["address"] != SANDBOX_LIVE_HOST
+        assert gateway.address != SANDBOX_LIVE_HOST
 
         # The stamp, the record and the pin agree, which is what lets this
         # sandbox write at all.
