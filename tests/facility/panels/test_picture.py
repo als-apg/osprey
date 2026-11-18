@@ -448,6 +448,38 @@ def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_pat
     assert cavity["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: a round cavity
 
 
+def test_two_poles_put_each_winding_band_between_its_coil_and_the_gap(tmp_path) -> None:
+    from osprey.facility.panels.picture import body
+
+    rows = [*_unsized(2, 90, bore="gap")]
+    rows += [
+        _row("trim 1", "corrector_winding", "", "", angle=90),
+        _row("trim 2", "corrector_winding", "", "", angle=270),
+    ]
+    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    drawn = body([r for r in pictures if r.shape])
+    coils = [s for s in drawn.shapes if s.role == "coil"]
+    bands = [s for s in drawn.shapes if s.role == "winding"]
+    assert len(coils) == len(bands) == 4
+    for band in bands:
+        assert not any(_overlap(band.points, coil.points) for coil in coils)
+        (above,) = [c for c in coils if _same_side(c, band) and _beside(c, band)]
+        # between its coil and the gap: nearer the beam than its coil
+        assert max(abs(b) for _a, b in band.points) < min(abs(b) for _a, b in above.points)
+    doc = _card(_graph(tmp_path / "g", rows))
+    for name in ("trim 1", "trim 2"):
+        for node in _tipped(doc, name):  # a box the viewer draws where its points say
+            assert node["geometry"]["height"] >= layout.POLYGON_BOX
+
+
+def _same_side(p, q) -> bool:
+    return (sum(b for _a, b in p.points) > 0) == (sum(b for _a, b in q.points) > 0)
+
+
+def _beside(p, q) -> bool:
+    return (sum(a for a, _b in p.points) > 0) == (sum(a for a, _b in q.points) > 0)
+
+
 # -- parts with no position --------------------------------------------------------
 
 

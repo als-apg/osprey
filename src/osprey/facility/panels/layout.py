@@ -239,6 +239,7 @@ PART_VALUE_WIDTH = 64  # a part's number beside it
 BEAM_POINT = 4  # the beam, at the bore's centre; half a beam-axis cross
 COIL_NUMBER_SIZE = 15  # a coil's number, on the yoke ring
 BODY_LINE = 1.5  # the outline of a yoke, a coil, a block
+POLYGON_BOX = 24  # a drawing polygon's box at the least: a thin band is drawn in a taller box
 COIL_WARM_WIDTH = 3  # a coil's outline when its state is warn or bad
 PART_DOT = 10  # a part on the body
 PART_BLOCK = (16, 11)  # a part off the body: width, height
@@ -3829,7 +3830,10 @@ class _Page:
         xs, ys = [p[0] for p in points], [p[1] for p in points]
         x, y = min(xs), min(ys)
         props["points"] = [{"x": _n(a - x), "y": _n(b - y)} for a, b in points]
-        self.s.widget("polygon", x, y, max(xs) - x, max(ys) - y, props, rules=rules)
+        # a box no lower than a row: the viewer sets a lower one on the text baseline,
+        # below where its points say (the points keep their place in a taller box)
+        h = max(max(ys) - y, POLYGON_BOX)
+        self.s.widget("polygon", x, y, max(xs) - x, h, props, rules=rules)
 
     def picture_block(self, block: drawing.Block, px: Callable, scale: float) -> None:
         """A water or terminal part beside the yoke: a small rounded block (water, or
