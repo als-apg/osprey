@@ -2127,7 +2127,7 @@ def _build_graph_index(
     import duckdb
 
     from osprey.services.channel_finder.graph_index import GraphIndexBuildError, build_graph_index
-    from osprey.services.graph_store.seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_file_sha256
 
     def _no_index(error: Exception) -> None:
         from . import output
@@ -2148,7 +2148,7 @@ def _build_graph_index(
     # the guard for that reason too: a full disk must not be the one failure
     # that takes the whole render down.
     try:
-        digest = ttl_sha256(target.corpus_path.read_text(encoding="utf-8"))
+        digest = ttl_file_sha256(target.corpus_path)
         target.index_path.parent.mkdir(parents=True, exist_ok=True)
 
         built = shared.graph_indexes.get(digest)

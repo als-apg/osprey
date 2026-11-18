@@ -330,12 +330,97 @@ def read_yaml(text: str) -> Any:
         yaml.YAMLError: On a text that does not parse.
     """
     loader = _loader_on(yaml_loader.safe_loader())
+    if loader is not _Loader:
+        items = _read_sequence(text, loader)
+        if items is not None:
+            return items
     try:
         return yaml.load(text, Loader=loader)
     except yaml.YAMLError:
         if loader is _Loader:
             raise
     return yaml.load(text, Loader=_Loader)
+
+
+def _read_sequence(text: str, loader: type[Any]) -> list[Any] | None:
+    """A document that is one plain list, parsed one item at a time; ``None`` otherwise.
+
+    ``yaml.load`` builds a node for every scalar of the file before it builds
+    the first value, and for the large layer files of a big facility those
+    nodes are several times the size of what they parse to. The files are lists
+    of records, so a list is composed and constructed item by item on the same
+    scanner and resolver table, each item's nodes dropped before the next.
+
+    Anything this does not read the way ``yaml.load`` would goes back to it:
+    a document that is not a single list without a tag or an anchor, an anchor
+    or alias anywhere (an alias shares its value across items), and every
+    error, which ``yaml.load`` then raises in its own words.
+
+    Args:
+        text: The file's contents.
+        loader: The loader class ``yaml.load`` would use.
+
+    Returns:
+        The list, or ``None`` when ``yaml.load`` is to read the text.
+    """
+    from yaml.composer import Composer
+    from yaml.events import (
+        DocumentStartEvent,
+        SequenceEndEvent,
+        SequenceStartEvent,
+        StreamEndEvent,
+    )
+
+    reader = _ITEM_LOADERS.get(loader)
+    if reader is None:
+        reader = _ITEM_LOADERS[loader] = type("_ItemLoader", (loader, Composer), {})
+        reader.add_constructor("tag:yaml.org,2002:str", _shared_str)
+    parser = reader(text)
+    parser.anchors = {}
+    parser.strings = {}
+    try:
+        parser.get_event()  # the stream's start
+        if not parser.check_event(DocumentStartEvent):
+            return None
+        parser.get_event()
+        if not parser.check_event(SequenceStartEvent):
+            return None
+        start = parser.peek_event()
+        if start.anchor is not None or start.tag not in (None, "!"):
+            return None
+        parser.get_event()
+        items = []
+        while not parser.check_event(SequenceEndEvent):
+            node = parser.compose_node(None, None)
+            if parser.anchors:
+                return None
+            items.append(parser.construct_document(node))
+        parser.get_event()  # the list's end
+        parser.get_event()  # the document's end
+        if not parser.check_event(StreamEndEvent):
+            return None
+        return items
+    except yaml.YAMLError:
+        return None
+    finally:
+        parser.dispose()
+
+
+#: Per loader class, that loader composing on PyYAML's own composer, an item at a time.
+_ITEM_LOADERS: dict[type, type[Any]] = {}
+
+
+def _shared_str(loader: Any, node: Any) -> str:
+    """A string scalar, the one object of its value in this file.
+
+    A layer file repeats the same keys, tags, roles and names on every record;
+    one object per value keeps a large facility's records, and the facility
+    file built from them, a fraction of the size. Equal strings stay equal:
+    nothing reads a string's identity.
+    """
+    value: str = loader.construct_scalar(node)
+    shared: str = loader.strings.setdefault(value, value)
+    return shared
 
 
 def group_families(value: Any) -> tuple[str, ...]:

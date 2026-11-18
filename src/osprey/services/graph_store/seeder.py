@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
+    from pathlib import Path
 
     # Only imported at type-checking time so the runtime import stays lazy.
     from neo4j import Session
@@ -466,6 +467,46 @@ def ttl_sha256(text: str) -> str:
         The hex digest of the UTF-8 encoding of *text*.
     """
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def ttl_file_sha256(path: Path) -> str:
+    """:func:`ttl_sha256` of the file at ``path`` as ``read_text(encoding="utf-8")`` reads it.
+
+    Read a block at a time: a corpus that is valid UTF-8 and holds no carriage
+    return reads back as its own bytes, so their digest is the text's. A file
+    with a carriage return, whose newlines ``read_text`` translates, is read
+    whole and hashed as text, as is one that is not UTF-8, so the digest, and
+    the error, are always those of ``ttl_sha256(path.read_text(encoding="utf-8"))``.
+
+    Args:
+        path: The Turtle file.
+
+    Returns:
+        The hex digest.
+
+    Raises:
+        OSError: The file cannot be read.
+        UnicodeDecodeError: The file is not UTF-8, as ``read_text`` raises it.
+    """
+    import codecs
+
+    digest = hashlib.sha256()
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    try:
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                if b"\r" in block:
+                    break
+                decoder.decode(block)
+                digest.update(block)
+            else:
+                decoder.decode(b"", final=True)
+                return digest.hexdigest()
+    except UnicodeDecodeError:
+        pass
+    # A carriage return, or bytes that are not UTF-8: read as the text, which
+    # translates the one and raises the other exactly as ``read_text`` does.
+    return ttl_sha256(path.read_text(encoding="utf-8"))
 
 
 def read_marker(session: Session) -> str | None:

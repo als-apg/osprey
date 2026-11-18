@@ -1,8 +1,9 @@
 """The graph view's two settings: ``facility_graph.claims`` and ``facility_graph.basis``.
 
 Both default to ``all``. The graph ``View`` row reads exactly these two keys, the
-writer parses them with :func:`graph_settings` and hands them to
-:func:`graph_text`, and an unknown value stops the render before anything is
+writer parses them with :func:`graph_settings` and writes the Turtle
+:func:`graph_text` gives for them, streamed to the file with no copy kept
+between calls, and an unknown value stops the render before anything is
 written, naming the dotted key and the values it allows.
 """
 
@@ -109,17 +110,17 @@ def test_an_unknown_value_stops_the_render_before_anything_is_written(tmp_path: 
     assert not (root / GRAPH_FILE).exists()
 
 
-def test_the_writer_hands_the_parsed_settings_to_graph_text(
+def test_the_writer_hands_the_parsed_settings_to_the_turtle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen: list[GraphSettings] = []
-    real = graph_module.graph_text
+    real = graph_module._write_turtle
 
-    def spy(records: FacilityRecords, settings: GraphSettings = GraphSettings()) -> str:
+    def spy(records: FacilityRecords, settings: GraphSettings, out: Any) -> None:
         seen.append(settings)
-        return real(records, settings)
+        real(records, settings, out)
 
-    monkeypatch.setattr(graph_module, "graph_text", spy)
+    monkeypatch.setattr(graph_module, "_write_turtle", spy)
     config = {"facility_graph": {"claims": "contested", "basis": "stated"}}
 
     write_graph_view(tmp_path / "graph", _inputs(config, tmp_path))
@@ -127,29 +128,24 @@ def test_the_writer_hands_the_parsed_settings_to_graph_text(
     assert seen == [GraphSettings("contested", "stated")]
 
 
-def test_the_memo_is_keyed_on_the_records_and_the_settings(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[object] = []
-    real = graph_module._turtle
+def test_the_written_file_is_the_graph_text(tmp_path: Path) -> None:
+    config = {"facility_graph": {"claims": "contested", "basis": "stated"}}
+    inputs = _inputs(config, tmp_path)
 
-    def counting(*args: Any) -> str:
-        calls.append(args)
-        return real(*args)
+    (written,) = write_graph_view(tmp_path / "graph", inputs)
 
-    monkeypatch.setattr(graph_module, "_turtle", counting)
-    monkeypatch.setattr(graph_module, "_rendered", None)
+    expected = graph_text(inputs.records, GraphSettings("contested", "stated"))
+    assert written.read_bytes() == expected.encode("utf-8")
+
+
+def test_the_view_keeps_no_text_between_calls() -> None:
     records = _records()
 
     first = graph_text(records)
-    assert graph_text(records, GraphSettings()) is first
-    assert len(calls) == 1
 
-    graph_text(records, GraphSettings("none", "stated"))
-    assert len(calls) == 2
-
-    graph_text(records, GraphSettings("none", "stated"))
-    assert len(calls) == 2
+    assert graph_text(records) == first
+    assert graph_text(records) is not first
+    assert not [name for name in vars(graph_module) if name == "_rendered"]
 
 
 def test_the_graph_row_reads_the_two_settings() -> None:

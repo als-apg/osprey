@@ -293,6 +293,13 @@ class FacilityRecords:
         source = self._source
         return facility_bytes(source if isinstance(source, dict) else dict(source))
 
+    def facility_sha256(self) -> str:
+        """The sha256 hex digest of :meth:`facility_bytes`, from the build's one serialisation."""
+        from osprey.facility.render import facility_sha256
+
+        source = self._source
+        return facility_sha256(source if isinstance(source, dict) else dict(source))
+
     def record(self, kind: RecordKind, id: str) -> Mapping[str, Any] | None:
         """The one record of ``kind`` with ``id``, or ``None``."""
         return self._by_kind[kind].get(id)
