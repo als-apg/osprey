@@ -1715,9 +1715,17 @@ read the facility file <code class="docutils literal notranslate"><span class="p
 another; neither verb builds) and the rule tables in <code class="docutils literal notranslate"><span class="pre">panels/</span></code> beside the
 facility tree (<code class="docutils literal notranslate"><span class="pre">--tables</span> <span class="pre">DIRECTORY</span></code> names another), and draw with the
 settings in <code class="docutils literal notranslate"><span class="pre">draw.json</span></code> beside the tables (<code class="docutils literal notranslate"><span class="pre">--draw</span> <span class="pre">FILE</span></code> names another;
-with neither, the empty settings, and one line says so). The screens are
+with neither, the empty settings, and one line says so). Its optional
+<code class="docutils literal notranslate"><span class="pre">write_under</span></code> lists place ids a write keeps to: the home, those places and
+the places within them, the devices placed there, each device in no place one
+relation joins to one of those, and each group with one of those devices as a
+member; links to the other screens are still written and <code class="docutils literal notranslate"><span class="pre">index.json</span></code> lists
+them under <code class="docutils literal notranslate"><span class="pre">outside</span></code>. <code class="docutils literal notranslate"><span class="pre">check</span></code> reads the same key: a screen outside it may
+be absent, and only the health rules of what it keeps must be read. The
+screens are
 Canopy Screen-IR documents, one file per screen, in nine view kinds:
-<code class="docutils literal notranslate"><span class="pre">home</span></code> (the one screen above all others: the top places, every set under
+<code class="docutils literal notranslate"><span class="pre">home</span></code> (the one screen above all others: the top places, those that hold
+a device of a model first as the machines and the others below, every set under
 its class and every group with no set view, and what is in no place, by
 class, each class opening a page of its devices, so every screen is reached
 from it), <code class="docutils literal notranslate"><span class="pre">card</span></code> (one device, its signals, picture, relations and calibration
@@ -1848,11 +1856,19 @@ is named “contested, not in force” beside the value in force, alone it makes
 the row and its cell “contested” with no value, and a contested curve is not
 drawn. The calibration block is the
 <code class="docutils literal notranslate"><span class="pre">calibration-strip</span></code>. <code class="docutils literal notranslate"><span class="pre">no_cards.csv</span></code> (class, under, devices,
-owner_relation, owner_direction, owner_to) names devices that get no card:
-the first row that takes a device wins; the device is drawn on its owner’s
-card (the thing the stated relation names), a link to it opens that card, and
-<code class="docutils literal notranslate"><span class="pre">index.json</span></code> lists it under <code class="docutils literal notranslate"><span class="pre">drawn_on</span></code> with the owner’s screen. A device
-whose owner is not stated gets no entry; <code class="docutils literal notranslate"><span class="pre">check</span></code> counts both. A device card is drawn:
+owner_relation, owner_direction, owner_to, and the optional when and
+attribute) names devices that get no card: <code class="docutils literal notranslate"><span class="pre">class</span></code> <code class="docutils literal notranslate"><span class="pre">*</span></code> matches any
+class, <code class="docutils literal notranslate"><span class="pre">when</span></code> is <code class="docutils literal notranslate"><span class="pre">no-channel</span></code> (the device has no channel),
+<code class="docutils literal notranslate"><span class="pre">no-recipe</span></code> (no card recipe holds it) or both joined by <code class="docutils literal notranslate"><span class="pre">;</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">attribute</span></code> is <code class="docutils literal notranslate"><span class="pre">name=value</span></code>, a value the device’s <code class="docutils literal notranslate"><span class="pre">attributes</span></code> map
+states (a list value matches each of its items). Every condition a row
+states must hold, and the first row that takes a device wins; the device is
+drawn on its owner’s card (the thing the stated relation names), a link to
+it opens that card, and <code class="docutils literal notranslate"><span class="pre">index.json</span></code> lists it under <code class="docutils literal notranslate"><span class="pre">drawn_on</span></code> with the
+owner’s screen. A row with no owner relation, or a device whose owner is not
+found, gets no screen and no entry: a related card names it as a block or a
+row that opens nothing. <code class="docutils literal notranslate"><span class="pre">check</span></code> counts both, and how many devices each row
+takes. A device card is drawn:
 its title line, up to five key tiles (the <code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code> rows of view
 <code class="docutils literal notranslate"><span class="pre">card</span></code> whose <code class="docutils literal notranslate"><span class="pre">level</span></code> names its recipe, else its roles; a tile’s measure is
 <code class="docutils literal notranslate"><span class="pre">value</span></code> or <code class="docutils literal notranslate"><span class="pre">word</span></code> of the role’s first channel, or over every channel of
