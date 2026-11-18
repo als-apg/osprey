@@ -1500,7 +1500,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    it plays: a role played per connector or member is not rows there), its
    drawings (a drawing none of whose parts has a place is a compact row of
    blocks, each the part's name over its signal's light and value, with
-   "arrangement not stated", not an empty frame; a light is ``disagree`` only at
+   "arrangement not stated", not an empty frame; a picture any of whose rows
+   has state ``schematic``, or that is drawn wholly at the default proportions,
+   says "schematic, not to scale" in its caption, while a stated scale keeps its
+   bar; a light is ``disagree`` only at
    a value its rows give two states, so a value every row calls normal is
    normal), an operate block (its control roles, else its
    writable channels: a choice of stated states, an action, or a typed value

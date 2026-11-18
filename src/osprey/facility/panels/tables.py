@@ -753,7 +753,8 @@ class PicturePart:
     :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM`. The caption under the
     drawing's scale bar names the row the drawing is scaled from and the kinds drawn
     at the default proportion ("scaled from the yoke; pole, coil at default
-    proportions"), or says "size not stated" when no row states a size; a yoke no
+    proportions"), or says "size not stated" and "schematic, not to scale" when no
+    row states a size (a row with state ``schematic`` adds the second too); a yoke no
     row sizes has a dashed outline.
 
     ``signal`` (any row) names what the element shows live: a signal name

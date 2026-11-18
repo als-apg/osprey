@@ -531,7 +531,7 @@ _NOT_STATED = "outline not stated"
 _NOT_PLACED = "not placed"
 _ARRANGEMENT_NOT_STATED = "arrangement not stated"
 _SIGNAL_NOT_STATED = "signal not stated"
-_SIZE_NOT_STATED = "size not stated: default proportions"
+_SIZE_NOT_STATED = "size not stated: default proportions · schematic, not to scale"
 _SCALED_FROM = "scaled from the {}"
 _SCHEMATIC = "{} at default proportions"
 _BEAM_AXIS = "beam axis"
@@ -557,7 +557,8 @@ _STATED = "STATED"
 _NOT_STATED_HEAD = "NOT STATED"
 _LADDER_NO_VALUE = "the value is not served: no dot"
 _LADDER_LEFT_OUT = "set points not served, left out: {}"
-_STRIP_TITLE = "IN BEAM ORDER → · schematic, not to scale"
+_NOT_TO_SCALE = "schematic, not to scale"
+_STRIP_TITLE = f"IN BEAM ORDER → · {_NOT_TO_SCALE}"
 _LOOKS_LEGEND = (
     "fill = component type · red ring = fault · amber ring = warning · dashed = no health rule"
 )
@@ -5365,7 +5366,7 @@ class _Page:
             return
         if not shape_rows and not outline:
             scale = self.bare_picture(picture, parts, x0, canvas)
-            self.scale_bar(x0, scale, canvas, _NOT_STATED)
+            self.scale_bar(x0, scale, canvas, schematic_note(picture.parts, _NOT_STATED))
             self.picture_legend(picture)
             return
         body = drawing.body(shape_rows, outline, parts)
@@ -5436,7 +5437,7 @@ class _Page:
             if dot.placed and self.shows_number(dot.row):
                 self.part_value(dot.row, x, y, cx)
         self.y = top + height + GAP
-        self.scale_bar(x0, scale, canvas, scale_note(body))
+        self.scale_bar(x0, scale, canvas, schematic_note(picture.parts, scale_note(body)))
         self.picture_legend(picture)
 
     def unarranged(self, picture: Picture, parts: list[PicturePart]) -> None:
@@ -5469,7 +5470,12 @@ class _Page:
                 self.field(vx, y + ROW, channel, w=x + ARRANGED_BLOCK - GAP - vx, units=True)
         rows = -(-len(parts) // per)
         self.y += rows * (high + GAP)
-        self.small(self.x0, self.y, _ARRANGEMENT_NOT_STATED, fg=MUTED_TEXT)
+        self.small(
+            self.x0,
+            self.y,
+            schematic_note(picture.parts, _ARRANGEMENT_NOT_STATED) or _ARRANGEMENT_NOT_STATED,
+            fg=MUTED_TEXT,
+        )
         self.y += SMALL_LINE + GAP
         self.picture_legend(picture)  # the parts are named above: their sources only
 
@@ -6413,6 +6419,14 @@ def _standing_word(item: object) -> str | None:
     if getattr(item, "basis", None) == "inferred":
         return "inferred"
     return None
+
+
+def schematic_note(parts: Sequence[PicturePart], note: str | None) -> str | None:
+    """A picture's caption *note*, with "schematic, not to scale" after it when a
+    row of the picture states itself ``schematic`` (and the note does not say so)."""
+    if not any(p.state == "schematic" for p in parts) or (note and _NOT_TO_SCALE in note):
+        return note
+    return f"{note} · {_NOT_TO_SCALE}" if note else _NOT_TO_SCALE
 
 
 def scale_note(body: drawing.Body) -> str | None:

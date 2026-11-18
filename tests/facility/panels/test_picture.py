@@ -444,7 +444,7 @@ def test_poles_with_an_angle_and_no_size_draw_from_the_bore_and_say_so(
             [_row("yoke", "yoke", "", "", w=420, h=420)],
             "scaled from the yoke; pole, coil at default proportions",
         ),  # fmt: skip
-        ([], "size not stated: default proportions"),
+        ([], "size not stated: default proportions · schematic, not to scale"),
     ],
 )
 def test_the_scale_caption_names_what_the_drawing_is_scaled_from(
@@ -804,3 +804,23 @@ def test_check_notes_a_signal_that_matches_two_part_devices(tmp_path) -> None:
     (found,) = [p for p in check(graph, out) if p.kind == "ambiguous_picture"]
     assert not found.failing
     assert "XR01:QF1-TS1" in found.detail and "XR01:QF1-TS2" in found.detail
+
+
+def test_a_picture_whose_rows_state_schematic_says_not_to_scale(tmp_path) -> None:
+    rows = [
+        "Quadrupole,end,thermal switch 1,thermal_switch,,,,X,A,schematic,l,,,,",
+        "Quadrupole,end,thermal switch 2,thermal_switch,,,,X,A,schematic,l,,,,",
+    ]
+    texts = _texts(_card(_graph(tmp_path, rows)))
+    assert "arrangement not stated · schematic, not to scale" in texts
+
+
+def test_a_picture_wholly_at_default_proportions_says_not_to_scale(tmp_path) -> None:
+    rows = [r for r in _unsized(4, 45) if ",bore," not in r]
+    texts = _texts(_card(_graph(tmp_path, rows)))
+    assert "size not stated: default proportions · schematic, not to scale" in texts
+
+
+def test_a_scaled_picture_of_stated_rows_says_nothing_of_schematic(tmp_path) -> None:
+    texts = _texts(_card(_graph(tmp_path, _six_poles())))
+    assert not [t for t in texts if "not to scale" in t]
