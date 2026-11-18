@@ -3372,9 +3372,9 @@ ARCHIVER_CONFIG = {
     "services": {"mongodb": {"compression": "zstd", "port_host": 27017}},
     "va_archiver": {
         "retention_days": 1,
-        "hot_span_hours": 1,
-        "hot_cadence_sec": 10,
-        "tail_cadence_sec": 60,
+        "hot_span_h": 1,
+        "hot_cadence_s": 10,
+        "tail_cadence_s": 60,
     },
     "archiver": {
         "mongodb_archiver": {

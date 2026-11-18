@@ -1345,9 +1345,9 @@ the ``mongodb_archiver`` connector reads it back.
    va_archiver:
      host: localhost
      retention_days: 30
-     hot_span_hours: 48
-     hot_cadence_sec: 10
-     tail_cadence_sec: 60
+     hot_span_h: 48
+     hot_cadence_s: 10
+     tail_cadence_s: 60
 
 Every key is optional and the defaults describe a working archive; the block's
 presence is the decision, not its contents.
@@ -1363,28 +1363,28 @@ presence is the decision, not its contents.
      - ``30``
      - How far back the archive reaches — both what a fresh deployment holds
        and what a running one keeps.
-   * - ``hot_span_hours``
+   * - ``hot_span_h``
      - ``48``
      - How much of the recent end is kept at the dense cadence. May not exceed
        ``retention_days``.
-   * - ``hot_cadence_sec``
+   * - ``hot_cadence_s``
      - ``10``
      - Seconds between samples inside the hot span.
-   * - ``tail_cadence_sec``
+   * - ``tail_cadence_s``
      - ``60``
      - Seconds between samples outside it. Must be a whole multiple of
-       ``hot_cadence_sec`` — the sparse tier is a subset of the dense grid, so a
+       ``hot_cadence_s`` — the sparse tier is a subset of the dense grid, so a
        cadence that does not divide would put the two on timestamps that never
        coincide.
-   * - ``recorder_cadence_sec``
+   * - ``recorder_cadence_s``
      - ``10``
      - How often the recorder samples the live machine.
-   * - ``recorder_tail_cadence_sec``
+   * - ``recorder_tail_cadence_s``
      - ``60``
      - How often one of those samples is additionally kept for the full
        retention span, so recorded history survives as the dense copy ages out.
        Same whole-multiple rule.
-   * - ``recorder_poll_sec``
+   * - ``recorder_poll_s``
      - ``30``
      - How often the recorder re-reads the deployment's config to decide whether
        to record at all. It records only for a ``virtual_accelerator`` control
@@ -1421,7 +1421,7 @@ presence is the decision, not its contents.
      - ``MONGO_ROOT_PASSWORD``
      - **Name** of the variable holding that password. The value is minted into
        the deployment's ``.env``; it is never a profile field.
-   * - ``timeout_sec``
+   * - ``timeout_s``
      - ``5``
      - How long the connector waits to reach the store.
 

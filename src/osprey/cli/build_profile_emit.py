@@ -514,12 +514,12 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #
 # va_archiver:
 #   retention_days: 30          # how far back history reaches
-#   hot_span_hours: 48          # recent window kept at the dense cadence
-#   hot_cadence_sec: 10         # seconds between samples inside it
-#   tail_cadence_sec: 60        # ...and outside it (a multiple of the above)
-#   recorder_cadence_sec: 10    # how often the live machine is sampled
-#   recorder_tail_cadence_sec: 60
-#   recorder_poll_sec: 30       # how often the recorder re-reads config.yml
+#   hot_span_h: 48              # recent window kept at the dense cadence
+#   hot_cadence_s: 10           # seconds between samples inside it
+#   tail_cadence_s: 60          # ...and outside it (a multiple of the above)
+#   recorder_cadence_s: 10      # how often the live machine is sampled
+#   recorder_tail_cadence_s: 60
+#   recorder_poll_s: 30         # how often the recorder re-reads config.yml
 #   port_host: <host port>
 #   database: osprey_archiver
 #   collection: pv_history
@@ -527,7 +527,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   username: osprey
 #   auth_database: admin
 #   password_env: MONGO_ROOT_PASSWORD
-#   timeout_sec: 5
+#   timeout_s: 5
 #   host: archive.example.org   # only for an attached project
 """,
     "bluesky_web": """

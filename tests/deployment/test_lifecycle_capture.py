@@ -305,9 +305,7 @@ def archiver_stubs(monkeypatch):
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_reapply_active_scenarios", lambda *a, **k: None)
 
-    knobs = SimpleNamespace(
-        retention_days=7, hot_span_hours=6, hot_cadence_sec=1, tail_cadence_sec=60
-    )
+    knobs = SimpleNamespace(retention_days=7, hot_span_h=6, hot_cadence_s=1, tail_cadence_s=60)
     monkeypatch.setattr(
         seed_mod, "SeedKnobs", SimpleNamespace(from_config=staticmethod(lambda config: knobs))
     )

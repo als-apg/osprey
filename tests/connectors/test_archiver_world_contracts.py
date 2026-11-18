@@ -100,7 +100,7 @@ T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 
 #: A day of coarse history with an hour of dense, so a container test seeds in
 #: about a second. The tier arithmetic does not know how big the numbers are.
-KNOBS = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
+KNOBS = SeedKnobs(retention_days=1, hot_span_h=1, hot_cadence_s=10, tail_cadence_s=60)
 
 #: The block compressor the profile's ``va_archiver`` block defaults to, which
 #: the build renders into ``services.mongodb.compression``.
@@ -422,9 +422,9 @@ def world(tmp_path, mongo, mongo_client, monkeypatch):
         "services": {"mongodb": {"compression": COMPRESSION}},
         "va_archiver": {
             "retention_days": KNOBS.retention_days,
-            "hot_span_hours": KNOBS.hot_span_hours,
-            "hot_cadence_sec": KNOBS.hot_cadence_sec,
-            "tail_cadence_sec": KNOBS.tail_cadence_sec,
+            "hot_span_h": KNOBS.hot_span_h,
+            "hot_cadence_s": KNOBS.hot_cadence_s,
+            "tail_cadence_s": KNOBS.tail_cadence_s,
         },
     }
     (root / "config.yml").write_text(yaml.safe_dump(config))
@@ -587,7 +587,7 @@ class TestSeededStore:
 
 def _tier(stamp: datetime, knobs: SeedKnobs) -> str:
     """Which tier a stored timestamp belongs to, read off the timestamp."""
-    return "coarse" if int(stamp.timestamp()) % knobs.tail_cadence_sec == 0 else "dense"
+    return "coarse" if int(stamp.timestamp()) % knobs.tail_cadence_s == 0 else "dense"
 
 
 class TestRetention:

@@ -365,7 +365,7 @@ def _profile_edits() -> dict[str, Any]:
         "services": {},
         "va_archiver": {
             "retention_days": 2,
-            "hot_span_hours": 2,
+            "hot_span_h": 2,
             "port_host": MONGODB_PORT,
         },
     }

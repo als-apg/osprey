@@ -73,7 +73,7 @@ T0 = datetime(2026, 3, 14, 9, 26, 53, tzinfo=UTC)
 # A small archive — an hour of coarse history with ten minutes of dense — so a
 # container test seeds in under a second. The tier *arithmetic* is what is under
 # test, and it does not know how big the numbers are.
-SMALL = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
+SMALL = SeedKnobs(retention_days=1, hot_span_h=1, hot_cadence_s=10, tail_cadence_s=60)
 
 PRESSURE = "SR:VAC:IP07:PRESSURE"
 VALID = "SR:STATUS:VALID"
@@ -288,7 +288,7 @@ class TestSeedGrid:
         knobs = SeedKnobs()
         times, _ = _seed_grid(knobs, T0)
 
-        assert np.all(np.mod(times, knobs.hot_cadence_sec) == 0)
+        assert np.all(np.mod(times, knobs.hot_cadence_s) == 0)
         assert T0.second != 0, "the anchor must not accidentally be cadence-aligned"
 
     def test_the_tiers_have_the_declared_cadences(self):
@@ -296,14 +296,14 @@ class TestSeedGrid:
         times, _ = _seed_grid(knobs, T0)
         gaps = set(np.diff(times).tolist())
 
-        assert gaps == {float(knobs.hot_cadence_sec), float(knobs.tail_cadence_sec)}
+        assert gaps == {float(knobs.hot_cadence_s), float(knobs.tail_cadence_s)}
 
     def test_each_tier_carries_its_own_lifetime(self):
         """Measured from the sample's own time, so a seeded archive ages like a
         recorded one instead of surviving intact and then vanishing at once."""
         knobs = SeedKnobs()
         times, expiry = _seed_grid(knobs, T0)
-        dense = np.mod(times, knobs.tail_cadence_sec) != 0
+        dense = np.mod(times, knobs.tail_cadence_s) != 0
 
         assert np.all(expiry[dense] - times[dense] == knobs.hot_span_s)
         assert np.all(expiry[~dense] - times[~dense] == knobs.retention_s)
@@ -319,9 +319,9 @@ class TestSeedGrid:
         """
         knobs = SeedKnobs()
         times, expiry = _seed_grid(knobs, T0)
-        dense = np.mod(times, knobs.tail_cadence_sec) != 0
+        dense = np.mod(times, knobs.tail_cadence_s) != 0
 
-        assert expiry[dense].min() <= _epoch(T0) + knobs.tail_cadence_sec
+        assert expiry[dense].min() <= _epoch(T0) + knobs.tail_cadence_s
 
     def test_a_shallow_archive_still_produces_a_grid(self):
         """The CI lanes run with retention cut to hours, not a month."""
@@ -344,19 +344,19 @@ class TestSeedKnobs:
         knobs = SeedKnobs()
 
         assert knobs.retention_days == block.retention_days
-        assert knobs.hot_span_hours == block.hot_span_hours
-        assert knobs.hot_cadence_sec == block.hot_cadence_sec
-        assert knobs.tail_cadence_sec == block.tail_cadence_sec
+        assert knobs.hot_span_h == block.hot_span_h
+        assert knobs.hot_cadence_s == block.hot_cadence_s
+        assert knobs.tail_cadence_s == block.tail_cadence_s
 
     def test_from_config_reads_the_va_archiver_subtree(self):
         knobs = SeedKnobs.from_config(
-            {"va_archiver": {"retention_days": 2, "hot_span_hours": 6, "port_host": 27017}}
+            {"va_archiver": {"retention_days": 2, "hot_span_h": 6, "port_host": 27017}}
         )
 
         assert knobs.retention_days == 2
-        assert knobs.hot_span_hours == 6
+        assert knobs.hot_span_h == 6
         # Knobs this module does not use are simply not its business.
-        assert knobs.hot_cadence_sec == SeedKnobs().hot_cadence_sec
+        assert knobs.hot_cadence_s == SeedKnobs().hot_cadence_s
 
     def test_a_config_without_the_block_seeds_the_default_archive(self):
         assert SeedKnobs.from_config({}) == SeedKnobs()
@@ -365,9 +365,9 @@ class TestSeedKnobs:
         "block",
         [
             {"retention_days": 0},
-            {"hot_cadence_sec": -1},
-            {"retention_days": 1, "hot_span_hours": 25},
-            {"hot_cadence_sec": 7, "tail_cadence_sec": 60},
+            {"hot_cadence_s": -1},
+            {"retention_days": 1, "hot_span_h": 25},
+            {"hot_cadence_s": 7, "tail_cadence_s": 60},
             {"retention_days": "30"},
             {"retention_days": True},
         ],
@@ -376,10 +376,25 @@ class TestSeedKnobs:
         with pytest.raises(ValueError):
             SeedKnobs.from_config({"va_archiver": block})
 
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [
+            ("hot_span_hours", "hot_span_h"),
+            ("hot_cadence_sec", "hot_cadence_s"),
+            ("tail_cadence_sec", "tail_cadence_s"),
+        ],
+    )
+    def test_a_retired_knob_spelling_is_refused_naming_the_new_key(self, old, new):
+        """Read as absent, it would seed the default rather than the value written."""
+        with pytest.raises(
+            ValueError, match=rf"va_archiver\.{old} was renamed to va_archiver\.{new}"
+        ):
+            SeedKnobs.from_config({"va_archiver": {old: 6}})
+
     def test_a_non_dividing_cadence_names_both_knobs(self):
         """The fix needs both numbers; naming one leaves the reader guessing."""
-        with pytest.raises(ValueError, match="tail_cadence_sec.*hot_cadence_sec"):
-            SeedKnobs(hot_cadence_sec=7, tail_cadence_sec=60)
+        with pytest.raises(ValueError, match="tail_cadence_s.*hot_cadence_s"):
+            SeedKnobs(hot_cadence_s=7, tail_cadence_s=60)
 
 
 # ---------------------------------------------------------------------------
@@ -500,9 +515,9 @@ class TestFingerprint:
         ("field", "value"),
         [
             ("retention_days", 2),
-            ("hot_span_hours", 2),
-            ("hot_cadence_sec", 5),
-            ("tail_cadence_sec", 120),
+            ("hot_span_h", 2),
+            ("hot_cadence_s", 5),
+            ("tail_cadence_s", 120),
         ],
     )
     def test_every_knob_that_changes_coverage_changes_the_fingerprint(self, field, value):
@@ -594,6 +609,71 @@ class TestFingerprintComparison:
         assert comparison.state is SeedState.MISMATCH
         assert any(change.stored is None for change in comparison.differences)
 
+    def test_the_manifest_states_the_knobs_under_their_unit_suffixed_names(self, collection):
+        """The stored keys: what every store seeded from now on holds."""
+        _write_manifest(collection, self._current(), seeded_at=T0)
+
+        stored = collection.find_one({"_id": MANIFEST_ID})["fingerprint"]
+
+        assert list(stored) == [
+            "schema_version",
+            "retention_days",
+            "hot_span_h",
+            "hot_cadence_s",
+            "tail_cadence_s",
+            "compression",
+            "shape_version",
+            "topoff_shape_version",
+            "channel_count",
+            "channel_set_sha256",
+        ]
+
+    def test_a_store_seeded_under_the_old_knob_names_reseeds_cleanly(self, collection):
+        """A manifest written before the knobs were renamed (``hot_span_hours``,
+        ``hot_cadence_sec``, ``tail_cadence_sec``) holds the same values under the
+        old names. It reads as changed, never as unchanged and never as an error,
+        and the deploy names the three renamed keys; once reseeded it matches."""
+        current = self._current().model_dump()
+        old_names = {
+            "hot_span_h": "hot_span_hours",
+            "hot_cadence_s": "hot_cadence_sec",
+            "tail_cadence_s": "tail_cadence_sec",
+        }
+        collection.replace_one(
+            {"_id": MANIFEST_ID},
+            {
+                "_id": MANIFEST_ID,
+                "fingerprint": {old_names.get(key, key): value for key, value in current.items()},
+                "seeded_at": T0,
+                "touched_windows": [],
+            },
+            upsert=True,
+        )
+
+        comparison = compare_fingerprint(collection, self._current())
+
+        assert comparison.state is SeedState.MISMATCH
+        assert [
+            (change.key, change.stored, change.expected) for change in comparison.differences
+        ] == [
+            ("hot_cadence_s", None, SMALL.hot_cadence_s),
+            ("hot_span_h", None, SMALL.hot_span_h),
+            ("tail_cadence_s", None, SMALL.tail_cadence_s),
+        ]
+        assert comparison.seeded_at == T0
+        assert comparison.describe() == (
+            f"  hot_cadence_s: None -> {SMALL.hot_cadence_s}\n"
+            f"  hot_span_h: None -> {SMALL.hot_span_h}\n"
+            f"  tail_cadence_s: None -> {SMALL.tail_cadence_s}"
+        )
+
+        _write_manifest(collection, self._current(), seeded_at=T0 + timedelta(days=1))
+
+        assert compare_fingerprint(collection, self._current()).state is SeedState.MATCH
+        assert not set(old_names.values()) & set(
+            collection.find_one({"_id": MANIFEST_ID})["fingerprint"]
+        )
+
     def test_the_manifest_starts_with_an_empty_ledger(self, collection):
         """The scenario rewrite owns it; a fresh base has touched nothing."""
         _write_manifest(collection, self._current(), seeded_at=T0)
@@ -644,7 +724,7 @@ class TestSeedBase:
         for document in collection.find({DATE_FIELD: {"$exists": True}}):
             stored = document[DATE_FIELD].replace(tzinfo=UTC)
             lifetime = (document[EXPIRE_FIELD].replace(tzinfo=UTC) - stored).total_seconds()
-            dense = int(stored.timestamp()) % SMALL.tail_cadence_sec != 0
+            dense = int(stored.timestamp()) % SMALL.tail_cadence_s != 0
             assert lifetime == (SMALL.hot_span_s if dense else SMALL.retention_s)
 
     def test_the_manifest_is_written_and_is_invisible_to_an_archiver_read(
@@ -777,7 +857,7 @@ class TestConnectorRoundtrip:
 def _tail_instants(knobs: SeedKnobs, t0: datetime) -> np.ndarray:
     """The coarse-cadence timestamps of the whole retention window."""
     times, _ = _seed_grid(knobs, t0)
-    return times[np.mod(times, knobs.tail_cadence_sec) == 0]
+    return times[np.mod(times, knobs.tail_cadence_s) == 0]
 
 
 class _Log:
@@ -1056,9 +1136,9 @@ def test_the_stored_fingerprint_keeps_its_fields_in_their_order():
     assert list(stored.items()) == [
         ("schema_version", 2),
         ("retention_days", SMALL.retention_days),
-        ("hot_span_hours", SMALL.hot_span_hours),
-        ("hot_cadence_sec", SMALL.hot_cadence_sec),
-        ("tail_cadence_sec", SMALL.tail_cadence_sec),
+        ("hot_span_h", SMALL.hot_span_h),
+        ("hot_cadence_s", SMALL.hot_cadence_s),
+        ("tail_cadence_s", SMALL.tail_cadence_s),
         ("compression", "zstd"),
         ("shape_version", pulse.SHAPE_VERSION),
         ("topoff_shape_version", topoff.SHAPE_VERSION),

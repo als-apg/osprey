@@ -113,18 +113,18 @@ def test_declared_knobs_reach_the_parsed_block(tmp_path: Path) -> None:
             tmp_path,
             {
                 "retention_days": 365,
-                "hot_cadence_sec": 5,
-                "tail_cadence_sec": 30,
-                "recorder_tail_cadence_sec": 30,
+                "hot_cadence_s": 5,
+                "tail_cadence_s": 30,
+                "recorder_tail_cadence_s": 30,
             },
         )
     )
 
     assert loaded.va_archiver is not None
     assert loaded.va_archiver.retention_days == 365
-    assert loaded.va_archiver.hot_cadence_sec == 5
-    assert loaded.va_archiver.tail_cadence_sec == 30
-    assert loaded.va_archiver.recorder_tail_cadence_sec == 30
+    assert loaded.va_archiver.hot_cadence_s == 5
+    assert loaded.va_archiver.tail_cadence_s == 30
+    assert loaded.va_archiver.recorder_tail_cadence_s == 30
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +142,52 @@ def test_an_unknown_key_is_refused_with_the_closest_spelling() -> None:
 
     assert "unknown key 'retention_day'" in message
     assert "did you mean 'retention_days'" in message
+
+
+#: The block's keys before each carried its unit, and the key that replaced each.
+_RENAMED = [
+    ("hot_span_hours", "hot_span_h"),
+    ("hot_cadence_sec", "hot_cadence_s"),
+    ("tail_cadence_sec", "tail_cadence_s"),
+    ("recorder_cadence_sec", "recorder_cadence_s"),
+    ("recorder_tail_cadence_sec", "recorder_tail_cadence_s"),
+    ("recorder_poll_sec", "recorder_poll_s"),
+    ("timeout_sec", "timeout_s"),
+]
+
+
+@pytest.mark.parametrize(("old", "new"), _RENAMED)
+def test_a_retired_key_spelling_is_refused_naming_the_new_key(old: str, new: str) -> None:
+    """Never silently ignored: the value under the old name would be lost."""
+    message = _parse_refusal({old: 10})
+
+    assert f"'{old}' was renamed to '{new}'" in message
+    assert f"write 'va_archiver.{new}' instead" in message
+
+
+@pytest.mark.parametrize("with_block", [True, False])
+@pytest.mark.parametrize(("old", "new"), _RENAMED[:6])
+def test_a_retired_knob_in_config_is_refused_naming_the_new_key(
+    old: str, new: str, with_block: bool
+) -> None:
+    """A `config:` block writing a knob the old way is refused, with or without
+    the block; dotted and nested spellings alike."""
+    block = VAArchiverConfig() if with_block else None
+    for config in ({f"va_archiver.{old}": 10}, {"va_archiver": {old: 10}}):
+        errors = va_archiver_errors(block, config, True)
+
+        assert any(
+            f"sets 'va_archiver.{old}', a key that was renamed to 'va_archiver.{new}'" in error
+            for error in errors
+        ), errors
+
+
+def test_validate_refuses_a_retired_key_by_its_new_name(runner: CliRunner, tmp_path: Path) -> None:
+    path = _write_profile(tmp_path, {"hot_span_hours": 24})
+    result = runner.invoke(profile, ["validate", str(path)])
+
+    assert result.exit_code != 0
+    assert "'hot_span_hours' was renamed to 'hot_span_h'" in " ".join(result.output.split())
 
 
 def test_a_mistyped_knob_is_refused() -> None:
@@ -172,13 +218,13 @@ def test_every_structural_problem_is_reported_at_once() -> None:
     "knob",
     [
         "retention_days",
-        "hot_span_hours",
-        "hot_cadence_sec",
-        "tail_cadence_sec",
-        "recorder_cadence_sec",
-        "recorder_tail_cadence_sec",
-        "recorder_poll_sec",
-        "timeout_sec",
+        "hot_span_h",
+        "hot_cadence_s",
+        "tail_cadence_s",
+        "recorder_cadence_s",
+        "recorder_tail_cadence_s",
+        "recorder_poll_s",
+        "timeout_s",
     ],
 )
 def test_counts_must_be_positive(knob: str) -> None:
@@ -191,7 +237,7 @@ def test_port_must_be_a_port() -> None:
 
 def test_a_dense_tier_longer_than_retention_is_refused() -> None:
     """It would describe dense history older than the oldest history there is."""
-    errors = _errors(retention_days=1, hot_span_hours=48)
+    errors = _errors(retention_days=1, hot_span_h=48)
 
     assert any("exceeds retention_days" in error for error in errors)
 
@@ -200,27 +246,27 @@ def test_the_tail_cadence_must_land_on_the_dense_grid() -> None:
     """The tail is the sparse subset of the hot grid. A cadence that does not
     divide it puts the tiers on timestamps that never coincide — which surfaces
     as a seam in the data, not as an error."""
-    errors = _errors(hot_cadence_sec=10, tail_cadence_sec=45)
+    errors = _errors(hot_cadence_s=10, tail_cadence_s=45)
 
     assert any("must be a whole multiple of" in error for error in errors)
 
 
 def test_the_tail_cannot_sample_faster_than_the_dense_tier() -> None:
-    errors = _errors(hot_cadence_sec=60, tail_cadence_sec=10)
+    errors = _errors(hot_cadence_s=60, tail_cadence_s=10)
 
     assert any("cannot sample faster than the dense one" in error for error in errors)
 
 
 def test_the_recorder_cadences_answer_the_same_rule() -> None:
-    errors = _errors(recorder_cadence_sec=10, recorder_tail_cadence_sec=45)
+    errors = _errors(recorder_cadence_s=10, recorder_tail_cadence_s=45)
 
-    assert any("recorder_tail_cadence_sec" in error for error in errors)
+    assert any("recorder_tail_cadence_s" in error for error in errors)
 
 
 def test_matching_cadences_are_fine() -> None:
     """One tier at both cadences is a legitimate (if dense) configuration —
     provided the recorder keeps its tail on that same cadence."""
-    assert _errors(hot_cadence_sec=10, tail_cadence_sec=10, recorder_tail_cadence_sec=10) == []
+    assert _errors(hot_cadence_s=10, tail_cadence_s=10, recorder_tail_cadence_s=10) == []
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +279,7 @@ def _cadence_mismatch_errors(errors: list[str]) -> list[str]:
     return [
         error
         for error in errors
-        if "va_archiver.recorder_tail_cadence_sec" in error
-        and "va_archiver.tail_cadence_sec" in error
+        if "va_archiver.recorder_tail_cadence_s" in error and "va_archiver.tail_cadence_s" in error
     ]
 
 
@@ -243,7 +288,7 @@ def test_a_recorder_tail_cadence_other_than_the_seeds_is_refused() -> None:
     included. A recorder keeping its tail at another cadence would leave live
     and seeded history on two grids, so the build refuses the pairing with one
     error naming both knobs, both values and the fix."""
-    errors = _errors(tail_cadence_sec=60, recorder_tail_cadence_sec=120)
+    errors = _errors(tail_cadence_s=60, recorder_tail_cadence_s=120)
 
     mismatches = _cadence_mismatch_errors(errors)
     assert len(mismatches) == 1, errors
@@ -254,20 +299,20 @@ def test_a_recorder_tail_cadence_other_than_the_seeds_is_refused() -> None:
 
 
 def test_the_cadence_mismatch_is_reported_whichever_side_is_faster() -> None:
-    errors = _errors(hot_cadence_sec=10, tail_cadence_sec=120, recorder_tail_cadence_sec=60)
+    errors = _errors(hot_cadence_s=10, tail_cadence_s=120, recorder_tail_cadence_s=60)
 
     assert len(_cadence_mismatch_errors(errors)) == 1, errors
 
 
 def test_equal_tail_cadences_away_from_the_default_validate() -> None:
     """The guard compares the two knobs; it does not pin either to 60 s."""
-    assert _errors(tail_cadence_sec=120, recorder_tail_cadence_sec=120) == []
+    assert _errors(tail_cadence_s=120, recorder_tail_cadence_s=120) == []
 
 
 def test_a_non_positive_cadence_is_not_reported_twice() -> None:
     """A cadence below one is already refused on its own; the mismatch rule
     stays silent rather than restating it."""
-    errors = _errors(recorder_tail_cadence_sec=0)
+    errors = _errors(recorder_tail_cadence_s=0)
 
     assert _cadence_mismatch_errors(errors) == []
 
@@ -280,7 +325,7 @@ def test_the_demo_presets_block_validates() -> None:
     profile, _ = resolve_build_profile(None, "demo")
 
     assert profile.va_archiver is not None
-    assert profile.va_archiver.recorder_tail_cadence_sec == profile.va_archiver.tail_cadence_sec
+    assert profile.va_archiver.recorder_tail_cadence_s == profile.va_archiver.tail_cadence_s
     assert va_archiver_errors(profile.va_archiver, profile.config, True) == []
 
 
@@ -430,12 +475,12 @@ def test_every_archive_knob_reaches_the_services_that_read_it() -> None:
 
     assert overrides[f"{KNOBS_CONFIG_PREFIX}.retention_days"] == 2
     for knob in (
-        "hot_span_hours",
-        "hot_cadence_sec",
-        "tail_cadence_sec",
-        "recorder_cadence_sec",
-        "recorder_tail_cadence_sec",
-        "recorder_poll_sec",
+        "hot_span_h",
+        "hot_cadence_s",
+        "tail_cadence_s",
+        "recorder_cadence_s",
+        "recorder_tail_cadence_s",
+        "recorder_poll_s",
     ):
         assert f"{KNOBS_CONFIG_PREFIX}.{knob}" in overrides
 
@@ -453,7 +498,7 @@ def test_the_derived_keys_are_exactly_the_two_groups() -> None:
 
 def test_the_derived_keys_carry_the_blocks_values() -> None:
     overrides = va_archiver_config_overrides(
-        VAArchiverConfig(port_host=27100, database="facility", collection="history", timeout_sec=9)
+        VAArchiverConfig(port_host=27100, database="facility", collection="history", timeout_s=9)
     )
 
     assert overrides[f"{CONNECTION_CONFIG_PREFIX}.port"] == 27100
@@ -494,18 +539,18 @@ def test_the_archiver_type_is_not_derived() -> None:
 
 
 def test_validate_accepts_a_profile_carrying_the_block(runner: CliRunner, tmp_path: Path) -> None:
-    path = _write_profile(tmp_path, {"retention_days": 7, "hot_span_hours": 6})
+    path = _write_profile(tmp_path, {"retention_days": 7, "hot_span_h": 6})
     result = runner.invoke(profile, ["validate", str(path)])
 
     assert result.exit_code == 0, result.output
 
 
 def test_validate_exits_nonzero_and_names_the_problem(runner: CliRunner, tmp_path: Path) -> None:
-    path = _write_profile(tmp_path, {"retention_days": 1, "hot_span_hours": 48})
+    path = _write_profile(tmp_path, {"retention_days": 1, "hot_span_h": 48})
     result = runner.invoke(profile, ["validate", str(path)])
 
     assert result.exit_code != 0
-    assert "hot_span_hours" in result.output
+    assert "hot_span_h" in result.output
 
 
 def test_validate_reports_the_blocks_problems_alongside_the_profiles(
@@ -697,7 +742,7 @@ def test_declaring_the_block_alone_does_not_lift_the_refusal(
 def test_a_profile_that_pairs_honestly_validates(runner: CliRunner, tmp_path: Path) -> None:
     path = _write_profile(
         tmp_path,
-        {"retention_days": 2, "hot_span_hours": 2},
+        {"retention_days": 2, "hot_span_h": 2},
         config={
             "control_system.type": _VA,
             _SERVING: "served",
@@ -806,8 +851,8 @@ def test_naming_a_canary_derives_the_whole_check() -> None:
 def test_the_threshold_follows_the_recorder_not_a_second_number() -> None:
     """A facility that slows its recorder has changed how long a healthy archive
     can go without a sample; the check follows that edit on its own."""
-    (slow,) = _checks(freshness_channel="X", recorder_cadence_sec=60)
-    (slower,) = _checks(freshness_channel="X", recorder_cadence_sec=120)
+    (slow,) = _checks(freshness_channel="X", recorder_cadence_s=60)
+    (slower,) = _checks(freshness_channel="X", recorder_cadence_s=120)
 
     assert slow["max_age_s"] == 3 * 60
     assert slower["max_age_s"] == 3 * 120
@@ -816,7 +861,7 @@ def test_the_threshold_follows_the_recorder_not_a_second_number() -> None:
 def test_the_threshold_is_a_multiple_so_it_does_not_flap() -> None:
     """Equal to the cadence it would sit exactly on the sample age and alarm on
     ordinary jitter."""
-    (check,) = _checks(freshness_channel="X", recorder_cadence_sec=100)
+    (check,) = _checks(freshness_channel="X", recorder_cadence_s=100)
 
     assert check["max_age_s"] == FRESHNESS_SAFETY_MULTIPLE * 100
     assert check["max_age_s"] > 100
@@ -825,7 +870,7 @@ def test_the_threshold_is_a_multiple_so_it_does_not_flap() -> None:
 def test_a_fast_recorder_still_gets_a_survivable_floor() -> None:
     """3 s would be tripped by any container restart; nothing is learned from an
     alarm that fires faster than the deployment can recover."""
-    (check,) = _checks(freshness_channel="X", recorder_cadence_sec=1)
+    (check,) = _checks(freshness_channel="X", recorder_cadence_s=1)
 
     assert check["max_age_s"] == FRESHNESS_FLOOR_SEC
 
@@ -834,8 +879,8 @@ def test_the_tail_cadence_does_not_move_the_threshold() -> None:
     """Every recorder sample is written at the hot cadence; the tail grid only
     decides which of them survive ageing. So the newest sample is never a tail
     interval old, and the tail knob has no business in this threshold."""
-    (dense,) = _checks(freshness_channel="X", recorder_tail_cadence_sec=60)
-    (sparse,) = _checks(freshness_channel="X", recorder_tail_cadence_sec=3600)
+    (dense,) = _checks(freshness_channel="X", recorder_tail_cadence_s=60)
+    (sparse,) = _checks(freshness_channel="X", recorder_tail_cadence_s=3600)
 
     assert dense["max_age_s"] == sparse["max_age_s"]
 
@@ -845,7 +890,7 @@ def test_the_derived_check_is_what_the_health_framework_parses() -> None:
     accepts, carrying the probe's own parameter names."""
     from osprey.health.config import parse_health_config
 
-    checks = _checks(freshness_channel="SR:DIAG:DCCT:01:CURRENT:RB", recorder_cadence_sec=30)
+    checks = _checks(freshness_channel="SR:DIAG:DCCT:01:CURRENT:RB", recorder_cadence_s=30)
     parsed = parse_health_config({"categories": {FRESHNESS_CATEGORY: {"checks": checks}}})
 
     (spec,) = parsed.categories[FRESHNESS_CATEGORY].checks

@@ -1042,7 +1042,7 @@ def test_recorder_idles_on_the_in_process_simulator_and_resumes_after_the_flip(a
         config["control_system"]["connector"]["virtual_accelerator"]["serving"] = venue
         yaml.dump(config, config_path)
 
-    poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_sec", 30))
+    poll_sec = int((archiver_world.config.get("va_archiver") or {}).get("recorder_poll_s", 30))
     # The window each claim is measured over, once the recorder has SAID which
     # state it is in. Several sample cadences wide, so a single write the
     # recorder should not have made still shows up.

@@ -1679,11 +1679,11 @@ def _densify_interval(
     one of them would be the same defect this feature exists to remove, told in
     the opposite direction.
     """
-    reach = float(knobs.tail_cadence_sec)
+    reach = float(knobs.tail_cadence_s)
     grid = [
         moment
-        for moment in _aligned_epochs(start, end, knobs.hot_cadence_sec)
-        if moment % knobs.tail_cadence_sec != 0
+        for moment in _aligned_epochs(start, end, knobs.hot_cadence_s)
+        if moment % knobs.tail_cadence_s != 0
     ]
     if not grid:
         return 0, 0

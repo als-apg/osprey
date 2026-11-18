@@ -561,7 +561,7 @@ DEMO = Preset(
         "port_base": PORT_BASE,
         "agent_record": {"backend": BACKEND_CLICKHOUSE},
         "config": {**_common_config(), "control_system.type": "virtual_accelerator"},
-        "va_archiver": {"retention_days": 2, "hot_span_hours": 2},
+        "va_archiver": {"retention_days": 2, "hot_span_h": 2},
     },
     seed_env=_example_env,
 )

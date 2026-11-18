@@ -356,10 +356,10 @@ def recorder(prefix: str) -> dict[str, Any]:
         username="osprey",
         password_env="MONGO_ROOT_PASSWORD",
         timeout_s=5,
-        cadence_sec=1,
-        tail_cadence_sec=60,
-        poll_sec=30,
-        hot_span_hours=48,
+        cadence_s=1,
+        tail_cadence_s=60,
+        poll_s=30,
+        hot_span_h=48,
         retention_days=30,
     )
     read = channel_access_reader(settings)
