@@ -33,6 +33,12 @@ GRAPH = "data/graph/facility.ttl"
 VARIABLES = "data/simulator/variables.json"
 SEEDS = "seeds.yaml"
 
+#: The channel whose seed ``test_a_changed_seed_changes_the_facility_file`` moves: the first
+#: one ``seeds.yaml`` states a noise of 0.005 for, its noise as stated and as moved.
+RESEEDED = "BR:DIAG:BPM:01:POSITION:X"
+STATED_NOISE = "noise:\n    absolute: 0.005\n"
+RESEEDED_NOISE = "noise:\n    absolute: 0.006\n"
+
 
 def _render(root: Path, document: Any, config: dict[str, Any], facility_dir: Path) -> Path:
     root.mkdir(parents=True)
@@ -85,6 +91,12 @@ async def test_a_texture_only_in_process_simulator_holds_every_sr_magnet_at_its_
     await connector.disconnect()
 
 
+def _channel(document: dict[str, Any], address: str) -> dict[str, Any]:
+    (channel,) = [c for c in document["channels"] if c["id"] == address]
+    found: dict[str, Any] = channel
+    return found
+
+
 def test_a_changed_seed_changes_the_facility_file(tmp_path: Path, built_demo: BuiltProject) -> None:
     rendered: dict[str, bytes] = {}
     for name in ("authored", "reseeded"):
@@ -93,16 +105,18 @@ def test_a_changed_seed_changes_the_facility_file(tmp_path: Path, built_demo: Bu
         if name == "reseeded":
             seeds = facility_dir / SEEDS
             text = seeds.read_text(encoding="utf-8")
-            stated = "noise:\n    absolute: 0.005\n"
-            assert stated in text
-            seeds.write_text(
-                text.replace(stated, "noise:\n    absolute: 0.006\n", 1), encoding="utf-8"
-            )
+            assert STATED_NOISE in text
+            seeds.write_text(text.replace(STATED_NOISE, RESEEDED_NOISE, 1), encoding="utf-8")
         document = build_facility(facility_dir, project_name="demo")
         render_dir = _render(tmp_path / name / "render", document, {}, facility_dir)
         rendered[name] = (render_dir / FACILITY_FILE).read_bytes()
 
-    assert rendered["authored"] != rendered["reseeded"]
+    authored, reseeded = (json.loads(rendered[name]) for name in ("authored", "reseeded"))
+    assert _channel(authored, RESEEDED)["simulation"]["noise"] == {"absolute": 0.005}
+    assert _channel(reseeded, RESEEDED)["simulation"]["noise"] == {"absolute": 0.006}
+    # Nothing but that one seed moves: with it put back, the two files are equal.
+    _channel(reseeded, RESEEDED)["simulation"]["noise"] = {"absolute": 0.005}
+    assert reseeded == authored
 
 
 def _measurement_surface(render_dir: Path, config: dict[str, Any]) -> dict[str, Any]:
