@@ -3176,15 +3176,16 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
     assert result.stderr == CASES[case][1] + "\n"
 
 
+# The demo profile building with its approval hook selected is ``built_demo``'s
+# build, which ``tests/_builds.py::build_demo`` holds to exit 0.
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "edits",
     [
-        pytest.param((), id="hook-selected"),
         pytest.param((_disable_approval,), id="approval-disabled"),
     ],
 )
-def test_an_asking_profile_builds_with_the_hook_or_approval_off(
+def test_an_asking_profile_builds_with_approval_off(
     initialised: Path, tmp_path: Path, edits: tuple[Callable[[Path], None], ...]
 ) -> None:
     repo = tmp_path / PROJECT
@@ -3232,17 +3233,18 @@ def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
 def test_a_fault_polarity_is_one_of_its_options(
     initialised: Path, tmp_path: Path, faults: dict[str, Any], slot: str | None
 ) -> None:
+    tree = _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": faults}}))()
+    if slot is None:
+        # The polarity is a facility stage's check: the facility builds.
+        build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+        return
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
     _clear_facility_records(repo / "data" / "facility")
-    tree = _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": faults}}))()
     write_tree(repo / "data" / "facility", tree)
 
     result = run_build(repo)
 
-    if slot is None:
-        assert result.exit_code == 0, result.output
-        return
     (value,) = (v["polarity"] if isinstance(v, dict) else v for v in faults.values())
     assert result.exit_code == 1, result.output
     assert result.stderr == (
@@ -3333,7 +3335,7 @@ PERMUTED_FIXES: tuple[dict[str, Any], ...] = (
 
 
 @pytest.mark.slow
-def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
+def test_a_seeded_setpoint_whose_band_excludes_zero_validates(
     initialised: Path, tmp_path: Path
 ) -> None:
     repo = tmp_path / PROJECT
@@ -3344,11 +3346,10 @@ def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
     tree["seeds.yaml"] = {"Q2:SP": {"nominal": 1.5}}
     write_tree(repo / "data" / "facility", tree)
 
+    # Validate runs the build's facility stages and renders every view in memory.
     validated = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
-    built = run_build(repo)
 
     assert validated.exit_code == 0, validated.output
-    assert built.exit_code == 0, built.output
 
 
 def test_a_scenario_keyed_by_an_engine_variable_builds(tmp_path: Path) -> None:
