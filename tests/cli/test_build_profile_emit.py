@@ -25,7 +25,7 @@ import yaml
 
 from osprey.cli import build_profile_emit
 from osprey.cli.build_profile import list_presets, resolve_build_profile
-from osprey.cli.build_profile_archiver import parse_va_archiver_block
+from osprey.cli.build_profile_archiver import VAArchiverConfig, parse_va_archiver_block
 from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone_profile_yaml
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_merge import _resolve_extends, compute_preset_hash
@@ -314,3 +314,30 @@ def test_every_written_default_is_a_field_of_its_block() -> None:
             assert by_name[key].default is not MISSING, f"{block}.{key}"
             assert "port" not in key, f"{block}.{key}"
             assert key not in {"host", "freshness_channel"}, f"{block}.{key}"
+
+
+def test_the_archiver_example_states_the_dataclass_defaults() -> None:
+    """The commented ``va_archiver:`` example shows each knob at the value it builds with."""
+    lines = build_profile_emit._COMMENTED_TEMPLATES["va_archiver"].splitlines()
+    start = lines.index("# va_archiver:")
+    body = "\n".join(line.removeprefix("#").removeprefix(" ") for line in lines[start:])
+    example = yaml.safe_load(body)["va_archiver"]
+    defaults = {f.name: f.default for f in fields(VAArchiverConfig)}
+
+    for key in (
+        "retention_days",
+        "hot_span_hours",
+        "hot_cadence_sec",
+        "tail_cadence_sec",
+        "recorder_cadence_sec",
+        "recorder_tail_cadence_sec",
+        "recorder_poll_sec",
+        "database",
+        "collection",
+        "compression",
+        "username",
+        "auth_database",
+        "password_env",
+        "timeout_sec",
+    ):
+        assert example[key] == defaults[key], key

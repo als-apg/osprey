@@ -43,7 +43,7 @@ from osprey.profiles.providers import compute_providers_hash, packaged_catalog_p
 from osprey.utils.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
-from .build_profile_archiver import VAArchiverConfig
+from .build_profile_archiver import COMPRESSORS, VAArchiverConfig
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
 from .build_profile_presets import (
@@ -218,6 +218,58 @@ def _block_default(block: str, key: str) -> Any:
     """The value ``block.key`` builds with when the profile leaves it unstated."""
     cls, _ = _BLOCK_DEFAULTS[block]
     return next(f.default for f in fields(cls) if f.name == key)
+
+
+def _example_line(key: str, value: object, note: str | None = None) -> str:
+    """One commented example line, its note aligned with the others in the block."""
+    line = f"#   {key}: {value}"
+    return f"{line:<32}# {note}" if note else line
+
+
+# The `va_archiver:` example a profile without the block carries. Each value
+# the block builds with when unstated is read from VAArchiverConfig; the port
+# is derived and `host` is site-specific, so both stay placeholders.
+_VA_ARCHIVER_EXAMPLE = "\n".join(
+    [
+        "# va_archiver:",
+        _example_line(
+            "retention_days", VAArchiverConfig.retention_days, "how far back history reaches"
+        ),
+        _example_line(
+            "hot_span_hours",
+            VAArchiverConfig.hot_span_hours,
+            "recent window kept at the dense cadence",
+        ),
+        _example_line(
+            "hot_cadence_sec", VAArchiverConfig.hot_cadence_sec, "seconds between samples inside it"
+        ),
+        _example_line(
+            "tail_cadence_sec",
+            VAArchiverConfig.tail_cadence_sec,
+            "...and outside it (a multiple of the above)",
+        ),
+        _example_line(
+            "recorder_cadence_sec",
+            VAArchiverConfig.recorder_cadence_sec,
+            "how often the live machine is sampled",
+        ),
+        _example_line("recorder_tail_cadence_sec", VAArchiverConfig.recorder_tail_cadence_sec),
+        _example_line(
+            "recorder_poll_sec",
+            VAArchiverConfig.recorder_poll_sec,
+            "how often the recorder re-reads config.yml",
+        ),
+        _example_line("port_host", "<host port>"),
+        _example_line("database", VAArchiverConfig.database),
+        _example_line("collection", VAArchiverConfig.collection),
+        _example_line("compression", VAArchiverConfig.compression, " | ".join(COMPRESSORS)),
+        _example_line("username", VAArchiverConfig.username),
+        _example_line("auth_database", VAArchiverConfig.auth_database),
+        _example_line("password_env", VAArchiverConfig.password_env),
+        _example_line("timeout_sec", VAArchiverConfig.timeout_sec),
+        _example_line("host", "archive.example.org", "only for an attached project"),
+    ]
+)
 
 
 # The run budgets as commented example lines, for the dispatch template a
@@ -539,7 +591,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #     timeout_s: 90
 #     max_cost_usd: 0.25
 """,
-    "va_archiver": """
+    "va_archiver": f"""
 # --- Stored archive ----------------------------------------------------------
 # Where a simulated deployment keeps its history: a MongoDB store the build
 # seeds with a deterministic base series, a recorder samples the running
@@ -561,23 +613,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # An attached project (deploy_services: false) deploys no store of its own and
 # must set `host` to the machine whose archive it reads.
 #
-# va_archiver:
-#   retention_days: 30          # how far back history reaches
-#   hot_span_hours: 48          # recent window kept at the dense cadence
-#   hot_cadence_sec: 10         # seconds between samples inside it
-#   tail_cadence_sec: 60        # ...and outside it (a multiple of the above)
-#   recorder_cadence_sec: 10    # how often the live machine is sampled
-#   recorder_tail_cadence_sec: 60
-#   recorder_poll_sec: 30       # how often the recorder re-reads config.yml
-#   port_host: <host port>
-#   database: osprey_archiver
-#   collection: pv_history
-#   compression: zstd           # zstd | snappy | zlib | none
-#   username: osprey
-#   auth_database: admin
-#   password_env: MONGO_ROOT_PASSWORD
-#   timeout_sec: 5
-#   host: archive.example.org   # only for an attached project
+{_VA_ARCHIVER_EXAMPLE}
 """,
     "bluesky_web": """
 # --- Bluesky web panels ------------------------------------------------------
