@@ -78,6 +78,15 @@ resolve against them, and no file outside the layer's directory changes. Every
 refusal prints one ``source-invalid`` line on stderr, and the verb then writes
 no layer file and exits 1.
 
+``osprey facility panels write`` draws the operator screens of the built facility
+(``build/facility.json`` and the rule tables in ``panels/`` beside the facility
+tree) as Screen-IR files under ``--out`` with an ``index.json``, and
+``osprey facility panels check`` compares such a directory with what the model
+generates now and exits 1 on any failing problem. Both read the drawing settings
+from ``draw.json`` beside the rule tables, or ``--draw FILE``; see
+:mod:`osprey.facility.panels.emit`. Neither verb builds, and ``check`` writes
+nothing.
+
 Note: the facility package and the build's render are imported inside the
 command body, so ``osprey --help`` does not load them.
 """
@@ -91,7 +100,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from .output import fail, report
+from .output import fail, report, warn
 from .phase_reporter import current_reporter
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
@@ -1122,3 +1131,258 @@ def import_relations(
     )
     for path in written:
         report(f"wrote {_shown(path, repo_root)}")
+
+
+# -- panels ---------------------------------------------------------------------------
+
+
+@facility.group("panels")
+def panels_group() -> None:
+    """Write operator screens from the built facility, and check a written set."""
+
+
+def _panel_views() -> tuple[str, ...]:
+    from osprey.facility.panels.view import VIEW_KINDS
+
+    return VIEW_KINDS
+
+
+#: The view kinds ``--kind`` takes: the engine's own list, so the two cannot drift.
+_PANEL_VIEWS = _panel_views()
+
+
+def _panel_graph(
+    ctx: click.Context, repo: Path | None, facility_file: Path | None, tables: Path | None
+):
+    """The panel graph of the built facility; exits 1 with the cause when it cannot load."""
+    from osprey.facility import FACILITY_FILE
+    from osprey.facility.panels import PanelTableError, load_graph
+    from osprey.utils.facility import FacilityFileError
+
+    try:
+        if facility_file is None or tables is None:
+            from osprey_connectors.errors import BuildProfileError
+            from osprey_connectors.workspace import BUILD_DIR_NAME
+
+            repo_root = find_repo_root(repo)
+            if facility_file is None:
+                facility_file = repo_root / BUILD_DIR_NAME / FACILITY_FILE
+            if tables is None:
+                try:
+                    resolved, _ = _main_profile(repo_root)
+                    tables = _facility_dir(resolved, repo_root) / "panels"
+                except (BuildProfileError, ValueError, RuntimeError) as error:
+                    fail("The profile does not resolve.", str(error))
+                    ctx.exit(1)
+        graph = load_graph(facility_file, tables)
+        if graph.unread:
+            report(
+                f"{graph.unread} values of the facility's rows cannot be read "
+                "(a rack unit that is no integer, for example); drawn without them"
+            )
+        if graph.withheld:
+            report(f"{graph.withheld} things withheld as part of an excluded thing")
+        return graph, tables
+    except FileNotFoundError as error:
+        fail("The facility cannot be read.", str(error), "Run osprey build, or name --facility.")
+    except (FacilityFileError, PanelTableError, OSError) as error:
+        fail("The facility cannot be read.", str(error))
+    raise click.exceptions.Exit(1)
+
+
+def _panel_draw(ctx: click.Context, tables: Path, draw_file: Path | None):
+    """The drawing settings: ``--draw``, else ``draw.json`` beside the rule tables, else none."""
+    from osprey.facility.panels import emit
+
+    path = draw_file if draw_file is not None else tables / emit.DRAW_FILE
+    if draw_file is None and not path.is_file():
+        report(f"no {emit.DRAW_FILE} beside the rule tables: drawing with the empty settings")
+        return emit.Draw()
+    try:
+        return emit.load_draw(path)
+    except emit.EmitError as error:
+        fail("The drawing settings cannot be used.", str(error))
+        ctx.exit(1)
+
+
+def _megabytes(size: int) -> str:
+    return f"{size / 1_000_000:.1f} MB"
+
+
+def _facility_option(function):
+    for option in (
+        click.option(
+            "--tables",
+            type=click.Path(exists=True, file_okay=False, path_type=Path),
+            default=None,
+            help="The rule tables; default: panels/ in the repo's facility tree.",
+        ),
+        click.option(
+            "--facility",
+            "facility_file",
+            type=click.Path(path_type=Path),
+            default=None,
+            help="The built facility file; default: build/facility.json of the repo.",
+        ),
+        click.option(
+            "--draw",
+            "draw_file",
+            type=click.Path(exists=True, dir_okay=False, path_type=Path),
+            default=None,
+            help="The drawing settings (JSON); default: draw.json beside the rule tables.",
+        ),
+        repo_option,
+    ):
+        function = option(function)
+    return function
+
+
+@panels_group.command("write")
+@_facility_option
+@click.option(
+    "--out",
+    required=True,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Output directory.",
+)
+@click.option(
+    "--kind",
+    "kinds",
+    multiple=True,
+    type=click.Choice(_PANEL_VIEWS),
+    help="Write only this view kind; repeatable.",
+)
+@click.option(
+    "--under",
+    "place",
+    default=None,
+    metavar="PLACE_ID",
+    help="Write only this place and all within it.",
+)
+@click.option("--top", default=10, show_default=True, help="Largest screens to list.")
+@click.pass_context
+def panels_write(
+    ctx: click.Context,
+    repo: Path | None,
+    facility_file: Path | None,
+    tables: Path | None,
+    draw_file: Path | None,
+    out: Path,
+    kinds: tuple[str, ...],
+    place: str | None,
+    top: int,
+) -> None:
+    """Write the screens of the built facility under OUT, with an index.
+
+    Files a former run wrote and that are no screen any more are deleted;
+    nothing else in OUT is touched, and a non-empty OUT without an index.json
+    is refused. With --kind and --under, only the screens that match both are
+    written; links to the others are still written, and ``check`` notes them.
+    Prints the screen count and bytes per view kind and the largest screens.
+    """
+    import json
+    import warnings
+    from collections import Counter
+
+    from osprey.facility.panels import emit
+
+    graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
+    draw = _panel_draw(ctx, tables_dir, draw_file)
+    keep = [lambda target: target.view in kinds] if kinds else []
+    if place is not None:
+        try:
+            keep.append(emit.under(graph, place))
+        except KeyError:
+            fail("No such place.", f"the facility holds no place {place!r}")
+            ctx.exit(1)
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            emit.write(
+                graph,
+                out,
+                draw=draw,
+                only=(lambda t: all(test(t) for test in keep)) if keep else None,
+            )
+        for warning in caught:
+            warn(str(warning.message))
+    except emit.EmitError as error:
+        fail("Nothing was written.", str(error))
+        ctx.exit(1)
+    index = json.loads((out / emit.INDEX).read_text(encoding="utf-8"))
+    screens = index["screens"]
+    count = Counter(entry["kind"] for entry in screens)
+    sizes = Counter[str]()
+    for entry in screens:
+        sizes[entry["kind"]] += entry["bytes"]
+    report(f"{len(screens)} screens, {_megabytes(index['total_bytes'])}, in {out}")
+    for kind in _PANEL_VIEWS:
+        if count[kind]:
+            report(f"  {kind}: {count[kind]} screens, {_megabytes(sizes[kind])}")
+    if index["outside"]:
+        report(f"  {len(index['outside'])} screens not written (outside the selection)")
+    largest = sorted(screens, key=lambda entry: (-entry["bytes"], entry["file"]))[:top]
+    if largest:
+        report("largest:")
+        for entry in largest:
+            report(f"  {entry['bytes']:>12,}  {entry['file']}")
+
+
+@panels_group.command("check")
+@_facility_option
+@click.option(
+    "--out",
+    required=True,
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Output directory.",
+)
+@click.option("--strict", is_flag=True, help="Links to screens outside the written set fail too.")
+@click.option(
+    "--max-bytes", type=click.IntRange(min=1), default=None, help="Screens over N bytes fail."
+)
+@click.option("--limit", default=20, show_default=True, help="Problems printed per kind.")
+@click.pass_context
+def panels_check(
+    ctx: click.Context,
+    repo: Path | None,
+    facility_file: Path | None,
+    tables: Path | None,
+    draw_file: Path | None,
+    out: Path,
+    strict: bool,
+    max_bytes: int | None,
+    limit: int,
+) -> None:
+    """Compare the screens under OUT with what the model generates now; writes nothing.
+
+    Exits 1 on any failing problem: stale, missing, orphan, dangling_link,
+    unknown_channel, stamp, invalid, incomplete, oversize, unrolled (a rule
+    channel no roll-up reads), static_rollup (a roll-up with no live light where
+    a child has no screen to open), long_formula (an expression the formula engine
+    would refuse as too long) or over_budget (more rules or channels than one
+    screen may bind).
+    A link to a screen outside the written set (``outside_set``), a card or
+    checkout over its budget, and a probe row whose signal no channel states
+    (``unbound_probe``) are notes and fail only under --strict.
+    Prints the count per kind and the first --limit of each.
+    """
+    from collections import Counter
+
+    from osprey.facility.panels import emit
+
+    graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
+    draw = _panel_draw(ctx, tables_dir, draw_file)
+    problems = emit.check(graph, out, max_bytes=max_bytes, draw=draw)
+    count = Counter(problem.kind for problem in problems)
+    for kind in sorted(count):
+        report(f"{kind}: {count[kind]}")
+        shown = [problem for problem in problems if problem.kind == kind][:limit]
+        for problem in shown:
+            report(f"  {problem.file}: {problem.detail}")
+        if count[kind] > len(shown):
+            report(f"  ... and {count[kind] - len(shown)} more")
+    failing = [p for p in problems if p.failing or strict]
+    if failing:
+        fail(f"{len(failing)} problems in the written screens.")
+        ctx.exit(1)
+    report("The written screens match the model.")

@@ -1,0 +1,116 @@
+# Invented for the panels tests.
+- id: XR01-QF1:Current-SP
+  signal: current_setpoint
+  'on':
+    device: XR01:QF1
+  role: setpoint
+  pair: XR01-QF1:Current-RB
+  unit: A
+  tolerance:
+    absolute: 0.05
+- id: XR01-QF1:Current-RB
+  signal: current_readback
+  'on':
+    device: XR01:QF1
+  unit: A
+  names:
+  - XR-ML:QF1:AM
+- id: XR01-QD1:Current-SP
+  signal: current_setpoint
+  'on':
+    device: XR01:QD1
+  role: setpoint
+  pair: XR01-QD1:Current-RB
+- id: XR01-QD1:Current-RB
+  signal: current_readback
+  'on':
+    device: XR01:QD1
+- id: XR01-BEND1:Current-RB
+  signal: current_readback
+  'on':
+    device: XR01:BEND1
+- id: XR02-QF1:Current-SP
+  signal: current_setpoint
+  'on':
+    device: XR02:QF1
+  role: setpoint
+  pair: XR02-QF1:Current-RB
+- id: XR02-QF1:Current-RB
+  signal: current_readback
+  'on':
+    device: XR02:QF1
+- id: XR02-QD1:Current-RB
+  signal: current_readback
+  'on':
+    device: XR02:QD1
+- id: XR02-BEND1:Current-RB
+  signal: current_readback
+  'on':
+    device: XR02:BEND1
+- id: XR01-IP1:Pressure-RB
+  signal: vacuum_readback
+  'on':
+    device: XR01:IP1
+- id: XR01-IP1:State-Sts
+  signal: status
+  'on':
+    device: XR01:IP1
+- id: XR01-IP2:Pressure-RB
+  signal: vacuum_readback
+  'on':
+    device: XR01:IP2
+- id: XR02-IP1:Pressure-RB
+  signal: vacuum_readback
+  'on':
+    device: XR02:IP1
+- id: XR02-IP2:Pressure-RB
+  signal: vacuum_readback
+  'on':
+    device: XR02:IP2
+- id: XR02-IP2:Interlock-Sts
+  signal: interlock_status
+  'on':
+    device: XR02:IP2
+- id: XR01-CH1:Temp-RB
+  signal: temperature_readback
+  'on':
+    device: XR01:CH1
+- id: XR01-CH2:Temp-RB
+  signal: temperature_readback
+  'on':
+    device: XR01:CH2
+- id: XR01-CH3:Temp-RB
+  signal: temperature_readback
+  'on':
+    device: XR01:CH3
+- id: XR01-PS1:On-Sts
+  signal: power_on_status
+  'on':
+    device: XR01:PS1
+- id: XR01-PS1:On-Cmd
+  signal: power_on_command
+  'on':
+    device: XR01:PS1
+  role: setpoint
+- id: XR02-SAF1:Trip-Sts
+  signal: interlock_status
+  'on':
+    device: XR02:SAF1
+- id: XR01:RackTemp-RB
+  'on':
+    place: XR/XR01/RK1
+- id: VA:XR:InjectionKnob
+  'on':
+    place: XR
+  role: setpoint
+- id: XR02-SAF2:Door-Sts
+  signal: status
+  'on':
+    device: XR02:SAF2
+- id: XR02:Cab1Temp-RB
+  'on':
+    place: XR/XR02/SAFE/CAB1
+- id: XR09-LOOSE1:Fault-Sts
+  signal: fault_status
+  'on':
+    device: XR09:LOOSE1

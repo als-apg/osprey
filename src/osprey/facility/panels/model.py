@@ -1,0 +1,1110 @@
+"""The panel graph: a built facility file read with its rule tables.
+
+:func:`load_graph` reads the facility file through
+:class:`~osprey.facility.records.FacilityRecords` and the rule tables through
+:func:`~osprey.facility.panels.tables.read_tables`, then builds every index
+once. :class:`PanelGraph` is read-only; each accessor returns fresh lists.
+
+A thing is a device, a place or a group of the facility file, the three kinds
+a relation end may name (:data:`~osprey.facility.relations.END_KINDS`). One id
+can name records of two kinds; an accessor given only an id takes the first
+kind in that order (device, place, group), and ``kind=`` picks another.
+
+What the graph leaves out, everywhere:
+
+- a thing whose id ``excluded.csv`` lists (``kind`` ``thing``), every channel
+  ``on`` it, every relation with it at an end, its group memberships, its
+  poses; an excluded place hides every place within it (by id, transitively)
+  and every device placed in any of them, with all of the above;
+- a channel ``excluded.csv`` lists (``kind`` ``channel``) and a channel whose
+  name starts with ``VA:`` (simulation only), with their record types, pairs
+  and health rules; a pair whose readback is left out is left out;
+- a pair ``pairs.csv`` does not state: the table is the one source of pairs;
+- what a document ``excluded.csv`` lists (``kind`` ``document``) is the
+  source of: a citation, a relation claim, a pose, a health row, a pair, a
+  record type;
+- a ``superseded`` relation claim. ``accepted`` and ``contested`` claims are
+  edges, their standing on the edge. A relation kind the framework does not
+  know is an edge under its own key like any other.
+
+A channel that is ``on`` no thing the file holds, and is no kept device's
+endpoint, is kept as a channel of no thing (:meth:`PanelGraph.unheld`). A
+channel ``on`` a left-out thing, or with no ``on`` and only left-out
+endpoints, is left out with them.
+
+A value of a row the graph cannot read (a rack unit that is no integer, an
+attributes field that is no mapping, members that are no list) never stops
+the graph: the row is kept without it, or with it as text where it is shown
+as text, and :attr:`PanelGraph.unread` counts such values.
+
+The ring frame is the frame of ``positions.csv`` that carries the most rows
+with an empty ``derived_assumes`` (on a
+tie, the rows name no ring frame: :func:`load_graph` refuses and asks for
+one), unless :func:`load_graph` is told which.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import hashlib
+import json
+from collections import Counter
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Literal
+
+from osprey.facility import FACILITY_FILE
+from osprey.facility.panels.tables import (
+    CALIBRATION_BASES,
+    CURVE_PREFIX,
+    POSITIONS,
+    TABLE_FILES,
+    Calibration,
+    CalibrationKind,
+    CurvePoint,
+    DrawnAs,
+    HealthRule,
+    Metric,
+    Pair,
+    PanelTableError,
+    PanelTables,
+    PicturePart,
+    Pose,
+    ProbeElement,
+    RecordType,
+    read_tables,
+)
+from osprey.facility.records import FacilityRecords
+from osprey.facility.relations import END_KINDS, end_identity
+
+__all__ = [
+    "CalibrationState",
+    "PART_RELATION",
+    "PLACE_RELATION",
+    "SIMULATION_PREFIX",
+    "Channel",
+    "Citation",
+    "Edge",
+    "PanelGraph",
+    "Thing",
+    "ThingKind",
+    "load_graph",
+]
+
+#: The relation kind that states a thing's place.
+PLACE_RELATION = "located_in"
+
+#: The relation kind, from the facility vocabulary, that makes a device a component of
+#: another device; a part with no place of its own is in the place of its whole.
+PART_RELATION = "part_of"
+#: The relation from a device to the device that reads it out.
+READ_OUT_RELATION = "read_out_by"
+
+#: The prefix of a channel only the simulation serves; no screen shows one.
+SIMULATION_PREFIX = "VA:"
+
+ThingKind = Literal["device", "place", "group"]
+
+#: ``(kind, id)``: one thing.
+_Key = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class Citation:
+    """A document a fact is read from."""
+
+    document: str
+    version: str | None = None
+    state: str | None = None
+    locator: str | None = None
+
+
+@dataclass(frozen=True)
+class Thing:
+    """A device, place or group.
+
+    Attributes:
+        id: The record's id.
+        kind: ``device``, ``place`` or ``group``.
+        cls: A device's class; ``None`` for a place, a group or a device with none.
+        place: A device's place; a place's parent (its id without the last
+            ``/`` segment, when that place exists); ``None`` for a group.
+        citations: The documents the record cites.
+        level: A place's ``level`` (the facility's word for its depth of the
+            tree, such as ``rack``); ``None`` for a device, a group or a place
+            with none.
+        short_name: The short name ``names.csv`` states for it (a strip's
+            label), or ``None``.
+        model: The model a device belongs to, or ``None``.
+    """
+
+    id: str
+    kind: ThingKind
+    cls: str | None
+    place: str | None
+    citations: tuple[Citation, ...] = ()
+    level: str | None = None
+    short_name: str | None = None
+    model: str | None = None
+
+
+@dataclass(frozen=True)
+class Channel:
+    """A channel of the facility file as a screen binds it.
+
+    Attributes:
+        name: The channel's address.
+        drawn_as: How ``record_types.csv`` says to draw it; ``None`` with no row.
+        writable: Whether the facility file's role is ``setpoint``.
+        alias: Another name the facility file states for it (the first of its
+            ``names``, sorted), or ``None``.
+        thing: The id of the thing it is ``on``; ``None`` when it is on no thing
+            the graph holds.
+        thing_kind: That thing's kind, or ``None``.
+        record_type: The record type ``record_types.csv`` states, or ``None``.
+        unit: The facility file's unit, or ``None``.
+        description: The facility file's description, or ``None``.
+        tolerance: The facility file's ``tolerance`` as ``(term, amount)``,
+            ``term`` being ``absolute`` or ``relative``; ``None`` with none.
+        signal: The signal role the facility file states for it (its
+            ``signal``), or ``None``.
+    """
+
+    name: str
+    drawn_as: DrawnAs | None
+    writable: bool
+    alias: str | None
+    thing: str | None
+    thing_kind: ThingKind | None
+    record_type: str | None = None
+    unit: str | None = None
+    description: str | None = None
+    tolerance: tuple[str, float] | None = None
+    signal: str | None = None
+
+
+@dataclass(frozen=True)
+class Edge:
+    """One relation claim seen from one of its ends.
+
+    Attributes:
+        kind: The claim's relation type.
+        claim: The claim's id.
+        outgoing: Whether this end is the claim's subject.
+        other: The id of the other end.
+        other_kind: The other end's kind.
+        standing: ``accepted`` or ``contested``.
+        basis: ``stated`` or ``inferred``.
+        port: This end's port, or ``None``.
+        other_port: The other end's port, or ``None``.
+        unit: The rack unit either end names, as an integer; ``None`` when it
+            names none or one that is no integer.
+        unit_text: The unit as the end states it, when it is no integer
+            (``A5``); ``None`` otherwise.
+        attributes: The claim's attributes, read-only.
+        source: The document the claim cites, or ``None``.
+    """
+
+    kind: str
+    claim: str
+    outgoing: bool
+    other: str
+    other_kind: ThingKind
+    standing: str
+    basis: str
+    port: str | None = None
+    other_port: str | None = None
+    unit: int | None = None
+    attributes: Mapping[str, Any] = field(default_factory=dict, hash=False)
+    source: Citation | None = None
+    unit_text: str | None = None
+
+
+def _text(value: Any) -> str | None:
+    return None if value is None else str(value)
+
+
+def _citation(source: Any) -> Citation | None:
+    if not isinstance(source, Mapping) or source.get("document") is None:
+        return None
+    return Citation(
+        document=str(source["document"]),
+        version=_text(source.get("version")),
+        state=_text(source.get("state")),
+        locator=_text(source.get("locator")),
+    )
+
+
+def _tolerance(record: Any) -> tuple[str, float] | None:
+    """The one ``absolute`` or ``relative`` term a built tolerance states, or ``None``."""
+    if not isinstance(record, Mapping):
+        return None
+    for term in ("absolute", "relative"):
+        amount = record.get(term)
+        if isinstance(amount, int | float) and not isinstance(amount, bool):
+            return (term, float(amount))
+    return None
+
+
+def _unit(value: Any) -> tuple[int | None, str | None]:
+    """A rack unit as ``(number, None)``, or ``(None, text)`` when it is no integer."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value, None
+    if isinstance(value, float) and value.is_integer():
+        return int(value), None
+    text = str(value).strip()
+    try:
+        return int(text), None
+    except ValueError:
+        return None, text
+
+
+def _ring_frame(poses: list[Pose]) -> str | None:
+    """The frame with the most rows that assume nothing, or ``None`` with no such row.
+
+    Raises:
+        PanelTableError: Two frames tie for the most.
+    """
+    ranked = Counter(pose.frame for pose in poses if not pose.derived_assumes).most_common()
+    if not ranked:
+        return None
+    tied = [frame for frame, count in ranked if count == ranked[0][1]]
+    if len(tied) > 1:
+        raise PanelTableError(
+            POSITIONS,
+            None,
+            f"frames {', '.join(sorted(tied))} tie for the ring frame with {ranked[0][1]} "
+            "rows each; pass the ring frame to load_graph",
+        )
+    return ranked[0][0]
+
+
+@dataclass(frozen=True)
+class CalibrationState:
+    """What the records say of one calibration kind of one device.
+
+    Attributes:
+        kind: The kind.
+        subject: The device.
+        in_force: The claim in force: the newest accepted claim no other claim
+            supersedes (a contested one when no accepted claim is left), or
+            ``None``.
+        state: ``contested`` when the claim in force says so or two accepted
+            claims in force of one basis differ by more than the kind's
+            tolerance; else the basis of the claim in force; else ``none``.
+        below_wanted: The claim in force ranks under the kind's wanted basis
+            (in :data:`~osprey.facility.panels.tables.CALIBRATION_BASES`, a
+            display order), or there is none.
+        design: The newest accepted ``design`` claim, in force or not, the
+            value a deviation is taken from; ``None`` with none.
+        earlier: The other claims of the kind for the device, newest first.
+        rivals: The accepted claims in force that disagree with the claim in
+            force, with it excluded.
+        points: The points of the claim in force when its value is a curve.
+    """
+
+    kind: CalibrationKind
+    subject: str
+    in_force: Calibration | None
+    state: str
+    below_wanted: bool
+    design: Calibration | None
+    earlier: tuple[Calibration, ...]
+    rivals: tuple[Calibration, ...]
+    points: tuple[CurvePoint, ...] = ()
+
+
+def calibration_numbers(value: str) -> tuple[float, ...] | None:
+    """The numbers of a claim's value: one for a number, several for ``a;b;c``;
+    ``None`` for a curve or text that is no number."""
+    if value.startswith(CURVE_PREFIX):
+        return None
+    try:
+        return tuple(float(part) for part in value.split(";"))
+    except ValueError:
+        return None
+
+
+def _disagree(a: Calibration, b: Calibration, tolerance: tuple[str, float] | None) -> bool:
+    """Whether claim *a* differs from claim *b* (the one in force) by more than
+    *tolerance* in any number: ``abs`` in the kind's unit, ``rel`` a fraction of
+    *b*'s number. Claims with no tolerance, or values that are no numbers, are
+    not compared."""
+    x, y = calibration_numbers(a.value), calibration_numbers(b.value)
+    if tolerance is None or x is None or y is None or len(x) != len(y):
+        return False
+    term, amount = tolerance
+    return any(
+        abs(p - q) > (amount * abs(q) if term == "rel" else amount)
+        for p, q in zip(x, y, strict=True)
+    )
+
+
+class PanelGraph:
+    """The things, channels, relations, poses and rules screens are drawn from.
+
+    Built by :func:`load_graph`; see the module docstring for what it leaves out.
+    """
+
+    def __init__(
+        self,
+        records: FacilityRecords,
+        tables: PanelTables,
+        ring_frame: str | None = None,
+        *,
+        content_hash: str | None = None,
+    ) -> None:
+        self._records = records
+        self._tables = tables
+        self._content_hash = content_hash
+        self.unread = 0
+        """How many values of rows the graph could not read (see the module docstring)."""
+        excluded = {kind: set[str]() for kind in ("thing", "channel", "document")}
+        for row in tables.excluded:
+            excluded[row.kind].add(row.id)
+        self._excluded_documents = frozenset(excluded["document"])
+        self._things = self._read_things(records, excluded["thing"])
+        short = {
+            row.thing: row.short_name
+            for row in tables.names
+            if row.document not in self._excluded_documents
+        }
+        for key, thing in self._things.items():
+            if thing.id in short:
+                self._things[key] = dataclasses.replace(thing, short_name=short[thing.id])
+        self._children: dict[str, list[Thing]] = {}
+        for thing in self._things.values():
+            if thing.kind != "group" and thing.place is not None:
+                self._children.setdefault(thing.place, []).append(thing)
+        self._members: dict[str, tuple[str, ...]] = {}
+        for group in records.of_kind("group"):
+            if ("group", str(group["id"])) not in self._things:
+                continue
+            members = group.get("members") or ()
+            if not isinstance(members, list | tuple):
+                self.unread += 1
+                members = ()
+            self._members[str(group["id"])] = tuple(str(member) for member in members)
+        self._read_channels(records, tables, excluded["channel"])
+        self._read_edges(records)
+        self._read_claims()
+        self._read_wholes()
+        self._read_poses(tables, ring_frame)
+        self._rules: dict[str, list[HealthRule]] = {}
+        for rule in tables.health:
+            if rule.channel in self._channel and rule.source not in self._excluded_documents:
+                self._rules.setdefault(rule.channel, []).append(rule)
+        self._read_pairs(tables)
+        self._pictures: dict[str, list[PicturePart]] = {}
+        for part in tables.pictures:
+            if part.document not in self._excluded_documents:
+                self._pictures.setdefault(part.device_class, []).append(part)
+        self._read_calibrations(tables)
+
+    def _read_calibrations(self, tables: PanelTables) -> None:
+        self._kinds = {(kind.kind, kind.cls): kind for kind in tables.calibration_kinds}
+        self._under: dict[str, frozenset[str]] = {}
+        self._kinds_of: dict[str, list[CalibrationKind]] = {}
+        for kind in tables.calibration_kinds:  # classes in file order
+            self._kinds_of.setdefault(kind.cls, [])
+        for kind in sorted(
+            tables.calibration_kinds, key=lambda k: (k.order is None, k.order or 0.0, k.kind)
+        ):
+            self._kinds_of.setdefault(kind.cls, []).append(kind)
+        self._claims: dict[tuple[str, str], list[Calibration]] = {}
+        for claim in tables.calibrations:
+            if claim.document not in self._excluded_documents:
+                self._claims.setdefault((claim.subject, claim.kind), []).append(claim)
+        self._superseded = {
+            claim.supersedes
+            for claims in self._claims.values()
+            for claim in claims
+            if claim.supersedes is not None
+        }
+        self._points: dict[str, list[CurvePoint]] = {}
+        for point in tables.calibration_curves:
+            self._points.setdefault(point.id, []).append(point)
+
+    # -- building -------------------------------------------------------------
+
+    def _citations(self, record: Mapping[str, Any]) -> tuple[Citation, ...]:
+        cited = (_citation(entry) for entry in record.get("citations") or ())
+        return tuple(
+            citation
+            for citation in cited
+            if citation is not None and citation.document not in self._excluded_documents
+        )
+
+    def _read_things(self, records: FacilityRecords, excluded: set[str]) -> dict[_Key, Thing]:
+        every_place = {str(place["id"]) for place in records.of_kind("place")}
+        hidden = {
+            place
+            for place in every_place
+            if any(
+                "/".join(place.split("/")[:depth]) in excluded
+                for depth in range(1, place.count("/") + 2)
+            )
+        }
+        places = every_place - hidden
+        withheld = self._withheld_parts(records, excluded, hidden)
+        self.withheld = len(withheld)
+        """How many devices are left out as part of an excluded thing (at any depth)."""
+        things: dict[_Key, Thing] = {}
+        self._left_out: set[_Key] = set()
+        for kind in END_KINDS:
+            for record in records.of_kind(kind):  # type: ignore[arg-type]
+                thing_id = str(record["id"])
+                if (
+                    thing_id in excluded
+                    or (kind == "place" and thing_id in hidden)
+                    or (kind == "device" and thing_id in withheld)
+                ):
+                    self._left_out.add((kind, thing_id))
+                    continue
+                if kind == "device" and _text(record.get("place")) in hidden:
+                    self._left_out.add((kind, thing_id))
+                    continue
+                if kind == "device":
+                    place = _text(record.get("place"))
+                elif kind == "place" and "/" in thing_id:
+                    place = thing_id.rsplit("/", 1)[0]
+                else:
+                    place = None
+                things[(kind, thing_id)] = Thing(
+                    id=thing_id,
+                    kind=kind,  # type: ignore[arg-type]
+                    cls=_text(record.get("class")) if kind == "device" else None,
+                    place=place if place in places else None,
+                    citations=self._citations(record),
+                    level=_text(record.get("level")) if kind == "place" else None,
+                    model=_text(record.get("model")) if kind == "device" else None,
+                )
+        return things
+
+    @staticmethod
+    def _withheld_parts(records: FacilityRecords, excluded: set[str], hidden: set[str]) -> set[str]:
+        """The devices ``part_of`` an excluded device (at any depth), which are left out too.
+
+        A device is excluded by name or by a place it is in; the ``part_of``
+        claims that are not superseded are followed down from those, each
+        device once, so a loop ends.
+        """
+        gone = {
+            str(record["id"])
+            for record in records.of_kind("device")
+            if str(record["id"]) in excluded or _text(record.get("place")) in hidden
+        }
+        parts: dict[str, list[str]] = {}
+        for claim in records.document.get("relations") or ():
+            if not isinstance(claim, Mapping) or claim.get("type") != PART_RELATION:
+                continue
+            if claim.get("standing") == "superseded":
+                continue
+            ends = [claim.get("subject"), claim.get("object")]
+            if not all(isinstance(end, Mapping) and "device" in end for end in ends):
+                continue
+            parts.setdefault(str(ends[1]["device"]), []).append(str(ends[0]["device"]))  # type: ignore[index]
+        withheld: set[str] = set()
+        stack = list(gone)
+        while stack:
+            for part in parts.get(stack.pop(), ()):
+                if part not in gone and part not in withheld:
+                    withheld.add(part)
+                    stack.append(part)
+        return withheld
+
+    def _read_channels(
+        self, records: FacilityRecords, tables: PanelTables, excluded: set[str]
+    ) -> None:
+        types = {
+            row.channel: row
+            for row in tables.record_types
+            if row.source not in self._excluded_documents
+        }
+        self._types: dict[str, RecordType] = {}
+        self._channel: dict[str, Channel] = {}
+        self._channels: dict[_Key, list[Channel]] = {}
+        self._unheld: list[Channel] = []
+        for record in records.of_kind("channel"):
+            name = str(record["id"])
+            if name in excluded or name.startswith(SIMULATION_PREFIX):
+                continue
+            on = record.get("on") or {}
+            holder = end_identity(on) if isinstance(on, Mapping) and on else None
+            if holder is not None and holder not in self._things:
+                if holder in self._left_out:
+                    continue  # on a thing no screen shows
+                holder = None  # on nothing the file holds
+            endpoints = [("device", str(device)) for device in record.get("endpoint_of") or ()]
+            if holder is None and endpoints and all(e in self._left_out for e in endpoints):
+                continue
+            row = types.get(name)
+            names = sorted(str(alias) for alias in record.get("names") or ())
+            channel = Channel(
+                name=name,
+                drawn_as=row.drawn_as if row is not None else None,
+                writable=record.get("role") == "setpoint",
+                alias=names[0] if names else None,
+                thing=holder[1] if holder is not None else None,
+                thing_kind=holder[0] if holder is not None else None,  # type: ignore[arg-type]
+                record_type=row.record_type if row is not None else None,
+                unit=_text(record.get("unit")),
+                description=_text(record.get("description")),
+                tolerance=_tolerance(record.get("tolerance")),
+                signal=_text(record.get("signal")),
+            )
+            self._channel[name] = channel
+            if row is not None:
+                self._types[name] = row
+            held = False
+            for key in dict.fromkeys([*([holder] if holder is not None else []), *endpoints]):
+                if key in self._things:
+                    self._channels.setdefault(key, []).append(channel)
+                    held = True
+            if not held:
+                self._unheld.append(channel)
+
+    def _read_edges(self, records: FacilityRecords) -> None:
+        self._edges: dict[_Key, dict[str, list[Edge]]] = {}
+        for claim in records.document.get("relations") or ():
+            if not isinstance(claim, Mapping) or claim.get("standing") == "superseded":
+                continue
+            subject, obj = claim.get("subject"), claim.get("object")
+            if not (isinstance(subject, Mapping) and isinstance(obj, Mapping)):
+                continue
+            ends: list[Mapping[str, Any]] = [subject, obj]
+            keys = [end_identity(end) for end in ends]
+            if any(key is None or key not in self._things for key in keys):
+                continue
+            source = _citation(claim.get("source"))
+            if source is not None and source.document in self._excluded_documents:
+                continue
+            units = [end.get("unit") for end in ends if end.get("unit") is not None]
+            unit, unit_text = _unit(units[0]) if units else (None, None)
+            if unit_text is not None:
+                self.unread += 1
+            attributes = claim.get("attributes") or {}
+            if not isinstance(attributes, Mapping):
+                self.unread += 1
+                attributes = {}
+            for index in (0, 1):
+                here, there = keys[index], keys[1 - index]
+                assert here is not None and there is not None
+                edge = Edge(
+                    kind=str(claim.get("type")),
+                    claim=str(claim.get("id")),
+                    outgoing=index == 0,
+                    other=there[1],
+                    other_kind=there[0],  # type: ignore[arg-type]
+                    standing=str(claim.get("standing") or "accepted"),
+                    basis=str(claim.get("basis") or "stated"),
+                    port=_text(ends[index].get("port")),
+                    other_port=_text(ends[1 - index].get("port")),
+                    unit=unit,
+                    attributes=MappingProxyType(dict(attributes)),
+                    source=source,
+                    unit_text=unit_text,
+                )
+                self._edges.setdefault(here, {}).setdefault(edge.kind, []).append(edge)
+
+    def _read_claims(self) -> None:
+        """Every thing a ``located_in`` claim puts in a place, by place, in graph order."""
+        self._claimed: dict[str, list[Thing]] = {}
+        self._claims_of: dict[_Key, list[str]] = {}
+        for key, thing in self._things.items():
+            if thing.kind == "group":
+                continue
+            for edge in self._edges.get(key, {}).get(PLACE_RELATION, ()):
+                if not edge.outgoing or edge.other_kind != "place":
+                    continue
+                places = self._claims_of.setdefault(key, [])
+                if edge.other not in places:
+                    places.append(edge.other)
+                    self._claimed.setdefault(edge.other, []).append(thing)
+
+    def _own_places(self, key: _Key) -> tuple[str, ...]:
+        """The places a thing has by itself: its built place, else its claims' places."""
+        place = self._things[key].place
+        return (place,) if place is not None else tuple(self._claims_of.get(key, ()))
+
+    def _read_wholes(self) -> None:
+        """Every device with no place of its own, put in the place of its nearest whole.
+
+        The walk follows outgoing ``part_of`` edges to devices, breadth first in
+        file order, and stops at the first whole that has a built place or a
+        claim; a device it reaches twice is not walked again, so a loop ends.
+        """
+        self._whole_of: dict[_Key, tuple[str, tuple[str, ...]]] = {}
+        self._derived: dict[str, list[Thing]] = {}
+        self._through: dict[str, list[Thing]] = {}
+        for key, thing in self._things.items():
+            if thing.kind != "device" or self._own_places(key):
+                continue
+            seen = {key}
+            level = [key]
+            found: tuple[_Key, tuple[str, ...]] | None = None
+            while level and found is None:
+                upper: list[_Key] = []
+                for here in level:
+                    for edge in self._edges.get(here, {}).get(PART_RELATION, ()):
+                        whole = (edge.other_kind, edge.other)
+                        if not edge.outgoing or edge.other_kind != "device" or whole in seen:
+                            continue
+                        seen.add(whole)
+                        places = self._own_places(whole)
+                        if places:
+                            found = (whole, places)
+                            break
+                        upper.append(whole)
+                    if found is not None:
+                        break
+                level = upper
+            if found is None:
+                continue
+            self._whole_of[key] = (found[0][1], found[1])
+            self._through.setdefault(found[0][1], []).append(thing)
+            for place in found[1]:
+                self._derived.setdefault(place, []).append(thing)
+
+    def _read_poses(self, tables: PanelTables, ring_frame: str | None) -> None:
+        thing_ids = {thing_id for _kind, thing_id in self._things}
+        kept = [
+            pose
+            for pose in tables.positions
+            if pose.thing in thing_ids and pose.document not in self._excluded_documents
+        ]
+        if ring_frame is None:
+            ring_frame = _ring_frame(kept)
+        self.ring_frame: str | None = ring_frame
+        """The frame whose ``s_m`` is the ring position."""
+        self._poses: dict[str, list[Pose]] = {}
+        for pose in kept:
+            ringed = dataclasses.replace(pose, in_ring_frame=pose.frame == ring_frame)
+            self._poses.setdefault(pose.thing, []).append(ringed)
+        for poses in self._poses.values():
+            poses.sort(key=lambda pose: not pose.in_ring_frame)
+
+    def _read_pairs(self, tables: PanelTables) -> None:
+        self._pairs: dict[str, Pair] = {}
+        for pair in tables.pairs:
+            if pair.source in self._excluded_documents:
+                continue
+            if pair.setpoint in self._channel and pair.readback in self._channel:
+                self._pairs[pair.setpoint] = pair
+
+    # -- reading --------------------------------------------------------------
+
+    def _key(self, thing_id: str, kind: str | None = None) -> _Key:
+        for candidate in (kind,) if kind is not None else END_KINDS:
+            if (candidate, thing_id) in self._things:
+                return (candidate, thing_id)
+        where = f"{kind} " if kind is not None else ""
+        raise KeyError(f"the panel graph holds no {where}thing {thing_id!r}")
+
+    @property
+    def content_hash(self) -> str:
+        """The SHA-256 hex digest of what the graph was read from.
+
+        :func:`load_graph` hashes the facility file's bytes and the rule
+        tables' files, so the digest is the same on every machine. A graph
+        built from records and tables directly hashes their canonical text
+        instead, on first use.
+        """
+        if self._content_hash is None:
+            digest = hashlib.sha256()
+            text = json.dumps(
+                self._records.document, sort_keys=True, ensure_ascii=False, default=str
+            )
+            digest.update(text.encode("utf-8"))
+            digest.update(repr(self._tables).encode("utf-8"))
+            self._content_hash = digest.hexdigest()
+        return self._content_hash
+
+    def things(self) -> list[Thing]:
+        """Every thing: devices, then places, then groups, each in file order."""
+        return list(self._things.values())
+
+    def thing(self, thing_id: str, kind: ThingKind | None = None) -> Thing:
+        """The thing with *thing_id*.
+
+        Raises:
+            KeyError: No such thing, or it is excluded.
+        """
+        return self._things[self._key(thing_id, kind)]
+
+    def neighbours(self, thing_id: str, kind: ThingKind | None = None) -> dict[str, list[Edge]]:
+        """The thing's edges by relation kind, both directions, in file order.
+
+        Raises:
+            KeyError: No such thing, or it is excluded.
+        """
+        edges = self._edges.get(self._key(thing_id, kind), {})
+        return {relation: list(found) for relation, found in edges.items()}
+
+    def channels(self, thing_id: str, kind: ThingKind | None = None) -> list[Channel]:
+        """The channels on the thing (``on`` it or, for a device, ``endpoint_of`` it).
+
+        Raises:
+            KeyError: No such thing, or it is excluded.
+        """
+        return list(self._channels.get(self._key(thing_id, kind), ()))
+
+    def unheld(self) -> list[Channel]:
+        """The channels on no thing the graph holds, in file order."""
+        return list(self._unheld)
+
+    def channel(self, name: str) -> Channel:
+        """The channel *name*.
+
+        Raises:
+            KeyError: No such channel, or it is left out.
+        """
+        try:
+            return self._channel[name]
+        except KeyError:
+            raise KeyError(f"the panel graph holds no channel {name!r}") from None
+
+    def members(self, group_id: str) -> list[Thing]:
+        """The group's members the graph holds, in the group's order.
+
+        Raises:
+            KeyError: No such group, or it is excluded.
+        """
+        self._key(group_id, "group")
+        found = []
+        for member in self._members[group_id]:
+            try:
+                found.append(self.thing(member))
+            except KeyError:
+                continue
+        return found
+
+    def within(self, place_id: str, *, deep: bool = False) -> list[Thing]:
+        """The devices and places whose place is *place_id*.
+
+        Args:
+            place_id: A place.
+            deep: Also everything within those places, depth first.
+
+        Raises:
+            KeyError: No such place, or it is excluded.
+        """
+        self._key(place_id, "place")
+        found: list[Thing] = []
+        self._collect(place_id, deep, found)
+        return found
+
+    def _collect(self, place_id: str, deep: bool, found: list[Thing]) -> None:
+        for thing in self._children.get(place_id, ()):
+            found.append(thing)
+            if deep and thing.kind == "place":
+                self._collect(thing.id, deep, found)
+
+    def contents(self, place_id: str) -> list[Thing]:
+        """What is in a place: the one definition every screen and roll-up uses.
+
+        The devices and places whose built place is *place_id* or a place
+        within it (any depth, depth first), then those a ``located_in`` claim
+        puts in it or in a place within it, then the parts with no place of
+        their own whose nearest placed whole is there (:meth:`whole_of`); each
+        thing once.
+
+        Raises:
+            KeyError: No such place, or it is excluded.
+        """
+        found = self.within(place_id, deep=True)
+        seen = {(thing.kind, thing.id) for thing in found}
+        places = [place_id, *(thing.id for thing in found if thing.kind == "place")]
+        for source in (self._claimed, self._derived):
+            for place in places:
+                for thing in source.get(place, ()):
+                    if (thing.kind, thing.id) not in seen:
+                        seen.add((thing.kind, thing.id))
+                        found.append(thing)
+        return found
+
+    def claimed(self, place_id: str) -> list[Thing]:
+        """The things a ``located_in`` claim puts directly in the place, in graph order."""
+        return list(self._claimed.get(place_id, ()))
+
+    def derived(self, place_id: str) -> list[Thing]:
+        """The parts :meth:`whole_of` puts directly in the place, in graph order."""
+        return list(self._derived.get(place_id, ()))
+
+    def parts_through(self, device_id: str) -> list[Thing]:
+        """The parts :meth:`whole_of` places through the device (it is their nearest
+        placed whole), in graph order."""
+        return list(self._through.get(device_id, ()))
+
+    def whole_of(self, thing_id: str) -> tuple[str, tuple[str, ...]] | None:
+        """``(whole, places)`` for a device placed only as part of a whole, else ``None``.
+
+        The placement is derived: a device with a built place or a
+        ``located_in`` claim of its own keeps it and has none.
+        """
+        return self._whole_of.get(("device", thing_id))
+
+    def placed(self, thing_id: str, kind: ThingKind | None = None) -> bool:
+        """Whether the thing is in some place: built, claimed, or as part of a whole."""
+        key = self._key(thing_id, kind)
+        return bool(self._own_places(key)) or key in self._whole_of
+
+    def unplaced(self) -> list[Thing]:
+        """Every device in no place by :meth:`contents`, in graph order."""
+        return [
+            thing
+            for key, thing in self._things.items()
+            if thing.kind == "device" and not self._own_places(key) and key not in self._whole_of
+        ]
+
+    def pose(self, thing_id: str) -> Pose | None:
+        """The thing's ring-frame pose, else its first pose, else ``None``."""
+        poses = self._poses.get(thing_id)
+        return poses[0] if poses else None
+
+    def poses(self, thing_id: str) -> list[Pose]:
+        """Every pose of the thing, the ring-frame row first, then file order."""
+        return list(self._poses.get(thing_id, ()))
+
+    def rule(self, channel: str) -> list[HealthRule]:
+        """Every health row for the channel, all sources, in file order."""
+        return list(self._rules.get(channel, ()))
+
+    def rules(self) -> list[HealthRule]:
+        """Every health row of every channel the graph holds, by channel then file order."""
+        return [row for rows in self._rules.values() for row in rows]
+
+    def record_type(self, channel: str) -> RecordType | None:
+        """The ``record_types.csv`` row of a channel the graph holds, or ``None``."""
+        return self._types.get(channel)
+
+    def pictures(self, device_class: str) -> list[PicturePart]:
+        """The ``pictures.csv`` rows of a device class, in file order."""
+        return list(self._pictures.get(device_class, ()))
+
+    def metrics(self, view: str, level: str | None) -> list[Metric]:
+        """The rows of ``metrics.csv`` for *view* (``place`` or ``rollup``) of a place
+        of *level*: those naming that level or none, by ``order``; a row whose source
+        is an excluded document is left out."""
+        rows = [
+            row
+            for row in self._tables.metrics
+            if row.view == view
+            and row.level in (None, level)
+            and row.source not in self._excluded_documents
+        ]
+        return sorted(rows, key=lambda row: row.order)
+
+    def calibration_kinds(self, cls: str | None = None) -> list[CalibrationKind]:
+        """The calibration kinds of a device class, by ``order``, wherever they apply
+        (:meth:`calibration_kinds_of` asks for one device); every kind with ``None``."""
+        if cls is None:
+            return [kind for kinds in self._kinds_of.values() for kind in kinds]
+        return list(self._kinds_of.get(cls, ()))
+
+    def calibration_kind(self, kind: str, cls: str) -> CalibrationKind:
+        """The calibration kind *kind* of the device class *cls*.
+
+        Raises:
+            KeyError: No such kind of that class.
+        """
+        return self._kinds[kind, cls]
+
+    def applies(self, kind: CalibrationKind, device_id: str) -> bool:
+        """Whether *kind* is a calibration kind of the device: the device is of the
+        kind's class, and belongs to the model or lies in the place (its
+        :meth:`contents`) the kind's ``under`` names, when it names one.
+
+        Raises:
+            KeyError: No such device.
+        """
+        device = self.thing(device_id, "device")
+        return device.cls == kind.cls and self._under_rank(device, kind.under) is not None
+
+    def _under_rank(self, device: Thing, under: str | None) -> int | None:
+        """How specific *under* is for the device: 0 for everywhere, 1 for its model,
+        2 and up for a place it lies in, deeper places higher; ``None`` when *under*
+        names neither its model nor a place it lies in."""
+        if under is None:
+            return 0
+        if device.id in self._lying_under(under):
+            return 2 + under.count("/")
+        return 1 if device.model == under else None
+
+    def _lying_under(self, place_id: str) -> frozenset[str]:
+        if place_id not in self._under:
+            held = ("place", place_id) in self._things
+            found = self.contents(place_id) if held else []
+            self._under[place_id] = frozenset(t.id for t in found if t.kind == "device")
+        return self._under[place_id]
+
+    def calibration_kinds_of(self, device_id: str) -> list[CalibrationKind]:
+        """The calibration kinds of a device (:meth:`applies`), by ``order``.
+
+        Raises:
+            KeyError: No such device.
+        """
+        cls = self.thing(device_id, "device").cls
+        return [kind for kind in self._kinds_of.get(cls or "", ()) if self.applies(kind, device_id)]
+
+    def calibration(self, device_id: str, kind: str) -> CalibrationState:
+        """What the records say of *kind* for a device: the claims whose subject is the
+        device, one of its channels, or a part placed through it (:meth:`parts_through`).
+
+        Raises:
+            KeyError: No such device, or *kind* is no kind of it (:meth:`applies`).
+        """
+        cls = self.thing(device_id, "device").cls
+        found = self._kinds[kind, cls or ""]
+        if not self.applies(found, device_id):
+            raise KeyError(f"{kind!r} is no calibration kind of {device_id!r}")
+        subjects = [
+            device_id,
+            *(channel.name for channel in self.channels(device_id, "device")),
+            *(part.id for part in self.parts_through(device_id)),
+        ]
+        order = {id(c): n for n, c in enumerate(self._tables.calibrations)}
+        claims = sorted(
+            (claim for subject in subjects for claim in self._claims.get((subject, kind), ())),
+            key=lambda c: (c.date or "", order[id(c)]),
+            reverse=True,
+        )  # newest first; a later row wins a tie
+        live = [c for c in claims if c.id not in self._superseded and c.standing != "superseded"]
+        accepted = [c for c in live if c.standing == "accepted"]
+        in_force = accepted[0] if accepted else next(iter(live), None)
+        rivals = tuple(
+            c
+            for c in accepted
+            if in_force is not None
+            and c is not in_force
+            and c.basis == in_force.basis
+            and _disagree(c, in_force, found.tolerance)
+        )
+        if in_force is None:
+            state = "none"
+        elif rivals or any(c.standing == "contested" for c in live):
+            state = "contested"
+        else:
+            state = in_force.basis
+        rank = CALIBRATION_BASES.index  # a display order, not a precedence
+        below = in_force is None or rank(in_force.basis) < rank(found.wanted_basis)
+        design = next((c for c in claims if c.basis == "design" and c.standing == "accepted"), None)
+        points = (
+            tuple(self._points.get(in_force.id, ()))
+            if in_force is not None and in_force.value.startswith(CURVE_PREFIX)
+            else ()
+        )
+        return CalibrationState(
+            kind=found,
+            subject=device_id,
+            in_force=in_force,
+            state=state,
+            below_wanted=below,
+            design=design,
+            earlier=tuple(c for c in claims if c is not in_force),
+            rivals=rivals,
+            points=points,
+        )
+
+    def probe(self, device_id: str) -> tuple[ProbeElement, ...]:
+        """The probe picture of a device: the ``probe_pictures.csv`` rows of its class,
+        per element (per curve of a plot) the one whose ``under`` is the most
+        specific for the device (:meth:`applies` says which apply), in the file
+        order of the rows with no ``under``, then of the others. Rows citing an
+        excluded document are left out.
+
+        Raises:
+            KeyError: No such device.
+        """
+        device = self.thing(device_id, "device")
+        chosen: dict[tuple[str, str | None], tuple[int, int, ProbeElement]] = {}
+        for n, row in enumerate(self._tables.probe_pictures):
+            if row.cls != device.cls or row.document in self._excluded_documents:
+                continue
+            rank = self._under_rank(device, row.under)
+            if rank is None:
+                continue
+            key = (row.element, row.label if row.shape == "plot" else None)
+            first = chosen[key][1] if key in chosen else n
+            if key not in chosen or rank > chosen[key][0]:
+                chosen[key] = (rank, first, row)
+        return tuple(row for _rank, _n, row in sorted(chosen.values(), key=lambda c: c[1]))
+
+    def signal_channels(self, device_id: str, signal: str) -> tuple[str, ...]:
+        """The channels that state *signal* for a device, in channel order, from the
+        first of these that has any: (1) the device the ``port`` of the device's
+        ``read_out_by`` claims names, when it names a device (the control system's
+        own records); (2) the device itself; (3) the device it is read out by.
+        Empty when none states it.
+
+        Raises:
+            KeyError: No such device.
+        """
+        edges = [
+            edge
+            for edge in self.neighbours(device_id, "device").get(READ_OUT_RELATION, ())
+            if edge.outgoing and edge.other_kind == "device"
+        ]
+        ports = [
+            edge.other_port
+            for edge in edges
+            if edge.other_port is not None and ("device", edge.other_port) in self._things
+        ]
+        for level in (ports, [device_id], [edge.other for edge in edges]):
+            found = tuple(
+                c.name
+                for each in level
+                for c in self.channels(each, "device")
+                if c.signal == signal
+            )
+            if found:
+                return found
+        return ()
+
+    def probe_channel(self, device_id: str, signal: str) -> str | None:
+        """The first channel :meth:`signal_channels` finds, or ``None``.
+
+        Raises:
+            KeyError: No such device.
+        """
+        return next(iter(self.signal_channels(device_id, signal)), None)
+
+    def pair(self, setpoint: str) -> Pair | None:
+        """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""
+        return self._pairs.get(setpoint)
+
+
+def load_graph(facility: Path, panels_dir: Path, *, ring_frame: str | None = None) -> PanelGraph:
+    """Read a built facility file and its rule tables into a :class:`PanelGraph`.
+
+    Args:
+        facility: The facility file, or the directory holding ``facility.json``.
+        panels_dir: The directory holding the rule tables.
+        ring_frame: The frame whose ``s_m`` is the ring position; ``None``
+            finds it in ``positions.csv``.
+
+    Returns:
+        The graph.
+
+    Raises:
+        FileNotFoundError: No facility file is there.
+        FacilityFileError: The facility file cannot be read.
+        PanelTableError: A rule table breaks its schema, or two frames tie
+            for the ring frame and none is passed.
+    """
+    path = Path(facility)
+    if path.is_dir():
+        path = path / FACILITY_FILE
+    records = FacilityRecords.from_file(path)
+    if records is None:
+        raise FileNotFoundError(f"no facility file at {path}")
+    tables = read_tables(panels_dir)
+    digest = hashlib.sha256()
+    digest.update(path.read_bytes())
+    for name in TABLE_FILES:
+        digest.update(b"\0" + name.encode("utf-8") + b"\0")
+        table = Path(panels_dir) / name
+        digest.update(table.read_bytes() if table.is_file() else b"")
+    return PanelGraph(records, tables, ring_frame=ring_frame, content_hash=digest.hexdigest())

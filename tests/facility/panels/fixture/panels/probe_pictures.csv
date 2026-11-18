@@ -1,0 +1,15 @@
+class,element,shape,label,angle_deg,radius_mm,size_mm,signal,signal_y,min,max,range_mm,count,document,version,state,locator,under
+BPM,bore,bore,,,14.2,,,,,,,,XR-BPM-DWG,A,Released,sheet 1,
+BPM,A,anchor,A,45,14.2,8,amplitude_a,,0,32767,,,XR-BPM-DWG,A,Released,sheet 1,
+BPM,B,anchor,B,135,14.2,8,amplitude_b,,0,32767,,,XR-BPM-DWG,A,Released,sheet 1,
+BPM,C,anchor,C,225,14.2,8,amplitude_c,,0,32767,,,XR-BPM-DWG,A,Released,sheet 1,
+BPM,D,anchor,D,315,14.2,8,amplitude_d,,0,32767,,,XR-BPM-DWG,A,Released,sheet 1,
+BPM,beam,marker,,,,,position_x_readback,position_y_readback,,,2,,XR-BPM-REQ,A,Released,linear range,
+BPM,sum,readout,sum,,,,sum_readback,,,,,,,,,,
+BPM,turn by turn,plot,x,,,,tbt_x,,,,,1000,,,,,
+BPM,turn by turn,plot,y,,,,tbt_y,,,,,1000,,,,,
+BPM,bore,bore,,,30,16,,,,,,,XR-BPM-DWG,B,Released,sheet 2,XR/XR02
+BPM,A,anchor,A,38.7,12.8,6,amplitude_a,,0,32767,,,XR-BPM-DWG,B,Released,sheet 2,XR/XR02
+BPM,B,anchor,B,141.3,12.8,6,amplitude_b,,0,32767,,,XR-BPM-DWG,B,Released,sheet 2,XR/XR02
+BPM,C,anchor,C,218.7,12.8,6,amplitude_c,,0,32767,,,XR-BPM-DWG,B,Released,sheet 2,XR/XR02
+BPM,D,anchor,D,321.3,12.8,6,amplitude_d,,0,32767,,,XR-BPM-DWG,B,Released,sheet 2,XR/XR02
