@@ -97,6 +97,24 @@ def _facility(repo: Path) -> Path:
     return repo / "data" / "facility"
 
 
+#: The columns of NSLS-II's storage-ring export the check sweeps, the same in
+#: every block: one corrector of each of the six positions of a cell, in six
+#: cells spread round the ring.
+NSLS2_SR_COLUMNS = tuple(range(0, 180, 31))
+
+
+def _keep_columns(path: Path, columns: tuple[int, ...]) -> None:
+    """Cut a kept response export down to ``columns`` of every block."""
+    response = json.loads(path.read_text(encoding="utf-8"))
+    for block in response["blocks"]:
+        actuator = block["actuator"]
+        for key in ("device_list", "status", "data"):
+            actuator[key] = [actuator[key][column] for column in columns]
+        block["actuator_delta"] = [block["actuator_delta"][column] for column in columns]
+        block["data"] = [[row[column] for column in columns] for row in block["data"]]
+    path.write_text(json.dumps(response), encoding="utf-8")
+
+
 def _snapshot(root: Path) -> dict[str, bytes | None]:
     return {
         path.relative_to(root).as_posix(): None if path.is_dir() else path.read_bytes()
@@ -123,7 +141,14 @@ def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def nsls2(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _repo(tmp_path_factory.mktemp("nsls2"), "nsls2")
+    """The nsls2 tree, its storage ring's export cut to :data:`NSLS2_SR_COLUMNS`.
+
+    The whole export sweeps 180 correctors a block, each by two closed-orbit
+    solves of a 3,510-element ring; the LTB's eight are kept whole.
+    """
+    repo = _repo(tmp_path_factory.mktemp("nsls2"), "nsls2")
+    _keep_columns(_facility(repo) / LAYER_DIR / "StorageRing.response.json", NSLS2_SR_COLUMNS)
+    return repo
 
 
 @pytest.fixture(scope="module")
@@ -133,7 +158,7 @@ def synthetic(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def nsls2_checks(nsls2: Path) -> list[ModelCheck]:
-    """The nsls2 tree's checks, run once: the storage ring sweeps 360 correctors."""
+    """The nsls2 tree's checks, run once: the storage ring sweeps 12 correctors."""
     facility = _facility(nsls2)
     return check_responses(facility, build_facility(facility, project_name="scratch"))
 
