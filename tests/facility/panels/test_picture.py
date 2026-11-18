@@ -5,6 +5,7 @@ Every class, number and name here is invented.
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 from pathlib import Path
@@ -182,7 +183,7 @@ def test_the_body_is_painted_by_material_and_the_class_colour_is_not_used(tmp_pa
     assert _tipped(doc, "corrector winding 1")[0]["props"]["fillColor"] == symbols.WINDING
     bore = next(n for n in _tipped(doc, "bore") if n["type"] == "ellipse")
     assert bore["props"]["fillColor"] == symbols.BORE
-    assert "beam" in _texts(doc)
+    assert _tipped(doc, "beam")  # the point; the word only where the bore has room
     assert COLOUR not in json.dumps(doc)  # material, not the class's strip colour
 
 
@@ -377,6 +378,32 @@ def _unsized(poles: int, first: float, *, bore: str = "bore", gap: float = 30) -
         rows.append(_row(f"pole {k + 1}", "pole", 0, 0, angle=angle))
         rows.append(_row(f"coil {k + 1}", "coil", 0, 0, angle=angle))
     return rows
+
+
+@pytest.mark.parametrize(("poles", "first"), [(4, 45), (6, 30)])
+def test_a_stated_yoke_sets_the_proportions_however_small_the_bore(
+    tmp_path, poles: int, first: float
+) -> None:
+    """A yoke twelve times the bore: the coils keep the mockup's proportion to the
+    yoke, the bore is drawn as stated, and the pole tips reach for it apart."""
+    from osprey.facility.panels.picture import COIL_FROM, COIL_TO, YOKE, body
+
+    rows = [_row("yoke", "yoke", "", "", w=420, h=420), *_unsized(poles, first, gap=35)]
+    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    drawn = body([r for r in pictures if r.shape])
+    assert drawn.unit == pytest.approx(210 / YOKE)  # mm per unit from the yoke
+    (bore,) = [s for s in drawn.shapes if s.role == "bore"]
+    (x1, _y1), (x2, _y2) = bore.points
+    assert x2 - x1 == pytest.approx(35)  # as stated
+    coils = [s for s in drawn.shapes if s.role == "coil"]
+    reach = [math.hypot(*pt) for s in coils for pt in s.points]
+    unit = drawn.unit
+    assert min(reach) >= COIL_FROM * unit * 0.95 and max(reach) <= COIL_TO * unit * 1.2
+    tips = [s for s in drawn.shapes if s.role == "pole"]
+    nose = min(math.hypot(*pt) for pt in tips[0].points)
+    assert 17.5 < nose < 17.5 * 2  # close to the bore, never into it
+    for a, b in itertools.pairwise(tips):  # neighbouring poles never touch
+        assert min(math.dist(p, q) for p in a.points for q in b.points) > 1
 
 
 @pytest.mark.parametrize(("poles", "first"), [(2, 90), (4, 45), (6, 30)])
@@ -596,6 +623,56 @@ def test_parts_not_placed_stand_above_the_yoke_on_no_side(tmp_path) -> None:
         (d.at, d.radius) for d in drawn.dots
     ]:
         assert at[1] - half > top  # in the rows above the yoke, none over it
+
+
+def test_a_terminal_not_placed_is_a_terminal_block_clear_of_the_rows_beside(tmp_path) -> None:
+    from osprey.facility.panels.picture import TERMINAL_BLOCK, WATER_BLOCK, body
+
+    rows = [
+        *_six_poles(),
+        _row("manifold 1", "manifold", "", ""),
+        _row("terminal TB1", "terminal", "", ""),
+        _row("terminal TB2", "terminal", "", ""),
+        _row("thermal switch 1", "thermal_switch", "", ""),
+    ]
+    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    drawn = body([r for r in pictures if r.shape], [], [r for r in pictures if not r.shape])
+    (water,) = [b for b in drawn.blocks if b.role == "water"]
+    terminals = [b for b in drawn.blocks if b.role == "terminal"]
+    unit = water.size[0] / WATER_BLOCK[0]
+    assert [b.size for b in terminals] == [(TERMINAL_BLOCK[0] * unit, TERMINAL_BLOCK[1] * unit)] * 2
+    assert all(b.label for b in terminals)
+    spans: dict[float, tuple[float, float]] = {}  # each row's centre: its lowest and highest
+    for y, half in [(b.at[1], b.size[1] / 2) for b in drawn.blocks] + [
+        (d.at[1], d.radius) for d in drawn.dots if not d.placed
+    ]:
+        low, high = spans.get(round(y, 6), (y - half, y + half))
+        spans[round(y, 6)] = (min(low, y - half), max(high, y + half))
+    ordered = sorted(spans.values())
+    assert len(ordered) == 3  # one row per kind
+    for (_low, high), (low_next, _high) in itertools.pairwise(ordered):
+        assert high < low_next  # no row reaches into the next
+
+
+def test_a_water_or_terminal_part_with_only_an_angle_stands_on_that_side(tmp_path) -> None:
+    from osprey.facility.panels.picture import body
+
+    rows = [
+        *_six_poles(),
+        _row("manifold 1", "manifold", "", "", angle=0),
+        _row("manifold 2", "manifold", "", "", angle=0),
+        _row("terminal TB1", "terminal", "", "", angle=180),
+        _row("terminal TB2", "terminal", "", ""),
+    ]
+    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    drawn = body([r for r in pictures if r.shape], [], [r for r in pictures if not r.shape])
+    yoke = max(abs(a) for s in drawn.shapes if s.role == "yoke" for a, _b in s.points)
+    by_part = {b.row.part: b for b in drawn.blocks if b.row is not None}
+    for name in ("manifold 1", "manifold 2"):
+        assert by_part[name].placed and by_part[name].at[0] > yoke  # the +x column
+    assert by_part["terminal TB1"].placed and by_part["terminal TB1"].at[0] < -yoke
+    assert not by_part["terminal TB2"].placed  # no angle, no position: not placed
+    assert "water" in [w.text for w in drawn.words]  # the column's word
 
 
 # -- rows under a place --------------------------------------------------------

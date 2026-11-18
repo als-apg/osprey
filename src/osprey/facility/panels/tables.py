@@ -511,8 +511,10 @@ class PicturePart:
     the gap; of more, as a ring yoke (or the outline) with the poles at their
     angles. A part sits by its kind: a water part (a kind naming a manifold, water
     or cooling) or a terminal block is a block in a column beside the yoke, right of
-    it unless its row places it left; with no position, a dashed block in the row of
-    parts not placed (it claims no side); any other part
+    it unless its row places it left: a position left of the beam, or with no
+    position an ``angle_deg`` pointing left (a source that states only the side,
+    "on the +x side", is ``angle_deg`` 0, and 180 for -x); with neither, a dashed
+    block in the row of parts not placed (it claims no side); any other part
     is a sensor: with an ``angle_deg`` and no position, a dot on the coil at that
     angle (two on one coil side by side); with a position, a dot on the coil nearest
     its position's angle (a drawing with no coil: at its position); with neither, it

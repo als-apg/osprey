@@ -389,7 +389,6 @@ _HOVER_LABEL = "hoverLabel"
 _TOOLTIP = "tooltip"
 _YES, _NO = "yes", "no"
 _NO_RULE = "no rule"
-_NOT_PLACED = "not placed"
 _NO_UNIT = "no unit"
 _ROWS_NOT_DRAWN = "rows not drawn: the screen holds a table of at most this many rows"
 _CONTESTED = "contested"
@@ -3905,8 +3904,9 @@ class _Page:
             self.text(x - tw / 2, y - SMALL_LINE / 2, block.label, size=SMALL_SIZE, w=tw, h=SMALL_LINE, align="center")  # fmt: skip
 
     def beam_point(self, body: drawing.Body, px: Callable) -> None:
-        """The beam: a point, and the word "beam" under it, inside the bore when it
-        has the room, else under the bore."""
+        """The beam: a point, and the word "beam" under it inside the bore when it
+        has the room; a bore too small for it (pole tips close round it) has the
+        point alone, its tooltip saying "beam"."""
         bx, by = px(body.beam)
         dot = BEAM_POINT
         fill = {"lineColor": PAGE_TEXT, "lineWidth": LINE_WIDTH, "fill": True}
@@ -3922,6 +3922,8 @@ class _Page:
             radius = min(w, h) / 2
         word = "beam"
         w = text_width(word, SMALL_SIZE)
+        if bores and radius < dot + SMALL_LINE + GAP:
+            return
         below = by + dot if radius >= dot + SMALL_LINE + GAP else by + max(radius, dot) + 2
         self.text(
             bx - w / 2,

@@ -59,6 +59,9 @@ BORE = 40.0
 #: cavity, of its nearest side, is ``CAVITY / YOKE``.
 CAVITY = 172.0
 YOKE = 212.0
+#: The least bore radius a pole tip reaches for, as a share of :data:`BORE`: a bore
+#: stated smaller still is drawn as stated, the tips stop here.
+BORE_LEAST = 0.3
 #: A pole: where its root ends (inside the yoke), where its flanks start to narrow,
 #: where its rounded tip starts, the tip's control point (the tip stops half-way
 #: between, short of the bore), the tip's half width of the pole's.
@@ -94,6 +97,9 @@ NUMBER_AT = 194.0
 #: The side columns: their centre's distance from the beam axis; a water block, its
 #: step; a terminal block, its step, the gap above the first; the word above a column.
 SIDE_COLUMN = 277.0
+#: A water or terminal part placed by its angle alone stands left of the yoke when
+#: the angle's cosine is below minus this, else right (straight up or down: right).
+SIDE_TOLERANCE = 1e-9
 WATER_BLOCK = (30.0, 16.0)
 WATER_STEP = 26.0
 TERMINAL_BLOCK = (30.0, 28.0)
@@ -103,10 +109,12 @@ TERMINAL_UNPLACED_STEP = 40.0
 WORD_ABOVE = 22.0
 BLOCK_CORNER = 3.0
 #: The hollow rings of sensors with no place: the first one's centre, the step
-#: across and down, how far after the last ring its kind's word starts.
+#: across, the least step down, the clear space between two rows of unlike height,
+#: how far after the last ring its kind's word starts.
 UNPLACED = (-284.0, 222.0)
 UNPLACED_ACROSS = 20.0
 UNPLACED_DOWN = 26.0
+UNPLACED_ROW_GAP = 10.0
 UNPLACED_WORD = 4.0
 UNPLACED_BLOCK_GAP = 6.0
 
@@ -263,10 +271,13 @@ def _rounded(u1: float, u2: float, v1: float, v2: float, corner: float) -> list[
     return points + _arc(u2 - r, v1 + r, r, 270)
 
 
-def _pole(nose: float, root: float, half: float, shoulder: float, start: float) -> list[Point]:
+def _pole(
+    nose: float, root: float, half: float, shoulder: float, start: float, tip: float | None = None
+) -> list[Point]:
     """A pole along +u: broad from *root* to *shoulder*, narrowing to its tip at
-    *start*, rounded to *nose* (all from the beam), *half* its half width."""
-    tip = POLE_TIP_WIDTH * half
+    *start*, rounded to *nose* (all from the beam), *half* its half width, *tip* the
+    tip's (default :data:`POLE_TIP_WIDTH` of *half*)."""
+    tip = POLE_TIP_WIDTH * half if tip is None else tip
     control = 2 * nose - start  # a quadratic curve's middle lies half-way to its control
     curve = []
     for k in range(TIP_STEPS + 1):
@@ -342,12 +353,16 @@ def _kind(row: PicturePart) -> str:
 
 
 def _unit(rows: Sequence[PicturePart], ring: Sequence[Point], two: bool) -> tuple[float, bool]:
-    """mm per drawing unit, and whether a row states it: a sized bore's (a gap's for
-    two poles), else a sized yoke's, else an outline's, else the default bore's."""
-    for row in rows:
-        if row.kind in ("bore", "gap") and row.sized:
-            w, h = _wh(row)
-            return (min(w, h) / (2 * BEND_GAP) if two else min(w, h) / 2 / BORE), True
+    """mm per drawing unit, and whether a row states it. Two poles: a sized gap's,
+    else a sized yoke's, else an outline's. More: a sized yoke's, else an
+    outline's, else a sized bore's; the frame sets the unit, so the coils and the
+    parts keep their proportion to the yoke however small the bore is, and the pole
+    tips reach for the bore as stated. Else the default bore's."""
+    if two or not any(r.kind == "yoke" and r.sized for r in rows) and not ring:
+        for row in rows:
+            if row.kind in ("bore", "gap") and row.sized:
+                w, h = _wh(row)
+                return (min(w, h) / (2 * BEND_GAP) if two else min(w, h) / 2 / BORE), True
     for row in rows:
         if row.kind == "yoke" and row.sized:
             w, h = _wh(row)
@@ -475,19 +490,24 @@ def _radial(
     half = HALF_WIDTH.get(count, HALF_WIDTH_SPAN * math.sin(math.pi / count)) * unit
     thick = COIL_THICKNESS.get(count, min(COIL_MOST, COIL_OF_POLE * half / unit)) * unit
     root = cavity + (POLE_ROOT - CAVITY) * unit
+    mid = (POLE_TIP_START + POLE_TIP_CONTROL) / 2
+    inward = _bore_ratio(rows, unit)  # a bore stated small for its yoke: tips reach in
     for row in (r for r in rows if r.kind == "pole"):
         turn = math.radians(row.angle_deg or 0.0)
+        tip = None
         if row.sized:
             w, h = _wh(row)
             a, b = _xy(row)
             centre = a * math.cos(turn) + b * math.sin(turn)
-            k = h / (POLE_ROOT - (POLE_TIP_START + POLE_TIP_CONTROL) / 2)
+            k = h / (POLE_ROOT - mid)
             nose, end, side = centre - h / 2, centre + h / 2, w / 2
+            shoulder = nose + (POLE_SHOULDER - mid) * k
         else:
-            k, nose, end, side = unit, (POLE_TIP_START + POLE_TIP_CONTROL) / 2 * unit, root, half
-        shoulder = nose + (POLE_SHOULDER - (POLE_TIP_START + POLE_TIP_CONTROL) / 2) * k
+            k, nose, end, side = inward * unit, mid * inward * unit, root, half
+            shoulder = POLE_SHOULDER * unit  # the flanks as drawn; the tip tapers in
+            tip = POLE_TIP_WIDTH * half * inward
         start = nose + (POLE_TIP_START - POLE_TIP_CONTROL) / 2 * k
-        points = _turned(turn, _pole(nose, end, side, shoulder, start))
+        points = _turned(turn, _pole(nose, end, side, shoulder, start, tip))
         shapes.append(Shape(row, "polygon", points, "pole", row.part))
     # coils, then the windings outside them: each a block on both flanks
     reach = cavity - CAVITY * unit  # how far a stated yoke moves the blocks out
@@ -541,6 +561,18 @@ def _radial(
     if not any(r.kind == "bore" for r in rows) and any(r.kind in ("pole", "coil") for r in rows):
         shapes.append(Shape(None, "ellipse", _box(0, 0, 2 * BORE * unit, 2 * BORE * unit), "bore", "bore"))  # fmt: skip
     return shapes, marks, seats
+
+
+def _bore_ratio(rows: Sequence[PicturePart], unit: float) -> float:
+    """A stated bore's radius over the default's, in this drawing's units: below 1
+    when the frame (a stated yoke) sets the unit and the bore is small for it; 1 when
+    no bore is stated or the bore sets the unit. At most 1: a pole is never drawn
+    shorter than the default proportion."""
+    bore = next((r for r in rows if r.kind == "bore" and r.sized), None)
+    if bore is None:
+        return 1.0
+    w, h = _wh(bore)
+    return max(BORE_LEAST, min(1.0, min(w, h) / 2 / unit / BORE))
 
 
 def _two_poles(
@@ -644,16 +676,18 @@ def _parts(
             else:
                 unplaced.setdefault(row.kind, []).append(row)
             continue
-        if not row.positioned:  # no side stated: with the other parts not placed
+        if not row.placed:  # no side stated: with the other parts not placed
             unplaced.setdefault(row.kind, []).append(row)
             continue
-        side = -1.0 if _xy(row)[0] < 0 else 1.0
+        across = _xy(row)[0] if row.positioned else math.cos(math.radians(_angle(row)))
+        side = -1.0 if across < -SIDE_TOLERANCE else 1.0
         sides.setdefault(side, {}).setdefault(kind, []).append((row, True))
     x0 = min(UNPLACED[0] * unit, -reach[0] + (UNPLACED[0] + YOKE) * unit)
     y0 = max(UNPLACED[1] * unit, reach[1] + (UNPLACED[1] - YOKE) * unit)
     blocks: list[Block] = []
+    rows_at = _unplaced_rows([_kind(m[0]) for m in unplaced.values()])
     for r, (kind, members) in enumerate(unplaced.items()):
-        y = y0 + (len(unplaced) - 1 - r) * UNPLACED_DOWN * unit  # the last row lowest
+        y = y0 + rows_at[r] * unit  # the last row lowest
         role = _kind(members[0])
         if role == "sensor":
             for i, row in enumerate(members):
@@ -662,10 +696,11 @@ def _parts(
         else:  # a block each, dashed, in a row: no column, so no side
             step = WATER_BLOCK[0] + UNPLACED_BLOCK_GAP
             left = x0 - SENSOR * unit + WATER_BLOCK[0] / 2 * unit
+            size = TERMINAL_BLOCK if role == "terminal" else WATER_BLOCK
             for i, row in enumerate(members):
                 label = (f"TB{i + 1}" if len(members) > 1 else "TB") if role == "terminal" else None
                 at = (left + i * step * unit, y)
-                blocks.append(Block(row, at, _scaled(WATER_BLOCK, unit), role, False, label))
+                blocks.append(Block(row, at, _scaled(size, unit), role, False, label))
             x = left + ((len(members) - 1) * step + WATER_BLOCK[0] / 2 + UNPLACED_WORD) * unit
         words.append(Word(kind.replace("_", " "), (x, y), left=True))
     for side, kinds in sides.items():
@@ -688,6 +723,25 @@ def _parts(
             at = (x, y * unit)
             blocks.append(Block(row, at, _scaled(TERMINAL_BLOCK, unit), "terminal", placed, label))
     return tuple(dots), tuple(blocks), tuple(words)
+
+
+def _unplaced_rows(roles: Sequence[str]) -> list[float]:
+    """How far above the lowest row each row of parts with no place sits (drawing
+    units, in the order given, the last row lowest): rows step by at least
+    :data:`UNPLACED_DOWN`, and a taller row (a terminal block) keeps clear of its
+    neighbours."""
+    heights = [_unplaced_height(role) for role in roles]
+    at = [0.0] * len(roles)
+    for r in range(len(roles) - 2, -1, -1):
+        pitch = (heights[r] + heights[r + 1]) / 2 + UNPLACED_ROW_GAP
+        at[r] = at[r + 1] + max(UNPLACED_DOWN, pitch)
+    return at
+
+
+def _unplaced_height(role: str) -> float:
+    if role == "sensor":
+        return 2 * SENSOR
+    return TERMINAL_BLOCK[1] if role == "terminal" else WATER_BLOCK[1]
 
 
 def _scaled(size: Point, unit: float) -> Point:
