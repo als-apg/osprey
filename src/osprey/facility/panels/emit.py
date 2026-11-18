@@ -139,7 +139,8 @@ class Problem:
             would refuse as too long), ``over_budget`` (more rules or bound
             channels than one screen may have), ``unbound_probe`` (a note: a probe
             row of a device card names a signal no channel states), ``unbound_picture`` (a note: a
-            pictures row's signal resolves to no channel on a device) or
+            pictures row's signal resolves to no channel on a device),
+            ``ambiguous_picture`` (a note: it matches channels of several devices) or
             ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
@@ -992,24 +993,32 @@ def named_classes(classes: list[str]) -> str:
 
 
 def _unbound_picture(graph: PanelGraph, relative: str, target: Target) -> list[Problem]:
-    """A note per pictures row of a device card's class whose ``signal`` resolves to
-    no channel on the device (:meth:`PanelGraph.picture_channel`): drawn plain."""
+    """A note per pictures row of a device card's class whose ``signal`` resolves to no
+    channel on the device or its parts (:meth:`PanelGraph.picture_matches`): drawn
+    plain; and one per row whose signal matches channels of more than one device of
+    one level (two parts, say): the first is shown, which is no choice of the data."""
     if (target.view, target.kind) != ("card", "device"):
         return []
     cls = graph.thing(target.id, "device").cls
     if cls is None:
         return []
-    return [
-        Problem(
-            "unbound_picture",
-            relative,
-            f"{target.id}: {row.view} view {row.kind} {row.part!r} names {row.signal}, "
-            "which resolves to no channel; it is drawn plain",
-            note=True,
-        )
-        for row in graph.pictures(cls)
-        if row.signal is not None and graph.picture_channel(target.id, row.signal) is None
-    ]
+    found = []
+    for row in graph.pictures(cls):
+        if row.signal is None:
+            continue
+        matches = graph.picture_matches(target.id, row.signal)
+        what = f"{target.id}: {row.view} view {row.kind} {row.part!r} names {row.signal}"
+        owners = list(dict.fromkeys(device for device, _channel in matches))
+        if not matches:
+            detail = f"{what}, which resolves to no channel; it is drawn plain"
+            found.append(Problem("unbound_picture", relative, detail, note=True))
+        elif len(owners) > 1:
+            detail = (
+                f"{what}, which matches channels of {len(owners)} devices "
+                f"({', '.join(owners)}); the first, {matches[0][1]}, is shown"
+            )
+            found.append(Problem("ambiguous_picture", relative, detail, note=True))
+    return found
 
 
 def _unbound_probe(graph: PanelGraph, relative: str, target: Target) -> list[Problem]:

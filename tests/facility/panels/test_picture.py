@@ -282,6 +282,17 @@ def test_a_class_with_no_rows_has_no_picture(tmp_path) -> None:
     assert "END VIEW" not in _texts(doc)
 
 
+def test_a_signal_resolves_on_a_part_device_of_the_magnet(tmp_path) -> None:
+    rows = [_row("switch 1", "thermal_switch", 90, 90, signal="*TS1:Open-Sts")]
+    graph = _graph(tmp_path, rows, change=_switches)
+    assert graph.picture_matches("XR01:QF1", "*TS1:Open-Sts") == [
+        ("XR01:QF1-TS1", "XR01-QF1-TS1:Open-Sts")
+    ]
+    assert graph.picture_channel("XR01:QF1", "*:Open-Sts") == "XR01-QF1-TS1:Open-Sts"
+    assert len(graph.picture_matches("XR01:QF1", "*:Open-Sts")) == 2  # two parts: no pick
+    assert graph.picture_channel("XR01:QF1", "*:Current-SP") == "XR01-QF1:Current-SP"  # own first
+
+
 # -- shapes with no size, other pole counts, the yoke as a polygon -----------------
 
 
@@ -420,3 +431,15 @@ def test_check_notes_a_signal_that_resolves_to_no_channel_and_sorts_the_classes(
     assert classes["drawing"] == ["Quadrupole"]
     assert classes["parts only"] == ["Dipole"]
     assert "Pump" in classes["none"]
+
+
+def test_check_notes_a_signal_that_matches_two_part_devices(tmp_path) -> None:
+    from osprey.facility.panels.emit import check, write
+
+    rows = [_row("switch 1", "thermal_switch", 90, 90, signal="*:Open-Sts")]
+    graph = _graph(tmp_path, rows, change=_switches)
+    out = tmp_path / "out"
+    write(graph, out, only=lambda t: t.view == "card" and t.id == "XR01:QF1")
+    (found,) = [p for p in check(graph, out) if p.kind == "ambiguous_picture"]
+    assert not found.failing
+    assert "XR01:QF1-TS1" in found.detail and "XR01:QF1-TS2" in found.detail

@@ -1071,33 +1071,60 @@ class PanelGraph:
         """
         return next(iter(self.signal_channels(device_id, signal)), None)
 
-    def picture_channel(self, device_id: str, signal: str) -> str | None:
-        """The channel a ``pictures.csv`` row's *signal* shows on a device: a signal
-        name as :meth:`probe_channel` finds it; a pattern with ``*``, ``?`` or ``[``
-        the first channel name it matches, from the same devices in the same order
-        as :meth:`signal_channels` looks. ``None`` when nothing matches.
+    def picture_matches(self, device_id: str, signal: str) -> list[tuple[str, str]]:
+        """What a ``pictures.csv`` row's *signal* matches for a device, as ``(device,
+        channel)`` pairs from the first of these levels that has any: (1) the device
+        itself; (2) its parts, the devices ``part_of`` it (one level); (3) the device
+        the ``port`` of its ``read_out_by`` claims names; (4) the devices it is read
+        out by. *signal* is a signal name, matched against a channel's stated
+        signal, or a pattern with ``*``, ``?`` or ``[``, matched against channel
+        names. Matches on more than one device of a level are all returned: the
+        caller says which it shows (:meth:`picture_channel`) and ``check`` notes them.
 
         Raises:
             KeyError: No such device.
         """
-        if not any(mark in signal for mark in "*?["):
-            return self.probe_channel(device_id, signal)
-        edges = [
+        pattern = any(mark in signal for mark in "*?[")
+        edges = self.neighbours(device_id, "device")
+        parts = [
+            edge.other
+            for edge in edges.get(PART_RELATION, ())
+            if not edge.outgoing and edge.other_kind == "device"
+        ]
+        read = [
             edge
-            for edge in self.neighbours(device_id, "device").get(READ_OUT_RELATION, ())
+            for edge in edges.get(READ_OUT_RELATION, ())
             if edge.outgoing and edge.other_kind == "device"
         ]
         ports = [
             edge.other_port
-            for edge in edges
+            for edge in read
             if edge.other_port is not None and ("device", edge.other_port) in self._things
         ]
-        for level in (ports, [device_id], [edge.other for edge in edges]):
-            for each in level:
-                for channel in self.channels(each, "device"):
-                    if fnmatch.fnmatchcase(channel.name, signal):
-                        return channel.name
-        return None
+        for level in ([device_id], parts, ports, [edge.other for edge in read]):
+            found = [
+                (each, channel.name)
+                for each in dict.fromkeys(level)
+                for channel in self.channels(each, "device")
+                if (
+                    fnmatch.fnmatchcase(channel.name, signal)
+                    if pattern
+                    else channel.signal == signal
+                )
+            ]
+            if found:
+                return found
+        return []
+
+    def picture_channel(self, device_id: str, signal: str) -> str | None:
+        """The channel a ``pictures.csv`` row's *signal* shows on a device: the first
+        of :meth:`picture_matches`, or ``None`` when nothing matches.
+
+        Raises:
+            KeyError: No such device.
+        """
+        found = self.picture_matches(device_id, signal)
+        return found[0][1] if found else None
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""

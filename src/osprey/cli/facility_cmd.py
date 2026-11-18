@@ -1360,8 +1360,9 @@ def panels_check(
     screen may bind).
     A link to a screen outside the written set (``outside_set``), a card or
     checkout over its budget, a probe row whose signal no channel states
-    (``unbound_probe``) and a pictures row whose signal resolves to no channel
-    (``unbound_picture``) are notes and fail only under --strict.
+    (``unbound_probe``), a pictures row whose signal resolves to no channel
+    (``unbound_picture``) and one whose signal matches channels of several devices
+    (``ambiguous_picture``) are notes and fail only under --strict.
     First it prints the device classes by how ``pictures.csv`` draws them:
     with a drawing, with parts only, with none.
     Prints the count per kind and the first --limit of each.
