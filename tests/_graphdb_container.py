@@ -244,7 +244,10 @@ def resolve_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _neo4j_container(plugin_dir: Path) -> Neo4jContainer:  # noqa: F821
+def _neo4j_container(
+    plugin_dir: Path,
+    heap: str | None = None,
+) -> Neo4jContainer:  # noqa: F821
     """Build an unstarted graph store carrying the plugins in *plugin_dir*.
 
     The one construction site in the tree, and therefore the one statement of
@@ -253,6 +256,10 @@ def _neo4j_container(plugin_dir: Path) -> Neo4jContainer:  # noqa: F821
     docstring for why that one is left out and what replaces it. The missing
     extra is not guarded here because :func:`resolve_plugin_dir` probes for it
     first on every lane, which is why its probe order is what it is.
+
+    *heap* pins the JVM heap, initial and maximum, through the two variables
+    the compose template sets from ``services.graphdb.heap_*``. ``None`` leaves
+    the image's own sizing, which follows the host's memory.
     """
     from testcontainers.community.neo4j import Neo4jContainer
 
@@ -263,6 +270,9 @@ def _neo4j_container(plugin_dir: Path) -> Neo4jContainer:  # noqa: F821
     # n10s needs the unrestricted grant because it calls into APOC.
     container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
     container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
+    if heap is not None:
+        container.with_env("NEO4J_server_memory_heap_initial__size", heap)
+        container.with_env("NEO4J_server_memory_heap_max__size", heap)
     return container
 
 
@@ -626,6 +636,7 @@ def watched_graphdb_store(
     plugin_dir: Path,
     *,
     label: str = "graphdb (neo4j + n10s)",
+    heap: str | None = None,
 ) -> Iterator[WatchedStore]:
     """Start a throwaway graph store and yield it watched, with its container's state.
 
@@ -639,6 +650,8 @@ def watched_graphdb_store(
         plugin_dir: Directory holding n10s + APOC, from :func:`resolve_plugin_dir`.
         label: Human-readable name for the store, used in skip messages and
             in the failure.
+        heap: The JVM heap to pin the store to (``"512m"``), for a lane that
+            proves something fits one. ``None`` leaves the image's own sizing.
 
     Yields:
         The started store, watched.
@@ -646,7 +659,7 @@ def watched_graphdb_store(
     Raises:
         Skipped: Via ``pytest.skip`` when the container will not start.
     """
-    container = start_or_skip(lambda: _neo4j_container(plugin_dir), label=label)
+    container = start_or_skip(lambda: _neo4j_container(plugin_dir, heap), label=label)
     uri = container.get_connection_url()
     try:
         yield WatchedStore(
