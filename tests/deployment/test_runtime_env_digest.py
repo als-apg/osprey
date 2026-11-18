@@ -27,6 +27,7 @@ Two properties are load-bearing and tested separately here:
 from __future__ import annotations
 
 import ast
+import functools
 import hashlib
 import inspect
 import re
@@ -312,15 +313,24 @@ def test_the_two_digests_are_independent(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _runtime_env_call_sites() -> list[tuple[str, str, int, tuple[str, ...]]]:
-    """``(module, enclosing function, positional count, keywords)`` per call site."""
+@functools.cache
+def _runtime_env_call_sites() -> tuple[tuple[str, str, int, tuple[str, ...]], ...]:
+    """``(module, enclosing function, positional count, keywords)`` per call site.
+
+    Scanned once per run: the package source does not change under the tests.
+    A file whose text lacks ``runtime_env`` cannot hold an ``ast.Name`` of that
+    id, so it is skipped before the (costly) parse.
+    """
     import osprey
 
     package_root = Path(inspect.getfile(osprey)).parent
     sites: list[tuple[str, str, int, tuple[str, ...]]] = []
 
     for source_file in sorted(package_root.rglob("*.py")):
-        tree = ast.parse(source_file.read_text(encoding="utf-8"), str(source_file))
+        text = source_file.read_text(encoding="utf-8")
+        if "runtime_env" not in text:
+            continue
+        tree = ast.parse(text, str(source_file))
         parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -343,7 +353,7 @@ def _runtime_env_call_sites() -> list[tuple[str, str, int, tuple[str, ...]]]:
                     tuple(sorted(k.arg or "" for k in node.keywords)),
                 )
             )
-    return sites
+    return tuple(sites)
 
 
 #: Call sites the requirement names explicitly, as ``(module, function)``. Every
