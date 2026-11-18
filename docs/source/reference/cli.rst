@@ -1399,7 +1399,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    The rule tables are CSV files, each held to its header: ``positions.csv``
    (where a thing sits), ``record_types.csv`` (each channel's record type and
    how a screen draws it), ``pairs.csv`` (the readback a setpoint is shown
-   beside) and ``health.csv`` (the state a channel's value means: ``normal``,
+   beside) and ``panels/health.csv`` (the state a channel's value means: ``normal``,
    ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
    sources give two states is ``disagree``) must be there;
    ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
