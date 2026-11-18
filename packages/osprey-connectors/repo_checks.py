@@ -38,9 +38,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.archiver.ArchiverMetadata": (
         "an archiver's get_metadata answers in this type"
     ),
-    "osprey_connectors.config.FacilityZone": (
-        "LoadedConfig.system_zone answers the facility clock in this type"
-    ),
     "osprey_connectors.config.UnresolvedRef": (
         "LoadedConfig.unresolved names each unset variable in this type"
     ),
@@ -52,6 +49,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.config_sections.ArchiverSection": (
         "the loaded config reads its archiver section once into this type"
+    ),
+    "osprey_connectors.config_sections.FacilityZone": (
+        "LoadedConfig.system.timezone answers the facility clock in this type"
     ),
     "osprey_connectors.config_sections.LoggingSection": (
         "the loaded config reads its logging section once into this type"

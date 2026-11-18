@@ -30,10 +30,11 @@ from __future__ import annotations
 import copy
 from collections.abc import Mapping
 from typing import Literal, Self, TypeAlias
+from zoneinfo import ZoneInfo
 
 from pydantic import Field
 
-from osprey_connectors._config_read import coerce_port, config_flag
+from osprey_connectors._config_read import coerce_port, config_flag, is_unresolved_placeholder
 from osprey_connectors.connector_types import (
     BUILTIN_CONNECTORS,
     IN_PROCESS,
@@ -50,6 +51,7 @@ __all__ = [
     "ArchiverSection",
     "ConnectorBlock",
     "ControlSystemSection",
+    "FacilityZone",
     "GatewayMode",
     "GatewayRole",
     "GatewayRow",
@@ -60,6 +62,7 @@ __all__ = [
     "PvDirectorySection",
     "SelectedRole",
     "SimulationSection",
+    "SystemSection",
     "TierWord",
     "Unreadable",
 ]
@@ -686,6 +689,79 @@ class LoggingSection(FrozenModel):
             show_traceback_locals=flag("show_traceback_locals", False),
             show_full_paths=flag("show_full_paths", False),
         )
+
+
+#: Where a facility zone came from: written in ``system.timezone``, the UTC a
+#: config that writes none gets, or the UTC a written value that names no zone
+#: falls back to.
+_FacilityZoneSource = Literal["configured", "default", "fallback"]
+
+#: The zone a config that names none, or names one that is not a zone, runs on.
+_DEFAULT_ZONE = "UTC"
+
+
+class FacilityZone(FrozenModel):
+    """The facility clock a config names, read when it is loaded.
+
+    Lenient by design: a written value that names no zone (a typo, a number, an
+    unset ``${VAR}``) is recorded as a fallback to UTC with the ``problem`` it
+    has, never refused, so a hand-edited render cannot stop every config load —
+    the write path's included. ``osprey build`` still refuses a bad zone when it
+    renders one.
+
+    Attributes:
+        name: The IANA zone name, e.g. ``America/Los_Angeles``; ``UTC`` for a
+            default or a fallback.
+        source: ``"configured"`` when ``system.timezone`` names a zone,
+            ``"default"`` when the config names none, ``"fallback"`` when it
+            names something that is not a zone.
+        problem: Why a fallback fell back; ``None`` otherwise.
+    """
+
+    name: str
+    source: _FacilityZoneSource
+    problem: str | None = None
+
+    @property
+    def zone(self) -> ZoneInfo:
+        """The zone itself."""
+        return ZoneInfo(self.name)
+
+
+class SystemSection(FrozenModel):
+    """The ``system:`` section the package reads, read once: the facility clock."""
+
+    #: The zone ``system.timezone`` names; UTC, with its source, when it names none.
+    timezone: FacilityZone = Field(
+        default_factory=lambda: FacilityZone(name=_DEFAULT_ZONE, source="default")
+    )
+
+    @classmethod
+    def read(cls, value: object) -> Self:
+        """The section *value*. Never raises.
+
+        A section that is not a mapping, or that writes no ``timezone``, is the
+        default UTC. A written value that names no zone (a typo, a number, a
+        null, an unset ``${VAR}``) falls back to UTC with the problem it has.
+        """
+        section = _dict(value)
+        if section is None or "timezone" not in section:
+            return cls()
+        written = section["timezone"]
+        if not isinstance(written, str):
+            problem = f"system.timezone must be a string, got {type(written).__name__}"
+        else:
+            try:
+                ZoneInfo(written)
+            # ZoneInfoNotFoundError is a KeyError; a malformed key is a ValueError,
+            # and a key naming a directory of the zone database an OSError.
+            except (KeyError, ValueError, OSError) as exc:
+                problem = f"system.timezone {written!r} names no zone ({type(exc).__name__}: {exc})"
+                if is_unresolved_placeholder(written):
+                    problem += " (an unset environment variable)"
+            else:
+                return cls(timezone=FacilityZone(name=written, source="configured"))
+        return cls(timezone=FacilityZone(name=_DEFAULT_ZONE, source="fallback", problem=problem))
 
 
 class AgentDataSection(FrozenModel):

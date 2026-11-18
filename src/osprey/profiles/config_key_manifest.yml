@@ -2070,10 +2070,10 @@ keys:
   system.timezone:
     all-templates: true
     same-value: true
-    evidence: '_walk\(tree, "system\.timezone"\)'
+    evidence: 'written = section\["timezone"\]'
     note: >-
       Anchored on the read that SUPPLIES the value (the load's facility zone,
-      `LoadedConfig.system_zone`, which is UTC when the key is unstated), not
+      `LoadedConfig.system.timezone`, which is UTC when the key is unstated), not
       on the container-TZ drift warning that also names the key.
     default: UTC
   agent_data:

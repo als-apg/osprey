@@ -1,5 +1,6 @@
 One loader: `osprey_connectors.config.load_config(path=None, *, environ=None)`
-returns a `LoadedConfig` (`path`, `repo_root`, `unresolved`, `system_zone`;
+returns a `LoadedConfig` (`path`, `repo_root`, `unresolved`, the typed
+`control_system` and `system` sections;
 `get(key, default)`, `section(key)`, `flag(key, *, default=...)`, `raw_tree()`,
 `unexpanded_tree()`, all handing out copies). It reads the file and nothing
 else: no `.env` is applied and nothing is cached or installed. `ConfigBuilder`,
@@ -30,8 +31,8 @@ itself for a path that is a directory (no longer an `IsADirectoryError`).
 
 `get_facility_timezone()` is `facility_timezone(config=None)`, and
 `localize_facility(dt, tz)` takes the zone. The zone is read when the config is
-loaded (`LoadedConfig.system_zone`, a `FacilityZone` with `name`, `source` and
-`problem`); a zone that is not one is still UTC, reported once per load.
+loaded (`LoadedConfig.system.timezone`, a `config_sections.FacilityZone` with
+`name`, `source` and `problem`); a zone that is not one is still UTC, reported once per load.
 
 `apply_env_chain`, `load_project_dotenv` and `dotenv_shell_overrides` moved to
 `osprey_connectors.dotenv`; the shell-override record is taken from the same

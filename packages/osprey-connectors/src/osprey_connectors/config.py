@@ -38,11 +38,12 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, overload
+from typing import NoReturn, overload
 from zoneinfo import ZoneInfo
 
 import yaml
 from pydantic import PrivateAttr
+from typing_extensions import override
 
 # Safe at module level despite this module's no-osprey-imports rule below:
 # ``workspace`` and ``yaml_loader`` import nothing from osprey itself, so
@@ -50,6 +51,7 @@ from pydantic import PrivateAttr
 from osprey_connectors import yaml_loader
 from osprey_connectors._config_read import config_flag, is_unresolved_placeholder
 from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.config_sections import ControlSystemSection, SystemSection
 from osprey_connectors.errors import (
     ConfigLoadError,
     ConfigNotFoundError,
@@ -67,7 +69,6 @@ from osprey_connectors.workspace import (
 )
 
 __all__ = [
-    "FacilityZone",
     "LoadedConfig",
     "UnresolvedRef",
     "active_config",
@@ -357,64 +358,6 @@ def _unresolved_refs(node: object, prefix: str = "") -> Iterator[UnresolvedRef]:
             yield from _unresolved_refs(item, f"{prefix}.{index}" if prefix else str(index))
 
 
-#: Where a facility zone came from: written in ``system.timezone``, the UTC a
-#: config that writes none gets, or the UTC a written value that names no zone
-#: falls back to.
-_FacilityZoneSource = Literal["configured", "default", "fallback"]
-
-#: The zone a config that names none, or names one that is not a zone, runs on.
-_DEFAULT_ZONE = "UTC"
-
-
-class FacilityZone(FrozenModel):
-    """The facility clock a config names, read when it is loaded.
-
-    Lenient by design: a written value that names no zone (a typo, a number, an
-    unset ``${VAR}``) is recorded as a fallback to UTC with the ``problem`` it
-    has, never refused, so a hand-edited render cannot stop every config load —
-    the write path's included. ``osprey build`` still refuses a bad zone when it
-    renders one.
-
-    Attributes:
-        name: The IANA zone name, e.g. ``America/Los_Angeles``; ``UTC`` for a
-            default or a fallback.
-        source: ``"configured"`` when ``system.timezone`` names a zone,
-            ``"default"`` when the config names none, ``"fallback"`` when it
-            names something that is not a zone.
-        problem: Why a fallback fell back; ``None`` otherwise.
-    """
-
-    name: str
-    source: _FacilityZoneSource
-    problem: str | None = None
-
-    @property
-    def zone(self) -> ZoneInfo:
-        """The zone itself."""
-        return ZoneInfo(self.name)
-
-
-def _facility_zone(tree: "Mapping[str, object]") -> FacilityZone:
-    """The :class:`FacilityZone` ``system.timezone`` names in *tree*; never raises."""
-    found, value = _walk(tree, "system.timezone")
-    if not found:
-        return FacilityZone(name=_DEFAULT_ZONE, source="default")
-    if not isinstance(value, str):
-        problem = f"system.timezone must be a string, got {type(value).__name__}"
-    else:
-        try:
-            ZoneInfo(value)
-        # ZoneInfoNotFoundError is a KeyError; a malformed key is a ValueError,
-        # and a key naming a directory of the zone database an OSError.
-        except (KeyError, ValueError, OSError) as exc:
-            problem = f"system.timezone {value!r} names no zone ({type(exc).__name__}: {exc})"
-            if is_unresolved_placeholder(value):
-                problem += " (an unset environment variable)"
-        else:
-            return FacilityZone(name=value, source="configured")
-    return FacilityZone(name=_DEFAULT_ZONE, source="fallback", problem=problem)
-
-
 class LoadedConfig(FrozenModel):
     """One rendered ``config.yml``, loaded.
 
@@ -432,13 +375,18 @@ class LoadedConfig(FrozenModel):
             project directory, which is its own render).
         unresolved: Every ``${VAR}`` reference left verbatim because ``VAR`` is
             unset, for diagnostics; the values themselves stay as written.
-        system_zone: The facility clock ``system.timezone`` names.
+        control_system: The ``control_system`` section, read once at load
+            (never refused there: what a reader refuses, it refuses where it
+            reads). The reference monitor and the write-path readers judge by it.
+        system: The ``system`` section the package reads: the facility clock
+            ``system.timezone`` names.
     """
 
     path: Path
     repo_root: Path
     unresolved: FrozenTuple[UnresolvedRef] = ()
-    system_zone: FacilityZone
+    control_system: ControlSystemSection
+    system: SystemSection
 
     _tree: dict[str, object] = PrivateAttr()
     _unexpanded: dict[str, object] = PrivateAttr()
@@ -499,6 +447,25 @@ class LoadedConfig(FrozenModel):
         """
         return copy.deepcopy(self._unexpanded)
 
+    @override
+    @classmethod
+    def model_validate(cls, *args: object, **kwargs: object) -> NoReturn:
+        """Refused: a loaded config is built from its file, never from its fields.
+
+        Its tree is held privately, so a copy validated from the fields alone
+        (``model_validate``, and :func:`~osprey_connectors.model.evolve`, which
+        goes through it) would have none, and its sections would no longer be
+        the tree's. Load the changed file again, or build the changed tree with
+        :func:`osprey_connectors.testing.config_of`.
+
+        Raises:
+            TypeError: Always.
+        """
+        raise TypeError(
+            "a LoadedConfig is built by load_config (or testing.config_of), not from its "
+            "fields: evolve and model_validate would drop the tree it was loaded from"
+        )
+
 
 def _loaded(
     tree: dict[str, object],
@@ -545,7 +512,8 @@ def _loaded(
         path=path,
         repo_root=repo_root,
         unresolved=tuple(_unresolved_refs(resolved)),
-        system_zone=_facility_zone(resolved),
+        control_system=ControlSystemSection.read(resolved.get("control_system")),
+        system=SystemSection.read(resolved.get("system")),
     )
     loaded._tree = resolved
     loaded._unexpanded = unexpanded
@@ -1029,7 +997,7 @@ def facility_timezone(config: LoadedConfig | None = None) -> ZoneInfo:
 
     The one lenient reader of the facility zone, so it never raises: every
     simulation synthesis primitive and timestamp render site calls it. A zone
-    that is not one (see :class:`FacilityZone`) is UTC, reported once per load;
+    that is not one (see :class:`~osprey_connectors.config_sections.FacilityZone`) is UTC, reported once per load;
     no config at all (none installed and none to find) is UTC too, reported
     once per process. Once rather than per call, because synthesis calls this
     per channel per chunk, and once rather than never, because a process
@@ -1058,9 +1026,9 @@ def facility_timezone(config: LoadedConfig | None = None) -> ZoneInfo:
                 logger.warning(
                     f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})"
                 )
-            return ZoneInfo(_DEFAULT_ZONE)
+            return ZoneInfo("UTC")
 
-    zone = config.system_zone
+    zone = config.system.timezone
     if not config._zone_reported:
         config._zone_reported = True
         if zone.source == "fallback":

@@ -15,7 +15,6 @@ import pytest
 
 from osprey_connectors import config as config_module
 from osprey_connectors.config import (
-    FacilityZone,
     UnresolvedRef,
     active_config,
     current_config,
@@ -27,12 +26,14 @@ from osprey_connectors.config import (
     locate_config,
     using_config,
 )
+from osprey_connectors.config_sections import ControlSystemSection, FacilityZone, Unreadable
 from osprey_connectors.errors import (
     ConfigLoadError,
     ConfigNotFoundError,
     ConfigParseError,
     ConfigurationError,
 )
+from osprey_connectors.model import evolve
 from osprey_connectors.testing import config_of
 
 
@@ -279,17 +280,66 @@ class TestFacilityZone:
         ids=["configured", "absent", "no-system", "typo", "number", "null", "unset-var"],
     )
     def test_the_zone_is_read_at_load_and_never_raises(self, tree, name, source):
-        zone = config_of(tree, environ={}).system_zone
+        zone = config_of(tree, environ={}).system.timezone
 
         assert (zone.name, zone.source) == (name, source)
         assert (zone.problem is None) == (source != "fallback")
         assert zone.zone == ZoneInfo(name)
 
     def test_an_unset_variable_says_so(self):
-        zone = config_of({"system": {"timezone": "${UNSET_ZONE}"}}, environ={}).system_zone
+        zone = config_of({"system": {"timezone": "${UNSET_ZONE}"}}, environ={}).system.timezone
 
         assert zone == FacilityZone(name="UTC", source="fallback", problem=zone.problem)
         assert "unset environment variable" in (zone.problem or "")
+
+
+class TestControlSystemSection:
+    """The ``control_system`` section is read once, at load, and never refused there."""
+
+    def test_the_section_is_read_at_load(self):
+        section = {"type": "epics", "writes": "asked", "connector": {"epics": {}}}
+        loaded = config_of({"control_system": section})
+
+        assert loaded.control_system == ControlSystemSection.read(section)
+        assert loaded.control_system.writes == "asked"
+
+    @pytest.mark.parametrize(
+        "value", [None, "not a mapping", ["a", "list"], 5], ids=["null", "str", "list", "int"]
+    )
+    def test_a_section_no_reader_can_use_loads_and_arms_nothing(self, value):
+        loaded = config_of({"control_system": value})
+
+        assert loaded.control_system == ControlSystemSection()
+        assert loaded.control_system.writes == "never"
+
+    def test_a_written_but_unreadable_leaf_is_never_read_as_absent(self):
+        loaded = config_of(
+            {"control_system": {"limits_checking": {"enabled": "${UNSET_LIMITS}"}}}, environ={}
+        )
+
+        limits = loaded.control_system.limits_checking
+        assert limits is not None and not isinstance(limits, Unreadable)
+        assert isinstance(limits.enabled, Unreadable)
+
+    def test_the_raw_tree_stays_plain_dicts(self):
+        loaded = config_of({"control_system": {"connector": {"epics": {"gateways": {}}}}})
+
+        assert type(loaded.get("control_system")) is dict
+        assert type(loaded.raw_tree()["control_system"]["connector"]) is dict
+
+
+class TestEvolveIsRefused:
+    def test_evolve_names_why_instead_of_dropping_the_tree(self):
+        loaded = config_of({"a": 1})
+
+        with pytest.raises(TypeError, match="built by load_config"):
+            evolve(loaded, path=Path("other.yml"))
+
+    def test_model_validate_is_refused_too(self):
+        loaded = config_of({"a": 1})
+
+        with pytest.raises(TypeError, match="built by load_config"):
+            type(loaded).model_validate(dict(loaded))
 
 
 class TestProcessDefault:
