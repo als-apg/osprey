@@ -58,6 +58,7 @@ from osprey.deployment.container_ownership import (
     COMPOSE_SERVICE_LABEL,
     claims_row,
     container_label,
+    first_container_name,
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.deployment_record import (
@@ -8072,11 +8073,25 @@ def _down_by_label(
         "network are kept)"
     )
 
-    # stop, then rm: the same two steps, in the same order, that `compose down`
-    # performs — so containers get their shutdown grace period rather than the
-    # SIGKILL a bare `rm -f` would deliver.
+    _stop_and_remove(runtime, container_ids)
+
+    # The recovery path reports what it did for the same reason the compose path
+    # does: without it, a `down` that fell back to labels closes its phase with a
+    # bare ✓ and never says that anything was found, let alone how much.
+    _report_step(f"removed {len(container_ids)} labelled container(s)")
+
+
+def _stop_and_remove(runtime: str, targets: Sequence[str]) -> None:
+    """Stop, then remove, *targets* — the two steps ``compose down`` performs.
+
+    In that order, so containers get their shutdown grace period rather than
+    the SIGKILL a bare ``rm -f`` would deliver.
+
+    Raises:
+        RuntimeError: When the runtime cannot stop or remove them.
+    """
     for verb in ("stop", "rm"):
-        cmd = [runtime, verb, *container_ids]
+        cmd = [runtime, verb, *targets]
         logger.debug(f"Running command:\n    {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:
@@ -8086,10 +8101,74 @@ def _down_by_label(
                 f"{(result.stderr or '').strip()}"
             )
 
-    # The recovery path reports what it did for the same reason the compose path
-    # does: without it, a `down` that fell back to labels closes its phase with a
-    # bare ✓ and never says that anything was found, let alone how much.
-    _report_step(f"removed {len(container_ids)} labelled container(s)")
+
+def _down_recorded_services(
+    repo_root: Path, runtime: str, project: str, services: Sequence[str]
+) -> None:
+    """Stop the services the last start recorded, when ``build/`` cannot say which.
+
+    The selection is the containers compose labelled as one of *services* in
+    *project*, minus those another checkout created (:func:`claims_row`
+    decides), so a container that carries no repo id is stopped when its
+    service is recorded. A container of the project whose service the record
+    does not name is never stopped, nor is one of another project. Volumes and
+    the compose network are kept, as a ``compose down`` keeps them.
+
+    Args:
+        repo_root: The deployment repo whose containers are to be stopped.
+        runtime: The runtime the last start recorded.
+        project: The compose project the last start recorded.
+        services: The compose services the last start recorded.
+
+    Raises:
+        RuntimeError: When the runtime cannot list, stop or remove them.
+    """
+    try:
+        rows = _project_containers(runtime, project)
+    except (RuntimeError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"Could not list this deployment's containers: {exc}") from exc
+
+    recorded = set(services)
+    repo_id = repo_identity(repo_root)
+    targets: list[str] = []
+    foreign = unrecorded = 0
+    for row in rows:
+        if not claims_row(
+            row_repo_id=container_label(row, REPO_ID_LABEL),
+            row_project=project,
+            project=project,
+            repo_id=repo_id,
+        ):
+            foreign += 1
+        elif container_label(row, COMPOSE_SERVICE_LABEL) in recorded:
+            targets.append(first_container_name(row))
+        else:
+            unrecorded += 1
+
+    if foreign:
+        _report_fact(
+            f"left {foreign} container(s) of compose project {project} "
+            "that another checkout created"
+        )
+    if unrecorded:
+        _report_fact(
+            f"left {unrecorded} container(s) of compose project {project} "
+            "that the last start did not record"
+        )
+    if not targets:
+        _report_fact(
+            f"nothing to stop: no {_NO_COMPOSE_FILES} and no container of a service "
+            "the last start recorded"
+        )
+        return
+
+    _report_fact(
+        f"no {_NO_COMPOSE_FILES}; stopping the {len(targets)} container(s) of the "
+        "services the last start recorded instead (volumes and the compose network "
+        "are kept)"
+    )
+    _stop_and_remove(runtime, targets)
+    _report_step(f"removed {len(targets)} container(s)")
 
 
 def down_deployment(
@@ -8129,6 +8208,11 @@ def down_deployment(
     label sweep runs. A caller that already holds the pair — a reset stopping
     the project its plan printed — passes both, and the record is not read.
 
+    With no compose files, a record that names its services selects those
+    services' containers in the recorded project
+    (:func:`_down_recorded_services`); a record that names none, and a caller
+    that passes the pair, get the repo-label sweep (:func:`_down_by_label`).
+
     Args:
         repo_root: The deployment repo — the directory holding ``profile.yml``.
         runtime: The runtime to stop with, given together with ``project``.
@@ -8158,6 +8242,9 @@ def down_deployment(
             _hand_record_back_to_host(config, repo_root)
             return
         runtime, project = record.runtime, record.compose_project
+        recorded_services = record.compose_services
+    else:
+        recorded_services = None
 
     is_running, error_msg = verify_runtime_is_running(config, runtime=runtime)
     if not is_running:
@@ -8191,7 +8278,10 @@ def down_deployment(
             )
 
     if not compose_files:
-        _down_by_label(config, repo_root, runtime=runtime)
+        if recorded_services is not None:
+            _down_recorded_services(repo_root, runtime, project, recorded_services)
+        else:
+            _down_by_label(config, repo_root, runtime=runtime)
         _hand_record_back_to_host(config, repo_root)
         return
 
