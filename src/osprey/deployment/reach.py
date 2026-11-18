@@ -107,10 +107,10 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
 )
-from osprey.ioc_fleet_connection import fleet_url
 from osprey.optimizer_connection import DEFAULT_OPTIMIZER_PORT, optimizer_url
 from osprey.port_layout import resolve_port_base
 from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.server_fleet_connection import fleet_url
 
 __all__ = [
     "Consumer",
@@ -623,7 +623,7 @@ def _fleet_worker_on(config: Mapping[str, Any]) -> bool:
 
 
 def _fleet_dial(config: Mapping[str, Any]) -> Dial | None:
-    # Resolved the way every consumer resolves it (fleet_url): IOC_FLEET_URL
+    # Resolved the way every consumer resolves it (fleet_url): SERVER_FLEET_URL
     # in the process environment wins over the config's port, as it does for
     # the other *_url resolvers, so a shell exporting it moves this dial too.
     url = fleet_url(config)
@@ -1256,31 +1256,31 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         projected=(ProjectedKey("services.optimizer.port", gate=_optimizer_server_on),),
         note="optimizer_url dials the published port on loopback",
     ),
-    # The IOC fleet service (``pv_directory.fleet``): its readers are the
-    # web terminals' ioc_fleet tool and Channels panel, and the dispatch
+    # The server fleet service (``channel_directory.fleet``): its readers are the
+    # web terminals' server_fleet tool and Channels panel, and the dispatch
     # worker's same tool. fleet_url always answers while the fleet is on (an
     # env URL, the configured port, else the layout slot), so a deploying
     # render without the service is refused rather than left dialing nothing.
-    "ioc_fleet": ReachContract(
-        service="ioc_fleet",
+    "server_fleet": ReachContract(
+        service="server_fleet",
         consumers=(
             Consumer(
-                name="IOC fleet readers in the web terminals (ioc_fleet tool, Channels panel)",
-                switch_key="pv_directory.fleet",
+                name="server fleet readers in the web terminals (server_fleet tool, Channels panel)",
+                switch_key="channel_directory.fleet",
                 is_on=_fleet_on,
                 resolves=_always,
                 dial=_fleet_dial,
             ),
             Consumer(
-                name="IOC fleet reader in the dispatch worker (ioc_fleet tool)",
-                switch_key="pv_directory.fleet",
+                name="server fleet reader in the dispatch worker (server_fleet tool)",
+                switch_key="channel_directory.fleet",
                 is_on=_fleet_worker_on,
                 resolves=_always,
                 dial=_fleet_dial,
             ),
         ),
-        projected=(ProjectedKey("services.ioc_fleet.port", gate=_fleet_on),),
-        note="fleet_url dials IOC_FLEET_URL, else the published port on loopback",
+        projected=(ProjectedKey("services.server_fleet.port", gate=_fleet_on),),
+        note="fleet_url dials SERVER_FLEET_URL, else the published port on loopback",
     ),
     **_outbound_only_contracts(),
 }
@@ -1529,7 +1529,7 @@ def reach_errors(config: Mapping[str, Any], *, repo_root: str | Path | None = No
     which a ``--runtime-root`` render's own ``project_root`` does not name —
     and otherwise resolved from the config the way every bind source is.
 
-    A fourth refuses an IOC fleet service on the host network beside a
+    A fourth refuses a server fleet service on the host network beside a
     bridged dispatch worker (:func:`fleet_network_errors`): the worker's
     loopback is its own container's, so no address reaches the service.
 
@@ -1588,25 +1588,25 @@ def _on_host_network(config: Mapping[str, Any], service: str) -> bool:
 
 
 def fleet_network_errors(config: Mapping[str, Any]) -> list[str]:
-    """Refuse an IOC fleet service on the host network beside a bridged dispatch worker.
+    """Refuse a server fleet service on the host network beside a bridged dispatch worker.
 
     On the host network the service binds loopback, the host's own; a worker
     on the compose bridge has a loopback of its own and no compose name to
-    dial the service by, so its ioc_fleet tool could never reach it. Every
+    dial the service by, so its server_fleet tool could never reach it. Every
     other combination resolves: both bridged, the worker dials the service's
-    compose name (``IOC_FLEET_URL``); the worker on the host, loopback.
+    compose name (``SERVER_FLEET_URL``); the worker on the host, loopback.
 
     Returns:
         One error naming both keys, or none.
     """
     deployed = _deployed_services(config)
-    if "ioc_fleet" not in deployed or "dispatch_worker" not in deployed:
+    if "server_fleet" not in deployed or "dispatch_worker" not in deployed:
         return []
-    if not _on_host_network(config, "ioc_fleet") or _on_host_network(config, "dispatch_worker"):
+    if not _on_host_network(config, "server_fleet") or _on_host_network(config, "dispatch_worker"):
         return []
     return [
-        "services.ioc_fleet.network is `host` but services.dispatch_worker.network is "
-        "the compose bridge: the IOC fleet service binds the host's loopback there, "
+        "services.server_fleet.network is `host` but services.dispatch_worker.network is "
+        "the compose bridge: the server fleet service binds the host's loopback there, "
         "which a bridged worker cannot reach. Put services.dispatch_worker.network on "
-        "`host` too, or take services.ioc_fleet.network off `host`."
+        "`host` too, or take services.server_fleet.network off `host`."
     ]

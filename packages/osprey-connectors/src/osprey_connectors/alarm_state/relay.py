@@ -6,7 +6,7 @@ Run it on a host that reaches the alarm server's Kafka broker::
         --bootstrap-servers <broker>:<port> --topic Accelerator --host 0.0.0.0
 
 A reader that cannot reach the broker, because only HTTP crosses the network
-between them, names the relay's url under ``pv_directory.alarm_state`` with type
+between them, names the relay's url under ``channel_directory.alarm_state`` with type
 ``osprey_alarm_relay``. The relay follows the topic as the Kafka backend does,
 with no consumer group and nothing produced, and answers four ``GET`` routes:
 

@@ -1,11 +1,11 @@
-"""PV directory fleet route: ``fleet``, the IOC fleet service's snapshot of the current target.
+"""channel directory fleet route: ``fleet``, the server fleet service's snapshot of the current target.
 
 Mounted under ``/api/directory`` by :mod:`.directory_api`. The route answers the
-fleet connection's :class:`~osprey.ioc_fleet_connection.FleetAnswer` for the
+fleet connection's :class:`~osprey.server_fleet_connection.FleetAnswer` for the
 session's control target, in its own JSON shape. It asks the fleet service and
 nothing else: no control-system read and no directory query. The target is the
 control-context record's, else the deployment's baseline, as the directory
-service resolves it. The route is absent (404) when the ``pv_directory_fleet``
+service resolves it. The route is absent (404) when the ``channel_directory_fleet``
 predicate is false.
 """
 
@@ -15,8 +15,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from osprey import ioc_fleet_connection
-from osprey.services.pv_directory.resolve import predicates
+from osprey import server_fleet_connection
+from osprey.services.channel_directory.resolve import predicates
 from osprey_connectors import control_context
 from osprey_connectors.types import baseline_target
 
@@ -35,8 +35,8 @@ def _current_target(config: Any) -> str:
 async def fleet(request: Request) -> dict[str, Any]:
     """The fleet answer of the current target: ``{outcome, target, reason, generated_at, snapshot}``."""
     state = request.app.state
-    if not predicates(getattr(state, "pv_directory", None))["pv_directory_fleet"]:
+    if not predicates(getattr(state, "channel_directory", None))["channel_directory_fleet"]:
         raise HTTPException(status_code=404, detail="Not Found")
     target = _current_target(state.config)
-    answer = await ioc_fleet_connection.fetch_snapshot(state.config, target)
+    answer = await server_fleet_connection.fetch_snapshot(state.config, target)
     return answer.to_json()

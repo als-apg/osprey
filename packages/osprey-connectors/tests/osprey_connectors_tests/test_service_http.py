@@ -92,7 +92,7 @@ def service() -> Iterator[_Service]:
 
 def _transport(service: _Service, allowed=CHANNELFINDER, **settings) -> ReadOnlyTransport:
     return ReadOnlyTransport(
-        {"url": service.url, **settings}, allowed, where="pv_directory.settings"
+        {"url": service.url, **settings}, allowed, where="channel_directory.settings"
     )
 
 
@@ -113,7 +113,7 @@ def _serving(do_get: Callable[[BaseHTTPRequestHandler], None]) -> Iterator[ReadO
         yield ReadOnlyTransport(
             {"url": f"http://127.0.0.1:{server.server_address[1]}"},
             CHANNELFINDER,
-            where="pv_directory.settings",
+            where="channel_directory.settings",
         )
     finally:
         server.shutdown()
@@ -174,7 +174,9 @@ async def test_a_refused_request_never_reaches_the_network(service, allowed, met
 
 
 async def test_a_refusal_comes_before_a_broken_connection_block():
-    transport = ReadOnlyTransport({"headers": {}}, CHANNELFINDER, where="pv_directory.settings")
+    transport = ReadOnlyTransport(
+        {"headers": {}}, CHANNELFINDER, where="channel_directory.settings"
+    )
 
     answer = await transport.request("DELETE", "/resources/channels", deadline=5)
 
@@ -426,7 +428,7 @@ async def test_a_body_dripped_past_the_deadline_times_out():
         transport = ReadOnlyTransport(
             {"url": f"http://127.0.0.1:{server.server_address[1]}"},
             CHANNELFINDER,
-            where="pv_directory.settings",
+            where="channel_directory.settings",
         )
         started = time.monotonic()
         answer = await transport.request("GET", "/resources/channels", deadline=0.3)
@@ -545,7 +547,7 @@ async def test_a_closed_port_is_unavailable():
     port = server.server_address[1]
     server.server_close()
     transport = ReadOnlyTransport(
-        {"url": f"http://127.0.0.1:{port}"}, CHANNELFINDER, where="pv_directory.settings"
+        {"url": f"http://127.0.0.1:{port}"}, CHANNELFINDER, where="channel_directory.settings"
     )
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
@@ -557,15 +559,18 @@ async def test_a_closed_port_is_unavailable():
 @pytest.mark.parametrize(
     ("settings", "named"),
     [
-        ({}, "pv_directory.settings.url"),
-        ({"url": "ftp://host"}, "pv_directory.settings.url"),
-        ({"url": "http://host", "verify": False, "headers": {}}, "pv_directory.settings.headers"),
+        ({}, "channel_directory.settings.url"),
+        ({"url": "ftp://host"}, "channel_directory.settings.url"),
+        (
+            {"url": "http://host", "verify": False, "headers": {}},
+            "channel_directory.settings.headers",
+        ),
         ({"url": "http://host", "auth": {"token_env": "UNSET_VAR_X"}}, "UNSET_VAR_X"),
         ({"url": "https://host", "tls": {"ca_bundle": "/no/such/ca.pem"}}, "tls.ca_bundle"),
     ],
 )
 async def test_a_block_that_cannot_be_used_is_unavailable_naming_the_key(settings, named):
-    transport = ReadOnlyTransport(settings, CHANNELFINDER, where="pv_directory.settings")
+    transport = ReadOnlyTransport(settings, CHANNELFINDER, where="channel_directory.settings")
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
 
@@ -591,7 +596,7 @@ async def test_a_login_that_cannot_be_sent_is_unavailable_without_the_secret(
 
     answer = await _transport(service, auth=auth).request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings`: the url or login cannot be sent")
+    assert answer == Unavailable("`channel_directory.settings`: the url or login cannot be sent")
     assert service.received == []
     assert "s3cret" not in caplog.text
 
@@ -607,11 +612,11 @@ async def test_a_login_that_cannot_be_sent_is_unavailable_without_the_secret(
     ],
 )
 async def test_a_url_that_cannot_be_sent_is_unavailable_naming_the_block(url):
-    transport = ReadOnlyTransport({"url": url}, CHANNELFINDER, where="pv_directory.settings")
+    transport = ReadOnlyTransport({"url": url}, CHANNELFINDER, where="channel_directory.settings")
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings`: the url or login cannot be sent")
+    assert answer == Unavailable("`channel_directory.settings`: the url or login cannot be sent")
 
 
 async def test_a_refused_login_names_the_status_not_the_login(service, monkeypatch):
@@ -643,12 +648,14 @@ async def test_a_query_that_cannot_be_encoded_sends_nothing(service, monkeypatch
 @pytest.mark.parametrize("suffix", ["/?a=", "/?", "/#frag", "/#", "?a=1"])
 async def test_a_url_with_a_query_or_fragment_sends_nothing(service, suffix):
     transport = ReadOnlyTransport(
-        {"url": service.url + suffix}, CHANNELFINDER, where="pv_directory.settings"
+        {"url": service.url + suffix}, CHANNELFINDER, where="channel_directory.settings"
     )
 
     answer = await transport.request("GET", "/resources/channels", deadline=5)
 
-    assert answer == Unavailable("`pv_directory.settings.url` must not carry a query or fragment")
+    assert answer == Unavailable(
+        "`channel_directory.settings.url` must not carry a query or fragment"
+    )
     assert service.received == []
 
 

@@ -698,21 +698,22 @@ def _add_credential_envs(names: list[str], block: Any, *, where: str) -> None:
             names.append(raw)
 
 
-#: The ``pv_directory`` blocks that reach a service: the directory itself, then its sub-blocks.
-_PV_DIRECTORY_SUB_BLOCKS = ("alarm_log", "alarm_state", "put_log")
+#: The ``channel_directory`` blocks that reach a service: the directory itself, then its sub-blocks.
+_CHANNEL_DIRECTORY_SUB_BLOCKS = ("alarm_log", "alarm_state", "put_log")
 
 
-def pv_directory_connection_blocks(config: Any) -> tuple[tuple[str, dict[str, Any]], ...]:
-    """Each ``pv_directory`` settings block a connector reads, with its dotted key.
+def channel_directory_connection_blocks(config: Any) -> tuple[tuple[str, dict[str, Any]], ...]:
+    """Each ``channel_directory`` settings block a connector reads, with its dotted key.
 
     A block counts only when it names a ``type``: a section without one lists
     the simulator's channels and reaches no service, and a block the connector
     never reads entitles nothing (see :func:`config_archiver_credential_envs`).
     """
-    section = as_dict(as_dict(config).get("pv_directory"))
-    candidates = [("pv_directory", section)]
+    section = as_dict(as_dict(config).get("channel_directory"))
+    candidates = [("channel_directory", section)]
     candidates += [
-        (f"pv_directory.{name}", as_dict(section.get(name))) for name in _PV_DIRECTORY_SUB_BLOCKS
+        (f"channel_directory.{name}", as_dict(section.get(name)))
+        for name in _CHANNEL_DIRECTORY_SUB_BLOCKS
     ]
     return tuple(
         (f"{key}.settings", as_dict(block.get("settings")))
@@ -721,13 +722,13 @@ def pv_directory_connection_blocks(config: Any) -> tuple[tuple[str, dict[str, An
     )
 
 
-def config_pv_directory_credential_envs(config: Any) -> tuple[str, ...]:
-    """The variables ``config``'s PV directory services authenticate with, in order.
+def config_channel_directory_credential_envs(config: Any) -> tuple[str, ...]:
+    """The variables ``config``'s channel directory services authenticate with, in order.
 
     The directory, the alarm log, the alarm feed and the put log each read
     their secret from the variable their own block names under ``auth:``, and
     answer "not set" on every read without it. The consumers are the
-    ``pv-directory`` MCP server and the Channels panel inside the web terminal,
+    ``channel-directory`` MCP server and the Channels panel inside the web terminal,
     so the terminal is handed exactly those names, for the reason
     :func:`config_archiver_credential_envs` gives. An empty tuple is no grant.
 
@@ -735,7 +736,7 @@ def config_pv_directory_credential_envs(config: Any) -> tuple[str, ...]:
         ValueError: As :func:`config_archiver_credential_envs`.
     """
     names: list[str] = []
-    for where, settings in pv_directory_connection_blocks(config):
+    for where, settings in channel_directory_connection_blocks(config):
         _add_credential_envs(names, settings, where=where)
     return tuple(names)
 
@@ -779,14 +780,14 @@ def config_archiver_ca_bundles(config: Any) -> tuple[str, ...]:
     )
 
 
-def config_pv_directory_ca_bundles(config: Any) -> tuple[str, ...]:
-    """The CA files ``config``'s PV directory blocks name, when they are on this host.
+def config_channel_directory_ca_bundles(config: Any) -> tuple[str, ...]:
+    """The CA files ``config``'s channel directory blocks name, when they are on this host.
 
     One path per file, in block order. See :func:`ca_bundle_mounts` for what is
     mounted and why nothing else is.
     """
     paths: list[str] = []
-    for where, settings in pv_directory_connection_blocks(config):
+    for where, settings in channel_directory_connection_blocks(config):
         for path in ca_bundle_mounts(settings, where=where):
             if path not in paths:
                 paths.append(path)
@@ -1607,38 +1608,38 @@ def renders_needing_archiver_ca_bundles(
     return grants
 
 
-def renders_needing_pv_directory_credentials(
+def renders_needing_channel_directory_credentials(
     config: Any, project_root: Any
 ) -> dict[str, tuple[str, ...]]:
-    """Map each catalog render whose PV directory names credentials to the variables it reads.
+    """Map each catalog render whose channel directory names credentials to the variables it reads.
 
-    The PV directory's counterpart of :func:`renders_needing_archiver_credentials`,
+    The channel directory's counterpart of :func:`renders_needing_archiver_credentials`,
     over the same per-render ``config.yml`` files.
 
     :return: ``{render_name: (env_var_name, ...)}`` for the referenced renders
-        whose ``pv_directory`` blocks name a credential variable.
+        whose ``channel_directory`` blocks name a credential variable.
     :raises ValueError: when a render names a variable compose cannot carry
         (see :func:`config_archiver_credential_envs`).
     """
     grants: dict[str, tuple[str, ...]] = {}
     for render_name, render_config in _render_configs(config, project_root):
-        names = config_pv_directory_credential_envs(render_config)
+        names = config_channel_directory_credential_envs(render_config)
         if names:
             grants[render_name] = names
     return grants
 
 
-def renders_needing_pv_directory_ca_bundles(
+def renders_needing_channel_directory_ca_bundles(
     config: Any, project_root: Any
 ) -> dict[str, tuple[str, ...]]:
-    """Map each catalog render whose PV directory names a CA file on this host to those files.
+    """Map each catalog render whose channel directory names a CA file on this host to those files.
 
     :return: ``{render_name: (ca_path, ...)}`` for the referenced renders whose
-        ``pv_directory`` blocks name a CA file on this host.
+        ``channel_directory`` blocks name a CA file on this host.
     """
     grants: dict[str, tuple[str, ...]] = {}
     for render_name, render_config in _render_configs(config, project_root):
-        paths = config_pv_directory_ca_bundles(render_config)
+        paths = config_channel_directory_ca_bundles(render_config)
         if paths:
             grants[render_name] = paths
     return grants

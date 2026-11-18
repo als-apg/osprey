@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   FACET_KEYS,
-  allPvsHash,
+  channelsHash,
   familyOf,
   formatRoute,
   parseRoute,
@@ -24,47 +24,47 @@ describe('parseRoute', () => {
     ['#/alarms', { view: 'alarms', params: {} }],
     ['#/alarms?severity=MAJOR', { view: 'alarms', params: {} }],
     ['#/archive', { view: 'archive', params: {} }],
-    ['#allpvs', { view: 'allpvs', params: {} }],
-    ['#/allpvs', { view: 'allpvs', params: {} }],
-    ['#/allpvs?q=beam%20current', { view: 'allpvs', params: { q: 'beam current' } }],
-    ['#/allpvs?q=', { view: 'allpvs', params: { q: '' } }],
-    ['#/allpvs?other=1&q=a', { view: 'allpvs', params: { q: 'a' } }],
-    ['#/allpvs?ioc=IOC1', { view: 'allpvs', params: { ioc: ['IOC1'] } }],
-    ['#/allpvs?ioc=demo-ioc-bpm', { view: 'allpvs', params: { ioc: ['demo-ioc-bpm'] } }],
+    ['#channels', { view: 'channels', params: {} }],
+    ['#/channels', { view: 'channels', params: {} }],
+    ['#/channels?q=beam%20current', { view: 'channels', params: { q: 'beam current' } }],
+    ['#/channels?q=', { view: 'channels', params: { q: '' } }],
+    ['#/channels?other=1&q=a', { view: 'channels', params: { q: 'a' } }],
+    ['#/channels?server=IOC1', { view: 'channels', params: { server: ['IOC1'] } }],
+    ['#/channels?server=demo-ioc-bpm', { view: 'channels', params: { server: ['demo-ioc-bpm'] } }],
     [
-      '#/allpvs?q=a&ioc=I1&ioc=I2&origin=curated&record_type=ai',
+      '#/channels?q=a&server=I1&server=I2&origin=curated&record_type=ai',
       {
-        view: 'allpvs',
-        params: { q: 'a', ioc: ['I1', 'I2'], origin: ['curated'], record_type: ['ai'] },
+        view: 'channels',
+        params: { q: 'a', server: ['I1', 'I2'], origin: ['curated'], record_type: ['ai'] },
       },
     ],
     [
-      '#/allpvs?alarm=MAJOR&ioc=I1&alarm=none',
-      { view: 'allpvs', params: { ioc: ['I1'], alarm: ['MAJOR', 'none'] } },
+      '#/channels?alarm=MAJOR&server=I1&alarm=none',
+      { view: 'channels', params: { server: ['I1'], alarm: ['MAJOR', 'none'] } },
     ],
     [
-      '#/allpvs?ioc=sim-SR&archived=no',
-      { view: 'allpvs', params: { ioc: ['sim-SR'], archived: ['no'] } },
+      '#/channels?server=sim-SR&archived=no',
+      { view: 'channels', params: { server: ['sim-SR'], archived: ['no'] } },
     ],
-    ['#/allpvs?other=1&name=x', { view: 'allpvs', params: {} }],
-    ['#/allpvs?name=x&page=2', { view: 'allpvs', params: {} }],
-    ['#/pv/SR01%3AX', { view: 'pv', params: { name: 'SR01:X' } }],
-    ['#/ioc/ioc-sr01', { view: 'ioc', params: { name: 'ioc-sr01' } }],
+    ['#/channels?other=1&name=x', { view: 'channels', params: {} }],
+    ['#/channels?name=x&page=2', { view: 'channels', params: {} }],
+    ['#/channel/SR01%3AX', { view: 'channel', params: { name: 'SR01:X' } }],
+    ['#/server/ioc-sr01', { view: 'server', params: { name: 'ioc-sr01' } }],
     ['#nonsense', { view: 'nonsense', params: {} }],
   ])('%s', (hash, route) => {
     expect(parseRoute(hash)).toEqual(route);
   });
 
   test.each([
-    '#/pv',
-    '#/pv/',
-    '#pv',
-    '#/ioc',
-    '#/pv/a/b',
+    '#/channel',
+    '#/channel/',
+    '#channel',
+    '#/server',
+    '#/channel/a/b',
     '#/explore/x',
-    '#/pv/%zz',
-    '#/allpvs?q=%zz',
-    '#/allpvs?ioc=%zz',
+    '#/channel/%zz',
+    '#/channels?q=%zz',
+    '#/channels?server=%zz',
   ])('%s has no route', (hash) => {
     expect(parseRoute(hash)).toBeNull();
   });
@@ -72,12 +72,12 @@ describe('parseRoute', () => {
   test.each(['SR01C:BPM1:X.VAL', 'a/b', 'odd name+1%', 'ÄÖ?&=#'])(
     'the name %s round-trips as one encoded segment',
     (name) => {
-      expect(parseRoute(`#/pv/${encodeURIComponent(name)}`)).toEqual({
-        view: 'pv',
+      expect(parseRoute(`#/channel/${encodeURIComponent(name)}`)).toEqual({
+        view: 'channel',
         params: { name },
       });
-      expect(parseRoute(`#/ioc/${encodeURIComponent(name)}`)).toEqual({
-        view: 'ioc',
+      expect(parseRoute(`#/server/${encodeURIComponent(name)}`)).toEqual({
+        view: 'server',
         params: { name },
       });
     }
@@ -87,26 +87,29 @@ describe('parseRoute', () => {
     'the words %s round-trip through q, with %%20 for a space',
     (q) => {
       expect(encodeURIComponent('a b')).toBe('a%20b');
-      expect(parseRoute(`#/allpvs?q=${encodeURIComponent(q)}`)).toEqual({
-        view: 'allpvs',
+      expect(parseRoute(`#/channels?q=${encodeURIComponent(q)}`)).toEqual({
+        view: 'channels',
         params: { q },
       });
     }
   );
 
-  test.each(['a+b', 'x&ioc=y', 'ÄÖ'])(
+  test.each(['a+b', 'x&server=y', 'ÄÖ'])(
     'the filter value %s round-trips, encoded the same way',
     (value) => {
       const encoded = encodeURIComponent(value);
-      expect(parseRoute(`#/allpvs?ioc=${encoded}&origin=${encoded}`)).toEqual({
-        view: 'allpvs',
-        params: { ioc: [value], origin: [value] },
+      expect(parseRoute(`#/channels?server=${encoded}&origin=${encoded}`)).toEqual({
+        view: 'channels',
+        params: { server: [value], origin: [value] },
       });
     }
   );
 
   test.each(FACET_KEYS)('the filter key %s parses to a list', (key) => {
-    expect(parseRoute(`#/allpvs?${key}=v`)).toEqual({ view: 'allpvs', params: { [key]: ['v'] } });
+    expect(parseRoute(`#/channels?${key}=v`)).toEqual({
+      view: 'channels',
+      params: { [key]: ['v'] },
+    });
   });
 });
 
@@ -131,25 +134,25 @@ describe('formatRoute', () => {
   test.each(['beam current', 'a+b', 'x&q=y', '100%', 'ÄÖ?#', ''])(
     'the words %j round-trip',
     (q) => {
-      const route = { view: 'allpvs', params: { q } };
+      const route = { view: 'channels', params: { q } };
       expect(parseRoute(formatRoute(route))).toEqual(route);
     }
   );
 
   test.each(
     FACET_KEYS.flatMap((key) => [
-      [key, ['a+b', 'x&ioc=y', 'ÄÖ']],
+      [key, ['a+b', 'x&server=y', 'ÄÖ']],
       [key, ['I1', 'I2']],
     ])
   )('the filter %s with %j round-trips', (key, values) => {
-    const route = { view: 'allpvs', params: { [key]: values } };
+    const route = { view: 'channels', params: { [key]: values } };
     expect(parseRoute(formatRoute(route))).toEqual(route);
   });
 
   test.each(['SR01C:BPM1:X.VAL', 'a/b', 'odd name+1%', 'ÄÖ?&=#'])(
     'the name %s round-trips on pv and ioc',
     (name) => {
-      for (const view of ['pv', 'ioc']) {
+      for (const view of ['channel', 'server']) {
         const route = { view, params: { name } };
         expect(parseRoute(formatRoute(route))).toEqual(route);
       }
@@ -162,22 +165,22 @@ describe('formatRoute', () => {
   });
 
   test('a pv route without a name throws', () => {
-    expect(() => formatRoute({ view: 'pv', params: {} })).toThrow(TypeError);
+    expect(() => formatRoute({ view: 'channel', params: {} })).toThrow(TypeError);
   });
 });
 
-describe('allPvsHash', () => {
+describe('channelsHash', () => {
   test('trimmed words become q, blank words no params', () => {
-    expect(allPvsHash(' BPM01 ')).toBe('#/allpvs?q=BPM01');
-    expect(allPvsHash('  ')).toBe('#/allpvs');
+    expect(channelsHash(' BPM01 ')).toBe('#/channels?q=BPM01');
+    expect(channelsHash('  ')).toBe('#/channels');
   });
 });
 
 describe('familyOf', () => {
   test.each([
-    ['pv', 'allpvs'],
-    ['ioc', 'allpvs'],
-    ['allpvs', 'allpvs'],
+    ['channel', 'channels'],
+    ['server', 'channels'],
+    ['channels', 'channels'],
     ['explore', 'explore'],
     ['feedback', 'feedback'],
     ['alarms', 'alarms'],

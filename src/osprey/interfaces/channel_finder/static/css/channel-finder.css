@@ -9,8 +9,8 @@
  * correctly, the info accent, and the corpus-strip height).
  */
 
-/* The IOCs view (#/iocs). */
-@import url('iocs.css');
+/* The IOCs view (#/servers). */
+@import url('servers.css');
 
 /* ================================================================
    Local Extensions

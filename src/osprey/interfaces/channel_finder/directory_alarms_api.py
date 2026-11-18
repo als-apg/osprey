@@ -1,7 +1,7 @@
-"""PV directory alarm route: ``alarms``, every channel the alarm feed holds in alarm now.
+"""channel directory alarm route: ``alarms``, every channel the alarm feed holds in alarm now.
 
 Mounted under ``/api/directory`` by :mod:`.directory_api`. The route is a GET that
-answers :meth:`~osprey.services.pv_directory.facts.Facts.active_alarms` over the
+answers :meth:`~osprey.services.channel_directory.facts.Facts.active_alarms` over the
 lifespan's ``DirectoryService``: the counts per severity over every channel, and
 the active rows. ``limit=0`` answers the counts alone.
 """
@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
 
-from osprey.services.pv_directory.facts import ACTIVE_ALARMS_MAX_ROWS, Facts
+from osprey.services.channel_directory.facts import ACTIVE_ALARMS_MAX_ROWS, Facts
 
 router = APIRouter()
 

@@ -1,4 +1,4 @@
-"""The PV directory search routes: ``search``, ``count`` and ``export.csv``.
+"""The channel directory search routes: ``search``, ``count`` and ``export.csv``.
 
 A fake service stands in for ``DirectoryService``: the routes pass its answers
 through and build no contract type, so the tests need no connectors release.
@@ -28,7 +28,7 @@ _COLUMNS = [
     "status",
     "description",
     "record_type",
-    "ioc",
+    "server",
     "host",
     "last_announced",
     "alarm",
@@ -104,8 +104,8 @@ class TestSearch:
             ("name", "DEMO:*"),
             ("origin", "curated"),
             ("origin", "directory"),
-            ("ioc", "demo-ioc-bpm"),
-            ("ioc", "demo-ioc-rf"),
+            ("server", "demo-ioc-bpm"),
+            ("server", "demo-ioc-rf"),
             ("record_type", "ai"),
             ("record_type", "calc"),
             ("alarm", "MAJOR"),
@@ -122,7 +122,7 @@ class TestSearch:
                 "words": "BPM01",
                 "name": "DEMO:*",
                 "origin": ("curated", "directory"),
-                "ioc": ("demo-ioc-bpm", "demo-ioc-rf"),
+                "server": ("demo-ioc-bpm", "demo-ioc-rf"),
                 "record_type": ("ai", "calc"),
                 "alarm": ("MAJOR", "none"),
                 "archived": ("no",),
@@ -131,7 +131,7 @@ class TestSearch:
             }
         ]
 
-    def test_no_parameters_search_every_pv_from_the_first_page(self):
+    def test_no_parameters_search_every_channel_from_the_first_page(self):
         service = FakeService()
 
         _client(service).get("/api/directory/search")
@@ -141,7 +141,7 @@ class TestSearch:
                 "words": "",
                 "name": None,
                 "origin": (),
-                "ioc": (),
+                "server": (),
                 "record_type": (),
                 "alarm": (),
                 "archived": (),
@@ -226,11 +226,11 @@ class TestExport:
 
     def test_within_the_filter_cap_one_search_fetches_the_whole_set(self):
         service = FakeService(total=120)
-        params = [("q", "BPM01"), ("ioc", "demo-ioc-bpm"), ("page", "1"), ("page_size", "25")]
+        params = [("q", "BPM01"), ("server", "demo-ioc-bpm"), ("page", "1"), ("page_size", "25")]
 
         _client(service).get("/api/directory/export.csv", params=params)
 
-        filters = {"words": "BPM01", "name": None, "origin": (), "ioc": ("demo-ioc-bpm",)}
+        filters = {"words": "BPM01", "name": None, "origin": (), "server": ("demo-ioc-bpm",)}
         filters.update(record_type=(), alarm=(), archived=())
         assert service.counts == [filters]
         assert service.searches == [{**filters, "page": 0, "page_size": 120}]

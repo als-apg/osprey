@@ -11,7 +11,10 @@ import { configEntries } from '../../../src/osprey/interfaces/channel_finder/sta
 
 /** The configuration records of the demo alarm replay. */
 const REPLAY = readFileSync(
-  join(import.meta.dirname, '../../../src/osprey/services/pv_directory/demo/example-alarms.ndjson'),
+  join(
+    import.meta.dirname,
+    '../../../src/osprey/services/channel_directory/demo/example-alarms.ndjson'
+  ),
   'utf8'
 )
   .split('\n')

@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.pv_directory.facts import panel_link
+from osprey.services.channel_directory.facts import panel_link
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "panel_routes.json"
 _ENTRIES = json.loads(_FIXTURE.read_text(encoding="utf-8"))
-_NAMED = [e for e in _ENTRIES if e["route"]["view"] in ("pv", "ioc")]
+_NAMED = [e for e in _ENTRIES if e["route"]["view"] in ("channel", "server")]
 
 
 @pytest.mark.parametrize("entry", _NAMED, ids=[e["hash"] for e in _NAMED])

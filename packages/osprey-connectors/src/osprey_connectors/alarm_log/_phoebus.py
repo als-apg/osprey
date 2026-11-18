@@ -45,7 +45,7 @@ from osprey_connectors.service_answers import (
 
 _SEARCH_PATH = "/search/alarm"
 _CONFIG_PATH = "/search/alarm/config"
-_SETTINGS_KEY = "pv_directory.alarm_log.settings"
+_SETTINGS_KEY = "channel_directory.alarm_log.settings"
 
 #: How far back a configuration lookup reads, so a noisy PV's state rows leave room.
 _CONFIG_SEARCH_SIZE = 200

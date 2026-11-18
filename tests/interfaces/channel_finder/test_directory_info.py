@@ -1,4 +1,4 @@
-"""The Channels panel's PV directory state: the ``/api/info`` descriptor and the mount.
+"""The Channels panel's channel directory state: the ``/api/info`` descriptor and the mount.
 
 Every test runs the real lifespan against a config, with the real
 ``DirectoryService`` behind it. The section's absence is today's panel exactly;
@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.channel_finder import directory_api
 from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
-from osprey.services.pv_directory import _connectors, service
+from osprey.services.channel_directory import _connectors, service
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord
 from osprey_connectors.directory import ChannelDirectory, DirectoryPage, DirectoryRow
@@ -133,7 +133,7 @@ def _config(
     if control_system == VA_BUILD:
         config["services"] = {"virtual_accelerator": {"port": 5064}}
     if section is not None:
-        config["pv_directory"] = section
+        config["channel_directory"] = section
     config.update(extra)
     return config
 
@@ -176,7 +176,7 @@ def test_without_the_section_the_info_payload_is_unchanged(start) -> None:
 
 def test_a_null_section_is_an_absent_one(start) -> None:
     config = _config(VA_BUILD, None)
-    config["pv_directory"] = None
+    config["channel_directory"] = None
     with start(config) as (app, client):
         assert "directory" not in client.get("/api/info").json()
         assert _directory_paths(app) == []
@@ -191,7 +191,7 @@ def test_a_malformed_section_warns_and_serves_todays_panel(start, caplog) -> Non
         assert _directory_paths(app) == []
         assert client.get("/api/directory/probe").status_code == 404
     warnings = [r.getMessage() for r in caplog.records if r.name == _APP_LOGGER]
-    assert any("pv_directory.settings.url" in message for message in warnings)
+    assert any("channel_directory.settings.url" in message for message in warnings)
 
 
 # -- configured ----------------------------------------------------------------
@@ -216,7 +216,7 @@ def test_the_descriptor_is_present_when_configured(start) -> None:
     assert info["pipeline_type"] == "in_context"
 
 
-def test_the_label_is_all_pvs_on_every_target_whatever_answers(start, record: _Record) -> None:
+def test_the_label_is_all_channels_on_every_target_whatever_answers(start, record: _Record) -> None:
     config = _config(LIVE_BUILD, LABELLED)
     config["services"] = {"virtual_accelerator": {"port": 5064}}
     with start(config) as (_app, client):
@@ -227,7 +227,7 @@ def test_the_label_is_all_pvs_on_every_target_whatever_answers(start, record: _R
         assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
 
 
-def test_a_va_only_section_at_live_is_labelled_all_pvs(start, record: _Record) -> None:
+def test_a_va_only_section_at_live_is_labelled_all_channels(start, record: _Record) -> None:
     record.move("live", 1)
 
     info = _info(start, _config(VA_BUILD, {}))
@@ -300,7 +300,7 @@ def test_ariel_needs_the_panel_and_a_section(start) -> None:
 
 @pytest.fixture()
 def floor() -> Iterator[None]:
-    """The shim and the service re-imported with the PV directory modules unimportable."""
+    """The shim and the service re-imported with the channel directory modules unimportable."""
     with pytest.MonkeyPatch.context() as patch:
         for name in _NEW_MODULES:
             patch.setitem(sys.modules, name, None)
@@ -312,7 +312,7 @@ def floor() -> Iterator[None]:
 
 
 @pytest.mark.usefixtures("floor")
-def test_on_the_floor_the_label_is_all_pvs(start) -> None:
+def test_on_the_floor_the_label_is_all_channels(start) -> None:
     with start(_config(VA_BUILD, {})) as (app, client):
         assert client.get("/api/info").json()["directory"]["label"] == "All PVs"
         assert _directory_paths(app) == ["/api/directory/probe"]

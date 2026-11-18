@@ -9,7 +9,7 @@ from typing import Any
 from osprey_connectors.directory import DirectoryQuery, ServerRow
 from osprey_connectors.directory._simulator import SimulatorDirectory
 from osprey_connectors.service_answers import BackendSpec, Unavailable
-from osprey_connectors.simulation.iocs import TEXTURE_IOC
+from osprey_connectors.simulation.servers import TEXTURE_SERVER
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
@@ -92,7 +92,7 @@ def _write_view(
     if stopped is not None:
         documents[SCENARIOS_FILE] = {
             "schema": SCENARIOS_SCHEMA,
-            "scenarios": [{"name": "nominal"}, {"name": "outage", "stopped_iocs": stopped}],
+            "scenarios": [{"name": "nominal"}, {"name": "outage", "stopped_servers": stopped}],
         }
     view_dir = project / VIEW_RELPATH
     view_dir.mkdir(parents=True)
@@ -107,7 +107,7 @@ def _directory(project: Path | None) -> SimulatorDirectory:
     return SimulatorDirectory(spec, project_dir=project)
 
 
-async def test_every_simulated_ioc_is_one_row_with_its_pv_count(tmp_path: Path) -> None:
+async def test_every_simulated_server_is_one_row_with_its_channel_count(tmp_path: Path) -> None:
     _write_view(
         tmp_path,
         channels=_CHANNELS,
@@ -117,9 +117,9 @@ async def test_every_simulated_ioc_is_one_row_with_its_pv_count(tmp_path: Path) 
     servers = await _directory(tmp_path).list_servers(DEADLINE)
 
     assert servers == [
-        ServerRow(name="sim-BARE", host=HOST, pv_count=1 + HEALTH, inactive_count=0),
-        ServerRow(name="sim-SR", host=HOST, pv_count=2 + 1 + HEALTH, inactive_count=0),
-        ServerRow(name=TEXTURE_IOC, host=HOST, pv_count=3 + HEALTH, inactive_count=0),
+        ServerRow(name="sim-BARE", host=HOST, channel_count=1 + HEALTH, inactive_count=0),
+        ServerRow(name="sim-SR", host=HOST, channel_count=2 + 1 + HEALTH, inactive_count=0),
+        ServerRow(name=TEXTURE_SERVER, host=HOST, channel_count=3 + HEALTH, inactive_count=0),
     ]
 
 
@@ -132,35 +132,35 @@ async def test_the_counts_agree_with_the_directorys_own_search(tmp_path: Path) -
     assert not isinstance(servers, Unavailable)
     for server in servers:
         query = DirectoryQuery(server=[server.name])
-        assert await directory.count(query, DEADLINE) == server.pv_count
-    assert sum(server.pv_count for server in servers) == await directory.count(
+        assert await directory.count(query, DEADLINE) == server.channel_count
+    assert sum(server.channel_count for server in servers) == await directory.count(
         DirectoryQuery(), DEADLINE
     )
 
 
-async def test_an_ioc_serving_no_pv_is_still_listed(tmp_path: Path) -> None:
+async def test_a_server_serving_no_channel_is_still_listed(tmp_path: Path) -> None:
     _write_view(tmp_path, channels=[_channel("T:SR:QF1:RB", "SR")])
 
     servers = await _directory(tmp_path).list_servers(DEADLINE)
 
     assert not isinstance(servers, Unavailable)
-    assert {server.name: server.pv_count for server in servers} == {
+    assert {server.name: server.channel_count for server in servers} == {
         "sim-BARE": 1,
         "sim-SR": 2,
-        TEXTURE_IOC: 0,
+        TEXTURE_SERVER: 0,
     }
 
 
-async def test_a_stopped_ioc_is_still_listed(tmp_path: Path) -> None:
-    _write_view(tmp_path, channels=_CHANNELS, stopped=["sim-SR", TEXTURE_IOC])
+async def test_a_stopped_server_is_still_listed(tmp_path: Path) -> None:
+    _write_view(tmp_path, channels=_CHANNELS, stopped=["sim-SR", TEXTURE_SERVER])
 
     servers = await _directory(tmp_path).list_servers(DEADLINE)
 
     assert not isinstance(servers, Unavailable)
-    assert {server.name: server.pv_count for server in servers} == {
+    assert {server.name: server.channel_count for server in servers} == {
         "sim-BARE": 1,
         "sim-SR": 3,
-        TEXTURE_IOC: 3,
+        TEXTURE_SERVER: 3,
     }
 
 

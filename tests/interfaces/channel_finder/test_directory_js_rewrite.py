@@ -21,7 +21,7 @@ def _ariel_lines(body: str) -> list[str]:
     return [line for line in body.splitlines() if "ariel" in line or "api/search" in line]
 
 
-@pytest.mark.parametrize("module", ["directory-api.js", "pv-page.js"])
+@pytest.mark.parametrize("module", ["directory-api.js", "channel-page.js"])
 @pytest.mark.parametrize("outer", ["", "/u/a"])
 def test_the_ariel_search_path_survives_the_rewrite(module: str, outer: str) -> None:
     body = (_JS / module).read_text(encoding="utf-8")
@@ -32,7 +32,7 @@ def test_the_ariel_search_path_survives_the_rewrite(module: str, outer: str) -> 
 
 
 def test_the_page_names_the_search_as_a_rest_and_the_rewrite_still_works() -> None:
-    page = (_JS / "pv-page.js").read_text(encoding="utf-8")
+    page = (_JS / "channel-page.js").read_text(encoding="utf-8")
     assert "panelUrl('ariel', 'api/search')" in page
     assert "'/panel/" not in page and '"/panel/' not in page and "`/panel/" not in page
 

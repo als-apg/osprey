@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Channel Finder — PV Directory Client
+ * OSPREY Channel Finder — Channel Directory Client
  *
  * The routes under the panel's directory API with their payload types, and the
  * cross-panel URLs and gates All PVs and the PV page share. Another panel's URL
@@ -45,7 +45,7 @@ import { state } from './state.js';
  *   status: 'Active'|'Inactive'|null,
  *   description: string|null,
  *   record_type: string|null,
- *   ioc: string|null,
+ *   server: string|null,
  *   host: string|null,
  *   last_announced: string|null,
  * }} DirectoryRow
@@ -67,7 +67,7 @@ import { state } from './state.js';
  *   partial: { part: string, reason: string }[],
  *   facets: {
  *     origin: FacetCount[],
- *     ioc: FacetCount[],
+ *     server: FacetCount[],
  *     record_type: FacetCount[],
  *     alarm?: FacetCount[],
  *     archived?: FacetCount[],
@@ -94,7 +94,7 @@ import { state } from './state.js';
 /**
  * @typedef {{
  *   at: string,
- *   pv: string,
+ *   channel: string,
  *   field: string|null,
  *   old: string|null,
  *   new: string|null,
@@ -158,7 +158,7 @@ import { state } from './state.js';
  *   detail_properties?: string[],
  *   reason?: string,
  *   label?: string,
- * }} PvFactsSection
+ * }} ChannelFactsSection
  */
 
 /**
@@ -170,20 +170,20 @@ import { state } from './state.js';
  *   name: string,
  *   outcome: 'found'|'not_listed'|'unknown'|'unavailable',
  *   reason?: string,
- *   sections: PvFactsSection[],
- * }} PvFacts
+ *   sections: ChannelFactsSection[],
+ * }} ChannelFacts
  */
 
 /**
  * One PV of an IOC in alarm now.
  * @typedef {{
- *   pv: string,
+ *   channel: string,
  *   severity: string|null,
  *   status: string|null,
  *   latched: boolean|null,
  *   acknowledged: boolean|null,
  *   time: string|null,
- * }} IocAlarmRow
+ * }} ServerAlarmRow
  */
 
 /**
@@ -193,35 +193,35 @@ import { state } from './state.js';
  * @typedef {{
  *   outcome: 'found'|'no_match'|'unavailable',
  *   total?: number|null,
- *   rows?: IocAlarmRow[],
+ *   rows?: ServerAlarmRow[],
  *   counts?: Record<string, number>,
  *   reason?: string,
- * }} IocAlarms
+ * }} ServerAlarms
  */
 
 /**
  * @typedef {{
- *   ioc: string,
+ *   server: string,
  *   outcome: Outcome,
  *   source: Source,
  *   host: string|null,
  *   ports: number[]|null,
- *   pv_count: number|null,
+ *   channel_count: number|null,
  *   inactive_count: number|null,
  *   curated_count: number|null,
  *   curated_reason?: string,
  *   engineer: string|null,
  *   engineer_source: 'directory property'|'ENGINEER PV'|null,
- *   health_pvs: HealthPv[],
- *   health_pvs_reason?: string,
- *   alarms?: IocAlarms,
+ *   health_channels: HealthChannel[],
+ *   health_channels_reason?: string,
+ *   alarms?: ServerAlarms,
  *   links: Record<string, string>,
  *   reason?: string,
  *   fleet?: FleetEntry,
- * }} IocFacts
+ * }} ServerFacts
  */
 
-// ---- The IOC fleet (GET /api/directory/fleet) ----
+// ---- The server fleet (GET /api/directory/fleet) ----
 // Every time here is epoch seconds, never an ISO string.
 
 /**
@@ -248,8 +248,8 @@ import { state } from './state.js';
  *   directory_status: string|null,
  *   listed: boolean,
  *   sources: string[],
- *   liveness: { pv: string|null, kind: 'counter'|'value'|null, value: unknown, read_at: number|null, ambiguous: boolean }|null,
- *   health: { pv: string, value: unknown, status: 'ok'|'out_of_range'|'unread' }[],
+ *   liveness: { channel: string|null, kind: 'counter'|'value'|null, value: unknown, read_at: number|null, ambiguous: boolean }|null,
+ *   health: { channel: string, value: unknown, status: 'ok'|'out_of_range'|'unread' }[],
  * }} FleetRow
  */
 
@@ -262,11 +262,11 @@ import { state } from './state.js';
  *   cycle?: number,
  *   period_s?: number,
  *   cycle_duration_s?: number,
- *   read_path: { status: 'ok'|'down'|'unverified', pv: string|null },
+ *   read_path: { status: 'ok'|'down'|'unverified', channel: string|null },
  *   sources: { name: string, outcome: string, reason: string|null }[],
  *   counts: { by_state: Record<FleetState, number>, by_finding: Record<FleetFinding, number> },
  *   group_by: 'host'|'class_name'|'group'|null,
- *   iocs: FleetRow[],
+ *   servers: FleetRow[],
  * }} FleetSnapshot
  */
 
@@ -294,7 +294,7 @@ import { state } from './state.js';
 
 /**
  * One IOC health PV: its name and its role.
- * @typedef {{ name: string, role: 'heartbeat'|'uptime'|'engineer' }} HealthPv
+ * @typedef {{ name: string, role: 'heartbeat'|'uptime'|'engineer' }} HealthChannel
  */
 
 /**
@@ -330,7 +330,7 @@ import { state } from './state.js';
  * in the alarm tree when the feed knows one, `status` the record's alarm now
  * and `time` when the alarm started.
  * @typedef {{
- *   pv: string,
+ *   channel: string,
  *   path: string|null,
  *   severity: string,
  *   status: string,
@@ -367,7 +367,7 @@ import { state } from './state.js';
 /**
  * What the current target's archive holds. `archived.count` is how many of the
  * directory's `of` PVs the store records now, null with `reason` when it cannot
- * be counted; `by_ioc` the same per IOC (empty with `by_ioc_reason`). The
+ * be counted; `by_server` the same per IOC (empty with `by_server_reason`). The
  * samples are ISO times, null when unknown. `freshness_bound_s` is how old the
  * newest sample of the deployment's own store may be, null for any other
  * archive. `configuration` is the archive's as rendered; `targets` names, per
@@ -376,8 +376,8 @@ import { state } from './state.js';
  *   outcome: 'found'|'unavailable',
  *   source: Source,
  *   archived?: { count: number|null, of: number|null, reason?: string },
- *   by_ioc?: { ioc: string, pvs: number, archived: number }[],
- *   by_ioc_reason?: string,
+ *   by_server?: { server: string, channels: number, archived: number }[],
+ *   by_server_reason?: string,
  *   newest_sample?: string|null,
  *   oldest_sample?: string|null,
  *   freshness_bound_s?: number|null,
@@ -405,7 +405,7 @@ import { state } from './state.js';
  */
 
 /** Past this many PVs selected, Plot is disabled. */
-const PLOT_MAX_PVS = 12;
+const PLOT_MAX_CHANNELS = 12;
 
 /**
  * The query string for `filters`, with its `?`; empty when nothing is set.
@@ -453,18 +453,18 @@ export function countDirectory(q) {
 /**
  * @param {string} name
  * @param {AbortSignal} [signal]
- * @returns {Promise<PvFacts>}
+ * @returns {Promise<ChannelFacts>}
  */
-export function fetchPvFacts(name, signal) {
-  return fetchJSON(`/api/directory/pv/${encodeURIComponent(name)}`, { signal });
+export function fetchChannelFacts(name, signal) {
+  return fetchJSON(`/api/directory/channel/${encodeURIComponent(name)}`, { signal });
 }
 
 /**
  * @param {string} name
- * @returns {Promise<IocFacts>}
+ * @returns {Promise<ServerFacts>}
  */
-export function fetchIocFacts(name) {
-  return fetchJSON(`/api/directory/ioc/${encodeURIComponent(name)}`);
+export function fetchServerFacts(name) {
+  return fetchJSON(`/api/directory/server/${encodeURIComponent(name)}`);
 }
 
 /** @returns {Promise<LogbookAvailability>} */
@@ -493,7 +493,7 @@ export function fetchArchiveSummary(signal) {
 }
 
 /**
- * The IOC fleet of the session's target, from the fleet service alone: the
+ * The server fleet of the session's target, from the fleet service alone: the
  * route reads no PV and queries no directory. `signal` aborts the read.
  * @param {AbortSignal} [signal]
  * @returns {Promise<FleetAnswer>}
@@ -548,11 +548,11 @@ export function plotUrl(names) {
  * @returns {{ disabled: boolean, label: string, title: string }}
  */
 export function plotButton(selected) {
-  if (selected <= PLOT_MAX_PVS) return { disabled: false, label: 'Plot', title: '' };
+  if (selected <= PLOT_MAX_CHANNELS) return { disabled: false, label: 'Plot', title: '' };
   return {
     disabled: true,
-    label: `Plot (max ${PLOT_MAX_PVS})`,
-    title: `Data Browser takes at most ${PLOT_MAX_PVS} PVs`,
+    label: `Plot (max ${PLOT_MAX_CHANNELS})`,
+    title: `Data Browser takes at most ${PLOT_MAX_CHANNELS} PVs`,
   };
 }
 

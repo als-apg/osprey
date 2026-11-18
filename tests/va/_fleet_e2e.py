@@ -1,9 +1,9 @@
-"""The processes of the IOC fleet's end-to-end run, and what watches them.
+"""The processes of the server fleet's end-to-end run, and what watches them.
 
-``tests/va/test_ioc_fleet_live.py`` runs the fleet the way a deployment runs
+``tests/va/test_server_fleet_live.py`` runs the fleet the way a deployment runs
 it: the real fleet service process (which spawns its refresher), the real
 panel backend serving the Channels panel's IOCs view and IOC page, and the
-real ``ioc_fleet`` tool behind the pv_directory MCP server, all reading one
+real ``server_fleet`` tool behind the channel_directory MCP server, all reading one
 rendered config of the demo. This module holds the parts that need no
 Channel Access: preparing that config, starting and stopping the processes,
 and reading what the refresher left behind (its snapshots, its memory and
@@ -43,17 +43,17 @@ PROCESS_START_S = 120.0
 #: How long one HTTP read of a started process may take.
 HTTP_TIMEOUT_S = 10.0
 
-#: How long one ``ioc_fleet`` call through the MCP server may take.
+#: How long one ``server_fleet`` call through the MCP server may take.
 TOOL_CALL_S = 60.0
 
 #: How long a stopped process tree gets to exit on SIGTERM before it is killed.
 STOP_GRACE_S = 15.0
 
 #: The refresher's one audit record per cycle (``refresher._audit_cycle``).
-_CYCLE_RECORD = re.compile(rf"target={TARGET} pv_count=(\d+) cycle=(\d+)")
+_CYCLE_RECORD = re.compile(rf"target={TARGET} channel_count=(\d+) cycle=(\d+)")
 
-#: The tool reader: the pv_directory MCP server built from the rendered config,
-#: with ``ioc_fleet`` called through an in-memory MCP client. It answers one
+#: The tool reader: the channel_directory MCP server built from the rendered config,
+#: with ``server_fleet`` called through an in-memory MCP client. It answers one
 #: command per stdin line -- ``call`` (one call, its answer) or ``loop SECONDS``
 #: (call until the time is up, the number of calls) -- each with one line
 #: starting ``OSPREY_TOOL ``.
@@ -62,12 +62,12 @@ import asyncio, json, sys, time
 
 async def main():
     from fastmcp import Client
-    from osprey.mcp_server.pv_directory.server import create_server
+    from osprey.mcp_server.channel_directory.server import create_server
 
     server = create_server()
 
     async def call(client):
-        result = await client.call_tool("ioc_fleet", {"limit": 1000})
+        result = await client.call_tool("server_fleet", {"limit": 1000})
         return json.loads(result.content[0].text)
 
     async with Client(server) as client:
@@ -87,7 +87,7 @@ async def main():
                 while time.monotonic() < deadline:
                     answer = await call(client)
                     if answer.get("outcome") != "ok":
-                        raise RuntimeError(f"ioc_fleet answered {answer.get('outcome')}")
+                        raise RuntimeError(f"server_fleet answered {answer.get('outcome')}")
                     calls += 1
                 reply = calls
             else:
@@ -131,7 +131,7 @@ def point_config(config_path: Path, *, ca_port: int, fleet_port: int) -> None:
 
     The virtual accelerator's two gateways become the served view's held CA
     port on loopback, searched directly (no name server), and
-    ``services.ioc_fleet.port`` the port the fleet service binds -- the port
+    ``services.server_fleet.port`` the port the fleet service binds -- the port
     every reader's fleet connection resolves. Nothing else changes: the
     period, the probe channel and the directory stay the demo's.
     """
@@ -140,7 +140,7 @@ def point_config(config_path: Path, *, ca_port: int, fleet_port: int) -> None:
     gateways = config["control_system"]["connector"]["virtual_accelerator"]["gateways"]
     gateways["read_only"] = dict(gateway)
     gateways["write_access"] = dict(gateway)
-    config.setdefault("services", {}).setdefault("ioc_fleet", {})["port"] = fleet_port
+    config.setdefault("services", {}).setdefault("server_fleet", {})["port"] = fleet_port
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
 
@@ -185,7 +185,7 @@ def environment(
 ) -> dict[str, str]:
     """A started process's environment: this config, its own spool, no URL override."""
     env = dict(os.environ)
-    env.pop("IOC_FLEET_URL", None)
+    env.pop("SERVER_FLEET_URL", None)
     env.update(
         {
             "OSPREY_CONFIG": str(project.config_path),
@@ -226,14 +226,14 @@ def start_fleet_service(
     log: Path,
     ca_env: Mapping[str, str],
 ) -> subprocess.Popen[Any]:
-    """``python -m osprey.services.pv_directory.fleet`` on the project's config; once it serves."""
+    """``python -m osprey.services.channel_directory.fleet`` on the project's config; once it serves."""
     spool_dir.mkdir(parents=True, exist_ok=True)
     with log.open("wb") as out:
         proc = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
-                "osprey.services.pv_directory.fleet",
+                "osprey.services.channel_directory.fleet",
                 "--config",
                 str(project.config_path),
                 "--state-dir",
@@ -281,9 +281,9 @@ class Panel:
         answer: dict[str, Any] = response.json()
         return answer
 
-    def ioc_page(self, name: str) -> dict[str, Any]:
-        """An IOC page's facts: ``GET /api/directory/ioc/<name>``."""
-        response = self.client.get(f"/api/directory/ioc/{name}")
+    def server_page(self, name: str) -> dict[str, Any]:
+        """An IOC page's facts: ``GET /api/directory/server/<name>``."""
+        response = self.client.get(f"/api/directory/server/{name}")
         response.raise_for_status()
         facts: dict[str, Any] = response.json()
         return facts
@@ -329,7 +329,7 @@ def start_panel(
 
 
 class ToolReader:
-    """The pv_directory MCP server in a process of its own, calling ``ioc_fleet``."""
+    """The channel_directory MCP server in a process of its own, calling ``server_fleet``."""
 
     def __init__(
         self, project: FleetProject, spool_dir: Path, log: Path, ca_env: Mapping[str, str]
@@ -380,13 +380,13 @@ class ToolReader:
         self.proc.stdin.flush()
 
     def call(self) -> dict[str, Any]:
-        """One ``ioc_fleet`` call with no filter; its JSON answer."""
+        """One ``server_fleet`` call with no filter; its JSON answer."""
         self._send("call")
         answer: dict[str, Any] = self._reply(TOOL_CALL_S)
         return answer
 
     def start_loop(self, seconds: float) -> None:
-        """Call ``ioc_fleet`` over and over for ``seconds``; :meth:`loop_count` collects the count."""
+        """Call ``server_fleet`` over and over for ``seconds``; :meth:`loop_count` collects the count."""
         self._send(f"loop {seconds}")
 
     def loop_count(self, seconds: float) -> int:
@@ -448,8 +448,8 @@ class SnapshotWatcher:
         self._thread.start()
 
     def _run(self) -> None:
-        from osprey.services.pv_directory.fleet.memory import FleetMemory
-        from osprey.services.pv_directory.fleet.snapshot import snapshot_path
+        from osprey.services.channel_directory.fleet.memory import FleetMemory
+        from osprey.services.channel_directory.fleet.snapshot import snapshot_path
 
         path = snapshot_path(self._state_dir, TARGET)
         last: int | None = None
@@ -506,7 +506,7 @@ class SnapshotWatcher:
 
 def states(document: Mapping[str, Any]) -> dict[str, str]:
     """Each row's state, by IOC name, of a C5 snapshot document."""
-    return {row["name"]: row["state"] for row in document["iocs"]}
+    return {row["name"]: row["state"] for row in document["servers"]}
 
 
 def without_links(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:

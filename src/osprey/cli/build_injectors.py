@@ -2661,24 +2661,24 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
         )
 
 
-#: The IOC fleet service's ``services:`` key; its compose service is ``ioc-fleet``.
-IOC_FLEET_SERVICE = "ioc_fleet"
+#: The server fleet service's ``services:`` key; its compose service is ``server-fleet``.
+SERVER_FLEET_SERVICE = "server_fleet"
 
 
-def _inject_ioc_fleet(project_path: Path) -> bool:
-    """Wire the IOC fleet service into a built project when ``pv_directory.fleet`` is set.
+def _inject_server_fleet(project_path: Path) -> bool:
+    """Wire the server fleet service into a built project when ``channel_directory.fleet`` is set.
 
     The fleet predicate is read off the project's ``config.yml`` (the
-    ``pv_directory_fleet`` predicate: the sub-block is present), so the
+    ``channel_directory_fleet`` predicate: the sub-block is present), so the
     service follows the config whichever way it was authored. With it unset
     nothing is written and the render is untouched.
 
-    1. Copy the bundled ``templates/services/ioc_fleet/`` compose template into
-       ``<project>/services/ioc_fleet/``.
-    2. Write ``services.ioc_fleet`` (``path`` and ``port``) and register it in
+    1. Copy the bundled ``templates/services/server_fleet/`` compose template into
+       ``<project>/services/server_fleet/``.
+    2. Write ``services.server_fleet`` (``path`` and ``port``) and register it in
        ``deployed_services``. An authored port is kept; else the layout's
-       ``ioc_fleet`` slot at this deployment's port base, the port
-       :func:`osprey.ioc_fleet_connection.fleet_url` resolves.
+       ``server_fleet`` slot at this deployment's port base, the port
+       :func:`osprey.server_fleet_connection.fleet_url` resolves.
 
     Its role (it reads the target) is the bundled template's
     (``compose_generator.BUNDLED_SERVICE_ROLES``), which stages its
@@ -2696,40 +2696,40 @@ def _inject_ioc_fleet(project_path: Path) -> bool:
     if not config_path.exists():
         return False
     config = load_config_document(config_path)
-    section = config.get("pv_directory")
+    section = config.get("channel_directory")
     if not isinstance(section, Mapping) or section.get("fleet") is None:
         return False
 
-    src_dir = bundled_services_dir() / IOC_FLEET_SERVICE
+    src_dir = bundled_services_dir() / SERVER_FLEET_SERVICE
     if not src_dir.is_dir():
-        logger.warning("No package template for the IOC fleet service at %s", src_dir)
+        logger.warning("No package template for the server fleet service at %s", src_dir)
         return False
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
     _copy_shared_service_partials(dest_services_root)
     _refresh_service_dir(
         src_dir,
-        dest_services_root / IOC_FLEET_SERVICE,
-        IOC_FLEET_SERVICE,
+        dest_services_root / SERVER_FLEET_SERVICE,
+        SERVER_FLEET_SERVICE,
         _user_owned_services(project_path),
     )
 
     config.setdefault("services", {})
-    previous = config["services"].get(IOC_FLEET_SERVICE)
+    previous = config["services"].get(SERVER_FLEET_SERVICE)
     port = previous.get("port") if isinstance(previous, Mapping) else None
     if not port:
-        port = default_port(IOC_FLEET_SERVICE, base=resolve_port_base(config))
-    block: dict[str, Any] = {"path": f"./services/{IOC_FLEET_SERVICE}", "port": int(port)}
+        port = default_port(SERVER_FLEET_SERVICE, base=resolve_port_base(config))
+    block: dict[str, Any] = {"path": f"./services/{SERVER_FLEET_SERVICE}", "port": int(port)}
     anchored_put(
         config["services"],
-        IOC_FLEET_SERVICE,
-        _carry_authored_keys(config["services"], IOC_FLEET_SERVICE, block),
+        SERVER_FLEET_SERVICE,
+        _carry_authored_keys(config["services"], SERVER_FLEET_SERVICE, block),
     )
     deployed = config.get("deployed_services", []) or []
-    if IOC_FLEET_SERVICE not in [str(s) for s in deployed]:
-        anchored_append(deployed, IOC_FLEET_SERVICE)
+    if SERVER_FLEET_SERVICE not in [str(s) for s in deployed]:
+        anchored_append(deployed, SERVER_FLEET_SERVICE)
     config["deployed_services"] = deployed
     save_config_document(config_path, config)
 
-    logger.debug("  ✓ Injected the IOC fleet service (127.0.0.1:%d)", int(port))
+    logger.debug("  ✓ Injected the server fleet service (127.0.0.1:%d)", int(port))
     return True

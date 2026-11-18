@@ -17,7 +17,7 @@ import { familyOf } from './route.js';
  */
 
 /**
- * The scope descriptor of GET /api/info: present only when the `pv_directory`
+ * The scope descriptor of GET /api/info: present only when the `channel_directory`
  * section is configured.
  * @typedef {{
  *   label: string,
@@ -69,7 +69,7 @@ class ChannelFinderState {
     this.selection = new Set();
 
     // Set by app.js on each /api/info fetch; null when the section is not
-    // configured, and the allpvs, pv and ioc routes then do not exist.
+    // configured, and the channels, pv and ioc routes then do not exist.
     /** @type {DirectoryDescriptor|null} */
     this.directory = null;
 
@@ -148,7 +148,7 @@ class ChannelFinderState {
    */
   setActiveView(view) {
     this.activeView = view;
-    if (familyOf(view) !== 'allpvs') this.selection.clear();
+    if (familyOf(view) !== 'channels') this.selection.clear();
     this.emit('viewChanged', view);
   }
 }

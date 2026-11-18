@@ -7,7 +7,7 @@
  *
  *   [sidebar toggle] [Explore | Feedback] …… [result count] [search]
  *
- * Beside a PV directory the switch reads [Curated | <directory> | Feedback]
+ * Beside a channel directory the switch reads [Curated | <directory> | Feedback]
  * (app.js writes it); a PV or IOC page presses the directory's button.
  *
  * The view switch belongs to the shell: a press sets the hash and app.js
@@ -29,7 +29,7 @@
 import { icon } from '/design-system/js/icons.js';
 import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
 import { writeTitle } from '/design-system/js/tooltip.js';
-import { allPvsHash, familyOf, formatRoute } from './route.js';
+import { channelsHash, familyOf, formatRoute } from './route.js';
 import { state } from './state.js';
 
 /** @typedef {import('/design-system/js/panel-sidebar.js').PanelSidebarApi} PanelSidebarApi */
@@ -57,7 +57,7 @@ let searchClaimed = false;
 
 /** Whether the search field is the toolbar's own: unclaimed, on a page of All PVs. */
 function searchRedirects() {
-  return !searchClaimed && familyOf(state.activeView) === 'allpvs';
+  return !searchClaimed && familyOf(state.activeView) === 'channels';
 }
 /** Whether a drawn sidebar drives the toggle. */
 let sidebarAttached = false;
@@ -122,7 +122,7 @@ export function initToolbar() {
   });
   searchInput()?.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || !searchRedirects()) return;
-    location.hash = allPvsHash(/** @type {HTMLInputElement} */ (event.target).value);
+    location.hash = channelsHash(/** @type {HTMLInputElement} */ (event.target).value);
   });
   state.on('viewChanged', () => {
     filterReason = null;

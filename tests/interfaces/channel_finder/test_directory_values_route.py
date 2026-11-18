@@ -1,6 +1,6 @@
 """The current-value route, ``GET /api/directory/values?name=…``.
 
-Every test runs the real lifespan over a config with the ``pv_directory`` section,
+Every test runs the real lifespan over a config with the ``channel_directory`` section,
 with the value supervisor swapped for a fake that answers the way
 ``ValueSupervisor.read`` does, so no child starts and no control session opens.
 """
@@ -96,7 +96,7 @@ def client(
         },
         "control_system": {"type": "virtual_accelerator"},
         "services": {"virtual_accelerator": {"port": 5064}},
-        "pv_directory": {"type": "channelfinder", "settings": {"url": "http://cf.example"}},
+        "channel_directory": {"type": "channelfinder", "settings": {"url": "http://cf.example"}},
     }
     monkeypatch.setattr(_CONFIG_SEAM, lambda: config)
     from osprey.interfaces.channel_finder.app import create_app

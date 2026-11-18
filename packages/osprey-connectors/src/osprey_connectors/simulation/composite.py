@@ -130,7 +130,7 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
-from osprey_connectors.simulation.iocs import ioc_addresses
+from osprey_connectors.simulation.servers import server_addresses
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -457,7 +457,7 @@ class Composite(LUMEModel):
             for signal, address in signals.items()
         }
         #: Every address of the view, by the simulated IOC serving it.
-        self._ioc_addresses: dict[str, frozenset[str]] = ioc_addresses(
+        self._ioc_addresses: dict[str, frozenset[str]] = server_addresses(
             physics,
             {address: str(record.get("owner")) for address, record in self._channels.items()},
             view.status_addresses(),
@@ -780,7 +780,7 @@ class Composite(LUMEModel):
         noise: dict[str, NoiseRecord] = {}
         still: set[str] = set()
         channel_faults: dict[str, str] = {}
-        stopped_iocs: set[str] = set()
+        stopped_servers: set[str] = set()
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
         for name in active:
@@ -800,7 +800,7 @@ class Composite(LUMEModel):
             noise.update(scenario.get("noise") or {})
             still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
-            stopped_iocs.update(str(ioc) for ioc in scenario.get("stopped_iocs") or ())
+            stopped_servers.update(str(ioc) for ioc in scenario.get("stopped_servers") or ())
 
         resolved: dict[str, list[ResolvedCoupling]] = {}
         for address, terms in couple.items():
@@ -838,12 +838,12 @@ class Composite(LUMEModel):
             child.last_good = {}
             self._build(child)
         self._apply_channel_faults(channel_faults)
-        self._apply_stopped_iocs(stopped_iocs)
+        self._apply_stopped_servers(stopped_servers)
 
-    def _apply_stopped_iocs(self, stopped_iocs: set[str]) -> None:
+    def _apply_stopped_servers(self, stopped_servers: set[str]) -> None:
         """Stop the named simulated IOCs: none of their addresses answers a reader."""
         stopped: set[str] = set()
-        for ioc in sorted(stopped_iocs):
+        for ioc in sorted(stopped_servers):
             addresses = self._ioc_addresses.get(ioc)
             if addresses is None:
                 logger.warning(f"Ignoring stopped IOC {ioc!r}: the view serves no such IOC")

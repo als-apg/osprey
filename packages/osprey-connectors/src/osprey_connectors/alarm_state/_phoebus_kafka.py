@@ -50,7 +50,7 @@ logger = get_logger("phoebus_alarm_state")
 KAFKA_CLIENT_MISSING = "Kafka client not installed (install osprey-connectors[alarm-state])"
 SETTINGS_MISSING = "alarm_state.settings needs bootstrap_servers and topic"
 
-_WHERE = "pv_directory.alarm_state.settings"
+_WHERE = "channel_directory.alarm_state.settings"
 _BEARER_REFUSED = "a Kafka broker takes `auth.username` and `auth.password_env`, sent as SASL"
 #: The SASL mechanisms a password login can be sent with; the first is the default.
 SASL_MECHANISMS = ("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512")

@@ -40,7 +40,7 @@ CHANNEL_PARAM = "channel"
 #: What the root names itself, so a reader can tell a relay from another service.
 SERVICE_NAME = "osprey-alarm-relay"
 
-_SETTINGS_KEY = "pv_directory.alarm_state.settings"
+_SETTINGS_KEY = "channel_directory.alarm_state.settings"
 _MALFORMED = Unavailable("malformed response")
 _NOT_A_RELAY = Unavailable(f"the url does not answer as an {SERVICE_NAME}")
 _IN_TREE = frozenset({"yes", "no", "unknown"})

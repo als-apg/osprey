@@ -18,8 +18,8 @@ import pytest
 
 pytest.importorskip("osprey_connectors.service_answers")
 
-from tests.interfaces.channel_finder.test_all_pvs_browser import (
-    LATCHED_PV,
+from tests.interfaces.channel_finder.test_all_channels_browser import (
+    LATCHED_CHANNEL,
     _open,
     panel_server,  # noqa: F401  (fixture)
     panel_url,  # noqa: F401  (fixture)
@@ -45,7 +45,7 @@ def test_the_alarms_view_on_the_demo_replay(chromium_browser: Browser, panel_url
     assert pill.inner_text() == "2"
     assert host.locator('[data-tile="MAJOR"] .alarms-tile-n').inner_text() == "1"
 
-    latched = host.locator(f'{ROWS}[data-name="{LATCHED_PV}"]')
+    latched = host.locator(f'{ROWS}[data-name="{LATCHED_CHANNEL}"]')
     assert "latched" in latched.locator(".alarms-flags").inner_text()
 
     inspector = host.locator(".alarms-inspector")

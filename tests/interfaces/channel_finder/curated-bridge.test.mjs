@@ -2,7 +2,7 @@
 /**
  * The curated views' bridge to All PVs (curated-bridge.js and its four callers).
  *
- * With the pv_directory section configured (`state.directory` set), the two
+ * With the channel_directory section configured (`state.directory` set), the two
  * curated styles that search — graph and in_context — seed their box from
  * `state.scopeQuery`, write it on every search and emit `curatedResults`, and
  * a search that matches nothing offers the All PVs search for the same words,
@@ -201,7 +201,7 @@ describe('graph', () => {
     await mount('graph');
     const line = container().querySelector('.curated-bridge');
     expect(line?.textContent).toBe('Not here? Search ChannelFinder');
-    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/allpvs?q=quad');
+    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/channels?q=quad');
   });
 
   test('a miss offers the All PVs search, sized by the Count route', async () => {
@@ -216,7 +216,7 @@ describe('graph', () => {
         `Search all ${SIZE.toLocaleString()} PVs for "zzz top" →`
       );
     });
-    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/allpvs?q=zzz%20top');
+    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/channels?q=zzz%20top');
     expect(callsTo(fetchMock, COUNT_PATH)).toEqual([COUNT_PATH]);
     // The words typed here are the words All PVs opens with.
     expect(state.scopeQuery).toBe('zzz top');
@@ -235,7 +235,7 @@ describe('in_context', () => {
     expect(container().querySelector('.curated-bridge')?.textContent).toBe(
       'Not here? Search ChannelFinder'
     );
-    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/allpvs?q=vacuum');
+    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/channels?q=vacuum');
   });
 
   test('a miss offers the All PVs search and the words seed All PVs', async () => {
@@ -247,7 +247,7 @@ describe('in_context', () => {
         `Search all ${SIZE.toLocaleString()} PVs for "kicker" →`
       );
     });
-    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/allpvs?q=kicker');
+    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/channels?q=kicker');
     expect(state.scopeQuery).toBe('kicker');
     expect(reported.at(-1)).toEqual({ query: 'kicker', total: 0 });
     expect(callsTo(fetchMock, COUNT_PATH)).toHaveLength(1);
@@ -261,7 +261,7 @@ describe.each(['hierarchical', 'middle_layer'])('%s', (pipeline) => {
     await mount(pipeline);
     const line = container().querySelector('#explore-content + .curated-bridge');
     expect(line?.textContent).toBe('Not here? Search ChannelFinder');
-    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/allpvs?q=bpm');
+    expect(bridgeLinks()[0].getAttribute('href')).toBe('#/channels?q=bpm');
   });
 });
 

@@ -35,7 +35,7 @@ from osprey_connectors.directory._contract import (
     ServerRow,
 )
 from osprey_connectors.service_answers import Outcome, Unavailable
-from osprey_connectors.simulation.iocs import channel_ioc, model_ioc, served_iocs
+from osprey_connectors.simulation.servers import channel_server, model_server, served_servers
 from osprey_connectors.simulation.view import (
     ENGINEER,
     HEARTBEAT,
@@ -121,12 +121,12 @@ def _read_records(view: SimulatorView) -> dict[str, DirectoryRecord]:
     records = {}
     for address in view.channels():
         channel = view.channel(address)
-        records[address] = _channel_record(channel, channel_ioc(channel.owner, physics))
+        records[address] = _channel_record(channel, channel_server(channel.owner, physics))
     for model, address in view.status_addresses().items():
-        records[address] = _served_record(address, model_ioc(model), STATUS_SIGNAL)
+        records[address] = _served_record(address, model_server(model), STATUS_SIGNAL)
     for model, signals in view.ioc_health_by_model().items():
         for signal, address in signals.items():
-            records[address] = _served_record(address, model_ioc(model), signal)
+            records[address] = _served_record(address, model_server(model), signal)
     return dict(sorted(records.items()))
 
 
@@ -209,7 +209,7 @@ class SimulatorDirectory(ChannelDirectory):
         try:
             view = SimulatorView.of_project(self.project_dir)
             records = _read_records(view)
-            iocs = served_iocs(model.name for model in view.physics_models())
+            iocs = served_servers(model.name for model in view.physics_models())
         except NoSimulatorView as absent:
             return Unavailable(str(absent))
         except (LookupError, OSError, TypeError, ValueError, AttributeError) as failure:
@@ -295,7 +295,9 @@ class SimulatorDirectory(ChannelDirectory):
             record.row.server for record in records.values() if record.row.status == "Inactive"
         )
         return [
-            ServerRow(name=name, host=_HOST, pv_count=counts[name], inactive_count=inactive[name])
+            ServerRow(
+                name=name, host=_HOST, channel_count=counts[name], inactive_count=inactive[name]
+            )
             for name in sorted(self._iocs_read | {name for name in counts if name})
         ]
 

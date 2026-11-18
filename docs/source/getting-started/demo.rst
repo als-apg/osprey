@@ -232,26 +232,26 @@ facility file. The channel-finder agent works with thirteen tools:
 - **The rules.** ``capabilities`` tells the agent how addresses are spelled and
   which tool fits which question.
 - **All PVs.** When the graph has no answer, ``directory_search``,
-  ``directory_properties``, ``pv_record``, ``ioc_record``, ``ioc_fleet``,
+  ``directory_properties``, ``channel_record``, ``server_record``, ``server_fleet``,
   ``active_alarms``, ``alarm_state`` and ``alarm_config`` read the simulator's own
-  directory, its IOC fleet and its replayed alarms.
+  directory, its server fleet and its replayed alarms.
 
 The agent **never fabricates PV names**: every address it returns is one the
 graph or the directory holds. For the other search strategies, see
 :doc:`../how-to/use-channel-finder`.
 
 **Stop an IOC.** When channels stop answering, the first question is which
-IOC went down. The preset's IOC fleet service reads every simulated IOC's
+IOC went down. The preset's server fleet service reads every simulated IOC's
 heartbeat every 10 s, and the panel's **IOCs** view lists each as ``alive``.
-The ``line-ioc-stopped`` scenario stops the transfer-line IOC ``sim-LINE``.
+The ``line-server-stopped`` scenario stops the transfer-line IOC ``sim-LINE``.
 Add it to the active set:
 
 .. code-block:: bash
 
-   osprey sim apply rf-thermal demo-history line-ioc-stopped
+   osprey sim apply rf-thermal demo-history line-server-stopped
 
 Within two refresh periods ``sim-LINE`` turns ``silent`` and moves to the top
-of the IOCs view; ask the agent *"which IOCs are down?"* and ``ioc_fleet``
+of the IOCs view; ask the agent *"which IOCs are down?"* and ``server_fleet``
 names it. Everything the IOC serves goes quiet with it: every channel starting
 ``LINE:`` (BPMs, correctors, quadrupoles) and the IOC's own status and health
 PVs give no answer, so a LINE scan or orbit read fails. The storage ring and
@@ -259,7 +259,7 @@ the BTS and LTB lines keep answering. ``osprey sim apply rf-thermal
 demo-history`` starts it again, and it returns to ``alive`` within two refresh
 periods. Both commands reseed the logbook and the archive windows of the
 active set (:doc:`/how-to/control-systems/use-virtual-accelerator`);
-:ref:`channel-finder-ioc-fleet` explains the states.
+:ref:`channel-finder-server-fleet` explains the states.
 
 Step 4: Search the Electronic Logbook
 --------------------------------------

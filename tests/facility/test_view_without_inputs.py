@@ -19,8 +19,10 @@ model; and the injection fixture's ``variables.json``, whose request record now
 carries the ``command`` mark the injection engine describes it with; with that
 one mark removed the file still has its pre-inputs digest; and the example
 facility's ``scenarios.json``, retaken when the facility gained the
-``line-ioc-stopped`` scenario; with that one scenario removed the file still
-has its pre-inputs digest.
+``line-server-stopped`` scenario; with that one scenario removed the file still
+has its pre-inputs digest, and retaken again when that scenario's name and its
+``stopped_servers`` key took server words for their EPICS ones; with the old
+spellings put back the file has the previous digest.
 """
 
 from __future__ import annotations

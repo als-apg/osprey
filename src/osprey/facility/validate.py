@@ -58,10 +58,10 @@ from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 from osprey_connectors.simulation.values import is_waveform
 
 try:
-    from osprey_connectors.simulation.iocs import TEXTURE_IOC, served_iocs
-except ImportError:  # an osprey-connectors release older than scenario ``stopped_iocs``
-    TEXTURE_IOC = None  # type: ignore[assignment]
-    served_iocs = None  # type: ignore[assignment]
+    from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
+except ImportError:  # an osprey-connectors release older than scenario ``stopped_servers``
+    TEXTURE_SERVER = None  # type: ignore[assignment]
+    served_servers = None  # type: ignore[assignment]
 
 __all__ = [
     "FACILITY_HEADER",
@@ -2075,7 +2075,7 @@ class _Records:
                 yield from self._scenario_noise(name, files, str(address), entry)
             yield from self._still(name, files, scenario)
             yield from self._channel_faults(name, files, scenario.get("channel_faults"))
-            yield from self._stopped_iocs(name, files, scenario.get("stopped_iocs"))
+            yield from self._stopped_servers(name, files, scenario.get("stopped_servers"))
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
@@ -2228,24 +2228,24 @@ class _Records:
                     "`stuck` faults a setpoint, `frozen` a reading, `disconnected` any channel",
                 )
 
-    def _stopped_iocs(
+    def _stopped_servers(
         self, name: str, files: list[str], block: Any
     ) -> Iterator[FacilityBuildError]:
-        """A scenario's ``stopped_iocs``: each the name of a simulated IOC the facility can serve.
+        """A scenario's ``stopped_servers``: each the name of a simulated IOC the facility can serve.
 
         Which models a render serves is the render's to know, so a name of a
         model it leaves unserved is refused there (``views/simulator.py``).
         """
         if block is None:
             return
-        if served_iocs is None:
+        if served_servers is None:
             yield self._error(
                 "value-invalid",
                 "scenario",
                 name,
                 files,
-                "`stopped_iocs` needs an osprey-connectors release that can stop a simulated IOC",
-                "upgrade osprey-connectors, or remove `stopped_iocs`",
+                "`stopped_servers` needs an osprey-connectors release that can stop a simulated IOC",
+                "upgrade osprey-connectors, or remove `stopped_servers`",
             )
             return
         if not isinstance(block, list) or not all(isinstance(ioc, str) for ioc in block):
@@ -2254,11 +2254,11 @@ class _Records:
                 "scenario",
                 name,
                 files,
-                f"`stopped_iocs` is {block!r}, not a list of simulated IOC names",
-                f"write `stopped_iocs: [sim-<model>, ...]` or `[{TEXTURE_IOC}]`",
+                f"`stopped_servers` is {block!r}, not a list of simulated IOC names",
+                f"write `stopped_servers: [sim-<model>, ...]` or `[{TEXTURE_SERVER}]`",
             )
             return
-        known = served_iocs(
+        known = served_servers(
             model_name
             for model_name, model in self.index.models.items()
             if model.get("engine") not in (None, "texture")
@@ -2270,7 +2270,7 @@ class _Records:
                     "scenario",
                     name,
                     files,
-                    f"`stopped_iocs` names `{ioc}`, which no simulated IOC is",
+                    f"`stopped_servers` names `{ioc}`, which no simulated IOC is",
                     "write one of " + ", ".join(f"`{served}`" for served in sorted(known)),
                 )
 

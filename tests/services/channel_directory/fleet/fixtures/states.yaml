@@ -1,0 +1,236 @@
+# The server fleet's state table: one fixture for the state model's tests and the docs.
+#
+# read_outcomes  C7: one row per read-outcome class. `raises` is the exception a
+#                liveness read ended with (null: it returned a value); `outcome` is the
+#                class it falls in; `if_seen` / `if_never_seen` are the state an IOC
+#                whose liveness PV is a plain value gets from that outcome, with the
+#                read path ok.
+# cases          one IOC each: its inputs and the state, findings and reason words
+#                expected. Omitted inputs take the model's defaults (kind counter, read
+#                path ok, never seen, no previous reading, no roster).
+# fleet_cases    one cycle of several IOCs, for the rule that needs the whole cycle.
+# order          rows given out of order and the order the view shows them in.
+
+read_outcomes:
+  - raises: null
+    outcome: answered
+    if_seen: alive
+    if_never_seen: alive
+  - raises: ChannelUnreachableError
+    outcome: no_answer
+    if_seen: silent
+    if_never_seen: unreached
+  - raises: TimeoutError
+    outcome: no_answer
+    if_seen: silent
+    if_never_seen: unreached
+  - raises: RuntimeError
+    outcome: read_failed
+    if_seen: unknown
+    if_never_seen: unknown
+  - raises: ConnectorUnavailableError
+    outcome: connector_loss
+    if_seen: unknown
+    if_never_seen: unknown
+
+cases:
+  # --- counter liveness -------------------------------------------------------
+  - name: counter moved
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 90.0], seen: true}
+    expect: {state: alive, findings: [], advance_reading: true}
+  - name: counter did not move
+    inputs: {outcome: answered, answer: [10, 100.0], previous: [10, 90.0], seen: true}
+    expect: {state: stalled, findings: [], reason: "not moved", advance_reading: true}
+  - name: counter wrapped counts as moved
+    inputs: {outcome: answered, answer: [0, 100.0], previous: [4294967295, 90.0], seen: true}
+    expect: {state: alive, findings: []}
+  - name: counter with one reading
+    inputs: {outcome: answered, answer: [10, 100.0], seen: true}
+    expect: {state: unknown, findings: [], reason: "one reading", advance_reading: true}
+  - name: counter readings too close keep alive
+    inputs: {outcome: answered, answer: [10, 100.0], previous: [10, 99.0], previous_state: alive, seen: true}
+    expect: {state: alive, findings: [], reason: "too close", advance_reading: false}
+  - name: counter readings too close keep stalled
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 99.0], previous_state: stalled, seen: true}
+    expect: {state: stalled, findings: [], reason: "too close", advance_reading: false}
+  - name: counter readings too close with no state to keep
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 99.0], seen: true}
+    expect: {state: unknown, findings: [], reason: "too close", advance_reading: false}
+  - name: counter readings too close after silence do not keep silent
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 99.0], previous_state: silent, seen: true}
+    expect: {state: unknown, findings: [], reason: "too close", advance_reading: false}
+  - name: counter readings at exactly the minimum interval are judged
+    inputs: {outcome: answered, answer: [10, 102.5], previous: [10, 100.0], previous_state: alive, seen: true}
+    expect: {state: stalled, findings: []}
+  - name: counter reading older than the previous one is not judged
+    inputs: {outcome: answered, answer: [11, 90.0], previous: [10, 100.0], previous_state: stalled, seen: true}
+    expect: {state: stalled, findings: [], advance_reading: false}
+
+  # --- value liveness -----------------------------------------------------------
+  - name: value answered first time
+    inputs: {outcome: answered, kind: value, answer: [1, 100.0]}
+    expect: {state: alive, findings: [], advance_reading: true}
+  - name: value answered unchanged is still alive
+    inputs: {outcome: answered, kind: value, answer: [1, 100.0], previous: [1, 90.0], seen: true}
+    expect: {state: alive, findings: []}
+
+  # --- no answer and failures ---------------------------------------------------
+  - name: no answer after answering before
+    inputs: {outcome: no_answer, seen: true, previous: [10, 90.0], answered_last_cycle: true}
+    expect: {state: silent, findings: [], reason: "no answer", advance_reading: false}
+  - name: no answer never seen
+    inputs: {outcome: no_answer}
+    expect: {state: unreached, findings: [], reason: "never answered", advance_reading: false}
+  - name: read failed
+    inputs: {outcome: read_failed, seen: true, detail: "bad DBR type"}
+    expect: {state: unknown, findings: [], reason: "bad DBR type"}
+  - name: connector lost mid-read
+    inputs: {outcome: connector_loss, seen: true}
+    expect: {state: unknown, findings: [], reason: "connector"}
+  - name: no liveness PV
+    inputs: {outcome: no_channel}
+    expect: {state: unknown, findings: [], reason: "no liveness PV"}
+
+  # --- read path ---------------------------------------------------------------
+  - name: read path down makes an answering IOC unknown
+    read_path: down
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 90.0], seen: true}
+    expect: {state: unknown, findings: [], reason: "read path", advance_reading: false}
+  - name: read path down makes a quiet IOC unknown, not silent
+    read_path: down
+    inputs: {outcome: no_answer, seen: true}
+    expect: {state: unknown, findings: [], reason: "read path"}
+  - name: read path unverified alone changes nothing
+    read_path: unverified
+    inputs: {outcome: no_answer, seen: true, answered_last_cycle: true}
+    expect: {state: silent, findings: []}
+
+  # --- health ------------------------------------------------------------------
+  - name: alive with a reading out of range is degraded
+    inputs:
+      outcome: answered
+      answer: [11, 100.0]
+      previous: [10, 90.0]
+      seen: true
+      health: [{channel: "IOC1:LOAD", value: 99, status: out_of_range}, {channel: "IOC1:MEM", value: 1, status: ok}]
+    expect: {state: alive, findings: [degraded]}
+  - name: alive with a health PV that did not answer is not degraded
+    inputs:
+      outcome: answered
+      answer: [11, 100.0]
+      previous: [10, 90.0]
+      seen: true
+      health: [{channel: "IOC1:LOAD", value: null, status: unread}]
+    expect: {state: alive, findings: []}
+  - name: stalled with a reading out of range is not degraded
+    inputs:
+      outcome: answered
+      answer: [10, 100.0]
+      previous: [10, 90.0]
+      seen: true
+      health: [{channel: "IOC1:LOAD", value: 99, status: out_of_range}]
+    expect: {state: stalled, findings: []}
+
+  # --- roster expectations -----------------------------------------------------
+  - name: expected running and silent
+    inputs: {outcome: no_answer, seen: true, expected: running, roster_configured: true}
+    expect: {state: silent, findings: [expected_running_not_alive]}
+  - name: expected running and stalled
+    inputs: {outcome: answered, answer: [10, 100.0], previous: [10, 90.0], seen: true, expected: running, roster_configured: true}
+    expect: {state: stalled, findings: [expected_running_not_alive]}
+  - name: expected running and unreached
+    inputs: {outcome: no_answer, expected: running, roster_configured: true}
+    expect: {state: unreached, findings: [expected_running_not_alive]}
+  - name: unreached expected stopped carries nothing
+    inputs: {outcome: no_answer, expected: stopped, roster_configured: true}
+    expect: {state: unreached, findings: []}
+  - name: unreached expected by no source carries nothing
+    inputs: {outcome: no_answer, roster_configured: true}
+    expect: {state: unreached, findings: []}
+  - name: expected running and alive carries nothing
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 90.0], seen: true, expected: running, roster_configured: true}
+    expect: {state: alive, findings: []}
+  - name: expected stopped and alive
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 90.0], seen: true, expected: stopped, roster_configured: true}
+    expect: {state: alive, findings: [expected_stopped_alive]}
+  - name: alive and expected by no source
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 90.0], seen: true, roster_configured: true}
+    expect: {state: alive, findings: [alive_unexpected]}
+  - name: alive degraded and expected stopped carries both
+    inputs:
+      outcome: answered
+      answer: [11, 100.0]
+      previous: [10, 90.0]
+      seen: true
+      expected: stopped
+      roster_configured: true
+      health: [{channel: "IOC1:LOAD", value: 99, status: out_of_range}]
+    expect: {state: alive, findings: [degraded, expected_stopped_alive]}
+  - name: without a roster source there are no expectation findings
+    inputs: {outcome: answered, answer: [11, 100.0], previous: [10, 90.0], seen: true, expected: stopped}
+    expect: {state: alive, findings: []}
+  - name: unknown never carries a finding
+    inputs:
+      outcome: read_failed
+      seen: true
+      expected: running
+      roster_configured: true
+      health: [{channel: "IOC1:LOAD", value: 99, status: out_of_range}]
+    expect: {state: unknown, findings: []}
+  - name: one-reading unknown never carries a finding
+    inputs: {outcome: answered, answer: [11, 100.0], seen: true, expected: stopped, roster_configured: true}
+    expect: {state: unknown, findings: []}
+
+fleet_cases:
+  - name: unverified read path, every answering IOC goes quiet at once
+    read_path: unverified
+    servers:
+      - {name: a, outcome: no_answer, seen: true, answered_last_cycle: true}
+      - {name: b, outcome: no_answer, seen: true, answered_last_cycle: true}
+      - {name: c, outcome: no_answer}
+      - {name: d, outcome: no_answer, seen: true}
+    expect: {a: unknown, b: unknown, c: unreached, d: silent}
+  - name: unverified read path, one answering IOC still answers
+    read_path: unverified
+    servers:
+      - {name: a, outcome: no_answer, seen: true, answered_last_cycle: true}
+      - {name: b, outcome: answered, kind: value, answer: [1, 100.0], seen: true, answered_last_cycle: true}
+    expect: {a: silent, b: alive}
+  - name: verified read path, every answering IOC goes quiet at once
+    read_path: ok
+    servers:
+      - {name: a, outcome: no_answer, seen: true, answered_last_cycle: true}
+      - {name: b, outcome: no_answer, seen: true, answered_last_cycle: true}
+    expect: {a: silent, b: silent}
+  - name: unverified read path, nothing answered last cycle
+    read_path: unverified
+    servers:
+      - {name: a, outcome: no_answer, seen: true}
+      - {name: b, outcome: no_answer}
+    expect: {a: silent, b: unreached}
+
+order:
+  rows:
+    - {name: a-alive, state: alive, findings: []}
+    - {name: b-alive-finding, state: alive, findings: [degraded]}
+    - {name: c-unreached, state: unreached, findings: []}
+    - {name: d-unknown, state: unknown, findings: []}
+    - {name: e-unreached-finding, state: unreached, findings: [expected_running_not_alive]}
+    - {name: f-silent, state: silent, findings: []}
+    - {name: g-stalled, state: stalled, findings: []}
+    - {name: h-silent-finding, state: silent, findings: [expected_running_not_alive]}
+    - {name: i-stalled-finding, state: stalled, findings: [expected_running_not_alive]}
+    - {name: a-stalled, state: stalled, findings: []}
+    - {name: z-alive, state: alive, findings: []}
+  expect:
+    - i-stalled-finding
+    - a-stalled
+    - g-stalled
+    - h-silent-finding
+    - f-silent
+    - e-unreached-finding
+    - b-alive-finding
+    - d-unknown
+    - c-unreached
+    - a-alive
+    - z-alive

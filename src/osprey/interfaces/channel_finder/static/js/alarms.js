@@ -47,13 +47,13 @@ import { sinceText } from './duration.js';
 import {
   createPlotCheck,
   fetchActiveAlarms,
-  fetchPvFacts,
+  fetchChannelFacts,
   handoffAllowed,
   plotUrl,
   readValues,
 } from './directory-api.js';
 import { attachSidebar, setFilterReason, setResultCount } from './panel-toolbar.js';
-import { NO_TARGET } from './pv-page-sections.js';
+import { NO_TARGET } from './channel-page-sections.js';
 import { formatRoute } from './route.js';
 import { state } from './state.js';
 import { messageOf } from './utils.js';
@@ -61,7 +61,7 @@ import { messageOf } from './utils.js';
 /** @typedef {import('./directory-api.js').ActiveAlarms} ActiveAlarms */
 /** @typedef {import('./directory-api.js').AlarmRow} AlarmRow */
 /** @typedef {import('./directory-api.js').ValueRow} ValueRow */
-/** @typedef {import('./directory-api.js').PvFacts} PvFacts */
+/** @typedef {import('./directory-api.js').ChannelFacts} ChannelFacts */
 /** @typedef {import('./alarms-render.js').TileFilter} TileFilter */
 /** @typedef {import('/design-system/js/panel-sidebar.js').PanelSidebarApi} PanelSidebarApi */
 
@@ -82,7 +82,7 @@ const SIDEBAR_KEY = 'cf-alarms-tree';
  *   values: Map<string, ValueRow>|null,
  *   valuesKey: string,
  *   valuesPending: string|null,
- *   facts: Map<string, PvFacts|string>,
+ *   facts: Map<string, ChannelFacts|string>,
  *   factsPending: Set<string>,
  *   pollSeq: number,
  *   reading: number,
@@ -251,7 +251,7 @@ async function readShownValues(force = false) {
   const current = view;
   const names = shownRows()
     .slice(0, VALUES_MAX)
-    .map((row) => row.pv);
+    .map((row) => row.channel);
   if (current.selected !== null && !names.includes(current.selected)) names.push(current.selected);
   const key = names.join('\n');
   if (!force && (key === current.valuesKey || key === current.valuesPending)) return;
@@ -284,10 +284,10 @@ async function readFacts(name) {
   if (!view || view.facts.has(name) || view.factsPending.has(name)) return;
   const current = view;
   current.factsPending.add(name);
-  /** @type {PvFacts|string} */
+  /** @type {ChannelFacts|string} */
   let facts;
   try {
-    facts = await fetchPvFacts(name, current.controller.signal);
+    facts = await fetchChannelFacts(name, current.controller.signal);
   } catch (err) {
     facts = messageOf(err);
   } finally {
@@ -436,7 +436,7 @@ function renderList() {
     written.set(list, key);
     return;
   }
-  if (!rows.some((row) => row.pv === view?.selected)) view.selected = rows[0].pv;
+  if (!rows.some((row) => row.channel === view?.selected)) view.selected = rows[0].channel;
   inspector.hidden = false;
   writePart(
     list,
@@ -456,7 +456,7 @@ function renderList() {
 function renderInspector() {
   if (!view?.answer || view.selected === null) return;
   const name = view.selected;
-  const row = (view.answer.rows ?? []).find((candidate) => candidate.pv === name);
+  const row = (view.answer.rows ?? []).find((candidate) => candidate.channel === name);
   if (!row) return;
   const facts = view.facts.get(name);
   const send = handoffAllowed() && Boolean(panelApiPrefix());
@@ -533,7 +533,7 @@ function onClick(event) {
   // On a narrow panel the inspector is not shown, and a row opens its PV page.
   const inspector = part('.alarms-inspector');
   if (getComputedStyle(inspector).display === 'none') {
-    location.hash = formatRoute({ view: 'pv', params: { name } });
+    location.hash = formatRoute({ view: 'channel', params: { name } });
     return;
   }
   select(name);

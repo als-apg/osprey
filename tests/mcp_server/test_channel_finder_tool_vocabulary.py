@@ -51,6 +51,7 @@ _VARIANTS = ("in_context", "middle_layer", "hierarchical", "graph")
 MCP_SERVERS: tuple[str, ...] = (
     "ariel",
     "bluesky",
+    "channel_directory",
     "channel_finder_graph",
     "channel_finder_hierarchical",
     "channel_finder_in_context",
@@ -61,7 +62,6 @@ MCP_SERVERS: tuple[str, ...] = (
     "health",
     "optimizer",
     "phoebus",
-    "pv_directory",
     "python_executor",
     "workspace",
 )

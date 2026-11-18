@@ -447,7 +447,7 @@ virtual-accelerator = [
     "aioca>=1.7",
 ]
 
-# Alarm state from a Phoebus alarm server's Kafka topic (pv_directory.alarm_state).
+# Alarm state from a Phoebus alarm server's Kafka topic (channel_directory.alarm_state).
 # Direct rather than osprey-connectors[alarm-state]: the released connectors floor
 # has no such extra. The floor raise switches this to the connectors extra.
 alarm-state = [

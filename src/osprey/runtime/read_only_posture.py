@@ -1,7 +1,7 @@
 """The read-only posture of a process that opens a control session only to read.
 
 A process that serves reads and nothing else (the Channels panel's values child,
-the IOC fleet refresher) takes two steps before its session opens:
+the server fleet refresher) takes two steps before its session opens:
 
 * :func:`enter_sandbox_mode` says so in
   :data:`~osprey_connectors.posture_env.POSTURE_ENV_VAR`. The connector then

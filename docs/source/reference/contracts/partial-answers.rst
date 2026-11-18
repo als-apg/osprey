@@ -91,7 +91,7 @@ The tools
    * - ``model_response_matrix``
      - A corrector setpoint address
      - The engine's text
-   * - ``pv_record``
+   * - ``channel_record``
      - A channel address, as asked, that no section answered
      - The directory section's reason
    * - ``pyaml_measure``

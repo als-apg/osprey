@@ -44,8 +44,8 @@ _ENV_CHAIN_TEMPLATES = {
     "ariel_sync",
     "dispatch_worker",
     "event_dispatcher",
-    "ioc_fleet",
     "qmd",
+    "server_fleet",
 }
 
 #: A top-level compose key on a line of its own (``services:``, ``volumes:``).

@@ -21,7 +21,7 @@ how much of each logbook entry the agent reads (``ariel.entry_text``), whether
 the agent shows its thinking (``claude_code.thinking.display``), the Phoebus
 display bridge
 (``phoebus:``), where PV records, alarms and put history come from
-(``pv_directory:``), and the deployment keys that decide which container image each
+(``channel_directory:``), and the deployment keys that decide which container image each
 service runs and how ``${VAR}`` placeholders in the compose files are filled
 in. Settings that only
 ever arrive from the environment are in :doc:`environment-variables`. A closing
@@ -249,12 +249,12 @@ configured or deployed, so a minimal build shows no empty tiles.
   names ``osprey build && osprey up`` as the remedy. The agent's own graph
   tools report the same degraded states from the inside — see
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
-- ``pv_directory`` — appears when a ``pv_directory:`` section is configured.
+- ``channel_directory`` — appears when a ``channel_directory:`` section is configured.
   One row per configured service (directory, alarm logger, put log), read
   from that service's probe on the current control target: ``ok`` with the
   service's evidence while it answers, ``warning`` with the reason when it
   cannot, and ``skip`` when it has no source on this target.
-  ``pv_directory_alarm_feed`` (``--full``) starts the alarm feed, waits up to
+  ``channel_directory_alarm_feed`` (``--full``) starts the alarm feed, waits up to
   its deadline for catch-up and reports what the feed has read.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
@@ -1171,12 +1171,12 @@ These keys configure the ``phoebus`` MCP server, which is off until
 ``PHOEBUS_BRIDGE_URL``, ``PHOEBUS_REQUIRE_HANDLE`` and ``PHOEBUS_ARCHIVER_URL``
 outrank their keys; see :doc:`environment-variables`.
 
-.. _config-pv-directory:
+.. _config-channel-directory:
 
-``pv_directory:`` — PV records, alarms and put history
-------------------------------------------------------
+``channel_directory:`` — PV records, alarms and put history
+-----------------------------------------------------------
 
-This section feeds the Channels panel's All PVs view and the ``pv-directory``
+This section feeds the Channels panel's All PVs view and the ``channel-directory``
 MCP server. Each source answers on the control targets it serves: ``type``
 and the three sub-blocks on ``live`` and ``standin``, the simulator and
 ``alarm_state.replay_file`` on ``va``. The built-in sources are EPICS
@@ -1189,86 +1189,86 @@ services and the simulator; no TANGO or DOOCS directory backend ships
 
    * - Key
      - What it does
-   * - ``pv_directory.type``
+   * - ``channel_directory.type``
      - The facility's directory service; ``channelfinder`` (EPICS) is the
        one built in, and a dotted path names a backend of your own. Absent,
        the section is simulator-only (below).
-   * - ``pv_directory.settings.url``
+   * - ``channel_directory.settings.url``
      - The service URL. The build refuses a ``type`` without it.
-   * - ``pv_directory.settings.timeout_s``
+   * - ``channel_directory.settings.timeout_s``
      - Seconds one call may take. Default ``6.0``.
-   * - ``pv_directory.settings.auth``
+   * - ``channel_directory.settings.auth``
      - The login a proxy in front of the service asks for: ``token_env``, or
        ``username`` with ``password_env``, each secret named by environment
        variable. ``tls.ca_bundle`` is the absolute path of a PEM CA. A web
        terminal is handed each variable a block names and each CA file that is
        on the host.
-   * - ``pv_directory.description_property``
+   * - ``channel_directory.description_property``
      - The directory property shown as a PV's description. Default
        ``recordDesc``.
-   * - ``pv_directory.display.exact_properties``
+   * - ``channel_directory.display.exact_properties``
      - Properties a search matches as whole values. Default
        ``[pvStatus, recordType]``.
-   * - ``pv_directory.display.detail_properties``
+   * - ``channel_directory.display.detail_properties``
      - The properties a PV page shows. Unset, every property the record
        carries.
-   * - ``pv_directory.display.hidden_properties``
+   * - ``channel_directory.display.hidden_properties``
      - Properties never shown.
-   * - ``pv_directory.display.filter_cap``
+   * - ``channel_directory.display.filter_cap``
      - The largest result set fetched whole for facets, the origin filter and
        CSV export. Default ``5000``.
-   * - ``pv_directory.display.ioc_health_suffixes``
+   * - ``channel_directory.display.server_health_suffixes``
      - The record-name suffix of each IOC health role (``heartbeat``,
        ``uptime``, ``engineer``). Default
        ``{heartbeat: HEARTBEAT, uptime: UPTIME}``.
-   * - ``pv_directory.display.engineer_property``
+   * - ``channel_directory.display.engineer_property``
      - The directory property naming an IOC's engineer. Default ``Engineer``.
-   * - ``pv_directory.alarm_log``
+   * - ``channel_directory.alarm_log``
      - Alarm history: ``type: phoebus_alarm_logger`` with ``settings.url``.
-   * - ``pv_directory.alarm_state``
+   * - ``channel_directory.alarm_state``
      - Current alarm state. ``type: phoebus_alarm_server`` reads the alarm
        server's Kafka topic and needs ``settings.bootstrap_servers`` and
        ``settings.topic``. Where the broker is out of reach and only HTTP
        crosses the network, ``type: osprey_alarm_relay`` with ``settings.url``
        reads the same state from a relay run beside the broker
        (``python -m osprey_connectors.alarm_state.relay``).
-   * - ``pv_directory.alarm_state.settings.auth``
+   * - ``channel_directory.alarm_state.settings.auth``
      - The login a broker asks for: ``username`` with ``password_env``, sent
        as SASL. ``mechanism`` names how: ``PLAIN`` unless it says
        ``SCRAM-SHA-256`` or ``SCRAM-SHA-512``. A login is sent over TLS, verified against
        ``settings.tls.ca_bundle`` or, without one, the system trust store.
        ``cleartext: true`` sends it unencrypted, for a listener that offers
        no TLS: anyone on the network path can then read the password.
-   * - ``pv_directory.alarm_state.replay_file``
+   * - ``channel_directory.alarm_state.replay_file``
      - The alarm feed on ``va``: ``demo:<name>`` names a feed packaged with
        OSPREY, any other value an ``.ndjson`` file relative to the project.
        It may be set beside ``type``.
-   * - ``pv_directory.put_log``
+   * - ``channel_directory.put_log``
      - Put history: ``type: caputlog`` with ``settings.url``.
-   * - ``pv_directory.fleet``
+   * - ``channel_directory.fleet``
      - The IOCs view: present (``fleet: {}`` is enough), the view, the fleet
        tool and the fleet service are on. Absent or ``null``, none of them
        exists and nothing is read periodically. It lists the IOCs the
        directory lists, so it has the directory's scope: EPICS and the
        simulator.
-   * - ``pv_directory.fleet.targets``
+   * - ``channel_directory.fleet.targets``
      - The control targets refreshed, a list of ``live``, ``va`` and
        ``standin``; each must be configured. Default: the deployment's own
        target. A virtual accelerator served in process is never refreshed.
-   * - ``pv_directory.fleet.period_s``
+   * - ``channel_directory.fleet.period_s``
      - Seconds between refreshes. At least ``5`` and at least twice the
        longest ``timeout_s`` of a refreshed target's connector, or the build
        fails. Default ``30``.
-   * - ``pv_directory.fleet.retention_days``
+   * - ``channel_directory.fleet.retention_days``
      - Days an IOC no longer listed is remembered after it goes quiet.
        Default ``7``.
-   * - ``pv_directory.fleet.listing_deadline_s``
+   * - ``channel_directory.fleet.listing_deadline_s``
      - Seconds one listing of the directory may take. Default ``60``.
-   * - ``pv_directory.fleet.group_by``
+   * - ``channel_directory.fleet.group_by``
      - ``host``, ``class_name`` or ``group``. Default ``host``.
-   * - ``pv_directory.fleet.classes``
+   * - ``channel_directory.fleet.classes``
      - Named IOC classes, applied on ``live`` only (below). Default none.
-   * - ``pv_directory.fleet.roster_sources``
+   * - ``channel_directory.fleet.roster_sources``
      - ``module:attribute`` references to roster sources, read on ``live``
        only. Default none.
 
@@ -1283,7 +1283,7 @@ are: turn on the ACL authorizer, keep the unauthenticated listener's
 and allow the OSPREY user ``Read`` on the topic. Open only that port to the
 OSPREY host and name the user under ``alarm_state.settings.auth``.
 
-``pv_directory.caveats`` and each sub-block's ``caveats`` are lines shown with
+``channel_directory.caveats`` and each sub-block's ``caveats`` are lines shown with
 every answer from that source. A sub-block takes the same ``settings`` keys as
 the directory. The Kafka client is the ``alarm-state`` extra
 (``osprey-framework[alarm-state]``); without it the build warns and the feed
@@ -1292,21 +1292,21 @@ requirement (:doc:`/how-to/deploy-project/project-image`).
 
 **IOC classes.** An IOC no roster source assigns a class has the default
 class: its liveness PV is the ``heartbeat`` of
-``pv_directory.display.ioc_health_suffixes``, judged as a counter, and it has
+``channel_directory.display.server_health_suffixes``, judged as a counter, and it has
 no health PV, so it is never degraded. A named class gives ``liveness`` with
 a ``kind`` (``counter``: alive when it moves; ``status``: alive when it
 answers) and a list of ``health`` PVs, each with a ``good`` range
 ``[low, high]`` where one side may be ``null``. Each PV is named by
 ``suffix``, looked up among the IOC's PVs in the directory, or by
-``pattern``, the PV name with ``{ioc}`` standing for the IOC's name. The name
+``pattern``, the PV name with ``{server}`` standing for the IOC's name. The name
 ``default`` is taken. Every invalid value fails the build naming its key.
 The states, findings and load per refresh are in
-:ref:`channel-finder-ioc-fleet`.
+:ref:`channel-finder-server-fleet`.
 
 .. code-block:: yaml
 
    # build/config.yml
-   pv_directory:
+   channel_directory:
      type: channelfinder
      settings:
        url: https://channelfinder.example.org/ChannelFinder
@@ -1319,33 +1319,33 @@ The states, findings and load per refresh are in
            liveness: {suffix: ":IOC_STS", kind: status}
            health:
              - {suffix: ":CPU_LOAD", good: [0, 80]}
-             - {pattern: "{ioc}:MEM_FREE", good: [1000000, null]}
+             - {pattern: "{server}:MEM_FREE", good: [1000000, null]}
 
 **Simulator-only form.** A section without ``type`` lists the simulator's channels
 and IOC health PVs on ``va``. A build with no simulator has nothing to list:
 it warns, and every section answers "not available for this target".
 
-**Off.** ``osprey set config.pv_directory=null``, or ``pv_directory: null`` in
+**Off.** ``osprey set config.channel_directory=null``, or ``channel_directory: null`` in
 a profile that extends a preset with the section, removes it. That spelling
 builds only over a parent that writes the section as one nested mapping,
-never as dotted ``pv_directory.*`` keys. The shared logins
-``tiers/logbook.yml`` and ``tiers/knowledge.yml`` switch the ``pv-directory``
+never as dotted ``channel_directory.*`` keys. The shared logins
+``tiers/logbook.yml`` and ``tiers/knowledge.yml`` switch the ``channel-directory``
 server off
-(``claude_code.servers.pv-directory.enabled: false``).
+(``claude_code.servers.channel-directory.enabled: false``).
 
 A facility with ChannelFinder, the Phoebus alarm services and caPutLog:
 
 .. code-block:: yaml
 
    # build/config.yml
-   pv_directory:
+   channel_directory:
      type: channelfinder
      settings:
        url: https://channelfinder.example.org/ChannelFinder
      display:
        # Shown first on a PV page.
        detail_properties: [recordDesc, iocName, hostName]
-       ioc_health_suffixes: {heartbeat: HEARTBEAT, uptime: UPTIME}
+       server_health_suffixes: {heartbeat: HEARTBEAT, uptime: UPTIME}
      alarm_log:
        type: phoebus_alarm_logger
        settings:
@@ -1467,9 +1467,9 @@ default. One row per image:
      - ``OSPREY_WORKER_IMAGE``
      - ``services.history.image``
      - ``<project>``
-   * - ioc_fleet
+   * - server_fleet
      - ``OSPREY_WORKER_IMAGE``
-     - ``services.ioc_fleet.image``
+     - ``services.server_fleet.image``
      - ``<project>``
    * - bluesky
      - ``OSPREY_BLUESKY_BRIDGE_IMAGE``

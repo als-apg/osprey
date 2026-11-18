@@ -43,7 +43,7 @@ out of its arrival order. A merged pass that fails is rolled back and its
 writes are served one cycle each, so every put gets its own verdict.
 
 **Stopped IOCs.** The addresses of the simulated IOCs the composite's active
-scenarios stop (``stopped_iocs``) are withheld on both transports, as a
+scenarios stop (``stopped_servers``) are withheld on both transports, as a
 stopped IOC withholds them: on Channel Access the server no longer answers a
 search for them and drops every channel already attached, so a held client
 sees its channel disconnect and a read of it fails as unreachable; on

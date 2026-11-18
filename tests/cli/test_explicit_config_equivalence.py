@@ -267,8 +267,8 @@ def _canopy_theme_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
-#: The demo root's frozen ``deployed_services``, in build order; the IOC fleet
-#: injector appends ``ioc_fleet`` after them.
+#: The demo root's frozen ``deployed_services``, in build order; the server fleet
+#: injector appends ``server_fleet`` after them.
 _DEMO_DEPLOYED_SERVICES = (
     "postgresql",
     "qmd",
@@ -285,10 +285,10 @@ _DEMO_DEPLOYED_SERVICES = (
 )
 
 
-def _ioc_fleet_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The IOC fleet the demo preset switches on, which each of *documents* gains.
+def _server_fleet_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The server fleet the demo preset switches on, which each of *documents* gains.
 
-    Every render carries the ``pv_directory.fleet`` sub-block and the injected
+    Every render carries the ``channel_directory.fleet`` sub-block and the injected
     service's port; the root alone also carries its path and deploys it.
 
     Args:
@@ -299,12 +299,14 @@ def _ioc_fleet_deltas(*documents: str) -> tuple[Delta, ...]:
     """
     deltas: list[Delta] = []
     for document in documents:
-        deltas.append(Delta(document=document, path="pv_directory.fleet.period_s", live=10))
-        deltas.append(Delta(document=document, path="services.ioc_fleet.port", live=10084))
+        deltas.append(Delta(document=document, path="channel_directory.fleet.period_s", live=10))
+        deltas.append(Delta(document=document, path="services.server_fleet.port", live=10084))
         if document == "root":
             deltas.append(
                 Delta(
-                    document=document, path="services.ioc_fleet.path", live="./services/ioc_fleet"
+                    document=document,
+                    path="services.server_fleet.path",
+                    live="./services/server_fleet",
                 )
             )
             deltas.append(
@@ -312,7 +314,7 @@ def _ioc_fleet_deltas(*documents: str) -> tuple[Delta, ...]:
                     document=document,
                     path="deployed_services",
                     fixture=list(_DEMO_DEPLOYED_SERVICES),
-                    live=[*_DEMO_DEPLOYED_SERVICES, "ioc_fleet"],
+                    live=[*_DEMO_DEPLOYED_SERVICES, "server_fleet"],
                 )
             )
     return tuple(deltas)
@@ -329,7 +331,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         f"demo/{mode}": (
             *_catalog_addition_deltas(*_DEMO_RENDERS),
             *_canopy_theme_deltas(*_DEMO_RENDERS),
-            *_ioc_fleet_deltas(*_DEMO_RENDERS),
+            *_server_fleet_deltas(*_DEMO_RENDERS),
         )
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
@@ -343,9 +345,9 @@ STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {}
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of
-#: :data:`CELL_DELTAS`. Every demo cell stages the IOC fleet service's copy.
+#: :data:`CELL_DELTAS`. Every demo cell stages the server fleet service's copy.
 BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {
-    f"demo/{mode}": ("services/ioc_fleet/config.yml",)
+    f"demo/{mode}": ("services/server_fleet/config.yml",)
     for mode in ("in_context", "hierarchical", "middle_layer", "graph")
 }
 

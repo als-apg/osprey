@@ -172,7 +172,7 @@ STOP_DOCUMENT: dict[str, Any] = {
     "models": [
         {"name": "M", "engine": "stub", "wiring": [{"address": "A:RB", "direction": "read"}]}
     ],
-    "scenarios": [{"name": "m-down", "stopped_iocs": ["sim-M"]}],
+    "scenarios": [{"name": "m-down", "stopped_servers": ["sim-M"]}],
 }
 
 
@@ -185,7 +185,7 @@ def test_a_stated_probe_a_scenario_stops_the_ioc_of_is_refused(tmp_path: Path, k
     assert stop.value.record_id == key
     assert "`A:RB` is served by `sim-M`" in stop.value.detail
     assert "`m-down`" in stop.value.detail
-    assert "`stopped_iocs`" in stop.value.remedy
+    assert "`stopped_servers`" in stop.value.remedy
 
 
 def test_a_derived_probe_a_scenario_stops_the_ioc_of_is_refused(tmp_path: Path) -> None:
@@ -203,7 +203,10 @@ def test_a_probe_on_an_ioc_no_scenario_stops_passes(tmp_path: Path) -> None:
 
 
 def test_a_probe_on_the_texture_ioc_a_scenario_stops_is_refused(tmp_path: Path) -> None:
-    document = {**STOP_DOCUMENT, "scenarios": [{"name": "t-down", "stopped_iocs": ["sim-texture"]}]}
+    document = {
+        **STOP_DOCUMENT,
+        "scenarios": [{"name": "t-down", "stopped_servers": ["sim-texture"]}],
+    }
 
     with pytest.raises(FacilityBuildError) as stop:
         _fill(_tree(tmp_path), {SERVED_PROBE_KEYS[0]: "T:RB"}, document)

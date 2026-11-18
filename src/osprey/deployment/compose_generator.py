@@ -2351,13 +2351,13 @@ SERVICE_ROLE_READS_TARGET = "reads_target"
 #: for the login that started them. All lanes render the one ``bluesky``
 #: directory (``osprey.cli.build_injectors._inject_bluesky``), so
 #: its basename is the first lane's key.
-#: The IOC fleet service reads every refreshed target's liveness channels.
+#: The server fleet service reads every refreshed target's liveness channels.
 BUNDLED_SERVICE_ROLES: dict[str, frozenset[str]] = {
     **{
         key: frozenset({SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY})
         for key in (*LANE_KEYS, "dispatch_worker", "optimizer")
     },
-    "ioc_fleet": frozenset({SERVICE_ROLE_READS_TARGET}),
+    "server_fleet": frozenset({SERVICE_ROLE_READS_TARGET}),
 }
 
 
@@ -4834,7 +4834,7 @@ def dispatch_worker_audit_identities(config):
 #: projected service's identity comes from its block's ``audit_identity``
 #: (:func:`service_audit_identities`), not from this mapping.
 FIXED_SERVICE_AUDIT_IDENTITIES = {
-    "ioc_fleet": "ioc-fleet",
+    "server_fleet": "server-fleet",
     "bluesky_web": "bluesky-web",
     "optimizer": "optimizer",
     "optimizer_web": "optimizer-web",
@@ -5990,7 +5990,7 @@ def _connection_ca_bundles(config, source_dir):
     Each is bind-mounted read-only at the same path by the service's compose
     template, so a block's ``tls.ca_bundle`` names one file on the host and in
     the container. A dispatch worker opens the SELECTED archiver block and the
-    ``pv_directory`` blocks, as a web terminal does; the archive recorder always opens
+    ``channel_directory`` blocks, as a web terminal does; the archive recorder always opens
     ``archiver.mongodb_archiver``, whatever ``archiver.type`` selects. Every
     other service reads no connection block and mounts nothing.
 
@@ -6005,12 +6005,12 @@ def _connection_ca_bundles(config, source_dir):
         as_dict,
         ca_bundle_mounts,
         config_archiver_ca_bundles,
-        config_pv_directory_ca_bundles,
+        config_channel_directory_ca_bundles,
     )
 
     service = os.path.basename(os.path.normpath(source_dir))
     if service == "dispatch_worker":
-        paths = (*config_archiver_ca_bundles(config), *config_pv_directory_ca_bundles(config))
+        paths = (*config_archiver_ca_bundles(config), *config_channel_directory_ca_bundles(config))
         return list(dict.fromkeys(paths))
     if service == ARCHIVER_RECORDER_SERVICE:
         store = as_dict(config.get("archiver")).get("mongodb_archiver")

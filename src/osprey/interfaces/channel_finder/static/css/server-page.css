@@ -1,0 +1,179 @@
+/**
+ * OSPREY Channel Finder — IOC page
+ */
+
+.cf-server-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  overflow: auto;
+}
+
+.cf-server-crumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+
+.cf-server-crumb a {
+  color: var(--text-accent);
+}
+
+.cf-server-crumb-leaf {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* Header: name and alive chip, the actions at the end, the host line under it. */
+.cf-server-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+}
+
+.cf-server-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.cf-server-name {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+}
+
+.cf-server-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.cf-server-sub {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.cf-server-engineer {
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.cf-server-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.cf-server-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+}
+
+.cf-server-tile-label {
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+
+.cf-server-tile-value {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.cf-server-tile.is-hot .cf-server-tile-value {
+  color: var(--color-error);
+}
+
+.cf-server-tile-sub {
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.cf-server-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .cf-server-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.cf-server-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.cf-server-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+.cf-server-card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.cf-server-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+
+.cf-server-facts dt {
+  color: var(--text-secondary);
+}
+
+.cf-server-facts dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.cf-server-health-table,
+.cf-server-alarms {
+  border-collapse: collapse;
+}
+
+.cf-server-health-table td,
+.cf-server-alarms td {
+  padding: var(--space-1) var(--space-4) var(--space-1) 0;
+  font-family: var(--font-mono);
+}
+
+.cf-server-channel a {
+  color: var(--text-accent);
+}
+
+.cf-server-since {
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.cf-server-reason {
+  margin: 0;
+  color: var(--text-secondary);
+}

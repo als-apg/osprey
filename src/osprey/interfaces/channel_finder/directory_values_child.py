@@ -87,7 +87,7 @@ SURFACE = "channels"
 READ_SUBJECT = "channel_values_read"
 
 #: How long one channel gets to answer (D9): the connector's call bound here.
-PV_READ_BOUND_S = 1.0
+CHANNEL_READ_BOUND_S = 1.0
 
 #: What a row waits past that, for a connector that does not keep its bound.
 ROW_MARGIN_S = 0.5
@@ -130,7 +130,7 @@ def _start_parent_watcher(parent_pid: int, interval: float = PARENT_POLL_S) -> t
 
 def _read_budget() -> WriteBudget:
     """The session's budget: every call bound to the per-channel cap. Nothing here writes."""
-    bound = PV_READ_BOUND_S
+    bound = CHANNEL_READ_BOUND_S
     whole = 3 * bound
     return WriteBudget(
         T=bound,
@@ -158,7 +158,7 @@ def _audit_batch(session: ControlSession, count: int) -> None:
         subject=READ_SUBJECT,
         decision=DECISION_ALLOWED,
         reason="batch_read",
-        detail=f"target={session.binding.target} pv_count={count}",
+        detail=f"target={session.binding.target} channel_count={count}",
     )
 
 
@@ -190,12 +190,12 @@ def _found_row(name: str, reading: ChannelValue) -> ValueRow:
 async def _read_row(session: ControlSession, name: str) -> ValueRow:
     """Read one channel; whatever goes wrong costs this row only."""
     try:
-        reading = await asyncio.wait_for(session.read(name), PV_READ_BOUND_S + ROW_MARGIN_S)
+        reading = await asyncio.wait_for(session.read(name), CHANNEL_READ_BOUND_S + ROW_MARGIN_S)
         return _found_row(name, reading)
     except (SessionUnservableError, ConnectorUnavailableError) as exc:
         return ValueRow(name=name, outcome=ipc.OUTCOME_UNAVAILABLE, reason=str(exc))
     except TimeoutError:
-        reason = f"no answer within {PV_READ_BOUND_S:g} s"
+        reason = f"no answer within {CHANNEL_READ_BOUND_S:g} s"
         return ValueRow(name=name, outcome=ipc.OUTCOME_NO_ANSWER, reason=reason)
     except Exception as exc:
         reason = str(exc) or type(exc).__name__

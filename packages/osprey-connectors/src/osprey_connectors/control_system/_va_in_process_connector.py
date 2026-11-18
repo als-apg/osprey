@@ -635,7 +635,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
         Raises:
             ChannelNotFoundError: ``address`` is not a channel of the facility.
-            ChannelUnreachableError: A scenario's ``stopped_iocs`` stops the IOC
+            ChannelUnreachableError: A scenario's ``stopped_servers`` stops the IOC
                 serving ``address``: the channel gives no answer.
             ConnectorUnavailableError: The connector is not connected.
         """
@@ -985,7 +985,7 @@ class VAInProcessConnector(ControlSystemConnector):
         """Subscribe to a channel; the callback fires after a tick or a write.
 
         A channel of the facility is served by this process, so it drops only
-        while a scenario's ``stopped_iocs`` stops its simulated IOC, as a
+        while a scenario's ``stopped_servers`` stops its simulated IOC, as a
         channel of a stopped IOC does on the wire: ``on_connection`` is told
         the channel's state before this returns -- ``False`` when its IOC is
         stopped, and the subscription then waits -- and told again on every

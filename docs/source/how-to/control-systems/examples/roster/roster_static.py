@@ -1,6 +1,6 @@
 """A roster source that reads a static list of IOCs from a YAML file.
 
-Point ``pv_directory.fleet.roster_sources`` at ``roster_static:roster`` (with this
+Point ``channel_directory.fleet.roster_sources`` at ``roster_static:roster`` (with this
 file importable) to use the list beside it, or construct ``StaticRoster`` on your
 own file. The file is read on every refresh, so an edit shows on the next one; a
 missing or malformed file makes ``read`` raise, and the view reports this source
@@ -8,7 +8,7 @@ unavailable while keeping the others.
 
 The file::
 
-    iocs:
+    servers:
       - {name: SR01C-IOC1, host: ioc-sr01, class: hard, expected: running, group: storage-ring}
       - {name: BTS-SOFTIOC, host: srv3, expected: stopped}
       - {name: LAB-TEST}            # host, class, expected and group are optional
@@ -20,11 +20,11 @@ from pathlib import Path
 
 import yaml
 
-from osprey.services.pv_directory.roster import RosterRow
+from osprey.services.channel_directory.roster import RosterRow
 
 
 class StaticRoster:
-    """Every IOC listed under ``iocs:`` in one YAML file."""
+    """Every IOC listed under ``servers:`` in one YAML file."""
 
     def __init__(self, path: str | Path, name: str | None = None) -> None:
         self.path = Path(path)
@@ -33,9 +33,9 @@ class StaticRoster:
     def read(self, deadline: float) -> list[RosterRow]:
         del deadline  # a local file read needs no time budget
         document = yaml.safe_load(self.path.read_text())
-        entries = document.get("iocs") if isinstance(document, dict) else None
+        entries = document.get("servers") if isinstance(document, dict) else None
         if not isinstance(entries, list):
-            raise ValueError(f"{self.path}: expected a list under 'iocs:'")
+            raise ValueError(f"{self.path}: expected a list under 'servers:'")
         return [
             RosterRow(
                 entry["name"],

@@ -16,6 +16,7 @@
  */
 
 import { sinceText } from './duration.js';
+import { LABELS } from './labels.js';
 import { formatRoute } from './route.js';
 import { esc } from './utils.js';
 
@@ -130,20 +131,23 @@ export function tilesHtml(summary, now) {
  * @returns {string}
  */
 export function coverageHtml(summary) {
-  const rows = summary.by_ioc ?? [];
+  const rows = summary.by_server ?? [];
   let body;
   if (!rows.length) {
-    body = `<p class="archive-note">${esc(summary.by_ioc_reason || 'No IOCs listed')}</p>`;
+    body = `<p class="archive-note">${esc(summary.by_server_reason || 'No IOCs listed')}</p>`;
   } else {
     const lines = rows
-      .map(({ ioc, pvs, archived }) => {
+      .map(({ server: ioc, channels: pvs, archived }) => {
         const missing = Math.max(pvs - archived, 0);
-        const iocLink = formatRoute({ view: 'ioc', params: { name: ioc } });
-        const filtered = formatRoute({ view: 'allpvs', params: { ioc: [ioc], archived: ['no'] } });
+        const serverLink = formatRoute({ view: 'server', params: { name: ioc } });
+        const filtered = formatRoute({
+          view: 'channels',
+          params: { server: [ioc], archived: ['no'] },
+        });
         const share = pvs ? Math.round((archived / pvs) * 1000) / 10 : 0;
         const notArchived = missing ? `<a href="${esc(filtered)}">${fmt(missing)}</a>` : '0';
         return (
-          `<tr><td><a href="${esc(iocLink)}">${esc(ioc)}</a></td>` +
+          `<tr><td><a href="${esc(serverLink)}">${esc(ioc)}</a></td>` +
           `<td class="num">${fmt(pvs)}</td><td class="num">${fmt(archived)}</td>` +
           `<td class="num">${notArchived}</td>` +
           `<td><span class="archive-cov" title="${share}% archived">` +
@@ -152,7 +156,7 @@ export function coverageHtml(summary) {
       })
       .join('');
     body =
-      '<table class="archive-table"><thead><tr><th>IOC</th><th class="num">PVs</th>' +
+      `<table class="archive-table"><thead><tr><th>${LABELS.server}</th><th class="num">${LABELS.channels}</th>` +
       '<th class="num">Archived</th><th class="num">Not archived</th><th>Coverage</th>' +
       `</tr></thead><tbody>${lines}</tbody></table>`;
   }

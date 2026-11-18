@@ -139,9 +139,9 @@ BUNDLED_HOST_BINDINGS: Mapping[str, BundledHostBinding] = {
         "its compose file renders the application's bind address into OSPREY_APP_BIND, "
         "loopback under host networking",
     ),
-    "ioc_fleet": BundledHostBinding(
-        HostBinding(bind_env="IOC_FLEET_BIND"),
-        "its compose file renders the service's bind address into IOC_FLEET_BIND, "
+    "server_fleet": BundledHostBinding(
+        HostBinding(bind_env="SERVER_FLEET_BIND"),
+        "its compose file renders the service's bind address into SERVER_FLEET_BIND, "
         "loopback under host networking",
     ),
     "qmd": BundledHostBinding(

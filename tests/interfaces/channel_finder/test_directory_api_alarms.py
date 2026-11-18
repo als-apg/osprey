@@ -47,7 +47,7 @@ def _config(tmp_path: Path, control_system: dict[str, Any], section: dict[str, A
             "pipelines": {"in_context": {"database": {"path": "/tmp/db.json", "type": "flat"}}},
         },
         "control_system": control_system,
-        "pv_directory": section,
+        "channel_directory": section,
     }
     if control_system == VA_BUILD:
         config["services"] = {"virtual_accelerator": {"port": 5064}}

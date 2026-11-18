@@ -1,0 +1,48 @@
+
+
+services:
+  server-fleet:
+    # The PROJECT image `osprey up` builds; services.server_fleet.image or
+    # OSPREY_WORKER_IMAGE overrides it.
+    # No `build:` block: a second build of the same tag would race the first.
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    container_name: golden-project-server-fleet
+    # A shell, so the bind address is read from SERVER_FLEET_BIND below and the
+    # address the service binds is the one its host-binding declaration names.
+    command: ["sh", "-c", "exec python -m osprey.services.channel_directory.fleet --host \"$${SERVER_FLEET_BIND}\" --port 10084"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      SERVER_FLEET_BIND: "0.0.0.0"
+      # The STAGED config.yml bind-mounted below: on the bridge its deployed
+      # machines' gateways name their compose services.
+      OSPREY_CONFIG: /app/golden-project/build/config.yml
+      OSPREY_PROJECT_DIR: /app/golden-project
+      SERVER_FLEET_STATE_DIR: /app/golden-project/var/state/server-fleet
+      # WHO this service's reads are recorded as.
+      OSPREY_AUDIT_IDENTITY: server-fleet
+      OSPREY_SPOOL_DIR: /app/golden-project/var/spool/server-fleet
+      OSPREY_STATE_DIR: /app/golden-project/var/state/server-fleet
+      TZ: UTC
+    ports:
+      - "127.0.0.1:10084:10084"
+    volumes:
+      - ./build/services/server_fleet/config.yml:/app/golden-project/build/config.yml:ro
+      # Its own spool and state subdirectories, and only its own.
+      - ./var/spool/server-fleet:/app/golden-project/var/spool/server-fleet
+      - ./var/state/server-fleet:/app/golden-project/var/state/server-fleet
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10084/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  osprey-network:

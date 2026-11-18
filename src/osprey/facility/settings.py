@@ -30,9 +30,9 @@ from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 try:
-    from osprey_connectors.simulation.iocs import ioc_addresses
-except ImportError:  # an osprey-connectors release older than scenario ``stopped_iocs``
-    ioc_addresses = None  # type: ignore[assignment]
+    from osprey_connectors.simulation.servers import server_addresses
+except ImportError:  # an osprey-connectors release older than scenario ``stopped_servers``
+    server_addresses = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from osprey.cli.build_profile_archiver import VAArchiverConfig
@@ -240,7 +240,7 @@ def _check_probe(inputs: _Inputs) -> None:
 
 def _probe_ioc(inputs: _Inputs, address: str) -> str:
     """The simulated IOC serving ``address``, by the rule the composite stops IOCs by."""
-    assert ioc_addresses is not None
+    assert server_addresses is not None
     models = sorted(inputs.records.of_kind("model"), key=lambda model: str(model["name"]))
     physics = [
         str(model["name"])
@@ -258,8 +258,8 @@ def _probe_ioc(inputs: _Inputs, address: str) -> str:
         ),
         None,
     )
-    by_ioc = ioc_addresses(physics, {address: owner}, {}, {})
-    return next(ioc for ioc, addresses in by_ioc.items() if address in addresses)
+    by_server = server_addresses(physics, {address: owner}, {}, {})
+    return next(ioc for ioc, addresses in by_server.items() if address in addresses)
 
 
 def _check_probe_answers(inputs: _Inputs) -> None:
@@ -268,12 +268,12 @@ def _check_probe_answers(inputs: _Inputs) -> None:
     The probe is how the fleet knows its read path is up: stopping its IOC
     reads as the read path down, every IOC unknown, not as one IOC stopped.
     """
-    if ioc_addresses is None:
+    if server_addresses is None:
         return
     scenarios = [
         scenario
         for scenario in inputs.records.document.get("scenarios", [])
-        if scenario.get("stopped_iocs")
+        if scenario.get("stopped_servers")
     ]
     if not scenarios:
         return
@@ -285,12 +285,12 @@ def _check_probe_answers(inputs: _Inputs) -> None:
             continue
         ioc = _probe_ioc(inputs, str(address))
         for scenario in scenarios:
-            if ioc in scenario["stopped_iocs"]:
+            if ioc in scenario["stopped_servers"]:
                 raise _refusal(
                     key,
                     f"the probe channel `{address}` is served by `{ioc}`, which scenario "
                     f"`{scenario['name']}` stops: the fleet would read as its read path down",
-                    f"remove `{ioc}` from scenario `{scenario['name']}`'s `stopped_iocs`, "
+                    f"remove `{ioc}` from scenario `{scenario['name']}`'s `stopped_servers`, "
                     f"or set `{key}` to a readback another simulated IOC serves",
                 )
 

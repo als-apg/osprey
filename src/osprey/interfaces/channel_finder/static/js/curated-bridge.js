@@ -13,7 +13,7 @@
 import { state } from './state.js';
 import { esc } from './utils.js';
 import { countDirectory } from './directory-api.js';
-import { allPvsHash } from './route.js';
+import { channelsHash } from './route.js';
 
 /**
  * The line under curated results: "Not here?" with the route to All PVs, or,
@@ -27,7 +27,7 @@ import { allPvsHash } from './route.js';
 export function bridgeHtml(words, total, size) {
   const directory = state.directory;
   if (!directory) return '';
-  const href = esc(allPvsHash(words));
+  const href = esc(channelsHash(words));
   const text = words.trim();
   if (total === 0) {
     const all = size === null ? 'all' : `all ${size.toLocaleString()}`;

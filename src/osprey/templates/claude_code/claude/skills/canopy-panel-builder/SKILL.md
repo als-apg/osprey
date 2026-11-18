@@ -159,7 +159,7 @@ No tool writes to a PV. `read_pv` and `search_pvs` only read.
 2. Find the PVs. Use the names the user gave you, or `search_pvs`. Confirm
    each name with `read_pv` before you put it in a screen. An empty search
    result is not proof that a PV does not exist: when `skipped` is not empty,
-   the PV directory could not be asked.
+   the channel directory could not be asked.
 3. Write the whole document and save it with `new_screen`. Or call `check`
    with the document first, which saves nothing.
 4. Read the result. Findings with severity `error` refuse the save, and

@@ -21,6 +21,8 @@ from osprey.deployment.web_terminals.roster import (
     ca_bundle_mounts,
     config_archiver_ca_bundles,
     config_archiver_credential_envs,
+    config_channel_directory_ca_bundles,
+    config_channel_directory_credential_envs,
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
@@ -28,8 +30,6 @@ from osprey.deployment.web_terminals.roster import (
     config_needs_launch_token,
     config_needs_launch_token_for,
     config_needs_phoebus_handles,
-    config_pv_directory_ca_bundles,
-    config_pv_directory_credential_envs,
     configured_registry_url,
     control_identity_collision_warnings,
     control_identity_problems,
@@ -42,12 +42,12 @@ from osprey.deployment.web_terminals.roster import (
     renders_needing_archiver_ca_bundles,
     renders_needing_archiver_credentials,
     renders_needing_ariel_password,
+    renders_needing_channel_directory_ca_bundles,
+    renders_needing_channel_directory_credentials,
     renders_needing_dispatcher_token,
     renders_needing_graphdb_password,
     renders_needing_launch_token_by_lane,
     renders_needing_phoebus_handles,
-    renders_needing_pv_directory_ca_bundles,
-    renders_needing_pv_directory_credentials,
     renders_with_open_shell,
     resolve_access_principals,
     resolve_authorization_roles,
@@ -3154,10 +3154,10 @@ def test_renders_needing_archiver_credentials_skips_unrendered_render_projects(
 
 
 # ---------------------------------------------------------------------------
-# PV directory services -> the variables their blocks name, and their CA files
+# channel directory services -> the variables their blocks name, and their CA files
 # ---------------------------------------------------------------------------
 
-_PV_DIRECTORY = {
+_CHANNEL_DIRECTORY = {
     "type": "channelfinder",
     "settings": {
         "url": "https://cf.example/ChannelFinder",
@@ -3179,17 +3179,17 @@ _PV_DIRECTORY = {
 }
 
 
-def test_config_pv_directory_credential_envs_reads_every_typed_block_in_order() -> None:
-    assert config_pv_directory_credential_envs({"pv_directory": _PV_DIRECTORY}) == (
+def test_config_channel_directory_credential_envs_reads_every_typed_block_in_order() -> None:
+    assert config_channel_directory_credential_envs({"channel_directory": _CHANNEL_DIRECTORY}) == (
         "CF_PW",
         "ALARM_LOG_TOKEN",
         "ALARM_FEED_PW",
     )
 
 
-def test_config_pv_directory_credential_envs_names_a_shared_variable_once() -> None:
+def test_config_channel_directory_credential_envs_names_a_shared_variable_once() -> None:
     section = {
-        **_PV_DIRECTORY,
+        **_CHANNEL_DIRECTORY,
         "put_log": {
             "type": "caputlog",
             "settings": {
@@ -3199,10 +3199,12 @@ def test_config_pv_directory_credential_envs_names_a_shared_variable_once() -> N
         },
     }
 
-    assert config_pv_directory_credential_envs({"pv_directory": section}).count("CF_PW") == 1
+    assert (
+        config_channel_directory_credential_envs({"channel_directory": section}).count("CF_PW") == 1
+    )
 
 
-def test_config_pv_directory_credential_envs_ignores_a_block_without_a_type() -> None:
+def test_config_channel_directory_credential_envs_ignores_a_block_without_a_type() -> None:
     """A block no connector reads entitles nothing: the simulator-only form names no service."""
     section = {
         "settings": {"auth": {"token_env": "UNREAD_TOKEN"}},
@@ -3212,15 +3214,15 @@ def test_config_pv_directory_credential_envs_ignores_a_block_without_a_type() ->
         },
     }
 
-    assert config_pv_directory_credential_envs({"pv_directory": section}) == ()
+    assert config_channel_directory_credential_envs({"channel_directory": section}) == ()
 
 
-@pytest.mark.parametrize("config", [{}, {"pv_directory": None}, {"pv_directory": "off"}])
-def test_config_pv_directory_credential_envs_is_empty_without_a_section(config: dict) -> None:
-    assert config_pv_directory_credential_envs(config) == ()
+@pytest.mark.parametrize("config", [{}, {"channel_directory": None}, {"channel_directory": "off"}])
+def test_config_channel_directory_credential_envs_is_empty_without_a_section(config: dict) -> None:
+    assert config_channel_directory_credential_envs(config) == ()
 
 
-def test_config_pv_directory_credential_envs_refusal_names_the_block() -> None:
+def test_config_channel_directory_credential_envs_refusal_names_the_block() -> None:
     section = {
         "alarm_state": {
             "type": "phoebus_alarm_server",
@@ -3229,12 +3231,12 @@ def test_config_pv_directory_credential_envs_refusal_names_the_block() -> None:
     }
 
     with pytest.raises(
-        ValueError, match=r"pv_directory\.alarm_state\.settings\.auth\.password_env"
+        ValueError, match=r"channel_directory\.alarm_state\.settings\.auth\.password_env"
     ):
-        config_pv_directory_credential_envs({"pv_directory": section})
+        config_channel_directory_credential_envs({"channel_directory": section})
 
 
-def test_config_pv_directory_ca_bundles_names_each_file_on_this_host_once(tmp_path) -> None:
+def test_config_channel_directory_ca_bundles_names_each_file_on_this_host_once(tmp_path) -> None:
     ca = tmp_path / "site-ca.pem"
     ca.write_text("x\n")
     tls = {"ca_bundle": str(ca)}
@@ -3254,14 +3256,14 @@ def test_config_pv_directory_ca_bundles_names_each_file_on_this_host_once(tmp_pa
         },
     }
 
-    assert config_pv_directory_ca_bundles({"pv_directory": section}) == (str(ca),)
+    assert config_channel_directory_ca_bundles({"channel_directory": section}) == (str(ca),)
 
 
-def test_renders_needing_pv_directory_grants_map_each_render(tmp_path) -> None:
+def test_renders_needing_channel_directory_grants_map_each_render(tmp_path) -> None:
     ca = tmp_path / "site-ca.pem"
     ca.write_text("x\n")
     with_ca = {
-        **_PV_DIRECTORY,
+        **_CHANNEL_DIRECTORY,
         "put_log": {
             "type": "caputlog",
             "settings": {"url": "https://put.example", "tls": {"ca_bundle": str(ca)}},
@@ -3270,11 +3272,15 @@ def test_renders_needing_pv_directory_grants_map_each_render(tmp_path) -> None:
     catalog = {
         "readwrite": {
             "project": "rw",
-            "project_path": _write_render_project_config(tmp_path, "rw", {"pv_directory": with_ca}),
+            "project_path": _write_render_project_config(
+                tmp_path, "rw", {"channel_directory": with_ca}
+            ),
         },
         "readonly": {
             "project": "ro",
-            "project_path": _write_render_project_config(tmp_path, "ro", {"pv_directory": None}),
+            "project_path": _write_render_project_config(
+                tmp_path, "ro", {"channel_directory": None}
+            ),
         },
     }
     config = _catalog_config(
@@ -3285,10 +3291,12 @@ def test_renders_needing_pv_directory_grants_map_each_render(tmp_path) -> None:
         ],
     )
 
-    assert renders_needing_pv_directory_credentials(config, tmp_path) == {
+    assert renders_needing_channel_directory_credentials(config, tmp_path) == {
         "readwrite": ("CF_PW", "ALARM_LOG_TOKEN", "ALARM_FEED_PW")
     }
-    assert renders_needing_pv_directory_ca_bundles(config, tmp_path) == {"readwrite": (str(ca),)}
+    assert renders_needing_channel_directory_ca_bundles(config, tmp_path) == {
+        "readwrite": (str(ca),)
+    }
 
 
 # ---------------------------------------------------------------------------

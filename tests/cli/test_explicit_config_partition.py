@@ -26,11 +26,11 @@ preset admits), the keys of the frozen root render are partitioned into:
     and names no corpus: :func:`~osprey.cli.build_injectors.graphdb_corpus_fill`
     supplies the graph view the build writes.
 ``Fleet``
-    ``services.ioc_fleet.path`` and ``services.ioc_fleet.port`` for a preset
-    whose ``config:`` states a ``pv_directory.fleet`` block:
-    :func:`~osprey.cli.build_injectors._inject_ioc_fleet` writes the IOC fleet
+    ``services.server_fleet.path`` and ``services.server_fleet.port`` for a preset
+    whose ``config:`` states a ``channel_directory.fleet`` block:
+    :func:`~osprey.cli.build_injectors._inject_server_fleet` writes the server fleet
     service's block from that sub-block, the port being the layout's
-    ``ioc_fleet`` slot.
+    ``server_fleet`` slot.
 ``W``
     Keys the build writes that no preset states: the MCP health address a
     render serving web terminals pins, the bundled record archive's compose
@@ -75,7 +75,7 @@ import pytest
 import yaml
 
 from osprey.apps.loader import load
-from osprey.cli.build_injectors import IOC_FLEET_SERVICE, graphdb_corpus_fill
+from osprey.cli.build_injectors import SERVER_FLEET_SERVICE, graphdb_corpus_fill
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_document import _read_profile_document
 from osprey.cli.build_profile_health import MCP_URL_KEY
@@ -265,16 +265,17 @@ def _block_derived_prefixes(document: Mapping[str, Any]) -> dict[str, str]:
 
 
 def _fleet_service_keys(config: Mapping[str, Any]) -> set[str]:
-    """The ``services.ioc_fleet`` leaves the IOC fleet injector writes for *config*.
+    """The ``services.server_fleet`` leaves the server fleet injector writes for *config*.
 
-    The injector follows ``pv_directory.fleet`` rather than a profile section:
+    The injector follows ``channel_directory.fleet`` rather than a profile section:
     with the sub-block stated it writes the service's ``path`` and ``port``.
     """
     if not any(
-        key == "pv_directory.fleet" or key.startswith("pv_directory.fleet.") for key in config
+        key == "channel_directory.fleet" or key.startswith("channel_directory.fleet.")
+        for key in config
     ):
         return set()
-    return {f"services.{IOC_FLEET_SERVICE}.path", f"services.{IOC_FLEET_SERVICE}.port"}
+    return {f"services.{SERVER_FLEET_SERVICE}.path", f"services.{SERVER_FLEET_SERVICE}.port"}
 
 
 def _under(key: str, prefixes: Mapping[str, str]) -> bool:

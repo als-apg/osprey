@@ -83,22 +83,22 @@ LIVE_SUITES = ("tests/va/test_apply_fault.py",)
 #: both transports, its timed passes over an evolving composite, the
 #: entrypoint serving the injection chain, one armed turn-by-turn shot, a
 #: scenario's stopped IOC withholding its channels from held clients, and the
-#: IOC fleet end to end over the served demo.
+#: server fleet end to end over the served demo.
 PVA_SUITES = (
     "tests/va/test_lume_pva_seam.py",
     "tests/va/test_timed_passes_live.py",
     "tests/va/test_injection_live.py",
     "tests/va/test_turn_by_turn_live.py",
-    "tests/va/test_stopped_iocs_live.py",
-    "tests/va/test_ioc_fleet_live.py",
+    "tests/va/test_stopped_servers_live.py",
+    "tests/va/test_server_fleet_live.py",
 )
 
 #: Suites whose own waits are measured in refresh periods rather than seconds,
 #: with the wall-clock limit each needs instead of ``MODULE_TIMEOUT_S`` when
-#: that is shorter. The IOC fleet suite waits out a dozen 10 s refresh periods
+#: that is shorter. The server fleet suite waits out a dozen 10 s refresh periods
 #: and a held Channel Access client's reconnect backoff (up to 120 s) on top of
 #: a demo build and its physics serve.
-SUITE_TIMEOUTS_S = {"tests/va/test_ioc_fleet_live.py": 900.0}
+SUITE_TIMEOUTS_S = {"tests/va/test_server_fleet_live.py": 900.0}
 
 #: Modules that must import in --pva mode. This is a precondition, not a
 #: preference, and it is checked *before* pytest runs.

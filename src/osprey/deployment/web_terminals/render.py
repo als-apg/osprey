@@ -867,8 +867,8 @@ def render_web_terminals(
     ariel_mirror_gid: int | None = None,
     archiver_credential_renders: dict[str, tuple[str, ...]] | None = None,
     archiver_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
-    pv_directory_credential_renders: dict[str, tuple[str, ...]] | None = None,
-    pv_directory_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
+    channel_directory_credential_renders: dict[str, tuple[str, ...]] | None = None,
+    channel_directory_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_renders: set[str] | None = None,
     stop_grace_renders: dict[str, int] | None = None,
     terminal_secrets: dict[str, str] | None = None,
@@ -1026,16 +1026,16 @@ def render_web_terminals(
             Each file is bind-mounted read-only at the same path into the
             user's container, so the key names one file on the host and in the
             container. ``None`` emits no mount.
-        pv_directory_credential_renders: ``{render_name: (env_var_name, ...)}``
-            for the renders whose PV directory services authenticate, resolved
+        channel_directory_credential_renders: ``{render_name: (env_var_name, ...)}``
+            for the renders whose channel directory services authenticate, resolved
             from disk by
-            :func:`osprey.deployment.web_terminals.roster.renders_needing_pv_directory_credentials`.
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_channel_directory_credentials`.
             Same placement and reason as ``archiver_credential_renders``: the
             directory, the alarm log, the alarm feed and the put log each read
             the variable their own block names under ``auth:``. ``None`` emits
             no line.
-        pv_directory_ca_bundle_renders: ``{render_name: (ca_path, ...)}`` for
-            the renders whose PV directory blocks name a host CA file under
+        channel_directory_ca_bundle_renders: ``{render_name: (ca_path, ...)}`` for
+            the renders whose channel directory blocks name a host CA file under
             ``tls.ca_bundle``, mounted as ``archiver_ca_bundle_renders`` mounts
             the archiver's. ``None`` emits no mount.
         phoebus_handle_renders: Render names whose project runs a Phoebus
@@ -1416,22 +1416,24 @@ def render_web_terminals(
                 # The host CA files this user's archiver block names under
                 # `tls.ca_bundle` (see the `archiver_ca_bundle_renders` arg),
                 # each mounted read-only at the same path, or () for none.
-                # and the ones its PV directory blocks name (see the
-                # `pv_directory_ca_bundle_renders` arg); one mount per file.
+                # and the ones its channel directory blocks name (see the
+                # `channel_directory_ca_bundle_renders` arg); one mount per file.
                 "ca_bundle_mounts": tuple(
                     dict.fromkeys(
                         (
                             *(archiver_ca_bundle_renders or {}).get(entry["render"], ()),
-                            *(pv_directory_ca_bundle_renders or {}).get(entry["render"], ()),
+                            *(channel_directory_ca_bundle_renders or {}).get(entry["render"], ()),
                         )
                     )
                 ),
-                # The NAMES of the variables this user's PV directory services
-                # authenticate with (see the `pv_directory_credential_renders`
+                # The NAMES of the variables this user's channel directory services
+                # authenticate with (see the `channel_directory_credential_renders`
                 # arg), without any the archiver lines above already carry.
-                "pv_directory_credential_envs": tuple(
+                "channel_directory_credential_envs": tuple(
                     name
-                    for name in (pv_directory_credential_renders or {}).get(entry["render"], ())
+                    for name in (channel_directory_credential_renders or {}).get(
+                        entry["render"], ()
+                    )
                     if name not in (archiver_credential_renders or {}).get(entry["render"], ())
                 ),
                 # Where the deployment's knowledge bundle mounts inside THIS

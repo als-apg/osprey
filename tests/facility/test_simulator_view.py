@@ -143,12 +143,12 @@ def test_every_served_model_lists_its_ioc_health_addresses_texture_last(
     ]
 
 
-def test_a_render_with_a_pv_directory_section_lists_the_same_ioc_health_addresses(
+def test_a_render_with_a_channel_directory_section_lists_the_same_server_health_addresses(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     plain = _render(tmp_path, built_demo, {}, "plain")
     with_directory = _render(
-        tmp_path, built_demo, {"pv_directory": {"type": "channelfinder"}}, "with-directory"
+        tmp_path, built_demo, {"channel_directory": {"type": "channelfinder"}}, "with-directory"
     )
 
     assert (with_directory / ADDRESSES).read_bytes() == (plain / ADDRESSES).read_bytes()
@@ -1150,10 +1150,10 @@ def test_an_empty_inputs_list_is_written_as_no_inputs(
     assert (root / VARIABLES).read_bytes() == (plain / VARIABLES).read_bytes()
 
 
-def test_stopped_iocs_of_served_models_are_carried_verbatim(
+def test_stopped_servers_of_served_models_are_carried_verbatim(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
-    scenario = {"name": "sr-down", "stopped_iocs": ["sim-SR", "sim-texture"]}
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR", "sim-texture"]}
 
     (entry,) = [
         e for e in _rendered_scenarios(tmp_path, built_demo, [scenario]) if e["name"] == "sr-down"
@@ -1161,10 +1161,10 @@ def test_stopped_iocs_of_served_models_are_carried_verbatim(
     assert entry == scenario
 
 
-def test_stopped_iocs_of_an_unserved_model_are_marked_inactive_and_left_out_of_the_stop(
+def test_stopped_servers_of_an_unserved_model_are_marked_inactive_and_left_out_of_the_stop(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
-    scenario = {"name": "sr-down", "stopped_iocs": ["sim-SR", "sim-texture"]}
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR", "sim-texture"]}
 
     (entry,) = [
         e
@@ -1175,15 +1175,15 @@ def test_stopped_iocs_of_an_unserved_model_are_marked_inactive_and_left_out_of_t
     ]
     assert entry == {
         "name": "sr-down",
-        "stopped_iocs": ["sim-texture"],
-        "inactive_iocs": {"sim-SR": INACTIVE_UNSERVED},
+        "stopped_servers": ["sim-texture"],
+        "inactive_servers": {"sim-SR": INACTIVE_UNSERVED},
     }
 
 
 def test_a_default_scenario_stopping_an_unserved_models_ioc_is_refused_at_render(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
-    scenario = {"name": "sr-down", "stopped_iocs": ["sim-SR"]}
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR"]}
     config = {"simulation": {"models": [TEXTURE], "default_scenarios": ["sr-down"]}}
 
     with pytest.raises(FacilityBuildError) as stop:

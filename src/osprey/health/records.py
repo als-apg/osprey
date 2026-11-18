@@ -69,14 +69,14 @@ CONFIG_DEPENDENT = frozenset(
         "dispatch",
         "service_capabilities",
         "ariel_modules",
-        "pv_directory",
-        "pv_directory_alarm_feed",
+        "channel_directory",
+        "channel_directory_alarm_feed",
     }
 )
 
 # Core categories in the on_demand cost class (gated behind ``--full``).
 ON_DEMAND_CORE = frozenset(
-    {"claude_cli_pinned", "model_chat", "ariel_modules", "pv_directory_alarm_feed"}
+    {"claude_cli_pinned", "model_chat", "ariel_modules", "channel_directory_alarm_feed"}
 )
 
 
@@ -289,13 +289,13 @@ def build_records(
             "safety_chain",
             "rendered",
             "service_capabilities",
-            "pv_directory",
-            "pv_directory_alarm_feed",
+            "channel_directory",
+            "channel_directory_alarm_feed",
         ):
             # Build output: the rendered `.claude/`, `.mcp.json`, the hook files
             # and the knowledge bundle's manifest sit beside the rendered config,
             # so these compare the render zone against what the build wrote. The
-            # PV directory's service paths are relative to the rendered config.
+            # channel directory's service paths are relative to the rendered config.
             func = factory(expanded, context=None, cwd=render_path)
         elif name == "channel_finder":
             # NOT the repo root. A channel database is build-owned output, and

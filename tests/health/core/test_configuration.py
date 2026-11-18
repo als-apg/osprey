@@ -44,8 +44,8 @@ _CANONICAL_NAMES = (
     "dispatch",
     "service_capabilities",
     "ariel_modules",
-    "pv_directory",
-    "pv_directory_alarm_feed",
+    "channel_directory",
+    "channel_directory_alarm_feed",
 )
 
 

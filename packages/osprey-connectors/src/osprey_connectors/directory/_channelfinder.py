@@ -244,7 +244,7 @@ class ChannelFinderDirectory(ChannelDirectory):
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         self._transport = transport or ReadOnlyTransport(
-            spec.settings, self.ALLOWED_REQUESTS, where="pv_directory.settings"
+            spec.settings, self.ALLOWED_REQUESTS, where="channel_directory.settings"
         )
         description = spec.settings.get("description_property")
         self._description_property = (
@@ -476,7 +476,7 @@ class ChannelFinderDirectory(ChannelDirectory):
             ServerRow(
                 name=ioc,
                 host=_main_host(hosts.get(ioc)),
-                pv_count=pvs[ioc],
+                channel_count=pvs[ioc],
                 inactive_count=inactive[ioc],
             )
             for ioc in sorted(pvs)

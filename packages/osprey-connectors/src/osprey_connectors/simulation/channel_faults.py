@@ -19,7 +19,7 @@ wires it or the texture holds it, while its scenario is active:
   own reads its demand and reports the condition itself.
 
 No fault withholds a reply: a read always answers. The one exception is a
-scenario's ``stopped_iocs`` (:mod:`~osprey_connectors.simulation.iocs`):
+scenario's ``stopped_servers`` (:mod:`~osprey_connectors.simulation.servers`):
 every channel of a stopped IOC gives no answer while the scenario is
 active, and answers again, with its current value, once it is not.
 

@@ -202,7 +202,7 @@ def apply_scenarios(
         ValueError: If the render carries no simulator view, a scenario name is
             unknown, the requested set does not compose (channel collision), or
             a requested scenario stops an IOC of a model the render does not
-            serve (its ``inactive_iocs``).
+            serve (its ``inactive_servers``).
     """
     from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
@@ -328,15 +328,15 @@ def _refuse_inactive_stops(
 ) -> None:
     """Refuse a requested scenario that stops an IOC this render does not serve.
 
-    The view keeps such a name out of the scenario's ``stopped_iocs`` and lists
-    it under ``inactive_iocs`` instead, so the scenario would apply without the
+    The view keeps such a name out of the scenario's ``stopped_servers`` and lists
+    it under ``inactive_servers`` instead, so the scenario would apply without the
     stop it describes. Applying it is refused rather than run half-way.
 
     Raises:
         ValueError: A requested scenario lists an inactive IOC.
     """
     for name in names:
-        inactive = (scenarios.get(name) or {}).get("inactive_iocs") or {}
+        inactive = (scenarios.get(name) or {}).get("inactive_servers") or {}
         if inactive:
             listed = ", ".join(f"{ioc} ({why})" for ioc, why in sorted(inactive.items()))
             raise ValueError(

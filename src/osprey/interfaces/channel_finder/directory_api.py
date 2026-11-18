@@ -1,7 +1,7 @@
-"""The PV directory routes' one mounting point, and the ``/api/info`` descriptor.
+"""The channel directory routes' one mounting point, and the ``/api/info`` descriptor.
 
 ``create_app`` imports this module and includes :data:`router` at
-``/api/directory`` only when the ``pv_directory`` section is configured, so an
+``/api/directory`` only when the ``channel_directory`` section is configured, so an
 unconfigured panel has no directory route at all. The routes themselves live in
 :mod:`.directory_search_api`, :mod:`.directory_pages_api`,
 :mod:`.directory_alarms_api`, :mod:`.directory_archive_api`,
@@ -27,8 +27,8 @@ from osprey.interfaces.channel_finder import (
 )
 from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID
 from osprey.profiles.web_panels import panel_spec_enabled
-from osprey.services.pv_directory.resolve import ResolvedSection, predicates
-from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, source_label
+from osprey.services.channel_directory.resolve import ResolvedSection, predicates
+from osprey.services.channel_directory.vocabulary import DIRECTORY_LABEL, source_label
 from osprey_connectors.archive_targets import archive_targets
 
 __all__ = ["ariel_configured", "directory_descriptor", "router"]
@@ -65,19 +65,19 @@ async def directory_descriptor(
 
     Args:
         config: The loaded config.
-        resolved: The checked ``pv_directory`` section.
+        resolved: The checked ``channel_directory`` section.
         service: The lifespan's ``DirectoryService``.
 
     Returns:
         ``{label, configured_services, canopy, ariel}``; ``label`` is the
         directory's served label, the same with or without a source.
-        ``configured_services`` names ``fleet`` when the IOC fleet is on, and
+        ``configured_services`` names ``fleet`` when the server fleet is on, and
         ``archive`` when the deployment's archive serves some target.
     """
-    _backend, source, _reason = await service.backend("pv_directory")
+    _backend, source, _reason = await service.backend("channel_directory")
     flags = predicates(resolved)
     ariel = ariel_configured(config)
-    services = [name for name in _SERVICES if flags[f"pv_directory_{name}"]]
+    services = [name for name in _SERVICES if flags[f"channel_directory_{name}"]]
     if archive_targets(config):
         services.append("archive")
     if ariel:

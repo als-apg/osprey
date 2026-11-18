@@ -1415,13 +1415,13 @@ services:
 {%- for archiver_env in svc.archiver_credential_envs %}
       - {{ archiver_env }}={{ "${" ~ archiver_env ~ ":-}" }}
 {%- endfor %}
-      {#- The PV directory's credential variables, for a render whose
+      {#- The channel directory's credential variables, for a render whose
          directory, alarm log, alarm feed or put log authenticates. The
-         consumers are the `pv-directory` MCP server and the Channels panel
+         consumers are the `channel-directory` MCP server and the Channels panel
          inside this container, each reading the variable its own block names
          under `auth:`. Per-user and `${VAR:-}` for the reasons the archiver
          lines above give; a name those lines already carry is not repeated. #}
-{%- for directory_env in svc.pv_directory_credential_envs %}
+{%- for directory_env in svc.channel_directory_credential_envs %}
       - {{ directory_env }}={{ "${" ~ directory_env ~ ":-}" }}
 {%- endfor %}
     volumes:

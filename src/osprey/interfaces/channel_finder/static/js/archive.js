@@ -16,7 +16,7 @@ import { renderState } from '/design-system/js/panel-state.js';
 import { showToast } from '/design-system/js/toast.js';
 import { configurationText, pageHtml, skeletonHtml } from './archive-render.js';
 import { fetchArchiveSummary } from './directory-api.js';
-import { NO_TARGET } from './pv-page-sections.js';
+import { NO_TARGET } from './channel-page-sections.js';
 import { messageOf } from './utils.js';
 
 /** @typedef {import('./directory-api.js').ArchiveSummary} ArchiveSummary */

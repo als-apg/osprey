@@ -899,7 +899,7 @@ classes:
           writes; `frozen` holds a reading at the value it served when the
           scenario became active; `disconnected` reads not-a-number with an
           undefined alarm and holds writes.
-      stopped_iocs:
+      stopped_servers:
         range: string
         multivalued: true
         list_elements_ordered: true

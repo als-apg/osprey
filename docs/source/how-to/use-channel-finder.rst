@@ -296,15 +296,15 @@ control-system neutral: a PV is a channel, an IOC is the server process that
 serves it (:doc:`/reference/connectors-api/services`). No TANGO or DOOCS
 backend ships. A deployment on another control system needs a directory
 backend written against that contract and named by its dotted path in
-``pv_directory.type``; without one, All PVs has no source on the facility's
+``channel_directory.type``; without one, All PVs has no source on the facility's
 machine.
 
-The directory is on when ``config.yml`` has a ``pv_directory`` section; the
+The directory is on when ``config.yml`` has a ``channel_directory`` section; the
 ``demo`` preset ships one. The same section can name an alarm server, an alarm
-log and a put log. :ref:`config-pv-directory` has the keys and how to switch
+log and a put log. :ref:`config-channel-directory` has the keys and how to switch
 the section off.
 
-**For the agent** the section adds the ``pv-directory`` MCP server: search the
+**For the agent** the section adds the ``channel-directory`` MCP server: search the
 directory, read a PV's or an IOC's record and, where their source is
 configured, the alarms and recorded writes. Every tool is a read and runs
 without an approval prompt. The agent's prompt tells it to check the curated
@@ -321,16 +321,16 @@ target reads ``Not available for this target``.
 :doc:`/reference/connectors-api/services` has the table of sources per target.
 
 
-.. _channel-finder-ioc-fleet:
+.. _channel-finder-server-fleet:
 
 IOCs: the Fleet View
 ====================
 
 The directory says which IOCs exist, not which of them are running. Answering
 that for a whole facility means reading every IOC's liveness PV, too many
-reads to repeat each time someone asks. The IOC fleet service reads them once
+reads to repeat each time someone asks. The server fleet service reads them once
 per refresh period and keeps one snapshot per control target. The **IOCs**
-view of the panel, the agent's ``ioc_fleet`` tool and the IOC page all answer
+view of the panel, the agent's ``server_fleet`` tool and the IOC page all answer
 from that snapshot, so they agree and a liveness question costs the control
 system no read.
 
@@ -340,10 +340,10 @@ EPICS with ChannelFinder, and the simulator
 connector, not through EPICS calls of its own: what another control system
 lacks is a directory backend that lists its servers.
 
-The service is off unless ``config.yml`` has ``pv_directory.fleet``
+The service is off unless ``config.yml`` has ``channel_directory.fleet``
 (``fleet: {}`` is enough). The ``demo`` preset runs it with a 10 s period, and
 :doc:`/getting-started/demo` stops an IOC to show it.
-:ref:`config-pv-directory` has the keys.
+:ref:`config-channel-directory` has the keys.
 
 **The view.** The header gives the time the snapshot was taken and its age,
 the state of the read path, and the outcome of the directory and of each
@@ -408,14 +408,14 @@ and every such statement ends "This says nothing about whether any IOC runs.":
   succeeded, or the directory cannot list its IOCs.
 - *Snapshot stale*: the service stopped refreshing; the snapshot is older than
   three refresh periods (or three cycle durations, when a cycle overruns).
-- *IOC fleet unavailable*: the service gave no usable answer.
+- *server fleet unavailable*: the service gave no usable answer.
 
-The ``ioc_fleet`` tool answers the agent from the same snapshot: the counts,
+The ``server_fleet`` tool answers the agent from the same snapshot: the counts,
 the rows filtered by state, finding, group, host or text (100 by default), the
 meaning of each state and the same statements. On a stale snapshot it still
 returns the rows, marked as the states of that time.
 
-**Which IOCs are listed.** Each target lists the IOCs its own PV directory
+**Which IOCs are listed.** Each target lists the IOCs its own channel directory
 lists, including IOCs whose every PV is inactive, and reads their liveness
 from that target. On the stand-in that is the facility's directory, so an IOC
 whose liveness PV the stand-in does not serve shows ``unreached``. An IOC that
@@ -431,7 +431,7 @@ says the read path is down. A target without one is *unverified*.
 snapshot's row: its state, findings and the time the liveness PV was read. The
 page no longer reads the heartbeat itself, so the answer can be up to one
 refresh period old. Without a fresh row the chip says why and that no state is
-known for the IOC. ``ioc_record`` answers the same way.
+known for the IOC. ``server_record`` answers the same way.
 
 Load per refresh
 ----------------
@@ -442,7 +442,7 @@ number of users. Per refreshed target and refresh period:
 - **Channel reads**: one probe read, then one read of every liveness and health
   PV, all concurrent, each on the connector's own timeout. No read when the
   probe is unanswered.
-- **Audit records**: one, surface ``ioc_fleet``
+- **Audit records**: one, surface ``server_fleet``
   (:doc:`/reference/contracts/audit-trail`).
 - **Directory queries**: one listing of the IOCs and one paged search per
   liveness and health suffix, every ten refreshes, on the first refresh of
@@ -460,7 +460,7 @@ Roster sources
 On its own the view knows only what answers. A roster source states what the
 facility expects of its IOCs, which is what turns a ``silent`` IOC into
 ``expected_running_not_alive`` and gives each IOC its class and group. Roster
-sources and the named classes of ``pv_directory.fleet.classes`` apply on
+sources and the named classes of ``channel_directory.fleet.classes`` apply on
 ``live`` only: on the virtual accelerator and the stand-in every IOC is read
 by its directory heartbeat, is never ``degraded`` and carries no expectation
 finding.
@@ -468,10 +468,10 @@ finding.
 A source is any object with a ``name`` and a ``read(deadline)`` method
 returning a list of ``RosterRow(name, host, class_name, expected, group=None)``,
 where ``expected`` is ``"running"``, ``"stopped"`` or ``None``; ``read`` raises
-to report a failure. ``RosterRow`` is in ``osprey.services.pv_directory.roster``.
+to report a failure. ``RosterRow`` is in ``osprey.services.channel_directory.roster``.
 The contract is public and not yet declared stable.
 
-``pv_directory.fleet.roster_sources`` lists ``module:attribute`` references to
+``channel_directory.fleet.roster_sources`` lists ``module:attribute`` references to
 a source or to a zero-argument factory. Rows from every source merge into one
 per IOC naming each source; a failing source is shown unavailable with its
 reason and the others still count.
@@ -500,7 +500,7 @@ channels that match all of them. Each word is matched against the address, the
 description, the device or signal name, and the name or synonyms of the
 device's class or any class above it. The view switch is at the toolbar's
 left: Explore, or Curated and All PVs when ``config.yml`` has a
-``pv_directory`` section, with IOCs, Alarms and Archive when their service is
+``channel_directory`` section, with IOCs, Alarms and Archive when their service is
 configured. There is no Feedback view: the graph keeps no saved hints, and
 its answers are not captured for review. The result count and the search box are at its right.
 
@@ -571,7 +571,7 @@ into the snapshot the panels use.
 All PVs, IOCs, Alarms and Archive
 ---------------------------------
 
-With a ``pv_directory`` section (:ref:`channel-finder-all-pvs`) the view switch
+With a ``channel_directory`` section (:ref:`channel-finder-all-pvs`) the view switch
 gains **All PVs**, which searches the directory. In the ``demo`` preset:
 
 1. Click **All PVs**, type ``cavity temperature`` into the search box and press
@@ -601,7 +601,7 @@ A **PV page** has one card per answer: Value, Alarm, Put history, Directory,
 Archive and Logbook. A card whose service is not configured is one dashed
 line. Clicking an IOC opens its **IOC page**: its PVs, the alarms on it, its
 health PVs, and an alive chip that reads the heartbeat PV twice, 2 s apart.
-With ``pv_directory.fleet`` set the chip shows the IOC fleet's state instead
+With ``channel_directory.fleet`` set the chip shows the server fleet's state instead
 (`IOCs: the Fleet View`_).
 
 Three more views appear when their service is configured. None writes:

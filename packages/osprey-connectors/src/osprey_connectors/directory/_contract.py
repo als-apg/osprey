@@ -108,14 +108,14 @@ class ServerRow:
     """One server process, as the directory lists it: an EPICS IOC, a Tango device server.
 
     ``name`` is the value the directory's rows carry in ``server``, ``host`` the
-    machine it runs on (``None`` when the directory does not say), ``pv_count``
+    machine it runs on (``None`` when the directory does not say), ``channel_count``
     how many channels the directory lists for it and ``inactive_count`` how many
     of those it marks ``Inactive``.
     """
 
     name: str
     host: str | None
-    pv_count: int
+    channel_count: int
     inactive_count: int
 
 

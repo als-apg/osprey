@@ -40,7 +40,7 @@ from osprey_connectors.service_answers import (
 )
 
 _SEARCH_PATH = "/search"
-_WHERE = "pv_directory.put_log.settings"
+_WHERE = "channel_directory.put_log.settings"
 _NO_ROWS_REASON = "no logged puts"
 _MALFORMED_REASON = "malformed response"
 

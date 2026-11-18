@@ -92,7 +92,7 @@ RESPAWN_NOW_CODES = frozenset({EXIT_BINDING_MOVED, EXIT_TRANSPORT_STALE})
 NEVER_RESPAWN_CODES = frozenset({EXIT_START_REFUSED})
 
 #: How long a read waits for the child's answer. Above the child's row bound
-#: (``PV_READ_BOUND_S`` + ``ROW_MARGIN_S``, 1.5 s), so a slow channel returns its
+#: (``CHANNEL_READ_BOUND_S`` + ``ROW_MARGIN_S``, 1.5 s), so a slow channel returns its
 #: own row rather than costing the batch.
 READ_WAIT_S = 3.0
 

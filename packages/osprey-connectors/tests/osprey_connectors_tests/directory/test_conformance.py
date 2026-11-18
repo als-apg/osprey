@@ -595,10 +595,10 @@ async def test_the_server_list_has_one_row_per_name_and_counts_that_are_never_ne
     assert len(names) == len(set(names)), names
     assert all(row.name for row in rows), rows
     for row in rows:
-        assert isinstance(row.pv_count, int) and not isinstance(row.pv_count, bool), row
+        assert isinstance(row.channel_count, int) and not isinstance(row.channel_count, bool), row
         assert isinstance(row.inactive_count, int) and not isinstance(row.inactive_count, bool)
-        assert row.pv_count >= 0, row
-        assert 0 <= row.inactive_count <= row.pv_count, row
+        assert row.channel_count >= 0, row
+        assert 0 <= row.inactive_count <= row.channel_count, row
         assert row.host is None or isinstance(row.host, str), row
     built.assert_read_only()
 
@@ -637,7 +637,7 @@ async def test_the_server_list_holds_every_server_the_backends_own_search_names(
         # A listing counts every PV the directory holds for the server, so never fewer
         # than one search names, nor fewer inactive ones.
         inactive = sum(row.status == "Inactive" for row in found)
-        assert listed[server].pv_count >= len(found), (server, listed[server])
+        assert listed[server].channel_count >= len(found), (server, listed[server])
         assert listed[server].inactive_count >= inactive, (server, listed[server])
     built.assert_read_only()
 

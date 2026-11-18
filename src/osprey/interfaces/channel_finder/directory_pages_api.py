@@ -1,7 +1,7 @@
 """PV and IOC page routes: ``pv/{name}``, ``ioc/{name}`` and ``logbook/availability``.
 
 Mounted under ``/api/directory`` by :mod:`.directory_api`. The PV and IOC pages
-answer the facts of :class:`~osprey.services.pv_directory.facts.Facts` over the
+answer the facts of :class:`~osprey.services.channel_directory.facts.Facts` over the
 lifespan's ``DirectoryService``. Logbook availability only says whether the
 current target has a logbook source; the panel reads the logbook itself.
 
@@ -14,14 +14,14 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from osprey.services.pv_directory._connectors import (
+from osprey.services.channel_directory._connectors import (
     DIRECTORY_CONNECTORS_AVAILABLE,
     FLOOR_REASON,
     NO_SOURCE_REASON,
     as_payload,
     logbook_source,
 )
-from osprey.services.pv_directory.facts import Facts
+from osprey.services.channel_directory.facts import Facts
 
 router = APIRouter()
 
@@ -31,16 +31,16 @@ def _facts(request: Request) -> Facts:
     return Facts(state.directory_service, state.config)
 
 
-@router.get("/pv/{name:path}")
-async def pv_page(name: str, request: Request) -> dict[str, Any]:
+@router.get("/channel/{name:path}")
+async def channel_page(name: str, request: Request) -> dict[str, Any]:
     """Every configured section about the PV called *name*: ``{name, outcome, sections}``."""
-    return await _facts(request).pv_facts(name)
+    return await _facts(request).channel_facts(name)
 
 
-@router.get("/ioc/{name:path}")
-async def ioc_page(name: str, request: Request) -> dict[str, Any]:
-    """The ``IocFacts`` of the IOC called *name*."""
-    return await _facts(request).ioc_facts(name)
+@router.get("/server/{name:path}")
+async def server_page(name: str, request: Request) -> dict[str, Any]:
+    """The ``ServerFacts`` of the IOC called *name*."""
+    return await _facts(request).server_facts(name)
 
 
 @router.get("/logbook/availability")

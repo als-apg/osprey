@@ -28,11 +28,11 @@ def channel(name: str, ioc: str | None, *, host: str | None = None, status: str 
     return {"name": name, "properties": properties, "tags": []}
 
 
-def big_directory(iocs: int = 30, per_ioc: int = 450) -> list[dict[str, Any]]:
-    """More channels than the result window: *iocs* IOCs of *per_ioc* PVs, every third Inactive."""
+def big_directory(iocs: int = 30, per_server: int = 450) -> list[dict[str, Any]]:
+    """More channels than the result window: *iocs* IOCs of *per_server* PVs, every third Inactive."""
     rows = []
     for i in range(iocs):
-        for j in range(per_ioc):
+        for j in range(per_server):
             rows.append(
                 channel(
                     f"SR{i:02d}:PV{j:04d}",
@@ -147,13 +147,13 @@ class TestTheFakeHasTheCeiling:
         assert isinstance(await naive_offset_pager(fake), Unavailable)
 
     async def test_a_directory_inside_the_window_pages_by_offset(self):
-        fake = ChannelFinderFake(big_directory(iocs=2, per_ioc=100))
+        fake = ChannelFinderFake(big_directory(iocs=2, per_server=100))
 
         assert len(await naive_offset_pager(fake)) == 200
 
 
 class TestListServers:
-    async def test_every_ioc_of_a_directory_past_the_window_is_listed(self):
+    async def test_every_server_of_a_directory_past_the_window_is_listed(self):
         fake = ChannelFinderFake(big_directory())
 
         rows = await backend(fake).list_servers(DEADLINE)
@@ -161,8 +161,10 @@ class TestListServers:
         assert not isinstance(rows, Unavailable), rows
         assert len(fake.channels) > WINDOW
         assert [row.name for row in rows] == [f"ioc-{i:02d}" for i in range(30)]
-        assert sum(row.pv_count for row in rows) == len(fake.channels)
-        assert rows[0] == ServerRow(name="ioc-00", host="host-0", pv_count=450, inactive_count=150)
+        assert sum(row.channel_count for row in rows) == len(fake.channels)
+        assert rows[0] == ServerRow(
+            name="ioc-00", host="host-0", channel_count=450, inactive_count=150
+        )
         assert all(row.inactive_count == 150 for row in rows)
 
     async def test_it_pages_over_the_scroll_route_never_by_offset(self):
@@ -177,14 +179,14 @@ class TestListServers:
         assert not any(name == "~from" for _, _, pairs in fake.sent for name, _ in pairs)
         assert all(method == "GET" for method, _, _ in fake.sent)
 
-    async def test_the_scroll_id_is_one_path_segment_even_for_a_pv_name(self):
+    async def test_the_scroll_id_is_one_path_segment_even_for_a_channel_name(self):
         fake = ChannelFinderFake(
             [channel(f"SR:A?B#C%{i:05d}.X", "odd", host="h") for i in range(6000)]
         )
 
         rows = await backend(fake).list_servers(DEADLINE)
 
-        assert rows == [ServerRow(name="odd", host="h", pv_count=6000, inactive_count=0)]
+        assert rows == [ServerRow(name="odd", host="h", channel_count=6000, inactive_count=0)]
         continued = [path for _, path, _ in fake.sent[1:]]
         assert continued and all("/" not in path[len(SCROLL) + 1 :] for path in continued)
         assert all("?" not in path and "#" not in path for path in continued)
@@ -199,7 +201,7 @@ class TestListServers:
         assert isinstance(rows, Unavailable)
         assert "refused" in rows.reason and "5000 PVs" in rows.reason
 
-    async def test_the_real_transport_lets_the_scroll_continue_after_a_pv_name(self):
+    async def test_the_real_transport_lets_the_scroll_continue_after_a_channel_name(self):
         fake = ChannelFinderFake(
             [channel(f"SR01:BPM{i:05d}.X", "bpm", host="h") for i in range(6000)],
             real_paths=True,
@@ -207,7 +209,7 @@ class TestListServers:
 
         rows = await backend(fake).list_servers(DEADLINE)
 
-        assert rows == [ServerRow(name="bpm", host="h", pv_count=6000, inactive_count=0)]
+        assert rows == [ServerRow(name="bpm", host="h", channel_count=6000, inactive_count=0)]
 
     async def test_the_scroll_routes_are_allowed_requests(self):
         allowed = ChannelFinderDirectory.ALLOWED_REQUESTS
@@ -227,30 +229,32 @@ class TestListServers:
         rows = await backend(fake).list_servers(DEADLINE)
 
         assert rows == [
-            ServerRow(name="alpha", host="h2", pv_count=1, inactive_count=0),
-            ServerRow(name="zeta", host="h1", pv_count=2, inactive_count=1),
+            ServerRow(name="alpha", host="h2", channel_count=1, inactive_count=0),
+            ServerRow(name="zeta", host="h1", channel_count=2, inactive_count=1),
         ]
 
-    async def test_a_pv_with_no_ioc_name_belongs_to_no_row(self):
-        fake = ChannelFinderFake([channel("A:1", None, host="h"), channel("B:1", "ioc", host="h")])
+    async def test_a_channel_with_no_server_name_belongs_to_no_row(self):
+        fake = ChannelFinderFake(
+            [channel("A:1", None, host="h"), channel("B:1", "server", host="h")]
+        )
 
         rows = await backend(fake).list_servers(DEADLINE)
 
-        assert rows == [ServerRow(name="ioc", host="h", pv_count=1, inactive_count=0)]
+        assert rows == [ServerRow(name="server", host="h", channel_count=1, inactive_count=0)]
 
-    async def test_an_ioc_with_no_host_reports_none(self):
-        fake = ChannelFinderFake([channel("A:1", "ioc")])
+    async def test_a_server_with_no_host_reports_none(self):
+        fake = ChannelFinderFake([channel("A:1", "server")])
 
         rows = await backend(fake).list_servers(DEADLINE)
 
-        assert rows == [ServerRow(name="ioc", host=None, pv_count=1, inactive_count=0)]
+        assert rows == [ServerRow(name="server", host=None, channel_count=1, inactive_count=0)]
 
-    async def test_the_host_of_its_active_pvs_wins_over_a_stale_one(self):
+    async def test_the_host_of_its_active_channels_wins_over_a_stale_one(self):
         fake = ChannelFinderFake(
             [
-                channel("A:1", "ioc", host="old-host", status="Inactive"),
-                channel("A:2", "ioc", host="old-host", status="Inactive"),
-                channel("A:3", "ioc", host="new-host"),
+                channel("A:1", "server", host="old-host", status="Inactive"),
+                channel("A:2", "server", host="old-host", status="Inactive"),
+                channel("A:3", "server", host="new-host"),
             ]
         )
 
@@ -264,20 +268,20 @@ class TestListServers:
         rows = await backend(fake).list_servers(DEADLINE)
 
         assert not isinstance(rows, Unavailable), rows
-        assert sum(row.pv_count for row in rows) == len(fake.channels)
+        assert sum(row.channel_count for row in rows) == len(fake.channels)
         assert len(rows) == 30
 
     async def test_a_short_page_with_no_id_ends_the_listing(self):
-        fake = ChannelFinderFake(big_directory(iocs=2, per_ioc=10))
+        fake = ChannelFinderFake(big_directory(iocs=2, per_server=10))
         fake.answer_override[0] = {"id": None, "channels": fake.channels}
 
         rows = await backend(fake).list_servers(DEADLINE)
 
         assert not isinstance(rows, Unavailable), rows
-        assert sum(row.pv_count for row in rows) == 20
+        assert sum(row.channel_count for row in rows) == 20
         assert len(fake.sent) == 1
 
-    async def test_an_empty_directory_lists_no_iocs(self):
+    async def test_an_empty_directory_lists_no_servers(self):
         rows = await backend(ChannelFinderFake([])).list_servers(DEADLINE)
 
         assert rows == []
