@@ -1388,8 +1388,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    facility tree (``--tables DIRECTORY`` names another), and draw with the
    settings in ``draw.json`` beside the tables (``--draw FILE`` names another;
    with neither, the empty settings, and one line says so). The screens are
-   Canopy Screen-IR documents, one file per screen, in eight view kinds:
-   ``card`` (one device, its signals, picture, relations and calibration
+   Canopy Screen-IR documents, one file per screen, in nine view kinds:
+   ``home`` (the one screen above all others: the top places, every set under
+   its class and every group with no set view, and what is in no place, so
+   every screen is reached from it), ``card`` (one device, its signals, picture, relations and calibration
    records), ``channels`` (every channel of a device with more than a card
    lists, grouped by role, then record type: the one plain list), ``set`` (the members of a group as a grid), ``calibration`` (one
    calibration kind over a set), ``place`` (a place's devices in beam order
@@ -1397,6 +1399,17 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
    ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
    level) and ``checkout`` (every setpoint beside its readback).
+
+   Every screen but the home leads back to it first in its crumbs, then out
+   through the places around it (to each place's view where it has one). The
+   ways down meet at a device's card: by place (a place view's racks open their
+   elevations, its sets their set views) and by system (the roll-up of one
+   system within a place opens the sets of its devices); a set opens its
+   members' cards, and a card names its sets on a line of their own above its
+   sources. A place's card draws at most 60 lights of its own channels and
+   counts the rest, which its roll-up reads. Controls of one group that share
+   a word are each named by what tells their channel apart ("Enable CH2"), and
+   a device whose presses all stand on its front has no operate block.
 
    The rule tables are CSV files, each held to its header: ``positions.csv``
    (where a thing sits), ``record_types.csv`` (each channel's record type and

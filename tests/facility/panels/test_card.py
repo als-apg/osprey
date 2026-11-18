@@ -2025,3 +2025,92 @@ def test_a_text_set_record_is_never_an_entry_on_a_card(tmp_path):
     assert any(n["props"].get("pv") == "XR01-QF1:Current-SP" for n in nodes(doc))  # still there
     assert not [n for n in inputs if "Name-SP" in str(n["props"].get("pv", ""))]
     assert "XR01-QF1:Name-SP" in json.dumps(stub_render(channel_list(graph, "XR01:QF1"), graph))
+
+
+def test_a_device_whose_presses_all_stand_on_its_front_has_no_operate_block(tmp_path):
+    def outlets(document) -> None:
+        for n in (1, 2):
+            document["channels"].append(
+                {"id": f"XR01-PS1:Out{n}-Cmd", "on": {"device": "XR01:PS1"}, "role": "setpoint"}
+            )
+
+    roles = (
+        "PowerSupply,internal,*:On-Cmd,device,value,,,,,stated,S,1,l\n"  # its one other press
+        "PowerSupply,cmd,*:Out[0-9]-Cmd,device,choice,,,1,On,stated,S,1,l\n"
+    )
+    graph = _fronted(
+        tmp_path, outlets,
+        "supply,front,outputs,1,Out{n},socket,,*:Out{n}-Cmd,powered_by,in,{n},,S\n", roles,
+    )  # fmt: skip
+    view = device_card(graph, "XR01:PS1")
+    assert [c.channel for g in _front_of(view).groups for k in g.connectors for c in k.controls]
+    assert "operate" not in [s.title for s in view.sections]  # no "no operator actions"
+    doc = stub_render(view, graph)
+    assert "no operator actions stated" not in [n["props"].get("text") for n in nodes(doc)]
+
+
+def test_presses_that_share_a_word_are_each_named_by_what_tells_their_channel_apart(tmp_path):
+    from osprey.facility.panels.describe import _operate
+    from osprey.facility.panels.model import RoleHit
+    from osprey.facility.panels.tables import ChannelRole
+
+    role = ChannelRole(
+        "PowerSupply", "enable", "*", "device", "action", None, None, 1.0, "Enable", "stated",
+        "S", "1", "l",
+    )  # fmt: skip
+    graph = _fronted(tmp_path)
+    thing = graph.thing("XR01:PS1", "device")
+    hits = [RoleHit(role, f"XR01:PS1:{name}:ENABLE", "XR01:PS1") for name in ("CH1", "CH2")]
+    operate, _used, _left = _operate(graph, thing, hits, [])
+    (group,) = operate.groups  # "Enable" twice would not say which is which
+    assert [c.label for c in group.controls] == ["Enable CH1", "Enable CH2"]
+
+
+def test_what_tells_names_apart_drops_the_segments_they_share():
+    from osprey.facility.panels.describe import _apart
+
+    assert _apart(["CH1:ENABLE", "CH2:ENABLE"]) == ["CH1", "CH2"]
+    assert _apart(["R1:CH1_Flt", "R1:CH2_Flt"]) == ["CH1", "CH2"]
+    assert _apart(["Current-SP", "Voltage-SP"]) == ["Current-SP", "Voltage-SP"]  # a suffix stays
+    assert _apart(["A", "A"]) == ["A", "A"]  # nothing tells them apart: whole
+    assert _apart(["ONE"]) == ["ONE"]
+
+
+def test_a_key_tile_s_note_goes_under_its_number_when_beside_it_would_cut_the_number(tmp_path):
+    roles = "Pump,state,*:State-Sts,device,word,,,,,stated,S,1,l\n"
+    graph = _roles_graph(tmp_path, roles)  # no state word stated for it
+    doc = stub_render(device_card(graph, "XR01:IP1"), graph)
+    (note,) = [
+        n for n in _by_type(doc, "text-label")
+        if n["props"]["text"] == layout._MEANING_NOT_STATED and n["geometry"]["y"] < 200
+    ]  # fmt: skip
+    (number,) = [
+        n for n in _by_type(doc, "pv-label")
+        if n["props"]["pv"] == "XR01-IP1:State-Sts" and n["props"]["fontSize"] == layout.KEY_VALUE_SIZE
+    ]  # fmt: skip
+    assert note["geometry"]["y"] >= number["geometry"]["y"] + number["geometry"]["height"]
+    assert number["geometry"]["width"] >= layout.VALUE_WIDTH  # the number keeps its room
+
+
+def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
+    from osprey.facility.panels.view import BlockRow, CardHead, Chain, ChainBlock, Target, View
+
+    def width(unit: str | None) -> float:
+        row = BlockRow("current", "XR01-QF1:Current-SP", shown_as="value", unit=unit)
+        block = ChainBlock("magnet", None, (row,), focus=True)
+        view = View(
+            Target("card", "device", "XR01:QF1"), "XR01:QF1", (),
+            (Section("head", (CardHead("Quadrupole · default recipe", None),)),
+             Section("circuit", (Chain((block,)),))),
+        )  # fmt: skip
+        doc = stub_render(view, panel_graph)
+        (box,) = [
+            n for n in nodes(doc)
+            if n["type"] == "rectangle" and n["props"].get("lineColor") == layout.symbols.FOCUS
+        ]  # fmt: skip
+        return box["geometry"]["width"]
+
+    long_unit = "1/Meter^2"
+    need = layout.BLOCK_LABEL + layout.text_width(f"-0.000 {long_unit}", layout.BLOCK_TEXT_SIZE)
+    assert width(long_unit) >= need  # the field holds the number and its unit whole
+    assert width(None) == layout.BLOCK_LEAST  # the facility's unit, A, fits the least

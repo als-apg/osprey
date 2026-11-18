@@ -609,7 +609,7 @@ def test_a_strip_symbol_over_the_rule_limit_takes_the_aggregate_ring(
 def test_every_fixture_view_renders_with_unique_ids_and_pinned_widgets(panel_graph) -> None:
     views = fixture_views(panel_graph)
     assert {v.id.view for v in views} == {
-        "card", "set", "calibration", "place", "rack", "rollup", "checkout"
+        "home", "card", "set", "calibration", "place", "rack", "rollup", "checkout"
     }  # fmt: skip
     for view in [*views, *invented_views()]:
         doc, _ = draw(view, panel_graph)

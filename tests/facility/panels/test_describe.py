@@ -13,13 +13,18 @@ import pytest
 
 from osprey.facility.panels import load_graph
 from osprey.facility.panels.describe import (
+    HOME,
+    HOME_LINK,
+    HOME_TARGET,
     NOT_PLACED,
     RACK_ORDER,
     RELATION_TITLES,
+    SETS_SECTION,
     checkout,
     describe,
     device_card,
     health_rollup,
+    home,
     place_view,
     rack_elevation,
     set_overview,
@@ -281,7 +286,7 @@ def test_a_card_shows_each_claim_even_when_two_sources_agree(panel_graph):
 
 def test_unit_claims_show_under_where_without_a_built_place(panel_graph):
     view = device_card(panel_graph, "XR02:CH5")
-    assert view.crumbs == ()
+    assert view.crumbs == (HOME_LINK,)  # no place: only the way home
     assert _titles(view) == ["head", "relations", "foot"]  # no raw located_in section
     where = _section(view, "where").items
     assert [(p.link.target, p.unit, p.link.standing) for p in where] == [
@@ -363,7 +368,9 @@ def test_a_class_with_picture_rows_yields_a_picture_and_one_without_none(panel_g
 def test_a_device_card_has_its_place_chain_as_crumbs(panel_graph):
     view = device_card(panel_graph, "XR01:CH1")
     assert view.id == card("XR01:CH1")
-    assert [crumb.target.id for crumb in view.crumbs] == ["XR", "XR/XR01", "XR/XR01/RK1"]
+    assert [crumb.target.id for crumb in view.crumbs] == [HOME, "XR", "XR/XR01", "XR/XR01/RK1"]
+    # up to each place's view where it has one, else its card
+    assert [crumb.target.view for crumb in view.crumbs] == ["home", "place", "place", "place"]
 
 
 def test_a_place_card_lists_its_screens_and_what_is_within(panel_graph):
@@ -604,9 +611,9 @@ def test_place_view_links_child_places_and_the_parent(panel_graph):
     (racks,) = _section(view, "places within").items
     assert (racks.title, racks.form, racks.more) == ("racks", "chips", None)
     assert [(n.label, n.link.target) for n in racks.nodes] == [
-        ("RK1", Target("place", "place", "XR/XR01/RK1"))
+        ("RK1", Target("rack", "place", "XR/XR01/RK1"))  # a rack opens its elevation
     ]
-    assert [crumb.target for crumb in view.crumbs] == [Target("place", "place", "XR")]
+    assert [crumb.target for crumb in view.crumbs] == [HOME_TARGET, Target("place", "place", "XR")]
 
 
 def test_places_within_are_grouped_by_what_the_data_states_and_counted_past_the_limit(
@@ -1240,3 +1247,83 @@ def test_grid_names_lose_the_segments_they_share_when_no_device_id_cuts_them():
         ("P", "DEV:P"),
     )
     assert _shared_cut(rows[:1]) == tuple(rows[:1])  # one alone keeps its name
+
+
+# -- the ways down: home, by place and by system, and back -------------------------
+
+
+def _reached(graph, start):
+    """Every target a walk over the links of the described views reaches from *start*."""
+    from tests.facility.panels._views import links
+
+    seen, todo = {start}, [start]
+    while todo:
+        for link in links(describe(graph, todo.pop())):
+            if link.target not in seen:
+                seen.add(link.target)
+                todo.append(link.target)
+    return seen
+
+
+def test_every_screen_is_reached_from_home(panel_graph):
+    found = targets(panel_graph)
+    assert found[0] == HOME_TARGET  # the one way in, written first
+    assert set(found) <= _reached(panel_graph, HOME_TARGET)
+
+
+def test_home_holds_the_top_places_the_sets_and_what_is_in_no_place(panel_graph):
+    view = home(panel_graph)
+    assert (view.id, view.crumbs) == (HOME_TARGET, ())
+    (places,) = _section(view, "places").items
+    assert [(n.label, n.link.target) for n in places.nodes] == [
+        ("XR", Target("place", "place", "XR"))
+    ]
+    sets = _section(view, SETS_SECTION).items
+    assert [(g.title, [n.label for n in g.nodes]) for g in sets] == [
+        ("Pump", ["XR01-VAC", "XR02-VAC"]),  # under their class, in name order
+        ("Quadrupole", ["XR-QUAD"]),
+    ]
+    rollup, loose = _section(view, NOT_PLACED).items
+    assert rollup.target == Target("rollup", "place", NOT_PLACED, by="place")
+    assert [n.link.target for n in loose.nodes] == [card("XR09:LOOSE1")]
+
+
+def test_a_device_card_links_back_to_its_sets(panel_graph):
+    (foot,) = _section(device_card(panel_graph, "XR01:QF1"), "foot").items
+    assert foot.sets == (Link("XR-QUAD", Target("set", "group", "XR-QUAD")),)
+    (none,) = _section(device_card(panel_graph, "XR01:CH1"), "foot").items
+    assert none.sets == ()
+
+
+def test_a_place_view_and_a_system_roll_up_open_the_sets_in_them(panel_graph):
+    quad = Link("XR-QUAD", Target("set", "group", "XR-QUAD"))
+    pumps = Link("XR01-VAC", Target("set", "group", "XR01-VAC"))
+    # the sector's sets: the one across both sectors and its own pumps, not the other's
+    assert _section(place_view(panel_graph, "XR/XR01"), SETS_SECTION).items == (quad, pumps)
+    one = health_rollup(panel_graph, "XR/XR01", "system", system="Quadrupole")
+    assert _section(one, SETS_SECTION).items == (quad,)  # a set is one class
+    every = health_rollup(panel_graph, "XR/XR01", "system")  # every system: every set here
+    assert _section(every, SETS_SECTION).items == (quad, pumps)
+    assert SETS_SECTION not in _titles(health_rollup(panel_graph, "XR/XR01", "place"))
+
+
+def test_a_place_card_draws_its_own_lights_up_to_the_cap_and_counts_the_rest(tmp_path, monkeypatch):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def faults(document) -> None:
+        for n in range(3):
+            document["channels"].append({"id": f"XR:Fault{n}-Sts", "on": {"place": "XR"}})
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as handle:
+        for n in range(3):
+            handle.write(f"XR:Fault{n}-Sts,1,bad,screen,stated,xr-screens,4d5e6f7,f.screen:{n}\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", faults), tables)
+    described = sys.modules[device_card.__module__]
+    monkeypatch.setattr(described, "HEALTH_CAP", 2)
+    health = _section(device_card(graph, "XR", "place"), "health").items
+    assert [type(i).__name__ for i in health] == ["Light", "Light", "Link"]
+    assert health[-1] == Link(
+        "1 more with a health rule, in the roll-up", Target("rollup", "place", "XR", by="place")
+    )

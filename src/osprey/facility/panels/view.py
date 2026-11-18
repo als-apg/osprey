@@ -68,10 +68,13 @@ __all__ = [
     "ViewKind",
 ]
 
-ViewKind = Literal["card", "channels", "set", "calibration", "place", "rack", "rollup", "checkout"]
+ViewKind = Literal[
+    "home", "card", "channels", "set", "calibration", "place", "rack", "rollup", "checkout"
+]
 
 #: Every view kind, in the order screens of one thing are listed.
 VIEW_KINDS: tuple[ViewKind, ...] = (
+    "home",
     "card",
     "channels",
     "set",
@@ -636,8 +639,8 @@ class CalibrationTallies:
 
 @dataclass(frozen=True)
 class CardFoot:
-    """A drawn card's last two muted lines: where the device is and what it is read
-    from, each one line; the full provenance on hover.
+    """A drawn card's last muted lines: where the device is, the sets it is in (when
+    any), and what it is read from, each one line; the full provenance on hover.
 
     Attributes:
         where: The where line in pieces, each its text and the screen it opens (or
@@ -647,6 +650,8 @@ class CardFoot:
         claims: What the where line is made of: the place, each ``located_in``
             claim (:class:`Placement`), each pose (:class:`Fact`).
         citations: The statements the sources line counts.
+        sets: The set views of the sets the device is a member of, one link each,
+            drawn on a line of their own between the two.
     """
 
     where: tuple[tuple[str, Link | None], ...]
@@ -654,6 +659,7 @@ class CardFoot:
     provenance: tuple[str, ...]
     claims: tuple[Item, ...] = ()
     citations: tuple[Citation, ...] = ()
+    sets: tuple[Link, ...] = ()
 
 
 @dataclass(frozen=True)
