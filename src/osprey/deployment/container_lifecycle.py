@@ -7730,28 +7730,21 @@ def _repo_label_filter(repo_root: Path) -> str:
     return f"label={REPO_ID_LABEL}={repo_identity(repo_root)}"
 
 
-def _checkout_containers(repo_root: Path) -> tuple[str, list[dict[str, Any]]]:
-    """Every container of this deployment, running or not, as the runtime lists it.
+def _project_containers(runtime: str, project: str) -> list[dict[str, Any]]:
+    """Every container compose labelled as one of *project*'s, running or not.
 
-    The containers of the compose project the deployment record names, minus
-    those another checkout created: :func:`claims_row` decides, so a row whose
-    repo id names another checkout is dropped and a row with no repo id is
-    ours. A second project on the host is never listed. Read through ``ps --format json`` and the health probe's
-    parser, so Docker's NDJSON and podman's array are one answer. Asked through
-    the runtime the deployment record names, the one the last start drove.
+    Read through ``ps --format json`` and the health probe's parser, so Docker's
+    NDJSON and podman's array are one answer. Nothing is filtered by checkout:
+    a caller that acts on the rows applies :func:`claims_row` itself.
 
-    :param repo_root: The deployment repo whose containers are listed.
-    :return: ``(runtime, rows)``: the runtime asked and its decoded ``ps`` rows.
-    :raises RuntimeError: There is no deployment record, or ``ps`` exited non-zero.
-    :raises DeploymentRecordError: The deployment record cannot be read.
+    :param runtime: The container runtime to ask, ``docker`` or ``podman``.
+    :param project: The compose project whose containers are listed.
+    :return: The decoded ``ps`` rows.
+    :raises RuntimeError: ``ps`` exited non-zero.
+    :raises subprocess.SubprocessError: ``ps`` did not answer in time.
     """
     from osprey.health.probes.container import _parse_ps_json
 
-    record = read_deployment_record(repo_root)
-    if record is None:
-        raise RuntimeError(f"no deployment record in {repo_root}")
-    runtime = record.runtime
-    project = record.compose_project
     listing = subprocess.run(
         [
             runtime,
@@ -7768,11 +7761,37 @@ def _checkout_containers(repo_root: Path) -> tuple[str, list[dict[str, Any]]]:
         timeout=15,
     )
     if listing.returncode != 0:
-        raise RuntimeError(f"`{runtime} ps` exited {listing.returncode}")
+        stderr = (listing.stderr or "").strip()
+        raise RuntimeError(
+            f"`{runtime} ps` exited {listing.returncode}" + (f": {stderr}" if stderr else "")
+        )
+    return _parse_ps_json(listing.stdout or "")
+
+
+def _checkout_containers(repo_root: Path) -> tuple[str, list[dict[str, Any]]]:
+    """Every container of this deployment, running or not, as the runtime lists it.
+
+    The containers of the compose project the deployment record names, minus
+    those another checkout created: :func:`claims_row` decides, so a row whose
+    repo id names another checkout is dropped and a row with no repo id is
+    ours. A second project on the host is never listed. Read through ``ps --format json`` and the health probe's
+    parser, so Docker's NDJSON and podman's array are one answer. Asked through
+    the runtime the deployment record names, the one the last start drove.
+
+    :param repo_root: The deployment repo whose containers are listed.
+    :return: ``(runtime, rows)``: the runtime asked and its decoded ``ps`` rows.
+    :raises RuntimeError: There is no deployment record, or ``ps`` exited non-zero.
+    :raises DeploymentRecordError: The deployment record cannot be read.
+    """
+    record = read_deployment_record(repo_root)
+    if record is None:
+        raise RuntimeError(f"no deployment record in {repo_root}")
+    runtime = record.runtime
+    project = record.compose_project
     repo_id = repo_identity(repo_root)
     rows = [
         row
-        for row in _parse_ps_json(listing.stdout or "")
+        for row in _project_containers(runtime, project)
         if claims_row(
             row_repo_id=container_label(row, REPO_ID_LABEL),
             row_project=project,
