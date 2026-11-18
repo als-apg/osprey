@@ -152,9 +152,9 @@ def test_the_built_spear3_tree_serves_measured_tune_as_the_deck_s_tunes(tmp_path
 def test_the_built_measured_tune_starts_from_a_waveform_of_its_shape(tmp_path: Path) -> None:
     from osprey.facility.build import build_facility
     from osprey.facility.views.simulator import simulator_wiring
+    from osprey_connectors.simulation import values
     from tests.facility._mml_built import WIDENED, widen
 
-    values = pytest.importorskip("osprey_connectors.simulation.values")
     facility = _facility(tmp_path)
     import_mml([EXPORT], facility)
     widen(facility, WIDENED["spear3"])
