@@ -80,6 +80,7 @@ __all__ = [
     "CardRecipe",
     "CardSection",
     "ChainStep",
+    "FrontRow",
     "StripSymbol",
     "Metric",
     "CalibrationKind",
@@ -112,6 +113,7 @@ CARD_RECIPES = "card_recipes.csv"
 CARD_SECTIONS = "card_sections.csv"
 CHAINS = "chains.csv"
 STRIP_SYMBOLS = "symbols.csv"
+FRONTS = "fronts.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -133,6 +135,7 @@ TABLE_FILES: tuple[str, ...] = (
     CARD_SECTIONS,
     CHAINS,
     STRIP_SYMBOLS,
+    FRONTS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -232,6 +235,21 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "source",
         ],
         STRIP_SYMBOLS: ["class", "devices", "symbol", "lane", "source"],
+        FRONTS: [
+            "recipe",
+            "face",
+            "group",
+            "order",
+            "connector",
+            "kind",
+            "count",
+            "channel",
+            "far_relation",
+            "far_direction",
+            "far_port",
+            "label",
+            "source",
+        ],
         CARD_RECIPES: [
             "class",
             "under",
@@ -349,6 +367,7 @@ OPTIONAL_FILES = frozenset(
         CARD_SECTIONS,
         CHAINS,
         STRIP_SYMBOLS,
+        FRONTS,
     }
 )
 
@@ -427,6 +446,12 @@ STRIP_SYMBOL_WORDS: tuple[str, ...] = (
 STRIP_LANES: tuple[str, ...] = ("below", "beam", "above")
 #: Which way a chain hop walks its relation: from the subject (``out``) or to it.
 DIRECTIONS: tuple[str, ...] = ("out", "in")
+#: How a ``fronts.csv`` row finds what is on a connector: a thing whose relation to
+#: the device names the connector (``in``), the device's own relation from it
+#: (``out``), or the connector as a thing of its own, both directions (``socket``).
+FAR_DIRECTIONS: tuple[str, ...] = ("in", "out", "socket")
+#: The kinds of connector a front draws.
+CONNECTOR_KINDS: tuple[str, ...] = ("socket", "hv-out", "eth", "power", "io", "slot")
 #: The ways of showing that are a control a press or a typed value writes.
 CONTROLS: tuple[str, ...] = ("entry", "choice", "action")
 #: A claim's standing, as relation claims have it.
@@ -455,6 +480,16 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CARD_SECTIONS: ("recipe", "order", "kind", "title"),
         CHAINS: ("recipe", "chain", "step", "relation", "direction", "title"),
         STRIP_SYMBOLS: ("class", "symbol", "lane"),
+        FRONTS: (
+            "recipe",
+            "face",
+            "group",
+            "order",
+            "connector",
+            "kind",
+            "far_relation",
+            "far_direction",
+        ),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -479,6 +514,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CARD_SECTIONS: {"kind": SECTION_KINDS},
         CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
         STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
+        FRONTS: {"kind": CONNECTOR_KINDS, "far_direction": FAR_DIRECTIONS},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -504,6 +540,7 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CARD_RECIPES: ("channels_cols",),
         CARD_SECTIONS: ("order", "window_m"),
         CHAINS: ("step", "from_step"),
+        FRONTS: ("order", "count"),
     }
 )
 _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -521,6 +558,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CARD_SECTIONS: ("recipe", "order"),
         CHAINS: ("recipe", "chain", "step"),
         STRIP_SYMBOLS: ("class", "devices"),
+        FRONTS: ("recipe", "face", "group", "connector"),
     }
 )
 
@@ -915,6 +953,33 @@ def _strip_symbol(**columns: Any) -> StripSymbol:
 
 
 @dataclass(frozen=True)
+class FrontRow:
+    """One row of ``fronts.csv``: a connector, or a numbered range of them, on the
+    ``face`` of the devices of ``recipe``, in ``group``, by ``order``.
+
+    ``connector`` names it; ``{n}`` makes it a range, numbered by ``count`` when
+    stated, else by the device's served channels that match ``channel``, else by
+    the socket things that exist (``far_direction`` ``socket``), else by the ports
+    the relation states. ``channel`` is the connector's state channel. What is on it
+    is found by ``far_relation`` in ``far_direction`` on the port ``far_port`` (empty:
+    any port); ``label`` is its word under the socket."""
+
+    recipe: str
+    face: str
+    group: str
+    order: float
+    connector: str
+    kind: str
+    count: float | None
+    channel: str | None
+    far_relation: str
+    far_direction: str
+    far_port: str | None
+    label: str | None
+    source: str | None
+
+
+@dataclass(frozen=True)
 class ShortName:
     """One row of ``names.csv``: the short name a strip shows for a thing.
 
@@ -1092,6 +1157,7 @@ class PanelTables:
     card_sections: tuple[CardSection, ...] = ()
     chains: tuple[ChainStep, ...] = ()
     strip_symbols: tuple[StripSymbol, ...] = ()
+    fronts: tuple[FrontRow, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -1115,6 +1181,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CARD_SECTIONS: CardSection,
         CHAINS: ChainStep,
         STRIP_SYMBOLS: _strip_symbol,
+        FRONTS: FrontRow,
     }
 )
 
@@ -1407,6 +1474,7 @@ def read_tables(panels_dir: Path) -> PanelTables:
         card_sections=_read(directory, CARD_SECTIONS),
         chains=_read(directory, CHAINS),
         strip_symbols=_read(directory, STRIP_SYMBOLS),
+        fronts=_read(directory, FRONTS),
     )
 
 

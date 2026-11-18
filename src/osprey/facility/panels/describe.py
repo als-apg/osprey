@@ -26,6 +26,7 @@ the channels and asks :mod:`~osprey.facility.panels.health` for the states.
 from __future__ import annotations
 
 import dataclasses
+import fnmatch
 import math
 import re
 import weakref
@@ -55,6 +56,7 @@ from osprey.facility.panels.tables import (
     CalibrationKind,
     CardSection,
     ChainStep,
+    FrontRow,
     Pose,
 )
 from osprey.facility.panels.view import (
@@ -73,10 +75,14 @@ from osprey.facility.panels.view import (
     ChannelCount,
     ChannelGrid,
     CheckRow,
+    Connector,
     Control,
     ControlGroup,
     Elevation,
     Fact,
+    FarEnd,
+    Front,
+    FrontGroup,
     Grid,
     GridCell,
     GridRow,
@@ -1635,6 +1641,13 @@ def recipe_chain(
         port = _port_word(step, edges[0]) or _relation_word(step.relation, step.direction == "out")
         blocks.append(dataclasses.replace(made[0], stack=tuple(made[1:]), arrow_in=port))
     shown_roles = {r for s in steps for r in (s.roles or "").split(";") if r}
+    shown_roles |= {  # a front of the recipe shows its roles on its connectors
+        r
+        for row in graph.card_sections(recipe)
+        if row.kind == "front"
+        for r in (row.roles or "").split(";")
+        if r
+    }
     mine = [
         h for h in hits
         if h.owner == thing.id and h.role.role not in shown_roles
@@ -1664,6 +1677,315 @@ def recipe_chain(
     for i in range(len(ordered) - 1):
         ordered[i] = dataclasses.replace(ordered[i], arrow=ordered[i + 1].arrow_in)
     return Chain(tuple(ordered), section.caption), used, state
+
+
+#: How a connector of a front came out: something on it, nothing stated, or
+#: two things or more on one side.
+FRONT_STATED, FRONT_NONE, FRONT_CONTESTED = "stated", "nothing stated", "contested"
+_PORTS_NOT_STATED = "port count and assignment not stated"
+_LOOSE = "on no stated port: {}"
+
+
+def _numbered(pattern: str) -> re.Pattern[str]:
+    """A ``{n}`` glob (``*:OutletStatus{n}``) as a regex that captures the number."""
+    head, _, tail = pattern.partition("{n}")
+
+    def glob(text: str) -> str:
+        return re.escape(text).replace(r"\*", ".*").replace(r"\?", ".")
+
+    return re.compile(glob(head) + r"(\d+)" + glob(tail))
+
+
+def _near(graph: PanelGraph, thing_id: str, relation: str, direction: str) -> list[Edge]:
+    """The claims of *relation* in *direction* at a thing, superseded ones left out;
+    ``out``: the thing is the subject, ``in``: the object."""
+    try:
+        edges = graph.neighbours(thing_id, "device").get(relation, ())
+    except KeyError:
+        return []
+    return [
+        e
+        for e in edges
+        if e.outgoing is (direction == "out") and e.standing != "superseded" and e.other != thing_id
+    ]
+
+
+def _socket(graph: PanelGraph, device: str, connector: str) -> str | None:
+    """The thing ``<device>:<connector>`` or ``<device>.<connector>``, if it exists."""
+    for sep in (":", "."):
+        try:
+            return graph.thing(f"{device}{sep}{connector}", "device").id
+        except KeyError:
+            continue
+    return None
+
+
+def front_numbers(graph: PanelGraph, device: str, row: FrontRow) -> list[str]:
+    """The connectors of a row: one (no ``{n}``), else the numbers 1..``count`` when
+    stated, else those of the device's served channels matching ``channel``, else
+    those of the socket things that exist, else those of the ports the relation
+    states; in number order, never as text."""
+    if "{n}" not in row.connector:
+        return [""]
+    if row.count is not None:
+        return [str(k) for k in range(1, int(row.count) + 1)]
+    found: set[int] = set()
+    if row.channel:
+        rx = _numbered(row.channel)
+        found = {
+            int(m.group(1)) for c in graph.channels(device, "device") if (m := rx.fullmatch(c.name))
+        }
+    elif row.far_direction == "socket":
+        rx = re.compile(r"[:.]" + _numbered(row.connector).pattern)
+        found = {
+            int(m.group(1))
+            for t in graph.named_under(device)
+            if (m := rx.fullmatch(t.id[len(device) :]))
+        }
+    elif row.far_port and "{n}" in row.far_port:
+        rx = re.compile(re.escape(row.far_port).replace(re.escape("{n}"), r"(\d+)"))
+        found = {
+            int(m.group(1))
+            for e in _near(graph, device, row.far_relation, row.far_direction)
+            if e.port and (m := rx.fullmatch(e.port))
+        }
+    return [str(k) for k in sorted(found)]
+
+
+def _far_end(graph: PanelGraph, index: _Index, thing_id: str, port: str | None) -> FarEnd:
+    try:
+        item = _ref(graph, index, graph.thing(thing_id, "device"))
+    except KeyError:
+        item = None
+    return FarEnd(thing_id, item if isinstance(item, Link) else None, port)
+
+
+def front_sides(
+    graph: PanelGraph, index: _Index, device: str, row: FrontRow, n: str
+) -> tuple[tuple[FarEnd, ...], ...]:
+    """What is on connector *n*, per side: a socket thing has two sides (its own
+    relation, then the relations naming it), any other connector one; on a side
+    one thing per thing, in id order."""
+    if row.far_direction == "socket":
+        socket = _socket(graph, device, row.connector.replace("{n}", n))
+        if socket is None:
+            return ((),)
+        return tuple(
+            tuple(
+                _far_end(graph, index, other, port)
+                for other, port in sorted(
+                    {
+                        e.other: e.other_port for e in _near(graph, socket, row.far_relation, d)
+                    }.items()
+                )
+            )
+            for d in ("out", "in")
+        )
+    port = (row.far_port or "").replace("{n}", n)
+    ends = {
+        e.other: e.other_port
+        for e in _near(graph, device, row.far_relation, row.far_direction)
+        if not port or e.port == port
+    }
+    return (tuple(_far_end(graph, index, o, p) for o, p in sorted(ends.items())),)
+
+
+def front_state(sides: tuple[tuple[FarEnd, ...], ...]) -> str:
+    """:data:`FRONT_CONTESTED` when a side has two things or more, else
+    :data:`FRONT_STATED` when a side has one, else :data:`FRONT_NONE`."""
+    if any(len(side) > 1 for side in sides):
+        return FRONT_CONTESTED
+    return FRONT_STATED if any(sides) else FRONT_NONE
+
+
+def _last_number(text: str) -> str | None:
+    found = re.findall(r"\d+", text)
+    return str(int(found[-1])) if found else None
+
+
+def card_front(
+    graph: PanelGraph,
+    index: _Index,
+    thing: Thing,
+    hits: list[RoleHit],
+    recipe: str,
+    section: CardSection,
+) -> Front:
+    """A card's front: each ``fronts.csv`` row of the recipe a connector or a
+    numbered range, by group; on each its state lamp (the row's ``channel``), what is
+    on it per side, the section's roles of the connector (the device's channels of
+    that role whose last number is the connector's, else the role on the one thing
+    on it) and its presses (only with a stated or inferred value). Things the rows'
+    relations name on no stated port are drawn apart, by class. A group with no
+    connector is left out, unless clients on no stated port are drawn for it."""
+    roles = [r for r in (section.roles or "").split(";") if r]
+    own = [h for h in hits if h.owner == thing.id and h.role.role in roles]
+    channels = {c.name for c in graph.channels(thing.id, "device")}
+    groups: list[FrontGroup] = []
+    presses: list[Control] = []
+    ported: set[str] = set()
+    loose_rows: list[FrontRow] = []
+    client_groups: set[tuple[str, str]] = set()
+    for (face, group), rows in _grouped(graph.fronts(recipe)):
+        connectors: list[Connector] = []
+        for row in rows:
+            numbers = front_numbers(graph, thing.id, row)
+            if "{n}" in row.connector and row.far_direction == "in":  # clients of a range
+                loose_rows.append(row)
+                client_groups.add((face, group))
+            for n in numbers:
+                sides = front_sides(graph, index, thing.id, row, n)
+                ported |= {end.thing for side in sides for end in side}
+                lamp = None
+                if row.channel:
+                    pattern = row.channel.replace("{n}", n)
+                    lamp = next(
+                        (c for c in sorted(channels) if fnmatch.fnmatchcase(c, pattern)), None
+                    )
+                rows_, controls = _connector_roles(graph, own, roles, n, sides, lamp)
+                presses += controls
+                label = (row.label or row.connector).replace("{n}", n)
+                connectors.append(Connector(label, row.kind, lamp, sides, rows_, tuple(controls)))
+        empty = None if connectors else _PORTS_NOT_STATED
+        groups.append(FrontGroup(face, group, tuple(connectors), empty))
+    loose = _loose(graph, index, thing.id, loose_rows, ported, roles)
+    # a group with no connector is drawn only as the clients' switch face whose
+    # ports no source states; a range with nothing in it is no part of this unit
+    groups = [g for g in groups if g.connectors or (loose and (g.face, g.title) in client_groups)]
+    return Front(
+        tuple(groups),
+        loose,
+        _LOOSE.format(_PORTS_NOT_STATED) if loose else None,
+        _front_writes(presses, thing.id) if presses else None,
+        section.caption,
+    )
+
+
+def _grouped(rows: list[FrontRow]) -> list[tuple[tuple[str, str], list[FrontRow]]]:
+    out: dict[tuple[str, str], list[FrontRow]] = {}
+    for row in rows:  # by order already
+        out.setdefault((row.face, row.group), []).append(row)
+    return list(out.items())
+
+
+def _connector_roles(
+    graph: PanelGraph,
+    own: list[RoleHit],
+    roles: list[str],
+    n: str,
+    sides: tuple[tuple[FarEnd, ...], ...],
+    lamp: str | None,
+) -> tuple[tuple[BlockRow, ...], list[Control]]:
+    """The values and presses of the section's roles on one connector."""
+    rows: list[BlockRow] = []
+    controls: list[Control] = []
+    single = [end.thing for side in sides for end in side]
+    for role in roles:
+        found = [h for h in own if h.role.role == role and n and _last_number(h.channel) == n]
+        if not found and len(single) == 1:  # the role on the one thing on it
+            try:
+                found = [h for h in graph.roles(single[0]) if h.role.role == role][:1]
+            except KeyError:
+                found = []
+            found = [h for h in found if h.role.shown_as not in CONTROLS]
+        for hit in found:
+            if hit.role.shown_as in CONTROLS:
+                if hit.role.shown_as == "entry":
+                    continue  # a typed value is set on the device's own operate block
+                press = _press(graph, hit)
+                if press is None:
+                    continue  # no value stated: no press (the card's count has it)
+                inferred = hit.role.press_value is not None and hit.role.basis == "inferred"
+                label = hit.role.label or _role_title(role)
+                controls.append(Control(label, hit.channel, press, None, inferred))
+            elif hit.channel != lamp or graph.state_words(hit.channel):
+                shown = hit.role.shown_as if hit.role.shown_as != "lamp" else "word"
+                unit, scale = _role_unit(graph, hit)
+                rows.append(
+                    BlockRow(
+                        _role_title(role).lower(), hit.channel, shown_as=shown, unit=unit,
+                        scale=scale, words=_words(graph, hit.channel),
+                    )
+                )  # fmt: skip
+                break  # one value per role and connector
+    return tuple(rows), controls
+
+
+def _loose(
+    graph: PanelGraph,
+    index: _Index,
+    device: str,
+    rows: list[FrontRow],
+    ported: set[str],
+    roles: list[str],
+) -> tuple[tuple[str, tuple[tuple[FarEnd, tuple[BlockRow, ...]], ...]], ...]:
+    """The devices the relations of the rows of numbered ranges name as clients of
+    the device (``in``) on no stated port, by class (in class order), each with the
+    section's roles it plays itself."""
+    seen: dict[str, Edge] = {}
+    for row in rows:
+        for edge in _near(graph, device, row.far_relation, row.far_direction):
+            if edge.port is None and edge.other not in ported and edge.other_kind == "device":
+                seen.setdefault(edge.other, edge)
+    by_class: dict[str, list[tuple[FarEnd, tuple[BlockRow, ...]]]] = {}
+    for other in sorted(seen):
+        try:
+            cls = graph.thing(other, seen[other].other_kind).cls or seen[other].other_kind
+        except KeyError:
+            cls = seen[other].other_kind
+        found: list[BlockRow] = []
+        if seen[other].other_kind == "device":
+            for hit in graph.roles(other):
+                if hit.role.role in roles and hit.role.shown_as not in CONTROLS:
+                    shown = "word" if hit.role.shown_as == "lamp" else hit.role.shown_as
+                    found.append(
+                        BlockRow(
+                            _role_title(hit.role.role).lower(), hit.channel, shown_as=shown,
+                            words=_words(graph, hit.channel),
+                        )
+                    )  # fmt: skip
+                    break
+        end = _far_end(graph, index, other, seen[other].other_port)
+        by_class.setdefault(cls, []).append((end, tuple(found)))
+    return tuple((cls, tuple(things)) for cls, things in sorted(by_class.items()))
+
+
+def _front_writes(controls: list[Control], device: str) -> str:
+    """One line for every press of a front: each writes its own connector's channel,
+    the values by word, an inferred one said so."""
+    values = list(dict.fromkeys((c.label, c.press_value, c.inferred) for c in controls))
+    words = ", ".join(
+        f"{label} = {press_words(Control(label, '', value, None, inferred))}"
+        for label, value, inferred in values
+    )
+    names = list(dict.fromkeys(_short_channel(c.channel, device) for c in controls))
+    span = names[0] if len(names) == 1 else f"{names[0]} … {names[-1]}"
+    return f"each button writes its own connector's channel ({span}) once: {words}"
+
+
+def front_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:
+    """Per recipe with a front, how many connectors came out each way
+    (:func:`front_state`), and its devices by whether every connector, some or none
+    has something stated on it (``all``, ``some``, ``none``)."""
+    index = _index(graph)
+    found: dict[str, Counter[str]] = {}
+    for device in devices:
+        recipe = graph.recipe(device)
+        name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
+        rows = graph.fronts(name)
+        if not rows or not any(r.kind == "front" for r in graph.card_sections(name)):
+            continue
+        counts = found.setdefault(name, Counter())
+        states: Counter[str] = Counter()
+        for row in rows:
+            for n in front_numbers(graph, device, row):
+                states[front_state(front_sides(graph, index, device, row, n))] += 1
+        counts.update(states)
+        total = sum(states.values())
+        whole = total and states[FRONT_STATED] == total
+        some = states[FRONT_STATED] or states[FRONT_CONTESTED]
+        counts["devices: all" if whole else "devices: some" if some else "devices: none"] += 1
+    return found
 
 
 def chain_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:
@@ -1855,6 +2177,8 @@ def _drawn_card(
         if row.kind == "chain" and row.members:
             chain, _used, _state = recipe_chain(graph, index, thing, hits, name, row)
             drawings.append((row.title, [chain]))
+        elif row.kind == "front":
+            drawings.append((row.title, [card_front(graph, index, thing, hits, name, row)]))
         elif row.kind == "strip":
             strip = card_strip(graph, index, thing, row)
             if strip is None:
@@ -1864,7 +2188,17 @@ def _drawn_card(
     if not graph.card_sections(name):  # no recipe rows: the built-in relations chain
         chain, _shown = _default_chain(graph, index, thing, hits)
         drawings.append((CARD_SECTIONS["relations"], [chain]))
-    operate, _in_operate, _unstated = _operate(graph, thing, hits, channels)
+    on_front = {
+        control.channel
+        for _title, items in drawings
+        for item in items
+        if isinstance(item, Front)
+        for group in item.groups
+        for connector in group.connectors
+        for control in connector.controls
+    }
+    operate_hits = [h for h in hits if h.channel not in on_front]  # drawn on the front
+    operate, _in_operate, _unstated = _operate(graph, thing, operate_hits, channels)
     columns = (
         int(recipe.channels_cols)
         if recipe is not None and recipe.channels_cols

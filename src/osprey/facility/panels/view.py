@@ -27,6 +27,7 @@ __all__ = [
     "ChainBlock",
     "ChannelCount",
     "ChannelGrid",
+    "Connector",
     "Control",
     "ControlGroup",
     "KeyTile",
@@ -35,6 +36,9 @@ __all__ = [
     "CheckRow",
     "Elevation",
     "Fact",
+    "FarEnd",
+    "Front",
+    "FrontGroup",
     "Grid",
     "GridCell",
     "GridRow",
@@ -860,6 +864,77 @@ class ChannelCount:
     link: Link
 
 
+@dataclass(frozen=True)
+class FarEnd:
+    """A thing on a connector of a front.
+
+    Attributes:
+        thing: Its id.
+        link: Its card, or ``None`` when it has none.
+        port: Its own port on the cable, when stated.
+    """
+
+    thing: str
+    link: Link | None = None
+    port: str | None = None
+
+
+@dataclass(frozen=True)
+class Connector:
+    """One connector of a front: an outlet, a port, a socket, a channel.
+
+    Attributes:
+        label: Its word under the socket (``Outlet 7``, ``CH1``).
+        kind: ``socket``, ``hv-out``, ``eth``, ``power``, ``io`` or ``slot``.
+        lamp: Its state channel, or ``None``.
+        sides: What is on it, per side (one side; a socket of its own has two):
+            each side the things found, none (nothing stated) or two and more
+            (contested, all drawn).
+        rows: Values of the section's roles for this connector or what is on it.
+        controls: Presses the section's control roles offer on this connector.
+    """
+
+    label: str
+    kind: str
+    lamp: str | None = None
+    sides: tuple[tuple[FarEnd, ...], ...] = ((),)
+    rows: tuple[BlockRow, ...] = ()
+    controls: tuple[Control, ...] = ()
+
+
+@dataclass(frozen=True)
+class FrontGroup:
+    """The connectors of one group of a face, in the unit's own order.
+
+    ``empty`` is the line drawn when the group has no connector stated (a switch's
+    ports, whose count and assignment no source states)."""
+
+    face: str
+    title: str
+    connectors: tuple[Connector, ...]
+    empty: str | None = None
+
+
+@dataclass(frozen=True)
+class Front:
+    """A device's faces with their connectors and what is on each.
+
+    Attributes:
+        groups: The groups, by ``order``.
+        loose: Things the face's relations name on no stated port, by class:
+            ``(class, things)``; each thing with its rows.
+        loose_note: The line over them.
+        writes: The line of what the connectors' presses write, or ``None``.
+        caption: The line under it, or ``None``.
+    """
+
+    groups: tuple[FrontGroup, ...]
+    loose: tuple[tuple[str, tuple[tuple[FarEnd, tuple[BlockRow, ...]], ...]], ...] = ()
+    loose_note: str | None = None
+    writes: str | None = None
+    caption: str | None = None
+
+
 Item = (
     ValueRow
     | Light
@@ -886,6 +961,7 @@ Item = (
     | ChannelGrid
     | ChannelCount
     | CardFoot
+    | Front
 )
 
 

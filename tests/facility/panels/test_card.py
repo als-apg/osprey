@@ -847,3 +847,183 @@ def test_press_groups_stand_side_by_side_and_entries_take_the_width(tmp_path) ->
     assert reset["geometry"]["y"] == start["geometry"]["y"]
     third = (layout.STRIP_WIDTH - 2 * layout.COLUMN_GAP) / 3 + layout.COLUMN_GAP
     assert abs(start["geometry"]["x"] - reset["geometry"]["x"] - third) < 0.1
+
+
+FRONTS_HEADER = (
+    "recipe,face,group,order,connector,kind,count,channel,far_relation,far_direction,"
+    "far_port,label,source\n"
+)
+
+
+def _fronted(tmp_path, change=None, fronts: str = "", roles: str = ""):
+    """A supply recipe with a front whose outputs are the loads powered by it on a port."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\n"
+        "PowerSupply,,,supply,,,S\nInfrastructure,,XR02:PP*,panel,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "supply,1,front,Outputs,,front,,state;cmd,the front's caption,S\n"
+        "panel,1,front,Sockets,,front,,,,S\n"
+    )
+    (tables / "fronts.csv").write_text(
+        FRONTS_HEADER
+        + (fronts or "supply,front,outputs,1,Out{n},power,3,,powered_by,in,{n},Out {n},S\n")
+    )
+    (tables / "channel_roles.csv").write_text(ROLES_HEADER + roles)
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def _ports(*pairs):
+    """Give the supply's loads object ports: (claim id, port)."""
+
+    def change(document) -> None:
+        for claim in document["relations"]:
+            for claim_id, port in pairs:
+                if claim["id"] == claim_id:
+                    claim["object"]["port"] = port
+
+    return change
+
+
+def _front_of(view):
+    from osprey.facility.panels.view import Front
+
+    return next(i for s in view.sections for i in s.items if isinstance(i, Front))
+
+
+def test_a_front_numbers_its_connectors_and_names_what_is_on_each(tmp_path):
+    graph = _fronted(tmp_path, _ports(("xr01-qf1-power", "1"), ("xr01-qd1-power", "2")))
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    (group,) = front.groups
+    assert [c.label for c in group.connectors] == ["Out 1", "Out 2", "Out 3"]
+    one, two, three = group.connectors
+    assert [e.thing for e in one.sides[0]] == ["XR01:QF1"]
+    assert one.sides[0][0].link.target.id == "XR01:QF1"  # opens its card
+    assert [e.thing for e in two.sides[0]] == ["XR01:QD1"] and three.sides == ((),)
+    assert front.caption == "the front's caption"
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    for word in ("Out 1", "Out 2", "Out 3", "—"):  # nothing stated on output 3
+        assert [n for n in _by_type(doc, "text-label") if n["props"]["text"] == word], word
+    assert [n for n in nodes(doc) if n["props"].get("tooltip") == "open XR01:QF1"]
+
+
+def test_two_things_on_one_connector_are_both_drawn_contested(tmp_path):
+    from osprey.facility.panels.describe import FRONT_CONTESTED, front_state
+
+    graph = _fronted(tmp_path, _ports(("xr01-qf1-power", "1"), ("xr01-qd1-power", "1")))
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    one = front.groups[0].connectors[0]
+    assert [e.thing for e in one.sides[0]] == ["XR01:QD1", "XR01:QF1"]
+    assert front_state(one.sides) == FRONT_CONTESTED
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    assert _text(doc, "contested")
+
+
+def test_a_range_is_numbered_by_its_served_channels_in_number_order(tmp_path):
+    from osprey.facility.panels.describe import front_numbers
+
+    def outlets(document) -> None:
+        for n in (10, 2, 1):
+            document["channels"].append(
+                {"id": f"XR01-PS1:Out{n}-Sts", "on": {"device": "XR01:PS1"}}
+            )
+
+    graph = _fronted(
+        tmp_path,
+        outlets,
+        "supply,front,outputs,1,Out{n},socket,,*:Out{n}-Sts,powered_by,in,{n},,S\n",
+    )
+    (row,) = graph.fronts("supply")
+    assert front_numbers(graph, "XR01:PS1", row) == ["1", "2", "10"]  # never as text
+    connectors = _front_of(device_card(graph, "XR01:PS1")).groups[0].connectors
+    assert [c.lamp for c in connectors] == [
+        "XR01-PS1:Out1-Sts",
+        "XR01-PS1:Out2-Sts",
+        "XR01-PS1:Out10-Sts",
+    ]
+
+
+def test_clients_on_no_stated_port_are_drawn_apart_by_class(tmp_path):
+    graph = _fronted(
+        tmp_path, None, "supply,front,outputs,1,Out{n},power,,,powered_by,in,{n},,S\n"
+    )  # no port is stated: no connector, every load on no stated port
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    (group,) = front.groups
+    assert group.connectors == () and group.empty == "port count and assignment not stated"
+    assert [(cls, [e.thing for e, _rows in things]) for cls, things in front.loose] == [
+        ("Quadrupole", ["XR01:QD1", "XR01:QF1"])
+    ]
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    assert _text(doc, "Quadrupole (2)")
+
+
+def test_a_socket_of_its_own_shows_both_sides_and_a_range_with_no_socket_is_left_out(tmp_path):
+    def sockets(document) -> None:
+        document["devices"] += [
+            {"id": "XR02:PP1", "class": "Infrastructure"},
+            {"id": "XR02:PP1:A1", "class": "Infrastructure"},
+        ]
+        document["relations"] += [
+            {"id": "pp-out", "type": "networked_to", "subject": {"device": "XR02:PP1:A1"},
+             "object": {"device": "XR01:CH1"}},
+            {"id": "pp-in", "type": "networked_to", "subject": {"device": "XR01:CH2"},
+             "object": {"device": "XR02:PP1:A1"}},
+        ]  # fmt: skip
+
+    graph = _fronted(
+        tmp_path, sockets,
+        "panel,front,row A,1,A{n},socket,,,networked_to,socket,,A{n},S\n"
+        "panel,front,row B,2,B{n},socket,,,networked_to,socket,,B{n},S\n",
+    )  # fmt: skip
+    front = _front_of(device_card(graph, "XR02:PP1"))
+    (group,) = front.groups  # row B has no socket: no part of this panel
+    (socket,) = group.connectors
+    assert [[e.thing for e in side] for side in socket.sides] == [["XR01:CH1"], ["XR01:CH2"]]
+
+
+def test_a_connector_shows_its_roles_and_offers_only_stated_presses(tmp_path):
+    def outlets(document) -> None:
+        for n in (1, 2):
+            for name in ("Sts", "Cmd"):
+                document["channels"].append(
+                    {"id": f"XR01-PS1:Out{n}-{name}", "on": {"device": "XR01:PS1"}}
+                )
+
+    roles = (
+        "PowerSupply,state,*:Out[0-9]-Sts,device,lamp,,,,,stated,S,1,l\n"
+        "PowerSupply,cmd,*:Out[0-9]-Cmd,device,choice,,,1,On,stated,S,1,l\n"
+        "PowerSupply,cmd,*:Out[0-9]-Cmd,device,choice,,,3,Cycle,inferred,S,1,l\n"
+        "PowerSupply,cmd,*:Out[0-9]-Cmd,device,choice,,,,Off,stated,S,1,l\n"  # no value
+    )
+    graph = _fronted(
+        tmp_path, outlets,
+        "supply,front,outputs,1,Out{n},socket,,*:Out{n}-Sts,powered_by,in,{n},,S\n", roles,
+    )  # fmt: skip
+    view = device_card(graph, "XR01:PS1")
+    front = _front_of(view)
+    one, two = front.groups[0].connectors
+    assert [(c.label, c.channel, c.press_value, c.inferred) for c in two.controls] == [
+        ("On", "XR01-PS1:Out2-Cmd", 1.0, False),
+        ("Cycle", "XR01-PS1:Out2-Cmd", 3.0, True),
+    ]  # Off states no value: no press
+    assert front.writes == (
+        "each button writes its own connector's channel (XR01-PS1:Out1-Cmd … XR01-PS1:Out2-Cmd) "
+        "once: On = 1, Cycle = 3 (value inferred, not stated in the database)"
+    )
+    operate = [i for s in view.sections for i in s.items if type(i).__name__ == "Operate"]
+    assert all(
+        c.channel not in {"XR01-PS1:Out1-Cmd", "XR01-PS1:Out2-Cmd"}
+        for o in operate for g in o.groups for c in g.controls
+    )  # drawn on the front, not twice  # fmt: skip
+    doc = stub_render(view, graph)
+    presses = [n for n in _by_type(doc, "pv-button") if n["props"]["pv"].startswith("XR01-PS1:Out")]
+    assert sorted(n["props"]["pressValue"] for n in presses) == [1, 1, 3, 3]
+
+
+def test_tables_without_fronts_still_build(panel_graph):
+    assert panel_graph.fronts("supply") == []

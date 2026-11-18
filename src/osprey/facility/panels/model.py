@@ -72,6 +72,7 @@ from osprey.facility.panels.tables import (
     ChannelUnit,
     CurvePoint,
     DrawnAs,
+    FrontRow,
     HealthRule,
     Metric,
     Pair,
@@ -419,6 +420,7 @@ class PanelGraph:
         self._records = records
         self._tables = tables
         self._content_hash = content_hash
+        self._under_names: dict[str, list[Thing]] | None = None
         self.unread = 0
         """How many values of rows the graph could not read (see the module docstring)."""
         excluded = {kind: set[str]() for kind in ("thing", "channel", "document")}
@@ -483,6 +485,9 @@ class PanelGraph:
         self._symbols: dict[str, list[StripSymbol]] = {}
         for symbol in tables.strip_symbols:
             self._symbols.setdefault(symbol.cls, []).append(symbol)
+        self._fronts: dict[str, list[FrontRow]] = {}
+        for front in sorted(tables.fronts, key=lambda r: r.order):
+            self._fronts.setdefault(front.recipe, []).append(front)
         self._steps: dict[tuple[str, str], list[ChainStep]] = {}
         for step in sorted(tables.chains, key=lambda r: r.step):
             self._steps.setdefault((step.recipe, step.chain), []).append(step)
@@ -1274,6 +1279,24 @@ class PanelGraph:
     def card_sections(self, recipe: str) -> list[CardSection]:
         """The ``card_sections.csv`` rows of *recipe*, by ``order``."""
         return list(self._sections.get(recipe, ()))
+
+    def fronts(self, recipe: str) -> list[FrontRow]:
+        """The ``fronts.csv`` rows of *recipe*, by ``order``."""
+        return list(self._fronts.get(recipe, ()))
+
+    def named_under(self, owner: str) -> list[Thing]:
+        """The devices whose id is *owner* and one more ``:`` or ``.`` segment (the
+        sockets of a panel named ``<panel>:A1``), in id order; indexed once."""
+        if self._under_names is None:
+            found: dict[str, list[Thing]] = {}
+            for thing in self._things.values():
+                if thing.kind != "device":
+                    continue
+                cut = max(thing.id.rfind(":"), thing.id.rfind("."))
+                if cut > 0:
+                    found.setdefault(thing.id[:cut], []).append(thing)
+            self._under_names = {k: sorted(v, key=lambda t: t.id) for k, v in found.items()}
+        return list(self._under_names.get(owner, ()))
 
     def chain(self, recipe: str, chain: str) -> list[ChainStep]:
         """The hops of a recipe's chain, by ``step``."""

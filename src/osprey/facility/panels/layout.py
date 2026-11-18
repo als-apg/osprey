@@ -73,10 +73,14 @@ from osprey.facility.panels.view import (
     ChannelCount,
     ChannelGrid,
     CheckRow,
+    Connector,
     Control,
     ControlGroup,
     Elevation,
     Fact,
+    FarEnd,
+    Front,
+    FrontGroup,
     Grid,
     GridCell,
     GridRow,
@@ -236,6 +240,16 @@ BLOCK_GAP_LEAST = 48
 BLOCK_NARROWEST = 168
 TITLE_LINES = 2  # a chain block's title, an arrow's word: at most this many lines
 ARROW_RUN_MOST = 112  # the longest arrow between two blocks, for a long word
+# a card's front: connectors at a fixed pitch on a panel body, what is on each under it
+FRONT_PITCH_LEAST, FRONT_PITCH_MOST = 60, 150
+FRONT_GROUP_GAP = 24  # between two groups of a face
+SOCKET_SIZE = 26
+SOCKET_INSET = 7  # the socket's opening inside its outline
+FRONT_BODY_PAD = 10  # the panel body round its connectors
+FRONT_CABLE = 14  # the cable from the body to what is on the connector
+FAR_BOX_HEIGHT = 34  # a far end's box: two small lines
+FRONT_EMPTY_WIDTH = 360  # a group with no connector stated: its body with the note
+LOOSE_COLUMNS = 4  # things on no stated port, in columns
 CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
 CONTROL_TAG_HEIGHT = 18
@@ -517,6 +531,8 @@ _NO_RULE = "no rule"
 _NO_UNIT = "no unit"
 _ROWS_NOT_DRAWN = "rows not drawn: the screen holds a table of at most this many rows"
 _CONTESTED = "contested"
+_NOTHING = "\u2014"  # what a connector with nothing stated on it shows
+_NO_CONNECTOR = "no connector stated for this unit"
 _STRIP_TITLE = "IN BEAM ORDER → · schematic, not to scale"
 _LOOKS_LEGEND = (
     "fill = component type · red ring = fault · amber ring = warning · dashed = no health rule"
@@ -2125,6 +2141,9 @@ class _Page:
             elif isinstance(first, Chain):
                 number += 1
                 self.framed(f"{number} · {section.title}", partial(self.chain_blocks, first))
+            elif isinstance(first, Front):
+                number += 1
+                self.framed(f"{number} · {section.title}", partial(self.card_front, first))
             elif isinstance(first, Operate):
                 number += 1
                 self.framed(f"{number} · {section.title}", partial(self.operate, first))
@@ -2488,6 +2507,195 @@ class _Page:
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
 
+    def card_front(self, front: Front) -> None:
+        """A device's faces: its connectors at one pitch on a panel body, group by
+        group in the unit's own order, wrapping into more lines; under each the cable
+        to what is on it (a box that opens its card; dashed "nothing stated" where
+        nothing is; every thing, dashed and "contested", where a side has two),
+        then the section's values and the connector's own presses. A group with no
+        connector stated is an empty body with its note. Then the line of what the
+        presses write, the things on no stated port by class, and the caption."""
+        slots = sum(max(len(g.connectors), 1) for g in front.groups)
+        room = STRIP_WIDTH - FRONT_GROUP_GAP * max(len(front.groups) - 1, 0)
+        pitch = max(FRONT_PITCH_LEAST, min(FRONT_PITCH_MOST, room / max(slots, 1)))
+        line: list[tuple[FrontGroup, list[Connector]]] = []
+        x = 0.0
+        for group in front.groups:
+            if not group.connectors:
+                width = FRONT_EMPTY_WIDTH
+                if line and x + FRONT_GROUP_GAP + width > STRIP_WIDTH:
+                    self.front_line(line, pitch)
+                    line, x = [], 0.0
+                x += (FRONT_GROUP_GAP if line else 0) + width
+                line.append((group, []))
+                continue
+            x += FRONT_GROUP_GAP if line else 0
+            part: list[Connector] = []
+            line.append((group, part))
+            for connector in group.connectors:
+                if x + pitch > STRIP_WIDTH and (part or len(line) > 1):
+                    if not part:
+                        line.pop()
+                    self.front_line(line, pitch)
+                    part = []
+                    line, x = [(group, part)], 0.0
+                part.append(connector)
+                x += pitch
+        if line:
+            self.front_line(line, pitch)
+        if not front.groups:
+            self.small(self.x0, self.y, _NO_CONNECTOR, fg=MUTED_TEXT)
+            self.y += SMALL_LINE + ROW_GAP
+        if front.writes:
+            for text in _wrap(front.writes, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+                self.small(self.x0, self.y, text, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+            self.y += ROW_GAP
+        if front.loose:
+            self.front_loose(front)
+        if front.caption:
+            for text in _wrap(front.caption, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+                self.small(self.x0, self.y, text, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+        self.y += ROW_GAP
+
+    def front_line(self, line: list[tuple[FrontGroup, list[Connector]]], pitch: float) -> None:
+        """One line of a front: each group's title over its part of the body, the
+        connectors, and under each what is on it, its values and its presses."""
+        top = self.y
+        body_top = top + SMALL_LINE + ROW_GAP
+        body_h = 2 * FRONT_BODY_PAD + SOCKET_SIZE + GAP + LIGHT_SIZE + SMALL_LINE
+        under = body_top + body_h + FRONT_CABLE
+        x = self.x0
+        bottom = under
+        for k, (group, connectors) in enumerate(line):
+            x += FRONT_GROUP_GAP if k else 0
+            width = pitch * len(connectors) if connectors else FRONT_EMPTY_WIDTH
+            title = group.title if group.face in ("", "front") else f"{group.face} · {group.title}"
+            self.text(x, top, _cut(title, width, SMALL_SIZE), size=SMALL_SIZE, w=width, h=SMALL_LINE, fg=MUTED_TEXT)  # fmt: skip
+            self.box(x, body_top, width, body_h, line=BOX_BORDER, fill=PANEL_BACKGROUND)
+            if not connectors:
+                self.box(x + GAP, body_top + FRONT_BODY_PAD, width - 2 * GAP, SOCKET_SIZE, line=MUTED_TEXT, dashed=True)  # fmt: skip
+                self.text(
+                    x + GAP, body_top + FRONT_BODY_PAD + SOCKET_SIZE + GAP, group.empty or "",
+                    size=SMALL_SIZE, w=width - 2 * GAP, h=SMALL_LINE, fg=MUTED_TEXT,
+                )  # fmt: skip
+            for connector in connectors:
+                bottom = max(bottom, self.connector(x, body_top, pitch, connector, under))
+                x += pitch
+            if not connectors:
+                x += width
+        self.y = bottom + ROW_GAP + GAP
+
+    def connector(
+        self, x: float, body_top: float, pitch: float, connector: Connector, under: float
+    ) -> float:
+        """One connector in its slot: socket, lamp, label on the body; under it the
+        cable and what is on it per side, its values, its presses. Returns the
+        bottom."""
+        cx = x + pitch / 2
+        sy = body_top + FRONT_BODY_PAD
+        self.box(cx - SOCKET_SIZE / 2, sy, SOCKET_SIZE, SOCKET_SIZE, line=PAGE_TEXT, fill=PANEL_BACKGROUND)  # fmt: skip
+        inner = SOCKET_SIZE - 2 * SOCKET_INSET
+        self.box(
+            cx - inner / 2, sy + SOCKET_INSET, inner, inner / 2, line=PAGE_TEXT, fill=MUTED_TEXT
+        )
+        ly = sy + SOCKET_SIZE + GAP / 2
+        if connector.lamp is not None:
+            if meaning_stated(self.graph, connector.lamp):
+                self.light(cx - LIGHT_SIZE / 2, ly - (ROW - LIGHT_SIZE) / 2, [describe_light(self.graph, connector.lamp)])  # fmt: skip
+            else:
+                self.no_rule(cx - LIGHT_SIZE / 2, ly - (ROW - LIGHT_SIZE) / 2)
+        label = connector.label if text_width(connector.label, SMALL_SIZE) <= pitch - GAP else (
+            connector.label.rsplit(" ", 1)[-1]
+        )  # fmt: skip
+        self.text(
+            x, ly + LIGHT_SIZE + GAP / 2, _cut(label, pitch, SMALL_SIZE), size=SMALL_SIZE,
+            w=pitch, h=SMALL_LINE, align="center",
+        )  # fmt: skip
+        body_bottom = under - FRONT_CABLE
+        self.line([(cx, body_bottom), (cx, under)], MUTED_TEXT, BLOCK_LINE)
+        y = under
+        w = pitch - GAP
+        bx = x + GAP / 2
+        for side in connector.sides:
+            if not side:
+                self.box(bx, y, w, FAR_BOX_HEIGHT, line=MUTED_TEXT, dashed=True)
+                self.text(bx, y, _NOTHING, size=SMALL_SIZE, w=w, h=FAR_BOX_HEIGHT, fg=MUTED_TEXT, align="center")  # fmt: skip
+                y += FAR_BOX_HEIGHT + ROW_GAP
+                continue
+            contested = len(side) > 1
+            for end in side:
+                self.far_box(bx, y, w, end, contested)
+                y += FAR_BOX_HEIGHT + ROW_GAP
+            if contested:
+                self.text(bx, y, _CONTESTED, size=SMALL_SIZE, w=w, h=SMALL_LINE, fg=MUTED_TEXT, align="center")  # fmt: skip
+                y += SMALL_LINE + ROW_GAP
+        for row in connector.rows:
+            self.shown_value(
+                bx, y, w, row.channel, row.shown_as, row.words, unit=row.unit, scale=row.scale,
+                size=SMALL_SIZE, h=ROW, text=row.text,
+            )  # fmt: skip
+            self.s.widget(
+                "rectangle", bx, y, w, ROW,
+                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0,
+                 _TOOLTIP: f"{row.label}: {row.channel or row.text or ''}"},
+            )  # fmt: skip
+            y += ROW + ROW_GAP
+        for control in connector.controls:
+            self.press(bx, y, control, True, w, ROW)
+            y += ROW + ROW_GAP
+        return y
+
+    def far_box(self, x: float, y: float, w: float, end: FarEnd, contested: bool) -> None:
+        """What is on a connector: its id in two lines (the part before its last
+        ``:``, then the rest; with its own port, the id and the port), opening its
+        card."""
+        if contested:
+            self.box(x, y, w, FAR_BOX_HEIGHT, line=symbols.ALARM_MINOR, dashed=True)
+        else:
+            self.box(x, y, w, FAR_BOX_HEIGHT, line=PAGE_TEXT, fill=PANEL_BACKGROUND)
+        head, _, tail = end.thing.rpartition(":")
+        first, second = (end.thing, f"port {end.port}") if end.port else (head, tail or end.thing)
+        half = FAR_BOX_HEIGHT / 2
+        self.text(x, y + 1, _cut(first, w, SMALL_SIZE), size=SMALL_SIZE, w=w, h=half, fg=MUTED_TEXT, align="center")  # fmt: skip
+        self.text(x, y + half - 1, _cut(second, w, SMALL_SIZE), size=SMALL_SIZE, w=w, h=half, align="center")  # fmt: skip
+        if end.link is not None:
+            self.nav(x, y, w, FAR_BOX_HEIGHT, replace(end.link, label=f"open {end.thing}"))
+        else:
+            self.s.widget(
+                "rectangle", x, y, w, FAR_BOX_HEIGHT,
+                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: end.thing},
+            )  # fmt: skip
+
+    def front_loose(self, front: Front) -> None:
+        """Things the face's relations name on no stated port: the note, then per
+        class its title and count and its things in columns, each with its value."""
+        self.small(self.x0, self.y, front.loose_note or "", fg=MUTED_TEXT)
+        self.y += SMALL_LINE + ROW_GAP
+        cw = (STRIP_WIDTH - GAP * (LOOSE_COLUMNS - 1)) / LOOSE_COLUMNS
+        for cls, things in front.loose:
+            self.text(self.x0, self.y, f"{cls} ({len(things)})", size=SMALL_SIZE, h=SMALL_LINE)
+            self.y += SMALL_LINE + ROW_GAP
+            per = -(-len(things) // LOOSE_COLUMNS)
+            top = self.y
+            for i, (end, rows) in enumerate(things):
+                c, r = divmod(i, per)
+                bx, by = self.x0 + c * (cw + GAP), top + r * (FAR_BOX_HEIGHT + ROW_GAP)
+                self.box(bx, by, cw, FAR_BOX_HEIGHT, line=PAGE_TEXT, fill=PANEL_BACKGROUND)
+                name_w = cw / 2 if rows else cw - GAP
+                self.text(bx + GAP, by, _cut(end.thing, name_w, TEXT_SIZE), w=name_w, h=FAR_BOX_HEIGHT)  # fmt: skip
+                if end.link is not None:
+                    self.nav(
+                        bx, by, cw, FAR_BOX_HEIGHT, replace(end.link, label=f"open {end.thing}")
+                    )
+                for row in rows[:1]:
+                    self.shown_value(
+                        bx + cw / 2, by + (FAR_BOX_HEIGHT - ROW) / 2, cw / 2 - GAP, row.channel,
+                        row.shown_as, row.words, size=SMALL_SIZE,
+                    )  # fmt: skip
+            self.y = top + per * (FAR_BOX_HEIGHT + ROW_GAP) + GAP
+
     def chain_blocks(self, chain: Chain) -> None:
         """Blocks left to right, each its title over its box of lines, the arrow and
         its word to the next. Up to :data:`BLOCKS_PER_ROW` share a row, narrowed to
@@ -2736,13 +2944,21 @@ class _Page:
         self.text(x, y, kind, size=SMALL_SIZE, w=w, h=CONTROL_TAG_HEIGHT, fg=colour, align="center")
         return x + w
 
-    def press(self, x: float, y: float, control: Control, choice: bool) -> None:
+    def press(
+        self,
+        x: float,
+        y: float,
+        control: Control,
+        choice: bool,
+        w: float = CONTROL_WIDTH,
+        h: float = CONTROL_HEIGHT,
+    ) -> None:
         """An action button (filled) or a choice's segment (outlined, shaded while the
         status reads its value); a press whose value no source states is a dashed box."""
         if control.press_value is None:
-            self.box(x, y, CONTROL_WIDTH, CONTROL_HEIGHT, line=MUTED_TEXT, dashed=True)
+            self.box(x, y, w, h, line=MUTED_TEXT, dashed=True)
             label = f"{control.label}: {_VALUE_NOT_STATED}"
-            self.text(x, y, _cut(label, CONTROL_WIDTH, SMALL_SIZE), size=SMALL_SIZE, w=CONTROL_WIDTH, h=CONTROL_HEIGHT, fg=MUTED_TEXT, align="center")  # fmt: skip
+            self.text(x, y, _cut(label, w, SMALL_SIZE), size=SMALL_SIZE, w=w, h=h, fg=MUTED_TEXT, align="center")  # fmt: skip
             return
         value = control.press_value
         props: dict[str, Any] = {
@@ -2773,13 +2989,13 @@ class _Page:
                         "default": PANEL_BACKGROUND,
                     }
                 ]
-            self.box(x - 1, y - 1, CONTROL_WIDTH + 2, CONTROL_HEIGHT + 2, fill=TRANSPARENT)
+            self.box(x - 1, y - 1, w + 2, h + 2, fill=TRANSPARENT)
         else:
             props |= {
                 "backgroundColor": symbols.CONTROL_ACTION,
                 "foregroundColor": symbols.CONTROL_ACTION_TEXT,
             }
-        self.s.widget("pv-button", x, y, CONTROL_WIDTH, CONTROL_HEIGHT, props, rules=rules)
+        self.s.widget("pv-button", x, y, w, h, props, rules=rules)
 
     def entry(self, control: Control) -> None:
         """Type, check, Apply: the name, the live value (now), a field that writes a

@@ -1330,11 +1330,15 @@ def panels_write(
             + (f", {named}" if named else "")
         )
         from osprey.facility.panels.describe import (
+            FRONT_CONTESTED,
+            FRONT_NONE,
+            FRONT_STATED,
             HOP_FOUND,
             STRIP_NOWHERE,
             STRIP_ON_RAFT,
             STRIP_PLACED,
             chain_states,
+            front_states,
             strip_states,
         )
 
@@ -1353,6 +1357,15 @@ def panels_write(
                 why, n = states.most_common(1)[0]
                 line += f" (most: {why}, {n})"
             report(line)
+        for recipe_name, states in sorted(front_states(graph, devices).items()):
+            total = states[FRONT_STATED] + states[FRONT_NONE] + states[FRONT_CONTESTED]
+            report(
+                f"  front {recipe_name}: {total} connectors, {states[FRONT_STATED]} with "
+                f"something stated on them, {states[FRONT_CONTESTED]} contested, "
+                f"{states[FRONT_NONE]} with nothing stated; devices: "
+                f"{states['devices: all']} all stated, {states['devices: some']} some, "
+                f"{states['devices: none']} none"
+            )
     if index["outside"]:
         report(f"  {len(index['outside'])} screens not written (outside the selection)")
     largest = sorted(screens, key=lambda entry: (-entry["bytes"], entry["file"]))[:top]

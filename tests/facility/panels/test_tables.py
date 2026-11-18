@@ -75,6 +75,10 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     assert ",".join(COLUMNS["card_recipes.csv"]) == (
         "class,under,devices,recipe,description,channels_cols,source"
     )
+    assert ",".join(COLUMNS["fronts.csv"]) == (
+        "recipe,face,group,order,connector,kind,count,channel,far_relation,far_direction,"
+        "far_port,label,source"
+    )
     assert OPTIONAL_FILES == frozenset(
         {
             "pictures.csv",
@@ -92,6 +96,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
             "card_sections.csv",
             "chains.csv",
             "symbols.csv",
+            "fronts.csv",
         }
     )
 
