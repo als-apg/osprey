@@ -66,12 +66,15 @@ def _earlier_garbage_frozen() -> Iterator[None]:
 #: phases to stderr in the framework's own ``[STARTUP-TIMING]`` shape, one every
 #: ``gap`` seconds, closes with ``total_startup``, then speaks JSON-RPC. With
 #: ``phases=0`` it announces nothing and sleeps ``mute`` seconds first.
+#: With ``announced`` set it touches that path after each phase it reports.
 _STUB = """\
-import json, sys, time
+import json, pathlib, sys, time
 
 for i in range({phases}):
     time.sleep({gap})
     print(f"[STARTUP-TIMING] stub | import_{{i}}: {{ {gap} * 1000:.0f}}ms", file=sys.stderr, flush=True)
+    if {announced!r}:
+        pathlib.Path({announced!r}).touch()
 if {phases}:
     print(f"[STARTUP-TIMING] stub | total_startup: {{ {phases} * {gap} * 1000:.0f}}ms", file=sys.stderr, flush=True)
 
@@ -121,21 +124,49 @@ raise RuntimeError("{marker}")
 """
 
 
-def _stub(tmp_path: Path, *, phases: int = 0, gap: float = 0.0, mute: float = 0.0) -> list[str]:
+def _stub(
+    tmp_path: Path,
+    *,
+    phases: int = 0,
+    gap: float = 0.0,
+    mute: float = 0.0,
+    announced: Path | None = None,
+) -> list[str]:
     script = tmp_path / "stub_server.py"
-    script.write_text(textwrap.dedent(_STUB).format(phases=phases, gap=gap, mute=mute))
+    script.write_text(
+        textwrap.dedent(_STUB).format(
+            phases=phases,
+            gap=gap,
+            mute=mute,
+            announced=str(announced) if announced else "",
+        )
+    )
     return [sys.executable, str(script)]
 
 
-def test_a_slow_but_announcing_server_is_waited_for(tmp_path: Path) -> None:
+def test_a_slow_but_announcing_server_is_waited_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Six seconds of announced startup against a three-second budget still passes.
 
     This is the shape that reds a loaded runner: the server is fine, it is just
     taking longer to reach its first reply than a budget started at spawn would
-    allow. Its first phase has to land inside the budget — it does within a
-    second even on a loaded box — and from there the startup allowance holds.
+    allow. The spawn is held until the stub has announced its first phase, so
+    the announcement is inside the budget every time rather than only on an
+    idle machine; from there the startup allowance holds.
     """
-    command, *args = _stub(tmp_path, phases=12, gap=0.5)
+    announced = tmp_path / "announced"
+    command, *args = _stub(tmp_path, phases=12, gap=0.5, announced=announced)
+    real_popen = subprocess.Popen
+
+    def popen_after_first_phase(*popen_args, **kwargs):
+        proc = real_popen(*popen_args, **kwargs)
+        deadline = time.monotonic() + 30
+        while not announced.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", popen_after_first_phase)
 
     assert list_mcp_tools(command=command, args=args, timeout=3.0) == ["stub_tool"]
 
