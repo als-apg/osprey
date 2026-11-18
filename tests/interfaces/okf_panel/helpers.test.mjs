@@ -368,7 +368,9 @@ describe('imageFailureReason', () => {
       'disallowed_type',
       'too_large',
     ]) {
-      expect(imageFailureReason(code)).toBe(IMAGE_FAILURE_REASONS[code]);
+      expect(imageFailureReason(code)).toBe(
+        IMAGE_FAILURE_REASONS[/** @type {keyof typeof IMAGE_FAILURE_REASONS} */ (code)]
+      );
     }
   });
 

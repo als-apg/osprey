@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse, Response
@@ -333,7 +334,7 @@ def create_app(bundle_path=None, graph_path=None) -> FastAPI:
     app.state.facility_records = _load_facility_records()
     app.state.graph = _load_graph(graph_path, app.state.bundle, app.state.facility_records)
 
-    def _bundle_or_error():
+    def _bundle_or_error() -> tuple[Any, JSONResponse | None]:
         """Return ``(bundle, None)`` when configured, else ``(None, JSONResponse)``."""
         bundle = app.state.bundle
         if bundle is None:
