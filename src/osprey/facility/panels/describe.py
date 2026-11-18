@@ -637,7 +637,7 @@ def _pictures(graph: PanelGraph, thing: Thing, symbols: Mapping[str, str]) -> li
     if thing.kind != "device" or thing.cls is None:
         return []
     views: dict[str, list] = {}
-    for part in graph.pictures(thing.cls):
+    for part in graph.pictures(thing.cls, thing.id):
         if part.signal is not None:
             part = dataclasses.replace(part, channel=graph.picture_channel(thing.id, part.signal))
         views.setdefault(part.view, []).append(part)

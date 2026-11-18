@@ -155,6 +155,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "h_mm",
             "angle_deg",
             "signal",
+            "under",
         ],
         NAMES: [
             "thing",
@@ -238,7 +239,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         CALIBRATION_KINDS: frozenset({"under", "short"}),
         # a file of the first eleven columns (parts at points, no signals) still reads
-        PICTURES: frozenset({"w_mm", "h_mm", "angle_deg", "signal"}),
+        PICTURES: frozenset({"w_mm", "h_mm", "angle_deg", "signal", "under"}),
         PROBE_PICTURES: frozenset({"under"}),
         METRICS: frozenset({"precision"}),
     }
@@ -510,7 +511,8 @@ class PicturePart:
     the gap; of more, as a ring yoke (or the outline) with the poles at their
     angles. A part sits by its kind: a water part (a kind naming a manifold, water
     or cooling) or a terminal block is a block in a column beside the yoke, right of
-    it unless its row places it left, dashed when it has no position; any other part
+    it unless its row places it left; with no position, a dashed block in the row of
+    parts not placed (it claims no side); any other part
     is a sensor: with an ``angle_deg`` and no position, a dot on the coil at that
     angle (two on one coil side by side); with a position, a dot on the coil nearest
     its position's angle (a drawing with no coil: at its position); with neither, it
@@ -520,6 +522,13 @@ class PicturePart:
     ``x_mm``, ``y_mm`` and ``z_mm`` are optional on every row: a facility leaves
     empty what no source states. A yoke, a bore or a gap with no position is
     centred on the beam.
+
+    ``under`` (optional) is a place id: the row applies only to the devices of the
+    class in that place or a place within it (:meth:`PanelGraph.contents`, the walk
+    the place views use). Empty, it applies to every device of the class. Two
+    machines with devices of one class name (two rings' ``QF``) each state their
+    own rows under their own place; a device under neither gets no drawing, and
+    ``check`` notes nothing for it.
 
     A shape row may leave its size empty, the normal case: a pole, a coil or a
     corrector winding is then placed by its ``angle_deg`` alone (its ``x_mm``,
@@ -571,6 +580,7 @@ class PicturePart:
     h_mm: float | None = None
     angle_deg: float | None = None
     signal: str | None = None
+    under: str | None = None
     #: The channel ``signal`` resolves to on one device: set when a card is
     #: described (:func:`osprey.facility.panels.describe.device_card`), ``None``
     #: as the table is read.

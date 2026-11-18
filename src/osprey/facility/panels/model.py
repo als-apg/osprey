@@ -399,6 +399,7 @@ class PanelGraph:
                 self._rules.setdefault(rule.channel, []).append(rule)
         self._read_pairs(tables)
         self._pictures: dict[str, list[PicturePart]] = {}
+        self._held_by: dict[str, frozenset[str]] = {}
         for part in tables.pictures:
             if part.document not in self._excluded_documents:
                 self._pictures.setdefault(part.device_class, []).append(part)
@@ -881,9 +882,25 @@ class PanelGraph:
         """The ``record_types.csv`` row of a channel the graph holds, or ``None``."""
         return self._types.get(channel)
 
-    def pictures(self, device_class: str) -> list[PicturePart]:
-        """The ``pictures.csv`` rows of a device class, in file order."""
-        return list(self._pictures.get(device_class, ()))
+    def pictures(self, device_class: str, device: str | None = None) -> list[PicturePart]:
+        """The ``pictures.csv`` rows of a device class, in file order; with *device*,
+        only those that apply to it: a row with no ``under``, or one whose ``under``
+        place holds the device (:meth:`contents`). A row under a place the graph
+        does not hold applies to no device."""
+        rows = list(self._pictures.get(device_class, ()))
+        if device is None:
+            return rows
+        return [r for r in rows if r.under is None or device in self._held(r.under)]
+
+    def _held(self, place_id: str) -> frozenset[str]:
+        """The ids of the devices in a place (:meth:`contents`), once per place."""
+        if place_id not in self._held_by:
+            try:
+                things = self.contents(place_id)
+            except KeyError:
+                things = []
+            self._held_by[place_id] = frozenset(t.id for t in things if t.kind == "device")
+        return self._held_by[place_id]
 
     def metrics(self, view: str, level: str | None) -> list[Metric]:
         """The rows of ``metrics.csv`` for *view* (``place`` or ``rollup``) of a place

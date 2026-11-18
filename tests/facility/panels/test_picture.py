@@ -19,7 +19,7 @@ from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_
 from tests.facility.panels._views import bound, nodes, stub_render
 
 PICTURES = "pictures.csv"
-HEADER = ",".join(COLUMNS[PICTURES])
+HEADER = ",".join(c for c in COLUMNS[PICTURES] if c != "under")  # a file without it reads
 CITE = "XR-DRAWING,B,released,sheet 2"
 COLOUR = "#2f9e52"  # the fixture's quadrupole colour
 
@@ -291,8 +291,9 @@ def test_water_and_terminals_stand_in_a_column_beside_the_yoke_under_one_word(tm
         assert water["geometry"]["x"] > right  # a column right of the yoke
     assert one["geometry"]["x"] == two["geometry"]["x"]
     assert one["geometry"]["y"] < two["geometry"]["y"]
-    terminal = blocks["terminal 1"]
+    terminal = blocks["terminal 1"]  # no position: in the row of parts not placed
     assert terminal["props"]["lineStyle"] == "dashed"
+    assert _centre(terminal)[1] < yoke["geometry"]["y"] + yoke["geometry"]["height"] / 4
     assert _centre(terminal)[0] < yoke["geometry"]["x"]
     texts = _texts(doc)
     assert texts.count("water") == 1 and "TB" in texts
@@ -575,6 +576,72 @@ def test_check_counts_the_parts_not_placed_per_class_as_information(tmp_path) ->
     out = tmp_path / "out"
     write(graph, out, only=lambda t: t.view == "card" and t.id == "XR01:QF1")
     assert not [p for p in check(graph, out) if "placed" in p.kind or "placed" in p.detail]
+
+
+def test_parts_not_placed_stand_above_the_yoke_on_no_side(tmp_path) -> None:
+    from osprey.facility.panels.picture import body
+
+    rows = [
+        *_unsized(2, 90, bore="gap"),
+        _row("thermal switch 1", "thermal_switch", "", ""),
+        _row("thermocouple 1", "thermocouple", "", ""),
+        _row("manifold 1", "manifold", "", ""),
+        _row("terminal 1", "terminal", "", ""),
+    ]
+    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    drawn = body([r for r in pictures if r.shape], [], [r for r in pictures if not r.shape])
+    top = max(b for s in drawn.shapes if s.role == "yoke" for _a, b in s.points)
+    assert not any(b.placed for b in drawn.blocks)  # no water column, no side claimed
+    for at, half in [(b.at, b.size[1] / 2) for b in drawn.blocks] + [
+        (d.at, d.radius) for d in drawn.dots
+    ]:
+        assert at[1] - half > top  # in the rows above the yoke, none over it
+
+
+# -- rows under a place --------------------------------------------------------
+
+
+UNDER_HEADER = HEADER + ",under"
+
+
+def _under_rows(place: str) -> list[str]:
+    """An invented four-pole body stated for the class's devices under *place*."""
+    return [r + f",{place}" for r in _unsized(4, 45)]
+
+
+def test_a_row_under_a_place_draws_only_the_devices_there(tmp_path) -> None:
+    tables = copy_tables(tmp_path / "panels")
+    (tables / PICTURES).write_text("\n".join([UNDER_HEADER, *_under_rows("XR/XR01")]) + "\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    assert graph.pictures("Quadrupole", "XR01:QF1")
+    assert not graph.pictures("Quadrupole", "XR02:QF1")  # same class, another place
+    assert len(graph.pictures("Quadrupole")) == 9  # the class's rows, whatever the place
+    titles = lambda device: [s.title for s in device_card(graph, device).sections]  # noqa: E731
+    assert "picture" in titles("XR01:QF1")
+    assert "picture" not in titles("XR02:QF1")
+
+
+def test_a_device_outside_the_rows_place_gets_no_note_and_the_class_still_counts(
+    tmp_path,
+) -> None:
+    from osprey.facility.panels.emit import check, picture_classes, write
+
+    tables = copy_tables(tmp_path / "panels")
+    rows = [*_under_rows("XR/XR01"), _row("switch 1", "thermal_switch", "", "", signal="ghost") + ",XR/XR01"]  # fmt: skip
+    (tables / PICTURES).write_text("\n".join([UNDER_HEADER, *rows]) + "\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    out = tmp_path / "out"
+    write(graph, out, only=lambda t: t.view == "card" and t.id in ("XR01:QF1", "XR02:QF1"))
+    notes = [p for p in check(graph, out) if p.kind == "unbound_picture"]
+    assert len(notes) == 1 and "XR01:QF1" in notes[0].detail  # none for XR02:QF1
+    classes = picture_classes(graph)
+    assert "Quadrupole" in classes["drawing"] and "Quadrupole" not in classes["none"]
+
+
+def test_a_file_without_the_under_column_applies_to_every_device(tmp_path) -> None:
+    graph = _graph(tmp_path, _unsized(4, 45))  # the header has no under column
+    assert all(row.under is None for row in graph.pictures("Quadrupole"))
+    assert graph.pictures("Quadrupole", "XR01:QF1") == graph.pictures("Quadrupole", "XR02:QF1")
 
 
 # -- check -------------------------------------------------------------------------

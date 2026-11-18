@@ -1405,9 +1405,12 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
    ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv`` and
    ``calibration_curves.csv`` may be absent. A table that breaks its schema
-   prints the file and line and exits 1. Health is computed by the viewer from
-   rules written into the screen; nothing is read from the control system
-   while screens are written.
+   prints the file and line and exits 1. A ``pictures.csv`` row with a place id
+   in its optional ``under`` column draws only the devices of its class in that
+   place, so two machines with devices of one class name each state their own
+   drawing; a device under no row's place gets no drawing and no note. Health
+   is computed by the viewer from rules written into the screen; nothing is
+   read from the control system while screens are written.
 
 ``osprey facility panels write --out DIRECTORY [--kind KIND]... [--under PLACE_ID] [--top N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
    Write the screens under ``--out`` as ``<kind>/<screen id>.screen.json``

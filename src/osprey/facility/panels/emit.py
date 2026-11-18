@@ -1023,7 +1023,7 @@ def _unbound_picture(graph: PanelGraph, relative: str, target: Target) -> list[P
     if cls is None:
         return []
     found = []
-    for row in graph.pictures(cls):
+    for row in graph.pictures(cls, target.id):
         if row.signal is None:
             continue
         matches = graph.picture_matches(target.id, row.signal)
