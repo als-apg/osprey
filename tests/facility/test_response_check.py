@@ -157,10 +157,33 @@ def synthetic(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def nsls2_checks(nsls2: Path) -> list[ModelCheck]:
-    """The nsls2 tree's checks, run once: the storage ring sweeps 12 correctors."""
+def nsls2_run(nsls2: Path) -> tuple[list[ModelCheck], dict[str, tuple[Block, ...]]]:
+    """The nsls2 tree's checks, run once, with the blocks each model's check judged.
+
+    The storage ring sweeps 12 correctors.
+    """
     facility = _facility(nsls2)
-    return check_responses(facility, build_facility(facility, project_name="scratch"))
+    document = build_facility(facility, project_name="scratch")
+    judged: dict[str, tuple[Block, ...]] = {}
+
+    def recording(
+        facility_dir: Path, document: dict[str, Any], model: dict[str, Any]
+    ) -> tuple[Block, ...]:
+        blocks = compare(facility_dir, document, model)
+        judged[str(model["name"])] = blocks
+        return blocks
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(response_check, "compare", recording)
+        checks = check_responses(facility, document)
+    return checks, judged
+
+
+@pytest.fixture(scope="module")
+def nsls2_checks(
+    nsls2_run: tuple[list[ModelCheck], dict[str, tuple[Block, ...]]],
+) -> list[ModelCheck]:
+    return nsls2_run[0]
 
 
 @pytest.fixture(scope="module")
@@ -202,9 +225,46 @@ def test_a_model_derived_export_prints_one_line_and_exits_0(
     assert _snapshot(synthetic) == before
 
 
-def test_a_model_derived_export_passes_block_by_block(nsls2_checks: list[ModelCheck]) -> None:
-    assert [check.line for check in nsls2_checks] == NSLS2_LINES
-    assert all(check.passed for check in nsls2_checks)
+#: Each nsls2 model's blocks: whether each is judged, and how many entries it compared.
+NSLS2_BLOCKS: dict[str, list[tuple[str, bool, int]]] = {
+    "LTB": [
+        ("BPMx/HCM", True, 48),
+        ("BPMx/VCM", False, 48),
+        ("BPMy/HCM", False, 48),
+        ("BPMy/VCM", True, 48),
+    ],
+    "StorageRing": [
+        ("BPMx/HCM", True, 1080),
+        ("BPMx/VCM", False, 1080),
+        ("BPMy/HCM", False, 1080),
+        ("BPMy/VCM", True, 1080),
+    ],
+}
+
+
+def test_a_model_derived_export_passes_block_by_block(
+    nsls2_run: tuple[list[ModelCheck], dict[str, tuple[Block, ...]]],
+) -> None:
+    """Every judged block of each model's export passes on its own verdict."""
+    checks, judged = nsls2_run
+
+    assert [check.line for check in checks] == NSLS2_LINES
+    assert all(check.passed for check in checks)
+    assert {
+        name: [(block.name, block.judged, block.full.compared) for block in blocks]
+        for name, blocks in judged.items()
+    } == NSLS2_BLOCKS
+    assert {
+        name: [ModelCheck(name, judge([block])).line for block in blocks if block.judged]
+        for name, blocks in judged.items()
+    } == {
+        name: [
+            f"response check {name}: model {block} inside band 1.000 (pass at 0.99)"
+            for block, is_judged, _ in blocks
+            if is_judged
+        ]
+        for name, blocks in NSLS2_BLOCKS.items()
+    }
 
 
 def test_every_nsls2_monitor_row_is_wired_so_each_model_prints_one_line(
