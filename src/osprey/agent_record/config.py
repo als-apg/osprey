@@ -534,7 +534,8 @@ def _check_reader_subject(
 
 # --- retired keys ------------------------------------------------------------
 
-#: Every config key the agent record replaced, with what a profile writes
+#: Every retired config key — the ones the agent record replaced and the
+#: channel directory's EPICS-worded spellings — with what a profile writes
 #: instead. A key here is refused wherever a profile spells it — the key
 #: itself or anything below it, in a nested, dotted or mixed spelling — and
 #: the refusal names the replacement, so the operator edits the profile once
@@ -565,6 +566,18 @@ RETIRED_CONFIG_KEYS: Mapping[str, str] = {
     ),
     f"{_WEB}.reader_port": f"rename it to `{_WEB}.history_port`, the history page's port",
     f"{_WEB}.reader_origin": f"rename it to `{_WEB}.history_origin`, the history page's origin",
+    # Not the agent record's: the channel directory's EPICS-worded spellings,
+    # refused here so one table names every retired key and its replacement.
+    "pv_directory": (
+        "rename the section to `channel_directory`, and under it "
+        "`display.ioc_health_suffixes` to `display.server_health_suffixes`"
+    ),
+    "channel_directory.display.ioc_health_suffixes": (
+        "rename it to `channel_directory.display.server_health_suffixes`"
+    ),
+    "claude_code.servers.pv-directory": (
+        "rename it to `claude_code.servers.channel-directory`, the channel directory server's switch"
+    ),
 }
 
 #: The ``deployed_services`` entries the agent record replaced.
@@ -619,7 +632,7 @@ def refuse_retired_config_keys(config: Any) -> None:
         )
     if problems:
         raise BuildProfileError(
-            "The profile's config: block states key(s) the agent record replaced. "
+            "The profile's config: block states retired key(s). "
             "Edit the profile as directed and build again:\n  " + "\n  ".join(problems)
         )
 

@@ -4521,6 +4521,13 @@ deleted:
 - modules.web_terminals.default_persona  # retired-spelling
   # OSPREY no longer deletes channel readings, so no window bounds them.
 - control_system.channel_read_artifact_retention
+  # The channel directory's EPICS-worded spellings. Core names are control-system
+  # neutral, so the section, its server's switch and its health-suffix block
+  # took channel and server words; the profile parser refuses each old spelling
+  # naming the new one (osprey.agent_record.config.RETIRED_CONFIG_KEYS).
+- pv_directory
+- claude_code.servers.pv-directory
+- channel_directory.display.ioc_health_suffixes
   # The ariel corpus's embed switch. The ariel qmd sidecar embeds exactly when
   # ARIEL hybrid search queries qmd's vectors. No orphan_sites row, because the
   # back-test baseline never held a site of it.
