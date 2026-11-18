@@ -1,0 +1,4 @@
+kind,id,reason,source,revision,locator
+thing,XR02:SAF1,personnel safety equipment,XR-LAYOUT,A,sheet 3
+channel,XR02-IP2:Interlock-Sts,channel read by personnel safety logic,XR-LAYOUT,A,sheet 3
+thing,XR/XR02/SAFE,personnel safety enclosure,XR-LAYOUT,A,sheet 3

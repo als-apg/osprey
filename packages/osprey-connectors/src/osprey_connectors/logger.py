@@ -34,14 +34,15 @@ Usage:
 """
 
 import logging
+import os
 from collections.abc import Mapping
 from types import TracebackType
-from typing import TypeAlias
+from typing import NamedTuple, TypeAlias
 
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import config_flag, get_config_value
 
 __all__ = [
     "ComponentLogger",
@@ -456,7 +457,94 @@ _QUIET_THIRD_PARTY_LOGGERS: tuple[str, ...] = (
 )
 
 
-def _build_rich_handler(console: Console | None = None) -> RichHandler:
+class _HandlerSettings(NamedTuple):
+    """The ``logging.*`` settings the Osprey ``RichHandler`` renders by."""
+
+    rich_tracebacks: bool
+    show_traceback_locals: bool
+    show_full_paths: bool
+
+
+#: What a handler renders by when the configuration cannot say. Locals stay
+#: hidden so a traceback never exposes sensitive data.
+_DEFAULT_HANDLER_SETTINGS = _HandlerSettings(
+    rich_tracebacks=True, show_traceback_locals=False, show_full_paths=False
+)
+
+#: The handler :func:`configure_logging` installed, which is the only one a
+#: later call re-applies settings to.
+_installed_handler: RichHandler | None = None
+
+#: Whether this process has already said that it could not read the settings.
+_settings_warning_given = False
+
+
+def _read_handler_settings() -> tuple[_HandlerSettings, Exception | None]:
+    """Read the handler's settings from the configuration this process resolves.
+
+    Each switch is read through :func:`config_flag`, so a ``"false"`` that
+    reached the config as text (quoted, or a resolved ``${VAR:-false}``) is off.
+    A switch spelling neither on nor off is a problem like an unavailable
+    configuration: every setting falls back to the defaults, which hide locals
+    and shorten paths, rather than failing the process's start-up over a
+    logging key.
+
+    Returns:
+        The settings, and what kept them from being read: the defaults and the
+        exception when the configuration is unavailable, else ``None``.
+    """
+
+    def switch(name: str, default: bool) -> bool:
+        key = f"logging.{name}"
+        return config_flag(get_config_value(key, default), key=key)
+
+    try:
+        return (
+            _HandlerSettings(
+                rich_tracebacks=switch("rich_tracebacks", True),
+                show_traceback_locals=switch("show_traceback_locals", False),
+                show_full_paths=switch("show_full_paths", False),
+            ),
+            None,
+        )
+    except Exception as exc:
+        return _DEFAULT_HANDLER_SETTINGS, exc
+
+
+def _apply_handler_settings(handler: RichHandler, settings: _HandlerSettings) -> None:
+    """Make ``handler`` render by ``settings`` from its next record on."""
+    handler.rich_tracebacks = settings.rich_tracebacks
+    handler.tracebacks_show_locals = settings.show_traceback_locals
+    # Rich keeps the path column on its renderer and offers no public setter.
+    handler._log_render.show_path = settings.show_full_paths
+
+
+def _warn_settings_unavailable(problem: Exception) -> None:
+    """Say, once per process, that the handler renders by the defaults.
+
+    A process that names no config and stands in a directory without one — a
+    command run outside any deployment — has no settings to miss, so that case
+    is not reported.
+    """
+    global _settings_warning_given
+    names_a_config = os.environ.get("OSPREY_CONFIG") or os.environ.get("CONFIG_FILE")
+    if _settings_warning_given or (isinstance(problem, FileNotFoundError) and not names_a_config):
+        return
+    _settings_warning_given = True
+    summary = str(problem).strip().splitlines()[0] if str(problem).strip() else ""
+    logging.getLogger(__name__).warning(
+        "The logging.* settings could not be read from the configuration (%s: %s); "
+        "log output uses the defaults: Rich tracebacks on, locals hidden, short paths.",
+        type(problem).__name__,
+        summary,
+        # The exception's text is not ours: brackets in it are not markup.
+        extra={"markup": False},
+    )
+
+
+def _build_rich_handler(
+    console: Console | None = None, settings: _HandlerSettings | None = None
+) -> RichHandler:
     """Build the Osprey ``RichHandler``, writing to **stderr**.
 
     stdout is reserved for program output — MCP stdio JSON-RPC frames and
@@ -468,19 +556,11 @@ def _build_rich_handler(console: Console | None = None) -> RichHandler:
             the fixed-width stderr console this module has always built, so
             their output is unchanged. The CLI passes the terminal-sized
             stderr console it already owns.
+        settings: What the handler renders by. ``None`` reads them from the
+            configuration, falling back to the defaults when it is unavailable.
     """
-    try:
-        # Security-conscious defaults: hide locals to prevent sensitive data exposure
-        # Read for their truth, as RichHandler reads them.
-        rich_tracebacks = bool(get_config_value("logging.rich_tracebacks", True))
-        show_traceback_locals = bool(get_config_value("logging.show_traceback_locals", False))
-        show_full_paths = bool(get_config_value("logging.show_full_paths", False))
-    except Exception:
-        # Config system unavailable; use secure defaults. Cannot log here:
-        # the logging infrastructure is mid-configuration.
-        rich_tracebacks = True
-        show_traceback_locals = False
-        show_full_paths = False
+    if settings is None:
+        settings, _ = _read_handler_settings()
 
     if console is None:
         # force_terminal keeps colors in containers and CI, where stderr is a pipe.
@@ -493,12 +573,12 @@ def _build_rich_handler(console: Console | None = None) -> RichHandler:
 
     return RichHandler(
         console=console,
-        rich_tracebacks=rich_tracebacks,
+        rich_tracebacks=settings.rich_tracebacks,
         markup=True,
-        show_path=show_full_paths,
+        show_path=settings.show_full_paths,
         show_time=True,
         show_level=True,
-        tracebacks_show_locals=show_traceback_locals,
+        tracebacks_show_locals=settings.show_traceback_locals,
     )
 
 
@@ -545,16 +625,31 @@ def configure_logging(level: int = logging.INFO) -> None:
     never removes or clears handlers it did not install. Handlers owned by
     someone else — ``caplog``'s capture handler, a host application's own
     handlers — survive. Calling it repeatedly is a no-op beyond re-applying the
-    level.
+    level and the ``logging.*`` settings.
+
+    Those settings are read from the configuration on every call and applied to
+    the handler this function installed. An entry point that configures logging
+    before it knows which deployment it serves calls again once it does, and
+    the handler then renders by that deployment's settings. Settings that
+    cannot be read fall back to the defaults, with one warning per process.
 
     Args:
         level: Root logger level.
     """
+    global _installed_handler
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
+    settings, problem = _read_handler_settings()
     if not any(isinstance(handler, RichHandler) for handler in root_logger.handlers):
-        root_logger.addHandler(_build_rich_handler())
+        _installed_handler = _build_rich_handler(settings=settings)
+        root_logger.addHandler(_installed_handler)
+    elif _installed_handler in root_logger.handlers:
+        # Only the handler installed here: a RichHandler someone else put on
+        # the root logger is theirs.
+        _apply_handler_settings(_installed_handler, settings)
+    if problem is not None:
+        _warn_settings_unavailable(problem)
 
     for lib in _QUIET_THIRD_PARTY_LOGGERS:
         logging.getLogger(lib).setLevel(logging.WARNING)

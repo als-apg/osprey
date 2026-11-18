@@ -27,6 +27,7 @@ dependencies appearing in ``sys.modules`` would be the regression.
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import time
@@ -46,6 +47,38 @@ logger = logging.getLogger(__name__)
 #: importing the facility knowledge package would pull ``osprey.services.qmd``
 #: into the build.
 NARAD_P = "https://narad.example.org/property/"
+
+#: Every predicate :func:`parse_corpus` reads, and so the only triples it keeps.
+#: A corpus is mostly triples no row is derived from (claim nodes, places,
+#: groups, attributes), and rdflib holds every triple it parses three times over
+#: in its indexes; keeping only these, in one index (:func:`_read_index_store`),
+#: is what lets a corpus of a large facility be indexed in a fraction of the
+#: memory a whole parse takes. A predicate read below and missing here would
+#: lose its triples, so the tests hold the two together.
+KEPT_PREDICATES: frozenset[str] = frozenset(
+    {
+        "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+        "http://www.w3.org/2000/01/rdf-schema#subClassOf",
+        "http://www.w3.org/2000/01/rdf-schema#label",
+        "http://www.w3.org/2004/02/skos/core#altLabel",
+        *(
+            NARAD_P + name
+            for name in (
+                "hasBinding",
+                "fullPv",
+                "readsSignal",
+                "writesSignal",
+                "description",
+                "sourceName",
+                "sectionCode",
+                "system",
+                "placePath",
+                "sPositionM",
+                "ordinalInPlace",
+            )
+        ),
+    }
+)
 
 #: Local names n10s turns into the labels the Cypher matches on. Any namespace
 #: works: with local-name vocabulary handling, ``owl:Class`` and ``rdfs:Class``
@@ -128,12 +161,82 @@ class ParsedCorpus:
     signal_count: int = 0
 
 
-def parse_corpus(text: str) -> ParsedCorpus:
+def _read_index_store(kept: frozenset[Any]) -> Any:
+    """An rdflib store holding the triples of ``kept`` predicates, for the reads below.
+
+    rdflib's memory store indexes every triple three ways and records each
+    triple's graph, which for a large corpus is most of the memory a parse
+    takes. :func:`parse_corpus` asks for the objects of a subject and predicate
+    and for the subject-object pairs of a predicate, never for a triple with
+    no predicate, so this store keeps one subject-predicate-object index and,
+    per predicate, the subjects that have it. A triple of any other predicate is
+    dropped as it is parsed. Triples are a set, as in rdflib's own store: one
+    parsed twice is held once.
+
+    Args:
+        kept: The predicates to keep, as rdflib terms.
+
+    Returns:
+        A new, empty store.
+    """
+    from rdflib.store import Store
+
+    class _ReadIndex(Store):
+        def __init__(self) -> None:
+            super().__init__()
+            self._spo: dict[Any, dict[Any, set[Any]]] = {}
+            self._subjects: dict[Any, set[Any]] = {}
+            self._terms: dict[Any, Any] = {}
+
+        def add(self, triple: Any, context: Any, quoted: bool = False) -> None:  # noqa: ARG002 -- rdflib's signature
+            subject, predicate, object_ = triple
+            if predicate not in kept:
+                return
+            # One object per distinct term: the parser makes a new one for every
+            # mention, and a corpus names the same types and signals throughout.
+            object_ = self._terms.setdefault(object_, object_)
+            objects = self._spo.setdefault(subject, {}).setdefault(predicate, set())
+            if object_ not in objects:
+                objects.add(object_)
+                self._subjects.setdefault(predicate, set()).add(subject)
+
+        def addN(self, quads: Iterable[Any]) -> None:
+            for subject, predicate, object_, context in quads:
+                self.add((subject, predicate, object_), context)
+
+        def triples(self, triple_pattern: Any, context: Any = None) -> Any:  # noqa: ARG002 -- rdflib's signature
+            subject, predicate, object_ = triple_pattern
+            if predicate is None:
+                raise NotImplementedError("this store answers only patterns with a predicate")
+            subjects: Iterable[Any] = (
+                (subject,) if subject is not None else self._subjects.get(predicate, set())
+            )
+            for each in subjects:
+                for value in self._spo.get(each, {}).get(predicate, ()):
+                    if object_ is None or value == object_:
+                        yield (each, predicate, value), iter(())
+
+        def __len__(self, context: Any = None) -> int:
+            return sum(len(values) for row in self._spo.values() for values in row.values())
+
+        def release(self) -> None:
+            """Drop every triple held."""
+            self._spo = {}
+            self._subjects = {}
+            self._terms = {}
+
+    return _ReadIndex()
+
+
+def parse_corpus(text: str | bytes) -> ParsedCorpus:
     """Parse Turtle text and derive the index rows the store would answer.
 
     Args:
         text: The corpus, as ``ttl_path.read_text(encoding="utf-8")`` returns
-            it — the same string the seeders hash.
+            it — the same string the seeders hash — or that string encoded as
+            UTF-8. The parser reads bytes: handed a string it encodes it, and a
+            caller holding a large corpus can hand the bytes over and let the
+            string go.
 
     Returns:
         The rows and the censuses; see :class:`ParsedCorpus`.
@@ -146,9 +249,13 @@ def parse_corpus(text: str) -> ParsedCorpus:
     """
     from rdflib import RDF, RDFS, SKOS, BNode, Graph, Literal, URIRef
 
-    graph = Graph()
+    store = _read_index_store(frozenset(URIRef(p) for p in KEPT_PREDICATES))
+    graph = Graph(store=store)
+    corpus = io.BytesIO(text.encode("utf-8") if isinstance(text, str) else text)
     try:
-        graph.parse(data=text, format="turtle")
+        # A byte stream, not ``data=``: rdflib copies a string twice more on
+        # its way to the tokenizer, which for a large corpus is most of a parse.
+        graph.parse(source=corpus, format="turtle")
     except Exception as e:
         raise GraphIndexBuildError(f"The corpus is not valid Turtle: {e}") from e
 
@@ -392,6 +499,9 @@ def parse_corpus(text: str) -> ParsedCorpus:
     section_codes = frozenset(
         str(o) for o in graph.objects(None, p_section) if isinstance(o, Literal)
     )
+    # A graph and its namespace manager refer to each other, so the graph waits
+    # for the cycle collector; the triples go now.
+    store.release()
 
     return ParsedCorpus(
         binding_rows=binding_rows,
@@ -664,7 +774,9 @@ def build_graph_index(ttl_path: Path, index_path: Path) -> IndexBuildReport:
     ttl_path = Path(ttl_path)
     text = ttl_path.read_text(encoding="utf-8")
     digest = ttl_sha256(text)
-    parsed = parse_corpus(text)
+    corpus = text.encode("utf-8")
+    del text  # the parse reads the bytes; the string is a second copy of the corpus
+    parsed = parse_corpus(corpus)
 
     meta = {
         "corpus_sha256": digest,

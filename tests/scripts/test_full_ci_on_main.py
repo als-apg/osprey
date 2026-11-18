@@ -389,3 +389,24 @@ def test_every_spending_lane_names_a_job_of_the_recorded_run() -> None:
     }
     assert full_ci_on_main.SPENDING_LANES
     assert unmatched == {}
+
+
+# --------------------------------------------------------------------------
+# the job list of a large run
+# --------------------------------------------------------------------------
+
+
+class _LargeRunGh(FakeGh):
+    """GitHub as it answers a large rerun: the job list at 100 a page is a 502."""
+
+    def __call__(self, args: list[str]) -> str:
+        path = args[-1]
+        if "/jobs?" in path and "per_page=100" in path:
+            raise SystemExit("gh api --paginate --slurp failed: gh: Server Error (HTTP 502)")
+        return super().__call__(args)
+
+
+def test_the_job_list_of_a_large_run_is_read_in_pages_github_serves() -> None:
+    """Run 43061068856 (87 jobs, second attempt) answers 502 at 100 a page and 200 at 50."""
+    fake = _LargeRunGh("aaa", [_run(1, "aaa")], {1: _revalidation_jobs()})
+    assert _tool(fake).should_dispatch() == f"skip https://github.com/{REPO}/actions/runs/1"

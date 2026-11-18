@@ -62,9 +62,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
+import numpy.typing as npt
 
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.errors import ChannelNotFoundError
@@ -80,15 +81,21 @@ from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     resolve_active_scenarios,
 )
-from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, SimulatorView
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from zoneinfo import ZoneInfo
 
     from pymongo.collection import Collection
 
-    from osprey_connectors.simulation._records import ChannelRecord, ScenarioRecord
     from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.records import (
+        ArchiverEvent,
+        ChannelRecord,
+        PulseRecord,
+        ScenarioRecord,
+        TopoffRecord,
+    )
 
 logger = get_logger("archive")
 
@@ -325,16 +332,16 @@ class ArchiveComposite:
 
     def __init__(
         self,
-        channels: Mapping[str, Mapping[str, Any]],
+        channels: Mapping[str, ChannelRecord],
         held: Mapping[str, object],
-        events: Mapping[str, Sequence[Mapping[str, Any]]],
+        events: Mapping[str, Sequence[ArchiverEvent]],
         composite: Composite,
         *,
         anchor_s: float,
         tz: ZoneInfo | None,
         state: tempfile.TemporaryDirectory[str] | None = None,
-        pulses: Mapping[str, Mapping[str, object]] | None = None,
-        topoffs: Mapping[str, Mapping[str, Any]] | None = None,
+        pulses: Mapping[str, PulseRecord] | None = None,
+        topoffs: Mapping[str, TopoffRecord] | None = None,
     ) -> None:
         self._channels = dict(channels)
         self._topoffs = dict(topoffs or {})
@@ -356,7 +363,7 @@ class ArchiveComposite:
         self._anchor_s = anchor_s
         self._tz = tz
 
-    def topoff_record(self, address: str) -> Mapping[str, Any] | None:
+    def topoff_record(self, address: str) -> TopoffRecord | None:
         """The ``topoff`` seed record that refills ``address``'s ``loss`` events, or None."""
         return self._topoffs.get(address)
 
@@ -390,7 +397,9 @@ class ArchiveComposite:
         """The archived addresses the snapshot documents carry: every non-waveform channel."""
         return [address for address in self.addresses if not self._is_waveform(address)]
 
-    def traces(self, address: str, t_s: Sequence[float] | np.ndarray) -> list[np.ndarray]:
+    def traces(
+        self, address: str, t_s: Sequence[float] | npt.NDArray[np.float64]
+    ) -> list[npt.NDArray[np.float64]]:
         """One waveform channel's traces at absolute epoch seconds.
 
         A pulsed channel's trace is :func:`~osprey_connectors.simulation.pulse.trace`
@@ -436,7 +445,7 @@ class ArchiveComposite:
         self._require(address)
         return self._held[address]
 
-    def series(self, address: str, t_s: Sequence[float] | np.ndarray) -> list[object]:
+    def series(self, address: str, t_s: Sequence[float] | npt.NDArray[np.float64]) -> list[object]:
         """One channel's samples at absolute epoch seconds, in the wire representation.
 
         A ``float`` channel holds its start-state value, moved by the active
@@ -460,7 +469,7 @@ class ArchiveComposite:
         return self.samples([address], t_s)[address]
 
     def samples(
-        self, addresses: Sequence[str], t_s: Sequence[float] | np.ndarray
+        self, addresses: Sequence[str], t_s: Sequence[float] | npt.NDArray[np.float64]
     ) -> dict[str, list[object]]:
         """Several channels' samples at absolute epoch seconds, as :meth:`series` gives each.
 
@@ -511,7 +520,7 @@ class ArchiveComposite:
     def _is_waveform(self, address: str) -> bool:
         return channel_values.is_waveform(self._channels[address].get("value_type"))
 
-    def _drive(self, address: str, times: np.ndarray) -> np.ndarray:
+    def _drive(self, address: str, times: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """A pulse source's level: held, moved by its archiver events, as a number.
 
         A float channel is moved by every archiver event, any other only by
@@ -530,7 +539,7 @@ class ArchiveComposite:
         if address not in self._channels:
             raise KeyError(f"{address} is not a channel of the simulator view")
 
-    def _level(self, address: str, times: np.ndarray) -> np.ndarray:
+    def _level(self, address: str, times: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """A float channel's start-state value moved by its archiver events."""
         count = len(times)
         start = np.full(count, channel_values._real(self._held[address]), dtype=np.float64)
@@ -541,10 +550,10 @@ class ArchiveComposite:
 
     def _stepped(
         self,
-        channel: Mapping[str, Any],
+        channel: ChannelRecord,
         held: object,
-        events: Sequence[Mapping[str, Any]],
-        times: np.ndarray,
+        events: Sequence[ArchiverEvent],
+        times: npt.NDArray[np.float64],
     ) -> list[object]:
         """A non-float channel's stored values: its held value, then each ``step`` event's ``to``."""
         stored = [held] * len(times)
@@ -561,7 +570,7 @@ class ArchiveComposite:
         return stored
 
     @staticmethod
-    def _wire(channel: Mapping[str, Any], value: object) -> object:
+    def _wire(channel: ChannelRecord, value: object) -> object:
         """A stored value as the wire carries it: a label as its option index."""
         value_type = channel.get("value_type")
         if value_type in channel_values.LABELLED_TYPES:
@@ -571,8 +580,8 @@ class ArchiveComposite:
 
 
 def scenario_events(
-    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str]
-) -> dict[str, list[dict[str, Any]]]:
+    scenarios: Mapping[str, ScenarioRecord], names: Sequence[str]
+) -> dict[str, list[ArchiverEvent]]:
     """The archiver events a scenario set writes, by channel.
 
     Args:
@@ -584,10 +593,13 @@ def scenario_events(
         Each channel's events in set order; a channel an ``archiver`` entry
         names with no events maps to an empty list.
     """
-    events: dict[str, list[dict[str, Any]]] = {}
+    events: dict[str, list[ArchiverEvent]] = {}
     for name in names:
-        for entry in scenarios.get(name, {}).get("archiver") or []:
-            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or [])
+        scenario = scenarios.get(name)
+        if scenario is None:
+            continue
+        for entry in scenario.get("archiver") or ():
+            events.setdefault(str(entry["channel"]), []).extend(entry.get("events") or ())
     return events
 
 
@@ -629,12 +641,12 @@ def build(
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
     scenarios: dict[str, ScenarioRecord] = {
-        str(scenario["name"]): scenario for scenario in view._scenarios()
+        str(scenario["name"]): scenario for scenario in view.scenarios()
     }
     records: dict[str, ChannelRecord] = {
-        str(channel["address"]): channel for channel in view._channel_entries()
+        str(channel["address"]): channel for channel in view.document(VARIABLES_FILE)["channels"]
     }
-    seeds = view._seeds()
+    seeds = view.document(SEEDS_FILE)["seeds"]
     archived = sorted(view.channels())
     names = resolve_active_scenarios([name for name in active_set if name in scenarios])
 
@@ -692,7 +704,9 @@ def build(
 # ---------------------------------------------------------------------------
 
 
-def _seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
+def _seed_grid(
+    knobs: SeedKnobs, t0: datetime
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """The timestamps to seed and the instant each one expires.
 
     The grid is epoch-aligned rather than anchored on ``t0``: both tiers land on
@@ -737,7 +751,7 @@ def _seed_grid(knobs: SeedKnobs, t0: datetime) -> tuple[np.ndarray, np.ndarray]:
     return times, tier_expiry(knobs, times)
 
 
-def tier_expiry(knobs: SeedKnobs, epoch_s: np.ndarray) -> np.ndarray:
+def tier_expiry(knobs: SeedKnobs, epoch_s: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """When each of these samples expires, by the tier its timestamp belongs to.
 
     A timestamp on the coarse cadence belongs to the coarse tier and lives out
@@ -752,7 +766,7 @@ def tier_expiry(knobs: SeedKnobs, epoch_s: np.ndarray) -> np.ndarray:
     return np.asarray(epoch_s + lifetime)
 
 
-def _aligned_range(start_s: float, end_s: float, cadence_s: int) -> np.ndarray:
+def _aligned_range(start_s: float, end_s: float, cadence_s: int) -> npt.NDArray[np.float64]:
     """Epoch-aligned timestamps in ``[start_s, end_s]`` at ``cadence_s``."""
     first = np.ceil(start_s / cadence_s) * cadence_s
     last = np.floor(end_s / cadence_s) * cadence_s
@@ -768,7 +782,7 @@ def _epoch_seconds(moment: datetime) -> float:
     return aware.timestamp()
 
 
-def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
+def _as_utc_datetimes(epoch_s: npt.NDArray[np.float64]) -> list[datetime]:
     """Epoch seconds back to the timezone-aware datetimes the store stores.
 
     pymongo reads a naive datetime as UTC, so writing aware ones costs nothing
@@ -783,7 +797,7 @@ def _as_utc_datetimes(epoch_s: np.ndarray) -> list[datetime]:
 
 
 def _synthesize_documents(
-    archive: ArchiveComposite, epoch_s: np.ndarray
+    archive: ArchiveComposite, epoch_s: npt.NDArray[np.float64]
 ) -> list[dict[str, object]]:
     """One document per timestamp, carrying every archived scalar channel's value at it.
 
@@ -871,7 +885,7 @@ def seed_fingerprint(
 
 
 def _write_manifest(
-    collection: Collection,
+    collection: Collection[dict[str, object]],
     fingerprint: Mapping[str, object],
     *,
     seeded_at: datetime,
@@ -907,7 +921,7 @@ def _write_manifest(
 
 
 def compare_fingerprint(
-    collection: Collection, fingerprint: Mapping[str, object]
+    collection: Collection[dict[str, object]], fingerprint: Mapping[str, object]
 ) -> FingerprintComparison:
     """Whether the store in front of us was built with the knobs now in force.
 
@@ -925,8 +939,12 @@ def compare_fingerprint(
     if stored is None:
         return FingerprintComparison(SeedState.ABSENT)
 
-    seeded_at = stored.get("seeded_at")
+    stamp = stored.get("seeded_at")
+    seeded_at = stamp if isinstance(stamp, datetime) else None
     held = stored.get("fingerprint") or {}
+    if not isinstance(held, Mapping):
+        # What reading a field off such a manifest raised before it was checked.
+        raise AttributeError(f"{type(held).__name__!r} object has no attribute 'get'")
     differences = tuple(
         (key, held.get(key), expected)
         for key, expected in sorted(fingerprint.items())
@@ -957,7 +975,7 @@ def waveform_collection(collection: str) -> str:
 def waveform_document(
     channel: str,
     date: datetime,
-    values: Sequence[float] | np.ndarray,
+    values: Sequence[float] | npt.NDArray[np.float64],
     *,
     expire_at: datetime,
 ) -> dict[str, object]:
@@ -988,7 +1006,11 @@ def waveform_document(
     }
 
 
-def _prepare_collection(collection: Collection, *, waveforms: Collection | None = None) -> None:
+def _prepare_collection(
+    collection: Collection[dict[str, object]],
+    *,
+    waveforms: Collection[dict[str, object]] | None = None,
+) -> None:
     """Create the two indexes the store cannot work without.
 
     ``{date: 1}`` is not an optimization: every archiver read sorts on ``date``,
@@ -1014,7 +1036,7 @@ def _prepare_collection(collection: Collection, *, waveforms: Collection | None 
 
 
 def seed_base(
-    collection: Collection,
+    collection: Collection[dict[str, object]],
     archive: ArchiveComposite,
     knobs: SeedKnobs,
     *,
@@ -1023,7 +1045,7 @@ def seed_base(
     workers: int = _DEFAULT_WORKERS,
     chunk_size: int = _DEFAULT_CHUNK_SIZE,
     progress: Callable[[SeedReport], None] | None = None,
-    waveforms: Collection | None = None,
+    waveforms: Collection[dict[str, object]] | None = None,
 ) -> SeedReport:
     """Build the store: indexes, the whole base series, then the manifest.
 
@@ -1121,7 +1143,7 @@ def seed_base(
 
 
 def _waveform_documents(
-    archive: ArchiveComposite, epoch_s: np.ndarray, expire_s: np.ndarray
+    archive: ArchiveComposite, epoch_s: npt.NDArray[np.float64], expire_s: npt.NDArray[np.float64]
 ) -> list[dict[str, object]]:
     """The trace documents of every waveform channel at these instants.
 
@@ -1146,7 +1168,7 @@ def _waveform_documents(
 def _submit_bounded(
     pool: ThreadPoolExecutor,
     pending: set[Future[None]],
-    collection: Collection,
+    collection: Collection[dict[str, object]],
     documents: list[dict[str, object]],
     limit: int,
 ) -> set[Future[None]]:
@@ -1170,22 +1192,24 @@ def _submit_bounded(
     return pending
 
 
-def _insert_chunk(collection: Collection, documents: list[dict[str, object]]) -> None:
+def _insert_chunk(
+    collection: Collection[dict[str, object]], documents: list[dict[str, object]]
+) -> None:
     """Insert one batch, unordered so the server may parallelize it internally."""
     if documents:
         collection.insert_many(documents, ordered=False)
 
 
 def _chunks(
-    times: np.ndarray, expiry: np.ndarray, size: int
-) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    times: npt.NDArray[np.float64], expiry: npt.NDArray[np.float64], size: int
+) -> Iterator[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]]:
     """Split the grid into contiguous batches of at most ``size`` timestamps."""
     for start in range(0, len(times), size):
         stop = start + size
         yield times[start:stop], expiry[start:stop]
 
 
-def oldest_sample(collection: Collection) -> datetime | None:
+def oldest_sample(collection: Collection[dict[str, object]]) -> datetime | None:
     """The instant of the oldest stored sample, or ``None`` for an empty store.
 
     This is what honest archiver metadata reports as the start of coverage. The

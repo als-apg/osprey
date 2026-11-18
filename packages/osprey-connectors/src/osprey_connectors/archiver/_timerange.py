@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal, TypeGuard
+from typing import Literal, TypeAlias, TypeGuard
 
 import pandas as pd
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.config import localize_facility
 
 #: A canonical processing mode, one of :data:`PROCESSING_MODES`.
@@ -28,6 +29,14 @@ PROCESSING_MODES: tuple[ProcessingMode, ...] = (
     "std",
     "count",
 )
+
+#: One channel's samples, indexed by timestamp. The element is the archived
+#: channel value the ``value`` column of ``ArchiverConnector.get_data`` carries,
+#: which that contract leaves open: a float, an enum string or a waveform's
+#: ``list[float]``. pandas' stubs bound a Series element to scalar dtypes, which
+#: a waveform trace is not, so the open value is named rather than guessed. A
+#: string, because ``pd.Series`` is not subscriptable at runtime.
+SampleSeries: TypeAlias = "pd.Series[ContractAny]"
 
 # The canonical long-format columns every archiver connector returns.
 LONG_COLUMNS = ("timestamp", "channel", "value")
@@ -166,7 +175,7 @@ def resolve_processing(processing: str, precision_ms: int, window_start: datetim
     )
 
 
-def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
+def long_frame(series: dict[str, SampleSeries]) -> pd.DataFrame:
     """Build the canonical long frame from per-channel series.
 
     Each channel contributes exactly its own real samples, with no shared index
@@ -193,14 +202,31 @@ def long_frame(series: dict[str, pd.Series]) -> pd.DataFrame:
                 "value": pd.Series(dtype="float64"),
             }
         )
-    frame = pd.concat(live, names=["channel", "timestamp"]).rename("value").reset_index()
+    # Series in, Series out; with the element type unknown the stubs cannot
+    # tell the Series overload of `concat` from the DataFrame one.
+    stacked: SampleSeries = pd.concat(live, names=["channel", "timestamp"])
+    frame = stacked.rename("value").reset_index()
     # Real samples can arrive at any datetime64 resolution; the contract is ns.
     frame["timestamp"] = frame["timestamp"].astype("datetime64[ns, UTC]")
     frame = frame.sort_values(["channel", "timestamp"], ignore_index=True)
     return frame[list(LONG_COLUMNS)]
 
 
-def decimate_raw(s: pd.Series, precision_ms: int, origin: pd.Timestamp) -> pd.Series:
+def _datetime_index(s: SampleSeries) -> pd.DatetimeIndex:
+    """The ``DatetimeIndex`` of one channel's samples.
+
+    Raises:
+        TypeError: If ``s`` is not indexed by timestamps, naming the channel.
+    """
+    index = s.index
+    if not isinstance(index, pd.DatetimeIndex):
+        raise TypeError(
+            f"channel {s.name!r} must be indexed by timestamps, got {type(index).__name__}"
+        )
+    return index
+
+
+def decimate_raw(s: SampleSeries, precision_ms: int, origin: pd.Timestamp) -> SampleSeries:
     """Keep the last real sample in each ``precision_ms`` bin, at its true timestamp.
 
     Do NOT replace with ``s.resample(...).agg("last")`` — that relabels the kept
@@ -219,6 +245,10 @@ def decimate_raw(s: pd.Series, precision_ms: int, origin: pd.Timestamp) -> pd.Se
         The subsequence of ``s`` at each bin's last real sample, in original
         order. ``s`` unchanged when empty, when ``precision_ms <= 0``, or when
         it is already sparser than one sample per bin.
+
+    Raises:
+        TypeError: If a non-empty ``s`` to be binned is not indexed by
+            timestamps.
     """
     if precision_ms <= 0 or s.empty:
         return s
@@ -227,11 +257,12 @@ def decimate_raw(s: pd.Series, precision_ms: int, origin: pd.Timestamp) -> pd.Se
     # same grid, and epoch-anchored `floor` would diverge from both for any
     # width that does not divide a day.
     width = pd.Timedelta(milliseconds=precision_ms)
-    bins = origin + (s.index - origin) // width * width
+    index = _datetime_index(s)
+    bins = origin + (index - origin) // width * width
     return s[~bins.duplicated(keep="last")]
 
 
-def reject_non_numeric(s: pd.Series, resolved: Processing) -> None:
+def reject_non_numeric(s: SampleSeries, resolved: Processing) -> None:
     """Enforce the contract that only ``raw`` is valid for a non-numeric channel.
 
     Backends that aggregate server-side never go through :func:`aggregate_series`,
@@ -255,7 +286,7 @@ def reject_non_numeric(s: pd.Series, resolved: Processing) -> None:
     )
 
 
-def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
+def aggregate_series(s: SampleSeries, resolved: Processing) -> SampleSeries:
     """Bin one channel's real samples, dropping periods that contained no samples.
 
     Empty bins are dropped rather than emitted as NaN, so a sparse channel
@@ -275,6 +306,7 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
     Raises:
         ValueError: If a non-raw mode is applied to a non-empty channel holding
             non-numeric values — see :func:`reject_non_numeric`.
+        TypeError: If a non-empty ``s`` is not indexed by timestamps.
     """
     # "raw" must never reach the resampler: `resample(...).agg("last")` relabels
     # the kept sample at the bin's leading edge, fabricating a timestamp nothing
@@ -287,7 +319,7 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
     if s.index.dtype != "datetime64[ns, UTC]":
         # Resampling a datetime64[s, UTC] index at a sub-second width raises
         # ZeroDivisionError (pandas 3.0).
-        s = s.set_axis(s.index.as_unit("ns"))
+        s = s.set_axis(_datetime_index(s).as_unit("ns"))
     # origin= pins the lattice to the query window. Without it `resample`
     # defaults to origin="start_day", midnight of *this channel's* first
     # sample, so two channels in one request whose data starts on different
@@ -298,7 +330,7 @@ def aggregate_series(s: pd.Series, resolved: Processing) -> pd.Series:
     return aggregated[counts > 0]
 
 
-def aggregate_long_frame(series: dict[str, pd.Series], resolved: Processing) -> pd.DataFrame:
+def aggregate_long_frame(series: dict[str, SampleSeries], resolved: Processing) -> pd.DataFrame:
     """Bin every channel client-side, then assemble the canonical long frame.
 
     Backends that bin server-side (EPICS) do not use it — they call

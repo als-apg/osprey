@@ -206,6 +206,6 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
         motion_bands=_motion_bands(inputs.records),
         units=_units(inputs.records),
     )
-    for warning in tolerance_warnings(inputs.records.document, _lanes(inputs)):
+    for warning in tolerance_warnings(inputs.records, _lanes(inputs)):
         _warn_once(inputs, warning)
     return [target]

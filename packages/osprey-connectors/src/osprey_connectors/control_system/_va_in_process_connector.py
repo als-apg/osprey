@@ -51,8 +51,11 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NotRequired, TypeAlias, TypedDict, TypeGuard
+from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict, TypeGuard
 
+from typing_extensions import override
+
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
     ChannelMetadata,
@@ -84,6 +87,7 @@ from osprey_connectors.simulation.view import (
 if TYPE_CHECKING:
     from osprey_connectors.control_system._limits_validator import CurrentValueReader
     from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.records import ChannelRecord
 
 logger = get_logger("va_in_process_connector")
 
@@ -215,25 +219,6 @@ def active_set_sha256(active: Sequence[str]) -> str:
 _JOURNAL_FILE_MODE = 0o600
 
 
-class _ChannelRecord(TypedDict, total=False):
-    """One channel entry of the view's ``variables.json``, as the view hands it over.
-
-    Read-only: :meth:`SimulatorView.document` freezes the file, so the record is
-    a mapping proxy and its sequences are tuples. Only the keys this connector
-    reads are named.
-    """
-
-    address: str
-    role: str
-    value_type: str
-    unit: str | None
-    description: str | None
-    writable: bool
-    value_range: tuple[float | None, float | None] | None
-    options: tuple[str, ...]
-    shape: tuple[int, ...]
-
-
 class _JournalDocument(TypedDict):
     """A session-writes journal: what :func:`_is_journal` admits."""
 
@@ -354,7 +339,7 @@ class VAInProcessConnector(ControlSystemConnector):
     def __init__(self) -> None:
         self._connected = False
         self._composite: Composite | None = None
-        self._records: dict[str, _ChannelRecord] = {}
+        self._records: dict[str, ChannelRecord] = {}
         self._served: frozenset[str] = frozenset()
         self._subscriptions: dict[str, _Subscription] = {}
         self._last_held: dict[str, object] = {}
@@ -370,7 +355,8 @@ class VAInProcessConnector(ControlSystemConnector):
         self._state_mark: int | None = None
         self._holds_writes = False
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """Build the composite of the simulator view and start the tick.
 
         Args:
@@ -432,6 +418,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._tick_task = asyncio.create_task(self._tick())
         logger.debug(f"In-process simulator serving {view.path}")
 
+    @override
     async def disconnect(self) -> None:
         """Stop the tick and drop the composite."""
         if self._tick_task is not None:
@@ -556,7 +543,9 @@ class VAInProcessConnector(ControlSystemConnector):
                 return address, "not a setpoint"
             if record.get("writable") is not True:
                 return address, NOT_WRITABLE
-            band = record.get("value_range")
+            # Read from the view's JSON, not trusted to its record type: a null
+            # side is unbounded, as the simulator's texture reads the band.
+            band: Sequence[float | None] | None = record.get("value_range")
             if band:
                 low, high = band
                 number = value if isinstance(value, int | float) else None
@@ -675,19 +664,19 @@ class VAInProcessConnector(ControlSystemConnector):
 
     def _metadata(self, address: str, composite: Composite) -> ChannelMetadata:
         """Metadata from the channel record, alarm from the composite's severity."""
-        record = self._records.get(address, {})
+        record = self._records.get(address)
         variable = composite.supported_variables[address]
-        unit = getattr(variable, "unit", None) or record.get("unit") or ""
+        unit = getattr(variable, "unit", None) or (record and record.get("unit")) or ""
         severity = composite.output_severity([address])
         labels: list[str] | None = None
-        if record.get("value_type") in LABELLED_TYPES:
+        if record is not None and record.get("value_type") in LABELLED_TYPES:
             from osprey_connectors.simulation import values
 
             labels = values.channel_labels(record)
         return ChannelMetadata(
             units=str(unit),
             timestamp=datetime.now(get_facility_timezone()),
-            description=record.get("description"),
+            description=None if record is None else record.get("description"),
             alarm_severity=UDF_SEVERITY if address in severity else None,
             alarm_status=UDF_STATUS if address in severity else None,
             enum_labels=labels,
@@ -711,10 +700,12 @@ class VAInProcessConnector(ControlSystemConnector):
 
     # -- reads -----------------------------------------------------------------
 
+    @override
     async def read_channel(
         self,
         channel_address: str,
-        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_channel signature; an in-process read never blocks
+        timeout: float
+        | None = None,  # ControlSystemConnector.read_channel signature; an in-process read never blocks
     ) -> ChannelValue:
         """Read a channel as the simulator serves it, motion included.
 
@@ -737,10 +728,12 @@ class VAInProcessConnector(ControlSystemConnector):
         self._sync()
         return self._reading(channel_address, held=True)
 
+    @override
     def current_value_reader(self) -> CurrentValueReader:
         """What the simulated control system holds, read without motion."""
         return self._held_value
 
+    @override
     async def read_multiple_channels(
         self,
         channel_addresses: list[str],
@@ -749,6 +742,7 @@ class VAInProcessConnector(ControlSystemConnector):
         """Read multiple channels concurrently."""
         return await self._read_concurrently(channel_addresses, timeout)
 
+    @override
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """The channel record's description and its variable's unit.
 
@@ -759,6 +753,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._sync()
         return self._metadata(channel_address, self._answering(channel_address))
 
+    @override
     async def validate_channel(self, channel_address: str) -> bool:
         """Whether the built facility file holds the address."""
         return channel_address in self._served
@@ -790,6 +785,7 @@ class VAInProcessConnector(ControlSystemConnector):
             value, record.get("value_type"), record.get("options"), record.get("shape")
         )
 
+    @override
     def _write_precheck(
         self, channel_address: str, value: object
     ) -> tuple[str, ChannelWriteResult | None]:
@@ -825,7 +821,8 @@ class VAInProcessConnector(ControlSystemConnector):
             )
         return channel_address, None
 
-    async def _current_values(self, channel_addresses: list[str]) -> dict[str, Any] | None:
+    @override
+    async def _current_values(self, channel_addresses: list[str]) -> dict[str, object] | None:
         """What the simulated control system holds: read in process, no thread."""
         held: dict[str, object] = {}
         for address in channel_addresses:
@@ -835,11 +832,13 @@ class VAInProcessConnector(ControlSystemConnector):
                 held[address] = exc
         return held
 
+    @override
     async def write_channel(
         self,
         channel_address: str,
         value: object,
-        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.write_channel signature; an in-process write never blocks
+        timeout: float
+        | None = None,  # ControlSystemConnector.write_channel signature; an in-process write never blocks
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Write a value to a setpoint, confirming it unless asked not to.
@@ -975,6 +974,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
     # -- subscriptions and the tick ------------------------------------------
 
+    @override
     async def subscribe(
         self,
         channel_address: str,
@@ -1008,6 +1008,7 @@ class VAInProcessConnector(ControlSystemConnector):
         _tell_connection(channel_address, on_connection, connected)
         return sub_id
 
+    @override
     async def unsubscribe(self, subscription_id: str) -> None:
         """Unsubscribe from channel changes."""
         if subscription_id in self._subscriptions:

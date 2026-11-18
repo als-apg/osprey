@@ -24,6 +24,8 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from typing import Literal
 
+from typing_extensions import override
+
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
     DirectoryPage,
@@ -215,7 +217,8 @@ class SimulatorDirectory(ChannelDirectory):
         self._records_read, self._iocs_read = records, iocs
         return records
 
-    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:  # noqa: ARG002
+    @override
+    async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
         searched = _searched(query)
         request = f"{_REQUEST_PREFIX} · {searched}"
         records = self._records()
@@ -241,16 +244,18 @@ class SimulatorDirectory(ChannelDirectory):
             truncated=start + len(rows) < len(hits),
         )
 
-    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:  # noqa: ARG002
+    @override
+    async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:
         records = self._records()
         return (
             records if isinstance(records, Unavailable) else len(_matching(records.values(), query))
         )
 
+    @override
     async def describe(
         self,
         name: str,
-        deadline: float,  # noqa: ARG002
+        deadline: float,
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
@@ -258,17 +263,19 @@ class SimulatorDirectory(ChannelDirectory):
         record = records.get(name)
         return Outcome.NOT_LISTED if record is None else record
 
-    async def property_names(self, deadline: float) -> list[str] | Unavailable:  # noqa: ARG002
+    @override
+    async def property_names(self, deadline: float) -> list[str] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records
         return sorted({key for record in records.values() for key in record.properties})
 
+    @override
     async def property_values(
         self,
         name: str,
         prefix: str | None,
-        deadline: float,  # noqa: ARG002
+        deadline: float,
     ) -> list[str] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
@@ -278,7 +285,8 @@ class SimulatorDirectory(ChannelDirectory):
         }
         return sorted(value for value in values if value.startswith(prefix or ""))
 
-    async def list_servers(self, deadline: float) -> list[ServerRow] | Unavailable:  # noqa: ARG002
+    @override
+    async def list_servers(self, deadline: float) -> list[ServerRow] | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records
@@ -291,7 +299,8 @@ class SimulatorDirectory(ChannelDirectory):
             for name in sorted(self._iocs_read | {name for name in counts if name})
         ]
 
-    async def probe(self, deadline: float) -> str | Unavailable:  # noqa: ARG002
+    @override
+    async def probe(self, deadline: float) -> str | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records

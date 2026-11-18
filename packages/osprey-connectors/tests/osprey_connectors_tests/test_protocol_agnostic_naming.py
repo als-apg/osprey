@@ -22,6 +22,11 @@ from osprey_connectors.archiver._epics_archiver_connector import EPICSArchiverCo
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
 from osprey_connectors.archiver._mya_archiver_connector import MYAArchiverConnector
+from osprey_connectors.control_system import (
+    ChannelWriteResult,
+    WriteOutcome,
+    raise_for_write_result,
+)
 from osprey_connectors.control_system._base import ChannelMetadata
 from osprey_connectors.errors import ChannelWriteFailedError
 
@@ -65,9 +70,31 @@ def test_archiver_metadata_identifies_a_channel():
     assert "pv_name" not in fields
 
 
-def test_write_failure_reasons_are_protocol_neutral():
-    """A DOOCS write failure must not be reported as a Channel Access failure."""
-    assert ChannelWriteFailedError._VALID_REASONS == ("FAILED", "MISMATCH", "UNCONFIRMED")
+@pytest.mark.parametrize(
+    ("outcome", "error_message"),
+    [
+        (WriteOutcome.FAILED, "put raised"),
+        (WriteOutcome.MISMATCH, None),
+        (WriteOutcome.UNCONFIRMED, "re-read raised"),
+    ],
+)
+def test_write_failure_reasons_are_protocol_neutral(outcome, error_message):
+    """A DOOCS write failure must not be reported as a Channel Access failure.
+
+    The reason a failed write raises with is its outcome word, so no protocol
+    primitive (``CAPUT_FAILED``) can name it.
+    """
+    result = ChannelWriteResult(
+        channel_address="FAC/DEV/LOC/PROP",
+        value_written=1.0,
+        outcome=outcome,
+        error_message=error_message,
+    )
+
+    with pytest.raises(ChannelWriteFailedError) as raised:
+        raise_for_write_result(result)
+
+    assert raised.value.reason == outcome.upper()
 
 
 def test_channel_metadata_display_range_is_not_named_like_a_write_bound():

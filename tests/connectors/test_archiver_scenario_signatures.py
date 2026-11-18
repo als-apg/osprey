@@ -29,7 +29,8 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 
@@ -83,27 +84,35 @@ def _pinned_view(built_demo, root: Path, state: str) -> Path:
     return view
 
 
-def _reader(view: Path) -> Reader:
-    """Read channels' archived values over ``[start, end]`` at one sample per ``step``."""
+@contextmanager
+def _reader(view: Path) -> Iterator[Reader]:
+    """Read channels' archived values over ``[start, end]`` at one sample per ``step``.
 
-    async def _read(channels, start, end, step):
+    One connector, connected once, serves every read of the block. That is safe
+    to share: ``get_data`` only reads the archive composite, a pure function of
+    the channel and the absolute time at the active set the view's state file
+    pins, and nothing rewrites that file, so no read changes what a later read
+    returns.
+    """
+    with asyncio.Runner() as runner:
         connector = MockArchiverConnector()
-        await connector.connect(in_process_config(view, sample_rate_hz=1.0))
+        runner.run(connector.connect(in_process_config(view, sample_rate_hz=1.0)))
         try:
-            frame = await connector.get_data(
-                channels, start, end, precision_ms=int(step.total_seconds() * 1000)
-            )
+
+            def read(channels, start, end, step):
+                frame = runner.run(
+                    connector.get_data(
+                        channels, start, end, precision_ms=int(step.total_seconds() * 1000)
+                    )
+                )
+                return {
+                    channel: frame.loc[frame["channel"] == channel, "value"].to_numpy(dtype=float)
+                    for channel in channels
+                }
+
+            yield read
         finally:
-            await connector.disconnect()
-        return {
-            channel: frame.loc[frame["channel"] == channel, "value"].to_numpy(dtype=float)
-            for channel in channels
-        }
-
-    def read(channels, start, end, step):
-        return asyncio.run(_read(channels, start, end, step))
-
-    return read
+            runner.run(connector.disconnect())
 
 
 def _r(x: np.ndarray, y: np.ndarray) -> float:
@@ -120,12 +129,13 @@ class TestVacuumBurst:
             hour=14, minute=32, second=8, microsecond=0
         )
         channels = [GAUGE.format(sector) for sector in range(1, 13)] + [DCCT]
-        return _reader(view)(
-            channels,
-            center - timedelta(minutes=5),
-            center + timedelta(minutes=5),
-            timedelta(seconds=1),
-        )
+        with _reader(view) as read:
+            return read(
+                channels,
+                center - timedelta(minutes=5),
+                center + timedelta(minutes=5),
+                timedelta(seconds=1),
+            )
 
     def test_sector7_anticorrelates_with_the_beam_current(self, window):
         r = _r(window[GAUGE.format(7)], window[DCCT])
@@ -160,9 +170,12 @@ class TestRfThermal:
         return yaml.safe_load(path.read_text(encoding="utf-8"))
 
     @pytest.fixture(scope="class")
-    def read(self, built_demo, tmp_path_factory) -> Reader:
+    def read(self, built_demo, tmp_path_factory) -> Iterator[Reader]:
         state = f"anchor={RF_ANCHOR.isoformat()}\nrf-thermal\n"
-        return _reader(_pinned_view(built_demo, tmp_path_factory.mktemp("rf-thermal"), state))
+        with _reader(
+            _pinned_view(built_demo, tmp_path_factory.mktemp("rf-thermal"), state)
+        ) as read:
+            yield read
 
     @staticmethod
     def _narrated(when: dict) -> datetime:
@@ -292,19 +305,16 @@ class TestRfThermalLive:
 
     @pytest.fixture(scope="class")
     def series(self, built_demo, tmp_path_factory) -> dict[str, np.ndarray]:
-        read = _reader(
-            _pinned_view(
-                built_demo,
-                tmp_path_factory.mktemp("rf-thermal-live"),
-                "rf-thermal-live\n",
-            )
+        view = _pinned_view(
+            built_demo, tmp_path_factory.mktemp("rf-thermal-live"), "rf-thermal-live\n"
         )
         channels = [CAV_T, CAV_REV, CAV_FWD, CAV_TUNER]
         # The mock serves at most 10,000 points a call: read the hours in halves.
-        halves = [
-            read(channels, start, start + timedelta(seconds=5399), timedelta(seconds=1))
-            for start in (self.END - timedelta(hours=3), self.END - timedelta(hours=1.5))
-        ]
+        with _reader(view) as read:
+            halves = [
+                read(channels, start, start + timedelta(seconds=5399), timedelta(seconds=1))
+                for start in (self.END - timedelta(hours=3), self.END - timedelta(hours=1.5))
+            ]
         return {channel: np.concatenate([half[channel] for half in halves]) for channel in channels}
 
     def _windowed(self, x: np.ndarray, y: np.ndarray) -> list[float]:

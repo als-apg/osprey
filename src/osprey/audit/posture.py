@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS, POSTURE_SOURCES
 from osprey_connectors.posture_env import POSTURE_ENV_VAR, SANDBOX_MODE, is_readonly_run
@@ -138,7 +138,7 @@ def posture() -> str:
     return POSTURE_WRITES if allowed else POSTURE_SANDBOX
 
 
-def control_system_section() -> Any:
+def control_system_section() -> object:
     """The deployment's ``control_system`` section, or ``None`` when it cannot be read.
 
     The one reader the audit package uses for the section a verdict is asked

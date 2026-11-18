@@ -283,3 +283,13 @@ class TestRegistration:
         assert "web_terminals" in CORE_CATEGORY_NAMES
         assert get_core_category_factory("web_terminals") is web_terminals
         assert "web_terminals" in CONFIG_DEPENDENT
+
+
+class TestWorkersOnTheBus:
+    async def test_bus_workers_are_skipped_because_they_listen_on_no_port(self):
+        cfg = _cfg(worker={"network": "host", "transport": "bus", "worker_count": 2})
+        rows = await _run(cfg, _answers({}))
+        for i in (1, 2):
+            row = rows[f"web_terminals.dispatch_worker_{i}"]
+            assert row.status is Status.SKIP
+            assert "dispatch bus" in row.message

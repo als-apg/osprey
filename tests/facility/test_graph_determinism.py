@@ -11,8 +11,8 @@
   files in different orders and the files written in a different order, give
   the same Turtle, header included, for both variants and every setting.
 - Rendering one facility file twice in one process with different settings
-  gives each setting its own text: the per-build memo never hands one
-  setting's Turtle to another.
+  gives each setting its own text: nothing hands one setting's Turtle to
+  another.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from osprey.facility.views.graph import (
     CONTESTED_SUFFIX,
     RELATION_PREDICATES,
     GraphSettings,
-    _turtle,
+    graph_bytes,
     graph_text,
 )
 from osprey.facility.views.graph_iri import namespace
@@ -205,15 +205,15 @@ class TestShuffledClaimsBuildTheSameGraph:
         )
 
 
-class TestTheMemoKeepsEachSetting:
+class TestEachSettingKeepsItsText:
     @pytest.fixture(scope="class")
     def records(self, tmp_path_factory: pytest.TempPathFactory) -> FacilityRecords:
-        return FacilityRecords(build_appendix_a(tmp_path_factory.mktemp("memo")))
+        return FacilityRecords(build_appendix_a(tmp_path_factory.mktemp("settings")))
 
     def test_each_setting_gets_its_own_text(self, records: FacilityRecords) -> None:
         texts = {settings: graph_text(records, settings) for settings in ALL_SETTINGS}
         for settings, text in texts.items():
-            assert text == _turtle(records, settings), settings
+            assert text == graph_bytes(records, settings).decode("utf-8"), settings
         assert len(set(texts.values())) == len(ALL_SETTINGS)
 
     def test_rendering_back_and_forth_changes_the_text_as_specified(

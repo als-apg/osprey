@@ -47,6 +47,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, NotRequired, TypedDict
 
+from typing_extensions import override
+
 from osprey_connectors._service_http import ReadOnlyTransport, Transport
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
@@ -258,6 +260,7 @@ class ChannelFinderDirectory(ChannelDirectory):
         )
 
     @property
+    @override
     def field_properties(self) -> Mapping[str, str]:
         """RecSync's property of each row field, and the description property built with."""
         return MappingProxyType(
@@ -314,6 +317,7 @@ class ChannelFinderDirectory(ChannelDirectory):
     async def _get(self, path: str, params: _Params | None, deadline: float) -> object:
         return await self._transport.request("GET", path, params=params, deadline=deadline)
 
+    @override
     async def search(self, query: DirectoryQuery, deadline: float) -> DirectoryPage:
         started = time.monotonic()
         searched = _searched(query)
@@ -377,6 +381,7 @@ class ChannelFinderDirectory(ChannelDirectory):
                 partial=[{"part": "count", "reason": why_no_count}] if known is None else [],
             )
 
+    @override
     async def count(self, query: DirectoryQuery, deadline: float) -> int | Unavailable:
         started = time.monotonic()
         total: int | Unavailable = 0
@@ -387,6 +392,7 @@ class ChannelFinderDirectory(ChannelDirectory):
                 break
         return total
 
+    @override
     async def describe(
         self, name: str, deadline: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
@@ -399,12 +405,14 @@ class ChannelFinderDirectory(ChannelDirectory):
                 return self._record(channel)
         return Outcome.NOT_LISTED
 
+    @override
     async def property_names(self, deadline: float) -> list[str] | Unavailable:
         body = await self._get(_PROPERTIES, None, deadline)
         if isinstance(body, Unavailable):
             return body
         return sorted(_names_of(body)) if isinstance(body, list) else _MALFORMED
 
+    @override
     async def property_values(
         self, name: str, prefix: str | None, deadline: float
     ) -> list[str] | Unavailable:
@@ -418,6 +426,7 @@ class ChannelFinderDirectory(ChannelDirectory):
             value for value in values if value is not None and value.startswith(prefix or "")
         )
 
+    @override
     async def list_servers(self, deadline: float) -> list[ServerRow] | Unavailable:
         """Every IOC the channels name in ``iocName``, read over the scroll route.
 
@@ -473,6 +482,7 @@ class ChannelFinderDirectory(ChannelDirectory):
             for ioc in sorted(pvs)
         ]
 
+    @override
     async def probe(self, deadline: float) -> str | Unavailable:
         names, sample = await asyncio.gather(
             self.property_names(deadline),

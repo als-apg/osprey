@@ -332,7 +332,7 @@ def _trace_stats(trace: Any) -> dict[str, Any]:
     return stats
 
 
-def _cadence_seconds(timestamps: pd.Series) -> int | float | None:
+def _cadence_seconds(timestamps: "pd.Series[pd.Timestamp]") -> int | float | None:
     """The median spacing of a channel's traces, in seconds; None below two traces."""
     if len(timestamps) < 2:
         return None

@@ -112,6 +112,7 @@ __all__ = [
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
     "ioc_health_addresses",
+    "resolved_still",
     "served_deck_path",
     "simulator_wiring",
     "status_address",
@@ -360,7 +361,7 @@ def _float_addresses(channels: Iterable[Mapping[str, Any]]) -> set[str]:
     }
 
 
-def _resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> list[str]:
+def resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> list[str]:
     """The float addresses a scenario's ``still`` names, sorted, each once.
 
     ``all`` is every float channel, an address is itself, and a selection is the
@@ -478,7 +479,7 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
             if inactive:
                 entry["inactive_iocs"] = inactive
         if scenario.get("still") is not None:
-            entry["still"] = _resolved_still(inputs.records, scenario)
+            entry["still"] = resolved_still(inputs.records, scenario)
         faults = scenario.get("faults")
         if faults is not None:
             entry["faults"] = {}
@@ -490,7 +491,7 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
         scenarios.append(entry)
     if all(str(entry["name"]) != STILL_SCENARIO for entry in scenarios):
         scenarios.append(
-            {**_BUILT_IN_STILL, "still": _resolved_still(inputs.records, _BUILT_IN_STILL)}
+            {**_BUILT_IN_STILL, "still": resolved_still(inputs.records, _BUILT_IN_STILL)}
         )
         scenarios.sort(key=lambda entry: str(entry["name"]))
     return {"schema": SCENARIOS_SCHEMA, "scenarios": scenarios}

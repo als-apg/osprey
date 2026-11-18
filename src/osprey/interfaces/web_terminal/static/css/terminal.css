@@ -2518,3 +2518,185 @@ html:not([data-agent-surface="terminal"]) .terminal-handoff {
 .terminal-handoff-action[hidden] {
   display: none;
 }
+
+/* ---- Loading shell ----
+   The hub loads in two visible states. While <html data-boot="loading"> the
+   sidebar's fixed chrome is drawn and inert, the rows start-up will fill are
+   placeholder bars, and the workspace is under the veil. At the reveal
+   (shell-reveal.js sets data-boot="revealed") the finished page fades in at
+   once. Everything stays laid out underneath the whole time, at zero opacity
+   rather than hidden, so xterm opens against a sized element, focus lands
+   where it will stay, and nothing moves when the veil lifts. */
+.boot-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: var(--surface-canvas);
+  color: var(--text-secondary);
+  transition:
+    opacity var(--duration-base) ease-out,
+    visibility 0s linear var(--duration-base);
+}
+
+html:not([data-boot]) .boot-veil,
+html[data-boot="revealed"] .boot-veil {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.boot-veil-mark {
+  width: 40px;
+  height: 20px;
+  color: var(--color-accent);
+}
+
+.boot-veil-status {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.boot-veil-detail {
+  margin: 0;
+  max-width: 40ch;
+  font-size: var(--text-base);
+  text-align: center;
+}
+
+.boot-veil-detail[hidden],
+.boot-veil [data-boot-reload][hidden] {
+  display: none;
+}
+
+/* Indeterminate until shell-boot.js reports a first file; from then on
+   [data-progress] and --boot-progress (0 to 1) make it a filling bar. */
+.boot-veil-bar {
+  position: relative;
+  width: 160px;
+  height: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-hairline);
+  overflow: hidden;
+}
+
+.boot-veil-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 60% 0 0;
+  border-radius: inherit;
+  background: var(--color-accent);
+  animation: boot-veil-sweep calc(var(--duration-slow) * 4) ease-in-out infinite;
+}
+
+.boot-veil-bar[data-progress]::after {
+  inset: 0;
+  transform: scaleX(var(--boot-progress, 0));
+  transform-origin: left center;
+  transition: transform var(--duration-base) ease-out;
+  animation: none;
+}
+
+html[data-boot="failed"] .boot-veil-bar {
+  display: none;
+}
+
+@keyframes boot-veil-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* The workspace under the veil. The parked sources holder is display:
+   contents and takes no opacity of its own, so its children are named. */
+.main-container > :not(.boot-veil),
+.dock-panel-sources > * {
+  transition: opacity var(--duration-base) ease-out;
+}
+
+html[data-boot="loading"] .main-container > :not(.boot-veil),
+html[data-boot="loading"] .dock-panel-sources > *,
+html[data-boot="failed"] .main-container > :not(.boot-veil),
+html[data-boot="failed"] .dock-panel-sources > * {
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+}
+
+/* The sidebar while loading: its fixed chrome reads as itself and takes no
+   pointer; the rows start-up fills are bars in their place. */
+html[data-boot="loading"] .sidebar,
+html[data-boot="failed"] .sidebar {
+  pointer-events: none;
+}
+
+html[data-boot="loading"] .sidebar-sections,
+html[data-boot="failed"] .sidebar-sections {
+  position: relative;
+}
+
+html[data-boot="loading"] .sidebar-sections > *,
+html[data-boot="loading"] .sidebar-target > *,
+html[data-boot="failed"] .sidebar-sections > *,
+html[data-boot="failed"] .sidebar-target > * {
+  visibility: hidden;
+}
+
+html[data-boot="loading"] .sidebar-sections::before {
+  content: "";
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-2);
+  width: 68%;
+  height: 168px;
+  border-radius: var(--radius-sm);
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 9px,
+    var(--surface-hairline) 9px 19px,
+    transparent 19px 28px
+  );
+  animation: boot-skeleton-pulse calc(var(--duration-base) * 8) ease-in-out infinite;
+}
+
+html[data-sidebar="collapsed"][data-boot="loading"] .sidebar-sections::before {
+  width: 20px;
+}
+
+@keyframes boot-skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-veil,
+  .main-container > :not(.boot-veil),
+  .dock-panel-sources > * {
+    transition: none;
+  }
+
+  .boot-veil-bar::after {
+    inset: 0;
+    opacity: 0.5;
+    animation: none;
+  }
+
+  .boot-veil-bar[data-progress]::after {
+    opacity: 1;
+    transition: none;
+  }
+
+  html[data-boot="loading"] .sidebar-sections::before {
+    animation: none;
+  }
+}

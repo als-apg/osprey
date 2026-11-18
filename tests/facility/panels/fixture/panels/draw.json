@@ -1,0 +1,23 @@
+{
+  "symbols": {
+    "Quadrupole": "quadrupole",
+    "Dipole": "bend",
+    "Pump": "pump"
+  },
+  "above": [
+    "Pump"
+  ],
+  "colours": {
+    "quadrupole": "#2f9e52",
+    "bend": "#4c78d8",
+    "pump": "#7d8a99"
+  },
+  "annotate": {
+    "quadrupole": [
+      "current_readback"
+    ],
+    "pump": [
+      "vacuum_readback"
+    ]
+  }
+}

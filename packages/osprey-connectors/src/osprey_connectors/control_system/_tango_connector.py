@@ -17,8 +17,11 @@ import asyncio
 import secrets
 from collections.abc import Callable
 from datetime import datetime, tzinfo
-from typing import Any, Protocol
+from typing import Protocol
 
+from typing_extensions import override
+
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
@@ -187,7 +190,7 @@ class TangoConnector(ControlSystemConnector):
     there is no client-side monitor cache for a confirming read to bypass.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected: bool = False
         self._proxies: dict[str, _DeviceProxy] = {}
         self._subscriptions: dict[str, tuple[_DeviceProxy, int]] = {}
@@ -197,7 +200,8 @@ class TangoConnector(ControlSystemConnector):
         self._tango: _PyTango | None = None
         self._tango_host: str | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Import PyTango and verify the TANGO database is reachable.
 
@@ -252,6 +256,7 @@ class TangoConnector(ControlSystemConnector):
         self._connected = True
         logger.debug("TANGO connector initialized")
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup TANGO subscriptions and drop the proxy cache."""
         for sub_id in list(self._subscriptions.keys()):
@@ -377,6 +382,7 @@ class TangoConnector(ControlSystemConnector):
             metadata.alarm_severity = severity
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
+    @override
     async def read_channel(
         self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
@@ -407,6 +413,7 @@ class TangoConnector(ControlSystemConnector):
                 f"TANGO attribute '{channel_address}' did not answer within {ceiling}s"
             ) from None
 
+    @override
     def current_value_reader(self) -> CurrentValueReader:
         """The attribute's present value, read through this connector's own proxy."""
 
@@ -416,6 +423,7 @@ class TangoConnector(ControlSystemConnector):
 
         return read_current
 
+    @override
     def _write_precheck(
         self, channel_address: str, value: object
     ) -> tuple[str, ChannelWriteResult | None]:
@@ -426,6 +434,7 @@ class TangoConnector(ControlSystemConnector):
             return channel_address, self._validation_refusal(channel_address, value, exc)
         return channel_address, None
 
+    @override
     async def write_channel(
         self,
         channel_address: str,
@@ -581,18 +590,21 @@ class TangoConnector(ControlSystemConnector):
             ),
         )
 
+    @override
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
         return await self._read_concurrently(channel_addresses, timeout)
 
+    @override
     async def subscribe(
         self,
         channel_address: str,
         callback: Callable[[ChannelValue], None],
         *,
-        on_connection: Callable[[bool], None] | None = None,  # noqa: ARG002 - accepted and ignored: TANGO reports no connection state
+        on_connection: Callable[[bool], None]
+        | None = None,  # accepted and ignored: TANGO reports no connection state
     ) -> str:
         """
         Subscribe to attribute change events.
@@ -645,6 +657,7 @@ class TangoConnector(ControlSystemConnector):
         logger.debug(f"TANGO subscription created: {sub_id}")
         return sub_id
 
+    @override
     async def unsubscribe(self, subscription_id: str) -> None:
         """Unsubscribe from TANGO attribute change events."""
         if subscription_id in self._subscriptions:
@@ -652,6 +665,7 @@ class TangoConnector(ControlSystemConnector):
             await asyncio.to_thread(proxy.unsubscribe_event, event_id)
             logger.debug(f"TANGO subscription removed: {subscription_id}")
 
+    @override
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get metadata for a channel, enriched from the attribute config.
 
@@ -691,6 +705,7 @@ class TangoConnector(ControlSystemConnector):
         metadata.raw_metadata = raw
         return metadata
 
+    @override
     async def validate_channel(self, channel_address: str) -> bool:
         """
         Check if the attribute exists and is readable.

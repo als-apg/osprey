@@ -97,7 +97,7 @@ def virtual_accelerator_active(
     return is_loopback(endpoint_host)
 
 
-def has_simulator(config: Mapping[str, object]) -> bool:
+def has_simulator(config: object) -> bool:
     """Whether the build has a simulator.
 
     The port alone answers no for an in-process virtual accelerator; the
@@ -108,6 +108,7 @@ def has_simulator(config: Mapping[str, object]) -> bool:
         config: The full config mapping, as loaded from ``config.yml``. The build
             validator, which sees an overlay, passes the overlay with
             ``services.virtual_accelerator.port`` filled in from the profile.
+            Anything that is not a mapping has no simulator.
     """
     if not isinstance(config, Mapping):
         return False

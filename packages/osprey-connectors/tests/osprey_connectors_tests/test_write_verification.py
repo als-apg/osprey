@@ -107,24 +107,6 @@ class TestChannelWriteResultShape:
         assert asdict(restored) == asdict(original)
         assert restored.outcome is WriteOutcome.MISMATCH
 
-    def test_observed_number_narrows_only_what_is_a_number(self):
-        """A reading with no numeric form is reported as such, never coerced."""
-        numeric = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
-            value_written=100.0,
-            outcome=WriteOutcome.CONFIRMED,
-            observed_value=100.0,
-        )
-        textual = ChannelWriteResult(
-            channel_address="TEST:CHANNEL",
-            value_written="Open",
-            outcome=WriteOutcome.CONFIRMED,
-            observed_value="Open",
-        )
-
-        assert numeric.observed_number == 100.0
-        assert textual.observed_number is None
-
 
 class TestChannelMetadataAlarmStatusNotWidened:
     """``ChannelMetadata.alarm_status`` stays ``str | None`` — no type widening.

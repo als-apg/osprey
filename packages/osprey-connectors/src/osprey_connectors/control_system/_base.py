@@ -22,9 +22,12 @@ from datetime import datetime
 from enum import StrEnum
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeGuard
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeGuard
+
+from typing_extensions import override
 
 from osprey_connectors import posture_store, write_authorization
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system.write_door import open_door
 from osprey_connectors.errors import RefusalReason
 from osprey_connectors.posture_env import is_readonly_run
@@ -98,7 +101,7 @@ class ChannelMetadata:
     enum_labels: list[str] | None = None
     #: The label for the value of THIS reading; None off enums and when unresolvable.
     enum_label: str | None = None
-    raw_metadata: dict[str, Any] | None = field(default_factory=dict)
+    raw_metadata: dict[str, ContractAny] | None = field(default_factory=dict)
     #: Drive range (EPICS DRVL/DRVH); None when unreported or not a valid range.
     control_low: float | None = None
     control_high: float | None = None
@@ -111,7 +114,7 @@ class ChannelMetadata:
     #: This client's write access to the channel; None when the control system does not say.
     writable: bool | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Ensure raw_metadata is a dict and normalise the limits and ``writable``."""
         if self.raw_metadata is None:
             self.raw_metadata = {}
@@ -176,7 +179,7 @@ def _writable_flag(value: object) -> bool | None:
 class ChannelValue:
     """Value of a control system channel with metadata."""
 
-    value: Any
+    value: ContractAny
     timestamp: datetime
     metadata: ChannelMetadata = field(default_factory=ChannelMetadata)
 
@@ -253,15 +256,18 @@ def _unwrap_length_one(value: object) -> object:
 
 def _scalars_match(sent: object, observed: object) -> bool:
     """Compare two scalars: floats by relative closeness, everything else by ``==``."""
+    # The bools are excluded first: ``bool`` is a ``numbers.Real`` at runtime,
+    # though the type stubs do not say so.
     if (
-        isinstance(sent, numbers.Real)
-        and isinstance(observed, numbers.Real)
-        and not isinstance(sent, bool)
+        not isinstance(sent, bool)
         and not isinstance(observed, bool)
+        and isinstance(sent, numbers.Real)
+        and isinstance(observed, numbers.Real)
     ):
         return math.isclose(float(sent), float(observed), rel_tol=1e-6, abs_tol=0.0)
 
-    result = sent == observed
+    # Not always a bool: a numpy comparison answers an array.
+    result: object = sent == observed
     if isinstance(result, bool):
         return result
     # A numpy (or other array-like) elementwise comparison reduces to one verdict.
@@ -315,20 +321,6 @@ def values_match(sent: object, observed: object, *, enum_label: str | None = Non
         return False
 
 
-def as_number(value: object) -> float | None:
-    """``value`` as a float, or ``None`` when it is not a number.
-
-    A reading that is not a number — a string, an enum label, a waveform — has
-    no numeric form and is reported as ``None`` ("no numeric value"), never
-    coerced into one. A string that happens to parse as a number is still a
-    string here: what the channel holds is text, and inventing a number for it
-    is the fabrication this helper exists to prevent.
-    """
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
-        return None
-    return float(value)
-
-
 #: The outcomes whose result carries an ``error_message``: each has something
 #: the operator has to be told.
 _MESSAGE_OUTCOMES = frozenset({WriteOutcome.REFUSED, WriteOutcome.FAILED, WriteOutcome.UNCONFIRMED})
@@ -364,8 +356,7 @@ class ChannelWriteResult:
     them apart without parsing ``error_message``; it is ``None`` on every
     other result. ``observed_value`` is whatever the confirming
     re-read returned, in the type the channel holds — a number, a string, an
-    enum label, a waveform; :attr:`observed_number` narrows it to a float
-    where that makes sense.
+    enum label, a waveform.
 
     Alarm state (``alarm_status``, ``alarm_severity``) is carried
     protocol-agnostically — the alarm *name* as a string, the severity as an
@@ -377,13 +368,13 @@ class ChannelWriteResult:
     """
 
     channel_address: str  # Channel that was written
-    value_written: Any  # Value that was sent
+    value_written: ContractAny  # Value that was sent
     outcome: WriteOutcome  # The one verdict, set by the connector
     # Set iff refused, enforced at construction
     refusal_reason: RefusalReason | None = None
     # Set iff refused, failed or unconfirmed, enforced at construction
     error_message: str | None = None
-    observed_value: Any = None  # What the confirming re-read returned
+    observed_value: ContractAny = None  # What the confirming re-read returned
     # Alarm name reported for the reading, e.g. "NO_ALARM"/"HIHI"; None if not reported
     alarm_status: str | None = None
     # Alarm severity: 0 healthy, higher is worse; None if not reported
@@ -408,11 +399,19 @@ class ChannelWriteResult:
                 is missing on a ``refused``, ``failed`` or ``unconfirmed``
                 result or set on any other.
         """
-        if not isinstance(self.outcome, WriteOutcome):
-            self.outcome = WriteOutcome(self.outcome)
-        if self.refusal_reason is not None and not isinstance(self.refusal_reason, RefusalReason):
+        # Read as ``object``: the fields' types say what they hold once coerced.
+        outcome: object = self.outcome
+        if not isinstance(outcome, WriteOutcome):
+            if not isinstance(outcome, str):
+                # The words the enum's own lookup raises for a value it does not hold.
+                raise ValueError(f"{outcome!r} is not a valid {WriteOutcome.__qualname__}")
+            self.outcome = WriteOutcome(outcome)
+        reason: object = self.refusal_reason
+        if reason is not None and not isinstance(reason, RefusalReason):
             try:
-                self.refusal_reason = RefusalReason(self.refusal_reason)
+                if not isinstance(reason, str):
+                    raise ValueError(reason)
+                self.refusal_reason = RefusalReason(reason)
             except ValueError:
                 raise ValueError(
                     f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
@@ -431,11 +430,6 @@ class ChannelWriteResult:
                 f"Write result for '{self.channel_address}' (outcome {self.outcome}): "
                 f"error_message must be {expected}, got {self.error_message!r}"
             )
-
-    @property
-    def observed_number(self) -> float | None:
-        """:attr:`observed_value` as a float, or ``None`` when it is not a number."""
-        return as_number(self.observed_value)
 
 
 #: Package path of the OSPREY MCP servers, as consecutive parts of the file
@@ -593,6 +587,17 @@ def _monitor_verdict(control_target: str | None) -> "WriteVerdict":
     )
 
 
+def _refusing_verdict(connector: "ControlSystemConnector") -> "WriteVerdict":
+    """The verdict behind a ``_writes_enabled`` that has just answered no.
+
+    The one that evaluation memoised on ``_last_verdict``, or a fresh
+    :func:`_monitor_verdict` for a subclass that overrides the property and so
+    never sets it. Read here, not where the guard cleared the memo: the property
+    sets it as a side effect the caller's own narrowing cannot see.
+    """
+    return connector._last_verdict or _monitor_verdict(connector._control_target)
+
+
 def _verdict_refusal(
     channel_address: str, value: object, verdict: "WriteVerdict"
 ) -> ChannelWriteResult:
@@ -656,7 +661,7 @@ def _authorized_refusal(
     """
     connector._last_verdict = None
     if _overrides_writes_enabled(connector) and not connector._writes_enabled:
-        return connector._last_verdict or _monitor_verdict(connector._control_target)
+        return _refusing_verdict(connector)
     section = _monitor_section()
     target = connector._control_target
     if not connector._write_route_open():
@@ -875,7 +880,71 @@ class _SendFailed:
 _SendStep: TypeAlias = _CheckNotMade | _SendFailed | None
 
 
-def _accepts_on_connection(subscribe: Callable[..., object]) -> bool:
+class _WriteChannelFunction(Protocol):
+    """A connector class's own ``write_channel`` as its ``__dict__`` holds it, unbound.
+
+    Called with the connector first; whatever follows the value is passed
+    through to it unread.
+    """
+
+    def __call__(
+        self,
+        connector: "ControlSystemConnector",
+        channel_address: str,
+        value: object,
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> Awaitable[ChannelWriteResult]: ...
+
+
+class _BatchWriteFunction(Protocol):
+    """A connector class's own ``write_multiple_channels`` as its ``__dict__`` holds it, unbound."""
+
+    def __call__(
+        self,
+        connector: "ControlSystemConnector",
+        operations: list[tuple[str, object]],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> Awaitable[list[ChannelWriteResult]]: ...
+
+
+class _SubscribeFunction(Protocol):
+    """A connector class's own ``subscribe`` as its ``__dict__`` holds it, unbound."""
+
+    def __call__(
+        self,
+        connector: "ControlSystemConnector",
+        channel_address: str,
+        callback: Callable[[ChannelValue], None],
+        /,
+        *args: object,
+        **kwargs: object,
+    ) -> Awaitable[str]: ...
+
+
+class _ConnectionSubscribeFunction(Protocol):
+    """The ``subscribe`` :func:`_compat_subscribe_without_on_connection` installs.
+
+    Spelled with the parameter names of :meth:`ControlSystemConnector.subscribe`,
+    ``self`` included, so it stands in the class for that method; the
+    protocol's own instance is ``_protocol_self``.
+    """
+
+    def __call__(
+        _protocol_self,
+        self: "ControlSystemConnector",
+        channel_address: str,
+        callback: Callable[[ChannelValue], None],
+        *args: object,
+        on_connection: Callable[[bool], None] | None = None,
+        **kwargs: object,
+    ) -> Coroutine[object, object, str]: ...
+
+
+def _accepts_on_connection(subscribe: _SubscribeFunction) -> bool:
     """Whether a ``subscribe()`` takes ``on_connection`` itself, by name or by ``**kwargs``."""
     parameters = inspect.signature(subscribe).parameters.values()
     return any(
@@ -885,8 +954,8 @@ def _accepts_on_connection(subscribe: Callable[..., object]) -> bool:
 
 
 def _compat_subscribe_without_on_connection(
-    owner: type, subscribe: Callable[..., Awaitable[str]]
-) -> Callable[..., Coroutine[object, object, str]]:
+    owner: type, subscribe: _SubscribeFunction
+) -> _ConnectionSubscribeFunction:
     """Give a ``subscribe()`` that predates ``on_connection`` the keyword. Deprecated.
 
     A connector that reports no connection state of its own still shows one
@@ -908,7 +977,6 @@ def _compat_subscribe_without_on_connection(
         stacklevel=4,
     )
 
-    @functools.wraps(subscribe)
     async def _subscribe(
         self: "ControlSystemConnector",
         channel_address: str,
@@ -930,6 +998,7 @@ def _compat_subscribe_without_on_connection(
 
         return await subscribe(self, channel_address, _deliver, *args, **kwargs)
 
+    functools.update_wrapper(_subscribe, subscribe)
     # inspect.signature() reads __signature__ before following __wrapped__, so
     # the wrapper reports the keyword it takes; mypy knows no such attribute.
     signature = inspect.signature(subscribe)
@@ -994,7 +1063,7 @@ class ControlSystemConnector(ABC):
     # A subclass's own ``write_channel`` before the guard wrapped it, set by
     # ``__init_subclass__``: what an authorized batch writes each operation
     # through once the whole call was judged and its step spent.
-    _unguarded_write_channel: Callable[..., Awaitable[ChannelWriteResult]]
+    _unguarded_write_channel: _WriteChannelFunction
 
     @property
     def _writes_enabled(self) -> bool:
@@ -1034,7 +1103,11 @@ class ControlSystemConnector(ABC):
         return None
 
     def _validation_refusal(
-        self, channel_address: str, value: Any, error: BaseException
+        self,
+        channel_address: str,
+        # The value write_channel was given: the extension contract leaves it open.
+        value: ContractAny,
+        error: BaseException,
     ) -> ChannelWriteResult:
         """The REFUSED result a non-limits validation error owes the caller.
 
@@ -1062,7 +1135,8 @@ class ControlSystemConnector(ABC):
             error_message=f"Write to '{channel_address}' refused: validation error: {error}",
         )
 
-    def __init_subclass__(cls, **kwargs):
+    @override
+    def __init_subclass__(cls, **kwargs: object) -> None:
         """Auto-wrap write methods with the write-verdict pre-check.
 
         Any subclass that defines ``write_channel()`` or
@@ -1101,16 +1175,13 @@ class ControlSystemConnector(ABC):
         """
         super().__init_subclass__(**kwargs)
 
-        original_subscribe = cls.__dict__.get("subscribe")
+        original_subscribe: _SubscribeFunction | None = cls.__dict__.get("subscribe")
         if original_subscribe is not None and not _accepts_on_connection(original_subscribe):
             cls.subscribe = _compat_subscribe_without_on_connection(cls, original_subscribe)  # type: ignore[method-assign]  # wraps the subclass's own method
 
-        original_write: Callable[..., Awaitable[ChannelWriteResult]] | None = cls.__dict__.get(
-            "write_channel"
-        )
+        original_write: _WriteChannelFunction | None = cls.__dict__.get("write_channel")
         if original_write is not None:
 
-            @functools.wraps(original_write)
             async def _guarded_write(
                 self: "ControlSystemConnector",
                 channel_address: str,
@@ -1127,7 +1198,7 @@ class ControlSystemConnector(ABC):
                         return await original_write(self, channel_address, value, *args, **kwargs)
                 self._last_verdict = None
                 if not self._writes_enabled:
-                    verdict = self._last_verdict or _monitor_verdict(self._control_target)
+                    verdict = _refusing_verdict(self)
                     return _verdict_refusal(channel_address, value, verdict)
                 held = posture_store.session_hold_refusal()
                 if held is not None:
@@ -1135,22 +1206,21 @@ class ControlSystemConnector(ABC):
                 with open_door():
                     return await original_write(self, channel_address, value, *args, **kwargs)
 
+            functools.update_wrapper(_guarded_write, original_write)
             cls.write_channel = _guarded_write  # type: ignore[method-assign]  # wraps the subclass's own method
             # The write past the guard, for an authorized batch that was judged
             # and spent whole (:meth:`write_multiple_channels`).
             cls._unguarded_write_channel = original_write
 
-        original_multi: Callable[..., Awaitable[list[ChannelWriteResult]]] | None = (
-            cls.__dict__.get("write_multiple_channels")
-        )
+        original_multi: _BatchWriteFunction | None = cls.__dict__.get("write_multiple_channels")
         if original_multi is not None:
 
-            @functools.wraps(original_multi)
             async def _guarded_multi(
                 self: "ControlSystemConnector",
                 operations: list[tuple[str, object]],
-                *args,
-                **kwargs,
+                # The batch's own parameters, which the base class's batch takes too.
+                *args: ContractAny,
+                **kwargs: ContractAny,
             ) -> list[ChannelWriteResult]:
                 if write_authorization.named_authorization() is not None:
                     # Under an authorization a batch is the base class's: one
@@ -1163,7 +1233,7 @@ class ControlSystemConnector(ABC):
                     # One verdict for the batch, not one per operation: the
                     # whole batch was refused by one answer, and every result
                     # must tell the same story about why.
-                    verdict = self._last_verdict or _monitor_verdict(self._control_target)
+                    verdict = _refusing_verdict(self)
                     return [_verdict_refusal(addr, val, verdict) for addr, val in operations]
                 held = posture_store.session_hold_refusal()
                 if held is not None:
@@ -1171,6 +1241,7 @@ class ControlSystemConnector(ABC):
                 with open_door():
                     return await original_multi(self, operations, *args, **kwargs)
 
+            functools.update_wrapper(_guarded_multi, original_multi)
             cls.write_multiple_channels = _guarded_multi  # type: ignore[method-assign]  # wraps the subclass's own method
 
     def _write_route_open(self) -> bool:
@@ -1197,7 +1268,7 @@ class ControlSystemConnector(ABC):
         return bool(self._limits_validator.resolve_confirm(channel_address))
 
     @abstractmethod
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Establish connection to control system.
 
@@ -1240,7 +1311,7 @@ class ControlSystemConnector(ABC):
     async def write_channel(
         self,
         channel_address: str,
-        value: Any,
+        value: ContractAny,
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
@@ -1315,7 +1386,11 @@ class ControlSystemConnector(ABC):
         """
 
     async def write_channel_checked(
-        self, channel_address: str, value: Any, **kwargs: Any
+        self,
+        channel_address: str,
+        value: ContractAny,
+        # Passed straight through to write_channel, whatever this connector's takes.
+        **kwargs: ContractAny,
     ) -> ChannelWriteResult:
         """Await write_channel and enforce the reference monitor's denial contract.
 
@@ -1381,7 +1456,8 @@ class ControlSystemConnector(ABC):
 
     async def write_multiple_channels(
         self,
-        operations: list[tuple[str, Any]],
+        # Each value as write_channel takes it: the extension contract leaves it open.
+        operations: list[tuple[str, ContractAny]],
         timeout: float | None = None,
         confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
@@ -1463,7 +1539,7 @@ class ControlSystemConnector(ABC):
             for _ in batch:
                 self._last_verdict = None
                 if not self._writes_enabled:
-                    refused = self._last_verdict or _monitor_verdict(self._control_target)
+                    refused = _refusing_verdict(self)
                 else:
                     refused = posture_store.session_hold_refusal()
                 if refused is not None:
@@ -1481,7 +1557,8 @@ class ControlSystemConnector(ABC):
     def _write_precheck(
         self,
         channel_address: str,
-        value: Any,  # noqa: ARG002 - a connector's refusal carries the value
+        # The value write_channel was given: the extension contract leaves it open.
+        value: ContractAny,  # noqa: ARG002 - a connector's refusal carries the value
     ) -> tuple[str, ChannelWriteResult | None]:
         """One write's name, and the refusal this connector answers before the limits.
 
@@ -1491,7 +1568,7 @@ class ControlSystemConnector(ABC):
         """
         return channel_address, None
 
-    async def _current_values(self, channel_addresses: list[str]) -> dict[str, Any] | None:
+    async def _current_values(self, channel_addresses: list[str]) -> Mapping[str, object] | None:
         """What the named channels hold now, for a batch's ``max_step`` checks.
 
         ``None`` when the connector has no reader, and the step checks then
@@ -1586,10 +1663,10 @@ class ControlSystemConnector(ABC):
         self._last_verdict = None
         if authorization is None:
             if not self._writes_enabled:
-                return self._last_verdict or _monitor_verdict(self._control_target)
+                return _refusing_verdict(self)
             return posture_store.session_hold_refusal()
         if _overrides_writes_enabled(self) and not self._writes_enabled:
-            return self._last_verdict or _monitor_verdict(self._control_target)
+            return _refusing_verdict(self)
         verdict = write_authorization.authorized_execution_verdict(
             _monitor_section(), self._control_target, batch, authorization=authorization
         )
@@ -1597,7 +1674,8 @@ class ControlSystemConnector(ABC):
 
     async def _send_batch(
         self,
-        batch: list[tuple[str, Any]],
+        # Each value as write_channel takes it: the extension contract leaves it open.
+        batch: list[tuple[str, ContractAny]],
         timeout: float | None,
         confirm: bool | None,
     ) -> list[ChannelWriteResult]:

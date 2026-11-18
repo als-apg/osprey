@@ -1,0 +1,1 @@
+The Phoebus alarm feed (`phoebus_alarm_server`) logs in to a Kafka broker that asks for it: `settings.auth` takes `username` and `password_env`, sent as SASL (`mechanism`: `PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`). A login goes over TLS, verified against `settings.tls.ca_bundle` or the system trust store; `auth.cleartext: true` sends it unencrypted for a listener with no TLS.

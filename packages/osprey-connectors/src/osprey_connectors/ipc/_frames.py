@@ -212,14 +212,19 @@ def new_request_id() -> str:
 # --------------------------------------------------------------------------
 
 
-def _npy_bytes(array: np.ndarray) -> bytes:
+#: An array of any shape and element type: the one kind of blob a frame carries.
+#: Quoted because ``np.generic`` takes no subscript at run time.
+_Array: TypeAlias = "np.ndarray[tuple[int, ...], np.dtype[np.generic[object]]]"
+
+
+def _npy_bytes(array: _Array) -> bytes:
     """Serialize an array to ``.npy`` bytes, never enabling pickle."""
     buffer = BytesIO()
     np.save(buffer, array, allow_pickle=False)
     return buffer.getvalue()
 
 
-def _npy_load(data: bytes) -> np.ndarray:
+def _npy_load(data: bytes) -> _Array:
     """Read ``.npy`` bytes back, never enabling pickle."""
     buffer = BytesIO(data)
     loaded = np.load(buffer, allow_pickle=False)

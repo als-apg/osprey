@@ -170,13 +170,23 @@ def _postgresql_services() -> dict:
     A caller that supplies its own ``ariel`` section without a project on disk
     (tests, an embedding host) gets an empty block and the shipped Postgres
     defaults, rather than a crash about a missing config.yml.
+
+    Raises:
+        ConfigurationError: ``services.postgresql`` is set but is not a mapping.
     """
+    from osprey.services.ariel_search.exceptions import ConfigurationError
     from osprey_connectors.config import get_config_value
 
     try:
-        return get_config_value("services.postgresql", {}) or {}
+        services = get_config_value("services.postgresql", {}) or {}
     except FileNotFoundError:
         return {}
+    if not isinstance(services, dict):
+        raise ConfigurationError(
+            f"services.postgresql must be a mapping, got {type(services).__name__}",
+            config_key="services.postgresql",
+        )
+    return services
 
 
 def _port_base() -> int:

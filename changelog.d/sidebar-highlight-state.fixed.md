@@ -1,1 +1,0 @@
-The sidebar's highlights follow what is on screen: a tool row is highlighted only while its panel holds the workspace tile in the current layout, and an artifact only while the Artifacts panel shows it, so switching sessions or closing a panel leaves no stale highlight. Both use a quieter selected style.

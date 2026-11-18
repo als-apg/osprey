@@ -63,6 +63,7 @@ from osprey.facility.views.benchmarks import QUERY_SOURCES
 from osprey.services.facility_knowledge.okf import index as okf_index
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
+from osprey.services.facility_knowledge.okf.paths import concept_id_of_link
 from tests._builds import BuiltProject
 from tests._by_path import load_module
 
@@ -303,11 +304,19 @@ def test_concept_without_a_type_fails_validation() -> None:
 def test_bundle_link_resolves_to_an_example_concept() -> None:
     text = _block(OKF_PAGE, "markdown", "/subsystems/pss.md")
     links = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", text)
-    assert links == [("Personnel Safety System", "/subsystems/pss.md")]
-    concept_id = links[0][1].removesuffix(".md")
+    assert links == [
+        ("Personnel Safety System", "/subsystems/pss.md"),
+        ("Vacuum System", "vacuum.md"),
+    ]
     bundle = OKFBundle(_EXAMPLE_BUNDLE)
-    assert bundle.resolve_concept_path(concept_id) == (_EXAMPLE_BUNDLE / "subsystems/pss.md")
-    assert bundle.read_concept(concept_id).frontmatter["title"].startswith(links[0][0])
+    # The block reads as written on a page of ``subsystems/``: the first target
+    # resolves from the bundle root, the second from that page's directory.
+    for (label, target), expected in zip(
+        links, ["subsystems/pss", "subsystems/vacuum"], strict=True
+    ):
+        concept_id = concept_id_of_link(target, source_dir="subsystems")
+        assert concept_id == expected
+        assert bundle.read_concept(concept_id).frontmatter["title"].startswith(label)
 
 
 def _facility_links_block() -> str:
@@ -353,7 +362,8 @@ def test_regenerate_snippet_writes_the_indexes(
     exec(compile(snippet, OKF_PAGE, "exec"), {})
 
     written = sorted(bundle.rglob(okf_index._INDEX_FILE))
-    expected = [d / okf_index._INDEX_FILE for d in okf_index._directories_to_index(bundle)]
+    live = okf_index._scan(bundle).live
+    expected = [d / okf_index._INDEX_FILE for d in okf_index._directories_to_index(bundle, live)]
     assert written == sorted(expected)
     assert okf_index.check_indexes(bundle) == []
     first = {path: path.read_bytes() for path in written}

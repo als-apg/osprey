@@ -1,1 +1,0 @@
-Each web terminal session keeps its own layout on the hub: switching back to a session brings back its panels, tiles, sizes, the Agent pane and each panel's page where the hub can read it. A new or older session keeps the layout on screen.

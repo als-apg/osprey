@@ -55,15 +55,18 @@ Example:
 import asyncio
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import Any, Protocol
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from typing_extensions import override
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
 from osprey_connectors.archiver._timerange import (
     Processing,
     ProcessingMode,
+    SampleSeries,
     aggregate_long_frame,
     long_frame,
     reject_non_numeric,
@@ -151,7 +154,7 @@ class _QueryModule(Protocol):
 class _Interval(Protocol):
     """An ``interval`` request; ``data`` is set by ``run()``."""
 
-    data: "pd.Series | None"
+    data: "SampleSeries | None"
 
     def run(self) -> None: ...
 
@@ -237,7 +240,9 @@ class MYAArchiverConnector(ArchiverConnector):
         self._deployment = _DEFAULT_DEPLOYMENT
         self._timezone: ZoneInfo | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    # The config block is the archiver extension contract; this backend reads its keys unchecked.
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """Initialize the myquery client.
 
         Args:
@@ -323,6 +328,7 @@ class MYAArchiverConnector(ArchiverConnector):
             self._deployment,
         )
 
+    @override
     async def disconnect(self) -> None:
         """Release the client. myquery is stateless HTTP; nothing to close."""
         self._client = None
@@ -330,6 +336,7 @@ class MYAArchiverConnector(ArchiverConnector):
         self._connected = False
         logger.debug("MYA archiver disconnected")
 
+    @override
     async def get_data(
         self,
         channels: list[str],
@@ -377,7 +384,7 @@ class MYAArchiverConnector(ArchiverConnector):
 
         server_side = resolved.mode in _MYSTATS_STAT
 
-        def fetch_all() -> dict[str, pd.Series]:
+        def fetch_all() -> dict[str, SampleSeries]:
             if server_side:
                 return self._fetch_stats(channels, start_utc, end_utc, resolved)
             return self._fetch_events(channels, start_utc, end_utc)
@@ -440,13 +447,13 @@ class MYAArchiverConnector(ArchiverConnector):
         """
         return moment.astimezone(self._timezone).replace(tzinfo=None)
 
-    def _empty(self, channel: str) -> pd.Series:
+    def _empty(self, channel: str) -> SampleSeries:
         """The no-samples answer for one channel: no rows, right index type."""
         return pd.Series(dtype="float64", index=pd.DatetimeIndex([], tz="UTC"), name=channel)
 
     def _fetch_events(
         self, channels: list[str], start_utc: datetime, end_utc: datetime
-    ) -> dict[str, pd.Series]:
+    ) -> dict[str, SampleSeries]:
         """Every archived event per channel, from myquery's interval endpoint.
 
         The prior point comes back with the rest, at its own timestamp before
@@ -459,7 +466,7 @@ class MYAArchiverConnector(ArchiverConnector):
         begin = self._server_local(start_utc)
         end = self._server_local(end_utc)
         client = self._library()
-        series: dict[str, pd.Series] = {}
+        series: dict[str, SampleSeries] = {}
         for channel in channels:
             query = client.query.IntervalQuery(
                 channel=channel,
@@ -480,7 +487,7 @@ class MYAArchiverConnector(ArchiverConnector):
         start_utc: datetime,
         end_utc: datetime,
         resolved: Processing,
-    ) -> dict[str, pd.Series]:
+    ) -> dict[str, SampleSeries]:
         """One server-side aggregate per bin, from myquery's mystats endpoint.
 
         mystats is told how MANY bins to cut the range into, not how wide each
@@ -517,7 +524,7 @@ class MYAArchiverConnector(ArchiverConnector):
         end_utc: datetime,
         num_bins: int,
         resolved: Processing,
-    ) -> dict[str, pd.Series]:
+    ) -> dict[str, SampleSeries]:
         """One mystats round trip, cut into ``num_bins`` equal bins."""
         client = self._library()
         query = client.query.MyStatsQuery(
@@ -550,7 +557,7 @@ class MYAArchiverConnector(ArchiverConnector):
             for channel in channels
         }
 
-    def _localize(self, data: "pd.Series | None", channel: str) -> pd.Series:
+    def _localize(self, data: "SampleSeries | None", channel: str) -> SampleSeries:
         """Read one channel's epoch-millisecond timestamps as UTC instants.
 
         A bin that MYA had no samples for comes back as NaN; an empty bin is not
@@ -594,6 +601,7 @@ class MYAArchiverConnector(ArchiverConnector):
         found.run()
         return found.matches or []
 
+    @override
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """Look up archiving metadata for one channel.
 
@@ -647,6 +655,7 @@ class MYAArchiverConnector(ArchiverConnector):
 
         return await asyncio.wait_for(asyncio.to_thread(fetch_metadata), timeout=self._timeout)
 
+    @override
     async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """Report which channels MYA archives.
 

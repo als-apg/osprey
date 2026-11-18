@@ -19,6 +19,7 @@
  */
 
 import { entriesApi, apiUrl } from './api.js';
+import { safeHref, originalHref } from './attachment-urls.js';
 import {
   formatTimestamp,
   renderLoading,
@@ -47,44 +48,6 @@ export {
   registerReaderAction,
   registerReaderKey,
 } from './reader-seam.js';
-
-/**
- * One of this API's attachment routes, relative to the API base: the original
- * (`/attachments/<id>`) or its rendition (`/attachments/<id>/rendition`). The
- * id is one plain path segment, never `.` or `..`.
- */
-const ATTACHMENT_ROUTE = /^\/attachments\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+(?:\/rendition)?$/;
-
-/**
- * Turn an attachment's `display_url` into a URL safe to place in an href or
- * src, else null. An absolute http(s) URL is kept unchanged; an attachment
- * route relative to the API base is joined to the page's API base, so it
- * resolves under whatever prefix the page is served from. Every other value
- * (javascript:, data:, vbscript:, protocol-relative //host, any other path)
- * is refused.
- * @param {unknown} u - Candidate URL
- * @returns {string|null} The URL to use, or null when it is not safe
- */
-export function safeHref(u) {
-  if (typeof u !== 'string') return null;
-  if (/^https?:\/\//i.test(u)) return u;
-  if (ATTACHMENT_ROUTE.test(u)) return apiUrl(u);
-  return null;
-}
-
-/**
- * The URL of the stored original behind a rendition `display_url`
- * (`/attachments/<id>/rendition` -> `/attachments/<id>`), made safe as by
- * `safeHref`, else null.
- * @param {unknown} displayUrl - The attachment's `display_url`
- * @returns {string|null} The original's URL, or null when there is none
- */
-export function originalHref(displayUrl) {
-  const suffix = '/rendition';
-  if (typeof displayUrl !== 'string' || !ATTACHMENT_ROUTE.test(displayUrl)) return null;
-  if (!displayUrl.endsWith(suffix)) return null;
-  return safeHref(displayUrl.slice(0, -suffix.length));
-}
 
 /**
  * Render one attachment as a thumbnail card or a file card. A thumbnail is
@@ -469,7 +432,10 @@ export function renderEntryDetail(container, entry) {
   const attachments = entry.attachments || [];
   const time = formatTimestamp(entry.timestamp);
 
-  const { titleHtml, bodyHtml } = renderEntryTextHtml(entry);
+  const { titleHtml, bodyHtml, rendered } = renderEntryTextHtml(entry);
+  const bodyClass = rendered
+    ? 'entry-detail-text entry-detail-text--rendered'
+    : 'entry-detail-text';
   const references = renderFacilityReferencesList(entry.facility_references);
 
   container.innerHTML = `
@@ -494,7 +460,7 @@ export function renderEntryDetail(container, entry) {
         <div class="entry-detail-main">
           <div class="entry-detail-content">
             <h3>Content</h3>
-            <div class="entry-detail-text">${bodyHtml}</div>
+            <div class="${bodyClass}">${bodyHtml}</div>
           </div>
 
           ${

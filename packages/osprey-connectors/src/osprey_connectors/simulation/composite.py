@@ -113,16 +113,18 @@ import json
 import math
 import os
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol, overload
 
 import numpy as np
+import numpy.typing as npt
 from lume.exceptions import ReadOnlyError
 from lume.model import LUMEModel
 from lume.variables import IntVariable, NDVariable, ScalarVariable, StrVariable, Variable
+from typing_extensions import override
 
 from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
@@ -160,7 +162,7 @@ from osprey_connectors.simulation.view import (
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from osprey_connectors.simulation._records import (
+    from osprey_connectors.simulation.records import (
         ChannelRecord,
         CouplingTerm,
         DriveRecord,
@@ -317,6 +319,12 @@ class _Engine(Protocol):
     ) -> LUMEModel: ...
 
 
+class _TimeFunction(Protocol):
+    """A time-contract function of an engine: called with a child's model, then its arguments."""
+
+    def __call__(self, model: LUMEModel | None, /, *args: object) -> object: ...
+
+
 class WriteRefusedError(ValueError):
     """A write the composite refused; ``address`` is the one channel refused, else ``None``."""
 
@@ -416,10 +424,10 @@ class Composite(LUMEModel):
 
         variables = view.document(VARIABLES_FILE)
         self._scenarios: dict[str, ScenarioRecord] = {
-            str(scenario["name"]): scenario for scenario in view._scenarios()
+            str(scenario["name"]): scenario for scenario in view.scenarios()
         }
         self._channels: dict[str, ChannelRecord] = {
-            str(channel["address"]): channel for channel in view._channel_entries()
+            str(channel["address"]): channel for channel in variables["channels"]
         }
         models = {model.name: model for model in view.physics_models()}
         physics = sorted(models)
@@ -597,7 +605,7 @@ class Composite(LUMEModel):
 
     # -- the time contract ---------------------------------------------------
 
-    def _time_function(self, child: _Child, name: str) -> Callable[..., Any] | None:
+    def _time_function(self, child: _Child, name: str) -> _TimeFunction | None:
         """A built child's time-contract function ``name``; ``None`` unless evolving."""
         if not self._evolve or child.model is None:
             return None
@@ -712,7 +720,10 @@ class Composite(LUMEModel):
             if emitted is None:
                 continue
             try:
-                fired.update(str(address) for address in emitted(child.model))
+                addresses = emitted(child.model)
+                if not isinstance(addresses, Iterable):
+                    raise TypeError(f"{type(addresses).__name__!r} object is not iterable")
+                fired.update(str(address) for address in addresses)
             except Exception as exc:
                 self._fail(child, exc)
         return frozenset(fired)
@@ -903,6 +914,7 @@ class Composite(LUMEModel):
     # -- the LUME contract ---------------------------------------------------
 
     @property
+    @override
     def supported_variables(self) -> dict[str, Variable]:
         """Every channel, status and IOC health address of the view, by address."""
         return self._variables
@@ -949,7 +961,15 @@ class Composite(LUMEModel):
         """
         return self._texture.reach()
 
-    def get(self, names: list[str] | str) -> dict[str, Any] | Any:
+    @overload
+    def get(self, names: str) -> object: ...
+    @overload
+    def get(self, names: list[str]) -> dict[str, object]: ...
+    # LUME's own signature, which the override has to keep accepting.
+    @overload
+    def get(self, names: list[str] | str) -> dict[str, object] | object: ...
+    @override
+    def get(self, names: list[str] | str) -> dict[str, object] | object:
         """Read channels, each as its variable declares it; a waveform as an array of its shape.
 
         Args:
@@ -1000,6 +1020,7 @@ class Composite(LUMEModel):
         uptime = max(float(self._clock()) - self._started_s, 0.0)
         return int(uptime) if signal == HEARTBEAT else uptime
 
+    @override
     def _get(self, names: list[str]) -> dict[str, object]:
         self._refresh()
         t_s = float(self._clock())
@@ -1070,8 +1091,11 @@ class Composite(LUMEModel):
         return demands
 
     def _moving_readbacks(
-        self, child: _Child, levels: Mapping[str, np.ndarray], times: np.ndarray
-    ) -> dict[str, np.ndarray]:
+        self,
+        child: _Child,
+        levels: Mapping[str, npt.NDArray[np.float64]],
+        times: npt.NDArray[np.float64],
+    ) -> dict[str, npt.NDArray[np.float64]]:
         """A built physics child's moving readbacks: motion, then readout, then clamp.
 
         Args:
@@ -1152,8 +1176,8 @@ class Composite(LUMEModel):
         return self._children[owner].partners.get(address, (address,))
 
     def readings(
-        self, levels: Mapping[str, float | np.ndarray], t_s: object
-    ) -> dict[str, np.ndarray]:
+        self, levels: Mapping[str, float | npt.NDArray[np.float64]], t_s: object
+    ) -> dict[str, npt.NDArray[np.float64]]:
         """Float channels as served at epoch seconds, from levels in place of held values.
 
         A moving channel, a texture float or a physics float readback, reads
@@ -1182,8 +1206,8 @@ class Composite(LUMEModel):
                 raise ValueError(f"{name} is not a float channel of the view")
         self._refresh()
         times = np.asarray(t_s, dtype=np.float64).reshape(-1)
-        out: dict[str, np.ndarray] = {}
-        readbacks: dict[str, dict[str, np.ndarray]] = {}
+        out: dict[str, npt.NDArray[np.float64]] = {}
+        readbacks: dict[str, dict[str, npt.NDArray[np.float64]]] = {}
         for name in names:
             level = np.broadcast_to(np.asarray(levels[name], dtype=np.float64), times.shape)
             owner = self._owner[name]
@@ -1271,7 +1295,8 @@ class Composite(LUMEModel):
         self._refresh()
         return self._children[model].status
 
-    def set(self, values_by_name: dict[str, Any]) -> None:
+    @override
+    def set(self, values_by_name: Mapping[str, object]) -> None:
         """Write channels: physics children first, producers before consumers, the texture last.
 
         Args:
@@ -1287,7 +1312,7 @@ class Composite(LUMEModel):
         """
         self._write(values_by_name, client=True)
 
-    def restore(self, values_by_name: dict[str, Any]) -> None:
+    def restore(self, values_by_name: Mapping[str, object]) -> None:
         """Put channels back as :meth:`set` writes them, without a client write.
 
         For a rollback or a replay: the children's models take the values, and
@@ -1332,7 +1357,8 @@ class Composite(LUMEModel):
         if client:
             self._client_write(forwarded, t_s)
 
-    def _set(self, values_by_name: dict[str, Any]) -> None:
+    @override
+    def _set(self, values_by_name: dict[str, values.StoredValue]) -> None:
         self._forward(values_by_name)
 
     def _forward(
@@ -1409,6 +1435,7 @@ class Composite(LUMEModel):
 
         return restore, reached
 
+    @override
     def reset(self) -> None:
         """Return every child to its start state; a failed child is rebuilt.
 

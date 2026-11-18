@@ -73,6 +73,9 @@ SENSITIVE_ENV_EXACT: tuple[str, ...] = (
     PANEL_TOKEN_ENV,
     "EVENT_DISPATCHER_TOKEN",
     "DISPATCH_WORKER_TOKEN",
+    # A dispatch worker's key on the dispatch bus: whoever holds it can join the
+    # bus as that worker and be handed its runs.
+    "DISPATCH_BUS_SECRET_KEY",
 )
 
 #: Name suffixes to remove. ``*_LAUNCH_TOKEN`` arms a bridge's plan-launch

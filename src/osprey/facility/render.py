@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Hashable, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -37,15 +38,40 @@ from osprey.facility.roots import (
 if TYPE_CHECKING:
     from osprey.facility.views import View, ViewInputs
 
-#: What one build's renders have written of each view: the files, relative to
-#: the render root, and their bytes, keyed on what the view was written from.
-WrittenViews = dict[Hashable, list[tuple[str, bytes]]]
+#: What one build's renders have written of each view, keyed on what the view
+#: was written from: per file, its path relative to the render root, the file
+#: the first render wrote, and the sha256 of its bytes. The bytes themselves are
+#: not held: a large facility's views run to hundreds of megabytes, and every
+#: render after the first copies them from the first render's files.
+WrittenViews = dict[Hashable, list[tuple[str, Path, str]]]
 
-__all__ = ["FACILITY_FILE", "facility_bytes", "facility_digest", "render_facility_outputs"]
+__all__ = [
+    "FACILITY_FILE",
+    "facility_bytes",
+    "facility_digest",
+    "facility_sha256",
+    "render_facility_outputs",
+    "write_facility_file",
+]
 
-#: The document last serialised and its bytes: every render of one build hands
-#: in the same document, so it is serialised once.
-_serialised: tuple[FacilityDocument, bytes] | None = None
+
+@dataclass(slots=True)
+class _Serialised:
+    """The document last serialised: the size and sha256 of its bytes, and where a render wrote them.
+
+    The bytes are not held. A large facility's file runs to hundreds of
+    megabytes, and every render after the first copies the first render's
+    file, checked against the digest.
+    """
+
+    doc: FacilityDocument
+    size: int
+    sha256: str
+    written: Path | None = None
+
+
+#: Every render of one build hands in the same document; see :class:`_Serialised`.
+_serialised: _Serialised | None = None
 
 
 def facility_digest(facility_dir: Path, *, content_dir: Path | None = None) -> str:
@@ -111,11 +137,154 @@ def facility_bytes(doc: FacilityDocument) -> bytes:
     Returns:
         The UTF-8 bytes of ``facility.json``.
     """
+    from osprey.facility.views import json_bytes
+
     global _serialised
-    if _serialised is None or _serialised[0] is not doc:
-        text = json.dumps(doc, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
-        _serialised = (doc, (text + "\n").encode("utf-8"))
-    return _serialised[1]
+    raw = json_bytes(doc)
+    if _serialised is None or _serialised.doc is not doc:
+        _serialised = _Serialised(doc, len(raw), hashlib.sha256(raw).hexdigest())
+    return raw
+
+
+def facility_sha256(doc: FacilityDocument) -> str:
+    """The sha256 hex digest of :func:`facility_bytes`, serialising ``doc`` at most once per build."""
+    if _serialised is None or _serialised.doc is not doc:
+        facility_bytes(doc)
+    assert _serialised is not None
+    return _serialised.sha256
+
+
+def write_facility_file(target: Path, doc: FacilityDocument) -> None:
+    """Write :func:`facility_bytes` of ``doc`` to ``target``.
+
+    The first render of a build serialises the document; each later one copies
+    that render's file a block at a time, held to the digest
+    (:func:`_copy_checked`), and serialises again only when the file has
+    changed since.
+    """
+    known = _serialised
+    if (
+        known is not None
+        and known.doc is doc
+        and known.written is not None
+        and _copy_checked(known.written, target, known.sha256)
+    ):
+        return
+    target.write_bytes(facility_bytes(doc))
+    if _serialised is not None and _serialised.doc is doc:
+        _serialised.written = target
+
+
+def serialised_document(raw: bytes) -> FacilityDocument | None:
+    """The document :func:`facility_bytes` last serialised to ``raw``, when it reads back as itself.
+
+    A render reads its ``facility.json`` back for its templates. In a build those
+    are the bytes :func:`facility_bytes` just wrote, and their document is
+    already in memory; parsing them again would hold a second copy of a
+    facility file, which for a large facility is the size of the first. The
+    document stands in for the parse only when the parse would give an equal
+    document of the same types (:func:`_reads_back_as_itself`): every container a
+    dict or a list and every key a string, the shapes JSON holds.
+
+    Args:
+        raw: Bytes read from a facility file.
+
+    Returns:
+        The document, shared and never to be changed; ``None`` when ``raw`` is
+        not what :func:`facility_bytes` last returned, or its document holds a
+        shape the parse would not give back.
+    """
+    known = _serialised
+    if known is None or len(raw) != known.size:
+        return None
+    if hashlib.sha256(raw).hexdigest() != known.sha256:
+        return None
+    return _shared_document()
+
+
+def serialised_file_document(path: Path) -> FacilityDocument | None:
+    """:func:`serialised_document` for the file at ``path``, read in pieces.
+
+    The file is compared with the bytes by its size and its sha256, taken a
+    block at a time, so asking about a large facility file holds none of it.
+
+    Args:
+        path: A facility file.
+
+    Returns:
+        As :func:`serialised_document`.
+
+    Raises:
+        OSError: The file cannot be read; :exc:`FileNotFoundError` when it is
+            not there.
+    """
+    known = _serialised
+    with path.open("rb") as handle:
+        if known is None or os.fstat(handle.fileno()).st_size != known.size:
+            return None
+        digest = hashlib.sha256()
+        for block in iter(lambda: handle.read(_BLOCK), b""):
+            digest.update(block)
+    if digest.hexdigest() != known.sha256:
+        return None
+    return _shared_document()
+
+
+#: How much of a file is read at a time to hash or copy it.
+_BLOCK = 1 << 20
+
+
+def _copy_checked(source: Path, target: Path, sha256: str) -> bool:
+    """Copy ``source`` to ``target`` a block at a time; whether the bytes copied have ``sha256``.
+
+    A copy whose digest differs is left at ``target`` for the caller to write over.
+    """
+    copied = hashlib.sha256()
+    try:
+        with source.open("rb") as reading, target.open("wb") as writing:
+            for block in iter(lambda: reading.read(_BLOCK), b""):
+                copied.update(block)
+                writing.write(block)
+    except OSError:
+        return False
+    return copied.hexdigest() == sha256
+
+
+def _shared_document() -> FacilityDocument | None:
+    """The memoised document when it reads back as itself (see :func:`serialised_document`)."""
+    global _reads_back
+    if _serialised is None:
+        return None
+    doc = _serialised.doc
+    if _reads_back is None or _reads_back[0] is not doc:
+        _reads_back = (doc, _reads_back_as_itself(doc))
+    return doc if _reads_back[1] else None
+
+
+#: The document last asked about and whether it reads back as itself.
+_reads_back: tuple[FacilityDocument, bool] | None = None
+
+
+def _reads_back_as_itself(doc: Any) -> bool:
+    """Whether ``json.loads(json.dumps(doc))`` gives ``doc`` with every type unchanged.
+
+    ``facility_bytes`` refuses NaN and what JSON cannot spell, so the values that
+    serialise are dicts, lists, tuples, strings, numbers, booleans and ``None``.
+    Of those only a tuple (read back as a list) and a key that is not a string
+    (read back as one) change on the way.
+    """
+    pending: list[Any] = [doc]
+    while pending:
+        value = pending.pop()
+        if type(value) is dict:
+            if not all(type(key) is str for key in value):
+                return False
+            pending.extend(value.values())
+        elif type(value) is list:
+            pending.extend(value)
+        elif type(value) not in (str, int, float, bool, type(None)):
+            return False
+    return True
 
 
 def render_facility_outputs(
@@ -180,7 +349,7 @@ def render_facility_outputs(
         content_dir=content_dir,
     )
     target = render_dir / FACILITY_FILE
-    target.write_bytes(facility_bytes(doc))
+    write_facility_file(target, doc)
     written = [target]
     for view in views.VIEWS:
         carried, reason = view.written_when(inputs)
@@ -223,16 +392,35 @@ def _write_view(
         metadata.entry_points,
     )
     files = views_written.get(key)
-    if files is None:
-        paths = view.write(root, inputs)
-        views_written[key] = [
-            (path.relative_to(render_dir).as_posix(), path.read_bytes()) for path in paths
-        ]
-        return paths
+    if files is not None:
+        copied = _copy_written(files, render_dir)
+        if copied is not None:
+            return copied
+    paths = view.write(root, inputs)
+    views_written[key] = [
+        (
+            path.relative_to(render_dir).as_posix(),
+            path,
+            hashlib.sha256(path.read_bytes()).hexdigest(),
+        )
+        for path in paths
+    ]
+    return paths
+
+
+def _copy_written(files: list[tuple[str, Path, str]], render_dir: Path) -> list[Path] | None:
+    """Copy a view's files from the render that wrote them; ``None`` when one has changed.
+
+    One file at a time, in the order the view wrote them, a block at a time.
+    Each copy is held to the digest taken when the file was written, so a copy
+    is the bytes the view wrote: a file changed or removed since sends the
+    caller back to writing the view, over whatever was copied.
+    """
     paths = []
-    for relative, content in files:
+    for relative, written, digest in files:
         path = render_dir / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(content)
+        if not _copy_checked(written, path, digest):
+            return None
         paths.append(path)
     return paths

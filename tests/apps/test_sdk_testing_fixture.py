@@ -69,10 +69,16 @@ def app_source(tmp_path: Path) -> Path:
     return _new_app(tmp_path, APP)
 
 
+@pytest.fixture(scope="module")
+def rendered_app_source(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The application :func:`rendered` holds, made once for the module."""
+    return _new_app(tmp_path_factory.mktemp("rendered-app"), APP)
+
+
 @pytest.fixture
-def backend(app_source: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
-    """The application's backend module, imported from its own source."""
-    _importable(app_source, PACKAGE, monkeypatch)
+def backend(rendered_app_source: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
+    """The rendered application's backend module, imported afresh from its own source."""
+    _importable(rendered_app_source, PACKAGE, monkeypatch)
     yield importlib.import_module(f"{PACKAGE}.server")
 
 
@@ -85,9 +91,23 @@ def _deployment(tmp_path: Path, app_source: Path, **kwargs: Any) -> Deployment:
     )
 
 
-@pytest.fixture
-def rendered(tmp_path: Path, app_source: Path) -> tuple[Deployment, RenderedTree]:
-    deployment = _deployment(tmp_path, app_source, logins={"operator": "asked", "viewer": "never"})
+@pytest.fixture(scope="module")
+def rendered(
+    tmp_path_factory: pytest.TempPathFactory, rendered_app_source: Path
+) -> tuple[Deployment, RenderedTree]:
+    """One deployment with two logins, built once for the tests below that take it.
+
+    Shared because those tests only read the render and serve a backend on it:
+    serving reads the build's compose and config, and all a backend's request
+    adds to the repository is its record spool under ``var/spool``, which none
+    of them reads. A test that changes the deployment builds its own from
+    :func:`_deployment`.
+    """
+    deployment = _deployment(
+        tmp_path_factory.mktemp("rendered"),
+        rendered_app_source,
+        logins={"operator": "asked", "viewer": "never"},
+    )
     return deployment, deployment.build()
 
 

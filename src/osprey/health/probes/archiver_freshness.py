@@ -189,7 +189,7 @@ def _archiver_block(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
     return block if isinstance(block, Mapping) else {}
 
 
-def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, Any] | None:
+def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, object] | None:
     """Return the ``(timestamp, value)`` of the newest non-null sample, or ``None``.
 
     Filters the long-format archiver frame to rows for ``channel``, drops null
@@ -202,5 +202,5 @@ def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, Any] | 
     sub = frame.loc[frame["channel"] == channel].dropna(subset=["value"])
     if sub.empty:
         return None
-    row = sub.loc[sub["timestamp"].idxmax()]
+    row = sub.iloc[sub["timestamp"].argmax()]
     return row["timestamp"], row["value"]

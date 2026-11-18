@@ -208,6 +208,74 @@ def card(as_json: bool, repo: Path | None) -> None:
                 reporter.echo("")
 
 
+@profile.command(name="panels")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit the table as a single JSON document on stdout (machine-readable)",
+)
+@click.option(
+    "--html",
+    "html_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Also write the table as one self-contained page to this file",
+)
+@repo_option
+def panels(as_json: bool, html_path: Path | None, repo: Path | None) -> None:
+    """Show which login shows which panel.
+
+    One row per panel, one column per login: the deployment's own profile and
+    every file under tiers/. A cell says whether the panel is the tab the login
+    opens on, a tab on its sidebar, only in its panel menu, or not there. Read
+    off the resolved profile of each login, the way the build reads it —
+    nothing is built, started, or probed.
+
+    With --json, the same table as one document on stdout, each cell naming the
+    file whose line decides it. With --html, a page of the table where
+    selecting a cell says the same.
+
+    Examples:
+
+    \b
+      $ osprey profile panels
+      $ osprey profile panels --html panels.html
+      $ osprey profile panels --json
+    """
+    import json
+    from contextlib import nullcontext
+
+    from .main import lifecycle_reporter
+    from .output import machine_mode
+    from .phase_reporter import current_reporter
+    from .profile_panels import format_panel_matrix, panel_matrix, panel_matrix_html
+
+    # The same split the card makes: `--json` is a document on stdout and gets
+    # no reporter; the plain table goes through the reporter.
+    with (
+        machine_mode() if as_json else nullcontext(),
+        nullcontext() if as_json else lifecycle_reporter(),
+    ):
+        repo_root = find_repo_root(repo)
+        try:
+            matrix = panel_matrix(repo_root)
+        except BuildProfileError as e:
+            raise click.ClickException(f"Cannot derive the panel table: {e}") from e
+
+        if html_path is not None:
+            html_path.write_text(panel_matrix_html(matrix), encoding="utf-8")
+        if as_json:
+            click.echo(json.dumps(matrix))
+            return
+        reporter = current_reporter()
+        for line in format_panel_matrix(matrix):
+            reporter.echo(line)
+        if html_path is not None:
+            reporter.echo("")
+            reporter.echo(f"wrote {html_path}")
+
+
 # Directory name the materialized data tree gets, and the value written to the
 # profile's ``data:`` key. One constant so the copy target and the emitted key
 # cannot drift apart.

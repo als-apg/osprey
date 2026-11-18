@@ -32,7 +32,8 @@ async def get_ariel_search_service() -> ARIELSearchService:
         ARIELSearchService instance, lazily initialized from config.
 
     Raises:
-        ConfigurationError: If ARIEL is not configured in config.yml.
+        ConfigurationError: If ARIEL is not configured in config.yml, or
+            ``ariel`` or ``services.postgresql`` is not a mapping.
         StoreSilentError: If the store does not answer within
             :data:`_STORE_DEADLINE_S`; nothing is cached.
     """
@@ -51,13 +52,24 @@ async def get_ariel_search_service() -> ARIELSearchService:
                 "(profile.yml on the host), then rebuild and redeploy",
                 config_key="ariel",
             )
+        if not isinstance(config, dict):
+            raise ConfigurationError(
+                f"ariel must be a mapping, got {type(config).__name__}",
+                config_key="ariel",
+            )
+        services = get_config_value("services.postgresql", {})
+        if services is not None and not isinstance(services, dict):
+            raise ConfigurationError(
+                f"services.postgresql must be a mapping, got {type(services).__name__}",
+                config_key="services.postgresql",
+            )
 
         # The base is re-wrapped as {"deployment": ...} because resolve_port_base
         # takes one input shape; without it a derived DSN would dial the default
         # block's Postgres rather than this deployment's.
         ariel_config = ARIELConfig.from_dict(
             config,
-            get_config_value("services.postgresql", {}),
+            services,
             base=resolve_port_base({"deployment": get_config_value("deployment", {})}),
         )
         _ariel_service_instance = await create_ariel_service(

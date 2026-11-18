@@ -329,10 +329,11 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "stderr and this is the one document on stdout, which scripts parse.",
     ),
     "cli/profile_cmd.py": (
-        1,
-        "profile card's `click.echo(json.dumps(rows))`. The --json branch runs "
-        "inside output.machine_mode(), so every human line is on stderr and this "
-        "is the one document on stdout, the same class as audit_cmd's report.",
+        2,
+        "profile card's `click.echo(json.dumps(rows))` and profile panels' "
+        "`click.echo(json.dumps(matrix))`. Each --json branch runs inside "
+        "output.machine_mode(), so every human line is on stderr and this is the "
+        "one document on stdout, the same class as audit_cmd's report.",
     ),
     "cli/init_cmd.py": (
         1,

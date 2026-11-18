@@ -13,6 +13,7 @@ import contextvars
 import fnmatch
 import operator
 import os
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
@@ -20,19 +21,23 @@ from dataclasses import dataclass
 from datetime import datetime
 from types import ModuleType
 from typing import (
-    Any,
     Literal,
     ParamSpec,
     Protocol,
     Required,
+    SupportsFloat,
     SupportsIndex,
     SupportsInt,
     TypedDict,
+    TypeGuard,
     TypeVar,
     TypeVarTuple,
     runtime_checkable,
 )
 
+from typing_extensions import Buffer, override
+
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import call_timeout_s
 from osprey_connectors.config import config_flag, get_facility_timezone
 from osprey_connectors.control_system._base import (
@@ -116,6 +121,7 @@ class _WriteExecutor(concurrent.futures.Executor):
         self._threads: set[threading.Thread] = set()
         self._serial = 0
 
+    @override
     def submit(
         self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
     ) -> concurrent.futures.Future[T]:
@@ -148,6 +154,7 @@ class _WriteExecutor(concurrent.futures.Executor):
         thread.start()
         return future
 
+    @override
     def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
         del cancel_futures  # a started phase is never cancelled; nothing queues
         with self._lock:
@@ -315,7 +322,47 @@ class _Unwritable(ValueError):
     """A value the channel's field type cannot hold exactly; nothing was sent."""
 
 
-def _whole_number(element: Any, field_type: int) -> int:
+def _exports_buffer(element: object) -> TypeGuard[Buffer]:
+    """Whether ``element`` exports the buffer protocol, which ``float()`` reads as text.
+
+    :class:`Buffer` answers it from Python 3.12, where every exporter has
+    ``__buffer__``. Before that it knows only bytes, bytearray and memoryview,
+    and the C API's own test is asked (ctypes is already loaded: aioca reaches
+    libca through it).
+    """
+    if isinstance(element, Buffer):
+        return True
+    if sys.version_info >= (3, 12):
+        return False
+    import ctypes
+
+    return bool(ctypes.pythonapi.PyObject_CheckBuffer(ctypes.py_object(element)))
+
+
+def _integer_value(element: object) -> int | None:
+    """The integer ``element`` holds, or ``None`` when it holds none.
+
+    Its ``__index__`` when it has one that answers, else ``float()`` of it when
+    that is a whole number. Text never reaches here: :func:`_whole_number`
+    reads it by the C rule first.
+    """
+    if isinstance(element, SupportsIndex):
+        try:
+            return operator.index(element)
+        except TypeError:
+            pass
+    # What float() reads: a number, or a buffer read as text. Anything else it
+    # refuses with a TypeError.
+    if not (isinstance(element, SupportsFloat | SupportsIndex) or _exports_buffer(element)):
+        return None
+    try:
+        real = float(element)
+    except (TypeError, ValueError):
+        return None
+    return int(real) if real.is_integer() else None
+
+
+def _whole_number(element: object, field_type: int) -> int:
     """``element`` as the integer a whole-number field holds, exactly.
 
     Text is read by the C rule an integer field reads it with
@@ -329,18 +376,9 @@ def _whole_number(element: Any, field_type: int) -> int:
     elif isinstance(element, bytes | bytearray):
         raise _Unwritable(f"{element!r} is not a whole number, and the channel holds integers")
     else:
-        try:
-            number = operator.index(element)
-        except TypeError:
-            try:
-                real = float(element)
-            except (TypeError, ValueError):
-                real = None
-            if real is None or not real.is_integer():
-                raise _Unwritable(
-                    f"{element!r} is not a whole number, and the channel holds integers"
-                ) from None
-            number = int(real)
+        number = _integer_value(element)
+        if number is None:
+            raise _Unwritable(f"{element!r} is not a whole number, and the channel holds integers")
     low, high = _DBF_WHOLE_RANGES[field_type]
     if not low <= number <= high:
         raise _Unwritable(f"{element!r} is outside the channel's integer range [{low}, {high}]")
@@ -361,7 +399,13 @@ def _whole_numbers(value: object, field_type: int) -> int | list[int]:
     return _whole_number(value, field_type)
 
 
-def _ca_put_form(value: object, field_type: int, count: int) -> tuple[object, bool]:
+def _ca_put_form(
+    # ``count`` is aioca's ``cainfo().count``, which this module only guesses the
+    # type of (:class:`~._epics_bulk.CaInfo`): read as ``object`` and checked.
+    value: object,
+    field_type: int,
+    count: object,
+) -> tuple[object, bool]:
     """``value`` as it is put to a field of ``field_type``, and whether it goes as text.
 
     Left to itself, aioca sends any ``str`` as ``DBR_STRING`` and the IOC
@@ -837,7 +881,7 @@ class EPICSConnector(ControlSystemConnector):
         >>> print(f"Beam current: {value.value} {value.metadata.units}")
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected = False
         # The `max_step` fresh-read budget, replaced from the connector's own
         # config block on connect. Set here so the reader is usable on a
@@ -892,7 +936,8 @@ class EPICSConnector(ControlSystemConnector):
         self._write_executor: _WriteExecutor | None = None
         self._write_executor_lock = threading.Lock()
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Configure EPICS environment and test connection.
 
@@ -1020,9 +1065,12 @@ class EPICSConnector(ControlSystemConnector):
         # environment as it stands.
         ca_env = current_ca_env()
         self._name_server = None
+        # ``host:port`` of the gateway pointed at; None when none is configured.
+        configured_gateway: str | None = None
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)
+            configured_gateway = f"{address}:{port}"
             use_name_server = config_flag(
                 gateway_config.get("use_name_server"),
                 key=f"control_system.connector.{self._connector_type}.gateways."
@@ -1059,8 +1107,8 @@ class EPICSConnector(ControlSystemConnector):
         self._ca_bulk()
         self._selected_role = gateway_role if gateway_config else None
         self._write_gateway_configured = bool(write_gateway)
-        if gateway_config:
-            logger.debug(f"Configured EPICS gateway: {address}:{port}")
+        if configured_gateway is not None:
+            logger.debug(f"Configured EPICS gateway: {configured_gateway}")
             self._epics_configured = True
 
         # The ceiling on the fresh read a `max_step` check makes before a
@@ -1177,6 +1225,7 @@ class EPICSConnector(ControlSystemConnector):
             fnmatch.fnmatchcase(channel_address, pattern) for pattern in self._pva_channel_globs
         )
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup EPICS connections on both transports.
 
@@ -1226,6 +1275,7 @@ class EPICSConnector(ControlSystemConnector):
         self._connected = False
         logger.info("EPICS connector disconnected")
 
+    @override
     async def read_channel(
         self, channel_address: str, timeout: float | None = None
     ) -> ChannelValue:
@@ -1769,6 +1819,7 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata["shape"] = list(getattr(array, "shape", ()))
         return {"value": array, "raw_metadata": raw_metadata}
 
+    @override
     def current_value_reader(self) -> CurrentValueReader | None:
         """The channel's present value, read with the client this connector connected with.
 
@@ -1822,6 +1873,7 @@ class EPICSConnector(ControlSystemConnector):
         context = contextvars.copy_context()
         return await loop.run_in_executor(self._write_pool(), context.run, fn, *args)
 
+    @override
     def _write_route_open(self) -> bool:
         """No write gateway is configured, or ``connect()`` selected it."""
         return not self._write_gateway_configured or self._selected_role == "write_access"
@@ -1851,6 +1903,7 @@ class EPICSConnector(ControlSystemConnector):
         )
         return _verdict_refusal(channel_address, value, verdict)
 
+    @override
     def _write_precheck(
         self, channel_address: str, value: object
     ) -> tuple[str, ChannelWriteResult | None]:
@@ -1890,6 +1943,7 @@ class EPICSConnector(ControlSystemConnector):
         # switch. Refused before limits validation reads anything.
         return channel_address, self._role_refusal(channel_address, value)
 
+    @override
     async def write_channel(
         self,
         channel_address: str,
@@ -2117,7 +2171,8 @@ class EPICSConnector(ControlSystemConnector):
             ),
         )
 
-    async def _current_values(self, channel_addresses: list[str]) -> dict[str, Any] | None:
+    @override
+    async def _current_values(self, channel_addresses: list[str]) -> dict[str, object] | None:
         """What the named records hold, read together on the CA loop.
 
         One ``caget`` per record, all in flight at once under the one budget
@@ -2150,9 +2205,11 @@ class EPICSConnector(ControlSystemConnector):
                 held[name] = _ca_plain(reading)
         return held
 
+    @override
     async def _send_batch(
         self,
-        batch: list[tuple[str, Any]],
+        # Each value as write_channel takes it: the extension contract leaves it open.
+        batch: list[tuple[str, ContractAny]],
         timeout: float | None,
         confirm: bool | None,
     ) -> list[ChannelWriteResult]:
@@ -2206,12 +2263,14 @@ class EPICSConnector(ControlSystemConnector):
             )
         )
 
+    @override
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
         return await self._read_concurrently(channel_addresses, timeout)
 
+    @override
     async def subscribe(
         self,
         channel_address: str,
@@ -2307,6 +2366,7 @@ class EPICSConnector(ControlSystemConnector):
 
         await self._ca_loop.run(create_context())
 
+    @override
     async def wait_stale(self) -> None:
         """Raise :class:`ConnectorUnavailableError` once this connector's Channel Access transport has gone stale.
 
@@ -2367,6 +2427,7 @@ class EPICSConnector(ControlSystemConnector):
                 )
             await asyncio.sleep(STALE_PROBE_INTERVAL_S)
 
+    @override
     def channel_key(self, address: str) -> str:
         """``ca://X``, ``X.VAL`` and ``X`` are one record's value field: key ``X``."""
         return normalise_address(address.strip()).removesuffix(".VAL")
@@ -2508,6 +2569,7 @@ class EPICSConnector(ControlSystemConnector):
         logger.debug(f"PVA subscription created: {sub_id}")
         return sub_id
 
+    @override
     async def unsubscribe(self, subscription_id: str) -> None:
         """Unsubscribe from channel changes, whichever transport opened them."""
         subscription = self._subscriptions.pop(subscription_id, None)
@@ -2542,6 +2604,7 @@ class EPICSConnector(ControlSystemConnector):
         raw_metadata.update(self._pva_alarm_metadata(value))
         return self._pva_metadata(value, self._pva_timestamp(value), raw_metadata)
 
+    @override
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get metadata for a channel, over whichever transport serves it.
 
@@ -2618,6 +2681,7 @@ class EPICSConnector(ControlSystemConnector):
                     if waiter in slot.waiters:
                         slot.waiters.remove(waiter)
 
+    @override
     async def validate_channel(self, channel_address: str) -> bool:
         """
         Check if channel exists and is accessible.

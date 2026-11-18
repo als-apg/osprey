@@ -9,16 +9,21 @@ do the math (see ``tests/simulation/test_series_primitives.py``).
 """
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from datetime import time as dtime
-from typing import Any
+from typing import TYPE_CHECKING, SupportsIndex, SupportsInt
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import numpy.typing as npt
 
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
+from osprey_connectors.simulation.values import _real
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import ArchiverEvent, TopoffRecord
 
 __all__ = [
     "anchored_instant",
@@ -120,14 +125,14 @@ def _key_words(channel_key: bytes) -> tuple[np.uint64, np.uint64]:
     )
 
 
-def _mix64(z: "np.ndarray") -> "np.ndarray":
+def _mix64(z: npt.NDArray[np.uint64]) -> npt.NDArray[np.uint64]:
     """splitmix64 avalanche finalizer over a uint64 array (wrapping arithmetic)."""
     z = (z ^ (z >> _SHIFT_30)) * _MIX_A
     z = (z ^ (z >> _SHIFT_27)) * _MIX_B
     return np.asarray(z ^ (z >> _SHIFT_31))
 
 
-def _as_counter_array(counters: "np.ndarray") -> "np.ndarray":
+def _as_counter_array(counters: npt.ArrayLike) -> npt.NDArray[np.uint64]:
     """Normalize counters to uint64, rounding floats to the nearest integer.
 
     Epoch-millisecond counters usually arrive as float64 (``epoch_s * 1000``);
@@ -142,7 +147,9 @@ def _as_counter_array(counters: "np.ndarray") -> "np.ndarray":
     return array
 
 
-def _keyed_words(channel_key: bytes, counters_ms: "np.ndarray") -> "tuple[np.ndarray, np.ndarray]":
+def _keyed_words(
+    channel_key: bytes, counters_ms: npt.ArrayLike
+) -> tuple[npt.NDArray[np.uint64], npt.NDArray[np.uint64]]:
     """The two uint64 words each sample consumes, as a pair of arrays.
 
     Exactly two words per sample, addressed by that sample's own counter — no
@@ -155,7 +162,7 @@ def _keyed_words(channel_key: bytes, counters_ms: "np.ndarray") -> "tuple[np.nda
     return _mix64(base ^ k0), _mix64(base ^ k1)
 
 
-def keyed_normals(channel_key: bytes, counters_ms: "np.ndarray") -> "np.ndarray":
+def keyed_normals(channel_key: bytes, counters_ms: npt.ArrayLike) -> npt.NDArray[np.float64]:
     """Standard normal draws addressed by ``(channel key, counter)``.
 
     Each sample's draw is a pure function of its own counter, so two windows
@@ -192,14 +199,14 @@ def keyed_normals(channel_key: bytes, counters_ms: "np.ndarray") -> "np.ndarray"
     return np.sqrt(-2.0 * np.log(u1)) * np.cos(_TWO_PI * u2)
 
 
-def _unit_interval(words: "np.ndarray") -> "np.ndarray":
+def _unit_interval(words: npt.NDArray[np.uint64]) -> npt.NDArray[np.float64]:
     """Map uint64 words onto float64 in the half-open interval ``[0, 1)``."""
     return np.asarray((words >> _SHIFT_11).astype(np.float64) * _TWO_POW_M53)
 
 
 def _wander_components(
     channel_key: bytes, period_s: float
-) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Periods, phases and normalized weights of one channel's texture stack.
 
     Periods are log-spaced downward from ``period_s`` (the slowest) across
@@ -228,8 +235,8 @@ def _wander_components(
 
 
 def wander(
-    channel_key: bytes, t_abs_s: "np.ndarray", amplitude: float, period_s: float
-) -> "np.ndarray":
+    channel_key: bytes, t_abs_s: npt.ArrayLike, amplitude: float, period_s: float
+) -> npt.NDArray[np.float64]:
     """Band-limited quasi-random baseline texture, evaluated on absolute time.
 
     A seeded sum of :data:`_WANDER_COMPONENTS` sinusoids whose periods are
@@ -282,7 +289,7 @@ def clamp(value: float, min_value: float | None, max_value: float | None) -> flo
     return value
 
 
-def epoch_seconds_array(timestamps: "Sequence[object]") -> "np.ndarray | None":
+def epoch_seconds_array(timestamps: Iterable[object]) -> npt.NDArray[np.float64] | None:
     """Convert timestamps to epoch seconds, or None when not convertible."""
     values: list[float] = []
     for ts in timestamps:
@@ -295,7 +302,9 @@ def epoch_seconds_array(timestamps: "Sequence[object]") -> "np.ndarray | None":
     return np.asarray(values, dtype=np.float64)
 
 
-def anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None = None) -> float:
+def anchored_instant(
+    event: Mapping[str, object], anchor: float, tz: ZoneInfo | None = None
+) -> float:
     """Epoch seconds of an event placed relative to the activation anchor.
 
     ``at_offset`` is seconds from the anchor. ``at_when`` is the logbook's own
@@ -311,18 +320,51 @@ def anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | Non
 
     Returns:
         The event's instant in epoch seconds.
+
+    Raises:
+        TypeError: ``at_when`` is not a mapping.
     """
     if "at_offset" in event:
-        return anchor + float(event["at_offset"])
-    when = event["at_when"]
+        return anchor + _real(event["at_offset"])
+    return _calendar_instant(event["at_when"], anchor, tz)
+
+
+def _calendar_instant(when: object, anchor: float, tz: ZoneInfo | None) -> float:
+    """Epoch seconds of a ``{days_ago, time}`` placement, counted back from the anchor in ``tz``.
+
+    Raises:
+        TypeError: ``when`` is not a mapping, or its ``days_ago`` is not a
+            number ``int`` takes.
+    """
+    if not isinstance(when, Mapping):
+        raise TypeError(f"a {{days_ago, time}} placement is a mapping, not {type(when).__name__!r}")
+    placement: Mapping[str, object] = when
     zone = tz if tz is not None else ZoneInfo("UTC")
     spec = RelativeTimestamp(
-        days_ago=int(when["days_ago"]), time=dtime.fromisoformat(str(when["time"]))
+        days_ago=_whole(placement["days_ago"]),
+        time=dtime.fromisoformat(str(placement["time"])),
     )
     return resolve_relative_timestamp(spec, datetime.fromtimestamp(anchor, zone)).timestamp()
 
 
-def step_end(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None = None) -> float | None:
+def _whole(value: object) -> int:
+    """``int(value)`` of a field the type checker sees only as ``object``.
+
+    Raises:
+        TypeError: ``value`` is not a string, a bytes object or a number,
+            worded as ``int`` words it.
+    """
+    if isinstance(value, str | bytes | bytearray | SupportsInt | SupportsIndex):
+        return int(value)
+    raise TypeError(
+        "int() argument must be a string, a bytes-like object or a real number, "
+        f"not {type(value).__name__!r}"
+    )
+
+
+def step_end(
+    event: Mapping[str, object], anchor: float, tz: ZoneInfo | None = None
+) -> float | None:
     """Where a bounded ``step`` ends, on the same axis as its start; ``None`` when unbounded.
 
     ``until`` is a window fraction (paired with ``at``), ``until_offset`` is
@@ -338,21 +380,21 @@ def step_end(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None = None
         The end position, or ``None`` when the step states no end.
     """
     if "until_offset" in event:
-        return anchor + float(event["until_offset"])
+        return anchor + _real(event["until_offset"])
     if "until_when" in event:
-        return anchored_instant({"at_when": event["until_when"]}, anchor, tz)
+        return _calendar_instant(event["until_when"], anchor, tz)
     if "until" in event:
-        return float(event["until"])
+        return _real(event["until"])
     return None
 
 
 def event_positions(
-    event: Mapping[str, Any],
-    t_frac: "np.ndarray",
-    t_abs: "np.ndarray | None",
+    event: "ArchiverEvent",
+    t_frac: npt.NDArray[np.float64],
+    t_abs: npt.NDArray[np.float64] | None,
     anchor: float,
     tz: ZoneInfo | None = None,
-) -> "list[tuple[np.ndarray, float]]":
+) -> list[tuple[npt.NDArray[np.float64], float]]:
     """Coordinate axis and event position(s) for one event.
 
     Fraction-positioned (``at``) and anchored (``at_offset``, ``at_when``)
@@ -372,11 +414,13 @@ def event_positions(
         if t_abs is None:
             logger.debug("Skipping time-of-day event: timestamps not convertible to epoch seconds")
             return []
-        return [(t_abs, at) for at in daily_occurrences(str(event["at_time"]), t_abs, tz)]
+        return [(t_abs, at) for at in daily_occurrences(event["at_time"], t_abs, tz)]
     return [(t_frac, float(event["at"]))]
 
 
-def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = None) -> list[float]:
+def daily_occurrences(
+    at_time: str, t_abs: npt.NDArray[np.float64], tz: ZoneInfo | None = None
+) -> list[float]:
     """Epoch-second positions of a daily time-of-day within ``[t_abs[0], t_abs[-1]]``.
 
     Walks calendar dates from the window start to its end (in timezone ``tz``)
@@ -404,7 +448,7 @@ def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = N
     return positions
 
 
-def _burst_profile(event: Mapping[str, Any], dt: "np.ndarray") -> "np.ndarray":
+def _burst_profile(event: "ArchiverEvent", dt: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     """A ``burst``'s excursion at ``dt`` seconds after its instant.
 
     Zero before the instant, ``amplitude`` at it, then a fast exponential
@@ -420,20 +464,20 @@ def _burst_profile(event: Mapping[str, Any], dt: "np.ndarray") -> "np.ndarray":
     Returns:
         The excursion, same shape as ``dt``.
     """
-    amplitude = float(event["amplitude"])
-    share = float(event.get("tail_share", 0.0))
-    tail = float(event.get("tail_decay_s", event["decay_s"]))
+    amplitude = event["amplitude"]
+    share = event.get("tail_share", 0.0)
+    tail = event.get("tail_decay_s", event["decay_s"])
     after = np.maximum(dt, 0.0)
-    shape = (1.0 - share) * np.exp(-after / float(event["decay_s"])) + share * np.exp(-after / tail)
+    shape = (1.0 - share) * np.exp(-after / event["decay_s"]) + share * np.exp(-after / tail)
     return np.where(dt >= 0.0, amplitude * shape, 0.0)
 
 
 def _loss_deficit(
-    event: Mapping[str, Any],
+    event: "ArchiverEvent",
     at: float,
-    x: "np.ndarray",
-    topoff: Mapping[str, Any] | None,
-) -> "np.ndarray":
+    x: npt.NDArray[np.float64],
+    topoff: "TopoffRecord | None",
+) -> npt.NDArray[np.float64]:
     """How far a ``loss`` holds a channel below its level at each instant of ``x``.
 
     The channel drops by ``amount`` in one step at ``at`` and nothing brings it
@@ -453,18 +497,20 @@ def _loss_deficit(
         The deficit, ``amount`` right after ``at`` and 0 before it and once
         refilled.
     """
-    amount = float(event["amount"])
+    amount = event["amount"]
     deficit = np.where(x >= at, amount, 0.0)
     if topoff is None:
         return deficit
-    period = float(topoff["period_s"])
+    period = topoff["period_s"]
     shot = _REFILL_SHOT_FRACTION * abs(float(topoff["ceiling"]))
     refill = (np.floor(at / period) + 1.0) * period
     shots = np.where(x >= refill, np.floor((x - refill) * _REFILL_RATE_HZ) + 1.0, 0.0)
     return np.maximum(deficit - shot * shots, 0.0)
 
 
-def loss_refill_bound(event: Mapping[str, Any], topoff: Mapping[str, Any] | None) -> float | None:
+def loss_refill_bound(
+    event: Mapping[str, object], topoff: Mapping[str, object] | None
+) -> float | None:
     """Seconds after its instant by which a ``loss`` is surely refilled; None if never.
 
     One top-off period to the first refill, wherever in the period the loss
@@ -472,20 +518,20 @@ def loss_refill_bound(event: Mapping[str, Any], topoff: Mapping[str, Any] | None
     """
     if topoff is None:
         return None
-    shot = _REFILL_SHOT_FRACTION * abs(float(topoff["ceiling"]))
-    shots = np.ceil(float(event["amount"]) / shot) if shot > 0 else 0.0
-    return float(topoff["period_s"]) + float(shots) / _REFILL_RATE_HZ
+    shot = _REFILL_SHOT_FRACTION * abs(_real(topoff["ceiling"]))
+    shots = np.ceil(_real(event["amount"]) / shot) if shot > 0 else 0.0
+    return _real(topoff["period_s"]) + float(shots) / _REFILL_RATE_HZ
 
 
 def apply_events(
-    series: "np.ndarray",
-    events: Sequence[Mapping[str, Any]],
+    series: npt.NDArray[np.float64],
+    events: "Sequence[ArchiverEvent]",
     n: int,
-    t_abs: "np.ndarray | None",
+    t_abs: npt.NDArray[np.float64] | None,
     anchor: float,
     tz: ZoneInfo | None = None,
-    topoff: Mapping[str, Any] | None = None,
-) -> "np.ndarray":
+    topoff: "TopoffRecord | None" = None,
+) -> npt.NDArray[np.float64]:
     """Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).
 
     A step with an end (see :func:`step_end`) holds ``to`` over ``[start, end)``
@@ -499,20 +545,17 @@ def apply_events(
     t_frac = np.linspace(0.0, 1.0, n)
     series = series.copy()
     for event in events:
+        # A ``to`` is a number on the float channels whose series these events move.
         shape = event["shape"]
         offset_anchored = "at_offset" in event
         for x, at in event_positions(event, t_frac, t_abs, anchor, tz):
             if shape == "step":
                 end = step_end(event, anchor, tz)
                 inside = x >= at if end is None else (x >= at) & (x < end)
-                series[inside] = float(event["to"])
+                series[inside] = _real(event["to"])
             elif shape == "ramp":
-                until = (
-                    anchor + float(event["until_offset"])
-                    if offset_anchored
-                    else float(event["until"])
-                )
-                to = float(event["to"])
+                until = anchor + event["until_offset"] if offset_anchored else float(event["until"])
+                to = _real(event["to"])
                 if until <= at:
                     series[x >= at] = to
                     continue
@@ -526,7 +569,7 @@ def apply_events(
             elif shape == "loss":
                 series = series - _loss_deficit(event, at, x, topoff)
             else:  # spike (gaussian bump; width as window fraction, or seconds when anchored)
-                amplitude = float(event["amplitude"])
-                width = float(event["width"])
+                amplitude = event["amplitude"]
+                width = event["width"]
                 series = series + amplitude * np.exp(-((x - at) ** 2) / (2.0 * width**2))
     return series

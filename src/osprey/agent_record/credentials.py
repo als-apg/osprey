@@ -583,9 +583,12 @@ def owner_files(config: Mapping[str, Any] | None) -> dict[str, tuple[str, ...]]:
     return owners
 
 
-def digest_env_name(service: str) -> str:
-    """The variable a service's :data:`DIGEST_LABEL` is interpolated from."""
-    return DIGEST_ENV_PREFIX + "".join(ch if ch.isalnum() else "_" for ch in service).upper()
+def digest_env_name(service: str, *, prefix: str = DIGEST_ENV_PREFIX) -> str:
+    """The variable a service's :data:`DIGEST_LABEL` is interpolated from.
+
+    ``prefix`` names another digest family (the dispatch bus keys use their own).
+    """
+    return prefix + "".join(ch if ch.isalnum() else "_" for ch in service).upper()
 
 
 def files_digest(repo_root: Path | str, files: Iterable[str]) -> str:

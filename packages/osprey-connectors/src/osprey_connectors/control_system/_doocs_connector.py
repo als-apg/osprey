@@ -11,8 +11,11 @@ import asyncio
 import secrets
 from collections.abc import Callable, Sequence
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Protocol
 
+from typing_extensions import override
+
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.call_timeout import DEFAULT_TIMEOUT_S, call_timeout_s
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._base import (
@@ -75,14 +78,15 @@ class DOOCSConnector(ControlSystemConnector):
     Provides read/write access to DOOCS properties.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected: bool = False
         self._subscriptions: dict[str, object] = {}
         self._timeout_s: float = DEFAULT_TIMEOUT_S
         # doocs4py, set by connect().
         self._doocs4py: _Doocs4py | None = None
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Configure DOOCS environment and test connection.
 
@@ -136,6 +140,7 @@ class DOOCSConnector(ControlSystemConnector):
         self._connected = True
         logger.debug("DOOCS connector initialized")
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup DOOCS connections."""
         # Unsubscribe from all active subscriptions
@@ -164,6 +169,7 @@ class DOOCSConnector(ControlSystemConnector):
         """The per-call ``timeout`` when one is given, else the block's ``timeout_s``."""
         return timeout if timeout is not None else self._timeout_s
 
+    @override
     async def read_channel(
         self,
         channel_address: str,
@@ -235,6 +241,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         return ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
 
+    @override
     def current_value_reader(self) -> CurrentValueReader:
         """The property's present value, read through this connector's own client.
 
@@ -248,6 +255,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         return read_current
 
+    @override
     async def write_channel(
         self,
         channel_address: str,
@@ -392,18 +400,21 @@ class DOOCSConnector(ControlSystemConnector):
             ),
         )
 
+    @override
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
         return await self._read_concurrently(channel_addresses, timeout)
 
+    @override
     async def subscribe(
         self,
         channel_address: str,
         callback: Callable[[ChannelValue], None],
         *,
-        on_connection: Callable[[bool], None] | None = None,  # noqa: ARG002 - accepted and ignored: DOOCS reports no connection state
+        on_connection: Callable[[bool], None]
+        | None = None,  # accepted and ignored: DOOCS reports no connection state
     ) -> str:
         """
         Subscribe to property value changes.
@@ -455,6 +466,7 @@ class DOOCSConnector(ControlSystemConnector):
         logger.debug(f"DOOCS subscription created: {sub_id}")
         return sub_id
 
+    @override
     async def unsubscribe(self, subscription_id: str) -> None:
         """Unsubscribe from DOOCS property changes."""
         if subscription_id in self._subscriptions:
@@ -463,11 +475,13 @@ class DOOCSConnector(ControlSystemConnector):
             del self._subscriptions[subscription_id]
             logger.debug(f"DOOCS subscription removed: {subscription_id}")
 
+    @override
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get metadata for a channel."""
         channel_value = await self.read_channel(channel_address)
         return channel_value.metadata
 
+    @override
     async def validate_channel(self, channel_address: str) -> bool:
         """
         Check if property exists and is accessible.

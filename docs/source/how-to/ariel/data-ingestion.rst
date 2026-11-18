@@ -62,11 +62,37 @@ Adapters are discovered through Osprey's central registry. The built-in ones bel
      - Schema-ready prototype. Parses its logbook's JSON format into the common schema but does not yet implement that system's native API protocol.
    * - **Generic JSON**
      - ``generic_json``
-     - Reads entries from a JSON file. ``id``, ``title``, ``text``, ``author``, ``timestamp`` and ``attachments`` map onto the common schema; every other top-level field is kept as entry metadata, and an explicit ``metadata`` object merges last and wins. Useful for demos, testing, and facilities without a custom API.
+     - Reads entries from a JSON file. ``id``, ``title``, ``text``, ``author``, ``timestamp`` and ``attachments`` map onto the common schema; every other top-level field is kept as entry metadata, and an explicit ``metadata`` object merges last and wins. ``body_format`` declares the format of ``text`` (see **Entry format** below). Useful for demos, testing, and facilities without a custom API.
 
 **Entry times.** A time with a UTC offset, a ``Z`` or a Unix epoch is stored as that instant. A time without an offset is read in the facility zone (``system.timezone``). An entry whose time is missing or cannot be read is skipped and named in the ingest log rather than stored with a made-up time. It counts as failed in the run's totals (``osprey ariel watch``, ``osprey ariel sync``), and ``osprey ariel ingest`` reports how many it skipped. Entries ingested earlier from a logbook that writes times without an offset keep their old time until the source is ingested again.
 
 **Entry text.** The ALS eLog adapter stores entry text as plain text. It decodes HTML entities, turns the logbook's markup into line breaks, paragraphs and list items, and writes a link as its text followed by its address in parentheses. It also undoes the backslash escaping the logbook adds: ``\'``, ``\"`` and an encoded ``\&quot;`` become plain quotes, and a doubled backslash becomes one. A single backslash before any other character is kept. Text without markup keeps its line breaks and indentation. Entries stored before this behaviour are rewritten once by ``osprey ariel migrate``, which ``osprey ariel sync`` runs as its first step. Their enhancements are cleared, so the next ``osprey ariel enhance``, or each later sync or watch pass, embeds and summarises the plain text again.
+
+**Entry format.** An entry's text is plain text unless the entry declares a format. In a ``generic_json`` file, a top-level ``body_format`` of ``markdown`` (in any letter case) declares that ``text`` is Markdown. It is stored as ``metadata.body_format``:
+
+.. code-block:: json
+
+   {
+     "id": "shift-2026-08-20-a",
+     "title": "Injection study",
+     "body_format": "markdown",
+     "text": "| Magnet | Current (A) |\n| --- | --- |\n| QF1 | 12.5 |\n\n![Beam profile](beam-profile.png)",
+     "author": "operator",
+     "timestamp": "2026-08-20T12:00:00-07:00",
+     "attachments": [
+       {"url": "https://logbook.example.org/files/beam-profile.png", "filename": "beam-profile.png"}
+     ]
+   }
+
+The Logbook web panel shows the body of such an entry as formatted text: headings, lists, tables, links, quotes and code. The rules it applies:
+
+* A picture in the text (``![caption](beam-profile.png)``) is shown at that place when its address names one of the entry's own ``attachments``: by ``filename``, or by the last path part of the attachment's ``url``. A path before the file name is ignored. Every other picture address, including any address on another site, is replaced by its caption, so a body never loads a picture from elsewhere. The attachment cards stay below the text.
+* A link stays a link only when its address starts with ``http://`` or ``https://``. It opens in a new tab.
+* HTML written inside the Markdown is reduced to plain formatting elements. Scripts, styles, forms and frames are removed.
+* Channel and device ids from the facility file are marked as in a plain entry, in running text, table cells, link text and code. An id inside a link address is left alone.
+* The title is ``title`` and is never formatted.
+
+The text is stored and searched as written: the agent, the search modules and the list rows see the Markdown source. Every other ``body_format`` value, and no value, shows the text as stored. ``html``, which the JLab adapter can record, is not rendered.
 
 **Using a custom adapter:**
 

@@ -42,6 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from typing_extensions import override
+
 __all__ = [
     "ConnectionSettings",
     "Credential",
@@ -130,11 +132,6 @@ class ConnectionSettings:
     timeout_s: float | None = None
     login: Login | None = None
     ca_bundle: Path | None = None
-
-    @property
-    def credential_env_names(self) -> tuple[str, ...]:
-        """The environment variables the login's secret is read from; ``()`` without one."""
-        return self.login.env_names if self.login else ()
 
     def timeout_or(self, default: float) -> float:
         """The configured bound, or ``default`` when the block sets none."""
@@ -428,6 +425,7 @@ class _OriginAuthorization(urllib.request.BaseHandler):
         self._origin = _origin(url)
         self._value = value
 
+    @override
     def __repr__(self) -> str:
         scheme, host, port = self._origin
         return f"<_OriginAuthorization {scheme}://{host}:{port}>"

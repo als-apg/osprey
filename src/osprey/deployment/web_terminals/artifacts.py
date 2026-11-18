@@ -58,6 +58,8 @@ from osprey.deployment.web_terminals.roster import (
     renders_needing_graphdb_password,
     renders_needing_launch_token_by_lane,
     renders_needing_phoebus_handles,
+    renders_needing_pv_directory_ca_bundles,
+    renders_needing_pv_directory_credentials,
     renders_with_open_shell,
     roster_entries,
     settings_json_deny_entries,
@@ -1240,6 +1242,8 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "graphdb_renders": renders_needing_graphdb_password(config, root),
         "archiver_credential_renders": renders_needing_archiver_credentials(config, root),
         "archiver_ca_bundle_renders": renders_needing_archiver_ca_bundles(config, root),
+        "pv_directory_credential_renders": renders_needing_pv_directory_credentials(config, root),
+        "pv_directory_ca_bundle_renders": renders_needing_pv_directory_ca_bundles(config, root),
         "facility_bundle_renders": renders_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see

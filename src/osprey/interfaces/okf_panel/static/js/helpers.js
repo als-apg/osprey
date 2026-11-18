@@ -18,6 +18,52 @@ export const STRUCTURE_MARKER = '__structure';
 export const GRAPH_MARKER = '__graph';
 
 /**
+ * The concept an in-bundle link names (OKF §6): a target starting with `/`
+ * resolves from the bundle root, any other from the directory of the page the
+ * link sits in.
+ * @param {string} href the link target as written
+ * @param {string | null | undefined} currentId the concept the link sits in;
+ *   absent for a page at the bundle root, such as the overview
+ * @returns {string | null} the concept id, or null for a link that names no
+ *   concept: an external one, an anchor, a directory, an asset, a reserved
+ *   file, or a target outside the bundle root
+ */
+export function linkedConceptId(href, currentId) {
+  if (!href || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(href)) return null;
+  let path = href.split('#')[0].split('?')[0];
+  if (!path.endsWith('.md')) return null;
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // A target that does not decode is read as written.
+  }
+  const parts = path.startsWith('/') || !currentId ? [] : currentId.split('/').slice(0, -1);
+  for (const segment of path.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (!parts.length) return null;
+      parts.pop();
+    } else {
+      parts.push(segment);
+    }
+  }
+  const name = parts[parts.length - 1];
+  if (!name || name === 'index.md' || name === 'log.md') return null;
+  return parts.join('/').replace(/\.md$/, '');
+}
+
+/**
+ * A concept's tags as a list (OKF §11.2): a scalar where a list is expected is
+ * one tag, and a null or empty value is no tag.
+ * @param {unknown} value the `tags` frontmatter value
+ * @returns {unknown[]}
+ */
+export function tagList(value) {
+  if (Array.isArray(value)) return value.filter((tag) => tag !== null && tag !== '');
+  return value === null || value === undefined || value === '' ? [] : [value];
+}
+
+/**
  * The Graph view a hash names.
  * @param {string} raw the hash, without its `#`
  * @returns {{node: string | null} | null} the node whose neighbourhood it

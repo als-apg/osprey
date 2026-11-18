@@ -138,6 +138,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple, cast
 
+from typing_extensions import override
+
 from osprey_connectors import session_hold
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_env import is_readonly_run
@@ -340,9 +342,11 @@ class NoOwner:
 
     __slots__ = ()
 
+    @override
     def __str__(self) -> str:
         return "<no owner>"
 
+    @override
     def __repr__(self) -> str:
         return "<no owner>"
 
@@ -829,7 +833,7 @@ def _read_no_follow(path: Path) -> str:
     return text
 
 
-def _read_tree_context(tree: Path, owner: str) -> _TreeContext:
+def _read_tree_context(tree: Path, owner: object) -> _TreeContext:
     """*owner*'s whole record out of the read-only *tree*, with the reason when there is none.
 
     The reader a container uses when it holds the whole tree and no chip of its

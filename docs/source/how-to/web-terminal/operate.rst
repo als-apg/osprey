@@ -866,6 +866,28 @@ Two consequences follow:
 The dispatch worker and every other headless path keep the deployment
 provider unconditionally.
 
+A login covers the agent only. A few features send their own model request,
+outside the agent, and authenticate with the provider's API key and nothing
+else:
+
+- session naming, which otherwise leaves a session its first-prompt title;
+- logbook compose in the artifact gallery;
+- the in-context channel finder (:doc:`/how-to/use-channel-finder`);
+- the ARIEL semantic processor and image captions, when enabled;
+- the model chat check of ``osprey health --full``.
+
+This holds for any deployment that runs without a provider key, with or
+without ``allow_personal_login``. ``osprey validate``, ``osprey build`` and
+``osprey web`` each name the enabled features whose key is missing, as
+warnings that do not change the exit status. A line reads
+``session naming needs ANTHROPIC_API_KEY (not set): sessions keep their
+first-prompt title``. ``osprey validate`` reads the profile and not a build,
+so it misses a channel finder the profile takes from its preset;
+``osprey build`` reports it.
+
+Add the key to the deployment's ``.env`` to use them. A feature whose
+provider needs no key, such as a local Ollama server, is not listed.
+
 Documentation and feedback settings
 -----------------------------------
 

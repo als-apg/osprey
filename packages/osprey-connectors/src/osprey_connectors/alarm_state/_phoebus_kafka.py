@@ -3,6 +3,14 @@
 The topic is read from the beginning with no consumer group, so the service sees
 no member and no committed offset, and nothing is ever produced. ``aiokafka`` is
 an optional extra, imported only when a consumer is about to be built.
+
+A broker that asks for a login is named one under ``settings.auth``: ``username``
+with ``password_env``, sent as SASL (``auth.mechanism``, ``PLAIN`` unless set).
+A login is sent over TLS, verified against ``settings.tls.ca_bundle`` or, without
+one, the process trust store. Only ``auth.cleartext: true`` sends it unencrypted,
+for a listener that offers no TLS. Without a login, ``tls.ca_bundle`` alone turns
+TLS on. Reading needs one right on the broker, ``Read`` on the topic: with no
+consumer group there is no group to authorize.
 """
 
 from __future__ import annotations
@@ -15,6 +23,8 @@ from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
+
+from typing_extensions import override
 
 from osprey_connectors.alarm_state._contract import (
     AlarmConfigRecord,
@@ -31,6 +41,7 @@ from osprey_connectors.alarm_state._fold import (
     state_record,
     state_rows,
 )
+from osprey_connectors.connection import ConnectionSettings, read_connection_settings
 from osprey_connectors.logger import get_logger
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
@@ -38,6 +49,11 @@ logger = get_logger("phoebus_alarm_state")
 
 KAFKA_CLIENT_MISSING = "Kafka client not installed (install osprey-connectors[alarm-state])"
 SETTINGS_MISSING = "alarm_state.settings needs bootstrap_servers and topic"
+
+_WHERE = "pv_directory.alarm_state.settings"
+_BEARER_REFUSED = "a Kafka broker takes `auth.username` and `auth.password_env`, sent as SASL"
+#: The SASL mechanisms a password login can be sent with; the first is the default.
+SASL_MECHANISMS = ("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512")
 
 #: Seconds after which a feed that has been silent reads as stale.
 _STALE_WINDOW_S = 60.0
@@ -115,10 +131,12 @@ class PhoebusAlarmState(AlarmState):
         self._last_contact_at: str | None = None
         self._cannot_start: Unavailable | None = None
 
+    @override
     async def start(self) -> None:
         if self._task is None and self._blocked() is None:
             self._task = asyncio.create_task(self._run(), name="phoebus-alarm-state")
 
+    @override
     async def aclose(self) -> None:
         task, self._task = self._task, None
         if task is not None:
@@ -129,6 +147,7 @@ class PhoebusAlarmState(AlarmState):
         self._unreachable = None
         self._settled.clear()
 
+    @override
     async def state_for(
         self, channel: str, deadline: float
     ) -> AlarmStateRecord | Unavailable | None:
@@ -138,6 +157,7 @@ class PhoebusAlarmState(AlarmState):
             return unanswered
         return state_record(self._snapshot, channel, stale=self._stale())
 
+    @override
     async def states(self, deadline: float) -> AlarmStates | Unavailable:
         await self._settling(deadline)
         unanswered = self._unanswered()
@@ -147,12 +167,14 @@ class PhoebusAlarmState(AlarmState):
         rows = state_rows(self._snapshot, stale=stale)
         return AlarmStates(rows=rows, stale=stale, last_contact=self._last_contact_at)
 
+    @override
     async def config_for(self, channel: str, deadline: float) -> AlarmConfigRecord | Unavailable:
         await self._settling(deadline)
         unanswered = self._unanswered()
         return unanswered if unanswered is not None else config_record(self._snapshot, channel)
 
-    async def probe(self, deadline: float) -> str | Unavailable:  # noqa: ARG002
+    @override
+    async def probe(self, deadline: float) -> str | Unavailable:
         before_catch_up = self._before_catch_up()
         if before_catch_up is not None:
             return before_catch_up
@@ -187,6 +209,11 @@ class PhoebusAlarmState(AlarmState):
             settings = self.spec.settings
             if not (settings.get("bootstrap_servers") and settings.get("topic")):
                 self._cannot_start = Unavailable(SETTINGS_MISSING)
+                return self._cannot_start
+            try:
+                _read_login(settings)
+            except ValueError as exc:
+                self._cannot_start = Unavailable(str(exc))
             else:
                 try:
                     importlib.import_module("aiokafka")
@@ -271,6 +298,64 @@ async def _reached(consumer: _Consumer, targets: Mapping[object, int]) -> bool:
     return True
 
 
+def _read_login(settings: Mapping[str, object]) -> tuple[ConnectionSettings, str, bool]:
+    """The block's login and CA, the SASL mechanism, and whether the login goes unencrypted.
+
+    Raises:
+        ValueError: ``auth`` or ``tls`` breaks the connection shape, names a
+            bearer token or a mechanism this backend does not send, or asks for
+            a cleartext login beside a CA.
+    """
+    connection = read_connection_settings(
+        settings,
+        where=_WHERE,
+        logins=frozenset({"password"}),
+        unsupported_because=_BEARER_REFUSED,
+        extra_auth_keys=frozenset({"mechanism", "cleartext"}),
+    )
+    auth = settings.get("auth")
+    auth = auth if isinstance(auth, Mapping) else {}
+    mechanism = auth.get("mechanism", SASL_MECHANISMS[0])
+    if mechanism not in SASL_MECHANISMS:
+        raise ValueError(f"`{_WHERE}.auth.mechanism` must be one of {', '.join(SASL_MECHANISMS)}")
+    cleartext = auth.get("cleartext", False)
+    if not isinstance(cleartext, bool):
+        raise ValueError(f"`{_WHERE}.auth.cleartext` must be true or false")
+    if cleartext and connection.ca_bundle is not None:
+        raise ValueError(
+            f"`{_WHERE}.auth.cleartext` sends the login unencrypted, and `{_WHERE}.tls.ca_bundle` "
+            "names a CA for TLS: set one"
+        )
+    return connection, str(mechanism), cleartext
+
+
+def _login_options(settings: Mapping[str, object]) -> dict[str, object]:
+    """The consumer options a login and a CA add; none for an open plaintext broker.
+
+    The password is read from the environment here, when the consumer is built.
+    A login is encrypted unless ``auth.cleartext`` says otherwise; with no login,
+    only a named CA turns TLS on.
+
+    Raises:
+        ValueError: As :func:`_read_login`, or the CA file cannot be used.
+        ConnectionError: The variable ``auth.password_env`` names is unset.
+    """
+    connection, mechanism, cleartext = _read_login(settings)
+    credential = connection.resolve_credential()
+    encrypted = connection.ca_bundle is not None or (credential is not None and not cleartext)
+    options: dict[str, object] = {}
+    if encrypted:
+        options["ssl_context"] = connection.ssl_context()
+    if credential is not None:
+        options["security_protocol"] = "SASL_SSL" if encrypted else "SASL_PLAINTEXT"
+        options["sasl_mechanism"] = mechanism
+        options["sasl_plain_username"] = credential.username
+        options["sasl_plain_password"] = credential.secret
+    elif encrypted:
+        options["security_protocol"] = "SSL"
+    return options
+
+
 def _aiokafka_consumer(settings: Mapping[str, object]) -> _Consumer:
     aiokafka = importlib.import_module("aiokafka")
     consumer: _Consumer = aiokafka.AIOKafkaConsumer(
@@ -279,5 +364,6 @@ def _aiokafka_consumer(settings: Mapping[str, object]) -> _Consumer:
         group_id=None,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
+        **_login_options(settings),
     )
     return consumer

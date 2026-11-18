@@ -1120,7 +1120,8 @@ def test_a_blank_terminal_secret_takes_down_only_that_users_terminal() -> None:
 
 def test_a_terminal_with_nothing_listening_answers_with_the_starting_page() -> None:
     """While a terminal's app is still starting, nginx answers for it with a
-    self-reloading 503 page — and a 502 the app returns itself is still the app's.
+    503 waiting page — to a HEAD as to a GET, which is what the page's own
+    poll relies on — and a 502 the app returns itself is still the app's.
 
     Run through real nginx because the split rests on nginx's own semantics:
     `error_page` covers the 502 nginx generates when it cannot connect, and
@@ -1152,6 +1153,8 @@ def test_a_terminal_with_nothing_listening_answers_with_the_starting_page() -> N
                 "-c",
                 "nginx && sleep 1\n"
                 f"curl -s -D - -H 'Host: {origin_host}' http://127.0.0.1:{port}/u/alice/\n"
+                "echo '=====HEAD'\n"
+                f"curl -s -I -H 'Host: {origin_host}' http://127.0.0.1:{port}/u/alice/\n"
                 "echo '=====BOB'\n"
                 f"curl -s -D - -H 'Host: {origin_host}' http://127.0.0.1:{port}/u/bob/\n",
             ),
@@ -1159,11 +1162,16 @@ def test_a_terminal_with_nothing_listening_answers_with_the_starting_page() -> N
 
     # Assert
     assert result.returncode == 0, result.stderr
-    alice, bob = result.stdout.split("=====BOB", 1)
+    alice, rest = result.stdout.split("=====HEAD", 1)
+    head, bob = rest.split("=====BOB", 1)
     assert _status(alice) == "503", alice
     assert "Retry-After: 5" in alice
-    assert 'http-equiv="refresh"' in alice
-    assert "This terminal is not answering yet" in alice
+    assert "Cache-Control: no-store" in alice
+    assert "<h1>Starting your terminal</h1>" in alice
+    assert '<noscript><meta http-equiv="refresh" content="5"></noscript>' in alice
+    assert 'method: "HEAD"' in alice
+    assert _status(head) == "503", head
+    assert "Retry-After: 5" in head
     assert _status(bob) == "502", bob
     assert "the app says 502" in bob
 

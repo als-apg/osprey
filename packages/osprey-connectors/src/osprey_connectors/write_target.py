@@ -27,6 +27,8 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Literal
 
+from typing_extensions import override
+
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import (
     CONTROL_TARGETS,
@@ -106,6 +108,7 @@ class Unresolved:
 
     __slots__ = ()
 
+    @override
     def __repr__(self) -> str:
         return "<unresolved>"
 
@@ -152,7 +155,7 @@ def _is_write_call(tool_input: object, short_name: str) -> bool:
     return bool(tool_input.get("execution_mode", "readonly") != "readonly")
 
 
-def _short_tool_name(tool_name: str, prefixes: Iterable[object]) -> str:
+def _short_tool_name(tool_name: str, prefixes: Iterable[object] | None) -> str:
     """*tool_name* without its server prefix; the longest matching prefix wins.
 
     With no prefix matching, the ``mcp__<server>__<tool>`` shape decides, and a

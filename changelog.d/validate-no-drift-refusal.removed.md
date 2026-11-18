@@ -1,1 +1,0 @@
-**Breaking change:** `osprey validate --drift` is gone; drop it from scripts and CI jobs. The `# DEVIATION: <why>` marker comments are no longer read, and `provenance.deviation_marker` is accepted and ignored; `osprey init --revalidate` removes it.

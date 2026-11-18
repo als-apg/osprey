@@ -113,6 +113,7 @@ async def submit_response(
                 "source_agent": agent,
                 "entry_ids": cited,
             },
+            deliver=False,  # the answer reaches the person as the reply's text
         )
         # Set unified fields on the entry
         updated = store.update_entry_metadata(
