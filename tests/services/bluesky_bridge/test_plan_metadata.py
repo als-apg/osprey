@@ -11,10 +11,11 @@ alongside the rest of `plan_types.py`'s own tests.
 
 from __future__ import annotations
 
+import logging
 import types
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from osprey.services.bluesky_bridge.plan_metadata import (
     PlanMetadata,
@@ -188,3 +189,65 @@ def test_plan_spec_old_style_construction_still_works_and_defaults_provenance() 
     assert spec.metadata is None
     assert spec.provenance == "shipped"
     assert spec.to_dict()["provenance"] == "shipped"
+
+
+# ---------------------------------------------------------------------------
+# The served schema states every default the plan has
+# ---------------------------------------------------------------------------
+
+
+class _FactoryDefaultParams(BaseModel):
+    target: str
+    monitors: list[str] = Field(default_factory=lambda: ["BPM:1"])
+
+
+class _Inner(BaseModel):
+    tags: list[str] = Field(default_factory=lambda: ["a", "b"])
+
+
+class _NestedFactoryParams(BaseModel):
+    inner: _Inner
+
+
+def _raise() -> list[str]:
+    raise RuntimeError("factory is broken")
+
+
+class _RaisingFactoryParams(BaseModel):
+    target: str
+    monitors: list[str] = Field(default_factory=_raise)
+    span: float = 1.0
+
+
+def _spec_over(schema: type[BaseModel]) -> PlanSpec:
+    return PlanSpec(name="probe", plan=lambda devices, params: None, schema=schema)
+
+
+def test_to_dict_schema_states_a_factory_default() -> None:
+    schema = _spec_over(_FactoryDefaultParams).to_dict()["schema"]
+
+    assert schema["properties"]["monitors"]["default"] == ["BPM:1"]
+
+
+def test_to_dict_schema_states_a_nested_factory_default() -> None:
+    schema = _spec_over(_NestedFactoryParams).to_dict()["schema"]
+
+    assert schema["$defs"]["_Inner"]["properties"]["tags"]["default"] == ["a", "b"]
+
+
+def test_to_dict_survives_a_factory_that_raises(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_types"):
+        schema = _spec_over(_RaisingFactoryParams).to_dict()["schema"]
+
+    assert "default" not in schema["properties"]["monitors"]
+    assert schema["properties"]["span"]["default"] == 1.0
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "probe" in warnings[0]
+    assert "monitors" in warnings[0]
+
+
+def test_a_required_field_beside_a_factory_default_stays_required() -> None:
+    schema = _spec_over(_FactoryDefaultParams).to_dict()["schema"]
+
+    assert schema["required"] == ["target"]

@@ -70,6 +70,12 @@ from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan
 # =========================================================================
 
 
+def test_bump_monitors_default_is_an_empty_list_in_the_catalog() -> None:
+    spec = plan_loader.get_facility_plans().plans["orbit_bump_sweep"]
+
+    assert spec.to_dict()["schema"]["properties"]["monitors"]["default"] == []
+
+
 @pytest.mark.parametrize(
     "params", [ORMParams, GridScanParams, BumpParams], ids=lambda m: m.__module__
 )
