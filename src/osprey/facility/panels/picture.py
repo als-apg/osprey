@@ -1,15 +1,23 @@
-"""The geometry of a device class's drawing: its body's shapes in mm, and the tags of its parts.
+"""The geometry of a device class's drawing: its body's shapes in mm, by material.
 
 Pure functions of the ``pictures.csv`` rows of one view
-(:class:`~osprey.facility.panels.tables.PicturePart`); the layout scales and draws
-what they return. A shape row that states no size is drawn at a default
+(:class:`~osprey.facility.panels.tables.PicturePart`); the layout scales and paints
+what they return. The body is built as a magnet is seen from its end: a ring
+yoke (an outer and an inner shape), poles from the yoke's inner edge to just
+short of the bore, narrowing to a rounded nose; each coil as two rounded
+blocks lying beside its pole; a corrector winding as a thin band outside the
+coil; the bore. A shape row that states no size is drawn at a default
 proportion of the bore (:func:`body`), and the body says so (:attr:`Body.sized`).
+
+The format draws polygons, axis-aligned ellipses and axis-aligned rectangles
+only: a rounded nose and a rounded block at an angle are polygons whose curves
+are sampled (:data:`ARC_STEPS` points per quarter).
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from osprey.facility.panels.tables import PicturePart
@@ -21,32 +29,46 @@ __all__ = [
     "Shape",
     "body",
     "member_number",
-    "tag_prefixes",
 ]
 
 Point = tuple[float, float]
 
 #: The bore radius a body is drawn about when no row sizes a bore, a gap or a yoke.
 DEFAULT_BORE_MM = 15.0
-#: Of a yoke's radius, the bore radius a body with only its yoke sized is drawn about.
-BORE_OF_YOKE = 0.2
-#: Of a yoke's radius (or of the nearest point of its outline), where its inner edge is.
-YOKE_INNER = 0.8
-#: An unsized pole's length when no yoke states where it ends, in bore radii.
-POLE_LENGTH = 2.5
-#: An unsized pole's width: this many times the chord its share of the bore subtends.
-POLE_WIDTH = 1.4
-#: A pole's tip (of more than two poles): this share of the circle's chord its pole has there.
-POLE_TIP = 0.8
-#: An unsized coil side: of its pole's width and of its pole's length.
-COIL_WIDTH = 0.3
-COIL_LENGTH = 0.55
-#: An unsized corrector winding: of its coil side's width.
-WINDING_WIDTH = 0.3
-#: Between a coil side and a corrector winding, of the pole's width.
-WINDING_GAP = 0.05
-#: An unsized yoke's outer radius: of the pole's root radius.
-YOKE_OUTER = 1.25
+#: Of a yoke's outer radius, the bore radius a body with only its yoke sized is drawn about.
+BORE_OF_YOKE = 0.19
+#: Of a yoke's outer radius (or of the nearest side of a convex outline): its inner edge.
+YOKE_INNER = 0.82
+#: An unsized yoke's inner edge, in bore radii (its outer edge follows by :data:`YOKE_INNER`).
+YOKE_INNER_BORES = 4.3
+#: An unsized pole's nose stops this many bore radii from the beam: short of the bore.
+POLE_NOSE = 1.15
+#: An unsized pole's width at its root: of its length for a tapered pole (more than
+#: two); for two, this many bore radii (a bend's face is wide).
+POLE_WIDTH = 0.4
+FACE_WIDTH = 4.8
+#: A tapered pole (of more than two): where its flanks start to narrow, as a share of
+#: its length from the nose; how narrow its nose is, of its root width; the nose's
+#: length, of the pole's length.
+POLE_SHOULDER = 0.25
+POLE_NOSE_WIDTH = 0.58
+POLE_NOSE_LENGTH = 0.08
+#: Of the room a pole's share of the circle has at a radius, the most it takes there.
+POLE_ROOM = 0.75
+#: An unsized coil block: of its pole's root width across, of its pole's length along;
+#: how far short of the pole's root it ends, of the pole's length.
+COIL_WIDTH = 0.44
+COIL_LENGTH = 0.46
+COIL_ROOT_GAP = 0.08
+#: Between a pole and its coil, and between a coil and its winding: of the pole's width.
+CLEARANCE = 0.02
+#: An unsized corrector winding: of its pole's width across, of its coil's length along.
+WINDING_WIDTH = 0.12
+WINDING_LENGTH = 0.8
+#: A rounded block's corner radius, of its smaller side.
+ROUNDING = 0.15
+#: Points per quarter circle of a sampled curve.
+ARC_STEPS = 3
 #: A coil and a pole this close in angle, in degrees, are one pole's.
 SAME_ANGLE = 0.5
 TURN = 360.0
@@ -61,20 +83,25 @@ class Shape:
         form: ``ellipse`` (``points`` are two opposite corners of its box) or
             ``polygon`` (``points`` are its corners).
         points: As ``form`` says.
+        role: What it is painted as: ``yoke``, ``window`` (the yoke's inside,
+            the panel's ground), ``pole``, ``coil``, ``winding`` or ``bore``.
     """
 
     row: PicturePart
     form: str
     points: tuple[Point, ...]
+    role: str
 
 
 @dataclass(frozen=True)
 class CoilMark:
-    """Where a coil's number goes: at the coil's centre, on its pole between its sides."""
+    """Where a coil's number goes: on its pole's axis at *at* (mm), on out along
+    *along* (a unit vector) by the layout's offset."""
 
     row: PicturePart
     number: str
-    at: Point  # mm
+    at: Point
+    along: Point
 
 
 @dataclass(frozen=True)
@@ -82,51 +109,82 @@ class Body:
     """A class's body in one view.
 
     Attributes:
-        shapes: In drawing order: yokes and the outline, poles, coils, corrector
-            windings, bores.
+        shapes: In painting order: yoke and its window, poles, coils, windings, bores.
         coils: Where each coil's number goes.
         beam: Where the beam is (a bore's or a gap's centre), or ``None``.
+        reach: How far from the beam the yoke reaches, in mm, or ``None`` without
+            a yoke: a part within it sits on the body.
         sized: Every shape row states its size, and the bore radius is stated.
     """
 
     shapes: tuple[Shape, ...]
     coils: tuple[CoilMark, ...]
     beam: Point | None
+    reach: float | None
     sized: bool
 
 
-def _rectangle(a: float, b: float, w: float, h: float, turn: float) -> tuple[Point, ...]:
-    """The corners of a rectangle *w* wide and *h* long centred at (*a*, *b*), its length
-    along the direction *turn* (radians, counter-clockwise from +x)."""
-    ux, uy = math.cos(turn), math.sin(turn)
-    vx, vy = -uy, ux
-    return tuple(
-        (a + s * ux * h / 2 + t * vx * w / 2, b + s * uy * h / 2 + t * vy * w / 2)
-        for s, t in ((1, 1), (1, -1), (-1, -1), (-1, 1))
-    )
+# -- shapes ------------------------------------------------------------------------
 
 
-def _pole(a: float, b: float, w: float, h: float, turn: float, count: int) -> tuple[Point, ...]:
-    """A pole centred at (*a*, *b*), *w* wide at its root and *h* long along *turn*: a
-    rectangle for two poles (a bend's flat faces); for more, its tip toward the
-    beam narrowed to :data:`POLE_TIP` of its share of the circle there, so poles
-    do not meet at the bore."""
+def _local(a: float, b: float, turn: float, points: Sequence[Point]) -> tuple[Point, ...]:
+    """*points* given as (along, across) in a frame turned by *turn* about (*a*, *b*)."""
     ux, uy = math.cos(turn), math.sin(turn)
-    vx, vy = -uy, ux
-    reach = a * ux + b * uy  # the centre's distance out along the pole
-    inward = -1 if reach >= 0 else 1  # the tip is the end nearer the beam
-    tip_r = abs(reach) - h / 2
-    tip = w / 2
-    if count > 2 and tip_r > 0:
-        tip = min(w / 2, POLE_TIP * tip_r * math.sin(math.pi / count))
-    root = (a - inward * ux * h / 2, b - inward * uy * h / 2)
-    front = (a + inward * ux * h / 2, b + inward * uy * h / 2)
-    return (
-        (root[0] + vx * w / 2, root[1] + vy * w / 2),
-        (front[0] + vx * tip, front[1] + vy * tip),
-        (front[0] - vx * tip, front[1] - vy * tip),
-        (root[0] - vx * w / 2, root[1] - vy * w / 2),
-    )
+    return tuple((a + u * ux - v * uy, b + u * uy + v * ux) for u, v in points)
+
+
+def _arc(cu: float, cv: float, ru: float, rv: float, start: float, end: float) -> list[Point]:
+    """Points of an elliptic arc about (*cu*, *cv*), from *start* to *end* degrees."""
+    steps = max(1, round(abs(end - start) / 90 * ARC_STEPS))
+    out = []
+    for k in range(steps + 1):
+        t = math.radians(start + (end - start) * k / steps)
+        out.append((cu + ru * math.cos(t), cv + rv * math.sin(t)))
+    return out
+
+
+def _block(a: float, b: float, w: float, h: float, turn: float) -> tuple[Point, ...]:
+    """A rounded block *w* across and *h* along *turn*, centred at (*a*, *b*)."""
+    r = ROUNDING * min(w, h)
+    hu, hv = h / 2 - r, w / 2 - r
+    points: list[Point] = []
+    for cu, cv, start in ((hu, hv, 0), (-hu, hv, 90), (-hu, -hv, 180), (hu, -hv, 270)):
+        points += _arc(cu, cv, r, r, start, start + 90)
+    return _local(a, b, turn, points)
+
+
+def _pole(nose: float, root: float, w: float, turn: float, count: int) -> tuple[Point, ...]:
+    """A pole along *turn* from *nose* to *root* (mm from the beam), *w* wide at its root:
+    of more than two poles, narrowing to a rounded nose, never wider at a radius than
+    :data:`POLE_ROOM` of the room its share of the circle has there; of two, a flat
+    face with rounded corners."""
+    length = root - nose
+    half = w / 2
+    if count <= 2:
+        r = min(ROUNDING * w, length / 2)
+        points = [(root, half)]
+        points += _arc(nose + r, half - r, r, r, 90, 180)
+        points += _arc(nose + r, -half + r, r, r, 180, 270)
+        points.append((root, -half))
+        return _local(0.0, 0.0, turn, points)
+
+    def room(radius: float, wanted: float) -> float:
+        return min(wanted, POLE_ROOM * max(radius, 0.0) * math.sin(math.pi / count))
+
+    shoulder = nose + POLE_SHOULDER * length
+    tip = POLE_NOSE_LENGTH * length
+    narrow = room(nose + tip, POLE_NOSE_WIDTH * half)
+    upper = [(root, room(root, half)), (shoulder, room(shoulder, half))]
+    points = upper + _arc(nose + tip, 0.0, tip, narrow, 90, 270)
+    points += [(u, -v) for u, v in reversed(upper)]
+    return _local(0.0, 0.0, turn, points)
+
+
+def _ellipse(a: float, b: float, w: float, h: float) -> tuple[Point, ...]:
+    return ((a - w / 2, b - h / 2), (a + w / 2, b + h / 2))
+
+
+# -- what the rows state -----------------------------------------------------------
 
 
 def _xy(row: PicturePart) -> Point:
@@ -134,50 +192,14 @@ def _xy(row: PicturePart) -> Point:
     return (row.z_mm, row.y_mm) if row.view == "side" else (row.x_mm, row.y_mm)
 
 
+def _wh(row: PicturePart) -> tuple[float, float]:
+    w = row.w_mm or 0.0
+    return w, row.h_mm if row.h_mm is not None else w
+
+
 def _same_angle(a: PicturePart, b: PicturePart) -> bool:
     apart = ((a.angle_deg or 0.0) - (b.angle_deg or 0.0)) % TURN
     return min(apart, TURN - apart) <= SAME_ANGLE
-
-
-def _half(row: PicturePart) -> float:
-    """Half the smaller extent of a sized ellipse row."""
-    w = row.w_mm or 0.0
-    h = row.h_mm if row.h_mm is not None else w
-    return min(w, h) / 2
-
-
-def _bore_radius(rows: Sequence[PicturePart], outline: Sequence[Point]) -> tuple[float, bool]:
-    """The radius an unsized body is drawn about, and whether a row states it."""
-    for row in rows:
-        if row.kind == "bore" and row.sized:
-            return _half(row), True
-        if row.kind == "gap" and row.sized:
-            return (row.w_mm or 0.0) / 2, True
-    for row in rows:
-        if row.kind == "yoke" and row.sized:
-            return BORE_OF_YOKE * _half(row), False
-    if outline:
-        return BORE_OF_YOKE * _inner_edge(outline), False
-    return DEFAULT_BORE_MM, False
-
-
-def _pole_root(rows: Sequence[PicturePart], outline: Sequence[Point], bore: float) -> float:
-    """The radius an unsized pole ends at: the yoke's inner edge, as far as it is stated."""
-    for row in rows:
-        if row.kind == "yoke" and row.sized:
-            return YOKE_INNER * _half(row)
-    if outline:
-        return _inner_edge(outline)
-    return bore * (1 + POLE_LENGTH)
-
-
-def _inner_edge(outline: Sequence[Point]) -> float:
-    """Where a yoke stated as a polygon has its inner edge, from the beam: a convex
-    outline (a hexagon, a rectangle) is the yoke's outside, its inner edge
-    :data:`YOKE_INNER` of the nearest side; a concave one (a C, an H) draws its
-    window, whose nearest side is the inner edge."""
-    near = min(_to_segment(outline[i - 1], outline[i]) for i in range(len(outline)))
-    return YOKE_INNER * near if _convex(outline) else near
 
 
 def _to_segment(p: Point, q: Point) -> float:
@@ -199,97 +221,167 @@ def _convex(points: Sequence[Point]) -> bool:
     return len(turns) <= 1
 
 
+def _ellipse_reach(a: float, b: float, along: Point) -> float:
+    """How far from its centre an ellipse of semi-axes *a*, *b* reaches along *along*."""
+    if a <= 0 or b <= 0:
+        return 0.0
+    return 1 / math.sqrt((along[0] / a) ** 2 + (along[1] / b) ** 2)
+
+
+def _ray_exit(ring: Sequence[Point], along: Point) -> float:
+    """How far from the beam a ray along *along* last crosses the polygon *ring*."""
+    far = 0.0
+    dx, dy = along
+    for i in range(len(ring)):
+        (px, py), (qx, qy) = ring[i - 1], ring[i]
+        ex, ey = qx - px, qy - py
+        det = dx * (-ey) + ex * dy
+        if abs(det) < 1e-12:
+            continue
+        t = (px * (-ey) + ex * py) / det  # along the ray
+        u = (dx * py - dy * px) / det  # along the side
+        if t > 0 and 0 <= u <= 1:
+            far = max(far, t)
+    return far
+
+
+def _nearest_side(outline: Sequence[Point]) -> float:
+    return min(_to_segment(outline[i - 1], outline[i]) for i in range(len(outline)))
+
+
+def _yoke_edges(
+    yoke: PicturePart | None, ring: Sequence[Point], bore: float
+) -> tuple[float, float]:
+    """The yoke's inner and outer reach from the beam: a sized yoke's; a convex
+    outline's (its nearest side the outside, the inside :data:`YOKE_INNER` of it);
+    a concave outline draws its window, whose nearest side is the inside; else
+    from the bore."""
+    if yoke is not None and yoke.sized:
+        outer = min(_wh(yoke)) / 2
+        return YOKE_INNER * outer, outer
+    if ring:
+        near = _nearest_side(ring)
+        far = max(math.hypot(a, b) for a, b in ring)
+        return (YOKE_INNER * near, far) if _convex(ring) else (near, far)
+    inner = YOKE_INNER_BORES * bore
+    return inner, inner / YOKE_INNER
+
+
+def _bore_radius(
+    rows: Sequence[PicturePart], yoke: PicturePart | None, ring: Sequence[Point]
+) -> tuple[float, bool]:
+    """The radius an unsized body is drawn about, and whether a row states it."""
+    for row in rows:
+        if row.kind == "bore" and row.sized:
+            return min(_wh(row)) / 2, True
+        if row.kind == "gap" and row.sized:
+            return (row.w_mm or 0.0) / 2, True
+    if yoke is not None and yoke.sized:
+        return BORE_OF_YOKE * min(_wh(yoke)) / 2, False
+    if ring:
+        return BORE_OF_YOKE * _nearest_side(ring), False
+    return DEFAULT_BORE_MM, False
+
+
 def body(rows: Sequence[PicturePart], outline: Sequence[PicturePart] = ()) -> Body:
     """The body that *rows* (the shape rows of one view) and *outline* (its outline
     rows, in file order) state, unsized rows at their defaults."""
     ring = [_xy(row) for row in outline]
-    bore, bore_stated = _bore_radius(rows, ring)
-    root = max(_pole_root(rows, ring, bore), bore * 1.5)
+    yoke = next((r for r in rows if r.kind == "yoke"), None)
+    bore, sized = _bore_radius(rows, yoke, ring)
+    inner, outer = _yoke_edges(yoke, ring, bore)
     poles = [r for r in rows if r.kind == "pole"]
     count = max(len(poles), 2)
-    pole_w = POLE_WIDTH * 2 * bore * math.tan(math.pi / (2 * count))
-    pole_h = root - bore
+    tapered = count > 2
+    default_length = inner * (1 + CLEARANCE) - POLE_NOSE * bore
+    pole_w = POLE_WIDTH * default_length if tapered else FACE_WIDTH * bore
     shapes: list[Shape] = []
-    coils: list[CoilMark] = []
-    beam: Point | None = None
-    sized = bore_stated
-    pole_size: dict[int, tuple[float, float]] = {}  # by row index: width, length
-    coil_size: dict[int, float] = {}  # by pole index: the coil side's width
-
-    def pole_of(row: PicturePart) -> int | None:
-        return next((i for i, p in enumerate(poles) if _same_angle(p, row)), None)
-
-    for row in (r for r in rows if r.kind == "yoke"):
-        sized = sized and row.sized
-        a, b = _xy(row)
-        if row.sized:
-            w = row.w_mm or 0.0
-            h = row.h_mm if row.h_mm is not None else w
-        else:
-            w = h = 2 * YOKE_OUTER * root
-        shapes.append(Shape(row, "ellipse", ((a - w / 2, b - h / 2), (a + w / 2, b + h / 2))))
-    if ring and outline:
-        shapes.append(Shape(outline[0], "polygon", tuple(ring)))
-    for i, row in enumerate(poles):
+    reach: float | None = None
+    edge: Callable[[Point], float] | None = None  # the yoke's outer edge along a direction
+    if yoke is not None:
+        sized = sized and yoke.sized
+        a, b = _xy(yoke)
+        w, h = _wh(yoke) if yoke.sized else (2 * outer, 2 * outer)
+        shapes.append(Shape(yoke, "ellipse", _ellipse(a, b, w, h), "yoke"))
+        window = _ellipse(a, b, YOKE_INNER * w, YOKE_INNER * h)
+        shapes.append(Shape(yoke, "ellipse", window, "window"))
+        reach = max(w, h) / 2
+        edge = lambda along, a=w / 2, b=h / 2: _ellipse_reach(a, b, along)  # noqa: E731
+    elif ring:
+        shapes.append(Shape(outline[0], "polygon", tuple(ring), "yoke"))
+        if _convex(ring):  # the outside only: its window at the inner edge
+            window = tuple((YOKE_INNER * a, YOKE_INNER * b) for a, b in ring)
+            shapes.append(Shape(outline[0], "polygon", window, "window"))
+        reach = outer
+        edge = lambda along, ring=tuple(ring): _ray_exit(ring, along)  # noqa: E731
+    # each pole: (nose, root, width) along its angle, mm from the beam
+    spans: list[tuple[float, float, float]] = []
+    for row in poles:
         sized = sized and row.sized
         turn = math.radians(row.angle_deg or 0.0)
         if row.sized:
-            w = row.w_mm or 0.0
-            h = row.h_mm if row.h_mm is not None else w
+            w, h = _wh(row)
             a, b = _xy(row)
+            centre = a * math.cos(turn) + b * math.sin(turn)
+            nose, root = centre - h / 2, centre + h / 2
         else:
-            w, h = pole_w, pole_h
-            r = bore + h / 2
-            a, b = r * math.cos(turn), r * math.sin(turn)
-        pole_size[i] = (w, h)
-        shapes.append(Shape(row, "polygon", _pole(a, b, w, h, turn, count)))
+            w, nose, root = pole_w, POLE_NOSE * bore, inner * (1 + CLEARANCE)
+        spans.append((nose, root, w))
+        shapes.append(Shape(row, "polygon", _pole(nose, root, w, turn, count), "pole"))
+    coils: list[CoilMark] = []
+    coil_w: dict[int, float] = {}
     for kind in ("coil", "corrector_winding"):
         for row in (r for r in rows if r.kind == kind):
             sized = sized and row.sized
             turn = math.radians(row.angle_deg or 0.0)
             along = (math.cos(turn), math.sin(turn))
-            across = (-along[1], along[0])
-            i = pole_of(row)
-            pw, ph = pole_size.get(i, (pole_w, pole_h)) if i is not None else (pole_w, pole_h)
-            side = coil_size.get(i, COIL_WIDTH * pw) if i is not None else COIL_WIDTH * pw
+            i = next((n for n, p in enumerate(poles) if _same_angle(p, row)), None)
+            nose, root, pw = spans[i] if i is not None else (POLE_NOSE * bore, inner, pole_w)
+            length = root - nose
+            key = i if i is not None else -1
+            middle = root - COIL_ROOT_GAP * length - COIL_LENGTH * length / 2
+            flank = pw / 2  # the pole's half width where the coil lies
+            if count > 2:  # and the room between two poles there: two coils share it
+                flank = min(flank, POLE_ROOM * middle * math.sin(math.pi / count))
+                between = 2 * middle * math.sin(math.pi / count) - 2 * flank
+                fit = (between - 4 * CLEARANCE * pw) / (2 * (1 + WINDING_WIDTH / COIL_WIDTH))
+            else:
+                fit = COIL_WIDTH * pw
+            side = coil_w.get(key, max(0.0, min(COIL_WIDTH * pw, fit)))
+            a = b = 0.0
             if row.sized:
-                w = row.w_mm or 0.0
-                h = row.h_mm if row.h_mm is not None else w
+                w, h = _wh(row)
                 a, b = _xy(row)
+                middle = a * along[0] + b * along[1]
             else:
-                w = side if kind == "coil" else WINDING_WIDTH * side
-                h = COIL_LENGTH * ph
-                r = bore + ph - h / 2  # at the pole's root
-                if i is not None and poles[i].sized:  # along the stated pole
-                    pa, pb = _xy(poles[i])
-                    r = pa * along[0] + pb * along[1] + ph / 2 - h / 2
-                a, b = r * along[0], r * along[1]
-            if i is None and row.sized:  # no pole to flank: where the row puts it
-                shapes.append(Shape(row, "polygon", _rectangle(a, b, w, h, turn)))
+                h = COIL_LENGTH * length
+                w = side
+                if kind == "corrector_winding":
+                    w, h = side * WINDING_WIDTH / COIL_WIDTH, WINDING_LENGTH * h
+            if kind == "coil":
+                coil_w[key] = w
+            role = "coil" if kind == "coil" else "winding"
+            if i is None and row.sized:  # no pole to lie beside: where the row puts it
+                shapes.append(Shape(row, "polygon", _block(a, b, w, h, turn), role))
             else:
-                offset = pw / 2 + w / 2
-                if kind == "coil":
-                    coil_size[i if i is not None else -1] = w
-                else:
-                    offset += side + WINDING_GAP * pw
+                offset = flank + CLEARANCE * pw + w / 2
+                if kind == "corrector_winding":
+                    offset += side + CLEARANCE * pw
                 for sign in (1, -1):
-                    ca, cb = a + sign * offset * across[0], b + sign * offset * across[1]
-                    shapes.append(Shape(row, "polygon", _rectangle(ca, cb, w, h, turn)))
+                    ((ca, cb),) = _local(0.0, 0.0, turn, [(middle, sign * offset)])
+                    shapes.append(Shape(row, "polygon", _block(ca, cb, w, h, turn), role))
             if kind == "coil":
                 number = member_number("coil", row.part, len(coils) + 1)
-                coils.append(CoilMark(row, number, (a, b)))
+                out = edge(along) if edge is not None else middle + h / 2
+                coils.append(CoilMark(row, number, (out * along[0], out * along[1]), along))
+    beam: Point | None = None
     for row in (r for r in rows if r.kind in ("bore", "gap")):
         a, b = _xy(row)
         beam = beam or (a, b)
-        if row.kind == "gap":
-            continue  # the pole faces show it
-        if row.sized:
-            w = row.w_mm or 0.0
-            h = row.h_mm if row.h_mm is not None else w
-        else:
-            w = h = 2 * bore
-        shapes.append(Shape(row, "ellipse", ((a - w / 2, b - h / 2), (a + w / 2, b + h / 2))))
-    return Body(tuple(shapes), tuple(coils), beam, sized)
+        if row.kind == "bore":
+            w, h = _wh(row) if row.sized else (2 * bore, 2 * bore)
+            shapes.append(Shape(row, "ellipse", _ellipse(a, b, w, h), "bore"))
+    return Body(tuple(shapes), tuple(coils), beam, reach, sized)
 
 
 def member_number(word: str, name: str, ordinal: int) -> str:
@@ -297,25 +389,3 @@ def member_number(word: str, name: str, ordinal: int) -> str:
     (``thermal switch 3`` under thermal switch: ``3``), else its *ordinal*."""
     rest = name.removeprefix(word).strip()
     return rest if name.startswith(word + " ") and rest else str(ordinal)
-
-
-def tag_prefixes(kinds: Sequence[str]) -> dict[str, str]:
-    """A short tag per kind of part, its words' initials in capitals (``thermal_switch``:
-    ``TS``); kinds that would share one take more letters of their first word until
-    none do (``terminal``, ``thermocouple``: ``TE``, ``TH``)."""
-    kinds = list(dict.fromkeys(kinds))
-    more = dict.fromkeys(kinds, 0)
-
-    def tag(kind: str) -> str:
-        words = [w for w in kind.replace("_", " ").split() if w] or [kind]
-        first = words[0][: 1 + more[kind]]
-        return (first + "".join(w[0] for w in words[1:])).upper()
-
-    for _round in range(max((len(k) for k in kinds), default=0) + 1):
-        tags = {kind: tag(kind) for kind in kinds}
-        clashing = [k for k in kinds if list(tags.values()).count(tags[k]) > 1]
-        if not clashing:
-            return tags
-        for kind in clashing:
-            more[kind] += 1
-    return {kind: tag(kind) for kind in kinds}

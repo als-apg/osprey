@@ -493,8 +493,9 @@ class PicturePart:
       ``angle_deg`` (0 is +x, counter-clockwise), centred at ``x_mm``, ``y_mm``;
     - ``coil``: the coil round the pole at the same ``angle_deg``: two sides,
       each ``w_mm`` wide and ``h_mm`` long, one at each flank of that pole;
-      with no such pole, one rectangle where the row puts it; its number in
-      ``part`` is drawn at it (``coil 6``: 6);
+      with no such pole, one block where the row puts it; its number in
+      ``part`` is drawn outside the yoke at its angle (``coil 6``: 6); a
+      ``signal`` with a health row sets the outline of its blocks by state;
     - ``corrector_winding``: a winding on the pole at its ``angle_deg``, as a
       coil's, outside the coil; with a size and no such pole, one rectangle;
     - ``bore``: the aperture, an ellipse as the yoke's, with the beam at its
@@ -517,8 +518,12 @@ class PicturePart:
     matched against channel names; looked for on the device, then on its
     parts (the devices ``part_of`` it), then where it is read out
     (:meth:`PanelGraph.picture_matches`).
-    A part with a signal shows its state at its position (and its number
-    beside it when the channel is a value); one without is drawn plain.
+    A part within the yoke's reach is a dot on the body, one beyond it a small
+    block with its kind's word above its group (water-coloured for a kind
+    naming a manifold). A part whose signal has a health row shows its state
+    where it sits; a value its channel prints stands beside it; a part with no
+    signal is drawn plain. No part is named on the drawing: its tooltip and the
+    legend under the drawing name it.
 
     The last four columns are optional: a file of the first eleven reads as
     before, every row a part at a point, a shape kind included. ``w_mm`` and

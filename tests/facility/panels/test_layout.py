@@ -7,6 +7,7 @@ The schema check of every rendered view needs CANOPY and is in
 from __future__ import annotations
 
 import ast
+import itertools
 import json
 import re
 from dataclasses import replace
@@ -482,10 +483,9 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
     outlined = replace(picture, parts=picture.parts + corners)
     doc, _ = draw(View(view.id, view.title, (), (Section("picture", (outlined,)),)), graph)
     assert not [n for n in _by_type(doc, "polygon") if n.get("rules")]
-    assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == [
-        "pole 1",
-        "thermal switch 1",
-    ]
+    plain = [n for n in nodes(doc) if n["type"] in ("ellipse", "rectangle")]
+    tips = [n["props"].get("tooltip") for n in plain]
+    assert tips.count("pole 1") == tips.count("thermal switch 1") == 1  # off the body: blocks
 
     named = replace(
         outlined,
@@ -493,8 +493,12 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
     )
     doc, _ = draw(View(view.id, view.title, (), (Section("picture", (named,)),)), graph)
     (shape,) = [n for n in _by_type(doc, "polygon") if n.get("rules")]
-    assert bound(doc, shape) == ("XR01-QF1:Current-RB",)
-    assert not _by_type(doc, "ellipse")
+    assert bound(doc, shape) == ("XR01-QF1:Current-RB",)  # its state, where it sits
+    assert not [
+        n
+        for n in nodes(doc)
+        if n["props"].get("tooltip") == "thermal switch 1" and n["type"] in ("ellipse", "rectangle")
+    ]
 
 
 def _symbol(doc: dict, thing: str) -> tuple[list[dict], list[dict]]:
@@ -1074,39 +1078,33 @@ _CORNERS = [
 ]
 
 
-def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(panel_graph) -> None:
-    from osprey.facility.panels.layout import _crossing
+@pytest.mark.parametrize("tall", [False, True])
+def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(tall: bool) -> None:
+    """The probe picture's label columns (:func:`layout.picture_labels`), with slots of
+    one row, and of one or two rows."""
+    from osprey.facility.panels.layout import ROW, ROW_GAP, _crossing, picture_labels
 
-    crowded = [(f"part {i}", "pole", (-1) ** i * (10.0 - i), 5.0 - 0.9 * i) for i in range(12)]
-    scattered = [(f"bit {i}", "pole", (i * 7 % 11) - 5.0, (i * 5 % 9) - 4.0) for i in range(14)]
+    centre, top, bottom, anchors = 300.0, 0.0, 300.0, (100.0, 500.0)
+    crowded = [(f"part {i}", centre + (-1) ** i * (100 - 10 * i), 150 - 9 * i) for i in range(12)]
+    scattered = [
+        (f"bit {i}", centre + 20 * ((i * 7 % 11) - 5), 150 + 25 * ((i * 5 % 9) - 4))
+        for i in range(14)
+    ]
     for parts in (crowded, scattered):
-        view = _picture_view([*parts, *_CORNERS], signal="named_signal")  # named on leaders
-        doc, _ = draw(view, panel_graph)
-        names = {name for name, *_rest in parts}
-        boxes = [
-            n["geometry"]
-            for n in _by_type(doc, "text-label")
-            if n["props"]["text"] in names and n["props"]["fontSize"] == layout.SMALL_SIZE
-        ]
-        assert len(boxes) == len(names)
+        heights = [2 * ROW if tall and n % 3 == 0 else ROW for n in range(len(parts))]
+        slots = picture_labels(parts, centre, top, bottom, anchors, heights if tall else None)
+        for side in ("left", "right"):
+            mine = sorted((y, h) for (s, y), h in zip(slots, heights, strict=True) if s == side)
+            for (y1, h1), (y2, _h2) in itertools.pairwise(mine):
+                assert y1 + h1 + ROW_GAP <= y2 + 1e-6
+        if tall:
+            continue  # a respacing after the swaps may cross two leaders again
         leaders = [
-            [
-                (n["geometry"]["x"] + q["x"], n["geometry"]["y"] + q["y"])
-                for q in n["props"]["points"]
-            ]
-            for n in _by_type(doc, "line")
-            if n["props"]["lineColor"] == symbols.MUTED_TEXT
-            and len(n["props"]["points"]) == 2
-            and "tooltip" not in n["props"]  # the scale bar's
+            ((x, y), (anchors[0] if s == "left" else anchors[1], slot + ROW / 2))
+            for (_n, x, y), (s, slot) in zip(parts, slots, strict=True)
         ]
-        assert len(leaders) == len(names)
-        for a, b in [(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1 :]]:
-            apart_x = a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"]
-            apart_y = a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
-            assert apart_x or apart_y, (a, b)
-        ends = [(p[0], p[1]) for p in leaders]
-        for i, a in enumerate(ends):
-            for b in ends[i + 1 :]:
+        for i, a in enumerate(leaders):
+            for b in leaders[i + 1 :]:
                 assert not _crossing(*a, *b), (a, b)
 
 
@@ -1122,7 +1120,9 @@ def test_a_picture_without_an_outline_draws_its_parts_in_a_frame(panel_graph) ->
     tips = [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")]
     assert tips == ["pole 1", "probe", "pole 2"]  # each part at its position, plain
     kinds = [t for t in texts if t in ("pole", "a-kind-of-the-facility")]
-    assert kinds == ["pole", "a-kind-of-the-facility"]  # the legend, in table order
+    # each kind's word above its parts on the drawing, then the legend in table order
+    assert kinds.count("pole") >= 2 and kinds.count("a-kind-of-the-facility") == 2
+    assert kinds[-2:] == ["pole", "a-kind-of-the-facility"]
     bare = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "no rule"]
     assert not bare  # no chips with unbound lights
 
@@ -1137,8 +1137,10 @@ def test_a_picture_draws_the_outline_the_table_states(panel_graph) -> None:
     doc, _ = draw(_picture_view([*parts, *corners]), panel_graph)
     assert "outline not stated" not in _texts(doc)
     assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == ["pole 1", "probe"]
-    (outline,) = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "yoke"]
-    assert len(outline["props"]["points"]) == len(corners)  # the stated points: the yoke
+    yoke, window = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "yoke"]
+    assert len(yoke["props"]["points"]) == len(corners)  # the stated points: the yoke
+    assert yoke["props"]["fillColor"] == symbols.STEEL_DARK
+    assert window["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: its inside
     assert "o1" not in _texts(doc)  # an outline point is no part
 
 

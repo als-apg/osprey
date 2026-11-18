@@ -5,6 +5,7 @@ Every class, number and name here is invented.
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from osprey.facility.panels.describe import device_card
 from osprey.facility.panels.model import load_graph
 from osprey.facility.panels.tables import COLUMNS, PanelTableError, read_tables
 from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_facility
-from tests.facility.panels._views import nodes, stub_render
+from tests.facility.panels._views import bound, nodes, stub_render
 
 PICTURES = "pictures.csv"
 HEADER = ",".join(COLUMNS[PICTURES])
@@ -144,7 +145,7 @@ def test_a_signal_resolves_by_name_or_by_pattern_on_the_device(tmp_path) -> None
 
 def test_six_poles_are_drawn_at_their_angles_each_with_its_coils_two_sides(tmp_path) -> None:
     doc = _card(_graph(tmp_path, _six_poles()))
-    (yoke,) = _by_type_tip(doc, "ellipse", "yoke")
+    yoke, _window = _by_type_tip(doc, "ellipse", "yoke")
     cx, cy = _centre(yoke)
     for k in range(6):
         (pole,) = _tipped(doc, f"pole {k + 1}")
@@ -170,25 +171,32 @@ def _by_type_tip(doc: dict, kind: str, tip: str) -> list[dict]:
     return [n for n in _tipped(doc, tip) if n["type"] == kind]
 
 
-def test_the_body_is_in_the_class_colour_faint_and_state_is_the_only_other_colour(
-    tmp_path,
-) -> None:
+def test_the_body_is_painted_by_material_and_the_class_colour_is_not_used(tmp_path) -> None:
     doc = _card(_graph(tmp_path, _six_poles()))
-    yoke, pole, coil = (_tipped(doc, t)[0]["props"] for t in ("yoke", "pole 1", "coil 1"))
-    assert yoke["fillColor"] == COLOUR + layout.BODY_ALPHA["yoke"]
-    assert pole["fillColor"] == COLOUR + layout.BODY_ALPHA["pole"]
-    assert coil["fillColor"] == COLOUR + layout.BODY_ALPHA["coil"]
-    assert yoke["lineColor"] == COLOUR + layout.BODY_LINE_ALPHA
-    winding = _tipped(doc, "corrector winding 1")[0]["props"]
-    assert winding["lineColor"] == symbols.MUTED_TEXT and winding["fill"] is False
-    assert "outline not stated" not in _texts(doc)
+    yoke, window = (n["props"] for n in _by_type_tip(doc, "ellipse", "yoke"))
+    assert yoke["fillColor"] == symbols.STEEL_DARK
+    assert window["fillColor"] == symbols.PANEL_BACKGROUND  # a ring: its inside is clear
+    pole, coil = (_tipped(doc, t)[0]["props"] for t in ("pole 1", "coil 1"))
+    assert pole["fillColor"] == symbols.STEEL and coil["fillColor"] == symbols.COPPER
+    assert coil["lineColor"] == symbols.COPPER_EDGE and not _tipped(doc, "coil 1")[0].get("rules")
+    assert _tipped(doc, "corrector winding 1")[0]["props"]["fillColor"] == symbols.WINDING
+    bore = next(n for n in _tipped(doc, "bore") if n["type"] == "ellipse")
+    assert bore["props"]["fillColor"] == symbols.FIELD_BACKGROUND
+    assert "beam" in _texts(doc)
+    assert COLOUR not in json.dumps(doc)  # material, not the class's strip colour
 
 
-def test_a_body_with_no_class_colour_is_outlined_only(tmp_path) -> None:
-    graph = _graph(tmp_path, _six_poles())
-    doc = stub_render(device_card(graph, "XR01:QF1"), graph)
-    pole = _tipped(doc, "pole 1")[0]["props"]
-    assert pole["fill"] is False and pole["lineColor"] == symbols.MUTED_TEXT
+def test_a_coil_whose_row_reads_a_ruled_channel_has_a_state_outline(tmp_path) -> None:
+    rows = [r.replace("coil 2,coil", "coil 2,coil") for r in _six_poles()]
+    rows = [r + "*:Current-SP" if r.startswith("Quadrupole,end,coil 2,") else r for r in rows]
+    doc = _card(_graph(tmp_path, rows, rule=True))
+    sides = _tipped(doc, "coil 2")
+    assert len(sides) == 2
+    for side in sides:
+        targets = {r["targetProperty"] for r in side.get("rules", ())}
+        assert targets == {"lineColor", "lineWidth"}  # its fill stays copper
+        assert bound(doc, side) == ("XR01-QF1:Current-SP",)
+    assert not _tipped(doc, "coil 1")[0].get("rules")
 
 
 def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
@@ -211,18 +219,26 @@ def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
             if n["props"].get(key) == tip_or_pv and n["geometry"]["y"] > below
         ]
 
-    (light,) = on_drawing("polygon", "XR01-QF1:Current-SP", "tooltip")
-    assert light.get("rules")
+    (light,) = on_drawing("polygon", "switch 1", "tooltip")
+    assert light.get("rules") and bound(doc, light) == ("XR01-QF1:Current-SP",)
     (number,) = on_drawing("pv-label", "XR01-QF1:Current-RB", "pv")
-    # under the part's name, in the label column: the name's row, then the number's
-    (name,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "gauge 1"]
-    assert number["geometry"]["y"] == pytest.approx(name["geometry"]["y"] + layout.ROW)
-    assert number["geometry"]["x"] + number["geometry"]["width"] == pytest.approx(
-        name["geometry"]["x"] + name["geometry"]["width"]
-    )  # a part left of the centre: both end at the leader
+    (gauge,) = _tipped(doc, "gauge 1")  # a plain dot, its number beside it, outward
+    gx, gy = _centre(gauge)
+    assert _centre(number)[1] == pytest.approx(gy, abs=1)
+    assert number["geometry"]["x"] + number["geometry"]["width"] <= gx
     (plain,) = _tipped(doc, "switch 2")
     assert plain["type"] == "ellipse" and not plain.get("rules")
-    assert plain["props"]["fill"] is False
+    assert plain["props"]["fillColor"] == symbols.MUTED_TEXT  # plain: no state colour
+    for name in ("switch 1", "gauge 1", "switch 2"):
+        assert name not in _texts(doc)  # no names on the drawing: the legend has them
+    leaders = [
+        n
+        for n in _by_type(doc, "line")
+        if n["geometry"]["y"] > below
+        and n["geometry"]["x"] < layout.MARGIN + layout.CARD_LEFT
+        and "tooltip" not in n["props"]
+    ]
+    assert not leaders
 
 
 def test_the_picture_stands_in_the_cards_left_column_under_the_signals(tmp_path) -> None:
@@ -254,7 +270,51 @@ def test_parts_with_no_body_are_drawn_in_a_frame_that_says_so_with_the_scale(
     assert [n for n in _by_type(doc, "polygon") if n["props"].get("lineStyle") == "dashed"]
     assert _tipped(doc, "beam axis")  # the frame's one reference
     for name in ("switch 1", "switch 2", "manifold 1"):
-        assert name in texts and _tipped(doc, name)
+        assert _tipped(doc, name)  # at its position, named by its tooltip
+
+
+def test_parts_off_the_body_are_blocks_with_one_word_per_group(tmp_path) -> None:
+    rows = [
+        *_six_poles(),  # a yoke of radius 150
+        _row("manifold 1", "manifold", 180, 20),
+        _row("manifold 2", "manifold", 180, -20),
+        _row("manifold 3", "manifold", 180, -20),  # at manifold 2's point: one block
+        _row("terminal 1", "terminal", -190, 0),
+        _row("switch 1", "thermal_switch", 90, 90),  # on the body: a dot
+    ]
+    doc = _card(_graph(tmp_path, rows))
+    blocks = _by_type(doc, "rectangle")
+    tips = [n["props"].get("tooltip") for n in blocks]
+    assert tips.count("manifold 1") == tips.count("manifold 2") == tips.count("terminal 1") == 1
+    assert "manifold 3" not in tips
+    (water,) = [n for n in blocks if n["props"].get("tooltip") == "manifold 1"]
+    assert water["props"]["fillColor"] == symbols.WATER and water["props"]["cornerRadius"] > 0
+    (steel,) = [n for n in blocks if n["props"].get("tooltip") == "terminal 1"]
+    assert steel["props"]["fillColor"] == symbols.STEEL
+    texts = _texts(doc)
+    assert texts.count("manifold") == 2  # the word above the group, and the legend's row
+    assert texts.count("terminal") == 2
+    (dot,) = _tipped(doc, "switch 1")
+    assert dot["type"] == "ellipse"
+
+
+def test_each_coil_number_stands_outside_the_yoke_at_its_angle(tmp_path) -> None:
+    doc = _card(_graph(tmp_path, _six_poles()))
+    yoke, _window = _by_type_tip(doc, "ellipse", "yoke")
+    cx, cy = _centre(yoke)
+    radius = yoke["geometry"]["width"] / 2
+    for k in range(6):
+        (label,) = [
+            n
+            for n in _by_type(doc, "text-label")
+            if n["props"]["text"] == str(k + 1)
+            and n["props"]["fontSize"] == layout.TEXT_SIZE
+            and math.dist(_centre(n), (cx, cy)) < 2 * radius
+        ]
+        x, y = _centre(label)
+        assert math.dist((x, y), (cx, cy)) > radius
+        angle = math.degrees(math.atan2(cy - y, x - cx)) % 360
+        assert angle == pytest.approx(30 + 60 * k, abs=2)
 
 
 def test_the_legend_lists_each_part_once_by_kind_with_its_source(tmp_path) -> None:
@@ -363,49 +423,16 @@ def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_pat
     rows = [*_unsized(4, 45), *hexagon]
     pictures = read_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape], [r for r in pictures if r.kind == "outline"])
-    (yoke,) = [s for s in drawn.shapes if s.row.kind == "outline"]
-    assert len(yoke.points) == 6
+    yoke, _window = [s for s in drawn.shapes if s.row.kind == "outline"]
+    assert len(yoke.points) == 6 and yoke.role == "yoke" and _window.role == "window"
     inner = 100 * math.cos(math.radians(30))  # the hexagon's nearest edge
     for shape in drawn.shapes:
         if shape.row.kind == "pole":
             assert max(math.hypot(a, b) for a, b in shape.points) < inner
     doc = _card(_graph(tmp_path / "g", rows))
-    (polygon,) = _by_type_tip(doc, "polygon", "yoke")
-    assert polygon["props"]["fill"] is True
-
-
-def test_tag_prefixes_are_initials_made_unique() -> None:
-    from osprey.facility.panels.picture import tag_prefixes
-
-    assert tag_prefixes(["thermal_switch", "manifold"]) == {"thermal_switch": "TS", "manifold": "M"}
-    assert tag_prefixes(["terminal", "thermocouple", "manifold"]) == {
-        "terminal": "TE",
-        "thermocouple": "TH",
-        "manifold": "M",
-    }
-
-
-def test_many_parts_carry_tags_and_only_a_part_with_a_signal_is_named(tmp_path) -> None:
-    rows = [*_six_poles()]
-    rows += [_row(f"thermal switch {k}", "thermal_switch", 130, -60 + 20 * k) for k in range(1, 7)]
-    rows += [_row(f"manifold {k}", "manifold", -150, 40) for k in (1, 2)]  # one point, two parts
-    rows += [_row("gauge 1", "thermocouple", 0, 140, signal="current_readback")]
-    doc = _card(_graph(tmp_path, rows))
-    texts = _texts(doc)
-    for k in range(1, 7):
-        assert f"TS{k}" in texts and f"thermal switch {k}" not in texts
-    assert "M1,2" in texts  # parts at one point share one tag
-    assert "gauge 1" in texts  # named: it has a signal
-    leaders = [
-        n
-        for n in _by_type(doc, "line")
-        if n["props"]["lineColor"] == symbols.MUTED_TEXT
-        and len(n["props"]["points"]) == 2
-        and "tooltip" not in n["props"]
-        and n["geometry"]["x"] < layout.MARGIN + layout.CARD_LEFT  # the picture's column
-    ]
-    assert len(leaders) == 1  # the named part's only
-    assert "TS: 1, 2, 3, 4, 5, 6" in texts and "M: 1, 2" in texts  # the legend says the tags
+    polygon, window = _by_type_tip(doc, "polygon", "yoke")
+    assert polygon["props"]["fillColor"] == symbols.STEEL_DARK
+    assert window["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: the outside
 
 
 # -- check -------------------------------------------------------------------------
