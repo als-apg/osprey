@@ -219,9 +219,6 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.write_authorization.ListedGrant": (
         "list_grants answers each grant it found in this type"
     ),
-    "osprey_connectors.write_authorization.Login": (
-        "a grant, a request, an approval and a stop name their logins in this type"
-    ),
     "osprey_connectors.write_authorization.Revocation": (
         "a revoked grant says whose stop ended it in this type"
     ),

@@ -46,6 +46,7 @@ from typing_extensions import override
 
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import Login as LoginName
 
 __all__ = [
     "ConnectionSettings",
@@ -94,7 +95,7 @@ class Login(FrozenModel):
 
     kind: LoginKind
     token_env: str | None = None
-    username: str | None = None
+    username: LoginName | None = None
     password_env: str | None = None
 
     @property
@@ -419,6 +420,12 @@ def _read_auth(
     if not isinstance(username, str) or not username.strip():
         raise ConfigurationError(
             f"`{where}.auth.username` must be a non-empty string", key=f"{where}.auth.username"
+        )
+    if username != username.strip():
+        # A login is validated, never normalised: " bob" is not taken for "bob".
+        raise ConfigurationError(
+            f"`{where}.auth.username` is {username!r}: a login has no space around it",
+            key=f"{where}.auth.username",
         )
     return Login(kind="password", username=username, password_env=value["password_env"])
 

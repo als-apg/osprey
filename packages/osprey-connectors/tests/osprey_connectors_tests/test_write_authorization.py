@@ -111,7 +111,9 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def spend(section: Any, target: str, operations: Any, *, authorization: str) -> Any:
     """One write call judged and its step spent, with no switch verdict read first."""
-    return wa._spend(section, target, operations, authorization, None, None)
+    return wa._spend(
+        ControlSystemSection.read(section), target, operations, authorization, None, None
+    )
 
 
 def record() -> control_context.ControlContext:
@@ -178,7 +180,7 @@ def approve(**fields: Any) -> Grant:
 
 
 def verdict(grant_id: str, operations: Any = OPS, section: Any = SECTION) -> Any:
-    return wa._verdict(section, TARGET, operations, grant_id, None, None)
+    return wa._verdict(ControlSystemSection.read(section), TARGET, operations, grant_id, None, None)
 
 
 def ledger_path(grant_id: str) -> Path:
@@ -961,13 +963,14 @@ SPENDER = textwrap.dedent(
     import json, os, sys, time
     from pathlib import Path
     from osprey_connectors import write_authorization as wa
+    from osprey_connectors.config_sections import ControlSystemSection
 
     section, grant_id, tries, go = json.loads(sys.argv[1]), sys.argv[2], int(sys.argv[3]), Path(sys.argv[4])
     while not go.exists():
         time.sleep(0.001)
     spent = 0
     for _ in range(tries):
-        answer = wa._spend(section, "va", [("A:SP", 1.0), ("B:SP", 0.5)], grant_id, None, None)
+        answer = wa._spend(ControlSystemSection.read(section), "va", [("A:SP", 1.0), ("B:SP", 0.5)], grant_id, None, None)
         if answer.allowed:
             spent += 1
         elif answer.reason != "auth_exhausted":

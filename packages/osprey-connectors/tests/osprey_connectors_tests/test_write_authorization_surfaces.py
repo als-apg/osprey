@@ -81,7 +81,9 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def spend(section: Any, target: str, operations: Any, *, authorization: str) -> Any:
     """One write call judged and its step spent, with no switch verdict read first."""
-    return wa._spend(section, target, operations, authorization, None, None)
+    return wa._spend(
+        ControlSystemSection.read(section), target, operations, authorization, None, None
+    )
 
 
 def epoch() -> int:
@@ -425,7 +427,9 @@ class TestApproval:
         )
         assert approved_grant(request.id) == grant
         start_lease(grant.id)
-        assert wa._verdict(SECTION, TARGET, OPS, grant.id, None, None).allowed
+        assert wa._verdict(
+            ControlSystemSection.read(SECTION), TARGET, OPS, grant.id, None, None
+        ).allowed
 
     def test_an_approval_is_issued_once(self):
         request = ask()
@@ -624,7 +628,7 @@ class TestPruneAndShow:
         start_lease(grant.id)
         control_context.set_switch([TARGET], "off")
         prune_grants(own_dir())
-        answer = wa._verdict(SECTION, TARGET, OPS, grant.id, None, None)
+        answer = wa._verdict(ControlSystemSection.read(SECTION), TARGET, OPS, grant.id, None, None)
         assert answer.reason == "auth_revoked"
 
     def test_in_force_is_live_under_the_records_epoch(self):

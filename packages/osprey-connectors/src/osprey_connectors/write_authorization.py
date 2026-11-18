@@ -174,6 +174,7 @@ from osprey_connectors.model import (
     FrozenModel,
     Instant,
     Listing,
+    Login,
     ReadOnlyMapping,
     ReadStatus,
     evolve,
@@ -217,7 +218,6 @@ __all__ = [
     "Ledger",
     "LedgerStep",
     "ListedGrant",
-    "Login",
     "Revocation",
     "RunCompletion",
     "WriteRequest",
@@ -336,19 +336,6 @@ def _now() -> datetime:
 #: The validation context a record is read from a file under: a number field
 #: is then held as a float (:func:`_number`). No validity rule depends on it.
 _FROM_FILE: Final = object()
-
-
-def _named(value: str) -> str:
-    """*value* must be a name: not blank, no space around it. It is never stripped."""
-    if not value.strip() or value != value.strip():
-        raise ValueError("is not a name")
-    return value
-
-
-#: A login, as a grant, a request, an approval and a stop name one: not blank
-#: and no space around it. Validated, never normalised: ``" bob"`` is refused,
-#: not taken for ``"bob"``.
-Login = Annotated[str, AfterValidator(_named)]
 
 
 def _at_least(value: int, minimum: int) -> int:

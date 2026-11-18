@@ -15,6 +15,7 @@ from osprey_connectors.connection import (
     read_credential_env_names,
     urllib_opener,
 )
+from osprey_connectors.errors import ConfigurationError
 from osprey_connectors_tests._loopback_https import Reply, loopback_pair
 
 WHERE = "archiver.settings"
@@ -62,6 +63,14 @@ def test_a_password_login_names_user_and_variable():
     assert settings.login.password_env == "ARCHIVER_PASSWORD"
     assert settings.login.token_env is None
     assert settings.credential_env_names == ("ARCHIVER_PASSWORD",)
+
+
+@pytest.mark.parametrize("username", [" reader", "reader ", "\treader"])
+def test_a_password_login_username_with_space_around_it_is_refused(username):
+    """A login is validated, never normalised: " reader" is not taken for "reader"."""
+    with pytest.raises(ConfigurationError) as raised:
+        _read({"auth": {"username": username, "password_env": "ARCHIVER_PASSWORD"}})
+    assert raised.value.key == "archiver.settings.auth.username"
 
 
 def test_two_logins_are_refused():
