@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import os
 import subprocess
 import sys
 from contextlib import ExitStack
@@ -104,6 +105,37 @@ def test_prime_config_builder_swallows_priming_failure(monkeypatch):
         startup.prime_config_builder()  # must not raise
     logged = [str(c) for c in mock_logger.warning.call_args_list]
     assert any("priming failed" in msg.lower() for msg in logged)
+
+
+def test_priming_reads_no_env_chain(monkeypatch, tmp_path):
+    """Priming loads the named file and nothing else: the env chain is the
+    server's own startup step (``load_dotenv_from_project``, which withholds the
+    deployment's credentials), and a load that re-applied the working
+    directory's chain would hand those credentials back to an agent-spawned
+    server."""
+    from osprey_connectors.config import current_config, install_config
+
+    config_file = tmp_path / "build" / "config.yml"
+    config_file.parent.mkdir()
+    config_file.write_text("marker: ${HM_PRIME_VAR}\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "HM_PRIME_VAR=from-the-file\nOSPREY_TERMINAL_SECRET=not-for-servers\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    for name in ("HM_PRIME_VAR", "OSPREY_TERMINAL_SECRET", "OSPREY_ENV_CHAIN_APPLIED"):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+    previous = install_config(None)
+    try:
+        with patch("osprey.stores.type_registry.load_extension_types", return_value={}):
+            startup.prime_config_builder()
+
+        assert current_config().get("marker") == "${HM_PRIME_VAR}"
+    finally:
+        install_config(previous)
+    assert "HM_PRIME_VAR" not in os.environ
+    assert "OSPREY_TERMINAL_SECRET" not in os.environ
 
 
 def test_prime_config_builder_survives_extension_type_load_failure(monkeypatch):
