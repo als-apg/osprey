@@ -10,6 +10,7 @@ import pytest
 
 from osprey.registry.base import ConnectorRegistration, RegistryConfig
 from osprey.registry.initializers import initialize_connectors
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import VIRTUAL_ACCELERATOR
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
@@ -50,7 +51,9 @@ class TestFactoryResolution:
         ConnectorFactory._ensure_builtins()
 
         config = {"type": VIRTUAL_ACCELERATOR, "connector": {"virtual_accelerator": {}}}
-        connector = await ConnectorFactory.create_control_system_connector(config)
+        connector = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config)
+        )
 
         try:
             assert isinstance(connector, VirtualAcceleratorConnector)
@@ -121,8 +124,10 @@ class TestConfigBlockRouting:
             },
         }
 
-        connector = await ConnectorFactory.create_control_system_connector(config)
+        connector = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config)
+        )
 
         assert isinstance(connector, VirtualAcceleratorConnector)
-        assert captured["config"] == va_only_config
-        assert captured["config"] != epics_config
+        assert captured["config"].timeout_s == va_only_config["timeout_s"]
+        assert captured["config"].timeout_s != epics_config["timeout_s"]

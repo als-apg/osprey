@@ -95,6 +95,7 @@ def simulator(
 
 def _served_targets(section: Any) -> list[str]:
     """The simulator targets this deployment serves from a process of its own."""
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import (
         TARGET_STANDIN,
         TARGET_VA,
@@ -104,7 +105,7 @@ def _served_targets(section: Any) -> list[str]:
     from osprey_connectors.targets import configured_targets, resolve_target
 
     try:
-        configured = configured_targets(section)
+        configured = configured_targets(ControlSystemSection.read(section))
     except ValueError:
         return []
     served: list[str] = []
@@ -112,7 +113,10 @@ def _served_targets(section: Any) -> list[str]:
         if target not in (TARGET_VA, TARGET_STANDIN):
             continue
         try:
-            transport = connector_transport(section, resolve_target(section, target))
+            transport = connector_transport(
+                ControlSystemSection.read(section),
+                resolve_target(ControlSystemSection.read(section), target),
+            )
         except ValueError:
             continue
         if transport != TRANSPORT_IN_PROCESS:

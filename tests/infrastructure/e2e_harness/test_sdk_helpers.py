@@ -21,6 +21,7 @@ from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
 from osprey.agent_runner.project_paths import claude_project_dir
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import control_context, testing
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.targets import baseline_target
 from tests.e2e import _queue_drive, sdk_helpers
@@ -688,7 +689,7 @@ def _builds(monkeypatch) -> list[list[str]]:
 
 
 def _baseline() -> str:
-    return baseline_target({"type": "virtual_accelerator"})
+    return baseline_target(ControlSystemSection.read({"type": "virtual_accelerator"}))
 
 
 def test_set_writes_tier_spells_the_tier_key_once_and_rebuilds(tmp_path, monkeypatch):

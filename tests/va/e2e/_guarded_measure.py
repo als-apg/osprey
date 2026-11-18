@@ -295,12 +295,13 @@ def only_simulated_targets(config: Mapping[str, Any]) -> list[str]:
     control system, so a render with none of them records zero hardware writes
     by construction.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import configured_targets, resolve_target
 
     section = config.get("control_system") or {}
     found: list[str] = []
-    for target in configured_targets(section):
-        kind = resolve_target(section, target)
+    for target in configured_targets(ControlSystemSection.read(section)):
+        kind = resolve_target(ControlSystemSection.read(section), target)
         if kind != "virtual_accelerator":
             found.append(f"{target} -> {kind}")
     return found

@@ -1475,9 +1475,10 @@ def _switch_on_for_this_login() -> None:
     :func:`_stage_the_queue_tools` bound for this test alone.
     """
     from osprey_connectors import control_context
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import baseline_target
 
-    target = baseline_target({"writes": "allowed"})
+    target = baseline_target(ControlSystemSection.read({"writes": "allowed"}))
     testing.invalidate_cache()
     path = control_context.record_path()
     assert path is not None, "the control-context record path did not resolve"

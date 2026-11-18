@@ -31,6 +31,7 @@ from osprey.runtime.session import (
 )
 from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.call_timeout import STEP_READ_TIMEOUT_KEY
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.factory import ConnectorFactory
@@ -413,7 +414,9 @@ class TestWriteBudgetAndProcessMark:
         write_record(mock_va)
 
         session = await _opened()
-        other = await ConnectorFactory.create_control_system_connector(VA_SECTION)
+        other = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(VA_SECTION)
+        )
 
         assert other.context.readonly_wording == "script"
         await other.disconnect()

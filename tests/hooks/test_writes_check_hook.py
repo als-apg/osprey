@@ -16,6 +16,7 @@ import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as _TWIN
 from osprey_connectors import testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import baseline_target
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
@@ -196,7 +197,10 @@ def test_the_hook_decides_as_the_package_verdict(
     if target is not None:
         _switch(stamped_root, target, on=on)
     testing.invalidate_cache()
-    expected = write_switch.write_verdict(section, target or baseline_target(section))
+    expected = write_switch.write_verdict(
+        ControlSystemSection.read(section),
+        target or baseline_target(ControlSystemSection.read(section)),
+    )
 
     result = _channel_write(tmp_path, hook_runner, config)
 

@@ -338,9 +338,12 @@ async def _connect() -> ControlSystemConnector:
     may not reach. With no gateway configured, ``connect()`` leaves the
     environment as it stands.
     """
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.factory import ConnectorFactory
 
-    return await ConnectorFactory.create_control_system_connector({"type": "epics"})
+    return await ConnectorFactory.create_control_system_connector(
+        ControlSystemSection.read({"type": "epics"})
+    )
 
 
 def channel_access_reader(settings: RecorderSettings) -> ChannelReader:

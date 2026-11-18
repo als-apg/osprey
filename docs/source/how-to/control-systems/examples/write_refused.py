@@ -2,6 +2,7 @@
 
 import asyncio
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.factory import ConnectorFactory
 
@@ -17,7 +18,9 @@ CONFIG = {
 
 
 async def main() -> None:
-    connector = await ConnectorFactory.create_control_system_connector(CONFIG)
+    connector = await ConnectorFactory.create_control_system_connector(
+        ControlSystemSection.read(CONFIG)
+    )
     try:
         await connector.write_channel_checked("DEMO:SETPOINT", 2.0)
     except ChannelWriteBlockedError as refused:

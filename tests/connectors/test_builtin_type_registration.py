@@ -19,6 +19,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey_connectors import connector_types, factory, targets
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.factory import (
     ConnectorFactory,
 )
@@ -89,7 +90,9 @@ class TestTypeConstants:
         written, exactly as ``epics`` does.
         """
         assert (
-            targets.resolve_target({"type": row.type_name}, connector_types.TARGET_LIVE)
+            targets.resolve_target(
+                ControlSystemSection.read({"type": row.type_name}), connector_types.TARGET_LIVE
+            )
             == row.type_name
         )
 

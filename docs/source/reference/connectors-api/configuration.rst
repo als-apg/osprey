@@ -4,9 +4,12 @@ Configuration
 =============
 
 Loading a deployment's configuration: where a process finds it, the env chain
-it reads, and the YAML loader underneath.
+it reads, the sections the package reads from it, and the YAML loader
+underneath.
 
 .. automodule:: osprey_connectors.config
+
+.. automodule:: osprey_connectors.config_sections
 
 .. automodule:: osprey_connectors.workspace
 

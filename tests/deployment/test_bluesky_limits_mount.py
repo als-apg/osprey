@@ -24,6 +24,7 @@ from osprey.deployment.compose_generator import (
     resolve_limits_mount,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system import LimitsValidator, mapping_config_lookup
 from osprey_connectors.limits_posture import tier_limits_database_targets
 from tests.deployment.test_lane_compose import (
@@ -296,9 +297,18 @@ def test_the_tier_arms_limits_for_every_reachable_target() -> None:
         },
     }
 
-    assert tier_limits_database_targets(section, path_configured=False) == ["va"]
-    assert tier_limits_database_targets(section, path_configured=True) == ["va"]
-    assert tier_limits_database_targets({**section, "writes": "never"}, path_configured=True) == []
+    assert tier_limits_database_targets(
+        ControlSystemSection.read(section), path_configured=False
+    ) == ["va"]
+    assert tier_limits_database_targets(
+        ControlSystemSection.read(section), path_configured=True
+    ) == ["va"]
+    assert (
+        tier_limits_database_targets(
+            ControlSystemSection.read({**section, "writes": "never"}), path_configured=True
+        )
+        == []
+    )
 
 
 # ---------------------------------------------------------------------------

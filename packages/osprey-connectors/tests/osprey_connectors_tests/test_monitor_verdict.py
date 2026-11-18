@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import (
     TARGET_LIVE,
     TARGET_STANDIN,
@@ -327,7 +328,7 @@ class TestTheMonitorIsTheVerdict:
 
         allowed = connector._writes_enabled
 
-        verdict = write_switch.write_verdict(section, target)
+        verdict = write_switch.write_verdict(ControlSystemSection.read(section), target)
         assert allowed is verdict.allowed
         assert connector._last_verdict == verdict
 
@@ -338,10 +339,10 @@ class TestTheMonitorIsTheVerdict:
         with isolated_connector_registries(clear=True):
             ConnectorFactory.register_control_system(VIRTUAL_ACCELERATOR, RecordingConnector)
             on = await ConnectorFactory.create_control_system_connector(
-                {"type": VIRTUAL_ACCELERATOR}, control_target=TARGET_VA
+                ControlSystemSection.read({"type": VIRTUAL_ACCELERATOR}), control_target=TARGET_VA
             )
             off = await ConnectorFactory.create_control_system_connector(
-                {"type": VIRTUAL_ACCELERATOR}, control_target=TARGET_LIVE
+                ControlSystemSection.read({"type": VIRTUAL_ACCELERATOR}), control_target=TARGET_LIVE
             )
 
         assert (await on.write_channel("A:SP", 1.0)).outcome is WriteOutcome.CONFIRMED

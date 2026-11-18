@@ -455,6 +455,7 @@ def _read_render(project_dir: str) -> _RenderFacts:
 
     import yaml
 
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.write_tier import tier_allows
 
     try:
@@ -473,7 +474,7 @@ def _read_render(project_dir: str) -> _RenderFacts:
     return _RenderFacts(
         config=config,
         hook_config=hook_config if isinstance(hook_config, dict) else {},
-        tier_allows=tier_allows(config.get("control_system")),
+        tier_allows=tier_allows(ControlSystemSection.read(config.get("control_system"))),
     )
 
 

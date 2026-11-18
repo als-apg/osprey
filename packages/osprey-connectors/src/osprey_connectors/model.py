@@ -72,6 +72,7 @@ __all__ = [
     "FrozenTuple",
     "Instant",
     "Listing",
+    "Login",
     "MutableModel",
     "ReadOnlyMapping",
     "ReadResult",
@@ -193,6 +194,20 @@ Instant: TypeAlias = Annotated[
     AfterValidator(_in_utc),
     PlainSerializer(_stored_instant, when_used="json"),
 ]
+
+
+def _login_name(value: str) -> str:
+    """*value* must be a name: not blank, no space around it. It is never stripped."""
+    if not value.strip() or value != value.strip():
+        raise ValueError("is not a name")
+    return value
+
+
+#: A login, wherever a record names one: a grant, a request, an approval, a
+#: stop, a connection block's password login. Not blank and no space around
+#: it. Validated, never normalised: ``" bob"`` is refused, not taken for
+#: ``"bob"``.
+Login: TypeAlias = Annotated[str, AfterValidator(_login_name)]
 
 
 def empty_mapping() -> Mapping[_K, _V]:

@@ -38,6 +38,7 @@ from typing import Any
 from osprey.deployment.honesty import VA_MOCK_ARCHIVER_WHY, invents_history, pairing_in_profile
 from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.connector_types import MONGODB_ARCHIVER, resolve_control_system_type
 
@@ -543,12 +544,16 @@ def _invented_history_type(config: Any) -> str:
     section = rendered if isinstance(rendered, dict) else {}
     for value in stated:
         if invents_history({**section, _TYPE_LEAF: value}):
-            resolved: str = resolve_control_system_type({_TYPE_LEAF: value})
+            resolved: str = resolve_control_system_type(
+                ControlSystemSection.read({_TYPE_LEAF: value})
+            )
             return resolved
 
     # Unreachable behind the verdict this names, and still resolver-derived so
     # that no branch of this function can name a type the profile never selected.
-    merged: str = resolve_control_system_type(_expand_dotted(config).get(_CONTROL_SYSTEM_SECTION))
+    merged: str = resolve_control_system_type(
+        ControlSystemSection.read(_expand_dotted(config).get(_CONTROL_SYSTEM_SECTION))
+    )
     return merged
 
 

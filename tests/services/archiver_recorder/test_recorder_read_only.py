@@ -28,6 +28,7 @@ import pytest
 import osprey.services.archiver_recorder as recorder_package
 from osprey.services.archiver_recorder import recorder
 from osprey.services.archiver_recorder.config import RecorderSettings
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import (
     ChannelValue,
     ControlSystemConnector,
@@ -131,8 +132,11 @@ async def test_the_recorders_connector_carries_no_target_and_refuses_a_write(tmp
     assert connector._control_target is None
     # Armed for every target the connector could have been stamped with, so the
     # missing stamp is the only thing that refuses.
-    assert write_verdict(dict(WRITES_ALLOWED), "live").allowed
-    assert write_verdict(dict(WRITES_ALLOWED), None).reason == "target_unknown"
+    assert write_verdict(ControlSystemSection.read(dict(WRITES_ALLOWED)), "live").allowed
+    assert (
+        write_verdict(ControlSystemSection.read(dict(WRITES_ALLOWED)), None).reason
+        == "target_unknown"
+    )
     assert result.outcome is WriteOutcome.REFUSED
     assert refusal_phrase("target_unknown") in (result.error_message or "")
     assert aioca.puts == []

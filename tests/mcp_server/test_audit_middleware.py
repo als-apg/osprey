@@ -1508,6 +1508,7 @@ async def _refused_in_the_tool(mw, tool: str) -> tuple[ToolError, list[str]]:
     "refused in it".
     """
     from osprey.audit import posture as posture_module
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.refusals import refusal_phrase
     from osprey_connectors.write_switch import write_verdict
 
@@ -1516,7 +1517,8 @@ async def _refused_in_the_tool(mw, tool: str) -> tuple[ToolError, list[str]]:
     async def call_next(context):
         seen.append(context.message.name)
         verdict = write_verdict(
-            posture_module.control_system_section(), posture_module.recorded_control_target()
+            ControlSystemSection.read(posture_module.control_system_section()),
+            posture_module.recorded_control_target(),
         )
         if not verdict.allowed:
             raise ToolError(refusal_phrase(verdict.reason, verdict.kind))

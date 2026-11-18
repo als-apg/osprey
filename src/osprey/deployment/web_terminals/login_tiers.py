@@ -38,7 +38,7 @@ from osprey.deployment.web_terminals.roster import (
     roster_entries,
     sign_in_decides_tier,
 )
-from osprey_connectors.write_tier import TierWord
+from osprey_connectors.config_sections import TierWord
 
 #: Where the map is rendered in a shared container's config.
 LOGIN_TIERS_KEY = "login_tiers"
@@ -87,6 +87,7 @@ def build_login_tiers(config: Any, repo_root: Any, *, layer_root: Any) -> dict[s
         verbatim, keys exactly as the roster names them.
     """
     from osprey.deployment.compose_generator import _control_tree_build_account
+    from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.identity import UNKNOWN_IDENTITY
     from osprey_connectors.write_tier import tier_writes
 
@@ -124,7 +125,9 @@ def build_login_tiers(config: Any, repo_root: Any, *, layer_root: Any) -> dict[s
             render_config = renders.get(render) if render else None
             if not isinstance(render_config, dict):
                 continue
-            login_tiers[login] = tier_writes(render_config.get("control_system"))
+            login_tiers[login] = tier_writes(
+                ControlSystemSection.read(render_config.get("control_system"))
+            )
 
     build_account = _control_tree_build_account(root, repo_root)
     if (
@@ -133,6 +136,8 @@ def build_login_tiers(config: Any, repo_root: Any, *, layer_root: Any) -> dict[s
         and build_account != UNKNOWN_IDENTITY
         and build_account not in card_names
     ):
-        login_tiers[build_account] = tier_writes(root.get("control_system"))
+        login_tiers[build_account] = tier_writes(
+            ControlSystemSection.read(root.get("control_system"))
+        )
 
     return login_tiers

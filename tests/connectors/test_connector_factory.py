@@ -5,6 +5,7 @@ import pytest
 from osprey_connectors import connector_types
 from osprey_connectors.archiver._base import ArchiverConnector
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import (
@@ -44,7 +45,9 @@ class TestConnectorFactory:
             },
         }
 
-        connector = await ConnectorFactory.create_control_system_connector(config)
+        connector = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config)
+        )
 
         assert isinstance(connector, ControlSystemConnector)
         assert isinstance(connector, VAInProcessConnector)
@@ -78,8 +81,12 @@ class TestConnectorFactory:
             },
         }
 
-        connector1 = await ConnectorFactory.create_control_system_connector(config)
-        connector2 = await ConnectorFactory.create_control_system_connector(config)
+        connector1 = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config)
+        )
+        connector2 = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config)
+        )
 
         # Should be different instances
         assert connector1 is not connector2
@@ -230,10 +237,11 @@ class TestBuiltinsRegisterOnFirstUse:
         import sys
 
         code = (
+            "from osprey_connectors.config_sections import ControlSystemSection;"
             "from osprey_connectors.factory import ConnectorFactory;"
             "assert not ConnectorFactory._control_system_connectors;"
             "connector, context = ConnectorFactory.build_control_system_connector("
-            "{'type': 'epics', 'connector': {'epics': {'timeout_s': 1.0}}});"
+            "ControlSystemSection.read({'type': 'epics', 'connector': {'epics': {'timeout_s': 1.0}}}));"
             "print(type(connector).__name__, context.connector_type)"
         )
         result = subprocess.run(
@@ -299,6 +307,7 @@ class TestLiveStandinRegistration:
         rather than to the ``epics`` block's.
         """
         from osprey_connectors import connector_types
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.control_system._epics_connector import EPICSConnector
         from osprey_connectors.factory import ConnectorFactory
 
@@ -311,7 +320,9 @@ class TestLiveStandinRegistration:
             "connector": {connector_types.LIVE_STANDIN: {"timeout_s": 1.0}},
         }
 
-        connector = await ConnectorFactory.create_control_system_connector(config)
+        connector = await ConnectorFactory.create_control_system_connector(
+            ControlSystemSection.read(config)
+        )
 
         assert isinstance(connector, EPICSConnector)
         assert connector._connector_type == connector_types.LIVE_STANDIN
@@ -328,15 +339,18 @@ class TestLiveStandinRegistration:
         other. Pinning the sibling keeps that failure visible.
         """
         from osprey_connectors import connector_types
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.factory import ConnectorFactory
 
         ConnectorFactory._ensure_builtins()
 
         connector = await ConnectorFactory.create_control_system_connector(
-            {
-                "type": connector_types.EPICS,
-                "connector": {connector_types.EPICS: {"timeout_s": 1.0}},
-            }
+            ControlSystemSection.read(
+                {
+                    "type": connector_types.EPICS,
+                    "connector": {connector_types.EPICS: {"timeout_s": 1.0}},
+                }
+            )
         )
 
         assert connector._connector_type == connector_types.EPICS

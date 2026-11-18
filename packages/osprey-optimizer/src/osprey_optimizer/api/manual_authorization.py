@@ -156,6 +156,7 @@ def authorize_manual_write(
             for a lease that lapsed before the write.
     """
     from osprey_connectors import write_authorization as wa
+    from osprey_connectors.config_sections import ControlSystemSection
 
     if execution_mode is not None:
         with use_write_authority(WriteAuthority(owner=owner, required=False)):
@@ -163,7 +164,7 @@ def authorize_manual_write(
     channels = setpoint_channels(env, variables)
     try:
         grant = wa.self_issue(
-            _control_system_section(),
+            ControlSystemSection.read(_control_system_section()),
             target,
             {channel: wa.ChannelRange.of(value, value) for channel, value in channels.items()},
             steps=1,

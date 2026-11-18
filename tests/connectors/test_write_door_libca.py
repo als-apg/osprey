@@ -64,6 +64,7 @@ raw_put_block.install("armed", **armed_contract(refuse_rpc=False))
 
 import aioca
 import yaml
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.factory import ConnectorFactory
 
 
@@ -71,7 +72,7 @@ async def main():
     with open(os.environ["CONFIG_FILE"]) as handle:
         section = yaml.safe_load(handle)["control_system"]
     connector = await ConnectorFactory.create_control_system_connector(
-        section, control_target="live"
+        ControlSystemSection.read(section), control_target="live"
     )
 
     in_flight = threading.Event()

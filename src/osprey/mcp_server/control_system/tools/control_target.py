@@ -127,6 +127,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors import control_context, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.limits_posture import target_limits_posture
 from osprey_connectors.targets import configured_targets
@@ -333,7 +334,7 @@ def target_rows(
     # takes the section rather than the whole config, and answers a missing or
     # malformed one with the baseline alone.
     section = config.get("control_system") if isinstance(config, dict) else None
-    for target in configured_targets(section):
+    for target in configured_targets(ControlSystemSection.read(section)):
         # The write verdict for the target, taken ONCE and then used for every
         # answer this row carries. The eligibility verdict, the gateway role
         # and the `writes_permitted` flag are three views of the same fact, and
@@ -379,7 +380,9 @@ def target_rows(
             # Unlike `writes_permitted`, this is a deployment fact, not a
             # session one: the switch decides what a session may write, never
             # which channels a target's limits database governs.
-            "limits_strict": target_limits_posture(section, target).strict,
+            "limits_strict": target_limits_posture(
+                ControlSystemSection.read(section), target
+            ).strict,
         }
         probe_channel = display.get("probe_channel") or ""
         if probe_channel:

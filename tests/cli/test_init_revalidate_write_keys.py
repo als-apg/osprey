@@ -24,6 +24,7 @@ from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.cli.init_cmd import init
 from osprey.cli.init_revalidate import WRITE_STANZAS, _preset_stanza
 from osprey.utils.config_writer import config_update_fields
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import configured_targets
 from osprey_connectors.write_tier import tier_writes
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
@@ -117,11 +118,13 @@ def test_each_old_tier_and_its_successor_resolve_alike(tmp_path: Path, name: str
     kind, before, after = _SUCCESSORS[name]
     new = _render_section(root / kind / f"{name}.yml", tmp_path)
 
-    assert tier_writes(old) == before
-    assert tier_writes(new) == after
+    assert tier_writes(ControlSystemSection.read(old)) == before
+    assert tier_writes(ControlSystemSection.read(new)) == after
     assert new.get("writes") == after
-    assert configured_targets(old) == configured_targets(new)
-    assert configured_targets(new)
+    assert configured_targets(ControlSystemSection.read(old)) == configured_targets(
+        ControlSystemSection.read(new)
+    )
+    assert configured_targets(ControlSystemSection.read(new))
 
 
 # ── The fill ────────────────────────────────────────────────────────────────
@@ -140,7 +143,7 @@ def test_a_silent_root_is_not_given_the_tier_key(tmp_path: Path) -> None:
     assert "control_system.writes: a root that does not state it reads as `never`" in (
         " ".join(result.output.split())
     )
-    assert tier_writes(_render_section(profile, tmp_path)) == "never"
+    assert tier_writes(ControlSystemSection.read(_render_section(profile, tmp_path))) == "never"
 
 
 # ── Spellings and placement ─────────────────────────────────────────────────

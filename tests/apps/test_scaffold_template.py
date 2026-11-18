@@ -255,7 +255,7 @@ def built(scaffold: ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[dict[st
     async def create(config: dict[str, Any], control_target: str) -> SimpleNamespace:
         if control_target == "unreachable":
             raise OSError("no route")
-        seen.append({"config": config, "target": control_target})
+        seen.append({"config": dict(config.raw), "target": control_target})
         return SimpleNamespace()
 
     monkeypatch.setattr(backend, "_ca_target", None)

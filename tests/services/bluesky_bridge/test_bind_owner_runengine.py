@@ -47,6 +47,7 @@ from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import control_context, testing, write_switch
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.write_switch import (
     NO_OWNER,
@@ -94,7 +95,7 @@ class _GatedConnector(FakeConnector):
 
     async def write_channel_checked(self, address: str, value: Any, **kwargs: Any):
         self.write_owners.append(current_owner())
-        verdict = write_verdict(_SECTION, _TARGET)
+        verdict = write_verdict(ControlSystemSection.read(_SECTION), _TARGET)
         if not verdict.allowed:
             # The reason word is the verdict's own spelling, not a second one:
             # what the verdict answered is what the operator reads.

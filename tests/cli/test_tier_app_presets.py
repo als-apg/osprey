@@ -83,6 +83,7 @@ from osprey.port_layout import (
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import configured_targets
 from osprey_connectors.write_tier import tier_writes
 from tests._preset_data import create_project_as_built
@@ -1587,7 +1588,7 @@ class TestDemoTiersAndApps:
         assert "jupyter" not in config["web"]["panels"]
         assert config["web"]["control_target_picker"] is False
         section = config["control_system"]
-        assert tier_writes(section) == "never"
+        assert tier_writes(ControlSystemSection.read(section)) == "never"
         assert "writes_enabled" not in section
 
     def test_knowledge_app_renders_the_knowledge_surface_and_nothing_else(
@@ -1773,7 +1774,7 @@ class TestWritePostureMatrix:
         section = _rendered_section(tmp_path, row, layers, "control_system") or {}
 
         # Act
-        resolved = tier_writes(section)
+        resolved = tier_writes(ControlSystemSection.read(section))
 
         # Assert
         assert resolved == PINNED_WRITE_POSTURE[row]
@@ -1816,7 +1817,9 @@ class TestWritePostureMatrix:
         section = _rendered_section(tmp_path / "app", f"tiers/{app}", layers, "control_system")
         hosting = _rendered_section(tmp_path / "root", "profile", layers, "control_system")
 
-        assert configured_targets(section) == configured_targets(hosting)
+        assert configured_targets(ControlSystemSection.read(section)) == configured_targets(
+            ControlSystemSection.read(hosting)
+        )
 
     @pytest.mark.parametrize(("tier", "ceiling"), [("readwrite", "asked"), ("admin", "allowed")])
     def test_the_write_capable_tiers_state_their_ceiling_and_render_it(
@@ -1830,7 +1833,7 @@ class TestWritePostureMatrix:
         assert "control_system" not in own
 
         section = _rendered_section(tmp_path, f"tiers/{tier}", layers, "control_system")
-        assert tier_writes(section) == ceiling
+        assert tier_writes(ControlSystemSection.read(section)) == ceiling
 
     @pytest.mark.parametrize("tier", ["readonly", "readwrite"])
     def test_the_reference_deployments_tiers_carry_the_bundled_posture(self, tier: str) -> None:

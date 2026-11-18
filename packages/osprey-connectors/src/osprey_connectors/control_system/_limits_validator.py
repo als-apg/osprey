@@ -11,6 +11,7 @@ from typing import Final, TypeGuard
 
 from pydantic import ValidationError
 
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.limits_posture import (
     LIMITS_MODE_OPTIONAL,
     LimitsPosture,
@@ -530,7 +531,7 @@ class LimitsValidator:
         try:
             from osprey_connectors.config import get_config_value
 
-            section: object = get_config_value("control_system", {})
+            section = ControlSystemSection.read(get_config_value("control_system", {}))
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")
@@ -567,7 +568,7 @@ class LimitsValidator:
         try:
             from osprey_connectors.config import get_config_value
 
-            section: object = get_config_value("control_system", {})
+            section = ControlSystemSection.read(get_config_value("control_system", {}))
         except (FileNotFoundError, KeyError, RuntimeError) as e:
             # Config not available (test environment, etc.) - limits checking disabled
             logger.debug(f"Limits validator not initialized (config unavailable): {e}")

@@ -845,12 +845,15 @@ class TestServerStartClaimsTheRecord:
         self, control_context_root, write_control_context
     ):
         """An unswitched record follows a deployment baselined on the simulator in process."""
+        from osprey_connectors.config_sections import ControlSystemSection
         from osprey_connectors.targets import baseline_target
 
         section = {"connector": {"epics": {"gateways": {"read_only": {"address": "gw"}}}}}
         write_control_context(control_context_root, target="live", generation=0, owned_by=None)
 
-        claimed = server_context.claim_control_context(baseline=baseline_target(section))
+        claimed = server_context.claim_control_context(
+            baseline=baseline_target(ControlSystemSection.read(section))
+        )
 
         assert claimed is not None
         assert (claimed.target, claimed.generation) == ("va", 0)

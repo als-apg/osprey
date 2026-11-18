@@ -16,6 +16,7 @@ import logging
 import pytest
 
 from osprey_connectors import connector_types
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -68,7 +69,9 @@ class TestFactoryTypeFallback:
         }
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
-            connector = await ConnectorFactory.create_control_system_connector(config)
+            connector = await ConnectorFactory.create_control_system_connector(
+                ControlSystemSection.read(config)
+            )
 
         assert isinstance(connector, VAInProcessConnector)
         assert connector.transport == connector_types.TRANSPORT_IN_PROCESS
@@ -109,7 +112,9 @@ class TestFactoryTypeFallback:
         }
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
-            connector = await ConnectorFactory.create_control_system_connector(config)
+            connector = await ConnectorFactory.create_control_system_connector(
+                ControlSystemSection.read(config)
+            )
 
         assert isinstance(connector, VAInProcessConnector)
         assert UNSET_WARNING not in caplog.text

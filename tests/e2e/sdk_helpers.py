@@ -41,6 +41,7 @@ from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice, se
 from osprey.facility.views.simulator import withdraw_scenarios
 from osprey.port_layout import BLOCK_SIZE
 from osprey_connectors import control_context, testing
+from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.targets import baseline_target
@@ -639,7 +640,7 @@ def switch_record_path(repo: Path, owner: str) -> Path:
 def _default_switch_targets(repo: Path) -> list[str]:
     """The machine a fresh session on *repo* sits on: its baseline target."""
     section = _render_config(repo).get("control_system") or {}
-    return [baseline_target(section)]
+    return [baseline_target(ControlSystemSection.read(section))]
 
 
 def set_switch_in_record(
