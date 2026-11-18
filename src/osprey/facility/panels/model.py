@@ -75,6 +75,7 @@ from osprey.facility.panels.tables import (
     FrontRow,
     HealthRule,
     Metric,
+    NoCard,
     Pair,
     PanelTableError,
     PanelTables,
@@ -1283,6 +1284,25 @@ class PanelGraph:
     def fronts(self, recipe: str) -> list[FrontRow]:
         """The ``fronts.csv`` rows of *recipe*, by ``order``."""
         return list(self._fronts.get(recipe, ()))
+
+    def no_card(self, thing_id: str) -> NoCard | None:
+        """The ``no_cards.csv`` row that takes a device: the first whose class,
+        place (the device's place is it or within it) and id pattern match."""
+        try:
+            thing = self.thing(thing_id, "device")
+        except KeyError:
+            return None
+        for row in self._tables.no_cards:
+            if row.cls != thing.cls:
+                continue
+            if row.under and not (
+                thing.place == row.under or (thing.place or "").startswith(row.under + "/")
+            ):
+                continue
+            if row.devices and not fnmatch.fnmatchcase(thing.id, row.devices):
+                continue
+            return row
+        return None
 
     def named_under(self, owner: str) -> list[Thing]:
         """The devices whose id is *owner* and one more ``:`` or ``.`` segment (the

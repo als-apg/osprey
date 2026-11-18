@@ -1459,7 +1459,12 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    at its corners and the claim's source under it; the operating point is not
    drawn, since no table states the conversion from set point to current. A
    device with no such curve says none is stated. The calibration block is the
-   ``calibration-strip``. A device card is drawn:
+   ``calibration-strip``. ``no_cards.csv`` (class, under, devices,
+   owner_relation, owner_direction, owner_to) names devices that get no card:
+   the first row that takes a device wins; the device is drawn on its owner's
+   card (the thing the stated relation names), a link to it opens that card, and
+   ``index.json`` lists it under ``drawn_on`` with the owner's screen. A device
+   whose owner is not stated gets no entry; ``check`` counts both. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
    ``card`` whose ``level`` names its recipe, else its roles), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its

@@ -1223,3 +1223,60 @@ def test_a_device_with_no_curve_says_none_is_stated(tmp_path):
     graph = _curved(tmp_path)
     curve = _item(device_card(graph, "XR01:QD1"), "CurvePlot")
     assert curve.points == () and curve.note == "no excitation curve stated for this device"
+
+
+NO_CARDS_HEADER = "class,under,devices,owner_relation,owner_direction,owner_to,reason,source\n"
+
+
+def _no_card_graph(tmp_path, rows: str):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import (
+        PART_RULE,
+        add_part,
+        copy_tables,
+        write_fixture_facility,
+    )
+
+    def change(document) -> None:
+        add_part(document, "XR01:CARD1", "XR01:CH1", "XR01-CARD1:Fault-Sts")
+        add_part(document, "XR01:CARD2", "XR01:CH1")
+        document["relations"][-1]["subject"]["device"] = "XR01:CARD2"
+        document["relations"][-1]["type"] = "cabled_to"  # not part of anything
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as handle:
+        handle.write(PART_RULE)
+    (tables / "no_cards.csv").write_text(NO_CARDS_HEADER + rows)
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def test_a_thing_no_cards_takes_gets_no_card_and_its_index_entry_points_to_its_owner(tmp_path):
+    import json
+
+    from osprey.facility.panels.describe import no_card_counts, targets
+    from osprey.facility.panels.emit import write
+    from osprey.facility.panels.view import Target
+
+    graph = _no_card_graph(
+        tmp_path, "ElectronicsModule,,,part_of,out,device,a card in its chassis,S\n"
+    )
+    found = targets(graph)
+    assert Target("card", "device", "XR01:CARD1") not in found
+    assert Target("card", "device", "XR01:CARD2") not in found
+    assert no_card_counts(graph) == (2, 1)  # CARD2 is part of nothing: no owner stated
+    out = tmp_path / "out"
+    write(graph, out)
+    index = json.loads((out / "index.json").read_text())
+    (entry,) = index["drawn_on"]
+    assert entry["thing"] == "XR01:CARD1" and entry["file"].endswith("card-xr01-ch1.screen.json")
+    # a link to it on another card opens its owner's card
+    from osprey.facility.panels.describe import _index, _ref
+
+    link = _ref(graph, _index(graph), graph.thing("XR01:CARD1", "device"))
+    assert link.target == Target("card", "device", "XR01:CH1") and link.label == "XR01:CARD1"
+
+
+def test_tables_without_no_cards_give_every_device_its_card(panel_graph):
+    from osprey.facility.panels.describe import no_card_counts
+
+    assert no_card_counts(panel_graph) == (0, 0)

@@ -58,6 +58,7 @@ from osprey.facility.panels.tables import (
     CardSection,
     ChainStep,
     FrontRow,
+    NoCard,
     Pose,
 )
 from osprey.facility.panels.view import (
@@ -227,6 +228,10 @@ class _Index:
     set_class: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     # device -> its sets
     sets_of: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
+    # a device no_cards.csv takes -> the thing whose card draws it, or None (not stated)
+    owners: Mapping[str, tuple[str, ThingKind] | None] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 _INDEXES: weakref.WeakKeyDictionary[PanelGraph, _Index] = weakref.WeakKeyDictionary()
@@ -272,6 +277,7 @@ def _build_index(graph: PanelGraph) -> _Index:
     systems: dict[str, set[str]] = {}
     set_class: dict[str, str] = {}
     sets_of: dict[str, list[str]] = {}
+    owners: dict[str, tuple[str, ThingKind] | None] = {}
     for thing in graph.things():
         if thing.kind == "group":
             members = graph.members(thing.id)
@@ -291,9 +297,16 @@ def _build_index(graph: PanelGraph) -> _Index:
             if edge.outgoing and edge.other_kind == "place" and edge.unit is not None:
                 racked.add(edge.other)
         if thing.kind == "device":
-            if channels or graph.pose(thing.id) is not None or _neighbour_edges(graph, thing):
+            taken = graph.no_card(thing.id)
+            if taken is not None:
+                owners[thing.id] = _owner(graph, thing.id, taken)
+            elif channels or graph.pose(thing.id) is not None or _neighbour_edges(graph, thing):
                 carded.add(thing.id)
-            if len(channels) > GRID_CAP and len(_listed(graph, thing.id, channels)) > GRID_CAP:
+            if (
+                taken is None
+                and len(channels) > GRID_CAP
+                and len(_listed(graph, thing.id, channels)) > GRID_CAP
+            ):
                 listed.add(thing.id)
             if thing.place is not None:
                 place_views.add(thing.place)
@@ -332,7 +345,63 @@ def _build_index(graph: PanelGraph) -> _Index:
         MappingProxyType({place: frozenset(found) for place, found in systems.items()}),
         MappingProxyType(set_class),
         MappingProxyType({device: tuple(found) for device, found in sets_of.items()}),
+        MappingProxyType(_drawn_owners(owners)),
     )
+
+
+def _owner(graph: PanelGraph, device: str, row: NoCard) -> tuple[str, ThingKind] | None:
+    """The thing a ``no_cards.csv`` row's relation names at *device* (its ``owner_to``
+    taking it, as a chain hop's ``to``): one thing, else ``None`` (none, or several:
+    no owner is stated)."""
+    to = row.owner_to or None
+    step = ChainStep(
+        DEFAULT_RECIPE, "owner", 1, 0, row.owner_relation, row.owner_direction, to, None, None,
+        "owner", None, None,
+    )  # fmt: skip
+    found = {(e.other, e.other_kind) for e in graph.hop(device, "device", step)}
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def _drawn_owners(
+    owners: Mapping[str, tuple[str, ThingKind] | None],
+) -> dict[str, tuple[str, ThingKind] | None]:
+    """Each no-card device's owner, followed past owners that have no card either."""
+    out: dict[str, tuple[str, ThingKind] | None] = {}
+    for device, owner in owners.items():
+        seen = {device}
+        while owner is not None and owner[1] == "device" and owner[0] in owners:
+            if owner[0] in seen:
+                owner = None
+                break
+            seen.add(owner[0])
+            owner = owners[owner[0]]
+        out[device] = owner
+    return out
+
+
+def owner_link(index: _Index, thing_id: str) -> Link | None:
+    """For a device no_cards.csv takes, a link named by it to its owner's card."""
+    owner = index.owners.get(thing_id)
+    if owner is None:
+        return None
+    return Link(thing_id, Target("card", owner[1], owner[0]))
+
+
+def drawn_on(graph: PanelGraph) -> list[tuple[str, Target]]:
+    """Each device no_cards.csv takes and has an owner for, with its owner's card, in
+    id order; one with no owner stated gets no entry."""
+    index = _index(graph)
+    return [
+        (thing, Target("card", owner[1], owner[0]))
+        for thing, owner in sorted(index.owners.items())
+        if owner is not None
+    ]
+
+
+def no_card_counts(graph: PanelGraph) -> tuple[int, int]:
+    """How many devices get no card, and of them how many have no owner stated."""
+    index = _index(graph)
+    return len(index.owners), sum(owner is None for owner in index.owners.values())
 
 
 def _existing(graph: PanelGraph, index: _Index, target: Target) -> Target | None:
@@ -448,6 +517,9 @@ def _ref(graph: PanelGraph, index: _Index, thing: Thing) -> Link | Fact:
     target = Target("card", thing.kind, thing.id)
     if _has(graph, index, target):
         return Link(thing.id, target)
+    owned = owner_link(index, thing.id)
+    if owned is not None and _has(graph, index, owned.target):
+        return owned  # drawn on its owner's card
     return Fact(thing.cls or thing.kind, thing.id)
 
 
@@ -605,6 +677,9 @@ def _edge_item(graph: PanelGraph, index: _Index, title: str, edge: Edge) -> Item
     target = Target("card", edge.other_kind, edge.other)
     if _has(graph, index, target):
         return Link(edge.other, target, standing=edge.standing, basis=edge.basis)
+    owned = owner_link(index, edge.other)
+    if owned is not None and _has(graph, index, owned.target):
+        return dataclasses.replace(owned, standing=edge.standing, basis=edge.basis)
     return Fact(title, edge.other, citation=edge.source, standing=edge.standing, basis=edge.basis)
 
 

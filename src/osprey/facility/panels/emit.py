@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.panels import layout
-from osprey.facility.panels.describe import describe, light, ring_arcs, targets
+from osprey.facility.panels.describe import describe, drawn_on, light, ring_arcs, targets
 from osprey.facility.panels.health import supported
 from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
 from osprey.facility.panels.symbols import WIDTH_UNITS, near_state
@@ -647,6 +647,14 @@ def write(
         "draw_hash": draw.digest,
     }
 
+    # a device with no card of its own: the screen of the owner it is drawn on
+    written_ids = set(found)
+    owners = [
+        {"thing": thing, "file": _path(target, ids)}
+        for thing, target in drawn_on(graph)
+        if target in written_ids
+    ]
+
     def put_index(state: str, screens: list[dict[str, Any]], outside: list[dict[str, Any]]) -> None:
         index = {
             **head,
@@ -654,6 +662,7 @@ def write(
             "total_bytes": sum(e.get("bytes", 0) for e in screens),
             "screens": sorted(screens, key=lambda e: e["file"]),
             "outside": sorted(outside, key=lambda e: e["file"]),
+            "drawn_on": owners,
         }
         text = json.dumps(index, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
         _put(out, INDEX, text.encode("utf-8"), seen)

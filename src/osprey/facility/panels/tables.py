@@ -81,6 +81,7 @@ __all__ = [
     "CardSection",
     "ChainStep",
     "FrontRow",
+    "NoCard",
     "StripSymbol",
     "Metric",
     "CalibrationKind",
@@ -114,6 +115,7 @@ CARD_SECTIONS = "card_sections.csv"
 CHAINS = "chains.csv"
 STRIP_SYMBOLS = "symbols.csv"
 FRONTS = "fronts.csv"
+NO_CARDS = "no_cards.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -136,6 +138,7 @@ TABLE_FILES: tuple[str, ...] = (
     CHAINS,
     STRIP_SYMBOLS,
     FRONTS,
+    NO_CARDS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -235,6 +238,16 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "source",
         ],
         STRIP_SYMBOLS: ["class", "devices", "symbol", "lane", "source"],
+        NO_CARDS: [
+            "class",
+            "under",
+            "devices",
+            "owner_relation",
+            "owner_direction",
+            "owner_to",
+            "reason",
+            "source",
+        ],
         FRONTS: [
             "recipe",
             "face",
@@ -368,6 +381,7 @@ OPTIONAL_FILES = frozenset(
         CHAINS,
         STRIP_SYMBOLS,
         FRONTS,
+        NO_CARDS,
     }
 )
 
@@ -480,6 +494,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CARD_SECTIONS: ("recipe", "order", "kind", "title"),
         CHAINS: ("recipe", "chain", "step", "relation", "direction", "title"),
         STRIP_SYMBOLS: ("class", "symbol", "lane"),
+        NO_CARDS: ("class", "owner_relation", "owner_direction"),
         FRONTS: (
             "recipe",
             "face",
@@ -515,6 +530,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
         STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
         FRONTS: {"kind": CONNECTOR_KINDS, "far_direction": FAR_DIRECTIONS},
+        NO_CARDS: {"owner_direction": DIRECTIONS},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -559,6 +575,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CHAINS: ("recipe", "chain", "step"),
         STRIP_SYMBOLS: ("class", "devices"),
         FRONTS: ("recipe", "face", "group", "connector"),
+        NO_CARDS: ("class", "under", "devices"),
     }
 )
 
@@ -953,6 +970,27 @@ def _strip_symbol(**columns: Any) -> StripSymbol:
 
 
 @dataclass(frozen=True)
+class NoCard:
+    """One row of ``no_cards.csv``: the devices of ``cls`` under the place ``under``
+    whose id matches ``devices`` get no card; each is drawn inside its owner, the
+    thing ``owner_relation`` names in ``owner_direction`` that ``owner_to`` takes
+    (as a chain hop's ``to``). The first row that takes a device wins."""
+
+    cls: str
+    under: str | None
+    devices: str | None
+    owner_relation: str
+    owner_direction: str
+    owner_to: str | None
+    reason: str | None
+    source: str | None
+
+
+def _no_card(**columns: Any) -> NoCard:
+    return NoCard(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
 class FrontRow:
     """One row of ``fronts.csv``: a connector, or a numbered range of them, on the
     ``face`` of the devices of ``recipe``, in ``group``, by ``order``.
@@ -1158,6 +1196,7 @@ class PanelTables:
     chains: tuple[ChainStep, ...] = ()
     strip_symbols: tuple[StripSymbol, ...] = ()
     fronts: tuple[FrontRow, ...] = ()
+    no_cards: tuple[NoCard, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -1182,6 +1221,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CHAINS: ChainStep,
         STRIP_SYMBOLS: _strip_symbol,
         FRONTS: FrontRow,
+        NO_CARDS: _no_card,
     }
 )
 
@@ -1475,6 +1515,7 @@ def read_tables(panels_dir: Path) -> PanelTables:
         chains=_read(directory, CHAINS),
         strip_symbols=_read(directory, STRIP_SYMBOLS),
         fronts=_read(directory, FRONTS),
+        no_cards=_read(directory, NO_CARDS),
     )
 
 
