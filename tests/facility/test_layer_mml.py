@@ -423,15 +423,33 @@ def test_an_exported_family_the_mapping_leaves_out_writes_no_record(tmp_path: Pa
 
 def test_the_mml_layer_reads_no_channel_finder_database_module() -> None:
     import ast
+    from importlib.util import resolve_name
 
     import osprey.facility.layers.mml as layer
 
-    imported = []
-    for path in sorted(Path(layer.__file__).parent.glob("*.py")):
+    package = Path(layer.__file__).parent
+    forbidden = "osprey.services.channel_finder.databases"
+    imported: list[str] = []
+    # Every module of the layer, its subpackages included, in either import form.
+    for path in sorted(package.rglob("*.py")):
+        # The package a relative import in this file is resolved against.
+        here = ".".join((layer.__name__, *path.parent.relative_to(package).parts))
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
-                "osprey.services.channel_finder.databases"
-            ):
-                imported.append(f"{path.name}: {node.module}")
+            if isinstance(node, ast.ImportFrom):
+                # ``from a.b import c`` reads ``a.b`` and, when ``c`` is a module, ``a.b.c``;
+                # ``from ..a import c`` reads the ``a`` the dots name from this file's package.
+                base = node.module or ""
+                if node.level:
+                    base = resolve_name("." * node.level + base, here)
+                modules = [base, *(f"{base}.{alias.name}" for alias in node.names)]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            imported.extend(
+                f"{path.relative_to(package).as_posix()}: {module}"
+                for module in modules
+                if module == forbidden or module.startswith(f"{forbidden}.")
+            )
 
     assert imported == []
