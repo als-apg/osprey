@@ -73,6 +73,7 @@ from osprey.facility.panels.view import (
     ChannelGrid,
     CheckRow,
     Control,
+    ControlGroup,
     Elevation,
     Fact,
     Grid,
@@ -235,6 +236,7 @@ BLOCK_NARROWEST = 168
 CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
 CONTROL_TAG_HEIGHT = 18
+OPERATE_COLUMNS = 3  # press groups side by side; an entry group takes the width
 GRID_ROW = ROW + ROW_GAP
 GRID_VALUE = 100
 GRID_NAME_LEAST = 80  # a grid row's name, however wide its value and unit
@@ -2638,27 +2640,59 @@ class _Page:
             x = self.control_tag(x, self.y, kind)
             x = self.small(x + GAP / 2, self.y, meaning, fg=MUTED_TEXT) + WORD_GAP
         self.y += CONTROL_TAG_HEIGHT + 2 * GAP
+        presses = [g for g in operate.groups if g.kind != "entry"]
+        for start in range(0, len(presses), OPERATE_COLUMNS):
+            row = presses[start : start + OPERATE_COLUMNS]
+            width = (STRIP_WIDTH - COLUMN_GAP * (OPERATE_COLUMNS - 1)) / OPERATE_COLUMNS
+            if len(row) == 1:
+                width = STRIP_WIDTH
+            top, bottom = self.y, self.y
+            for k, group in enumerate(row):
+                self.y = top
+                self.control_group(group, self.x0 + k * (width + COLUMN_GAP), width)
+                bottom = max(bottom, self.y)
+            self.y = bottom
         for group in operate.groups:
-            x = self.control_tag(self.x0, self.y, group.kind.upper())
-            if group.title:
-                self.small(x + GAP, self.y, group.title, fg=MUTED_TEXT)
-            self.y += CONTROL_TAG_HEIGHT + ROW_GAP + 2
-            if group.kind == "entry":
-                for control in group.controls:
-                    self.entry(control)
-            else:
-                x = self.x0
-                for control in group.controls:
-                    if x + CONTROL_WIDTH > self.x0 + STRIP_WIDTH:
-                        x = self.x0
-                        self.y += CONTROL_HEIGHT + GAP
-                    self.press(x, self.y, control, group.kind == "choice")
-                    x += CONTROL_WIDTH + GAP
-                self.y += CONTROL_HEIGHT + ROW_GAP
-            for line in _wrap(group.writes, STRIP_WIDTH, SMALL_SIZE):
-                self.small(self.x0, self.y, line, fg=MUTED_TEXT)
-                self.y += SMALL_LINE
-            self.y += GAP
+            if group.kind == "entry":  # a row each: name, now, field, Apply
+                self.control_group(group, self.x0, STRIP_WIDTH)
+
+    def control_group(self, group: ControlGroup, x0: float, width: float) -> None:
+        """One group in a column from *x0*, *width* wide: its tag and title, its
+        controls (an action with a status beside it shows the live word), the line
+        of what it writes."""
+        x = self.control_tag(x0, self.y, group.kind.upper())
+        if group.title:
+            self.small(
+                x + GAP, self.y, _cut(group.title, x0 + width - x - GAP, SMALL_SIZE), fg=MUTED_TEXT
+            )
+        self.y += CONTROL_TAG_HEIGHT + ROW_GAP + 2
+        if group.kind == "entry":
+            for control in group.controls:
+                self.entry(control)
+        else:
+            x = x0
+            for control in group.controls:
+                if x > x0 and x + CONTROL_WIDTH > x0 + width:
+                    x = x0
+                    self.y += CONTROL_HEIGHT + GAP
+                self.press(x, self.y, control, group.kind == "choice")
+                x += CONTROL_WIDTH + GAP
+                if group.kind == "action" and control.status:  # what it is now, beside it
+                    room = min(VALUE_WIDTH, x0 + width - x)
+                    if room > GRID_VALUE / 2:
+                        self.shown_value(
+                            x, self.y + (CONTROL_HEIGHT - ROW) / 2, room, control.status, "word",
+                            self.graph_words(control.status), size=BLOCK_TEXT_SIZE,
+                        )  # fmt: skip
+                        x += room + GAP
+            self.y += CONTROL_HEIGHT + ROW_GAP
+        for line in _wrap(group.writes, width, SMALL_SIZE):
+            self.small(x0, self.y, line, fg=MUTED_TEXT)
+            self.y += SMALL_LINE
+        self.y += GAP
+
+    def graph_words(self, channel: str) -> tuple[tuple[str, str], ...]:
+        return tuple(self.graph.state_words(channel).items())
 
     def control_tag(self, x: float, y: float, kind: str) -> float:
         """A small tag saying what kind of control follows. Returns its right edge."""

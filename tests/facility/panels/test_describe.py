@@ -139,7 +139,10 @@ def test_a_setpoint_is_an_entry_and_its_readback_stands_in_the_channels(panel_gr
         ("entry", ["XR01-QF1:Current-SP"])
     ]
     (grid,) = _section(view, "all channels").items
-    assert [channel for _short, channel in grid.rows] == ["XR01-QF1:Current-RB"]
+    assert [channel for _short, channel in grid.rows] == [
+        "XR01-QF1:Current-RB",
+        "XR01-QF1:Current-SP",  # every channel, the one operate sets too
+    ]
     assert grid.rows[0][0] == "XR01-QF1:Current-RB"  # no device prefix to cut
 
 

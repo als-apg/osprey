@@ -1202,6 +1202,8 @@ def _operate(
                 label = hit.role.label or _role_title(role)
                 items.append(Control(label, hit.channel, press, shade or hit.channel))
                 used.add(hit.channel)
+            if kind == "choice" and len(items) == 1:  # one segment is no choice
+                kind, items = _one_segment(graph, items[0])
             if items:
                 groups.append(
                     ControlGroup(
@@ -1244,6 +1246,20 @@ def _operate(
             ControlGroup("entry", None, tuple(entries), _writes("entry", entries, thing.id))
         )
     return (Operate(tuple(groups)) if groups else None), used, unstated
+
+
+def _one_segment(graph: PanelGraph, control: Control) -> tuple[str, list[Control]]:
+    """A choice role with one stated segment: a choice of every state its channel's
+    words state, when they state two or more; else an action that writes its value,
+    with the live status beside it."""
+    stated = [
+        Control(w, control.channel, number, control.status)
+        for v, w in graph.state_words(control.channel).items()
+        if (number := _as_number(v)) is not None
+    ]
+    if len(stated) > 1 and any(c.press_value == control.press_value for c in stated):
+        return "choice", stated
+    return "action", [control]
 
 
 def unstated_presses(graph: PanelGraph, devices: Iterable[str]) -> tuple[int, int]:
@@ -1323,24 +1339,6 @@ def _writes(kind: str, controls: list[Control], device: str) -> str:
     ):
         return f"each writes its channel = {_press_text(controls[0].press_value)} once ({names})"
     return f"writes {names}: {presses}, once per press"
-
-
-def _drawn_in(graph: PanelGraph, thing: Thing, items: list[Item]) -> set[str]:
-    """The channels a drawing shows: a probe's readouts and marker, a picture's parts
-    by their signal, the live values of the calibration rows."""
-    found: set[str] = set()
-    for item in items:
-        if isinstance(item, Probe):
-            found |= {c for part in item.parts for c in (part.channel, part.channel_y) if c}
-        elif isinstance(item, Picture):
-            for part in item.parts:
-                if part.signal:
-                    channel = graph.picture_channel(thing.id, part.signal)
-                    if channel is not None:
-                        found.add(channel)
-        elif isinstance(item, Calibrations):
-            found |= {c for row in item.rows for c in row.channels}
-    return found
 
 
 #: The recipe of a device that no ``card_recipes.csv`` row takes; its sections and
@@ -1652,26 +1650,58 @@ def _listed(graph: PanelGraph, device: str, channels: list[Channel]) -> list[Cha
     return [c for c in channels if c.name not in internal]
 
 
-def _channel_count(
-    graph: PanelGraph, thing: Thing, shown: list[Channel], hidden: int
-) -> ChannelCount:
-    """The counts line for a device over :data:`GRID_CAP`: its own channels, each other
-    device's channels its roles show, the driver-internal records."""
-    parts = [f"{len(shown)} on {thing.cls or thing.kind} {thing.id}"]
-    others: dict[str, set[str]] = {}
-    for hit in graph.roles(thing.id):
+def _owner_name(graph: PanelGraph, channel: str) -> str:
+    """The class and id of the device a channel belongs to."""
+    owner = graph.channel(channel).thing
+    if owner is None:
+        return "no device"
+    try:
+        thing = graph.thing(owner, "device")
+    except KeyError:
+        return owner
+    return f"{thing.cls or 'device'} {thing.id}"
+
+
+def _card_channels(
+    graph: PanelGraph, thing: Thing, hits: list[RoleHit], channels: list[Channel]
+) -> tuple[tuple[str, str], ...]:
+    """Every channel a card is about, as (short name, channel): the device's own (not
+    the driver-internal), then, of each other device its roles reach (a controller,
+    an interlock), every channel beside the ones a role names (the same name up to
+    its last ``:``: the controller's channels for this device's port), named short
+    from that device."""
+    rows = [(_short_channel(c.name, thing.id), c.name) for c in channels]
+    seen = {c.name for c in channels}
+    branches: dict[str, set[str]] = {}
+    for hit in hits:
         if hit.owner != thing.id and hit.role.role != INTERNAL_ROLE:
-            others.setdefault(hit.owner, set()).add(hit.channel)
-    for owner, found in others.items():
+            branches.setdefault(hit.owner, set()).add(hit.channel.rsplit(":", 1)[0] + ":")
+    for owner, prefixes in branches.items():
         try:
-            cls = graph.thing(owner, "device").cls or "device"
+            others = _listed(graph, owner, graph.channels(owner, "device"))
         except KeyError:
-            cls = "device"
-        parts.append(f"{len(found)} on {cls} {owner}")
+            continue
+        for channel in others:
+            if channel.name not in seen and channel.name.startswith(tuple(prefixes)):
+                seen.add(channel.name)
+                rows.append((_short_channel(channel.name, owner), channel.name))
+    return tuple(rows)
+
+
+def _channel_count(
+    thing: Thing, rows: tuple[tuple[str, str], ...], owners: Mapping[str, str], hidden: int
+) -> ChannelCount:
+    """The counts line for a device over :data:`GRID_CAP`: its own channels, each
+    other device's (*owners*: channel to its device's class and id), the
+    driver-internal records."""
+    counts: Counter[str] = Counter()
+    for _short, channel in rows:
+        counts[owners.get(channel, f"{thing.cls or thing.kind} {thing.id}")] += 1
+    parts = [f"{n} on {who}" for who, n in counts.items()]
     if hidden:
         parts.append(_INTERNAL_COUNT.format(hidden))
     link = Link("open the full list", Target("channels", "device", thing.id))
-    return ChannelCount(len(shown), tuple(parts), link)
+    return ChannelCount(len(rows), tuple(parts), link)
 
 
 def channel_list(graph: PanelGraph, device_id: str) -> View:
@@ -1745,37 +1775,32 @@ def _drawn_card(
     tiles = _key_tiles(graph, thing, hits)
     name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
     drawings: list[tuple[str, list[Item]]] = []
-    in_chain: set[str] = set()
     nowhere = False
     for row in graph.card_sections(name):
         if row.kind == "chain" and row.members:
-            chain, used, _state = recipe_chain(graph, index, thing, hits, name, row)
+            chain, _used, _state = recipe_chain(graph, index, thing, hits, name, row)
             drawings.append((row.title, [chain]))
-            in_chain |= used
         elif row.kind == "strip":
             strip = card_strip(graph, index, thing, row)
             if strip is None:
                 nowhere = True
             else:
                 drawings.append((row.title, [strip]))
-                in_chain |= {m.channel for m in strip.members if m.focus and m.channel}
     if not graph.card_sections(name):  # no recipe rows: the built-in relations chain
-        chain, in_chain = _default_chain(graph, index, thing, hits)
+        chain, _shown = _default_chain(graph, index, thing, hits)
         drawings.append((CARD_SECTIONS["relations"], [chain]))
-    operate, in_operate, _unstated = _operate(graph, thing, hits, channels)
-    drawn = {t.channel for t in tiles if t.channel} | in_chain | in_operate
-    drawn |= _drawn_in(graph, thing, [item for _title, items in extra for item in items])
+    operate, _in_operate, _unstated = _operate(graph, thing, hits, channels)
     columns = (
         int(recipe.channels_cols)
         if recipe is not None and recipe.channels_cols
         else _DEFAULT_COLUMNS
     )
-    rows = tuple(
-        (_short_channel(c.name, thing.id), c.name) for c in channels if c.name not in drawn
-    )
+    rows = _card_channels(graph, thing, hits, channels)
     listing: list[Item] = []
-    if len(channels) > GRID_CAP:
-        listing = [_channel_count(graph, thing, channels, hidden)]
+    if len(rows) > GRID_CAP:
+        own = {c.name for c in channels}
+        owners = {c: _owner_name(graph, c) for _s, c in rows if c not in own}
+        listing = [_channel_count(thing, rows, owners, hidden)]
     elif rows or hidden:
         listing = [ChannelGrid(rows, columns, hidden)]
     pairs: list[tuple[str, list[Item]]] = [

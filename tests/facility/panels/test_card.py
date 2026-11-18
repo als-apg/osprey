@@ -79,7 +79,7 @@ def test_a_drawn_card_has_its_title_line_numbered_sections_and_no_signal_table(p
         "1 · RELATIONS",
         "2 · CALIBRATION",
         "3 · OPERATE",
-        "4 · ALL CHANNELS (1)",
+        "4 · ALL CHANNELS (2)",  # every channel, those drawn above too
     ]  # where and sources: one muted line each, no section
     texts = {n["props"]["text"] for n in _by_type(doc, "text-label")}
     assert not texts & {"SIGNAL", "SETPOINT", "READBACK", "SIGNALS", "SETTINGS"}
@@ -180,7 +180,7 @@ def test_tiles_and_controls_come_from_the_channel_roles(tmp_path) -> None:
     graph = _roles_graph(tmp_path, roles, labels)
     pump = stub_render(device_card(graph, "XR01:IP1"), graph)
     assert _text(pump, "PRESSURE") and _text(pump, "STATE")  # one tile per role
-    (word,) = [n for n in _by_type(pump, "text-label") if n.get("rules") and n["props"].get("tooltip") == "XR01-IP1:State-Sts"]  # fmt: skip
+    word = [n for n in _by_type(pump, "text-label") if n.get("rules") and n["props"].get("tooltip") == "XR01-IP1:State-Sts"][0]  # fmt: skip
     conditions = word["rules"][0]["conditions"]
     assert [c["value"] for c in conditions] == ["Off", "Running"]
     supply = stub_render(device_card(graph, "XR01:PS1"), graph)
@@ -365,6 +365,16 @@ def test_a_walked_role_takes_the_channel_of_its_port_and_a_contested_one_none(tm
     assert [(h.role.role, h.channel, h.owner, h.port) for h in hits] == [
         ("pressure", "XR01-CH2:IP2:P", "XR01:CH2", "CH2"),
         ("state", "XR01-IP1:State-Sts", "XR01:IP1", None),
+    ]
+    from osprey.facility.panels.view import ChannelGrid
+
+    view = device_card(graph, "XR01:IP1")
+    grid = next(i for s in view.sections for i in s.items if isinstance(i, ChannelGrid))
+    # its own, then the chassis's channels beside the one its port names; not IP1's
+    assert [c for _s, c in grid.rows] == [
+        "XR01-IP1:Pressure-RB",
+        "XR01-IP1:State-Sts",
+        "XR01-CH2:IP2:P",
     ]
 
 
@@ -714,3 +724,51 @@ def test_a_device_over_the_cap_shows_counts_and_opens_its_channels_view(tmp_path
         "XR01-QF1:Current-RB",
         "XR01-QF1:Current-SP",
     }
+
+
+def test_a_choice_of_one_stated_segment_is_an_action_with_the_status_beside_it(tmp_path):
+    roles = (
+        "PowerSupply,bypass,*:On-Cmd,device,choice,,,1,Bypass,stated,S,1,l\n"
+        "PowerSupply,on,*:On-Sts,device,word,,,,,stated,S,1,l\n"
+    )
+    labels = "XR01-PS1:On-Sts,0,Normal,S,1,l\nXR01-PS1:On-Sts,1,Bypassed,S,1,l\n"
+    graph = _roles_graph(tmp_path / "a", roles, labels)
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    (button,) = _by_type(doc, "pv-button")
+    assert (button["props"]["label"], button["props"]["pressValue"]) == ("Bypass", 1)
+    assert button["props"]["backgroundColor"]["$role"] == "Control_Action"
+    tags = [
+        n["props"]["text"]
+        for n in _by_type(doc, "text-label")
+        if n["props"]["text"] in ("ACTION", "CHOICE")
+    ]
+    assert tags == ["ACTION", "CHOICE", "ACTION"]  # the legend's two, then the group's
+    beside = [
+        n for n in nodes(doc)
+        if n.get("rules") and n["props"].get("tooltip") == "XR01-PS1:On-Sts"
+        and n["geometry"]["y"] >= button["geometry"]["y"]
+        and n["geometry"]["x"] > button["geometry"]["x"]
+    ]  # fmt: skip
+    assert beside  # the live word, right of the button
+    both = labels + "XR01-PS1:On-Cmd,0,Normal,S,1,l\nXR01-PS1:On-Cmd,1,Bypass,S,1,l\n"
+    graph = _roles_graph(tmp_path / "b", roles, both)
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    assert [
+        (b["props"]["label"], b["props"]["pressValue"]) for b in _by_type(doc, "pv-button")
+    ] == [
+        ("Normal", 0),
+        ("Bypass", 1),
+    ]  # the off value stated: a choice of both
+
+
+def test_press_groups_stand_side_by_side_and_entries_take_the_width(tmp_path) -> None:
+    roles = (
+        "PowerSupply,reset,*:On-Cmd,device,action,,,1,Reset,stated,S,1,l\n"
+        "PowerSupply,start,*:On-Cmd,device,action,,,1,Start,stated,S,1,l\n"
+    )
+    graph = _roles_graph(tmp_path, roles)
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    reset, start = sorted(_by_type(doc, "pv-button"), key=lambda n: n["geometry"]["x"])
+    assert reset["geometry"]["y"] == start["geometry"]["y"]
+    third = (layout.STRIP_WIDTH - 2 * layout.COLUMN_GAP) / 3 + layout.COLUMN_GAP
+    assert abs(start["geometry"]["x"] - reset["geometry"]["x"] - third) < 0.1

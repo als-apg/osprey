@@ -1427,8 +1427,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``card`` whose ``level`` names its recipe, else its roles), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its
    writable channels: a choice of stated states, an action, or a typed value
-   applied with Apply; "no operator actions stated" when there is none), every
-   other channel in a grid (up to 60; a device with more shows the counts by
+   applied with Apply; press groups side by side, up to three; a choice with one
+   stated value is an action with the live status beside it; "no operator
+   actions stated" when there is none), every channel the card is about in a
+   grid (its own, and of a device its roles reach the channels beside the ones a
+   role names; up to 60; a device with more shows the counts by
    owner and opens its ``channels`` view), then one muted line for where it is
    and one for its sources (the count of statements and their documents, each
    statement on hover). A channel ``channel_roles.csv`` gives the role

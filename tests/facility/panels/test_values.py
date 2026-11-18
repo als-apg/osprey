@@ -95,9 +95,9 @@ def test_a_pickup_readout_prints_its_unit_once(bpm_graph) -> None:
         and n["props"]["pv"] == "XR01:BPM1:position_x_readback"
         and n["props"].get("showUnits") is True
     ]
-    assert len(readouts) == 1
+    assert readouts
     room = layout.value_width("mm", layout.TEXT_SIZE)
-    assert readouts[0]["geometry"]["width"] >= room
+    assert all(n["geometry"]["width"] >= room for n in readouts)
 
 
 # -- the band ----------------------------------------------------------------------

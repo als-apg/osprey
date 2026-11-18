@@ -227,7 +227,7 @@ def test_a_value_held_in_several_channels_shows_them_all_in_channel_order(tmp_pa
         and a["geometry"]["y"] == b["geometry"]["y"]
         and a["geometry"]["x"] + a["geometry"]["width"] <= b["geometry"]["x"]
     ]  # fmt: skip
-    assert len(side_by_side) == 1  # the calibration row; the card's own rows stack
+    assert side_by_side  # the calibration row
     cells = _cells(calibration_overview(graph, "XR-QUAD", "current_offset"))
     assert cells["XR01:QF1"].channels == names
     bound = stub_render(calibration_overview(graph, "XR-QUAD", "current_offset"), graph)

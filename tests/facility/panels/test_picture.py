@@ -222,9 +222,11 @@ def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
 
     (light,) = on_drawing("polygon", "switch 1", "tooltip")
     assert light.get("rules") and bound(doc, light) == ("XR01-QF1:Current-SP",)
-    (number,) = on_drawing("pv-label", "XR01-QF1:Current-RB", "pv")
     (gauge,) = _tipped(doc, "gauge 1")  # a plain dot, its number beside it, outward
     gx, gy = _centre(gauge)
+    number = min(  # the one beside it; the grid below lists it again
+        on_drawing("pv-label", "XR01-QF1:Current-RB", "pv"), key=lambda n: abs(_centre(n)[1] - gy)
+    )
     assert _centre(number)[1] == pytest.approx(gy, abs=1)
     assert number["geometry"]["x"] + number["geometry"]["width"] <= gx
     (plain,) = _tipped(doc, "switch 2")
