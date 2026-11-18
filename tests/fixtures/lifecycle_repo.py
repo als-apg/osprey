@@ -3113,10 +3113,27 @@ def _presets_root() -> Path:
     The key the cached values below are filed under, so a test that points the
     presets at its own directory gets that directory's values, never the
     package's (or the reverse).
+
+    The key is the directory's path, not its content: a test that patches in a
+    directory of its own and then edits a preset in it after the exemplar was
+    first materialized must call :func:`clear_exemplar_caches` before asking
+    again, or it is served the values from before its edit. No caller does
+    that today (each patching test either never materializes the exemplar or
+    does so in another test), which is why the path is enough.
     """
     from osprey.cli import build_profile_presets
 
     return build_profile_presets._presets_dir()
+
+
+def clear_exemplar_caches() -> None:
+    """Forget every cached preset hash and exemplar source zone.
+
+    For a test that edits a patched presets directory in place after the
+    exemplar was materialized from it (see :func:`_presets_root`).
+    """
+    _preset_hash_in.cache_clear()
+    _exemplar_source_files_in.cache_clear()
 
 
 def _preset_hash(preset_name: str) -> str:
