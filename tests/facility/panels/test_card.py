@@ -1766,3 +1766,17 @@ def test_a_group_all_of_whose_literal_connectors_are_left_out_is_dropped(tmp_pat
     graph = _literal(tmp_path, ())
     front = _front_of(device_card(graph, "XR01:PS1"))
     assert [g.title for g in front.groups] == ["outputs"]
+
+
+def test_a_front_a_chain_and_a_ring_strip_each_say_schematic_not_to_scale(tmp_path):
+    said = "schematic, not to scale"
+    front = _two_groups(tmp_path / "front", phases=True)
+    assert _text(stub_render(device_card(front, "XR01:PS1"), front), said)
+    chain = _chained(tmp_path / "chain")
+    assert _text(stub_render(device_card(chain, "XR01:IP1"), chain), said)
+    ring = _sectioned(
+        tmp_path / "ring",
+        "pump,1,ring-strip,The pumps here,,same place,,pressure,,S\n",
+        "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n",
+    )
+    assert _text(stub_render(device_card(ring, "XR01:IP1"), ring), said)

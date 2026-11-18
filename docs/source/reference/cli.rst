@@ -1450,7 +1450,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    are drawn apart by class; a range with nothing in it is left out. ``write``
    prints per recipe the connectors with something stated, contested or nothing,
    the readings apart, and the devices with every connector that is not a reading
-   stated, some or none. A ``ring-strip`` section draws a group
+   stated, some or none. A front, a chain section and a ring-strip each carry the
+   caption "schematic, not to scale": their sizes and spacings say nothing of the
+   device's. A ``ring-strip`` section draws a group
    (``same place``: the devices of the card's recipe in the device's place; or
    ``<relation> <direction>``: the devices that relation names) one column each,
    by ring position, else in number order with "in number order: positions not

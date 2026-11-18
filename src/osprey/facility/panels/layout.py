@@ -557,7 +557,8 @@ _STATED = "STATED"
 _NOT_STATED_HEAD = "NOT STATED"
 _LADDER_NO_VALUE = "the value is not served: no dot"
 _LADDER_LEFT_OUT = "set points not served, left out: {}"
-_STRIP_TITLE = "IN BEAM ORDER → · schematic, not to scale"
+_NOT_TO_SCALE = "schematic, not to scale"
+_STRIP_TITLE = f"IN BEAM ORDER → · {_NOT_TO_SCALE}"
 _LOOKS_LEGEND = (
     "fill = component type · red ring = fault · amber ring = warning · dashed = no health rule"
 )
@@ -2807,7 +2808,13 @@ class _Page:
             for text in _wrap(ring.caption, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
-        self.y += ROW_GAP
+        self.not_to_scale()
+
+    def not_to_scale(self) -> None:
+        """The caption under a drawing whose sizes and spacings say nothing of the
+        device's: "schematic, not to scale"."""
+        self.small(self.x0, self.y, _NOT_TO_SCALE, fg=MUTED_TEXT)
+        self.y += SMALL_LINE + ROW_GAP
 
     def ok_formula(self, channels: Sequence[str]) -> tuple[str, dict[str, str]] | None:
         """How many of *channels*' lights are ok now: a sum of one term per light, its
@@ -2961,7 +2968,7 @@ class _Page:
             for text in _wrap(front.caption, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
-        self.y += ROW_GAP
+        self.not_to_scale()
 
     def front_line(self, line: list[tuple[FrontGroup, list[Connector]]], pitch: float) -> None:
         """One line of a front: each group's title over its part of the body, the
@@ -3182,7 +3189,7 @@ class _Page:
             for line in _wrap(chain.foot, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, line, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
-        self.y += ROW_GAP
+        self.not_to_scale()
 
     @staticmethod
     def chain_rows(
