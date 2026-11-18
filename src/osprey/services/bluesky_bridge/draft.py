@@ -9,26 +9,14 @@ always equals SSE frame order. This module is intentionally its own
 inline `@app.<verb>` routes — the draft's state, lock, and broadcaster are
 self-contained and don't need anything else `app.py` owns.
 
-Per-field value validation (`PATCH /draft`'s `plan_args_patch`) uses
-``TypeAdapter(Annotated[field.annotation, field])`` — the field's own
-``FieldInfo`` instance as the ``Annotated`` metadata directly, NOT unpacked
-with a leading ``*``. The starred form (``Annotated[field.annotation,
-*field.metadata]``) raises ``TypeError`` for any field with no
-``Field()``-level constraints (its ``metadata`` list is empty, and
-``Annotated`` requires at least one metadata argument) — verified against
-pydantic 2.12.5. Passing the ``FieldInfo`` itself works uniformly whether or
-not the field carries constraints, which is why every per-field validation
-call in this module goes through :func:`_validate_field` rather than
-resolving a fresh adapter ad hoc.
-
-Every coerced value is additionally passed back through
-``TypeAdapter.dump_python(..., mode="json")`` before being stored. Without
-this, a field typed as a nested pydantic model (e.g. `grid_scan`'s
-``axes: list[GridAxis]``) would store raw model instances in ``plan_args``:
-not JSON-serializable by the plain ``json.dumps`` the SSE broadcaster uses,
-and not comparable by ordinary ``==`` in the exact same way plain dicts are
-for :func:`_diff_keys`. Dumping to JSON-safe primitives up front keeps the
-draft's on-the-wire and in-memory representations identical.
+Per-field value validation (`PATCH /draft`'s `plan_args_patch`) goes through
+:func:`_validate_field`, which turns `plan_fields.validate_field_value` -- the
+one judge of "is this value allowed for this field" -- into the route's 422
+bodies. That judge returns JSON-safe primitives, so the draft's on-the-wire and
+in-memory representations are identical: a nested-model field (e.g.
+`grid_scan`'s ``axes: list[GridAxis]``) stores plain dicts, which the SSE
+broadcaster's ``json.dumps`` can serialize and :func:`_diff_keys` can compare
+with ``==``.
 
 Plan-model resolution (`get_facility_plans()`) does synchronous file I/O — it
 re-scans the session-plan directory on every call (see `plan_loader.py`).
@@ -52,12 +40,13 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, ValidationError
 
+from .plan_fields import validate_field_value
 from .queue_backend import (
     REASON_DRAFT_REVISION_ALREADY_LAUNCHED,
     REASON_NO_DRAFT,
@@ -236,25 +225,19 @@ def _diff_keys(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
 def _validate_field(model: type[BaseModel], key: str, value: Any) -> Any:
     """Coerce and validate one `plan_args` value against ``model``'s field ``key``.
 
-    Raises `HTTPException(422, ...)` for an unknown field name or a value
-    that fails the field's type/`Field()` constraints. The FieldInfo itself
-    is passed as `Annotated` metadata (never unpacked with `*`) — see the
-    module docstring for why. The returned value is dumped back through
-    `TypeAdapter.dump_python(mode="json")` so the draft only ever stores
-    JSON-safe primitives, never live pydantic model instances.
+    Delegates to `plan_fields.validate_field_value` and turns its two refusals
+    into `HTTPException(422, ...)`: an unknown field name, or a value that fails
+    the field's type/`Field()` constraints. Returns JSON-safe primitives.
     """
-    field = model.model_fields.get(key)
-    if field is None:
+    try:
+        return validate_field_value(model, key, value)
+    except KeyError as exc:
         raise HTTPException(
             status_code=422,
             detail={"field": key, "error": f"unknown field {key!r} for this plan"},
-        )
-    adapter: TypeAdapter[Any] = TypeAdapter(Annotated[field.annotation, field])
-    try:
-        coerced = adapter.validate_python(value)
+        ) from exc
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail={"field": key, "error": str(exc)}) from exc
-    return adapter.dump_python(coerced, mode="json")
 
 
 async def _resolve_plan_schema(plan_name: str) -> type[BaseModel]:
