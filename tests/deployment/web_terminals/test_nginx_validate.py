@@ -508,6 +508,26 @@ _REDIRECT_PROBE_PATH = "/u/alice/?token=x"
 _OTHER_NAMES = ("localhost", "127.0.0.1", "alias.example")
 
 
+#: How many 0.05 s polls a probe gives nginx's listeners to answer, in all: the
+#: one second the fixed ``sleep 1`` it replaced always waited.
+_LISTEN_POLLS = 20
+
+
+def _await_listeners(urls: list[str]) -> str:
+    """Shell that waits until every one of *urls* answers, for at most :data:`_LISTEN_POLLS` polls.
+
+    Any HTTP answer counts (``curl -s`` exits 0 on a 301 or a 503 alike); only a
+    refused connection waits. nginx binds its listeners before it daemonizes, so
+    the first poll normally answers; the bound is the old fixed wait, after which
+    the probes run as they did after it.
+    """
+    ready = " && ".join(f"curl -sk -o /dev/null '{url}'" for url in dict.fromkeys(urls))
+    return (
+        f"{{ i=0; until {{ {ready}; }} || [ $i -ge {_LISTEN_POLLS} ]; "
+        "do i=$((i + 1)); sleep 0.05; done; }"
+    )
+
+
 def _probe_script(requests: list[tuple[str, str]]) -> str:
     """A shell script that starts nginx and prints one answer per request.
 
@@ -520,7 +540,7 @@ def _probe_script(requests: list[tuple[str, str]]) -> str:
         f"-H 'Host: {host}' '{url}')\""
         for host, url in requests
     )
-    return f"nginx && sleep 1\n{probes}\n"
+    return f"nginx && {_await_listeners([url for _, url in requests])}\n{probes}\n"
 
 
 def _probe_answers(stdout: str) -> dict[tuple[str, str], str]:
@@ -1152,7 +1172,7 @@ def test_a_terminal_with_nothing_listening_answers_with_the_starting_page() -> N
             entrypoint="sh",
             command=(
                 "-c",
-                "nginx && sleep 1\n"
+                f"nginx && {_await_listeners([f'http://127.0.0.1:{port}/'])}\n"
                 f"curl -s -D - -H 'Host: {origin_host}' http://127.0.0.1:{port}/u/alice/\n"
                 "echo '=====HEAD'\n"
                 f"curl -s -I -H 'Host: {origin_host}' http://127.0.0.1:{port}/u/alice/\n"
