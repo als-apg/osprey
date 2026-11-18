@@ -12,7 +12,7 @@ The child is pointed at the mock connector through its dotted class path, which
 deployment's own control system). That runs the entire real path — resolver,
 factory, ``connect()`` — with no EPICS, no gateway and no network.
 
-The child runs with ``cwd`` set to a scratch directory and no ``CONFIG_FILE``,
+The child runs with ``cwd`` set to a scratch directory and no ``OSPREY_CONFIG``,
 so no project config is reachable: the write tier is then ``never``, which is
 the posture the write tests assert against. The write-posture tests are the
 exception — the tier is read from the project config and the switch from the
@@ -137,7 +137,7 @@ class Child:
 
     def __init__(self, cwd, env_extra=None, pass_fds=()):
         self.cwd = Path(cwd)
-        env = {k: v for k, v in os.environ.items() if k != "CONFIG_FILE"}
+        env = {k: v for k, v in os.environ.items() if k not in ("CONFIG_FILE", "OSPREY_CONFIG")}
         env["PYTHONPATH"] = PYTHONPATH
         env.update(env_extra or {})
         self.proc = subprocess.Popen(
@@ -718,7 +718,7 @@ def test_the_watchdog_exits_a_child_whose_parent_died(tmp_path):
         f"open({str(pid_file)!r}, 'w').write(str(proc.pid))\n"
         "os._exit(0)\n"
     )
-    env = {k: v for k, v in os.environ.items() if k != "CONFIG_FILE"}
+    env = {k: v for k, v in os.environ.items() if k not in ("CONFIG_FILE", "OSPREY_CONFIG")}
     env["PYTHONPATH"] = PYTHONPATH
 
     try:
@@ -821,7 +821,7 @@ def test_a_connector_host_handed_to_a_subreaper_exits(tmp_path):
         "os.waitpid(pid, 0)\n"
         "print('alive')\n"
     )
-    env = {k: v for k, v in os.environ.items() if k != "CONFIG_FILE"}
+    env = {k: v for k, v in os.environ.items() if k not in ("CONFIG_FILE", "OSPREY_CONFIG")}
     env["PYTHONPATH"] = PYTHONPATH
 
     try:
@@ -1068,7 +1068,7 @@ def mixed_deployment(tmp_path, monkeypatch):
     """
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": MIXED_CONTROL_SYSTEM}))
-    monkeypatch.setenv("CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
     arm_switch(monkeypatch, tmp_path / "agent-data", "va", stamp=False)
     return MIXED_CONTROL_SYSTEM
 
@@ -1208,7 +1208,7 @@ def va_deployment(tmp_path, monkeypatch):
         config = _va_config(gateways)
         config_file = tmp_path / "config.yml"
         config_file.write_text(yaml.safe_dump(config))
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
         monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
         return config
 
@@ -1549,6 +1549,6 @@ def test_an_empty_gateways_table_rules_no_role():
 def test_the_readonly_mirror_reports_the_write_tier(tmp_path, monkeypatch, section, expected):
     config_file = tmp_path / "config.yml"
     config_file.write_text(yaml.safe_dump({"control_system": section}))
-    monkeypatch.setenv("CONFIG_FILE", str(config_file))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
 
     assert host._writes_enabled_input() is expected

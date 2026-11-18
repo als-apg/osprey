@@ -8,8 +8,10 @@ shell values it replaced come from one parse, so the two can never disagree on
 an inline comment, an escape or a multi-line value.
 
 :func:`parse_dotenv_file` and :func:`parse_dotenv_text` are a separate, tiny
-dependency-free parser that the framework's ``.env`` file editors use; writing
-the files is the framework's deployment layer's (``osprey.deployment.dotenv``).
+dependency-free parser that the framework's ``.env`` file editors use, and
+:func:`merge_chain` reads the chain with it for the framework's deploy-time
+readers; writing the files is the framework's deployment layer's
+(``osprey.deployment.dotenv``).
 """
 
 from __future__ import annotations
