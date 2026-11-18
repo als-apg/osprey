@@ -56,6 +56,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import unicodedata
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -4861,6 +4862,12 @@ PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests",)
 BROWSER_MARKER = "browser"
 
 
+def _identifier_text(source: str) -> str:
+    """*source* as Python reads its identifiers (NFKC-normalized), so a name it
+    reads is a substring: the text a literal prefilter checks."""
+    return source if source.isascii() else unicodedata.normalize("NFKC", source)
+
+
 def _module_marks(source: str) -> set[str]:
     """The pytest marker names a module applies to every test it defines.
 
@@ -4869,8 +4876,13 @@ def _module_marks(source: str) -> set[str]:
     workflow-wiring check has any business doing. Both ``pytestmark = [...]``
     and the annotated spelling are read, and a bare ``pytestmark =
     pytest.mark.browser`` is one mark rather than none.
+
+    A module that never spells ``pytestmark`` is not parsed: the name is one
+    identifier token, read after NFKC normalization, so it applies no mark.
     """
     marks: set[str] = set()
+    if "pytestmark" not in _identifier_text(source):
+        return marks
     for node in ast.parse(source).body:
         if isinstance(node, ast.AnnAssign):
             targets, value = [node.target], node.value
@@ -4906,13 +4918,16 @@ def _browser_suites_on_disk_once() -> tuple[str, ...]:
     Discovery follows the marker, never the filename: the marker is the
     module's own declaration that it needs a browser, and a suite is free to
     be called anything. A filename convention accounts only for the modules
-    that follow it and passes over every other in silence.
+    that follow it and passes over every other in silence. A module that never
+    spells the marker's name cannot apply it, so it is not parsed.
     """
     return tuple(
         sorted(
             path.relative_to(REPO_ROOT).as_posix()
             for path, source in _test_tree_sources().items()
-            if "__pycache__" not in path.parts and BROWSER_MARKER in _module_marks(source)
+            if "__pycache__" not in path.parts
+            and BROWSER_MARKER in _identifier_text(source)
+            and BROWSER_MARKER in _module_marks(source)
         )
     )
 
@@ -4960,6 +4975,9 @@ def test_the_marker_discovery_reads_the_marker_not_the_name() -> None:
     assert BROWSER_MARKER in _module_marks("import pytest\n\npytestmark = pytest.mark.browser\n")
     assert BROWSER_MARKER not in _module_marks("import pytest\n\npytestmark = [pytest.mark.slow]\n")
     assert _module_marks("x = 1\n") == set()
+    assert BROWSER_MARKER in _module_marks(
+        "import pytest\n\n\uff50ytestmark = pytest.mark.browser\n"
+    ), "a name the prefilter skips must be one Python would not read as pytestmark"
 
 
 def test_every_browser_suite_is_collected_by_exactly_one_browser_step(
