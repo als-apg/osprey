@@ -40,17 +40,22 @@ from osprey.interfaces.web_terminal.routes.panels import router
 from .conftest import bare_route_app
 
 # A minimal but fully compliant entry HTML: links the design-system sheets and the
-# shared font stylesheet, loads the pre-paint boot script, and uses only
-# var(--…) tokens (no raw hex).
-_VALID_HTML = """<!DOCTYPE html>
-<html lang="en"><head>
+# shared font stylesheet, loads the pre-paint boot script, declares the page-ready
+# mark pending and sets it, and uses only var(--…) tokens (no raw hex).
+_MARK = (
+    '<script type="module">import { markPageReady } from '
+    "'/design-system/js/page-ready.js'; markPageReady();</script>"
+)
+_VALID_HTML = f"""<!DOCTYPE html>
+<html lang="en" data-page-ready="pending"><head>
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
 <link rel="stylesheet" href="/design-system/css/primitives.css">
 <link rel="stylesheet" href="/static/fonts/fonts.css">
+{_MARK}
 <title>Demo</title>
-<style>body { background: var(--bg-primary); color: var(--text-primary); }</style>
+<style>body {{ background: var(--bg-primary); color: var(--text-primary); }}</style>
 </head><body><h1>Demo panel</h1></body></html>
 """
 
@@ -88,6 +93,17 @@ class TestDiscoverPanels:
         assert isinstance(panel, DiscoveredPanel)
         assert (panel.id, panel.label, panel.entry) == ("demo", "Demo", "index.html")
         assert panel.directory == (tmp_path / "demo").resolve()
+
+    def test_a_panel_that_never_marks_itself_ready_is_not_served_and_is_named(
+        self, tmp_path, caplog
+    ):
+        unmarked = _VALID_HTML.replace(' data-page-ready="pending"', "").replace(_MARK, "")
+        _write_panel(tmp_path, "unmarked", manifest=_manifest(), html=unmarked)
+        with caplog.at_level(logging.WARNING):
+            result = discover_panels(tmp_path)
+        assert result == []
+        [record] = [r for r in caplog.records if "unmarked" in r.getMessage()]
+        assert "page-ready mark" in record.getMessage()
 
     def test_dir_without_manifest_is_silently_skipped(self, tmp_path):
         (tmp_path / "notapanel").mkdir()

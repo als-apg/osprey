@@ -9,8 +9,8 @@ fail-closed static check in isolation:
 - a missing ``manifest.json`` errors;
 - a schema-invalid manifest folds the manifest validator's errors in;
 - a manifest whose ``entry`` file is absent errors;
-- an entry HTML missing the design-system ``<link>`` or the theme-boot
-  ``<script>`` errors;
+- an entry HTML missing the design-system ``<link>``, the theme-boot
+  ``<script>`` or the page-ready mark errors;
 - a raw hex color literal in the HTML/CSS is flagged with its location,
   while a ``var(--…)``-only panel and a hex-shaped *fragment* anchor
   (``href="#section"``) do not false-positive;
@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+import osprey
 from osprey.interfaces.design_system import panels as panels_pkg
 from osprey.interfaces.design_system.panels.validator import (
     MANIFEST_FILENAME,
@@ -33,6 +34,7 @@ from osprey.interfaces.design_system.panels.validator import (
     PanelRule,
     PanelValidationError,
     assert_valid_panel,
+    validate_entry,
     validate_panel,
 )
 
@@ -43,13 +45,17 @@ _TOKENS_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/tokens.css">'
 _BASE_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/base.css">'
 _PRIMITIVES_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/primitives.css">'
 _FONTS_CSS_TAG = '<link rel="stylesheet" href="/static/fonts/fonts.css">'
+_MARK_TAG = (
+    '<script type="module">import { markPageReady } from '
+    "'/design-system/js/page-ready.js'; markPageReady();</script>"
+)
 
 
 def _compliant_html(*, body: str = "") -> str:
     """A minimal, fully-compliant panel entry HTML document."""
     return (
         "<!DOCTYPE html>\n"
-        '<html lang="en">\n'
+        '<html lang="en" data-page-ready="pending">\n'
         "<head>\n"
         '<meta charset="UTF-8">\n'
         f"{_THEME_BOOT_TAG}\n"
@@ -57,6 +63,7 @@ def _compliant_html(*, body: str = "") -> str:
         f"{_BASE_CSS_TAG}\n"
         f"{_PRIMITIVES_CSS_TAG}\n"
         f"{_FONTS_CSS_TAG}\n"
+        f"{_MARK_TAG}\n"
         "<style>\n"
         "  body { background: var(--bg-primary); color: var(--text-primary); }\n"
         "</style>\n"
@@ -115,6 +122,33 @@ def _rules(errors: list[PanelFinding]) -> set[PanelRule]:
 def test_fully_compliant_panel_has_no_errors(tmp_path: Path) -> None:
     panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html())
     assert validate_panel(panel) == []
+
+
+def test_a_panel_that_never_marks_itself_ready_is_a_finding(tmp_path: Path) -> None:
+    html = (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        f"{_THEME_BOOT_TAG}\n{_TOKENS_CSS_TAG}\n{_BASE_CSS_TAG}\n"
+        f"{_PRIMITIVES_CSS_TAG}\n{_FONTS_CSS_TAG}\n"
+        "</head>\n<body></body>\n</html>\n"
+    )
+    panel = _write_panel(tmp_path / "panel", entry_html=html)
+
+    [error] = validate_panel(panel)
+
+    assert error.rule is PanelRule.PAGE_READY
+    assert "never sets the page-ready mark" in error.message
+
+
+def test_validate_entry_judges_a_page_with_no_manifest(tmp_path: Path) -> None:
+    panel = tmp_path / "panel"
+    panel.mkdir()
+    entry = panel / "index.html"
+    entry.write_text(_compliant_html(), encoding="utf-8")
+
+    assert validate_entry(entry, panel) == []
+    assert _rules(validate_panel(panel)) == {PanelRule.MANIFEST_MISSING}
 
 
 def test_assert_valid_panel_does_not_raise_for_compliant_panel(tmp_path: Path) -> None:
@@ -481,7 +515,7 @@ def test_assert_valid_panel_raises_for_bad_manifest_fixture() -> None:
 
 
 def test_missing_stylesheets_is_the_one_link_rule() -> None:
-    """The sheets a page does not link, in PANEL_STYLESHEETS order; the app check reads this."""
+    """The sheets a page does not link, in PANEL_STYLESHEETS order; the link rule reads this."""
     from osprey.interfaces.design_system.panels.validator import (
         PANEL_STYLESHEETS,
         missing_stylesheets,
@@ -492,3 +526,51 @@ def test_missing_stylesheets_is_the_one_link_rule() -> None:
 
     assert missing_stylesheets(html) == [base]
     assert missing_stylesheets("") == list(PANEL_STYLESHEETS)
+
+
+# --- Every page the package ships as a panel ----------------------------------
+
+_PACKAGE = Path(osprey.__file__).resolve().parent
+
+
+def _shipped_panel_pages() -> list[tuple[Path, Path]]:
+    """Each shipped panel's ``(entry page, panel directory)``: the bundles a manifest
+    describes, then the applications' panels, which have none."""
+    bundles = [
+        (
+            manifest.parent / json.loads(manifest.read_text(encoding="utf-8"))["entry"],
+            manifest.parent,
+        )
+        for manifest in sorted(_PACKAGE.rglob(MANIFEST_FILENAME))
+        if "node_modules" not in manifest.parts and "vendor" not in manifest.parts
+    ]
+    apps = [
+        (index, index.parent)
+        for index in sorted(
+            [
+                *_PACKAGE.glob("apps/*/panel/index.html"),
+                *_PACKAGE.glob("profiles/presets/apps/*/panel/index.html"),
+            ]
+        )
+    ]
+    return bundles + apps
+
+
+def _panel_name(page: Path) -> str:
+    """The panel's own name: the directory above a generic ``panel/`` or ``static/``."""
+    panel_dir = page.parent
+    return panel_dir.parent.name if panel_dir.name in ("panel", "static") else panel_dir.name
+
+
+def test_the_shipped_panel_pages_are_found() -> None:
+    names = {_panel_name(entry) for entry, _ in _shipped_panel_pages()}
+    assert {"reference", "bluesky", "optimizer", "health", "scaffold-app", "orbit-bump"} <= names
+
+
+@pytest.mark.parametrize(
+    ("entry", "panel_dir"),
+    _shipped_panel_pages(),
+    ids=lambda value: value.relative_to(_PACKAGE).as_posix(),
+)
+def test_every_shipped_panel_page_passes_the_rule_set(entry: Path, panel_dir: Path) -> None:
+    assert validate_entry(entry, panel_dir) == []

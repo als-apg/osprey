@@ -210,6 +210,7 @@ If it raises, fix each reported `PanelRule` and re-run until it is silent:
 | `MISSING_THEME_BOOT` | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
 | `MISSING_FONT_LINK` | entry HTML doesn't link `/static/fonts/fonts.css` | add the `<link>` (Step 1) |
 | `RAW_HEX_COLOR` | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
+| `PAGE_READY` | the entry page never declares `data-page-ready="pending"`, or no script it loads calls `markPageReady()` | add both (Step 1) |
 
 Note the `RAW_HEX_COLOR` scan is a raw text scan: a URL fragment whose name is
 all hex digits and exactly 3/4/6/8 long (e.g. `href="#abc"` or
@@ -218,13 +219,12 @@ the fragment — never loosen the token-only rule.
 
 The panel is complete when the one-liner raises nothing.
 
-A panel that belongs to an application (`apps/<name>/panel/`) is also judged by
-`osprey app check`, which says exactly what `osprey build` would: it refuses a
-panel that does not link all three sheets (`design_system_css`) and any class the
-panel's HTML or JS sets that no rule in a `<style>` block of the page, its own
-`*.css` or a linked design-system sheet defines (`undefined_class`), and a panel
-whose scripts never import `markPageReady` (`page_ready`). Run it from the
-deployment and fix until it passes.
+A panel that belongs to an application (`apps/<name>/panel/`) is judged by
+`osprey app check`, which runs these same rules on `panel/index.html` (an app
+panel has no manifest) and adds one: every class the panel's HTML or JS sets has
+a rule in a `<style>` block of the page, its own `*.css` or a linked
+design-system sheet (`undefined_class`). Run it from the deployment and fix
+until it passes.
 
 ---
 

@@ -10,9 +10,9 @@ runtime-registered (URL-backed) panels use, so they appear in the tab strip,
 Two design rules govern discovery:
 
 * **Fail closed (OSPREY Principle 1).**  A malformed manifest, a missing entry
-  file, or any non-compliant UI check makes that one panel *not served* — it is
-  logged and skipped, and never affects the other panels.  :func:`discover_panels`
-  never raises.
+  file, a page that never marks itself ready, or any other non-compliant UI check
+  makes that one panel *not served* — it is logged and skipped, and never affects
+  the other panels.  :func:`discover_panels` never raises.
 * **Human gate = the existing opt-in.**  Discovery runs only when
   ``web.allow_runtime_panels`` is true (it defaults to ``False``).  The operator
   editing ``config.yml`` to enable it is the human approval; there is no separate
@@ -75,7 +75,7 @@ def discover_panels(panels_root: str | Path) -> list[DiscoveredPanel]:
     Each immediate subdirectory containing a ``manifest.json`` is a candidate.
     A candidate is validated with :func:`validate_panel`; if it has *any* error
     (malformed manifest, missing entry, raw hex colors, missing design-system
-    link, …) it is **logged and skipped** — never served, never fatal to the
+    link, a page that never marks itself ready, …) it is **logged and skipped** — never served, never fatal to the
     others.  A candidate whose id collides with a built-in panel or with an
     already-discovered panel is likewise skipped.
 
