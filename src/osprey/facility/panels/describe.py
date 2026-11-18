@@ -53,6 +53,8 @@ from osprey.facility.panels.tables import (
     DRAWN_AS,
     Calibration,
     CalibrationKind,
+    CardSection,
+    ChainStep,
     Pose,
 )
 from osprey.facility.panels.view import (
@@ -108,8 +110,13 @@ __all__ = [
     "RACK_ORDER",
     "ENUMERATED_OUTPUTS",
     "action_word",
+    "chain_states",
     "RELATION_TITLES",
     "CARD_SECTIONS",
+    "DEFAULT_RECIPE",
+    "HOP_CONTESTED",
+    "HOP_FOUND",
+    "HOP_NOT_STATED",
     "checkout",
     "describe",
     "device_card",
@@ -836,6 +843,8 @@ _CHAIN_FOOT = (
     "other relation the device has is one more block."
 )
 _DEFAULT_COLUMNS = 4
+FOCUS_ROWS = 4  # the most value roles a chain's device block shows
+_CONTESTED_WORD = "contested"
 #: Record types whose setpoint is a whole number: an output of two or more states.
 ENUMERATED_OUTPUTS = frozenset({"bo", "mbbo"})
 _DEFAULT_PRESS = 1.0  # what a command a record types writes, with no role saying otherwise
@@ -1199,6 +1208,178 @@ def _drawn_in(graph: PanelGraph, thing: Thing, items: list[Item]) -> set[str]:
     return found
 
 
+#: The recipe of a device that no ``card_recipes.csv`` row takes; its sections and
+#: chains may still be stated under this name.
+DEFAULT_RECIPE = "default"
+#: How a chain hop came out: every thing found, or why not.
+HOP_FOUND, HOP_NOT_STATED, HOP_CONTESTED, HOP_NO_START = (
+    "found",
+    "not stated",
+    "contested",
+    "its start is not one thing",
+)
+
+
+def _port_word(step: ChainStep, edge: Edge) -> str | None:
+    """The word on the arrow into a hop's block: the port its ``port_from`` names
+    (the claim's object or subject end), or ``port_from`` itself as a word."""
+    if step.port_from == "object_port":
+        port = edge.other_port if edge.outgoing else edge.port
+    elif step.port_from == "subject_port":
+        port = edge.port if edge.outgoing else edge.other_port
+    else:
+        return step.port_from
+    return port.rsplit(":", 1)[-1] if port else None  # a port named as a channel: its last part
+
+
+def _block_rows(
+    graph: PanelGraph, hits: list[RoleHit], thing_id: str, kind: ThingKind, roles: list[str]
+) -> tuple[list[BlockRow], set[str]]:
+    """The lines of a block: each role, found on the block's thing (as a role the
+    card's device plays there, else one the thing plays itself), else as a role the
+    card's device plays on a channel of its own, else not served; with no role, the
+    thing's class."""
+    rows: list[BlockRow] = []
+    used: set[str] = set()
+    own: list[RoleHit] | None = None
+    for role in roles:
+        found = [h for h in hits if h.role.role == role and h.owner == thing_id]
+        if not found:
+            if own is None:
+                try:
+                    own = graph.roles(thing_id) if kind == "device" else []
+                except KeyError:
+                    own = []
+            found = [h for h in own if h.role.role == role]
+        if not found:
+            found = [h for h in hits if h.role.role == role]
+        if not found:
+            rows.append(BlockRow(_role_title(role).lower(), None, shown_as="value"))
+            continue
+        hit = found[0]
+        shown = hit.role.shown_as if hit.role.shown_as in ("value", "word", "lamp") else "value"
+        unit, scale = _role_unit(graph, hit)
+        rows.append(
+            BlockRow(
+                _role_title(role).lower(), hit.channel, shown_as=shown, unit=unit, scale=scale,
+                words=_words(graph, hit.channel),
+            )
+        )  # fmt: skip
+        used.add(hit.channel)
+    if not roles:
+        try:
+            other = graph.thing(thing_id, kind)
+            rows.append(BlockRow("class", text=other.cls or other.level or other.kind))
+        except KeyError:
+            pass
+    return rows, used
+
+
+def recipe_chain(
+    graph: PanelGraph,
+    index: _Index,
+    thing: Thing,
+    hits: list[RoleHit],
+    recipe: str,
+    section: CardSection,
+) -> tuple[Chain, set[str], str]:
+    """A recipe's chain for a device: the device's block (in focus, its value roles
+    no hop shows), then one block per hop in step order, each the thing the hop
+    reaches with its roles, the arrow into it carrying its port; a hop that reaches
+    nothing is a dashed "not stated" block, one that reaches two things (or a
+    contested claim) stacks them dashed, ``many`` stacks every thing it reaches.
+    Returns the chain, the channels it shows and how it came out (:data:`HOP_FOUND`
+    when every hop found its things, else the first hop's title and why)."""
+    steps = graph.chain(recipe, section.members or "")
+    reached: dict[int, list[tuple[str, ThingKind]]] = {0: [(thing.id, thing.kind)]}
+    blocks: list[ChainBlock] = []
+    used: set[str] = set()
+    state = HOP_FOUND
+    for step in steps:
+        n = int(step.step)
+        start = int(step.from_step) if step.from_step is not None else n - 1
+        froms = reached.get(start) or []
+        roles = [r for r in (step.roles or "").split(";") if r]
+        if len(froms) != 1:
+            why = HOP_NO_START
+            edges: list[Edge] = []
+        else:
+            edges = graph.hop(froms[0][0], froms[0][1], step)
+            many = step.many == "yes"
+            if not edges:
+                why = HOP_NOT_STATED
+            elif not many and (len(edges) > 1 or any(e.standing == "contested" for e in edges)):
+                why = HOP_CONTESTED
+            else:
+                why = HOP_FOUND
+        if why != HOP_FOUND and state == HOP_FOUND:
+            state = f"{step.title}: {why}"
+        reached[n] = [(e.other, e.other_kind) for e in edges]
+        if not edges:
+            blocks.append(ChainBlock(f"{step.title}: {_NOT_STATED}", None, dashed=True))
+            continue
+        made: list[ChainBlock] = []
+        for edge in edges:
+            rows, shown = _block_rows(graph, hits, edge.other, edge.other_kind, roles)
+            used |= shown
+            item = _edge_item(graph, index, step.title, edge)
+            link = item if isinstance(item, Link) else None
+            standing = _CONTESTED_WORD if why == HOP_CONTESTED else None
+            made.append(
+                ChainBlock(f"{step.title}  {edge.other}", link, tuple(rows), standing=standing)
+            )
+        port = _port_word(step, edges[0]) or _relation_word(step.relation, step.direction == "out")
+        blocks.append(dataclasses.replace(made[0], stack=tuple(made[1:]), arrow_in=port))
+    shown_roles = {r for s in steps for r in (s.roles or "").split(";") if r}
+    mine = [
+        h for h in hits
+        if h.owner == thing.id and h.role.role not in shown_roles
+        and h.role.shown_as in ("value", "word", "lamp") and h.role.role not in IDENTITY_ROLES
+    ][:FOCUS_ROWS]  # fmt: skip
+    times = Counter(h.role.role for h in mine)
+    seen: Counter[str] = Counter()
+    labels = []
+    for h in mine:  # a role two channels play is numbered: relay 1, relay 2
+        seen[h.role.role] += 1
+        word = _role_title(h.role.role).lower()
+        labels.append(f"{word} {seen[h.role.role]}" if times[h.role.role] > 1 else word)
+    focus_rows = tuple(
+        BlockRow(
+            label, h.channel, shown_as=h.role.shown_as,
+            unit=_role_unit(graph, h)[0], scale=_role_unit(graph, h)[1], words=_words(graph, h.channel),
+        )
+        for h, label in zip(mine, labels, strict=True)
+    )  # fmt: skip
+    used |= {h.channel for h in mine}
+    device = ChainBlock(
+        f"{thing.cls or thing.kind}  {thing.id}", None, focus_rows or (BlockRow("class", text=thing.cls or thing.kind),), focus=True
+    )  # fmt: skip
+    ordered = [device, *blocks]
+    # the arrow between two blocks carries the word of the hop into the later one
+    for i in range(len(ordered) - 1):
+        ordered[i] = dataclasses.replace(ordered[i], arrow=ordered[i + 1].arrow_in)
+    return Chain(tuple(ordered), section.caption), used, state
+
+
+def chain_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:
+    """Per ``<recipe>/<chain>`` drawn on the cards of *devices*, how many came out
+    each way: :data:`HOP_FOUND`, or the first hop's title and why it did not."""
+    index = _index(graph)
+    found: dict[str, Counter[str]] = {}
+    for device in devices:
+        thing = graph.thing(device, "device")
+        recipe = graph.recipe(device)
+        name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
+        rows = [r for r in graph.card_sections(name) if r.kind == "chain" and r.members]
+        if not rows:
+            continue
+        hits = graph.roles(device)
+        for row in rows:
+            _chain, _used, state = recipe_chain(graph, index, thing, hits, name, row)
+            found.setdefault(f"{name}/{row.members}", Counter())[state] += 1
+    return found
+
+
 def _drawn_card(
     graph: PanelGraph,
     index: _Index,
@@ -1219,7 +1400,17 @@ def _drawn_card(
     hits = graph.roles(thing.id)
     channels = graph.channels(thing.id, thing.kind)
     tiles = _key_tiles(graph, thing, hits)
-    chain, in_chain = _default_chain(graph, index, thing, hits)
+    name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
+    drawings: list[tuple[str, list[Item]]] = []
+    in_chain: set[str] = set()
+    for row in graph.card_sections(name):
+        if row.kind == "chain" and row.members:
+            chain, used, _state = recipe_chain(graph, index, thing, hits, name, row)
+            drawings.append((row.title, [chain]))
+            in_chain |= used
+    if not graph.card_sections(name):  # no recipe rows: the built-in relations chain
+        chain, in_chain = _default_chain(graph, index, thing, hits)
+        drawings.append((CARD_SECTIONS["relations"], [chain]))
     operate, in_operate = _operate(graph, thing, hits, channels)
     drawn = {t.channel for t in tiles if t.channel} | in_chain | in_operate
     drawn |= _drawn_in(graph, thing, [item for _title, items in extra for item in items])
@@ -1234,7 +1425,7 @@ def _drawn_card(
     pairs: list[tuple[str, list[Item]]] = [
         (CARD_SECTIONS["head"], [CardHead(kind, description, recipe is None)]),
         (CARD_SECTIONS["tiles"], list(tiles)),
-        (CARD_SECTIONS["relations"], [chain]),
+        *drawings,
         *extra,
         (CARD_SECTIONS["operate"], [operate] if operate is not None else []),
         (CARD_SECTIONS["channels"], [ChannelGrid(rows, columns)] if rows else []),

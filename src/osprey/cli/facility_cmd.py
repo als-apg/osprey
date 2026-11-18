@@ -1329,6 +1329,16 @@ def panels_write(
             f"  device cards: {recipes['default']} with the default recipe"
             + (f", {named}" if named else "")
         )
+        from osprey.facility.panels.describe import HOP_FOUND, chain_states
+
+        for chain, states in sorted(chain_states(graph, devices).items()):
+            drawn = states.pop(HOP_FOUND, 0)
+            short = sum(states.values())
+            line = f"  chain {chain}: {drawn} drawn whole, {short} with a hop not drawn"
+            if states:
+                why, n = states.most_common(1)[0]
+                line += f" (most: {why}, {n})"
+            report(line)
     if index["outside"]:
         report(f"  {len(index['outside'])} screens not written (outside the selection)")
     largest = sorted(screens, key=lambda entry: (-entry["bytes"], entry["file"]))[:top]

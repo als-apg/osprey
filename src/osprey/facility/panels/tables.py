@@ -24,7 +24,9 @@ line, the schema this module holds them to:
   shown through (``0.1A``: unit ``A``, scale 10);
 - ``channel_roles.csv``: what a channel is to a device card, by class and name
   pattern (see :class:`ChannelRole`);
-- ``card_recipes.csv``: a class's card recipe and its title-line sentence.
+- ``card_recipes.csv``: a class's card recipe and its title-line sentence;
+- ``card_sections.csv``: a recipe's drawn sections in order;
+- ``chains.csv``: the hops of a recipe's chains.
 
 ``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
 must be there; every other file may be absent, which reads as empty. Across
@@ -75,6 +77,8 @@ __all__ = [
     "ChannelRole",
     "ChannelUnit",
     "CardRecipe",
+    "CardSection",
+    "ChainStep",
     "Metric",
     "CalibrationKind",
     "Calibration",
@@ -103,6 +107,8 @@ STATE_LABELS = "state_labels.csv"
 UNITS = "units.csv"
 CHANNEL_ROLES = "channel_roles.csv"
 CARD_RECIPES = "card_recipes.csv"
+CARD_SECTIONS = "card_sections.csv"
+CHAINS = "chains.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -121,6 +127,8 @@ TABLE_FILES: tuple[str, ...] = (
     UNITS,
     CHANNEL_ROLES,
     CARD_RECIPES,
+    CARD_SECTIONS,
+    CHAINS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -192,6 +200,32 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "source",
             "revision",
             "locator",
+        ],
+        CARD_SECTIONS: [
+            "recipe",
+            "order",
+            "kind",
+            "title",
+            "focus",
+            "members",
+            "window_m",
+            "roles",
+            "caption",
+            "source",
+        ],
+        CHAINS: [
+            "recipe",
+            "chain",
+            "step",
+            "from_step",
+            "relation",
+            "direction",
+            "to",
+            "many",
+            "port_from",
+            "title",
+            "roles",
+            "source",
         ],
         CARD_RECIPES: [
             "class",
@@ -306,6 +340,8 @@ OPTIONAL_FILES = frozenset(
         UNITS,
         CHANNEL_ROLES,
         CARD_RECIPES,
+        CARD_SECTIONS,
+        CHAINS,
     }
 )
 
@@ -359,6 +395,19 @@ ROLE_SCOPES: tuple[str, ...] = ("device", "parts", "read_out_by", "controlled_by
 #: How a card shows a channel of a role: a number, its state word, a lamp, or a
 #: control (a typed entry, one segment of a choice, an action button).
 SHOWN_AS: tuple[str, ...] = ("value", "word", "lamp", "entry", "choice", "action")
+#: The kinds of a drawn card's section a ``card_sections.csv`` row names.
+SECTION_KINDS: tuple[str, ...] = (
+    "strip",
+    "chain",
+    "front",
+    "section",
+    "ring-strip",
+    "calibration-strip",
+    "curve",
+    "ladder",
+)
+#: Which way a chain hop walks its relation: from the subject (``out``) or to it.
+DIRECTIONS: tuple[str, ...] = ("out", "in")
 #: The ways of showing that are a control a press or a typed value writes.
 CONTROLS: tuple[str, ...] = ("entry", "choice", "action")
 #: A claim's standing, as relation claims have it.
@@ -384,6 +433,8 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         UNITS: ("channel",),
         CHANNEL_ROLES: ("class", "role", "signal", "scope", "shown_as", "basis"),
         CARD_RECIPES: ("class", "recipe"),
+        CARD_SECTIONS: ("recipe", "order", "kind", "title"),
+        CHAINS: ("recipe", "chain", "step", "relation", "direction", "title"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -405,6 +456,8 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         UNITS: {},
         CHANNEL_ROLES: {"scope": ROLE_SCOPES, "shown_as": SHOWN_AS, "basis": BASES},
         CARD_RECIPES: {},
+        CARD_SECTIONS: {"kind": SECTION_KINDS},
+        CHAINS: {"direction": DIRECTIONS, "many": ("yes",)},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -428,6 +481,8 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         UNITS: ("scale",),
         CHANNEL_ROLES: ("scale", "press_value"),
         CARD_RECIPES: ("channels_cols",),
+        CARD_SECTIONS: ("order", "window_m"),
+        CHAINS: ("step", "from_step"),
     }
 )
 _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -442,6 +497,8 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         STATE_LABELS: ("channel", "value"),
         UNITS: ("channel",),
         CARD_RECIPES: ("class", "under", "devices"),
+        CARD_SECTIONS: ("recipe", "order"),
+        CHAINS: ("recipe", "chain", "step"),
     }
 )
 
@@ -774,6 +831,51 @@ def _card_recipe(**columns: Any) -> CardRecipe:
 
 
 @dataclass(frozen=True)
+class CardSection:
+    """One row of ``card_sections.csv``: a drawn section of the cards of ``recipe``,
+    in ``order``. ``kind`` says how it is drawn; ``members`` what it draws (for a
+    chain: the ``chain`` of ``chains.csv`` it draws); ``roles`` the roles it shows
+    (``;``-separated); ``caption`` the line under it."""
+
+    recipe: str
+    order: float
+    kind: str
+    title: str
+    focus: str | None
+    members: str | None
+    window_m: float | None
+    roles: str | None
+    caption: str | None
+    source: str | None
+
+
+@dataclass(frozen=True)
+class ChainStep:
+    """One row of ``chains.csv``: hop ``step`` of the chain ``chain`` of ``recipe``.
+
+    It starts at the thing step ``from_step`` reached (``0``: the device; empty: the
+    step before), walks ``relation`` from its subject (``out``) or to it (``in``),
+    and keeps the things ``to`` takes: ``device``, ``place``, a class, or
+    ``class:pattern`` on the thing's id (empty: any). Two things, or a contested
+    claim, make the hop contested, unless ``many`` is ``yes``: then every thing is
+    a block. ``port_from`` labels the arrow: ``object_port``, ``subject_port`` or
+    a word of its own. ``roles`` are shown in the block (``;``-separated)."""
+
+    recipe: str
+    chain: str
+    step: float
+    from_step: float | None
+    relation: str
+    direction: str
+    to: str | None
+    many: str | None
+    port_from: str | None
+    title: str
+    roles: str | None
+    source: str | None
+
+
+@dataclass(frozen=True)
 class ShortName:
     """One row of ``names.csv``: the short name a strip shows for a thing.
 
@@ -948,6 +1050,8 @@ class PanelTables:
     units: tuple[ChannelUnit, ...] = ()
     channel_roles: tuple[ChannelRole, ...] = ()
     card_recipes: tuple[CardRecipe, ...] = ()
+    card_sections: tuple[CardSection, ...] = ()
+    chains: tuple[ChainStep, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -968,6 +1072,8 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         UNITS: ChannelUnit,
         CHANNEL_ROLES: _channel_role,
         CARD_RECIPES: _card_recipe,
+        CARD_SECTIONS: CardSection,
+        CHAINS: ChainStep,
     }
 )
 
@@ -1257,6 +1363,8 @@ def read_tables(panels_dir: Path) -> PanelTables:
         units=_read(directory, UNITS),
         channel_roles=_read(directory, CHANNEL_ROLES),
         card_recipes=_read(directory, CARD_RECIPES),
+        card_sections=_read(directory, CARD_SECTIONS),
+        chains=_read(directory, CHAINS),
     )
 
 

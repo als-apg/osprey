@@ -65,6 +65,12 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
         "class,role,signal,scope,shown_as,unit,scale,press_value,label,basis,source,revision,"
         "locator"
     )
+    assert ",".join(COLUMNS["card_sections.csv"]) == (
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source"
+    )
+    assert ",".join(COLUMNS["chains.csv"]) == (
+        "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source"
+    )
     assert ",".join(COLUMNS["card_recipes.csv"]) == (
         "class,under,devices,recipe,description,channels_cols,source"
     )
@@ -82,6 +88,8 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
             "units.csv",
             "channel_roles.csv",
             "card_recipes.csv",
+            "card_sections.csv",
+            "chains.csv",
         }
     )
 

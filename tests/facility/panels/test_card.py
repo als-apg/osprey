@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 from osprey.facility.panels import layout
 from osprey.facility.panels.describe import device_card
 from osprey.facility.panels.view import Section, ValueRow
@@ -388,8 +390,8 @@ def test_a_recipe_for_some_devices_of_a_class_wins_and_keys_its_own_tiles(tmp_pa
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
         "class,under,devices,recipe,description,channels_cols,source\n"
-        "Pump,,,pump,,,S\n"
         "Pump,XR,*:IP1,first-pump,,,S\n"
+        "Pump,,,pump,,,S\n"
     )
     (tables / "channel_roles.csv").write_text(
         ROLES_HEADER + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
@@ -398,7 +400,7 @@ def test_a_recipe_for_some_devices_of_a_class_wins_and_keys_its_own_tiles(tmp_pa
         handle.write("card,first-pump,1,Vacuum,value,pressure,Pump,,,S\n")
         handle.write("card,pump,1,Pressure here,value,pressure,Pump,,,S\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
-    assert graph.recipe("XR01:IP1").recipe == "first-pump"  # the pattern's row first
+    assert graph.recipe("XR01:IP1").recipe == "first-pump"  # the first row that takes it
     assert graph.recipe("XR01:IP2").recipe == "pump"
     first = stub_render(device_card(graph, "XR01:IP1"), graph)
     other = stub_render(device_card(graph, "XR01:IP2"), graph)
@@ -406,3 +408,140 @@ def test_a_recipe_for_some_devices_of_a_class_wins_and_keys_its_own_tiles(tmp_pa
         n for n in _by_type(first, "text-label") if n["props"]["text"] == "PRESSURE HERE"
     ]
     assert _text(other, "PRESSURE HERE")
+
+
+def _chained(tmp_path, change=None):
+    """A pump recipe whose chain walks its read-out (a chassis, its temperature),
+    its power (none stated) and what it is read out by in turn."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\nPump,,,pump,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "pump,1,chain,Signal chain,,signal,,,the chain's caption,S\n"
+    )
+    (tables / "chains.csv").write_text(
+        "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source\n"
+        "pump,signal,1,0,read_out_by,out,ElectronicsChassis:*:CH*,,object_port,Read-out,temperature,S\n"
+        "pump,signal,2,0,powered_by,out,device,,,Supply,,S\n"
+        "pump,signal,3,1,read_out_by,out,,,,Further,,S\n"
+    )
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "ElectronicsChassis,temperature,*:Temp-RB,device,value,,,,,stated,S,1,l\n"
+        + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
+    )
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def _chain_of(view):
+    from osprey.facility.panels.view import Chain
+
+    return next(i for s in view.sections for i in s.items if isinstance(i, Chain))
+
+
+def test_a_recipe_chain_walks_its_hops_and_says_where_one_is_not_stated(tmp_path):
+    from osprey.facility.panels.describe import chain_states
+
+    graph = _chained(tmp_path, _ported)
+    view = device_card(graph, "XR01:IP1")
+    assert "Signal chain" in [s.title for s in view.sections]
+    assert "relations" not in [s.title for s in view.sections]  # the recipe's chain instead
+    device, readout, supply, further = _chain_of(view).blocks
+    assert device.focus and [r.channel for r in device.rows] == ["XR01-IP1:Pressure-RB"]
+    assert device.arrow == "CH2"  # the read-out's object port, on the arrow into it
+    assert readout.title == "Read-out  XR01:CH2" and readout.link.target.id == "XR01:CH2"
+    assert [(r.label, r.channel) for r in readout.rows] == [("temperature", "XR01-CH2:Temp-RB")]
+    assert supply.dashed and supply.title == "Supply: not stated"
+    assert further.dashed  # the read-out is read out by nothing in turn
+    assert _chain_of(view).foot == "the chain's caption"
+    states = chain_states(graph, ["XR01:IP1", "XR01:IP2"])
+    assert states["pump/signal"] == {"Supply: not stated": 1, "Read-out: not stated": 1}
+    doc = stub_render(view, graph)
+    assert _text(doc, "1 · SIGNAL CHAIN")
+    assert _text(doc, "CH2")  # the arrow's word
+
+
+def test_a_hop_with_two_answers_stacks_them_contested(tmp_path):
+    def two_readouts(document) -> None:
+        _ported(document)
+        document["relations"].append(
+            {
+                "id": "xr01-ip1-readout-2",
+                "type": "read_out_by",
+                "subject": {"device": "XR01:IP1"},
+                "object": {"device": "XR01:CH3"},
+            }
+        )
+
+    graph = _chained(tmp_path, two_readouts)
+    _device, readout, *_rest = _chain_of(device_card(graph, "XR01:IP1")).blocks
+    assert readout.standing == "contested"
+    assert [b.title for b in (readout, *readout.stack)] == [
+        "Read-out  XR01:CH2",
+        "Read-out  XR01:CH3",
+    ]
+    doc = stub_render(device_card(graph, "XR01:IP1"), graph)
+    assert len([n for n in _by_type(doc, "text-label") if n["props"]["text"] == "contested"]) == 2
+
+
+def test_a_hop_to_many_draws_every_thing_it_reaches_in_one_column(tmp_path):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\nPowerSupply,,,supply,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "supply,1,chain,Loads,,loads,,,,S\n"
+    )
+    (tables / "chains.csv").write_text(
+        "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source\n"
+        "supply,loads,1,0,powered_by,in,Quadrupole,yes,feeds,Magnet,,S\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    _device, magnets = _chain_of(device_card(graph, "XR01:PS1")).blocks
+    assert [b.title for b in (magnets, *magnets.stack)] == ["Magnet  XR01:QD1", "Magnet  XR01:QF1"]
+    assert magnets.standing is None and _device.arrow == "feeds"  # a word of its own
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    tops = sorted(
+        n["geometry"]["y"]
+        for n in _by_type(doc, "text-label")
+        if n["props"]["text"].startswith("Magnet")
+    )
+    lefts = {
+        n["geometry"]["x"]
+        for n in _by_type(doc, "text-label")
+        if n["props"]["text"].startswith("Magnet")
+    }
+    assert len(tops) == 2 and tops[1] > tops[0] and len(lefts) == 1  # one column
+
+
+def test_a_word_with_no_stated_meaning_keeps_inside_its_block(tmp_path):
+    graph = _chained(tmp_path, _ported)
+    roles = graph._tables.channel_roles  # the read-out's temperature, shown as a word
+    graph._roles_of["ElectronicsChassis"] = [
+        dataclasses.replace(r, shown_as="word") for r in roles if r.cls == "ElectronicsChassis"
+    ]
+    doc = stub_render(device_card(graph, "XR01:IP1"), graph)
+    (box,) = [
+        n for n in _by_type(doc, "rectangle")
+        if n["props"].get("lineWidth") == layout.BLOCK_LINE
+        and any(
+            m["props"]["text"] == "temperature" and abs(m["geometry"]["y"] - n["geometry"]["y"]) < 40
+            for m in _by_type(doc, "text-label")
+        )
+    ]  # fmt: skip
+    right = box["geometry"]["x"] + box["geometry"]["width"]
+    inside = [
+        n for n in nodes(doc)
+        if box["geometry"]["y"] <= n["geometry"]["y"] < box["geometry"]["y"] + box["geometry"]["height"]
+        and box["geometry"]["x"] <= n["geometry"]["x"] < right
+    ]  # fmt: skip
+    assert inside and all(n["geometry"]["x"] + n["geometry"]["width"] <= right for n in inside)

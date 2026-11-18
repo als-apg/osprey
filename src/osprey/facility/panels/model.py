@@ -66,6 +66,8 @@ from osprey.facility.panels.tables import (
     Calibration,
     CalibrationKind,
     CardRecipe,
+    CardSection,
+    ChainStep,
     ChannelRole,
     ChannelUnit,
     CurvePoint,
@@ -474,6 +476,12 @@ class PanelGraph:
         self._recipes: dict[str, list[CardRecipe]] = {}
         for recipe in tables.card_recipes:
             self._recipes.setdefault(recipe.cls, []).append(recipe)
+        self._sections: dict[str, list[CardSection]] = {}
+        for section in sorted(tables.card_sections, key=lambda r: r.order):
+            self._sections.setdefault(section.recipe, []).append(section)
+        self._steps: dict[tuple[str, str], list[ChainStep]] = {}
+        for step in sorted(tables.chains, key=lambda r: r.step):
+            self._steps.setdefault((step.recipe, step.chain), []).append(step)
 
     def _read_calibrations(self, tables: PanelTables) -> None:
         self._kinds = {(kind.kind, kind.cls): kind for kind in tables.calibration_kinds}
@@ -1228,25 +1236,61 @@ class PanelGraph:
         return self._units.get(channel)
 
     def recipe(self, device_id: str) -> CardRecipe | None:
-        """The ``card_recipes.csv`` row of a device: of its class's rows whose
-        ``under`` holds the device and whose ``devices`` pattern matches its id (an
-        empty one holds and matches every device), one with a pattern before one
-        without, then the deepest ``under``; ``None`` when none applies (the default
-        recipe).
+        """The ``card_recipes.csv`` row of a device: the first, in file order, of its
+        class's rows whose ``under`` holds the device and whose ``devices`` pattern
+        matches its id (an empty one holds and matches every device); ``None`` when
+        none does (the default recipe).
 
         Raises:
             KeyError: No such device.
         """
         thing = self.thing(device_id, "device")
-        rows = [
-            r
-            for r in self._recipes.get(thing.cls or "", [])
-            if (r.under is None or device_id in self._held(r.under))
-            and (r.devices is None or fnmatch.fnmatchcase(device_id, r.devices))
-        ]
-        if not rows:
-            return None
-        return max(rows, key=lambda r: (r.devices is not None, (r.under or "").count("/")))
+        return next(
+            (
+                r
+                for r in self._recipes.get(thing.cls or "", [])
+                if (r.under is None or device_id in self._held(r.under))
+                and (r.devices is None or fnmatch.fnmatchcase(device_id, r.devices))
+            ),
+            None,
+        )
+
+    def card_sections(self, recipe: str) -> list[CardSection]:
+        """The ``card_sections.csv`` rows of *recipe*, by ``order``."""
+        return list(self._sections.get(recipe, ()))
+
+    def chain(self, recipe: str, chain: str) -> list[ChainStep]:
+        """The hops of a recipe's chain, by ``step``."""
+        return list(self._steps.get((recipe, chain), ()))
+
+    def hop(self, thing_id: str, kind: ThingKind, step: ChainStep) -> list[Edge]:
+        """The claims a chain hop walks from a thing: those of its relation in its
+        direction, superseded ones left out, whose other end its ``to`` takes; one
+        per other end, a contested claim before an accepted one."""
+        edges = self.neighbours(thing_id, kind).get(step.relation, ())
+        found: dict[str, Edge] = {}
+        for edge in edges:
+            if edge.outgoing is not (step.direction == "out") or edge.standing == "superseded":
+                continue
+            if not self._takes(step.to, edge):
+                continue
+            if edge.other not in found or edge.standing == "contested":
+                found[edge.other] = edge
+        return [found[other] for other in sorted(found)]
+
+    def _takes(self, to: str | None, edge: Edge) -> bool:
+        if not to:
+            return True
+        if to in ("device", "place"):
+            return edge.other_kind == to
+        cls, _, pattern = to.partition(":")
+        if edge.other_kind != "device":
+            return False
+        try:
+            other = self.thing(edge.other, "device")
+        except KeyError:
+            return False
+        return other.cls == cls and (not pattern or fnmatch.fnmatchcase(edge.other, pattern))
 
     def roles(self, device_id: str) -> list[RoleHit]:
         """The channels that play a role for a device, in ``channel_roles.csv``

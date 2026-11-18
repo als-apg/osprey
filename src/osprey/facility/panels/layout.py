@@ -2223,9 +2223,13 @@ class _Page:
             if words and self.budget.take([(1, frozenset({channel}))]):
                 self.word(x, y, w, h, channel, words, size=size)
                 return
-            if not words:  # a number, and the note that no word is stated for it
-                right = self.number(x, y, min(w, VALUE_WIDTH), h, channel, None, None, size)
-                self.text(right + GAP, y, _MEANING_NOT_STATED, size=SMALL_SIZE, h=h, fg=MUTED_TEXT)
+            if not words:  # a number, and the note that no word is stated for it, if it fits
+                note_w = text_width(_MEANING_NOT_STATED, SMALL_SIZE)
+                room = w - note_w - GAP
+                number_w = min(VALUE_WIDTH, room) if room >= GRID_VALUE / 2 else w
+                right = self.number(x, y, number_w, h, channel, None, None, size)
+                if number_w < w:
+                    self.text(right + GAP, y, _MEANING_NOT_STATED, size=SMALL_SIZE, w=note_w, h=h, fg=MUTED_TEXT)  # fmt: skip
                 return
         self.number(x, y, w, h, channel, unit, scale, size)
 
@@ -2304,7 +2308,10 @@ class _Page:
             bottom = top
             for i in row:
                 block, w = chain.blocks[i], widths[i]
-                bottom = max(bottom, self.chain_block(x, top, w, block))
+                end = self.chain_block(x, top, w, block)
+                for other in block.stack:  # the other things the hop reaches, under it
+                    end = self.chain_block(x, end + GAP, w, other)
+                bottom = max(bottom, end)
                 if i != row[-1]:
                     ya = top + BLOCK_TITLE + BLOCK_TOP
                     start, end = x + w + ARROW_INSET / 2, x + w + BLOCK_GAP - ARROW_INSET
@@ -2323,6 +2330,8 @@ class _Page:
         self.y += ROW_GAP
 
     def block_width(self, block: ChainBlock) -> float:
+        if block.stack:  # a column as wide as its widest block
+            return max(self.block_width(replace(b, stack=())) for b in (block, *block.stack))
         need = text_width(block.title, BLOCK_TEXT_SIZE) + 2 * GAP
         for row in block.rows:
             if row.shown_as == "text":

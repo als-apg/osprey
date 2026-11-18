@@ -688,6 +688,9 @@ class ChainBlock:
         dashed: Nothing is stated for this hop.
         arrow: The word on the arrow into the next block, or ``None``.
         standing: ``contested`` when sources disagree on the hop, else ``None``.
+        stack: More blocks under it in its column: the other things one hop
+            reaches (all of them, or the answers of a contested hop).
+        arrow_in: The word on the arrow into it (its hop's port), or ``None``.
     """
 
     title: str
@@ -697,6 +700,8 @@ class ChainBlock:
     dashed: bool = False
     arrow: str | None = None
     standing: str | None = None
+    stack: tuple[ChainBlock, ...] = ()
+    arrow_in: str | None = None
 
 
 @dataclass(frozen=True)

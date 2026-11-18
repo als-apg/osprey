@@ -1410,14 +1410,21 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    unit and the divisor its raw value is shown through), ``channel_roles.csv``
    (what a channel is to a device card, by class and name pattern) and
    ``card_recipes.csv`` (a class's card recipe, optionally for the devices under a
-   place or whose id matches a pattern) may be absent. A device card is drawn:
+   place or whose id matches a pattern; the first row that takes a device wins),
+   ``card_sections.csv`` (a recipe's drawn sections in order) and ``chains.csv``
+   (the hops of a recipe's chains: each walks one relation in one direction from
+   the device or an earlier hop, keeps the things its ``to`` filter takes, and
+   shows its roles in the block; a hop that reaches nothing is a dashed "not
+   stated" block, two answers are stacked as contested) may be absent. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
    ``card`` whose ``level`` names its recipe, else its roles), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its
    writable channels: a choice of stated states, an action, or a typed value
    applied with Apply), every other channel in a grid, where it is and its
-   sources. A class with no recipe row is drawn with the default recipe; ``write``
-   prints how many device cards each recipe drew. A table that breaks its schema
+   sources. A class with no recipe row is drawn with the default recipe (the
+   sections stated for the recipe ``default``, else a chain of its place, power,
+   network and controller); ``write`` prints how many device cards each recipe
+   drew and, per chain, how many were drawn whole and the hop most often missing. A table that breaks its schema
    prints the file and line and exits 1. A ``pictures.csv`` row with a place id
    in its optional ``under`` column draws only the devices of its class in that
    place, so two machines with devices of one class name each state their own
