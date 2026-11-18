@@ -31,6 +31,7 @@ from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._ca_loop import get_ca_loop
 from osprey_connectors.control_system._epics_connector import EPICSConnector
+from osprey_connectors_tests._config_lookup import config_lookup_patched
 from tests._live import async_wait_until
 
 RESULT_MARKER = "__RESULT__"
@@ -442,7 +443,7 @@ def _writes_armed() -> Iterator[None]:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
         testing.invalidate_cache()
         with (
-            patch("osprey_connectors.config.get_config_value", _armed_config),
+            config_lookup_patched(_armed_config),
             patch.object(
                 ControlSystemConnector, "_context", ConnectorContext(control_target=_ARMED_TARGET)
             ),

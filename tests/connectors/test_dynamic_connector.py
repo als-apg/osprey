@@ -9,6 +9,7 @@ from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._mock_dynamic_connector import MockDynamicConnector
 from osprey_connectors_tests._write_fakes import ARMED_TARGET, arm_switch, writes_enabled_config
@@ -150,7 +151,7 @@ class TestCustomConnectorConfirm:
     def writes_enabled(self, monkeypatch):
         # A custom connector is stamped with its dotted type; the tier is
         # target- and type-blind, so the deployment's allowed tier arms it.
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+        serve_config_lookup(monkeypatch, writes_enabled_config)
 
     async def _connector(self):
         config = {

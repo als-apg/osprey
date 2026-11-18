@@ -72,6 +72,7 @@ from osprey_connectors.factory import (
 )
 from osprey_connectors.refusals import STORE_PATH_MARKERS, refusal_phrase
 from osprey_connectors.write_switch import NO_OWNER, RESERVED_OWNER_KWARG
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import isolated_connector_registries, write_payload
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -211,7 +212,7 @@ def arm_deployment_writes(
             return section
         return default
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", config_value)
+    serve_config_lookup(monkeypatch, config_value)
 
 
 def switch_for(tree: Path, owner: str, state: str, target: str = _TARGET) -> Path:

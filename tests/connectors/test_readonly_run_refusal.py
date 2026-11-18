@@ -16,6 +16,7 @@ import pytest
 
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._write_fakes import (
     RecordingConnector,
     arm_switch,
@@ -30,7 +31,7 @@ READONLY_PHRASE = refusal_phrase("readonly_run")
 @pytest.fixture
 def writes_enabled_deployment(monkeypatch, tmp_path):
     """A write tier that allows and the login's switch on: only the run refuses."""
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_config_lookup(monkeypatch, writes_enabled_config)
     arm_switch(monkeypatch, tmp_path / "armed-data")
 
 
@@ -310,8 +311,8 @@ async def test_deployment_refusal_is_unchanged_inside_an_mcp_server(monkeypatch)
     that one is the deployment admin's to lift — telling the operator the run
     is read-only would send them somewhere that cannot help.
     """
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
+    serve_config_lookup(
+        monkeypatch,
         lambda key, default=None: {"writes": "never"} if key == "control_system" else default,
     )
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)

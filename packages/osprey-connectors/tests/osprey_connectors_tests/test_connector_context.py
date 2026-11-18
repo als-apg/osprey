@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from osprey_connectors.connector_types import EPICS, TARGET_VA, TRANSPORT_CA
 from osprey_connectors.control_system import ConnectorContext, ControlSystemConnector
 from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._write_fakes import arm_switch
 
@@ -47,7 +48,7 @@ def _serve(monkeypatch, tmp_path: Path, section: dict[str, Any]) -> None:
             return str(database)
         return default
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+    serve_config_lookup(monkeypatch, get_config_value)
     monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
 

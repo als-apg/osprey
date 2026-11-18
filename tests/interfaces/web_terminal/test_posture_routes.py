@@ -50,6 +50,7 @@ from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import REASONS, refusal_phrase
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import (
     owner,
     pin_identity,
@@ -1366,7 +1367,7 @@ class TestRunsAndTheSwitch:
     async def test_a_connector_write_for_this_login_passes_at_its_next_call(
         self, client, monkeypatch
     ):
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(ALLOWED))
+        serve_config_lookup(monkeypatch, config_reader(ALLOWED))
         connector = RecordingConnector()
         connector._context = ConnectorContext(connector_type="epics", control_target="va")
 

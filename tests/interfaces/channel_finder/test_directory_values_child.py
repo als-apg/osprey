@@ -48,6 +48,7 @@ from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR, READONLY_MO
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.model import evolve
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, InlineCaLoop
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -295,7 +296,7 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
     def get_config_value(path, default=None, _config_path=None):
         return VA_SECTION if path == "control_system" else default
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+    serve_config_lookup(monkeypatch, get_config_value)
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
     # The block and the watcher are process-wide; each has its own test below.
     monkeypatch.setattr(child_module, "_arm_raw_put_block", lambda: None)
@@ -809,8 +810,8 @@ EPICS_SECTION = {
 def dead_aioca(session_env, monkeypatch) -> FakeAioca:
     """The session bound to a real ``EPICSConnector`` on a fake aioca, with short windows."""
     _write_record(session_env, target="live", generation=1)
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
+    serve_config_lookup(
+        monkeypatch,
         lambda path, default=None, _config_path=None: (
             EPICS_SECTION if path == "control_system" else default
         ),
@@ -908,8 +909,8 @@ class _Gateways:
         monkeypatch.setattr(session_module.ControlSession, "open", classmethod(spying_open))
 
     def serve_section(self, section: dict[str, Any]) -> None:
-        self.monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
+        serve_config_lookup(
+            self.monkeypatch,
             lambda path, default=None, _config_path=None: (
                 section if path == "control_system" else default
             ),

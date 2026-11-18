@@ -10,12 +10,13 @@ test_control_system_refused.py.
 """
 
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelUnreachableError
+from osprey_connectors_tests._config_lookup import config_lookup_patched
 from osprey_connectors_tests._epics_fakes import ECA_DISCONN
 from osprey_connectors_tests._write_fakes import arm_switch
 from osprey_connectors_tests._write_fakes import make_mock_epics_connector as _make_connector
@@ -49,10 +50,7 @@ class TestOneNamePerWrite:
         )
         connector = _make_connector(validate_side_effect=violation)
 
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=_writes_enabled_config,
-        ):
+        with config_lookup_patched(_writes_enabled_config):
             result = await connector.write_channel(spelling, 999.0, confirm=False)
 
         assert result.refusal_reason == "LIMITS"
@@ -69,10 +67,7 @@ class TestOneNamePerWrite:
         """A write that passes validation puts to ``TEST:PV`` and reports that name."""
         connector = _make_connector()
 
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=_writes_enabled_config,
-        ):
+        with config_lookup_patched(_writes_enabled_config):
             result = await connector.write_channel(spelling, 1.0, confirm=False)
 
         (name, _value), _kwargs = connector._limits_validator.validate.call_args
@@ -87,10 +82,7 @@ class TestFailClosedValidation:
         """A non-limits exception from validate() refuses the write; caput never runs."""
         connector = _make_connector(validate_side_effect=RuntimeError("boom"))
 
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=_writes_enabled_config,
-        ):
+        with config_lookup_patched(_writes_enabled_config):
             result = await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
         assert isinstance(result, ChannelWriteResult)
@@ -124,10 +116,7 @@ class TestFailClosedValidation:
         )
         connector = _make_connector(validate_side_effect=violation)
 
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=_writes_enabled_config,
-        ):
+        with config_lookup_patched(_writes_enabled_config):
             result = await connector.write_channel("TEST:PV", value, confirm=False)
 
         assert result.refusal_reason == "LIMITS"
@@ -146,10 +135,7 @@ class TestFailClosedValidation:
         """
         connector = _make_connector(put=ECA_DISCONN)
 
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=_writes_enabled_config,
-        ):
+        with config_lookup_patched(_writes_enabled_config):
             with pytest.raises(ChannelUnreachableError):
                 await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
@@ -179,10 +165,7 @@ class TestNonBlockingOffload:
 
         connector._limits_validator.validate = MagicMock(side_effect=recording_validate)
 
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=_writes_enabled_config,
-        ):
+        with config_lookup_patched(_writes_enabled_config):
             result = await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
         loop_thread = threading.get_ident()

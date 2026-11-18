@@ -32,6 +32,7 @@ from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.refusals import REASONS, refusal_phrase
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import (
     REFUSAL_BAN_LIST,
     isolated_connector_registries,
@@ -67,7 +68,7 @@ def tier(monkeypatch):
     """Serve one ``control_system`` section through ``get_config_value``."""
 
     def _install(section: Any) -> None:
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(section))
+        serve_config_lookup(monkeypatch, config_reader(section))
 
     return _install
 
@@ -236,7 +237,7 @@ class TestTheEarlierTermsRefuseFirst:
         def _broken(*_args, **_kwargs):
             raise FileNotFoundError("no config")
 
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", _broken)
+        serve_config_lookup(monkeypatch, _broken)
         _switch(root, TARGET_LIVE)
         connector = _built(TARGET_LIVE)
 
@@ -269,7 +270,7 @@ class TestTheEarlierTermsRefuseFirst:
         def _no_config(key, *_args, **_kwargs):
             raise AssertionError(f"config read under a read-only run: {key}")
 
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", _no_config)
+        serve_config_lookup(monkeypatch, _no_config)
         _switch(root, TARGET_LIVE)
         reads = _count_record_reads(monkeypatch)
         monkeypatch.setenv(EXECUTION_MODE, "readonly")

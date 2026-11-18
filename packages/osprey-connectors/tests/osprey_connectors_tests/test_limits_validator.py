@@ -26,6 +26,7 @@ from osprey_connectors.control_system._limits_validator import (
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.limits_posture import LimitsPosture
 from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 
 
 def _make_validator(tmp_path, db: dict, policy: dict | None = None) -> LimitsValidator:
@@ -265,7 +266,7 @@ def _patch_config(
             return section
         return values.get(key, default)
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    serve_config_lookup(monkeypatch, fake_get_config_value)
     monkeypatch.setattr(
         "osprey_connectors.config.active_config",
         lambda: None if config_path is None else config_of({}, path=config_path),

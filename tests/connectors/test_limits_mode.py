@@ -33,6 +33,7 @@ from osprey_connectors.limits_posture import (
     incomplete_limits_blocks,
     type_limits_posture,
 )
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 
 BOUNDED = "DEMO:MAG:HCM:01:CURRENT:SP"
 LOCKED = "DEMO:VAC:PUMP:01:VOLTAGE:SP"
@@ -61,10 +62,7 @@ def _validator(monkeypatch, tmp_path: Path, mode: Any) -> LimitsValidator:
         "control_system.limits_checking.database_path": str(db_file),
         "project_root": None,
     }
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
+    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
     monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
@@ -104,10 +102,7 @@ class TestTheModeDecidesAChannelWithNoRecord:
             "control_system": {"limits_checking": {"enabled": True}},
             "control_system.limits_checking.database_path": str(db_file),
         }
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda key, default=None: values.get(key, default),
-        )
+        serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
         monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
         refusal = _refusal(LimitsValidator.from_config(), UNLISTED, 499.5)

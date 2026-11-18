@@ -65,6 +65,7 @@ import yaml
 from osprey.facility.records import FacilityRecords
 from osprey.services.virtual_accelerator.entrypoint import READY_MARKER
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
+from osprey_connectors_tests._config_lookup import config_lookup_patched
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
 from tests._facility_file import demo_facility_document
 from tests.e2e._deploy_support import find_osprey_console_script
@@ -583,7 +584,7 @@ def patched_config(**overrides: Any) -> Iterator[None]:
             node[leaf] = value
         return section or default
 
-    with patch("osprey_connectors.config.get_config_value", side_effect=_get_config_value):
+    with config_lookup_patched(_get_config_value):
         yield
 
 

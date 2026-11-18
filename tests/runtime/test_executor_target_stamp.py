@@ -35,6 +35,7 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, testing, write_switch
 from osprey_connectors.control_system import ConnectorContext, ConnectorSettings
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import state_dir_under, write_control_context
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -239,10 +240,7 @@ def deployment_config(monkeypatch, view):
     Host and sandbox deliberately read the same function, so a target the host
     stamps is a target the sandbox can build.
     """
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        _section_reader(_control_system_section(view)),
-    )
+    serve_config_lookup(monkeypatch, _section_reader(_control_system_section(view)))
 
 
 @pytest.fixture
@@ -400,10 +398,7 @@ class TestStampApplication:
         deployment into a ValueError raised inside the sandbox; declining leaves
         the run on the baseline, which is what it was on before any of this.
         """
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader(_in_process_only_section(view)),
-        )
+        serve_config_lookup(monkeypatch, _section_reader(_in_process_only_section(view)))
         write_record(state_root, target="live", generation=1)
         env: dict[str, str] = {}
 
@@ -413,10 +408,7 @@ class TestStampApplication:
 
     def test_va_is_stamped_on_that_same_deployment(self, state_root, monkeypatch, view):
         """Only the unresolvable half is declined: 'va' resolves everywhere."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader(_in_process_only_section(view)),
-        )
+        serve_config_lookup(monkeypatch, _section_reader(_in_process_only_section(view)))
         write_record(state_root, target="va", generation=1)
         env: dict[str, str] = {}
 
@@ -440,9 +432,8 @@ class TestLaunchPostureStamp:
     @staticmethod
     def _tier_allows(monkeypatch, view) -> None:
         """The same deployment, with a write tier that allows writes."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader({**_control_system_section(view), "writes": "allowed"}),
+        serve_config_lookup(
+            monkeypatch, _section_reader({**_control_system_section(view), "writes": "allowed"})
         )
 
     def test_the_posture_is_stamped_beside_the_target(self, state_root, monkeypatch, view):
@@ -485,10 +476,7 @@ class TestLaunchPostureStamp:
         It names every target, because a run that cannot say which machine it is
         about must not be the one run a narrowing fails to reach.
         """
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader(_in_process_only_section(view)),
-        )
+        serve_config_lookup(monkeypatch, _section_reader(_in_process_only_section(view)))
         write_record(state_root, target="live", generation=1, posture={"live": "sandbox"})
         env: dict[str, str] = {}
 
@@ -902,10 +890,7 @@ class TestSandboxRouting:
         stamp that arrives from anywhere else.
         """
         monkeypatch.setenv("OSPREY_CONTROL_TARGET", "live")
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _section_reader(_in_process_only_section(view)),
-        )
+        serve_config_lookup(monkeypatch, _section_reader(_in_process_only_section(view)))
 
         import osprey.runtime as runtime
 

@@ -38,6 +38,7 @@ from pydantic import ValidationError
 from osprey.services.bluesky_bridge import plan_loader, preflight, qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import ConnectorReadable, ConnectorSettable
 from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -433,12 +434,11 @@ def test_a_readables_only_device_file_builds_that_half_alone(tmp_path: Path) -> 
 def test_control_system_type_falls_back_to_the_simulator_when_config_is_unreadable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import osprey_connectors.config as config_module
 
     def _raise(*_: Any, **__: Any) -> Any:
         raise FileNotFoundError("no project config context")
 
-    monkeypatch.setattr(config_module, "get_config_value", _raise)
+    serve_config_lookup(monkeypatch, _raise)
 
     assert qserver_startup.resolve_control_system_type() == "virtual_accelerator"
 
@@ -518,10 +518,7 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         "control_system.limits_checking.database_path": str(database),
     }
 
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
+    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
     render = served_tree(tmp_path / "served", ["SR:MAG:HCM:01:CUR:SP"]).parent.parent
     monkeypatch.setattr(
         "osprey_connectors.config.active_config",
@@ -591,7 +588,7 @@ def test_a_degraded_live_lane_refuses_each_worker_write_target_unknown(
             return "live"
         return configured(key, default)
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", with_live_lane)
+    serve_config_lookup(monkeypatch, with_live_lane)
     monkeypatch.delenv(queue_backend.LANE_ENV, raising=False)
     root = tmp_path / "agent-data"
     isolate_verdict_environment(monkeypatch, root)

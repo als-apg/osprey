@@ -14,6 +14,7 @@ import pytest
 
 from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 
 
 def _patch_config(monkeypatch, db_file, mode: str = "exclusive"):
@@ -35,10 +36,7 @@ def _patch_config(monkeypatch, db_file, mode: str = "exclusive"):
         "control_system.limits_checking.mode": mode,
         "project_root": None,
     }
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
+    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
     monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
 

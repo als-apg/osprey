@@ -33,6 +33,7 @@ from osprey_connectors.write_switch import (
     session_hold_refusal,
     write_verdict,
 )
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST
 from osprey_connectors_tests._harness._control_context_fixtures import (
     isolate_verdict_environment,
@@ -120,7 +121,7 @@ def _corrupt(root: Path) -> None:
 def _armed(monkeypatch, tmp_path) -> None:
     """The simulator's switch on, and a tier that allows writes."""
     arm_switch(monkeypatch, tmp_path / "data", TARGET_VA)
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_config_lookup(monkeypatch, writes_enabled_config)
 
 
 # -- the words ---------------------------------------------------------------------

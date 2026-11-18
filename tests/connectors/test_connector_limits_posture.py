@@ -26,6 +26,7 @@ import pytest
 from osprey_connectors.connector_types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from tests.facility.served_tree import in_process_config, served_tree
 
 DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
@@ -79,7 +80,7 @@ def _patch_config(monkeypatch, section: dict[str, Any], db_path: Path) -> None:
             return section.get("writes_enabled", default)
         return default
 
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    serve_config_lookup(monkeypatch, fake_get_config_value)
     monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
 

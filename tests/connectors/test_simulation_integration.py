@@ -7,13 +7,13 @@ refuses an address the view does not hold.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 import pytest
 
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ChannelNotFoundError
+from osprey_connectors_tests._config_lookup import config_lookup_patched, constant_lookup
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -61,7 +61,7 @@ class TestVAInProcessConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_read_engine_channel(self, view):
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with config_lookup_patched(constant_lookup(False)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -79,7 +79,7 @@ class TestVAInProcessConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_string_channel_passes_through(self, view):
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with config_lookup_patched(constant_lookup(False)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -93,10 +93,7 @@ class TestVAInProcessConnectorSimulation:
     @pytest.mark.asyncio
     async def test_write_is_echoed_into_the_paired_readback(self, view):
         connector = VAInProcessConnector()
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=writes_enabled_config,
-        ):
+        with config_lookup_patched(writes_enabled_config):
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
             )
@@ -109,7 +106,7 @@ class TestVAInProcessConnectorSimulation:
 
     @pytest.mark.asyncio
     async def test_get_metadata_from_the_channel_record(self, view):
-        with patch("osprey_connectors.config.get_config_value", return_value=False):
+        with config_lookup_patched(constant_lookup(False)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))

@@ -28,6 +28,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
@@ -48,7 +49,7 @@ def _switch_on(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def writes_enabled(monkeypatch):
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+    serve_config_lookup(monkeypatch, writes_enabled_config)
 
 
 def _journal(view: Path) -> Path:
@@ -277,6 +278,21 @@ _WRITER = """
     config.get_config_value = lambda key, default=None, config_path=None: (
         {"writes": "allowed"} if key == "control_system" else real(key, default, config_path)
     )
+    from osprey_connectors.testing import config_of
+
+    real_current = config.current_config
+
+    def _current():
+        try:
+            base = real_current()
+        except Exception:
+            tree, path = {}, "config.yml"
+        else:
+            tree, path = base.raw_tree(), base.path
+        tree["control_system"] = {"writes": "allowed"}
+        return config_of(tree, path=path)
+
+    config.current_config = _current
     from osprey_connectors.control_system import ConnectorContext
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 

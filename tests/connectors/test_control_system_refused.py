@@ -34,6 +34,7 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.errors import ChannelWriteBlockedError, LimitsViolation
 from osprey_connectors.refusals import RefusalReason
+from osprey_connectors_tests._config_lookup import config_lookup_patched
 from osprey_connectors_tests._epics_fakes import ECA_NOWTACCESS
 from osprey_connectors_tests._write_fakes import arm_switch, make_mock_epics_connector
 from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config
@@ -72,7 +73,7 @@ def _make_connector():
 
 
 async def _write(connector, value=42.0, confirm=False):
-    with patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled_config):
+    with config_lookup_patched(_writes_enabled_config):
         return await connector.write_channel(CHANNEL, value, confirm=confirm)
 
 
@@ -378,7 +379,7 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons, connector=None
             "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
-        patch("osprey_connectors.config.get_config_value", side_effect=_writes_enabled_config),
+        config_lookup_patched(_writes_enabled_config),
         pytest.raises(ToolError) as excinfo,
     ):
         await fn(operations=operations)

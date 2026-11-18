@@ -23,6 +23,7 @@ from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_tier import WRITES_KEY
+from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     FakeChannel,
     InlineCaLoop,
@@ -58,7 +59,7 @@ NEVER = _normalized("never", type=EPICS, connector={EPICS: {}})
 
 
 def _serve(monkeypatch, section: dict) -> None:
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(section))
+    serve_config_lookup(monkeypatch, config_reader(section))
 
 
 @pytest.fixture
