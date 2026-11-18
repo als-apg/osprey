@@ -80,6 +80,7 @@ __all__ = [
     "load_draw",
     "named_classes",
     "picture_classes",
+    "unplaced_parts",
     "screen_id",
     "screen_ids",
     "under",
@@ -980,6 +981,22 @@ def picture_classes(graph: PanelGraph) -> dict[str, list[str]]:
             out["parts only"].append(cls)
         else:
             out["none"].append(cls)
+    return out
+
+
+def unplaced_parts(graph: PanelGraph) -> dict[str, int]:
+    """Per device class with devices, how many of its ``pictures.csv`` parts are not
+    placed (no position and no angle): drawn hollow beside the drawing. Information,
+    not a problem: a facility states no number it has no source for."""
+    classes = sorted({t.cls for t in graph.things() if t.kind == "device" and t.cls})
+    out: dict[str, int] = {}
+    for cls in classes:
+        rows = graph.pictures(cls)
+        count = sum(
+            1 for r in rows if not r.shape and r.kind != layout.OUTLINE_KIND and not r.placed
+        )
+        if count:
+            out[cls] = count
     return out
 
 

@@ -278,8 +278,8 @@ def test_water_and_terminals_stand_in_a_column_beside_the_yoke_under_one_word(tm
         *_six_poles(),  # a yoke of radius 150
         _row("manifold 1", "manifold", 180, 20),
         _row("manifold 2", "manifold", 180, -20),
-        _row("terminal 1", "terminal", 0, 0),  # no place: dashed, left of the yoke
-        _row("switch 1", "thermal_switch", 0, 0, angle=90),  # its coil: a dot on it
+        _row("terminal 1", "terminal", "", ""),  # no position: dashed, left of the yoke
+        _row("switch 1", "thermal_switch", "", "", angle=90),  # its coil: a dot on it
     ]
     doc = _card(_graph(tmp_path, rows))
     yoke, _window = _by_type_tip(doc, "ellipse", "yoke")
@@ -303,7 +303,7 @@ def test_water_and_terminals_stand_in_a_column_beside_the_yoke_under_one_word(tm
 
 
 def test_a_sensor_with_no_place_is_a_hollow_ring_beside_the_drawing(tmp_path) -> None:
-    rows = [*_six_poles(), _row("thermal switch 1", "thermal_switch", 0, 0)]
+    rows = [*_six_poles(), _row("thermal switch 1", "thermal_switch", "", "")]
     doc = _card(_graph(tmp_path, rows))
     (ring,) = _tipped(doc, "thermal switch 1")
     assert ring["type"] == "ellipse" and ring["props"]["fill"] is False
@@ -446,6 +446,103 @@ def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_pat
     assert polygon["props"]["fillColor"] == symbols.STEEL_DARK
     assert polygon["props"].get("lineStyle") != "dashed"  # stated
     assert cavity["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: a round cavity
+
+
+# -- parts with no position --------------------------------------------------------
+
+
+def test_a_row_may_leave_its_position_empty_and_old_positions_read_unchanged(tmp_path) -> None:
+    rows = [
+        "Quadrupole,end,yoke,yoke,,,,X,A,s,l,300,,,",
+        "Quadrupole,end,switch 1,thermal_switch,,,,X,A,s,l,,,90,",
+        "Quadrupole,end,switch 2,thermal_switch,,,,X,A,s,l,,,,",
+        _row("switch 3", "thermal_switch", 50, -40),
+    ]
+    yoke, one, two, three = read_tables(_tables(tmp_path, rows)).pictures
+    assert (yoke.x_mm, yoke.y_mm, yoke.z_mm) == (None, None, None)
+    assert one.placed and not one.positioned  # its coil's angle
+    assert not two.placed
+    assert three.positioned and (three.x_mm, three.y_mm) == (50, -40)
+
+
+def test_a_yoke_and_a_bore_with_no_position_are_centred(tmp_path) -> None:
+    from osprey.facility.panels.picture import body
+
+    rows = [
+        "Quadrupole,end,yoke,yoke,,,,X,A,s,l,300,,,",
+        "Quadrupole,end,bore,bore,,,,X,A,s,l,24,,,",
+        "Quadrupole,end,pole 1,pole,,,,X,A,s,l,,,45,",
+    ]
+    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    drawn = body([r for r in pictures if r.shape])
+    for shape in drawn.shapes:
+        if shape.role in ("yoke", "window", "bore"):
+            (a1, b1), (a2, b2) = shape.points
+            assert ((a1 + a2) / 2, (b1 + b2) / 2) == (0, 0)
+    assert drawn.beam == (0, 0)
+
+
+def test_parts_at_a_coils_angle_sit_on_it_side_by_side(tmp_path) -> None:
+    rows = [
+        *_unsized(4, 45),
+        "Quadrupole,end,thermal switch 1,thermal_switch,,,,X,A,s,l,,,135,",
+        "Quadrupole,end,thermocouple 1,thermocouple,,,,X,A,s,l,,,135,",
+    ]
+    doc = _card(_graph(tmp_path, rows))
+    blocks = [_centre(n) for n in _tipped(doc, "coil 2")]  # the coil at 135 degrees
+    (switch,) = _tipped(doc, "thermal switch 1")
+    (couple,) = _tipped(doc, "thermocouple 1")
+    for dot in (switch, couple):
+        assert dot["props"]["fill"] is True  # placed: a filled dot
+        assert min(math.dist(_centre(dot), c) for c in blocks) < 25  # on the coil
+    gap = math.dist(_centre(switch), _centre(couple))
+    assert gap >= switch["geometry"]["width"]  # side by side, not on top of each other
+    assert "not placed" not in " ".join(_texts(doc))
+
+
+def test_a_part_with_no_position_and_no_angle_is_not_placed(tmp_path) -> None:
+    rows = [
+        *_unsized(4, 45),
+        "Quadrupole,end,thermal switch 1,thermal_switch,,,,X,A,s,l,,,,",
+        "Quadrupole,end,thermal switch 2,thermal_switch,,,,X,A,s,l,,,,",
+        "Quadrupole,end,thermocouple 1,thermocouple,,,,X,A,s,l,,,45,",
+    ]
+    doc = _card(_graph(tmp_path, rows))
+    for name in ("thermal switch 1", "thermal switch 2"):
+        (ring,) = _tipped(doc, name)
+        assert ring["type"] == "ellipse" and ring["props"]["fill"] is False
+    texts = _texts(doc)
+    assert "1, 2 (not placed)" in texts  # the legend says so
+    assert "1" in texts and "thermocouple" in texts
+    assert not any(t.startswith("1 (") and "not placed" in t for t in texts if t != "1, 2 (not placed)")  # fmt: skip
+
+
+def test_parts_not_placed_with_no_body_stand_in_the_frames_corner(tmp_path) -> None:
+    rows = [
+        _row("thermal switch 1", "thermal_switch", 120, 40),
+        "Quadrupole,end,thermal switch 2,thermal_switch,,,,X,A,s,l,,,,",
+    ]
+    doc = _card(_graph(tmp_path, rows))
+    (placed,) = _tipped(doc, "thermal switch 1")
+    (ring,) = _tipped(doc, "thermal switch 2")
+    assert placed["props"]["fill"] is True and ring["props"]["fill"] is False
+    assert "1, 2 (2 not placed)" in _texts(doc)
+
+
+def test_check_counts_the_parts_not_placed_per_class_as_information(tmp_path) -> None:
+    from osprey.facility.panels.emit import check, unplaced_parts, write
+
+    rows = [
+        *_unsized(4, 45),
+        "Quadrupole,end,thermal switch 1,thermal_switch,,,,X,A,s,l,,,,",
+        "Quadrupole,end,thermal switch 2,thermal_switch,,,,X,A,s,l,,,135,",
+        "Quadrupole,end,manifold 1,manifold,,,,X,A,s,l,,,,",
+    ]
+    graph = _graph(tmp_path, rows)
+    assert unplaced_parts(graph) == {"Quadrupole": 2}
+    out = tmp_path / "out"
+    write(graph, out, only=lambda t: t.view == "card" and t.id == "XR01:QF1")
+    assert not [p for p in check(graph, out) if "placed" in p.kind or "placed" in p.detail]
 
 
 # -- check -------------------------------------------------------------------------

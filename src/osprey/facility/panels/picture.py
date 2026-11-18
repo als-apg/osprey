@@ -18,11 +18,11 @@ gap row's angle), a coil block each side of each pole, its winding on the gap
 side, the gap a flat ellipse.
 
 Parts that are not the body: a sensor whose row states a coil (an angle, or a
-position off the beam axis) is a dot on that coil's block; one with no place is
-a hollow ring in a row of its kind beside the drawing. A water part (a kind
+position) is a dot on that coil's block, two on one coil side by side; one with
+neither is not placed, a hollow ring in a row of its kind beside the drawing. A water part (a kind
 :data:`WATER_WORDS` names) or a terminal block is a small block in a column
 beside the yoke (right of it, or left when its row places it left), a word
-above; a dashed block when its row states no place.
+above; a dashed block when its row states no position.
 
 The format draws polygons, axis-aligned ellipses and axis-aligned rectangles
 only: a rounded tip and a rounded block at an angle are polygons whose curves
@@ -283,18 +283,15 @@ def _box(a: float, b: float, w: float, h: float) -> tuple[Point, Point]:
 
 
 def _xy(row: PicturePart) -> Point:
-    """A row's coordinates in its view's plane: x, y on an end view; z, y on a side view."""
-    return (row.z_mm, row.y_mm) if row.view == "side" else (row.x_mm, row.y_mm)
+    """A row's coordinates in its view's plane: x, y on an end view; z, y on a side view;
+    the beam axis where the row states none."""
+    across = row.z_mm if row.view == "side" else row.x_mm
+    return (across or 0.0, row.y_mm or 0.0)
 
 
 def _wh(row: PicturePart) -> Point:
     w = row.w_mm or 0.0
     return w, row.h_mm if row.h_mm is not None else w
-
-
-def _placed(row: PicturePart) -> bool:
-    """A part's row places it: an angle, or a position off the beam axis."""
-    return row.angle_deg is not None or _xy(row) != (0.0, 0.0)
 
 
 def _angle(row: PicturePart) -> float:
@@ -629,7 +626,7 @@ def _parts(
     for row in parts:
         kind = _kind(row)
         if kind == "sensor":
-            if seats and _placed(row):
+            if seats and row.placed:
                 angle = _angle(row)
                 n = min(range(len(seats)), key=lambda i: _apart(seats[i][0], angle))
                 k = taken.get(n, 0)
@@ -638,12 +635,12 @@ def _parts(
                 share = (SENSOR_ALONG[k % len(SENSOR_ALONG)] - COIL_FROM) / (COIL_TO - COIL_FROM)
                 at = (a1 + share * (a2 - a1), b1 + share * (b2 - b1))
                 dots.append(Dot(row, at, SENSOR * unit, True))
-            elif _xy(row) != (0.0, 0.0):  # no coil to sit on: where its row puts it
+            elif row.positioned:  # no coil to sit on: where its row puts it
                 dots.append(Dot(row, _xy(row), SENSOR * unit, True))
             else:
                 unplaced.setdefault(row.kind, []).append(row)
             continue
-        placed = _xy(row) != (0.0, 0.0)
+        placed = row.positioned
         side = -1.0 if placed and _xy(row)[0] < 0 else 1.0
         if kind == "terminal" and not placed:
             side = -1.0

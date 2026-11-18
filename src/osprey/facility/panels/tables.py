@@ -313,7 +313,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         PAIRS: ("setpoint", "readback", "basis"),
         HEALTH: ("channel", "value", "state", "basis"),
         EXCLUDED: ("kind", "id"),
-        PICTURES: ("device_class", "view", "part", "kind", "x_mm", "y_mm", "z_mm"),
+        PICTURES: ("device_class", "view", "part", "kind"),
         NAMES: ("thing", "short_name", "basis"),
         METRICS: ("view", "order", "title", "measure", "signal"),
         CALIBRATION_KINDS: ("kind", "title", "class", "shape", "wanted_basis"),
@@ -510,10 +510,16 @@ class PicturePart:
     the gap; of more, as a ring yoke (or the outline) with the poles at their
     angles. A part sits by its kind: a water part (a kind naming a manifold, water
     or cooling) or a terminal block is a block in a column beside the yoke, right of
-    it unless its row places it left, dashed when ``x_mm`` and ``y_mm`` are both 0
-    (no place stated); any other part is a sensor, a dot on the coil block nearest
-    its ``angle_deg`` (or the angle of its position), or, with neither stated, a
-    hollow ring in a row of its kind beside the drawing.
+    it unless its row places it left, dashed when it has no position; any other part
+    is a sensor: with an ``angle_deg`` and no position, a dot on the coil at that
+    angle (two on one coil side by side); with a position, a dot on the coil nearest
+    its position's angle (a drawing with no coil: at its position); with neither, it
+    is not placed: a hollow ring in a row of its kind beside the drawing, and the
+    legend says "not placed".
+
+    ``x_mm``, ``y_mm`` and ``z_mm`` are optional on every row: a facility leaves
+    empty what no source states. A yoke, a bore or a gap with no position is
+    centred on the beam.
 
     A shape row may leave its size empty, the normal case: a pole, a coil or a
     corrector winding is then placed by its ``angle_deg`` alone (its ``x_mm``,
@@ -554,9 +560,9 @@ class PicturePart:
     view: str
     part: str
     kind: str
-    x_mm: float
-    y_mm: float
-    z_mm: float
+    x_mm: float | None
+    y_mm: float | None
+    z_mm: float | None
     document: str | None
     version: str | None
     state: str | None
@@ -582,6 +588,17 @@ class PicturePart:
     def sized(self) -> bool:
         """Whether the row states its size (its width)."""
         return self.w_mm is not None
+
+    @property
+    def positioned(self) -> bool:
+        """Whether the row states its position in its view's plane."""
+        across = self.z_mm if self.view == "side" else self.x_mm
+        return across is not None and self.y_mm is not None
+
+    @property
+    def placed(self) -> bool:
+        """Whether the row places its part: a position, or an angle (its coil's)."""
+        return self.positioned or self.angle_deg is not None
 
 
 @dataclass(frozen=True)

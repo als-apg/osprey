@@ -1364,7 +1364,8 @@ def panels_check(
     (``unbound_picture``) and one whose signal matches channels of several devices
     (``ambiguous_picture``) are notes and fail only under --strict.
     First it prints the device classes by how ``pictures.csv`` draws them:
-    with a drawing, with parts only, with none.
+    with a drawing, with parts only, with none; then, per class, how many of its
+    parts are not placed (no position, no angle): information, not a problem.
     Prints the count per kind and the first --limit of each.
     """
     from collections import Counter
@@ -1376,6 +1377,9 @@ def panels_check(
     problems = emit.check(graph, out, max_bytes=max_bytes, draw=draw)
     for standing, classes in emit.picture_classes(graph).items():
         report(f"pictures, {standing}: {emit.named_classes(classes)}")
+    loose = emit.unplaced_parts(graph)
+    counted = ", ".join(f"{cls} {n}" for cls, n in loose.items()) or "none"
+    report(f"pictures, parts not placed: {counted}")
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")

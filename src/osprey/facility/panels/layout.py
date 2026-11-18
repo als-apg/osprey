@@ -371,6 +371,7 @@ OUTLINE_KIND = "outline"
 #: Kinds a drawing's legend does not list: the body's iron and its aperture.
 _UNLISTED = frozenset({"yoke", "pole", "bore", "gap"})
 _NOT_STATED = "outline not stated"
+_NOT_PLACED = "not placed"
 _SIZE_NOT_STATED = "size not stated: default proportions"
 _BEAM_AXIS = "beam axis"
 _ELLIPSIS = "\u2026"
@@ -3720,9 +3721,13 @@ class _Page:
     ) -> float:
         """Parts with no body stated, at their positions in a dashed frame with the
         beam axis as a cross: a dot each (a water part a block), its kind's word
-        over each group of blocks. Returns the scale, px per mm."""
+        over each group of them. A part with no position is not placed: a hollow
+        ring in a row of its kind in the frame's top left corner. Returns the
+        scale, px per mm."""
         top = self.y
         cx, cy = x0 + canvas / 2, top + canvas / 2
+        unplaced = [p for p in parts if not p.positioned]
+        parts = [p for p in parts if p.positioned]
         points = [_picture_xy(picture.view, p) for p in parts] + [(0.0, 0.0)]
         xs, ys = [a for a, _b in points], [b for _a, b in points]
         mid = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
@@ -3734,6 +3739,17 @@ class _Page:
 
         half = canvas / 2 - PICTURE_INSET / 2
         self.box(cx - half, cy - half, 2 * half, 2 * half, line=MUTED_TEXT, dashed=True)
+        kinds: dict[str, list[PicturePart]] = {}
+        for part in unplaced:
+            kinds.setdefault(part.kind, []).append(part)
+        for row, (kind, members) in enumerate(kinds.items()):
+            y = cy - half + PICTURE_INSET + PART_DOT / 2 + row * SMALL_LINE
+            x = cx - half + PICTURE_INSET + PART_DOT / 2
+            for member in members:
+                self.part_dot(member, x, y, hollow=True)
+                x += PART_DOT + GAP / 2
+            word = kind.replace("_", " ")
+            self.small(x, y - SMALL_LINE / 2, word, fg=MUTED_TEXT)
         ax, ay = px((0.0, 0.0))
         arm = BEAM_POINT
         for ends in (((ax - arm, ay), (ax + arm, ay)), ((ax, ay - arm), (ax, ay + arm))):
@@ -3960,6 +3976,11 @@ class _Page:
                 own = member.part.startswith(word + " ")  # its name is the kind and a number
                 names.append(number if own else f"{number} ({member.part})")
             text = ", ".join(names)
+            loose = [n for n, m in zip(names, members, strict=True) if not m.placed]
+            if loose and len(loose) == len(members):
+                text += f" ({_NOT_PLACED})"
+            elif loose:
+                text += f" ({', '.join(loose)} {_NOT_PLACED})"
             lines = _wrap(text, width - PART_LABEL_WIDTH - GAP, SMALL_SIZE)
             for n, line in enumerate(lines):
                 self.text(x + GAP, self.y + n * SMALL_LINE, line, size=SMALL_SIZE, h=SMALL_LINE)
@@ -4472,8 +4493,10 @@ def _source(part: PicturePart) -> str:
 
 
 def _picture_xy(view: str, part) -> tuple[float, float]:
-    """A row's drawn coordinates, in mm: x, y on an end view; z, y on a side view."""
-    return (part.z_mm, part.y_mm) if view == "side" else (part.x_mm, part.y_mm)
+    """A row's drawn coordinates, in mm: x, y on an end view; z, y on a side view;
+    the beam axis where the row states none."""
+    across = part.z_mm if view == "side" else part.x_mm
+    return (across or 0.0, part.y_mm or 0.0)
 
 
 def _ticks(lo: float, hi: float) -> list[tuple[float, float]]:
