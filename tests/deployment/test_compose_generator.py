@@ -6654,6 +6654,11 @@ _GENERATED_LABEL_LINES = (
 #: The dispatcher template's default (network-unset) render, pinned byte for byte.
 _DISPATCHER_DEFAULT_GOLDEN = Path(__file__).parent / "goldens" / "dispatcher" / "default.yml"
 
+#: The command that rewrites it from today's template (:func:`_regenerate`).
+_DISPATCHER_GOLDEN_REGENERATE = (
+    "PYTHONPATH=src:. ./.venv/bin/python tests/deployment/test_compose_generator.py"
+)
+
 
 def test_dispatcher_default_render_is_byte_identical_to_its_golden() -> None:
     """The default (network-unset) render, byte for byte, and the labels it writes.
@@ -6666,12 +6671,11 @@ def test_dispatcher_default_render_is_byte_identical_to_its_golden() -> None:
     carries instead.
 
     **Update discipline**: a failure means a template edit moved the default
-    render. Regenerate the golden in the same change as that edit, then account
-    for every changed byte::
+    render, which is never on its own a reason to hand-edit the golden.
+    Regenerate it in the same change as that edit, then account for every
+    changed byte::
 
-        uv run python -c "from tests.deployment.test_compose_generator import \\
-            _render_dispatcher_template as r; \\
-            open('tests/deployment/goldens/dispatcher/default.yml', 'w').write(r())"
+        PYTHONPATH=src:. ./.venv/bin/python tests/deployment/test_compose_generator.py
     """
     rendered = _render_dispatcher_template()
 
@@ -6680,7 +6684,15 @@ def test_dispatcher_default_render_is_byte_identical_to_its_golden() -> None:
         "the labels override carries the config digest"
     )
     assert _GENERATED_LABEL_LINES not in rendered, "the labels override carries the project labels"
-    assert rendered == _DISPATCHER_DEFAULT_GOLDEN.read_text(encoding="utf-8")
+    # Final-newline count is normalized on both sides: the repo's
+    # end-of-file-fixer hook owns the golden's trailing newline. Every other
+    # byte still has to match.
+    golden = _DISPATCHER_DEFAULT_GOLDEN.read_text(encoding="utf-8")
+    assert rendered.rstrip("\n") + "\n" == golden.rstrip("\n") + "\n", (
+        f"a template edit moved the dispatcher's default render; regenerate "
+        f"{_DISPATCHER_DEFAULT_GOLDEN.relative_to(Path(__file__).parents[2])} with "
+        f"`{_DISPATCHER_GOLDEN_REGENERATE}` and review every changed byte"
+    )
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
@@ -9704,3 +9716,23 @@ def test_up_finds_exactly_the_compose_files_the_build_wrote(
     )
     assert (history_compose in {os.path.normpath(p) for p in built}) is history_expected
     assert ("history" in derived_compose_dirs(config)) is history_expected
+
+
+def _regenerate() -> None:
+    """Overwrite the dispatcher's default-render golden from today's template.
+
+    Rendered by :func:`_render_dispatcher_template`, the same render the pinned
+    test makes, so a regenerated golden can only differ where the template
+    does. See that test's update discipline before running this.
+    """
+    _DISPATCHER_DEFAULT_GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+    # The repo's end-of-file-fixer owns the trailing newline, and the pinned
+    # test normalizes it on both sides.
+    _DISPATCHER_DEFAULT_GOLDEN.write_text(
+        _render_dispatcher_template().rstrip("\n") + "\n", encoding="utf-8"
+    )
+    print(f"wrote {_DISPATCHER_DEFAULT_GOLDEN}")
+
+
+if __name__ == "__main__":
+    _regenerate()
