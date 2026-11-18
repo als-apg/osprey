@@ -990,9 +990,10 @@ def test_a_connector_shows_its_roles_and_offers_only_stated_presses(tmp_path):
     def outlets(document) -> None:
         for n in (1, 2):
             for name in ("Sts", "Cmd"):
-                document["channels"].append(
-                    {"id": f"XR01-PS1:Out{n}-{name}", "on": {"device": "XR01:PS1"}}
-                )
+                record = {"id": f"XR01-PS1:Out{n}-{name}", "on": {"device": "XR01:PS1"}}
+                if name == "Cmd":  # writable: the fallback must not offer it again
+                    record["role"] = "setpoint"
+                document["channels"].append(record)
 
     roles = (
         "PowerSupply,state,*:Out[0-9]-Sts,device,lamp,,,,,stated,S,1,l\n"
@@ -1027,3 +1028,100 @@ def test_a_connector_shows_its_roles_and_offers_only_stated_presses(tmp_path):
 
 def test_tables_without_fronts_still_build(panel_graph):
     assert panel_graph.fronts("supply") == []
+
+
+def _sectioned(tmp_path, sections: str, roles: str = "", change=None):
+    """A pump recipe with the given card sections."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\nPump,,,pump,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n" + sections
+    )
+    (tables / "channel_roles.csv").write_text(ROLES_HEADER + roles)
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def _item(view, kind):
+    return next(i for s in view.sections for i in s.items if type(i).__name__ == kind)
+
+
+def test_a_ring_strip_draws_its_group_in_number_order_when_a_position_is_missing(tmp_path):
+    graph = _sectioned(
+        tmp_path,
+        "pump,1,ring-strip,The pumps here,,same place,,pressure,,S\n",
+        "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n",
+    )
+    ring = _item(device_card(graph, "XR01:IP1"), "RingStrip")
+    assert [m.thing for m in ring.members] == ["XR01:IP1", "XR01:IP2"]
+    first, second = ring.members
+    assert first.focus and first.link is None and second.link.target.id == "XR01:IP2"
+    assert [r.channel for r in first.rows] == ["XR01-IP1:Pressure-RB"]
+    if ring.ordered == "number":
+        assert ring.caption.startswith("in number order: positions not stated")
+    doc = stub_render(device_card(graph, "XR01:IP1"), graph)
+    assert [n for n in nodes(doc) if n["props"].get("tooltip") == "open XR01:IP2"]
+
+
+def test_a_ring_strip_of_a_relation_takes_the_devices_it_names(tmp_path):
+    graph = _sectioned(tmp_path, "pump,1,ring-strip,Read out by,,read_out_by out,,,,S\n")
+    ring = _item(device_card(graph, "XR01:IP1"), "RingStrip")
+    assert [m.thing for m in ring.members] == ["XR01:CH2"]
+    assert ring.members[0].rows == ()  # plays no role: an empty ring
+
+
+def test_number_order_compares_numbers_as_numbers() -> None:
+    from osprey.facility.panels.describe import _number_key
+
+    names = ["AR03C:VTC10", "AR03C:VTC9", "AR03C:VTC30"]
+    assert sorted(names, key=_number_key) == ["AR03C:VTC9", "AR03C:VTC10", "AR03C:VTC30"]
+
+
+def test_a_ladder_marks_the_set_points_in_order_and_names_those_not_served(tmp_path):
+    def limits(document) -> None:
+        for name in ("Lo-SP", "Hi-SP"):
+            document["channels"].append({"id": f"XR01-IP1:{name}", "on": {"device": "XR01:IP1"}})
+
+    graph = _sectioned(
+        tmp_path,
+        "pump,1,ladder,Its limits,,,,pressure;threshold-lolo;threshold-lo;threshold-hi,the caption,S\n",
+        "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
+        "Pump,threshold-lo,*:Lo-SP,device,value,,,,,stated,S,1,l\n"
+        "Pump,threshold-hi,*:Hi-SP,device,value,,,,,stated,S,1,l\n",
+        limits,
+    )
+    view = device_card(graph, "XR01:IP1")
+    ladder = _item(view, "LimitLadder")
+    assert ladder.value == "XR01-IP1:Pressure-RB"
+    assert ladder.marks == (("Lo", "XR01-IP1:Lo-SP"), ("Hi", "XR01-IP1:Hi-SP"))
+    assert ladder.left_out == ("Lolo",)
+    doc = stub_render(view, graph)
+    (dot,) = [n for n in _by_type(doc, "ellipse") if n.get("rules")]
+    x_rule = next(r for r in dot["rules"] if r["targetProperty"] == "x")
+    (formula,) = [f for f in doc["formulas"] if "formula://" + f["name"] == x_rule["formula"]]
+    assert set(formula["bindings"].values()) == {
+        "XR01-IP1:Pressure-RB", "XR01-IP1:Lo-SP", "XR01-IP1:Hi-SP",
+    }  # fmt: skip
+    assert dot["props"]["fill"] is False  # hollow until the value is known
+    assert _text(doc, "set points not served, left out: Lolo")
+
+
+def test_entries_of_one_role_are_each_named_by_their_channel(tmp_path):
+    from osprey.facility.panels.describe import _operate
+    from osprey.facility.panels.model import RoleHit
+    from osprey.facility.panels.tables import ChannelRole
+
+    role = ChannelRole(
+        "PowerSupply", "set-point", "*", "device", "entry", None, None, None, None, "stated",
+        "S", "1", "l",
+    )  # fmt: skip
+    graph = _fronted(tmp_path)
+    thing = graph.thing("XR01:PS1", "device")
+    hits = [RoleHit(role, f"XR01:PS1:{name}", "XR01:PS1") for name in ("Current-SP", "Voltage-SP")]
+    operate, _used, _left = _operate(graph, thing, hits, [])
+    (group,) = operate.groups  # one word ("Set point") for two channels would say nothing
+    assert [c.label for c in group.controls] == ["Current-SP", "Voltage-SP"]

@@ -1339,6 +1339,7 @@ def panels_write(
             STRIP_PLACED,
             chain_states,
             front_states,
+            ladder_states,
             strip_states,
         )
 
@@ -1366,6 +1367,13 @@ def panels_write(
                 f"{states['devices: all']} all stated, {states['devices: some']} some, "
                 f"{states['devices: none']} none"
             )
+        for recipe_name, states in sorted(ladder_states(graph, devices).items()):
+            whole = states.pop(HOP_FOUND, 0)
+            line = f"  ladder {recipe_name}: {whole} drawn whole, {sum(states.values())} with a part not served"
+            if states:
+                why, n = states.most_common(1)[0]
+                line += f" (most: {why}, {n})"
+            report(line)
     if index["outside"]:
         report(f"  {len(index['outside'])} screens not written (outside the selection)")
     largest = sorted(screens, key=lambda entry: (-entry["bytes"], entry["file"]))[:top]

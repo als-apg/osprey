@@ -45,10 +45,13 @@ __all__ = [
     "Group",
     "Item",
     "Light",
+    "LimitLadder",
     "Link",
     "Node",
     "Picture",
     "Probe",
+    "RingMember",
+    "RingStrip",
     "ProbePart",
     "Placement",
     "RackUnit",
@@ -935,6 +938,59 @@ class Front:
     caption: str | None = None
 
 
+@dataclass(frozen=True)
+class RingMember:
+    """One member of a ring-strip: a column with its name and values.
+
+    Attributes:
+        thing: Its id.
+        label: The name its column shows.
+        link: Its card, or ``None`` for the card's own device.
+        rows: The section's roles it plays, each a value or a lamp.
+        focus: Whether it is the card's own device.
+    """
+
+    thing: str
+    label: str
+    link: Link | None
+    rows: tuple[BlockRow, ...]
+    focus: bool = False
+
+
+@dataclass(frozen=True)
+class RingStrip:
+    """The devices of a group, one column each, in ring order.
+
+    Attributes:
+        members: In order along the ring, else in number order.
+        ordered: ``s`` (by ring position) or ``number`` (no position stated for one).
+        caption: The line under it, or ``None``.
+    """
+
+    members: tuple[RingMember, ...]
+    ordered: str
+    caption: str | None = None
+
+
+@dataclass(frozen=True)
+class LimitLadder:
+    """A device's value against its set points, in their stated order.
+
+    Attributes:
+        value: The value's channel, or ``None`` when it is not served.
+        unit: The value's unit, or ``None``.
+        marks: Each set point in order: its title and channel.
+        left_out: The set points of the section no channel serves (not drawn).
+        caption: The line under it, or ``None``.
+    """
+
+    value: str | None
+    unit: str | None
+    marks: tuple[tuple[str, str], ...]
+    left_out: tuple[str, ...] = ()
+    caption: str | None = None
+
+
 Item = (
     ValueRow
     | Light
@@ -962,6 +1018,8 @@ Item = (
     | ChannelCount
     | CardFoot
     | Front
+    | RingStrip
+    | LimitLadder
 )
 
 

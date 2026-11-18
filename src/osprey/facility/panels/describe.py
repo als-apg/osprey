@@ -90,6 +90,7 @@ from osprey.facility.panels.view import (
     Item,
     KeyTile,
     Light,
+    LimitLadder,
     Link,
     Node,
     Operate,
@@ -98,6 +99,8 @@ from osprey.facility.panels.view import (
     Probe,
     ProbePart,
     RackUnit,
+    RingMember,
+    RingStrip,
     Section,
     Strip,
     StripElement,
@@ -1211,6 +1214,14 @@ def _operate(
                 used.add(hit.channel)
             if kind == "choice" and len(items) == 1:  # one segment is no choice
                 kind, items = _one_segment(graph, items[0])
+            if kind == "entry" and len({c.label for c in items}) < len(items):
+                # one word for several channels says nothing: each its own name
+                items = [
+                    dataclasses.replace(
+                        c, label=_short_channel(c.channel, thing.id).rsplit(":", 1)[-1]
+                    )
+                    for c in items
+                ]
             if items:
                 groups.append(
                     ControlGroup(
@@ -1988,6 +1999,143 @@ def front_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter
     return found
 
 
+_THRESHOLD_PREFIX = "threshold-"
+
+
+def limit_ladder(
+    graph: PanelGraph, thing: Thing, hits: list[RoleHit], section: CardSection
+) -> LimitLadder:
+    """A ladder: the section's first role is the value, the others its set points
+    in their order; each the device's first channel of that role. A set point no
+    channel serves is left out and named."""
+    roles = [r for r in (section.roles or "").split(";") if r]
+    own: dict[str, RoleHit] = {}
+    for hit in hits:
+        if hit.owner == thing.id:
+            own.setdefault(hit.role.role, hit)
+    value = own.get(roles[0]) if roles else None
+    marks: list[tuple[str, str]] = []
+    missing: list[str] = []
+    for role in roles[1:]:
+        found = own.get(role)
+        title = _role_title(role.removeprefix(_THRESHOLD_PREFIX))
+        if found is None:
+            missing.append(title)
+        else:
+            marks.append((title, found.channel))
+    unit = _role_unit(graph, value)[0] if value is not None else None
+    return LimitLadder(
+        value.channel if value is not None else None, unit, tuple(marks), tuple(missing),
+        section.caption,
+    )  # fmt: skip
+
+
+def ladder_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:
+    """Per recipe with a ladder, its devices drawn whole and those with a set point
+    or the value not served (by what is missing)."""
+    found: dict[str, Counter[str]] = {}
+    for device in devices:
+        recipe = graph.recipe(device)
+        name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
+        rows = [r for r in graph.card_sections(name) if r.kind == "ladder"]
+        if not rows:
+            continue
+        thing = graph.thing(device, "device")
+        hits = graph.roles(device)
+        for row in rows:
+            ladder = limit_ladder(graph, thing, hits, row)
+            missing = list(ladder.left_out) + ([] if ladder.value else ["value"])
+            key = f"not served: {', '.join(missing)}" if missing else HOP_FOUND
+            found.setdefault(name, Counter())[key] += 1
+    return found
+
+
+#: How a ring-strip orders its members: by ring position, or by their number when
+#: one has no position.
+RING_BY_S, RING_BY_NUMBER = "s", "number"
+_SAME_PLACE = "same place"
+
+
+def ring_group(graph: PanelGraph, thing: Thing, recipe: str, members: str) -> list[Thing]:
+    """The members of a ring-strip: ``same place`` (the devices of the card's recipe
+    in the device's place, the device among them) or ``<relation> <direction>`` (the
+    devices that relation names at the device)."""
+    if members == _SAME_PLACE:
+        if thing.place is None:
+            return [thing]
+        try:
+            here = graph.within(thing.place)
+        except KeyError:
+            return [thing]
+        return [
+            t
+            for t in here
+            if t.kind == "device" and getattr(graph.recipe(t.id), "recipe", None) == recipe
+        ] or [thing]
+    relation, _, direction = members.partition(" ")
+    found: dict[str, Thing] = {}
+    for edge in _near(graph, thing.id, relation, direction or "out"):
+        if edge.other_kind == "device":
+            try:
+                found[edge.other] = graph.thing(edge.other, "device")
+            except KeyError:
+                continue
+    return list(found.values())
+
+
+def _number_key(text: str) -> list[object]:
+    """Natural order: the numbers in a name compared as numbers (VTC9 before VTC10)."""
+    return [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", text)]
+
+
+def ring_strip(
+    graph: PanelGraph, index: _Index, thing: Thing, recipe: str, section: CardSection
+) -> RingStrip | None:
+    """A card's ring-strip: the section's group (:func:`ring_group`), one column each,
+    by ring position when every member has one, else in number order (the caption
+    says so); each with the first of the section's roles it plays (a role not served
+    leaves its column empty), the device in focus; ``None`` for no member."""
+    members = ring_group(graph, thing, recipe, section.members or "")
+    if not members:
+        return None
+    roles = [r for r in (section.roles or "").split(";") if r]
+    where = {m.id: _ring_s(graph.pose(m.id)) for m in members}
+    if all(s_m is not None for s_m in where.values()):
+        ordered = RING_BY_S
+        members.sort(key=lambda m: (where[m.id], m.id))
+    else:
+        ordered = RING_BY_NUMBER
+        members.sort(key=lambda m: _number_key(m.id))
+    out = []
+    for member in members:
+        rows: list[BlockRow] = []
+        for hit in graph.roles(member.id):
+            if hit.role.role in roles and hit.role.shown_as not in CONTROLS:
+                unit, scale = _role_unit(graph, hit)
+                rows.append(
+                    BlockRow(
+                        _role_title(hit.role.role).lower(), hit.channel, shown_as=hit.role.shown_as,
+                        unit=unit, scale=scale, words=_words(graph, hit.channel),
+                    )
+                )  # fmt: skip
+                break
+        focus = member.id == thing.id
+        item = None if focus else _ref(graph, index, member)
+        label = member.short_name or member.id.rsplit(":", 1)[-1]
+        out.append(
+            RingMember(
+                member.id, label, item if isinstance(item, Link) else None, tuple(rows), focus
+            )
+        )
+    caption = section.caption
+    if ordered == RING_BY_NUMBER and not (caption or "").lower().startswith("in number order"):
+        caption = "; ".join(c for c in (_RING_NUMBER_NOTE, caption) if c)
+    return RingStrip(tuple(out), ordered, caption)
+
+
+_RING_NUMBER_NOTE = "in number order: positions not stated"
+
+
 def chain_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:
     """Per ``<recipe>/<chain>`` drawn on the cards of *devices*, how many came out
     each way: :data:`HOP_FOUND`, or the first hop's title and why it did not."""
@@ -2177,6 +2325,12 @@ def _drawn_card(
         if row.kind == "chain" and row.members:
             chain, _used, _state = recipe_chain(graph, index, thing, hits, name, row)
             drawings.append((row.title, [chain]))
+        elif row.kind == "ladder":
+            drawings.append((row.title, [limit_ladder(graph, thing, hits, row)]))
+        elif row.kind == "ring-strip":
+            ring = ring_strip(graph, index, thing, name, row)
+            if ring is not None:
+                drawings.append((row.title, [ring]))
         elif row.kind == "front":
             drawings.append((row.title, [card_front(graph, index, thing, hits, name, row)]))
         elif row.kind == "strip":
@@ -2198,7 +2352,8 @@ def _drawn_card(
         for control in connector.controls
     }
     operate_hits = [h for h in hits if h.channel not in on_front]  # drawn on the front
-    operate, _in_operate, _unstated = _operate(graph, thing, operate_hits, channels)
+    operate_channels = [c for c in channels if c.name not in on_front]  # nor as a fallback
+    operate, _in_operate, _unstated = _operate(graph, thing, operate_hits, operate_channels)
     columns = (
         int(recipe.channels_cols)
         if recipe is not None and recipe.channels_cols

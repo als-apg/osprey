@@ -1436,7 +1436,18 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    operate). Clients the relation names on no stated port are drawn apart by
    class; a range with nothing in it is left out. ``write`` prints per recipe the
    connectors with something stated, contested or nothing, and the devices with
-   every connector stated, some or none. A device card is drawn:
+   every connector stated, some or none. A ``ring-strip`` section draws a group
+   (``same place``: the devices of the card's recipe in the device's place; or
+   ``<relation> <direction>``: the devices that relation names) one column each,
+   by ring position, else in number order with "in number order: positions not
+   stated", each with the value or lamp of the first of the section's roles it
+   plays (an empty ring where it plays none), the device in focus and every other
+   opening its card; values are shown as numbers, since no table states a scale
+   for a bar. A ``ladder`` section draws the section's first role against the
+   others as set points, evenly in their order (not to scale), each with its live
+   value, and the live value as a dot in the gap between the set points it lies
+   between; a set point not served is left out and named, and ``write`` counts
+   the ladders drawn whole. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
    ``card`` whose ``level`` names its recipe, else its roles), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its

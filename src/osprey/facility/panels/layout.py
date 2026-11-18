@@ -87,6 +87,7 @@ from osprey.facility.panels.view import (
     Group,
     KeyTile,
     Light,
+    LimitLadder,
     Link,
     Node,
     Operate,
@@ -95,6 +96,7 @@ from osprey.facility.panels.view import (
     Probe,
     ProbePart,
     RackUnit,
+    RingStrip,
     Section,
     Strip,
     StripElement,
@@ -250,6 +252,9 @@ FRONT_CABLE = 14  # the cable from the body to what is on the connector
 FAR_BOX_HEIGHT = 34  # a far end's box: two small lines
 FRONT_EMPTY_WIDTH = 360  # a group with no connector stated: its body with the note
 LOOSE_COLUMNS = 4  # things on no stated port, in columns
+RING_COLUMN_LEAST, RING_COLUMN_MOST = 72, 140  # a ring-strip member's column
+LADDER_DOT = 14  # the live value on a ladder
+LADDER_TICK = 18  # a set point's mark across the ladder's line
 CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
 CONTROL_TAG_HEIGHT = 18
@@ -533,6 +538,9 @@ _ROWS_NOT_DRAWN = "rows not drawn: the screen holds a table of at most this many
 _CONTESTED = "contested"
 _NOTHING = "\u2014"  # what a connector with nothing stated on it shows
 _NO_CONNECTOR = "no connector stated for this unit"
+_LADDER_NOW = "now"
+_LADDER_NO_VALUE = "the value is not served: no dot"
+_LADDER_LEFT_OUT = "set points not served, left out: {}"
 _STRIP_TITLE = "IN BEAM ORDER → · schematic, not to scale"
 _LOOKS_LEGEND = (
     "fill = component type · red ring = fault · amber ring = warning · dashed = no health rule"
@@ -2141,6 +2149,12 @@ class _Page:
             elif isinstance(first, Chain):
                 number += 1
                 self.framed(f"{number} · {section.title}", partial(self.chain_blocks, first))
+            elif isinstance(first, LimitLadder):
+                number += 1
+                self.framed(f"{number} · {section.title}", partial(self.limit_ladder, first))
+            elif isinstance(first, RingStrip):
+                number += 1
+                self.framed(f"{number} · {section.title}", partial(self.ring_strip, first))
             elif isinstance(first, Front):
                 number += 1
                 self.framed(f"{number} · {section.title}", partial(self.card_front, first))
@@ -2506,6 +2520,114 @@ class _Page:
             for text in _wrap(line, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
+
+    def limit_ladder(self, ladder: LimitLadder) -> None:
+        """The set points as marks on one line, evenly in their order (not to
+        scale), each its title over it and its live value under it; the live value
+        a dot in the gap between the set points it lies between (a rule over the
+        value and every set point), hollow while no value is known; the set points
+        not served named under it."""
+        top = self.y + SMALL_LINE + ROW_GAP
+        line_y = top + LADDER_TICK / 2
+        m = len(ladder.marks)
+        step = STRIP_WIDTH / (m + 1)
+        self.line([(self.x0, line_y), (self.x0 + STRIP_WIDTH, line_y)], PAGE_TEXT, BLOCK_LINE)
+        for k, (title, channel) in enumerate(ladder.marks):
+            x = self.x0 + (k + 1) * step
+            self.text(x - step / 2, self.y, _cut(title, step, SMALL_SIZE), size=SMALL_SIZE, w=step, h=SMALL_LINE, fg=MUTED_TEXT, align="center")  # fmt: skip
+            self.line([(x, top), (x, top + LADDER_TICK)], symbols.ALARM_MINOR, BLOCK_LINE * 2, tooltip=channel)  # fmt: skip
+            self.field(x - VALUE_WIDTH / 2, top + LADDER_TICK + GAP, channel, w=VALUE_WIDTH)
+        bottom = top + LADDER_TICK + GAP + ROW + ROW_GAP
+        if ladder.value is not None and m:
+            bindings = {"v": ladder.value} | {f"t{k}": c for k, (_t, c) in enumerate(ladder.marks)}
+            above = " + ".join(f"(1 if {{v}} > {{t{k}}} else 0)" for k in range(m))
+            x_expr = f"{_number(self.x0 + step / 2 - LADDER_DOT / 2)} + {_number(step)} * ({above})"
+            if self.budget.take([(2, frozenset(bindings.values()))]):
+                name = f"ladder-x-{len(self.s.formulas)}"
+                self.s.formulas.append(
+                    {"name": name, "kind": "scalar", "expression": x_expr, "bindings": bindings}
+                )
+                self.s._rules += 2
+                rules = [
+                    {
+                        "id": f"r-{self.s._rules - 1:04d}",
+                        "name": f"{ladder.value} between its set points",
+                        "targetProperty": "x",
+                        "default": self.x0,
+                        "formula": _FORMULA_PREFIX + name,
+                    },
+                    {
+                        "id": f"r-{self.s._rules:04d}",
+                        "name": f"{ladder.value} known",
+                        "targetProperty": "fill",
+                        "pvs": [{"name": ladder.value, "trigger": True}],
+                        "conditions": [{"expression": "{0} == {0}", "value": True}],
+                        "default": False,
+                    },
+                ]
+                props = {
+                    "lineColor": symbols.FOCUS,
+                    "lineWidth": BLOCK_LINE,
+                    "fill": False,
+                    "fillColor": symbols.FOCUS,
+                    _TOOLTIP: f"{ladder.value}: between the set points it lies between",
+                }
+                self.s.widget("ellipse", self.x0, line_y - LADDER_DOT / 2, LADDER_DOT, LADDER_DOT, props, rules=rules)  # fmt: skip
+        self.y = bottom
+        if ladder.value is not None:
+            x = (
+                self.small(self.x0, self.y + (ROW - SMALL_LINE) / 2, _LADDER_NOW, fg=MUTED_TEXT)
+                + GAP
+            )
+            self.field(x, self.y, ladder.value, w=VALUE_WIDTH)
+            self.y += ROW + ROW_GAP
+        notes = []
+        if ladder.value is None:
+            notes.append(_LADDER_NO_VALUE)
+        if ladder.left_out:
+            notes.append(_LADDER_LEFT_OUT.format(", ".join(ladder.left_out)))
+        for text in [*notes, *([ladder.caption] if ladder.caption else [])]:
+            for line in _wrap(text, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+                self.small(self.x0, self.y, line, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+        self.y += ROW_GAP
+
+    def ring_strip(self, ring: RingStrip) -> None:
+        """One column per member in its order, wrapping into rows: its name, then the
+        value or lamp of its role (a bare outline where it plays none: not served);
+        the card's own device in the focus colour, every other opens its card."""
+        n = len(ring.members)
+        cw = max(RING_COLUMN_LEAST, min(RING_COLUMN_MOST, STRIP_WIDTH / max(n, 1)))
+        per = max(1, int(STRIP_WIDTH // cw))
+        height = SMALL_LINE + ROW + 2 * GAP
+        for i, member in enumerate(ring.members):
+            r, c = divmod(i, per)
+            x, y = self.x0 + c * cw, self.y + r * (height + GAP)
+            w = cw - GAP
+            if member.focus:
+                props = {"lineColor": symbols.FOCUS, "lineWidth": 2, "fill": True, "fillColor": symbols.FOCUS_TINT}  # fmt: skip
+                self.s.widget("rectangle", x, y, w, height, props)
+            else:
+                self.box(x, y, w, height, line=BOX_BORDER, fill=PANEL_BACKGROUND)
+            colour = symbols.FOCUS if member.focus else PAGE_TEXT
+            self.text(x, y + GAP / 2, _cut(member.label, w, SMALL_SIZE), size=SMALL_SIZE, w=w, h=SMALL_LINE, fg=colour, align="center")  # fmt: skip
+            vy = y + SMALL_LINE + GAP
+            if not member.rows:
+                self.no_rule(x + (w - LIGHT_SIZE) / 2, vy)
+            for row in member.rows[:1]:
+                self.shown_value(
+                    x + GAP / 2, vy, w - GAP, row.channel, row.shown_as, row.words,
+                    unit=row.unit, scale=row.scale, size=SMALL_SIZE, h=ROW,
+                )  # fmt: skip
+            if member.link is not None:
+                self.nav(x, y, w, height, replace(member.link, label=f"open {member.thing}"))
+        rows = -(-n // per)
+        self.y += rows * (height + GAP)
+        if ring.caption:
+            for text in _wrap(ring.caption, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+                self.small(self.x0, self.y, text, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+        self.y += ROW_GAP
 
     def card_front(self, front: Front) -> None:
         """A device's faces: its connectors at one pitch on a panel body, group by
