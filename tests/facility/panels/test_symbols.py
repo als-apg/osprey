@@ -146,6 +146,8 @@ THEME_ROLES = {
     "Material_Copper_Edge",
     "Material_Winding",
     "Material_Water",
+    "Material_Winding_2",
+    "Material_Bore",
 }
 NEUTRAL_ROLES = {
     "Page_Background",

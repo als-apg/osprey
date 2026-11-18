@@ -231,13 +231,14 @@ RING_LABEL_WIDTH = 60  # an arc's name and mark, centred on the arc
 RING_MARK = 12  # the font size of an arc's mark, under its name
 SUMMARY_ROW = 36  # one row of a by-system summary
 SUMMARY_COLUMNS = 2
-PICTURE_SIZE = 440  # a drawing's canvas at the most; less where its column is narrower
+PICTURE_SIZE = 544  # a drawing's canvas at the most; less where its column is narrower
 PICTURE_PAD = 16  # between the canvas and its label columns
 PICTURE_INSET = 8  # between the drawing's reach and the canvas's edge
 PART_LABEL_WIDTH = 128  # a part's name, in a column on its side
 PART_VALUE_WIDTH = 64  # a part's number beside it
 BEAM_POINT = 4  # the beam, at the bore's centre; half a beam-axis cross
-COIL_NUMBER_OFFSET = 12  # a coil's number outside the yoke
+COIL_NUMBER_SIZE = 15  # a coil's number, on the yoke ring
+BODY_LINE = 1.5  # the outline of a yoke, a coil, a block
 COIL_WARM_WIDTH = 3  # a coil's outline when its state is warn or bad
 PART_DOT = 10  # a part on the body
 PART_BLOCK = (16, 11)  # a part off the body: width, height
@@ -3620,83 +3621,133 @@ class _Page:
     # -- picture and elevation ------------------------------------------------
 
     def picture(self, picture: Picture) -> None:
-        """A device class's drawing in one view, to scale, what its rows reach centred.
+        """A device class's drawing in one view, across the card's left column.
 
-        The body (:func:`osprey.facility.panels.picture.body`) painted by material
-        (:meth:`body_shape`): a ring yoke, poles narrowing to a nose short of the
-        bore, the copper coil blocks beside them, the corrector windings as thin
-        bands outside the coils, the bore as a dark disc with the beam point and
-        the word "beam"; each coil's number outside the yoke at its angle. A part
-        on the body (within the yoke's reach) is a dot: its light when a health
-        row reads its channel, else a plain dot; a part off the body is a small
-        block (water for a manifold, steel otherwise); with its kind's word above
-        each group of them. With no body, every part is a dot (a manifold a
-        block) under its kind's word. No leaders: a part is named by its tooltip and in
-        the legend; a value its channel prints stands beside it. Colour inside
-        the drawing is material; state is the only other colour (a coil whose
-        row's channel has a health row has its outline set by it). Parts with no
-        body stand in a dashed frame that says the outline is not stated; a body
-        some row of which states no size says so. A scale bar under the drawing;
-        under it the legend (:meth:`picture_legend`)."""
+        With a body (:func:`osprey.facility.panels.picture.body`), the magnet as
+        seen from its end, painted by material (:meth:`body_shape`): the yoke with
+        its cavity cut out, broad poles with rounded tips short of the bore,
+        copper coil blocks along their flanks, corrector windings as thin bands
+        outside them, the bore as a dark disc with the beam point and the word
+        "beam"; each coil's number on the yoke ring at its angle. A sensor whose
+        row states its coil is a dot on that coil (its light when a health row
+        reads its channel, else neutral); one with no place a hollow ring in a row
+        of its kind beside the drawing. Water and terminal parts are small blocks
+        in a column beside the yoke under one word (:meth:`picture_block`). No
+        leaders: a part is named by its tooltip and in the legend; a value its
+        channel prints stands beside it. Colour inside the drawing is material;
+        state is the only other colour.
+
+        With no body, the parts at their positions in a dashed frame that says the
+        outline is not stated (:meth:`bare_picture`). A scale bar under the
+        drawing, with "size not stated" when a default proportion is drawn; under
+        it the legend (:meth:`picture_legend`)."""
         shape_rows = [p for p in picture.parts if p.shape]
         outline = [p for p in picture.parts if p.kind == OUTLINE_KIND]
         parts = [p for p in picture.parts if not p.shape and p.kind != OUTLINE_KIND]
-        body = drawing.body(shape_rows, outline)
         self.heading(f"{picture.view} view")
         room = min(self.right - self.x0, CARD_LEFT - COLUMN_GAP)
         canvas = min(PICTURE_SIZE, room - 2 * PICTURE_PAD)
         x0 = self.x0 + (room - canvas) / 2
+        if not shape_rows and not outline:
+            scale = self.bare_picture(picture, parts, x0, canvas)
+            self.scale_bar(x0, scale, canvas, _NOT_STATED)
+            self.picture_legend(picture)
+            return
+        body = drawing.body(shape_rows, outline, parts)
         top = self.y
-        cx, cy = x0 + canvas / 2, top + canvas / 2
         points = [pt for shape in body.shapes for pt in _reach(shape)]
-        points += [_picture_xy(picture.view, p) for p in parts]
-        bare = not body.shapes
-        if bare:
-            points.append((0.0, 0.0))  # the beam axis, the frame's one reference
-        # what the rows reach, centred on the canvas: parts far out on one side
-        # do not shrink the body to leave the other side empty
-        xs, ys = [a for a, _b in points] or [0.0], [b for _a, b in points] or [0.0]
-        mid = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
-        reach = max(max(xs) - min(xs), max(ys) - min(ys)) / 2 or 1
-        inset = 2 * PICTURE_INSET if bare else PICTURE_INSET  # clear of the frame
-        inset += (COIL_NUMBER_OFFSET + ROW / 2) if body.coils else PART_WORD_ROOM
-        scale = (canvas / 2 - inset) / reach
+        points += [mark.at for mark in body.coils]
+        for dot in body.dots:
+            (a, b), r = dot.at, dot.radius
+            points += [(a - r, b - r), (a + r, b + r)]
+        for block in body.blocks:
+            (a, b), (w, h) = block.at, block.size
+            points += [(a - w / 2, b - h / 2), (a + w / 2, b + h / 2)]
+        xs, ys = [a for a, _b in points], [b for _a, b in points]
+        words = [(w, text_width(w.text, SMALL_SIZE)) for w in body.words]
+        # the scale fits the drawing and its words to the canvas's width, no taller
+        # than it is wide
+        width_mm = max(xs) - min(xs)
+        height_mm = max(ys) - min(ys)
+        scale = (canvas - 2 * PICTURE_INSET) / (max(width_mm, height_mm) or 1.0)
+        for _round in range(2):  # the words' room, at that scale
+            lo = min([min(xs)] + [w.at[0] - (0 if w.left else tw / 2 / scale) for w, tw in words])
+            hi = max([max(xs)] + [w.at[0] + (tw / scale if w.left else tw / 2 / scale) for w, tw in words])  # fmt: skip
+            up = max([max(ys)] + [w.at[1] + SMALL_LINE / 2 / scale for w, _tw in words])
+            down = min(ys)
+            scale = (canvas - 2 * PICTURE_INSET) / (max(hi - lo, up - down) or 1.0)
+        mid_x = (lo + hi) / 2
+        height = (up - down) * scale + 2 * PICTURE_INSET
+        cx = x0 + canvas / 2
 
         def px(point: tuple[float, float]) -> tuple[float, float]:
-            return cx + (point[0] - mid[0]) * scale, cy - (point[1] - mid[1]) * scale
+            return cx + (point[0] - mid_x) * scale, top + PICTURE_INSET + (up - point[1]) * scale
 
         for shape in body.shapes:
             self.body_shape(shape, [px(pt) for pt in shape.points])
         if body.beam is not None:
             self.beam_point(body, px)
-        for mark in body.coils:  # the facility's number, outside the yoke at its angle
+        for mark in body.coils:  # the facility's number, on the yoke ring at its angle
             mx, my = px(mark.at)
-            nx = mx + mark.along[0] * COIL_NUMBER_OFFSET
-            ny = my - mark.along[1] * COIL_NUMBER_OFFSET
-            w = text_width(mark.number, TEXT_SIZE)
-            self.text(nx - w / 2, ny - ROW / 2, mark.number, w=w, align="center")
-        if bare:  # the parts with no body stated: a frame, and the beam axis as a cross
-            half = canvas / 2 - PICTURE_INSET / 2
-            self.box(cx - half, cy - half, 2 * half, 2 * half, line=MUTED_TEXT, dashed=True)
-            ax, ay = px((0.0, 0.0))
-            arm = BEAM_POINT
-            for ends in (((ax - arm, ay), (ax + arm, ay)), ((ax, ay - arm), (ax, ay + arm))):
-                self.line(list(ends), MUTED_TEXT, tooltip=_BEAM_AXIS)
+            w = text_width(mark.number, COIL_NUMBER_SIZE)
+            self.text(mx - w / 2, my - ROW / 2, mark.number, size=COIL_NUMBER_SIZE, w=w, align="center")  # fmt: skip
+        for block in body.blocks:
+            self.picture_block(block, px, scale)
+        for word, tw in words:
+            wx, wy = px(word.at)
+            left = wx if word.left else wx - tw / 2
+            self.text(
+                left,
+                wy - SMALL_LINE / 2,
+                word.text,
+                size=SMALL_SIZE,
+                w=tw,
+                h=SMALL_LINE,
+                align="left" if word.left else "center",
+                fg=MUTED_TEXT,
+            )
+        for dot in body.dots:
+            x, y = px(dot.at)
+            self.part_dot(dot.row, x, y, size=2 * dot.radius * scale, hollow=not dot.placed)
+            if dot.placed and self.shows_number(dot.row):
+                self.part_value(dot.row, x, y, cx)
+        self.y = top + height + GAP
+        self.scale_bar(x0, scale, canvas, None if body.sized else _SIZE_NOT_STATED)
+        self.picture_legend(picture)
+
+    def bare_picture(
+        self, picture: Picture, parts: list[PicturePart], x0: float, canvas: float
+    ) -> float:
+        """Parts with no body stated, at their positions in a dashed frame with the
+        beam axis as a cross: a dot each (a water part a block), its kind's word
+        over each group of blocks. Returns the scale, px per mm."""
+        top = self.y
+        cx, cy = x0 + canvas / 2, top + canvas / 2
+        points = [_picture_xy(picture.view, p) for p in parts] + [(0.0, 0.0)]
+        xs, ys = [a for a, _b in points], [b for _a, b in points]
+        mid = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
+        reach = max(max(xs) - min(xs), max(ys) - min(ys)) / 2 or 1
+        scale = (canvas / 2 - 2 * PICTURE_INSET - PART_WORD_ROOM) / reach
+
+        def px(point: tuple[float, float]) -> tuple[float, float]:
+            return cx + (point[0] - mid[0]) * scale, cy - (point[1] - mid[1]) * scale
+
+        half = canvas / 2 - PICTURE_INSET / 2
+        self.box(cx - half, cy - half, 2 * half, 2 * half, line=MUTED_TEXT, dashed=True)
+        ax, ay = px((0.0, 0.0))
+        arm = BEAM_POINT
+        for ends in (((ax - arm, ay), (ax + arm, ay)), ((ax, ay - arm), (ax, ay + arm))):
+            self.line(list(ends), MUTED_TEXT, tooltip=_BEAM_AXIS)
         blocks: dict[str, list[tuple[float, float]]] = {}
         drawn: set[tuple[int, int, str]] = set()
         for part in parts:
-            a, b = _picture_xy(picture.view, part)
-            x, y = px((a, b))
-            water = _water(part.kind)
-            # with no body, a part is a dot (a manifold a block), its kind's word above
-            on_body = not bare and (body.reach is None or math.hypot(a, b) <= body.reach)
-            lit = part.channel is not None and bool(self.graph.rule(part.channel))
+            x, y = px(_picture_xy(picture.view, part))
             here = (round(x), round(y), part.kind)
-            if lit or on_body or (bare and not water):  # a state shows where the part sits
+            if not _water(part.kind):
                 self.part_dot(part, x, y)
             elif here not in drawn:  # one block per point
                 self.part_block(part, x, y)
-            if not on_body and here not in drawn:
+            if here not in drawn:
                 blocks.setdefault(part.kind, []).append((x, y))
             drawn.add(here)
             if self.shows_number(part):
@@ -3718,29 +3769,30 @@ class _Page:
                     fg=MUTED_TEXT,
                 )
         self.y = top + canvas + GAP
-        note = _NOT_STATED if bare else (None if body.sized else _SIZE_NOT_STATED)
-        self.scale_bar(x0, scale, canvas, note)
-        self.picture_legend(picture)
+        return scale
 
     def body_shape(self, shape: drawing.Shape, points: list[tuple[float, float]]) -> None:
         """One shape of a drawing's body at *points* (px), painted by its material: the
-        yoke dark steel, its window the panel's ground, a pole steel, a coil copper
-        (its outline set by the state of the coil row's channel when a health row
-        reads it), a winding a blue band, the bore the field's dark ground."""
+        yoke dark steel (its outline dashed and muted when no row states it), its
+        cavity the panel's ground, a pole steel, a coil copper (its outline set by
+        the state of the coil row's channel when a health row reads it), a winding
+        a blue band (a second one purple), the bore the dark bore colour."""
         row = shape.row
         line, fill, width = {
-            "yoke": (symbols.STEEL_EDGE, symbols.STEEL_DARK, AXIS_WIDTH),
+            "yoke": (symbols.STEEL_EDGE, symbols.STEEL_DARK, BODY_LINE),
             "window": (PANEL_BACKGROUND, PANEL_BACKGROUND, 0),
             "pole": (symbols.STEEL_EDGE, symbols.STEEL, LINE_WIDTH),
-            "coil": (symbols.COPPER_EDGE, symbols.COPPER, LINE_WIDTH),
+            "coil": (symbols.COPPER_EDGE, symbols.COPPER, BODY_LINE),
             "winding": (symbols.WINDING, symbols.WINDING, 0),
-            "bore": (symbols.STEEL_EDGE, FIELD_BACKGROUND, LINE_WIDTH),
+            "winding2": (symbols.WINDING_2, symbols.WINDING_2, 0),
+            "bore": (symbols.STEEL_EDGE, symbols.BORE, LINE_WIDTH),
         }[shape.role]
-        tip = "yoke" if row.kind == OUTLINE_KIND else row.part
         props: dict[str, Any] = {"lineColor": line, "lineWidth": width, "fill": True}
-        props |= {"fillColor": fill, _TOOLTIP: tip}
+        props |= {"fillColor": fill, _TOOLTIP: shape.name}
+        if shape.dashed:
+            props |= {"lineColor": MUTED_TEXT, "lineStyle": "dashed"}
         rules: list[dict[str, Any]] = []
-        channel = row.channel
+        channel = row.channel if row is not None else None
         if shape.role == "coil" and channel is not None and self.graph.rule(channel):
             rule = ladder(self.graph, [describe_light(self.graph, channel)])
             if not isinstance(rule, str) and rule.arms:
@@ -3748,7 +3800,7 @@ class _Page:
                 warm["bad"] = symbols.ALARM_MAJOR
                 colours = {st: warm.get(st, symbols.COPPER_EDGE) for st in symbols.STATES}
                 widths = {
-                    st: COIL_WARM_WIDTH if st in ("warn", "bad") else LINE_WIDTH
+                    st: COIL_WARM_WIDTH if st in ("warn", "bad") else BODY_LINE
                     for st in symbols.STATES
                 }
                 rules.append(self.s.rule(f"{channel} lineColor", "lineColor", rule, colours))
@@ -3763,6 +3815,25 @@ class _Page:
         props["points"] = [{"x": _n(a - x), "y": _n(b - y)} for a, b in points]
         self.s.widget("polygon", x, y, max(xs) - x, max(ys) - y, props, rules=rules)
 
+    def picture_block(self, block: drawing.Block, px: Callable, scale: float) -> None:
+        """A water or terminal part beside the yoke: a small rounded block (water, or
+        steel with its label), dashed when its row states no place."""
+        x, y = px(block.at)
+        w, h = block.size[0] * scale, block.size[1] * scale
+        water = block.role == "water"
+        fill = symbols.WATER if water else symbols.STEEL
+        line = fill if water else symbols.STEEL_EDGE
+        props: dict[str, Any] = {"lineColor": line, "lineWidth": BODY_LINE, "fill": True}
+        props |= {"fillColor": fill, "cornerRadius": PART_BLOCK_CORNER, _TOOLTIP: block.row.part}
+        if not block.placed:
+            props |= {"fill": False, "lineStyle": "dashed"}
+            if not water:
+                props["lineColor"] = MUTED_TEXT
+        self.s.widget("rectangle", x - w / 2, y - h / 2, w, h, props)
+        if block.label:
+            tw = text_width(block.label, SMALL_SIZE)
+            self.text(x - tw / 2, y - SMALL_LINE / 2, block.label, size=SMALL_SIZE, w=tw, h=SMALL_LINE, align="center")  # fmt: skip
+
     def beam_point(self, body: drawing.Body, px: Callable) -> None:
         """The beam: a point, and the word "beam" under it, inside the bore when it
         has the room, else under the bore."""
@@ -3775,7 +3846,10 @@ class _Page:
         radius = 0.0
         if bores:
             (x1, y1), (x2, y2) = (px(pt) for pt in bores[0].points)
-            radius = min(abs(x2 - x1), abs(y2 - y1)) / 2
+            w, h = abs(x2 - x1), abs(y2 - y1)
+            if 2 * min(w, h) < max(w, h):  # a flat gap: the point says it
+                return
+            radius = min(w, h) / 2
         word = "beam"
         w = text_width(word, SMALL_SIZE)
         below = by + dot if radius >= dot + SMALL_LINE + GAP else by + max(radius, dot) + 2
@@ -3790,19 +3864,29 @@ class _Page:
             fg=MUTED_TEXT,
         )
 
-    def part_dot(self, part: PicturePart, x: float, y: float) -> None:
-        """A part on the body at (*x*, *y*): its light when a health row reads its
-        channel, else a plain dot."""
+    def part_dot(
+        self,
+        part: PicturePart,
+        x: float,
+        y: float,
+        *,
+        size: float = PART_DOT,
+        hollow: bool = False,
+    ) -> None:
+        """A sensor at (*x*, *y*), *size* across: its light when a health row reads its
+        channel, else a neutral dot; a neutral ring when *hollow* (its place not
+        stated)."""
         channel = part.channel
-        if channel is not None and self.graph.rule(channel):
-            size = PART_DOT + 2
+        if channel is not None and self.graph.rule(channel) and not hollow:
             light = describe_light(self.graph, channel)
             self.light(x - size / 2, y - ROW / 2, [light], size=size, tooltip=part.part)
             return
-        props = {"lineColor": PANEL_BACKGROUND, "lineWidth": LINE_WIDTH, "fill": True}
-        props |= {"fillColor": MUTED_TEXT, _TOOLTIP: part.part}
-        half = PART_DOT / 2
-        self.s.widget("ellipse", x - half, y - half, PART_DOT, PART_DOT, props)
+        props: dict[str, Any] = {"lineColor": PANEL_BACKGROUND, "lineWidth": BODY_LINE}
+        props |= {"fill": True, "fillColor": MUTED_TEXT, _TOOLTIP: part.part}
+        if hollow:
+            props |= {"lineColor": MUTED_TEXT, "lineWidth": AXIS_WIDTH, "fill": False}
+        half = size / 2
+        self.s.widget("ellipse", x - half, y - half, size, size, props)
 
     def part_block(self, part: PicturePart, x: float, y: float) -> None:
         """A part off the body at (*x*, *y*): a small rounded block, water for a kind

@@ -494,35 +494,43 @@ class PicturePart:
     - ``coil``: the coil round the pole at the same ``angle_deg``: two sides,
       each ``w_mm`` wide and ``h_mm`` long, one at each flank of that pole;
       with no such pole, one block where the row puts it; its number in
-      ``part`` is drawn outside the yoke at its angle (``coil 6``: 6); a
+      ``part`` is drawn on the yoke ring at its angle (``coil 6``: 6); a
       ``signal`` with a health row sets the outline of its blocks by state;
-    - ``corrector_winding``: a winding on the pole at its ``angle_deg``, as a
-      coil's, outside the coil; with a size and no such pole, one rectangle;
+    - ``corrector_winding``: a thin band outside each block of the coil at its
+      ``angle_deg``; a second row at the same angle is a second band, stacked
+      outside the first and drawn in a second colour;
     - ``bore``: the aperture, an ellipse as the yoke's, with the beam at its
       centre;
     - ``gap``: instead of a bore, the gap between two pole faces: ``w_mm``
-      is its full height; the beam at ``x_mm``, ``y_mm``;
-    - any other word: a part at ``x_mm``, ``y_mm`` (a thermal switch, a
-      manifold, a terminal), named by ``part``.
+      is its full height; ``angle_deg`` tilts the faces (a gradient); the beam
+      at ``x_mm``, ``y_mm``;
+    - any other word: a part, named by ``part``.
 
-    A shape row may leave its size empty: a pole, a coil or a corrector
-    winding is then placed by its ``angle_deg`` alone (its ``x_mm``,
-    ``y_mm`` are not read), its tip at the bore and its root at the yoke's
-    inner edge, at a default proportion of the bore radius (of half the gap;
-    of a fifth of the yoke's radius when neither is sized; of
-    :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM` when nothing is).
-    A class so drawn says "size not stated" under its drawing.
+    A class of two poles is drawn as a rectangular yoke with a pole above and below
+    the gap; of more, as a ring yoke (or the outline) with the poles at their
+    angles. A part sits by its kind: a water part (a kind naming a manifold, water
+    or cooling) or a terminal block is a block in a column beside the yoke, right of
+    it unless its row places it left, dashed when ``x_mm`` and ``y_mm`` are both 0
+    (no place stated); any other part is a sensor, a dot on the coil block nearest
+    its ``angle_deg`` (or the angle of its position), or, with neither stated, a
+    hollow ring in a row of its kind beside the drawing.
+
+    A shape row may leave its size empty, the normal case: a pole, a coil or a
+    corrector winding is then placed by its ``angle_deg`` alone (its ``x_mm``,
+    ``y_mm`` are not read), at the default proportions of
+    :mod:`osprey.facility.panels.picture`: a broad pole from the yoke's cavity to a
+    rounded tip short of the bore, the coil blocks along its flanks. The proportions
+    are scaled to a stated bore (or gap), else to a stated yoke or outline, else to
+    :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM`. A class so drawn says
+    "size not stated" under its drawing; a yoke no row sizes has a dashed outline.
 
     ``signal`` (any row) names what the element shows live: a signal name
     stated on a channel, or a channel pattern with ``*``, ``?`` and ``[``
     matched against channel names; looked for on the device, then on its
     parts (the devices ``part_of`` it), then where it is read out
     (:meth:`PanelGraph.picture_matches`).
-    A part within the yoke's reach is a dot on the body, one beyond it a small
-    block with its kind's word above its group (water-coloured for a kind
-    naming a manifold). A part whose signal has a health row shows its state
-    where it sits; a value its channel prints stands beside it; a part with no
-    signal is drawn plain. No part is named on the drawing: its tooltip and the
+    A part whose signal has a health row shows its state where it sits; a value
+    its channel prints stands beside it; a part with no signal is drawn plain. No part is named on the drawing: its tooltip and the
     legend under the drawing name it.
 
     The last four columns are optional: a file of the first eleven reads as

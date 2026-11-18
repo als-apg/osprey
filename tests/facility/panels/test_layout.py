@@ -1136,11 +1136,13 @@ def test_a_picture_draws_the_outline_the_table_states(panel_graph) -> None:
     ]
     doc, _ = draw(_picture_view([*parts, *corners]), panel_graph)
     assert "outline not stated" not in _texts(doc)
-    assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == ["pole 1", "probe"]
-    yoke, window = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "yoke"]
+    tips = [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")]
+    assert tips == ["yoke", "pole 1", "probe"]  # the cavity, then each part where it sits
+    (yoke,) = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "yoke"]
+    (window,) = [n for n in _by_type(doc, "ellipse") if n["props"].get("tooltip") == "yoke"]
     assert len(yoke["props"]["points"]) == len(corners)  # the stated points: the yoke
     assert yoke["props"]["fillColor"] == symbols.STEEL_DARK
-    assert window["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: its inside
+    assert window["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: its cavity
     assert "o1" not in _texts(doc)  # an outline point is no part
 
 

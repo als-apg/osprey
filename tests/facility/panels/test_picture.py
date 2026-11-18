@@ -160,7 +160,7 @@ def test_six_poles_are_drawn_at_their_angles_each_with_its_coils_two_sides(tmp_p
         (ax, ay), (bx, by) = map(_centre, sides)
         # the two sides lie either side of the pole's axis, at the same reach
         assert math.dist((ax, ay), (cx, cy)) == pytest.approx(math.dist((bx, by), (cx, cy)), 0.01)
-    assert len(_tipped(doc, "corrector winding 1")) == 1
+    assert len(_tipped(doc, "corrector winding 1")) == 2  # a band outside each coil block
     (bore,) = _tipped(doc, "bore")
     (beam,) = _tipped(doc, "beam")
     assert _centre(beam) == pytest.approx(_centre(bore), abs=0.5)
@@ -181,7 +181,7 @@ def test_the_body_is_painted_by_material_and_the_class_colour_is_not_used(tmp_pa
     assert coil["lineColor"] == symbols.COPPER_EDGE and not _tipped(doc, "coil 1")[0].get("rules")
     assert _tipped(doc, "corrector winding 1")[0]["props"]["fillColor"] == symbols.WINDING
     bore = next(n for n in _tipped(doc, "bore") if n["type"] == "ellipse")
-    assert bore["props"]["fillColor"] == symbols.FIELD_BACKGROUND
+    assert bore["props"]["fillColor"] == symbols.BORE
     assert "beam" in _texts(doc)
     assert COLOUR not in json.dumps(doc)  # material, not the class's strip colour
 
@@ -273,46 +273,57 @@ def test_parts_with_no_body_are_drawn_in_a_frame_that_says_so_with_the_scale(
         assert _tipped(doc, name)  # at its position, named by its tooltip
 
 
-def test_parts_off_the_body_are_blocks_with_one_word_per_group(tmp_path) -> None:
+def test_water_and_terminals_stand_in_a_column_beside_the_yoke_under_one_word(tmp_path) -> None:
     rows = [
         *_six_poles(),  # a yoke of radius 150
         _row("manifold 1", "manifold", 180, 20),
         _row("manifold 2", "manifold", 180, -20),
-        _row("manifold 3", "manifold", 180, -20),  # at manifold 2's point: one block
-        _row("terminal 1", "terminal", -190, 0),
-        _row("switch 1", "thermal_switch", 90, 90),  # on the body: a dot
+        _row("terminal 1", "terminal", 0, 0),  # no place: dashed, left of the yoke
+        _row("switch 1", "thermal_switch", 0, 0, angle=90),  # its coil: a dot on it
     ]
     doc = _card(_graph(tmp_path, rows))
-    blocks = _by_type(doc, "rectangle")
-    tips = [n["props"].get("tooltip") for n in blocks]
-    assert tips.count("manifold 1") == tips.count("manifold 2") == tips.count("terminal 1") == 1
-    assert "manifold 3" not in tips
-    (water,) = [n for n in blocks if n["props"].get("tooltip") == "manifold 1"]
-    assert water["props"]["fillColor"] == symbols.WATER and water["props"]["cornerRadius"] > 0
-    (steel,) = [n for n in blocks if n["props"].get("tooltip") == "terminal 1"]
-    assert steel["props"]["fillColor"] == symbols.STEEL
-    texts = _texts(doc)
-    assert texts.count("manifold") == 2  # the word above the group, and the legend's row
-    assert texts.count("terminal") == 2
-    (dot,) = _tipped(doc, "switch 1")
-    assert dot["type"] == "ellipse"
-
-
-def test_each_coil_number_stands_outside_the_yoke_at_its_angle(tmp_path) -> None:
-    doc = _card(_graph(tmp_path, _six_poles()))
     yoke, _window = _by_type_tip(doc, "ellipse", "yoke")
+    right = yoke["geometry"]["x"] + yoke["geometry"]["width"]
+    blocks = {n["props"].get("tooltip"): n for n in _by_type(doc, "rectangle")}
+    one, two = blocks["manifold 1"], blocks["manifold 2"]
+    for water in (one, two):
+        assert water["props"]["fillColor"] == symbols.WATER and water["props"]["cornerRadius"] > 0
+        assert water["geometry"]["x"] > right  # a column right of the yoke
+    assert one["geometry"]["x"] == two["geometry"]["x"]
+    assert one["geometry"]["y"] < two["geometry"]["y"]
+    terminal = blocks["terminal 1"]
+    assert terminal["props"]["lineStyle"] == "dashed"
+    assert _centre(terminal)[0] < yoke["geometry"]["x"]
+    texts = _texts(doc)
+    assert texts.count("water") == 1 and "TB" in texts
+    (dot,) = _tipped(doc, "switch 1")
+    blocks_of_coil = [_centre(n) for n in _tipped(doc, "coil 2")]  # the coil at 90 degrees
+    assert dot["type"] == "ellipse"
+    assert min(math.dist(_centre(dot), c) for c in blocks_of_coil) < 20  # on its block
+
+
+def test_a_sensor_with_no_place_is_a_hollow_ring_beside_the_drawing(tmp_path) -> None:
+    rows = [*_six_poles(), _row("thermal switch 1", "thermal_switch", 0, 0)]
+    doc = _card(_graph(tmp_path, rows))
+    (ring,) = _tipped(doc, "thermal switch 1")
+    assert ring["type"] == "ellipse" and ring["props"]["fill"] is False
+    assert "thermal switch" in _texts(doc)
+
+
+def test_each_coil_number_stands_on_the_yoke_ring_at_its_angle(tmp_path) -> None:
+    doc = _card(_graph(tmp_path, _six_poles()))
+    yoke, window = _by_type_tip(doc, "ellipse", "yoke")
     cx, cy = _centre(yoke)
-    radius = yoke["geometry"]["width"] / 2
+    outer, inner = yoke["geometry"]["width"] / 2, window["geometry"]["width"] / 2
     for k in range(6):
         (label,) = [
             n
             for n in _by_type(doc, "text-label")
             if n["props"]["text"] == str(k + 1)
-            and n["props"]["fontSize"] == layout.TEXT_SIZE
-            and math.dist(_centre(n), (cx, cy)) < 2 * radius
+            and n["props"]["fontSize"] == layout.COIL_NUMBER_SIZE
         ]
         x, y = _centre(label)
-        assert math.dist((x, y), (cx, cy)) > radius
+        assert inner < math.dist((x, y), (cx, cy)) < outer  # on the ring
         angle = math.degrees(math.atan2(cy - y, x - cx)) % 360
         assert angle == pytest.approx(30 + 60 * k, abs=2)
 
@@ -379,10 +390,10 @@ def test_poles_with_an_angle_and_no_size_draw_from_the_bore_and_say_so(
     drawn = body([r for r in pictures if r.shape])
     assert not drawn.sized and drawn.beam == (0, 0)
     for k in range(poles):
-        (pole,) = [s for s in drawn.shapes if s.row.part == f"pole {k + 1}"]
+        (pole,) = [s for s in drawn.shapes if s.name == f"pole {k + 1}"]
         tip = min(math.hypot(a, b) for a, b in pole.points)
         assert tip >= 15 * 0.99  # no pole reaches into the bore (radius 15)
-        sides = [s for s in drawn.shapes if s.row.part == f"coil {k + 1}"]
+        sides = [s for s in drawn.shapes if s.name == f"coil {k + 1}"]
         assert len(sides) == 2
         for side in sides:  # beside the pole, not across it
             assert not _overlap(side.points, pole.points)
@@ -423,16 +434,18 @@ def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_pat
     rows = [*_unsized(4, 45), *hexagon]
     pictures = read_tables(_tables(tmp_path, rows)).pictures
     drawn = body([r for r in pictures if r.shape], [r for r in pictures if r.kind == "outline"])
-    yoke, _window = [s for s in drawn.shapes if s.row.kind == "outline"]
-    assert len(yoke.points) == 6 and yoke.role == "yoke" and _window.role == "window"
+    yoke, window = [s for s in drawn.shapes if s.row is not None and s.row.kind == "outline"]
+    assert len(yoke.points) == 6 and yoke.role == "yoke" and window.role == "window"
     inner = 100 * math.cos(math.radians(30))  # the hexagon's nearest edge
     for shape in drawn.shapes:
         if shape.row.kind == "pole":
             assert max(math.hypot(a, b) for a, b in shape.points) < inner
     doc = _card(_graph(tmp_path / "g", rows))
-    polygon, window = _by_type_tip(doc, "polygon", "yoke")
+    (polygon,) = _by_type_tip(doc, "polygon", "yoke")
+    (cavity,) = _by_type_tip(doc, "ellipse", "yoke")
     assert polygon["props"]["fillColor"] == symbols.STEEL_DARK
-    assert window["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: the outside
+    assert polygon["props"].get("lineStyle") != "dashed"  # stated
+    assert cavity["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: a round cavity
 
 
 # -- check -------------------------------------------------------------------------
