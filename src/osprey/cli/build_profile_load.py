@@ -2001,8 +2001,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             )
         dispatch = DispatchConfig(
             triggers=dispatch_raw.get("triggers", ""),
-            worker_count=dispatch_raw.get("worker_count", 1),
-            workspace_mode=dispatch_raw.get("workspace_mode", "isolated"),
+            worker_count=dispatch_raw.get("worker_count", DispatchConfig.worker_count),
+            workspace_mode=dispatch_raw.get("workspace_mode", DispatchConfig.workspace_mode),
             max_concurrent_runs=dispatch_raw.get(
                 "max_concurrent_runs", DEFAULT_MAX_CONCURRENT_RUNS
             ),
@@ -2021,8 +2021,10 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             timeout_sec=dispatch_raw.get("timeout_sec", DispatchConfig.timeout_sec),
             inactivity_sec=dispatch_raw.get("inactivity_sec", DispatchConfig.inactivity_sec),
             max_turns=max_turns,
-            channel_strip_prefix=dispatch_raw.get("channel_strip_prefix", ""),
-            network=dispatch_raw.get("network", "bridge"),
+            channel_strip_prefix=dispatch_raw.get(
+                "channel_strip_prefix", DispatchConfig.channel_strip_prefix
+            ),
+            network=dispatch_raw.get("network", DispatchConfig.network),
             env=dispatch_raw.get("env", []),
             tier=dispatch_raw.get("tier"),
         )
