@@ -1394,7 +1394,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    lists, grouped by role, then record type: the one plain list), ``set`` (the members of a group as a grid), ``calibration`` (one
    calibration kind over a set), ``place`` (a place's devices in beam order
    with a band of key numbers), ``rack`` (a rack elevation, chassis at their
-   unit), ``rollup`` (the health of a place and everything in it, level by
+   unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
+   ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
    level) and ``checkout`` (every setpoint beside its readback).
 
    The rule tables are CSV files, each held to its header: ``positions.csv``

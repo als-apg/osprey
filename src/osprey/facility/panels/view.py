@@ -417,6 +417,8 @@ class RackUnit:
             each once, in graph order.
         unit_text: For an unpositioned device, the unit its claim states
             when that is no integer (``A5``); ``None`` otherwise.
+        side: A half-width unit's half, ``L`` or ``R``, from the claim's ``side``
+            attribute; ``None``: full width.
     """
 
     position: int | None
@@ -427,6 +429,7 @@ class RackUnit:
     conflicting: bool = False
     citations: tuple[Citation, ...] = ()
     unit_text: str | None = None
+    side: str | None = None
 
 
 @dataclass(frozen=True)

@@ -5914,7 +5914,9 @@ class _Page:
 
 def rack_lanes(units: Sequence[RackUnit]) -> list[tuple[int, int]]:
     """Each unit's lane and the lanes of its cluster: units whose spans overlap form a
-    cluster, each takes the first lane free over its span, in order."""
+    cluster, each takes the first lane free over its span, in order. A half-width
+    unit (its ``side`` stated) takes the left or right of two lanes, so two halves
+    of one unit stand side by side and one alone fills its own half."""
     spans = [(unit.position or 0, _unit_top(unit)) for unit in units]
     order = sorted(range(len(units)), key=lambda i: (spans[i][0], i))
     lanes = [0] * len(units)
@@ -5928,11 +5930,25 @@ def rack_lanes(units: Sequence[RackUnit]) -> list[tuple[int, int]]:
         reach = max(reach, high) if low <= reach else high
         members = clusters[-1]
         taken = {lanes[j] for j in members if spans[j][1] >= low}
-        lanes[i] = next(n for n in itertools.count() if n not in taken)
+        wanted = _SIDE_LANES.get(units[i].side or "")
+        if wanted is not None and wanted not in taken:
+            lanes[i] = wanted
+        else:
+            lanes[i] = next(n for n in itertools.count() if n not in taken)
         members.append(i)
         cluster[i] = len(clusters) - 1
-    width = [max(lanes[j] for j in members) + 1 for members in clusters]
+    width = [
+        max(
+            max(lanes[j] for j in members) + 1,
+            len(_SIDE_LANES) if any(units[j].side for j in members) else 1,
+        )
+        for members in clusters
+    ]
     return [(lanes[i], width[cluster[i]]) for i in range(len(units))]
+
+
+#: The lane of a half-width unit's stated side, of two.
+_SIDE_LANES: Mapping[str, int] = MappingProxyType({"L": 0, "R": 1})
 
 
 def _unit_top(unit: RackUnit) -> int:

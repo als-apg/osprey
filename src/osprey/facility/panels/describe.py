@@ -3171,7 +3171,8 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
     agree on one (device, unit) are one unit carrying all their citations.
     Units are listed in :data:`RACK_ORDER` (the highest unit first), ties by
     id, each with the claims' standing and the first ``size_u`` that parses
-    as a number. The devices whose built place is the rack and that no unit claim
+    as a number and the half (``side`` ``L`` or ``R``) of a half-width unit. The
+    devices whose built place is the rack and that no unit claim
     positions are ``unpositioned``, by id, and so are those a claim puts in the
     rack with no unit, or at a unit that is no integer (with the unit's text).
     Each entry links to the device's card and carries a :class:`Light` per
@@ -3202,6 +3203,8 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
         sizes = [_size(claim.attributes.get("size_u")) for claim in claims]
         citations = dict.fromkeys(claim.source for claim in claims if claim.source is not None)
         contested = any(claim.standing == "contested" for claim in claims)
+        sides = [claim.attributes.get("side") for claim in claims]
+        side = next((str(v) for v in sides if v in ("L", "R")), None)
         entry = RackUnit(
             position,
             _ref(graph, index, thing),
@@ -3210,6 +3213,7 @@ def rack_elevation(graph: PanelGraph, rack_id: str) -> View:
             "contested" if contested else "accepted",
             conflicting=units_of[device] > 1,
             citations=tuple(citations),
+            side=side,
         )
         positioned.append((-position, device, entry))
     loose: dict[str, RackUnit] = {
