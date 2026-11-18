@@ -438,8 +438,12 @@ def _expand_run(run: str) -> str:
 
 @functools.cache
 def _raw_workflow() -> dict[str, Any]:
-    """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
-    loaded = yaml.safe_load(CI_YML.read_text())
+    """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``.
+
+    Parsed by libyaml where PyYAML has it: the same safe constructor over a
+    faster scanner, and this parse is paid at every worker's collection.
+    """
+    loaded = yaml.load(CI_YML.read_text(), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     assert loaded is not None, f"{CI_YML} parsed to None"
     return _unshared(loaded)
 
