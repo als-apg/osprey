@@ -43,6 +43,8 @@ def test_write_prints_the_counts_the_total_and_the_largest(facility_file, tmp_pa
     assert result.output.count(".screen.json") == 3
     biggest = max(index["screens"], key=lambda e: e["bytes"])
     assert biggest["file"] in result.output
+    devices = sum(e["kind"] == "card" and e["thing_kind"] == "device" for e in index["screens"])
+    assert f"  device cards: {devices} with the default recipe" in result.output  # no recipe rows
 
 
 def test_check_after_write_exits_0(facility_file, tmp_path):
@@ -56,6 +58,8 @@ def test_check_after_write_exits_0(facility_file, tmp_path):
     assert "pictures, parts only: 1 class (Quadrupole)" in result.output
     assert "pictures, none: " in result.output
     assert "pictures, parts not placed: none" in result.output  # information, not a problem
+    assert "0 left out (no value stated) on 0 cards" in result.output
+    assert "default card without tiles: " in result.output  # no roles: no tile is guessed
 
 
 def test_check_exits_1_and_counts_each_kind(facility_file, tmp_path):

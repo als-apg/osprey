@@ -98,6 +98,50 @@ def test_the_right_column_counts_the_classes_and_names_the_sources(panel_graph) 
     assert any(t.startswith("XR-RACKS") for t in texts)
 
 
+def test_half_width_units_stand_on_their_stated_side() -> None:
+    from osprey.facility.panels.layout import rack_lanes
+    from osprey.facility.panels.view import Fact, RackUnit
+
+    def unit(position, side=None):
+        return RackUnit(position, Fact("x", "x"), (), None, side=side)
+
+    # U7 holds a right half then a left half; U6 a right half alone; U5 full width
+    lanes = rack_lanes([unit(7, "R"), unit(7, "L"), unit(6, "R"), unit(5)])
+    assert lanes == [(1, 2), (0, 2), (1, 2), (0, 1)]
+
+
+def test_a_located_in_side_attribute_makes_a_unit_half_width(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.describe import rack_elevation
+    from osprey.facility.panels.view import Elevation
+    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+    def sided(document) -> None:
+        for claim in document["relations"]:
+            if claim["type"] == "located_in" and claim["object"].get("unit") is not None:
+                claim.setdefault("attributes", {})["side"] = "L"
+                break
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", sided), PANELS_DIR)
+    racks = {
+        c.other
+        for t in graph.things()
+        if t.kind == "device"
+        for c in graph.neighbours(t.id, "device").get("located_in", ())
+        if c.unit is not None
+    }
+    found = [
+        u
+        for r in racks
+        for s in rack_elevation(graph, r).sections
+        for i in s.items
+        if isinstance(i, Elevation)
+        for u in i.units
+    ]
+    assert [u.side for u in found].count("L") == 1
+    assert {u.side for u in found} <= {"L", None}
+
+
 def test_chassis_whose_units_overlap_stand_side_by_side() -> None:
     from osprey.facility.panels.layout import rack_lanes
     from osprey.facility.panels.view import Fact, RackUnit

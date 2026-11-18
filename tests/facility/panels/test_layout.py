@@ -110,11 +110,10 @@ def evaluate(rule, values) -> str:
 
 
 def flagged(state: str, item: Light) -> str:
-    """The engine's state as a light draws it: a flagged light is never normal."""
+    """The engine's state as a light draws it: a light with unsupported rows is never
+    normal; disagreement elsewhere does not colour a value every row calls normal."""
     if state != "normal":
         return state
-    if item.disagree:
-        return "disagree"
     return "unknown" if item.unsupported else state
 
 
@@ -187,12 +186,19 @@ def test_a_roll_up_rule_gives_the_worst_channel(panel_graph) -> None:
             assert evaluate(rule, values) == expected, values
 
 
-def test_flagged_lights_are_never_normal(panel_graph) -> None:
-    for channel in ("XR01-IP1:State-Sts", "XR02-QF1:Current-RB"):
-        item = light(panel_graph, channel)
-        assert item.disagree or item.unsupported
-        rule = ladder(panel_graph, [item])
-        assert all(state != "normal" for _, state in rule.arms)
+def test_a_light_is_disagree_only_where_its_rows_disagree(panel_graph) -> None:
+    item = light(panel_graph, "XR01-IP1:State-Sts")  # 0: bad and normal; 1: normal
+    assert item.disagree
+    rule = ladder(panel_graph, [item])
+    assert evaluate(rule, {0: 0}) == "disagree"
+    assert evaluate(rule, {0: 1}) == "normal"  # every row calls 1 normal: grey, not lilac
+
+
+def test_a_light_with_rows_it_cannot_evaluate_is_never_normal(panel_graph) -> None:
+    item = light(panel_graph, "XR02-QF1:Current-RB")
+    assert item.unsupported
+    rule = ladder(panel_graph, [item])
+    assert all(state != "normal" for _, state in rule.arms)
 
 
 def test_a_text_label_row_cannot_be_written_and_the_light_is_unknown(tmp_path) -> None:
@@ -907,8 +913,10 @@ def test_a_command_shown_as_a_value_prints_whole_and_its_input_keeps_its_precisi
 @pytest.mark.parametrize(
     ("channel", "word"),
     [
-        ("XR01-PS1:Fault_Reset_Cmd", "Fault Reset"),
-        ("XR01-PS1:RampDown-CMD", "RampDown"),
+        ("XR01-PS1:Fault_Reset_Cmd", "Fault reset"),
+        ("XR01-PS1:RampDown-CMD", "Ramp down"),
+        ("XR01-PS1:resetRelay1", "Reset relay 1"),
+        ("XR01-PS1:HV_On-Cmd", "HV on"),
         ("XR01-PS1:reset", "Reset"),
         ("XR01-PS1:Cmd", "Cmd"),  # all ending: the name whole, never an empty button
         ("NOCOLON", "NOCOLON"),
@@ -1068,15 +1076,15 @@ def test_the_devices_off_the_beamline_are_one_line_that_opens_the_place_card(pan
     assert "XR02:BLOCK1" not in _texts(doc)  # listed on the place card, not in the tray
 
 
-def test_a_cards_unit_stands_with_the_signals_name_not_in_the_value(panel_graph) -> None:
+def test_a_cards_grid_prints_a_value_with_its_unit_beside_its_short_name(panel_graph) -> None:
     from osprey.facility.panels.describe import device_card
 
     doc, _ = draw(device_card(panel_graph, "XR01:QF1"), panel_graph)
     labels = {n["props"]["pv"]: n for n in _by_type(doc, "pv-label")}
     value = labels["XR01-QF1:Current-RB"]
-    assert value["props"]["showUnits"] is False
-    assert "current setpoint (A)" in _texts(doc)
-    assert "A" not in _texts(doc)
+    assert value["props"]["showUnits"] is True  # the unit with the value, whole
+    assert value["geometry"]["width"] >= layout.value_width("A", layout.TEXT_SIZE)
+    assert "Current-RB" in _texts(doc)  # its name, the shared segment cut, left of it
 
 
 def _picture_view(parts, *, signal: str | None = None) -> View:
@@ -1531,3 +1539,28 @@ def test_over_the_budget_values_are_dropped_not_symbols_and_the_strip_says_so(
     shapes = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "XR01:QF1"]
     assert shapes  # the symbol stays
     assert len(_values(full)) == 3  # two quadrupoles and the pump
+
+
+def test_five_chain_blocks_fit_one_row_and_a_sixth_wraps() -> None:
+    rows = layout._Page.chain_rows
+    three = rows([layout.BLOCK_LEAST] * 3)
+    assert three == [([layout.BLOCK_LEAST] * 3, [layout.BLOCK_GAP] * 2)]  # room: as drawn
+    (five,) = rows([layout.BLOCK_MOST] * 5)
+    widths, gaps = five
+    assert len(widths) == 5 and gaps == [layout.BLOCK_GAP_LEAST] * 4
+    assert sum(widths) + sum(gaps) <= layout.STRIP_WIDTH
+    assert min(widths) >= layout.BLOCK_NARROWEST
+    six = rows([layout.BLOCK_LEAST] * 6)
+    assert [len(w) for w, _gap in six] == [5, 1]
+    # a narrowed row gives each arrow the run its word needs
+    (wide,) = rows([layout.BLOCK_MOST] * 5, [layout.BLOCK_GAP, 0, 0, 0])
+    assert wide[1][0] == layout.BLOCK_GAP and sum(wide[0]) + sum(wide[1]) <= layout.STRIP_WIDTH
+
+
+def test_an_arrow_word_and_a_block_title_are_never_cut() -> None:
+    lines, short = layout.arrow_lines("controlled by")
+    assert " ".join(lines) == "controlled by" and not short
+    lines, short = layout.arrow_lines("XR05:CTL1:PORTA1_CH01")
+    assert lines == ["PORTA1_CH01"] and short  # the whole word on hover
+    for line in layout.arrow_lines("an arrow word too long for any one line")[0]:
+        assert layout.text_width(line, layout.SMALL_SIZE) <= layout.ARROW_RUN_MOST - layout.GAP

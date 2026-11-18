@@ -169,13 +169,24 @@ def test_on_a_pickup_card_the_picture_and_calibration_come_first(tmp_path) -> No
         handle.write("gains,Gains,BPM,scalar,1,beam,,,amplitude_a,1,\n")
     graph = graph_with_bpms(tmp_path, tables)
     doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
-    heads = {
-        n["props"]["text"]: n["geometry"]["y"]
-        for n in nodes(doc)
-        if n["type"] == "text-label"
-        and n["props"]["text"] in (TITLE.upper(), "CALIBRATION", "SIGNALS")
-    }
-    assert heads[TITLE.upper()] < heads["CALIBRATION"] < heads["SIGNALS"]
+    (picture,) = [
+        n["geometry"]["y"] for n in nodes(doc)
+        if n["type"] == "text-label" and n["props"]["text"] == TITLE.upper()
+    ]  # fmt: skip
+    channels = [
+        n["geometry"]["y"] for n in nodes(doc)
+        if n["type"] == "text-label" and "· ALL CHANNELS" in n["props"]["text"]
+    ]  # fmt: skip
+    assert picture < _head_y(doc, "CALIBRATION") < channels[0]
+
+
+def _head_y(doc: dict, word: str) -> float:
+    """The y of a drawn card's numbered head ending in *word*."""
+    (y,) = [
+        n["geometry"]["y"] for n in nodes(doc)
+        if n["type"] == "text-label" and n["props"]["text"].endswith("· " + word)
+    ]  # fmt: skip
+    return y
 
 
 def _many_signals(document) -> None:
@@ -192,53 +203,49 @@ def _many_signals(document) -> None:
         )
 
 
-def test_a_group_of_more_than_twelve_rows_fills_columns_across_the_card(tmp_path) -> None:
+def test_many_channels_fill_the_grid_column_by_column_inside_the_page(tmp_path) -> None:
     from osprey.facility.panels import load_graph
     from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _many_signals), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
-    values = [
+    rows = [
         n for n in nodes(doc)
-        if n["type"].startswith("pv-") and str(n["props"].get("pv", "")).startswith("XR01:BPM1:knob")
+        if n["type"] == "rectangle" and str(n["props"].get("tooltip", "")).startswith("XR01:BPM1:knob")
     ]  # fmt: skip
-    xs = sorted({n["geometry"]["x"] for n in values})
-    value_w = layout.value_width("mm", layout.TEXT_SIZE)  # the pickup's positions are in mm
-    least = max(
-        layout.CARD_COLUMN_MIN,
-        layout.CARD_LABEL_MIN + 2 * (value_w + layout.GAP) + layout.LIGHT_SIZE + layout.GAP,
-    )
-    columns = int((layout.STRIP_WIDTH + layout.COLUMN_GAP) // (least + layout.COLUMN_GAP))
-    assert len(xs) == columns >= 2
+    assert len(rows) == 30
+    xs = sorted({n["geometry"]["x"] for n in rows})
+    assert len(xs) == 4  # the default recipe's four columns
     first = sorted(
-        (n for n in values if n["geometry"]["x"] == xs[0]), key=lambda n: n["geometry"]["y"]
+        (n for n in rows if n["geometry"]["x"] == xs[0]), key=lambda n: n["geometry"]["y"]
     )
-    assert first[0]["props"]["pv"].endswith("knob00")  # filled column by column
-    assert first[1]["props"]["pv"].endswith("knob01")
-    right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in values)
+    assert [n["props"]["tooltip"][-6:] for n in first[:2]] == ["knob00", "knob01"]
+    right = max(n["geometry"]["x"] + n["geometry"]["width"] for n in nodes(doc) if n in rows)
     assert right <= layout.MARGIN + layout.STRIP_WIDTH
-    heads = [n for n in nodes(doc) if n["type"] == "text-label" and n["props"]["text"] == "SIGNALS"]
-    assert len(heads) == 1 and heads[0]["geometry"]["y"] < min(n["geometry"]["y"] for n in values)
-    texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
-    assert texts.count("READBACK") == columns  # each column has its heads
 
 
-def test_a_card_of_few_rows_keeps_its_two_columns(panel_graph) -> None:
+def test_a_card_of_few_rows_has_no_signal_table(panel_graph) -> None:
     doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
     texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
-    assert texts.count("READBACK") == 1
+    assert "READBACK" not in texts and "SIGNALS" not in texts
 
 
-def test_with_every_left_group_in_columns_the_right_column_moves_over(tmp_path) -> None:
+def test_where_stands_full_width_after_the_channels(tmp_path) -> None:
     from osprey.facility.panels import load_graph
     from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _many_signals), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
     (where,) = [
-        n for n in nodes(doc) if n["type"] == "text-label" and n["props"]["text"] == "WHERE"
-    ]
+        n for n in nodes(doc)
+        if n["type"] == "text-label" and n["props"]["text"].startswith("Where:")
+    ]  # fmt: skip
     assert where["geometry"]["x"] == layout.MARGIN
+    channels = [
+        n["geometry"]["y"] for n in nodes(doc)
+        if n["type"] == "text-label" and "· ALL CHANNELS" in n["props"]["text"]
+    ]  # fmt: skip
+    assert where["geometry"]["y"] > channels[0]
 
 
 def _long_signals(document) -> None:
@@ -255,31 +262,24 @@ def _long_signals(document) -> None:
         )
 
 
-def test_a_long_signal_name_in_a_column_wraps_to_a_second_line_and_is_never_cut(
-    tmp_path,
-) -> None:
+def test_a_long_channel_name_in_the_grid_is_cut_and_whole_on_hover(tmp_path) -> None:
     from osprey.facility.panels import load_graph
     from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
 
-    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _long_signals), PANELS_DIR)
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _raw_channels), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
-    labels = [n for n in nodes(doc) if n["type"] == "text-label"]
-    named = [n for n in labels if n["props"]["text"].startswith("button")]
-    assert named and not any("…" in n["props"]["text"] for n in named)
-    for first in named:
-        x, y = first["geometry"]["x"], first["geometry"]["y"]
-        (second,) = [
-            n for n in labels
-            if n["geometry"]["x"] == x and n["geometry"]["y"] == y + layout.TITLE_LINE
+    for n in range(14):
+        name = f"XR01:BPM1:LONGER:PART{n:02d}:segment:of:a:much:longer:name:tail{n:02d}"
+        (hover,) = [m for m in nodes(doc) if m["props"].get("tooltip") == name]
+        shown = [
+            m for m in nodes(doc)
+            if m["type"] == "text-label" and m["geometry"]["y"] == hover["geometry"]["y"]
+            and m["props"]["text"].startswith(f"LONGER:PART{n:02d}")
         ]  # fmt: skip
-        whole = f"{first['props']['text']} {second['props']['text']}"
-        assert whole.startswith("button") and "average" in whole
-    rows = sorted(
-        (n for n in labels if n["geometry"]["x"] == named[0]["geometry"]["x"]),
-        key=lambda n: n["geometry"]["y"],
-    )
-    tops = [n["geometry"]["y"] for n in rows]
-    assert len(tops) == len(set(tops))  # nothing drawn over the second line
+        assert len(shown) == 1  # the short name, without the device's prefix
+        assert shown[0]["geometry"]["x"] + shown[0]["geometry"]["width"] <= (
+            hover["geometry"]["x"] + hover["geometry"]["width"]
+        )
 
 
 def _raw_channels(document) -> None:
@@ -293,27 +293,3 @@ def _raw_channels(document) -> None:
                 "on": {"device": "XR01:BPM1"},
             }
         )
-
-
-def test_a_channel_name_under_its_row_breaks_after_a_colon_instead_of_being_cut(
-    tmp_path,
-) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
-
-    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _raw_channels), PANELS_DIR)
-    doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
-    small = sorted(
-        (
-            n for n in nodes(doc)
-            if n["type"] == "text-label" and n["props"]["fontSize"] == layout.SMALL_SIZE
-        ),
-        key=lambda n: (n["geometry"]["x"], n["geometry"]["y"]),
-    )  # fmt: skip
-    for n in range(14):
-        name = f"XR01:BPM1:LONGER:PART{n:02d}:segment:of:a:much:longer:name:tail{n:02d}"
-        (i,) = [k for k, m in enumerate(small) if f"PART{n:02d}" in m["props"]["text"]]
-        first, second = small[i], small[i + 1]
-        assert second["geometry"]["y"] == first["geometry"]["y"] + layout.SMALL_LINE
-        assert first["props"]["text"] + second["props"]["text"] == name
-        assert first["props"]["text"].endswith(":")

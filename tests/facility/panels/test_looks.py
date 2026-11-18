@@ -26,15 +26,26 @@ from tests.facility.panels._views import (
 #: A calibration chip's outline and text: its basis, or disagree when contested.
 _BASIS = {role["$role"] for role in symbols.BASIS_ROLES.values()}
 
+#: A drawn card's own device (Focus, Focus_Tint) and a control's tag (Control_Action).
+_CARD = {"Focus", "Control_Action"}
 ALLOWED = {
-    ("text-label", "foregroundColor"): {"Page_Text", "Text_Muted", *_BASIS},
+    ("text-label", "foregroundColor"): {"Page_Text", "Text_Muted", *_BASIS, *_CARD},
     ("text-label", "backgroundColor"): {"Transparent", "Field_Background"},
     ("line", "lineColor"): {"Page_Text", "Text_Muted", "MINOR", "MAJOR", "DISCONNECTED"},
     # Page_Text: a drawn outline, as the strip's symbols (the rack's frame)
-    ("rectangle", "lineColor"): {"Box_Border", "Transparent", "Page_Text", "Text_Muted", *_BASIS},
+    ("rectangle", "lineColor"): {
+        "Box_Border",
+        "Transparent",
+        "Page_Text",
+        "Text_Muted",
+        *_BASIS,
+        *_CARD,
+    },
     ("rectangle", "fillColor"): {
         "Field_Background",
         "Tile_Background",
+        "Transparent",  # a control's tag, an outline round a choice or an entry
+        "Focus_Tint",
         *(t["$role"] for t in symbols.BASIS_TINTS.values()),
     },  # fmt: skip
 }
@@ -81,10 +92,16 @@ def test_no_two_text_boxes_on_a_screen_overlap(panel_graph) -> None:
 
 
 def test_no_widget_is_outside_the_page(panel_graph) -> None:
+    """Except an entry's Apply button while nothing is entered: it waits off the
+    canvas, and its rule brings it onto the page (see test_emit)."""
     for name, doc in _docs(panel_graph):
         size = doc["metadata"]["size"]
         for n in _nodes(doc):
             left, top, right, bottom = _box(n)
+            if left == layout.APPLY_AWAY:
+                (moves,) = [r for r in n["rules"] if r["targetProperty"] == "x"]
+                left = moves["conditions"][0]["value"]
+                right = left + n["geometry"]["width"]
             assert left >= 0 and top >= 0, (name, n["type"], n["geometry"])
             assert right <= size["width"] + 0.5 and bottom <= size["height"] + 0.5, (name, n)
 

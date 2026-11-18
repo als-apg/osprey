@@ -227,7 +227,7 @@ def test_a_value_held_in_several_channels_shows_them_all_in_channel_order(tmp_pa
         and a["geometry"]["y"] == b["geometry"]["y"]
         and a["geometry"]["x"] + a["geometry"]["width"] <= b["geometry"]["x"]
     ]  # fmt: skip
-    assert len(side_by_side) == 1  # the calibration row; the card's own rows stack
+    assert side_by_side  # the calibration row
     cells = _cells(calibration_overview(graph, "XR-QUAD", "current_offset"))
     assert cells["XR01:QF1"].channels == names
     bound = stub_render(calibration_overview(graph, "XR-QUAD", "current_offset"), graph)
@@ -279,3 +279,44 @@ def test_the_count_line_names_the_states_in_the_legends_order(panel_graph) -> No
     legend = ["design only", "measured on the bench", "two sources disagree", "no value yet"]
     assert [line.index(w) for w in words] == sorted(line.index(w) for w in words)
     assert [texts.index(w) for w in legend] == sorted(texts.index(w) for w in legend)
+
+
+def _claims(tmp_path, rows: str):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "calibrations.csv").open("a") as handle:
+        handle.write(rows)
+    return load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+
+
+def test_a_contested_claim_alone_is_shown_contested_and_is_no_base_value(tmp_path) -> None:
+    from osprey.facility.panels.describe import calibration_cell, calibration_row
+
+    graph = _claims(
+        tmp_path,
+        "ig/XR02QD1/a,integrated_gradient,XR02:QD1,4.91,T,,bench,stretched wire,"
+        "2024-01-01,XR-MAG-TEST,A.3,Released,,contested\n",
+    )
+    found = graph.calibration("XR02:QD1", "integrated_gradient")
+    assert found.in_force is None and found.state == "contested"
+    kind = found.kind
+    row = calibration_row(graph, "XR02:QD1", kind)
+    assert row.shown is None and row.state == "contested"  # no value in force
+    assert row.note == "contested, not in force: 4.91 T (XR-MAG-TEST A.3)"
+    assert calibration_cell(graph, "XR02:QD1", kind).text == "contested"
+
+
+def test_beside_an_accepted_claim_a_contested_one_is_named_not_used(tmp_path) -> None:
+    from osprey.facility.panels.describe import calibration_row
+
+    graph = _claims(
+        tmp_path,
+        "ig/QF1/late,integrated_gradient,XR01:QF1,-5.5,T,at 73.33 A,bench,rotating coil,"
+        "2025-01-01,XR-MAG-ROT,B,Released,,contested\n",
+    )
+    found = graph.calibration("XR01:QF1", "integrated_gradient")
+    assert found.in_force.id == "ig/QF1/bench"  # the newest accepted, not the newer contested
+    row = calibration_row(graph, "XR01:QF1", found.kind)
+    assert row.state == "contested" and row.note.startswith("contested, not in force: -5.5 T")

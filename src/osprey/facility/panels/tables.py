@@ -19,7 +19,15 @@ line, the schema this module holds them to:
   subject each, with basis, date, source and standing;
 - ``calibration_curves.csv``: the points of a claim whose value is a curve;
 - ``state_labels.csv``: the word a discrete channel's value means, one row per
-  channel and value, as its record states it.
+  channel and value, as its record states it;
+- ``units.csv``: a channel's engineering unit and the divisor its raw value is
+  shown through (``0.1A``: unit ``A``, scale 10);
+- ``channel_roles.csv``: what a channel is to a device card, by class and name
+  pattern (see :class:`ChannelRole`);
+- ``card_recipes.csv``: a class's card recipe and its title-line sentence;
+- ``card_sections.csv``: a recipe's drawn sections in order;
+- ``chains.csv``: the hops of a recipe's chains;
+- ``symbols.csv``: how a card's strip draws a device of a class: its symbol and lane.
 
 ``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
 must be there; every other file may be absent, which reads as empty. Across
@@ -51,6 +59,7 @@ __all__ = [
     "EXCLUDED_KINDS",
     "HEALTH_STATES",
     "OPTIONAL_COLUMNS",
+    "CARD_MEASURES",
     "OPTIONAL_FILES",
     "TOLERANCE_TERMS",
     "PICTURE_SHAPES",
@@ -67,6 +76,14 @@ __all__ = [
     "PicturePart",
     "ShortName",
     "StateLabel",
+    "ChannelRole",
+    "ChannelUnit",
+    "CardRecipe",
+    "CardSection",
+    "ChainStep",
+    "FrontRow",
+    "NoCard",
+    "StripSymbol",
     "Metric",
     "CalibrationKind",
     "Calibration",
@@ -92,6 +109,14 @@ CALIBRATIONS = "calibrations.csv"
 CALIBRATION_CURVES = "calibration_curves.csv"
 PROBE_PICTURES = "probe_pictures.csv"
 STATE_LABELS = "state_labels.csv"
+UNITS = "units.csv"
+CHANNEL_ROLES = "channel_roles.csv"
+CARD_RECIPES = "card_recipes.csv"
+CARD_SECTIONS = "card_sections.csv"
+CHAINS = "chains.csv"
+STRIP_SYMBOLS = "symbols.csv"
+FRONTS = "fronts.csv"
+NO_CARDS = "no_cards.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -107,6 +132,14 @@ TABLE_FILES: tuple[str, ...] = (
     CALIBRATION_CURVES,
     PROBE_PICTURES,
     STATE_LABELS,
+    UNITS,
+    CHANNEL_ROLES,
+    CARD_RECIPES,
+    CARD_SECTIONS,
+    CHAINS,
+    STRIP_SYMBOLS,
+    FRONTS,
+    NO_CARDS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -163,6 +196,85 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "under",
         ],
         STATE_LABELS: ["channel", "value", "label", "source", "revision", "locator"],
+        UNITS: ["channel", "unit", "scale", "label", "source", "revision", "locator"],
+        CHANNEL_ROLES: [
+            "class",
+            "role",
+            "signal",
+            "scope",
+            "shown_as",
+            "unit",
+            "scale",
+            "press_value",
+            "label",
+            "basis",
+            "source",
+            "revision",
+            "locator",
+        ],
+        CARD_SECTIONS: [
+            "recipe",
+            "order",
+            "kind",
+            "title",
+            "focus",
+            "members",
+            "window_m",
+            "roles",
+            "caption",
+            "source",
+        ],
+        CHAINS: [
+            "recipe",
+            "chain",
+            "step",
+            "from_step",
+            "relation",
+            "direction",
+            "to",
+            "many",
+            "port_from",
+            "title",
+            "roles",
+            "source",
+        ],
+        STRIP_SYMBOLS: ["class", "devices", "symbol", "lane", "source"],
+        NO_CARDS: [
+            "class",
+            "under",
+            "devices",
+            "owner_relation",
+            "owner_direction",
+            "owner_to",
+            "reason",
+            "source",
+        ],
+        FRONTS: [
+            "recipe",
+            "face",
+            "group",
+            "order",
+            "connector",
+            "kind",
+            "count",
+            "channel",
+            "far_relation",
+            "far_direction",
+            "far_port",
+            "label",
+            "source",
+            "roles",
+            "apart",
+        ],
+        CARD_RECIPES: [
+            "class",
+            "under",
+            "devices",
+            "recipe",
+            "description",
+            "channels_cols",
+            "source",
+        ],
         NAMES: [
             "thing",
             "short_name",
@@ -248,6 +360,9 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
         PICTURES: frozenset({"w_mm", "h_mm", "angle_deg", "signal", "under"}),
         PROBE_PICTURES: frozenset({"under"}),
         METRICS: frozenset({"precision"}),
+        CARD_RECIPES: frozenset({"devices"}),
+        STRIP_SYMBOLS: frozenset({"devices"}),
+        FRONTS: frozenset({"roles", "apart"}),
     }
 )
 
@@ -263,6 +378,14 @@ OPTIONAL_FILES = frozenset(
         CALIBRATION_CURVES,
         PROBE_PICTURES,
         STATE_LABELS,
+        UNITS,
+        CHANNEL_ROLES,
+        CARD_RECIPES,
+        CARD_SECTIONS,
+        CHAINS,
+        STRIP_SYMBOLS,
+        FRONTS,
+        NO_CARDS,
     }
 )
 
@@ -279,17 +402,22 @@ PICTURE_VIEWS: tuple[str, ...] = ("end", "side")
 #: The kinds of a ``pictures.csv`` row that draw the body of the class, not a part
 #: (in a file that has the size columns; in one without, every row is a part).
 PICTURE_SHAPES: tuple[str, ...] = ("yoke", "pole", "coil", "corrector_winding", "bore", "gap")
-METRIC_VIEWS: tuple[str, ...] = ("place", "rollup")
+METRIC_VIEWS: tuple[str, ...] = ("place", "rollup", "card")
 #: What a key number computes over the channels its row selects.
 MEASURES: tuple[str, ...] = (
     "value",
+    "word",
     "count_true",
     "count_false",
     "count_in_tolerance",
     "rms",
     "max",
     "min",
+    "sum",
 )
+#: What a card's key number may compute: one value or word, or over every channel
+#: of its role on the device a count of the true ones, the largest or the sum.
+CARD_MEASURES: tuple[str, ...] = ("value", "word", "count_true", "max", "sum")
 
 #: How a calibration was found, in the order the screens rank it: a display order
 #: only (which basis to show as further along), not a rule of which value counts.
@@ -309,6 +437,45 @@ PROBE_NEEDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "readout": ("label", "signal"),
     }
 )
+#: Where a ``channel_roles.csv`` row looks for its channels: the device's own, its
+#: parts', or those of the device a relation of the device names.
+ROLE_SCOPES: tuple[str, ...] = ("device", "parts", "read_out_by", "controlled_by")
+#: How a card shows a channel of a role: a number, its state word, a lamp, or a
+#: control (a typed entry, one segment of a choice, an action button).
+SHOWN_AS: tuple[str, ...] = ("value", "word", "lamp", "entry", "choice", "action")
+#: The kinds of a drawn card's section a ``card_sections.csv`` row names.
+SECTION_KINDS: tuple[str, ...] = (
+    "strip",
+    "chain",
+    "front",
+    "section",
+    "ring-strip",
+    "calibration-strip",
+    "curve",
+    "ladder",
+)
+#: The symbols a card's strip draws a member as, and the lanes it puts them in.
+STRIP_SYMBOL_WORDS: tuple[str, ...] = (
+    "pump",
+    "gauge",
+    "valve",
+    "dipole",
+    "quad",
+    "sext",
+    "bpm",
+    "sensor",
+)
+STRIP_LANES: tuple[str, ...] = ("below", "beam", "above")
+#: Which way a chain hop walks its relation: from the subject (``out``) or to it.
+DIRECTIONS: tuple[str, ...] = ("out", "in")
+#: How a ``fronts.csv`` row finds what is on a connector: a thing whose relation to
+#: the device names the connector (``in``), the device's own relation from it
+#: (``out``), or the connector as a thing of its own, both directions (``socket``).
+FAR_DIRECTIONS: tuple[str, ...] = ("in", "out", "socket")
+#: The kinds of connector a front draws.
+CONNECTOR_KINDS: tuple[str, ...] = ("socket", "hv-out", "eth", "power", "io", "slot")
+#: The ways of showing that are a control a press or a typed value writes.
+CONTROLS: tuple[str, ...] = ("entry", "choice", "action")
 #: A claim's standing, as relation claims have it.
 STANDINGS: tuple[str, ...] = ("accepted", "contested", "superseded")
 
@@ -329,6 +496,21 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CALIBRATION_CURVES: ("id", "x", "y"),
         PROBE_PICTURES: ("class", "element", "shape"),
         STATE_LABELS: ("channel", "value", "label"),
+        UNITS: ("channel",),
+        CHANNEL_ROLES: ("class", "role", "signal", "scope", "shown_as", "basis"),
+        CARD_RECIPES: ("class", "recipe"),
+        CARD_SECTIONS: ("recipe", "order", "kind", "title"),
+        CHAINS: ("recipe", "chain", "step", "relation", "direction", "title"),
+        STRIP_SYMBOLS: ("class", "symbol", "lane"),
+        NO_CARDS: ("class", "owner_relation", "owner_direction"),
+        FRONTS: (
+            "recipe",
+            "face",
+            "group",
+            "order",
+            "connector",
+            "kind",
+        ),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -347,6 +529,14 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CALIBRATION_CURVES: {},
         PROBE_PICTURES: {"shape": PROBE_SHAPES},
         STATE_LABELS: {},
+        UNITS: {},
+        CHANNEL_ROLES: {"scope": ROLE_SCOPES, "shown_as": SHOWN_AS, "basis": BASES},
+        CARD_RECIPES: {},
+        CARD_SECTIONS: {"kind": SECTION_KINDS},
+        CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
+        STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
+        FRONTS: {"kind": CONNECTOR_KINDS, "far_direction": FAR_DIRECTIONS, "apart": ("no",)},
+        NO_CARDS: {"owner_direction": DIRECTIONS},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -367,6 +557,12 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CALIBRATION_KINDS: ("order",),
         CALIBRATION_CURVES: ("x", "y"),
         PROBE_PICTURES: ("angle_deg", "radius_mm", "size_mm", "min", "max", "range_mm", "count"),
+        UNITS: ("scale",),
+        CHANNEL_ROLES: ("scale", "press_value"),
+        CARD_RECIPES: ("channels_cols",),
+        CARD_SECTIONS: ("order", "window_m"),
+        CHAINS: ("step", "from_step"),
+        FRONTS: ("order", "count"),
     }
 )
 _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -375,10 +571,17 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         RECORD_TYPES: ("channel",),
         PAIRS: ("setpoint",),
         NAMES: ("thing",),
-        METRICS: ("view", "level", "order"),
+        METRICS: ("view", "level", "class", "order"),
         CALIBRATION_KINDS: ("kind", "class"),
         CALIBRATIONS: ("id",),
         STATE_LABELS: ("channel", "value"),
+        UNITS: ("channel",),
+        CARD_RECIPES: ("class", "under", "devices"),
+        CARD_SECTIONS: ("recipe", "order"),
+        CHAINS: ("recipe", "chain", "step"),
+        STRIP_SYMBOLS: ("class", "devices"),
+        FRONTS: ("recipe", "face", "group", "connector"),
+        NO_CARDS: ("class", "under", "devices"),
     }
 )
 
@@ -551,7 +754,8 @@ class PicturePart:
     :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM`. The caption under the
     drawing's scale bar names the row the drawing is scaled from and the kinds drawn
     at the default proportion ("scaled from the yoke; pole, coil at default
-    proportions"), or says "size not stated" when no row states a size; a yoke no
+    proportions"), or says "size not stated" and "schematic, not to scale" when no
+    row states a size (a row with state ``schematic`` adds the second too); a yoke no
     row sizes has a dashed outline.
 
     ``signal`` (any row) names what the element shows live: a signal name
@@ -638,6 +842,196 @@ class StateLabel:
     source: str | None
     revision: str | None
     locator: str | None
+
+
+@dataclass(frozen=True)
+class ChannelUnit:
+    """One row of ``units.csv``: a channel's unit as its record states it
+    (``label``), cut to the unit (``unit``, ``None`` when the label is no unit) and
+    the divisor (``scale``) its raw value is shown through."""
+
+    channel: str
+    unit: str | None
+    scale: float | None
+    label: str | None
+    source: str | None
+    revision: str | None
+    locator: str | None
+
+
+@dataclass(frozen=True)
+class ChannelRole:
+    """One row of ``channel_roles.csv``: on a device of class ``cls``, the channels
+    whose name matches ``signal`` (a pattern with ``*``, ``?`` and ``[``, matched
+    against the whole name), looked for where ``scope`` says, play ``role`` and are
+    shown as ``shown_as``. In the scopes ``read_out_by`` and ``controlled_by`` the
+    pattern may hold ``{port}`` (the relation's object port) and ``{n}`` (that
+    port's trailing number). A ``choice`` or ``action`` row is one press:
+    ``label`` is the word on it, ``press_value`` what it writes (``None``: the
+    value whose state word is ``label``). ``unit`` and ``scale`` (a divisor) win
+    over ``units.csv``. The role words are the facility's vocabulary; the engine
+    reads them as text."""
+
+    cls: str
+    role: str
+    signal: str
+    scope: str
+    shown_as: str
+    unit: str | None
+    scale: float | None
+    press_value: float | None
+    label: str | None
+    basis: Basis
+    source: str | None
+    revision: str | None
+    locator: str | None
+
+
+def _channel_role(**columns: Any) -> ChannelRole:
+    return ChannelRole(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
+class CardRecipe:
+    """One row of ``card_recipes.csv``: the card recipe of the devices of ``cls``
+    (under the place ``under``, and whose id matches the pattern ``devices``, when
+    given). ``recipe`` names it: the key the card's key numbers (``metrics.csv``
+    rows of view ``card`` whose ``level`` is the recipe) attach to. Its
+    ``description`` is the title line's sentence, ``{relation}`` slots filled from
+    the device's claims (``on {located_in}``); ``channels_cols`` the columns of its
+    all-channels grid."""
+
+    cls: str
+    under: str | None
+    recipe: str
+    description: str | None
+    channels_cols: float | None
+    source: str | None
+    devices: str | None = None
+
+
+def _card_recipe(**columns: Any) -> CardRecipe:
+    return CardRecipe(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
+class CardSection:
+    """One row of ``card_sections.csv``: a drawn section of the cards of ``recipe``,
+    in ``order``. ``kind`` says how it is drawn; ``members`` what it draws (for a
+    chain: the ``chain`` of ``chains.csv`` it draws); ``roles`` the roles it shows
+    (``;``-separated); ``caption`` the line under it."""
+
+    recipe: str
+    order: float
+    kind: str
+    title: str
+    focus: str | None
+    members: str | None
+    window_m: float | None
+    roles: str | None
+    caption: str | None
+    source: str | None
+
+
+@dataclass(frozen=True)
+class ChainStep:
+    """One row of ``chains.csv``: hop ``step`` of the chain ``chain`` of ``recipe``.
+
+    It starts at the thing step ``from_step`` reached (``0``: the device; empty: the
+    step before), walks ``relation`` from its subject (``out``) or to it (``in``),
+    and keeps the things ``to`` takes: ``device``, ``place``, a class, or
+    ``class:pattern`` on the thing's id (empty: any). Two distinct things after that filter make the hop
+    contested (a claim several layers state is one thing), unless ``many`` is
+    ``yes`` or ``1``: then every thing is a block (empty or ``0``: one expected). ``port_from`` labels the arrow: ``object_port``, ``subject_port`` or
+    a word of its own. ``roles`` are shown in the block (``;``-separated)."""
+
+    recipe: str
+    chain: str
+    step: float
+    from_step: float | None
+    relation: str
+    direction: str
+    to: str | None
+    many: str | None
+    port_from: str | None
+    title: str
+    roles: str | None
+    source: str | None
+
+
+@dataclass(frozen=True)
+class StripSymbol:
+    """One row of ``symbols.csv``: a card's strip draws the devices of ``cls`` (whose
+    id matches the pattern ``devices``, when given) as ``symbol`` in ``lane``; the
+    first row that takes a device wins."""
+
+    cls: str
+    devices: str | None
+    symbol: str
+    lane: str
+    source: str | None
+
+
+def _strip_symbol(**columns: Any) -> StripSymbol:
+    return StripSymbol(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
+class NoCard:
+    """One row of ``no_cards.csv``: the devices of ``cls`` under the place ``under``
+    whose id matches ``devices`` get no card; each is drawn inside its owner, the
+    thing ``owner_relation`` names in ``owner_direction`` that ``owner_to`` takes
+    (as a chain hop's ``to``). The first row that takes a device wins."""
+
+    cls: str
+    under: str | None
+    devices: str | None
+    owner_relation: str
+    owner_direction: str
+    owner_to: str | None
+    reason: str | None
+    source: str | None
+
+
+def _no_card(**columns: Any) -> NoCard:
+    return NoCard(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
+class FrontRow:
+    """One row of ``fronts.csv``: a connector, or a numbered range of them, on the
+    ``face`` of the devices of ``recipe``, in ``group``, by ``order``.
+
+    ``connector`` names it; ``{n}`` makes it a range, numbered by ``count`` when
+    stated, else by the device's served channels that match ``channel``, else by
+    the socket things that exist (``far_direction`` ``socket``), else by the ports
+    the relation states. ``channel`` is the connector's state channel. What is on it
+    is found by ``far_relation`` in ``far_direction`` on the port ``far_port`` (empty:
+    any port); a row with neither relation nor direction is a reading, with nothing
+    on it; ``label`` is its word
+    under the socket. ``roles`` (optional,
+    ``;``-separated) are the section roles the row's connectors carry: empty, every
+    section role; a role binds to a connector only through a row that lists it.
+    A ``{n}`` row with no ``channel`` and with ``roles`` is numbered by the
+    device's channels of its first role. ``apart`` (optional) ``no``: only the
+    clients on a stated port are drawn, never the group of those on no stated
+    port; empty, they are drawn apart by class."""
+
+    recipe: str
+    face: str
+    group: str
+    order: float
+    connector: str
+    kind: str
+    count: float | None
+    channel: str | None
+    far_relation: str | None
+    far_direction: str | None
+    far_port: str | None
+    label: str | None
+    source: str | None
+    roles: str | None = None
+    apart: str | None = None
 
 
 @dataclass(frozen=True)
@@ -812,6 +1206,14 @@ class PanelTables:
     calibration_curves: tuple[CurvePoint, ...] = ()
     probe_pictures: tuple[ProbeElement, ...] = ()
     state_labels: tuple[StateLabel, ...] = ()
+    units: tuple[ChannelUnit, ...] = ()
+    channel_roles: tuple[ChannelRole, ...] = ()
+    card_recipes: tuple[CardRecipe, ...] = ()
+    card_sections: tuple[CardSection, ...] = ()
+    chains: tuple[ChainStep, ...] = ()
+    strip_symbols: tuple[StripSymbol, ...] = ()
+    fronts: tuple[FrontRow, ...] = ()
+    no_cards: tuple[NoCard, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -829,6 +1231,14 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CALIBRATION_CURVES: CurvePoint,
         PROBE_PICTURES: _probe_element,
         STATE_LABELS: StateLabel,
+        UNITS: ChannelUnit,
+        CHANNEL_ROLES: _channel_role,
+        CARD_RECIPES: _card_recipe,
+        CARD_SECTIONS: CardSection,
+        CHAINS: ChainStep,
+        STRIP_SYMBOLS: _strip_symbol,
+        FRONTS: FrontRow,
+        NO_CARDS: _no_card,
     }
 )
 
@@ -935,6 +1345,7 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
     unique = _UNIQUE.get(name)
     seen: dict[tuple[str, ...], int] = {}
     seen_probe: dict[tuple[str | None, ...], int] = {}
+    seen_metric: dict[tuple[str | float | None, ...], int] = {}
     rows = []
     for line, record in records:
         if not record:
@@ -945,7 +1356,7 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             )
         texts = dict(zip(header, record, strict=True))
         if unique is not None:
-            key = tuple(texts[column] for column in unique)
+            key = tuple(texts.get(column, "") for column in unique)  # an optional one: empty
             if key in seen:
                 raise PanelTableError(
                     name,
@@ -958,6 +1369,12 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
         )
         if name == CALIBRATION_KINDS:
             _check_kind_unit(rows[-1], line)
+        if name == CHANNEL_ROLES:
+            _check_role(rows[-1], line)
+        if name == METRICS:
+            _check_metric(rows[-1], line, seen_metric)
+        if name == FRONTS:
+            _check_front_row(rows[-1], line)
         if name == PROBE_PICTURES:
             _check_probe_row(rows[-1], line, seen_probe)
         if name == PICTURES:
@@ -968,6 +1385,55 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
         if lines is not None:
             lines.append(line)
     return tuple(rows)
+
+
+def _check_metric(
+    metric: Metric, line: int, seen: dict[tuple[str | float | None, ...], int]
+) -> None:
+    """A card's key number names its class and shows a value or a word; a place's or
+    a roll-up's is one per view, level and order, whatever its class."""
+    if metric.view == "card":
+        if metric.cls is None:
+            raise PanelTableError(METRICS, line, "a card's key number names its class")
+        if metric.measure not in CARD_MEASURES:
+            raise PanelTableError(
+                METRICS,
+                line,
+                f"a card's key number is one of {', '.join(CARD_MEASURES)}, not {metric.measure!r}",
+            )
+        return
+    if metric.measure == "word":
+        raise PanelTableError(METRICS, line, "only a card's key number is a word")
+    key = (metric.view, metric.level, metric.order)
+    if key in seen:
+        raise PanelTableError(
+            METRICS, line, f"view, level, order {key!r} already has a row at line {seen[key]}"
+        )
+    seen[key] = line
+
+
+def _check_front_row(row: FrontRow, line: int) -> None:
+    """A front row names its far relation and its direction together, or neither
+    (a reading: nothing is on it)."""
+    if (row.far_relation is None) != (row.far_direction is None):
+        raise PanelTableError(
+            FRONTS, line, "far_relation and far_direction are both given or both empty"
+        )
+
+
+def _check_role(role: ChannelRole, line: int) -> None:
+    """A press names its word; a relation's port fills a pattern only where a
+    relation is walked; a divisor is not 0."""
+    if role.shown_as in ("choice", "action") and not role.label:
+        raise PanelTableError(CHANNEL_ROLES, line, f"a {role.shown_as} names its press in label")
+    if role.scope in ("device", "parts") and ("{port}" in role.signal or "{n}" in role.signal):
+        raise PanelTableError(
+            CHANNEL_ROLES,
+            line,
+            "{port} and {n} come from a walked relation, not scope " + role.scope,
+        )
+    if role.scale is not None and role.scale == 0:
+        raise PanelTableError(CHANNEL_ROLES, line, "scale is 0; it divides the raw value")
 
 
 def _check_kind_unit(kind: CalibrationKind, line: int) -> None:
@@ -1072,6 +1538,14 @@ def read_tables(panels_dir: Path) -> PanelTables:
         **_read_calibrations(directory),
         probe_pictures=_read(directory, PROBE_PICTURES),
         state_labels=_read(directory, STATE_LABELS),
+        units=_read(directory, UNITS),
+        channel_roles=_read(directory, CHANNEL_ROLES),
+        card_recipes=_read(directory, CARD_RECIPES),
+        card_sections=_read(directory, CARD_SECTIONS),
+        chains=_read(directory, CHAINS),
+        strip_symbols=_read(directory, STRIP_SYMBOLS),
+        fronts=_read(directory, FRONTS),
+        no_cards=_read(directory, NO_CARDS),
     )
 
 

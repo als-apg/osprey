@@ -129,7 +129,7 @@ RULED = (
 )
 
 #: Three of them whose joint rule is longer than any one channel's.
-THREE = (RULED[0], RULED[2], RULED[3])
+THREE = (RULED[0], RULED[1], RULED[3])
 
 
 def rollup_view() -> View:

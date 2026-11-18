@@ -1319,6 +1319,64 @@ def panels_write(
     for kind in _PANEL_VIEWS:
         if count[kind]:
             report(f"  {kind}: {count[kind]} screens, {_megabytes(sizes[kind])}")
+    devices = [e["thing"] for e in screens if e["kind"] == "card" and e["thing_kind"] == "device"]
+    if devices:
+        recipes = Counter(
+            getattr(graph.recipe(device), "recipe", None) or "default" for device in devices
+        )
+        named = ", ".join(f"{n} {name}" for name, n in sorted(recipes.items()) if name != "default")
+        report(
+            f"  device cards: {recipes['default']} with the default recipe"
+            + (f", {named}" if named else "")
+        )
+        from osprey.facility.panels.describe import (
+            FRONT_CONTESTED,
+            FRONT_NONE,
+            FRONT_READING,
+            FRONT_STATED,
+            HOP_FOUND,
+            STRIP_NOWHERE,
+            STRIP_ON_RAFT,
+            STRIP_PLACED,
+            chain_states,
+            front_states,
+            ladder_states,
+            strip_states,
+        )
+
+        for recipe_name, where in sorted(strip_states(graph, devices).items()):
+            total = sum(where.values())
+            report(
+                f"  strip {recipe_name}: {where[STRIP_PLACED]} / {total} placed, "
+                f"{where[STRIP_ON_RAFT]} on a raft, {where[STRIP_NOWHERE]} not stated"
+            )
+
+        for chain, states in sorted(chain_states(graph, devices).items()):
+            drawn = states.pop(HOP_FOUND, 0)
+            short = sum(states.values())
+            line = f"  chain {chain}: {drawn} drawn whole, {short} with a hop not drawn"
+            if states:
+                why, n = states.most_common(1)[0]
+                line += f" (most: {why}, {n})"
+            report(line)
+        for recipe_name, states in sorted(front_states(graph, devices).items()):
+            total = states[FRONT_STATED] + states[FRONT_NONE] + states[FRONT_CONTESTED]
+            report(
+                f"  front {recipe_name}: {total} connectors, {states[FRONT_STATED]} with "
+                f"something stated on them, {states[FRONT_CONTESTED]} contested, "
+                f"{states[FRONT_NONE]} with nothing stated, "
+                f"and {states[FRONT_READING]} readings; devices: "
+                f"{states['devices: all']} all stated, {states['devices: some']} some, "
+                f"{states['devices: none']} none, "
+                f"{states['devices: readings only']} with readings only"
+            )
+        for recipe_name, states in sorted(ladder_states(graph, devices).items()):
+            whole = states.pop(HOP_FOUND, 0)
+            line = f"  ladder {recipe_name}: {whole} drawn whole, {sum(states.values())} with a part not served"
+            if states:
+                why, n = states.most_common(1)[0]
+                line += f" (most: {why}, {n})"
+            report(line)
     if index["outside"]:
         report(f"  {len(index['outside'])} screens not written (outside the selection)")
     largest = sorted(screens, key=lambda entry: (-entry["bytes"], entry["file"]))[:top]
@@ -1383,6 +1441,23 @@ def panels_check(
     loose = emit.unplaced_parts(graph)
     counted = ", ".join(f"{cls} {n}" for cls, n in loose.items()) or "none"
     report(f"pictures, parts not placed: {counted}")
+    from osprey.facility.panels.describe import no_card_counts, press_counts, tile_less
+
+    devices = [t.id for t in graph.things() if t.kind == "device"]
+    presses = press_counts(graph, devices)
+    report(
+        f"device cards, presses: {presses.stated} with a stated value, {presses.inferred} "
+        f"with an inferred value (said so on the card), {presses.left_out} left out "
+        f"(no value stated) on {presses.left_out_cards} cards, {presses.withheld} "
+        f"withheld, join inferred"
+    )
+    bare_classes, bare = tile_less(graph, devices)
+    report(f"default card without tiles: {bare_classes} classes, {bare} devices")
+    taken, ownerless = no_card_counts(graph)
+    report(
+        f"no card (no_cards.csv): {taken} devices, {taken - ownerless} drawn on their "
+        f"owner's card, {ownerless} with no owner stated (no index entry)"
+    )
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")

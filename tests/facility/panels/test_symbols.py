@@ -109,6 +109,19 @@ def test_a_pump_of_no_stated_kind_is_a_circle_on_the_chamber_with_the_letter_p()
     assert letter["props"]["text"] == "P"
 
 
+def test_an_ion_pump_is_a_box_with_upright_fins_inside() -> None:
+    body, *fins = draw("ion_pump", 0.0, AXIS, unit=16.0)  # as a card's strip draws it
+    g = body["geometry"]
+    assert len(body["props"]["points"]) == 4  # a box, not a triangle
+    assert g["y"] + g["height"] / 2 == pytest.approx(AXIS)
+    assert len(fins) == 4 and all(f["type"] == "line" for f in fins)
+    for fin in fins:
+        f = fin["geometry"]
+        assert g["x"] < f["x"] < g["x"] + g["width"] and g["y"] < f["y"]
+        assert f["y"] + f["height"] < g["y"] + g["height"]
+    assert len(draw("ion_pump", 0.0, AXIS, unit=1.0)) == 1  # too small for fins: plain
+
+
 def test_an_unknown_kind_is_refused() -> None:
     with pytest.raises(ValueError, match="no symbol"):
         draw("wiggler", 0.0, AXIS)
@@ -148,6 +161,12 @@ THEME_ROLES = {
     "Material_Water",
     "Material_Winding_2",
     "Material_Bore",
+    # a drawn card: its own device in focus, and the look of a control
+    "Focus",
+    "Focus_Tint",
+    "Control_Action",
+    "Control_Action_Text",
+    "Control_Choice_Selected",
 }
 NEUTRAL_ROLES = {
     "Page_Background",

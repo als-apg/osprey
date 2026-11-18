@@ -60,7 +60,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.panels import layout
-from osprey.facility.panels.describe import describe, light, ring_arcs, targets
+from osprey.facility.panels.describe import describe, drawn_on, light, ring_arcs, targets
 from osprey.facility.panels.health import supported
 from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
 from osprey.facility.panels.symbols import WIDTH_UNITS, near_state
@@ -100,7 +100,7 @@ DIGEST_LEN = 8
 #: Failing problem kinds are all but these.
 NOTE_KINDS = frozenset({"outside_set"})
 #: View kinds whose ``over_budget`` is a note: drawn in full, the excess is reported.
-NOTED_OVER_BUDGET = frozenset({"card", "checkout"})
+NOTED_OVER_BUDGET = frozenset({"card", "channels", "checkout"})
 
 _STAMP = re.compile(r" Facility ([0-9a-f]{64}), panels format (\d+), draw ([0-9a-f]{16})\.$")
 _STAMP_IN_TEXT = re.compile(r" Facility [0-9a-f]{64}, panels format \d+, draw [0-9a-f]{16}\.\"")
@@ -123,6 +123,7 @@ _FILE_MODE = 0o644
 DRAW_FILE = "draw.json"
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 _FORMULA_PREFIX = "formula://"
+_LOCAL_PREFIX = "loc://"
 
 
 class EmitError(Exception):
@@ -646,6 +647,14 @@ def write(
         "draw_hash": draw.digest,
     }
 
+    # a device with no card of its own: the screen of the owner it is drawn on
+    written_ids = set(found)
+    owners = [
+        {"thing": thing, "file": _path(target, ids)}
+        for thing, target in drawn_on(graph)
+        if target in written_ids
+    ]
+
     def put_index(state: str, screens: list[dict[str, Any]], outside: list[dict[str, Any]]) -> None:
         index = {
             **head,
@@ -653,6 +662,7 @@ def write(
             "total_bytes": sum(e.get("bytes", 0) for e in screens),
             "screens": sorted(screens, key=lambda e: e["file"]),
             "outside": sorted(outside, key=lambda e: e["file"]),
+            "drawn_on": owners,
         }
         text = json.dumps(index, indent=1, sort_keys=True, ensure_ascii=False) + "\n"
         _put(out, INDEX, text.encode("utf-8"), seen)
@@ -693,7 +703,13 @@ def write(
 
 def _bound_channels(document: Any) -> Iterator[str]:
     """Every channel a screen binds: a widget's ``pv``, a curve's ``y_channel``, each
-    name in a rule's ``pvs`` but a screen formula's, and each binding of a screen formula."""
+    name in a rule's ``pvs`` but a screen formula's, and each binding of a screen
+    formula; a screen's own local value (``loc://``, a typed value before Apply) is
+    no channel."""
+    yield from (name for name in _bound_names(document) if not name.startswith(_LOCAL_PREFIX))
+
+
+def _bound_names(document: Any) -> Iterator[str]:
     stack = [document]
     while stack:
         node = stack.pop()

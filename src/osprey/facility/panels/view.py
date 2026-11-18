@@ -18,20 +18,42 @@ from osprey.facility.panels.tables import PicturePart, ProbeElement
 __all__ = [
     "VIEW_KINDS",
     "Band",
+    "BlockRow",
+    "CardFoot",
+    "CardHead",
+    "CardStrip",
+    "StripMember",
+    "Chain",
+    "ChainBlock",
+    "ChannelCount",
+    "ChannelGrid",
+    "Connector",
+    "Control",
+    "CurvePlot",
+    "ControlGroup",
+    "KeyTile",
+    "Operate",
     "Tile",
     "CheckRow",
     "Elevation",
     "Fact",
+    "FarEnd",
+    "Front",
+    "FrontGroup",
     "Grid",
     "GridCell",
     "GridRow",
     "Group",
     "Item",
     "Light",
+    "LimitLadder",
     "Link",
     "Node",
+    "PartFacts",
     "Picture",
     "Probe",
+    "RingMember",
+    "RingStrip",
     "ProbePart",
     "Placement",
     "RackUnit",
@@ -46,11 +68,12 @@ __all__ = [
     "ViewKind",
 ]
 
-ViewKind = Literal["card", "set", "calibration", "place", "rack", "rollup", "checkout"]
+ViewKind = Literal["card", "channels", "set", "calibration", "place", "rack", "rollup", "checkout"]
 
 #: Every view kind, in the order screens of one thing are listed.
 VIEW_KINDS: tuple[ViewKind, ...] = (
     "card",
+    "channels",
     "set",
     "calibration",
     "place",
@@ -332,12 +355,15 @@ class Picture:
             the channel its ``signal`` resolves to on the device.
         symbol: The class's strip symbol (the drawing settings' ``symbols``),
             whose colour the body is drawn in; ``None`` when it has none.
+        focus: The parts outlined in the focus colour: on a part's card, the
+            part itself on its owner's drawing.
     """
 
     device_class: str
     view: str
     parts: tuple[PicturePart, ...]
     symbol: str | None = None
+    focus: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -391,6 +417,8 @@ class RackUnit:
             each once, in graph order.
         unit_text: For an unpositioned device, the unit its claim states
             when that is no integer (``A5``); ``None`` otherwise.
+        side: A half-width unit's half, ``L`` or ``R``, from the claim's ``side``
+            attribute; ``None``: full width.
     """
 
     position: int | None
@@ -401,6 +429,7 @@ class RackUnit:
     conflicting: bool = False
     citations: tuple[Citation, ...] = ()
     unit_text: str | None = None
+    side: str | None = None
 
 
 @dataclass(frozen=True)
@@ -605,6 +634,437 @@ class CalibrationTallies:
     more: Link | None
 
 
+@dataclass(frozen=True)
+class CardFoot:
+    """A drawn card's last two muted lines: where the device is and what it is read
+    from, each one line; the full provenance on hover.
+
+    Attributes:
+        where: The where line in pieces, each its text and the screen it opens (or
+            ``None``): the places with their units, the whole, the positions.
+        sources: The count of statements and the documents they cite.
+        provenance: One line per statement, shown on hover.
+        claims: What the where line is made of: the place, each ``located_in``
+            claim (:class:`Placement`), each pose (:class:`Fact`).
+        citations: The statements the sources line counts.
+    """
+
+    where: tuple[tuple[str, Link | None], ...]
+    sources: str
+    provenance: tuple[str, ...]
+    claims: tuple[Item, ...] = ()
+    citations: tuple[Citation, ...] = ()
+
+
+@dataclass(frozen=True)
+class CardHead:
+    """A drawn card's title line under the bar: the device's class and recipe in
+    muted words, and the recipe's sentence (``None`` with none).
+
+    Attributes:
+        kind: What it is: ``"<class> · <recipe> recipe"`` or ``"<class> · default
+            recipe"``.
+        description: The recipe's sentence, its relation slots filled.
+        default: The card is drawn with the default recipe (its class has no row).
+        nowhere: The recipe draws a strip, and where the device sits is not stated.
+    """
+
+    kind: str
+    description: str | None
+    default: bool = True
+    nowhere: bool = False
+
+
+@dataclass(frozen=True)
+class KeyTile:
+    """One tile of a drawn card's top row: one value.
+
+    Attributes:
+        title: Its head.
+        channel: The channel it shows, or ``None``: not served yet.
+        shown_as: ``value`` (a number with its unit), ``word`` (the state word),
+            ``lamp`` (a light and the state word), or a measure over *channels*:
+            ``count_true`` ("k of N"), ``max`` or ``sum``.
+        unit: The unit printed after the number, or ``None``.
+        scale: The divisor the raw value is shown through, or ``None`` (1).
+        precision: The decimals of the number, or ``None`` (significant digits).
+        words: The stated word per value, ``(value, word)``.
+        channels: For ``count_true``, ``max`` or ``sum``: every channel of the
+            role on the device, the figure computed over them all.
+    """
+
+    title: str
+    channel: str | None
+    shown_as: str = "value"
+    unit: str | None = None
+    scale: float | None = None
+    precision: int | None = None
+    words: tuple[tuple[str, str], ...] = ()
+    channels: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class BlockRow:
+    """One line inside a chain block: a muted label and what it shows.
+
+    Attributes:
+        label: The line's label (a role or a relation word).
+        channel: A live channel, or ``None``.
+        text: A stated text (a port, a class, ``not stated``), when no channel.
+        shown_as: ``value``, ``word``, ``lamp`` or ``text``.
+        unit, scale, words: As :class:`KeyTile`.
+    """
+
+    label: str
+    channel: str | None = None
+    text: str | None = None
+    shown_as: str = "text"
+    unit: str | None = None
+    scale: float | None = None
+    words: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class ChainBlock:
+    """One block of a chain: a thing, its lines, the arrow to the next block.
+
+    Attributes:
+        title: Its title (the thing's class word and id), or ``not stated``.
+        link: Its card, or ``None``.
+        rows: Its lines.
+        focus: It is the card's own device, drawn in the focus colour.
+        dashed: Nothing is stated for this hop.
+        arrow: The word on the arrow into the next block, or ``None``.
+        standing: ``contested`` when sources disagree on the hop, else ``None``.
+        stack: More blocks under it in its column: the other things one hop
+            reaches (all of them, or the answers of a contested hop).
+        arrow_in: The word on the arrow into it (its hop's port), or ``None``.
+        inferred: For a hop on an inferred relation, the rule it rests on (shown
+            on hover beside the word "inferred"); ``None`` for a stated one.
+    """
+
+    title: str
+    link: Link | None
+    rows: tuple[BlockRow, ...] = ()
+    focus: bool = False
+    dashed: bool = False
+    arrow: str | None = None
+    standing: str | None = None
+    stack: tuple[ChainBlock, ...] = ()
+    arrow_in: str | None = None
+    inferred: str | None = None
+
+
+@dataclass(frozen=True)
+class Chain:
+    """Blocks left to right, arrows between them, a muted line under them."""
+
+    blocks: tuple[ChainBlock, ...]
+    foot: str | None = None
+
+
+@dataclass(frozen=True)
+class StripMember:
+    """One thing on a card's strip.
+
+    Attributes:
+        thing: Its id.
+        label: What is written under it (its short name, else its id).
+        s_m: Where it is along the beam, m.
+        symbol: The strip symbol ``symbols.csv`` names (``pump``, ``valve``, ...).
+        lane: ``below``, ``beam`` or ``above`` the pipe.
+        link: Its card, or ``None`` (the card's own device has none).
+        channel: The channel of the section's role on it, or ``None``.
+        unit: That channel's unit, or ``None``.
+        focus: It is the card's own device.
+    """
+
+    thing: str
+    label: str
+    s_m: float
+    symbol: str
+    lane: str
+    link: Link | None = None
+    channel: str | None = None
+    unit: str | None = None
+    focus: bool = False
+
+
+@dataclass(frozen=True)
+class CardStrip:
+    """A card's strip: the things of the stated classes within a window of the
+    device along the beam, to scale.
+
+    Attributes:
+        window: The stretch drawn, ``(from, to)`` in m.
+        members: The things on it, by ``s_m``.
+        bracket: Where the device is when only its raft (or chamber) is placed:
+            ``(from, to, label)`` in m; ``None`` when the device is placed.
+        caption: The line under it, or ``None``.
+    """
+
+    window: tuple[float, float]
+    members: tuple[StripMember, ...]
+    bracket: tuple[float, float, str] | None = None
+    caption: str | None = None
+
+
+#: Entries of one role past this many are laid out as a grid under the role's title,
+#: and their line names no channel (each on hover).
+ENTRIES_IN_ONE_COLUMN = 6
+
+
+@dataclass(frozen=True)
+class Control:
+    """One press or entry of a drawn card's operate block.
+
+    Attributes:
+        label: The word on it (an entry's: what it sets).
+        channel: The channel it writes.
+        press_value: What a press writes; ``None`` for an entry, or a press whose
+            value no source states (drawn, not pressable).
+        status: The channel whose value shades a choice's segment, or ``None``.
+        inferred: The press value is inferred, not stated by the channel's own
+            database; its words say so wherever they name it.
+    """
+
+    label: str
+    channel: str
+    press_value: float | None = None
+    status: str | None = None
+    inferred: bool = False
+
+
+@dataclass(frozen=True)
+class ControlGroup:
+    """Controls of one kind that belong together, and the line saying what they write.
+
+    Attributes:
+        kind: ``action``, ``choice``, ``entry``, or ``withheld``: the presses of
+            a channel the card reaches only through an inferred join, shown read
+            only where they would have stood.
+        title: What the group is (a role), or ``None``.
+        controls: Its controls.
+        writes: The muted line under it: the channels it writes and the values.
+    """
+
+    kind: str
+    title: str | None
+    controls: tuple[Control, ...]
+    writes: str
+    rule: str | None = None  # a withheld group's join rule, on hover
+
+
+@dataclass(frozen=True)
+class Operate:
+    """A drawn card's operate block; with no group, *note* says why."""
+
+    groups: tuple[ControlGroup, ...]
+    note: str | None = None
+
+
+@dataclass(frozen=True)
+class ChannelGrid:
+    """Every channel of the device not drawn above, compact: (short name, channel);
+    *hidden* driver-internal records are left out and counted under it, with *full*
+    the link to the ``channels`` view that lists them, read only."""
+
+    rows: tuple[tuple[str, str], ...]
+    columns: int = 4
+    hidden: int = 0
+    full: Link | None = None
+
+
+@dataclass(frozen=True)
+class ChannelCount:
+    """In place of the grid, for a device with more channels than a card lists: how
+    many there are by owner, and the link to its ``channels`` view.
+
+    Attributes:
+        total: The channels the full list holds.
+        parts: The counts by owner: the device's own, each device a role walks to,
+            the driver-internal records.
+        link: The ``channels`` view.
+    """
+
+    total: int
+    parts: tuple[str, ...]
+    link: Link
+
+
+@dataclass(frozen=True)
+class FarEnd:
+    """A thing on a connector of a front.
+
+    Attributes:
+        thing: Its id.
+        link: Its card, or ``None`` when it has none.
+        port: Its own port on the cable, when stated.
+        inferred: For an end on an inferred relation, the rule it rests on.
+    """
+
+    thing: str
+    link: Link | None = None
+    port: str | None = None
+    inferred: str | None = None
+
+
+@dataclass(frozen=True)
+class Connector:
+    """One connector of a front: an outlet, a port, a socket, a channel.
+
+    Attributes:
+        label: Its word under the socket (``Outlet 7``, ``CH1``).
+        kind: ``socket``, ``hv-out``, ``eth``, ``power``, ``io`` or ``slot``.
+        lamp: Its state channel, or ``None``.
+        sides: What is on it, per side (one side; a socket of its own has two):
+            each side the things found, none (nothing stated) or two and more
+            (contested, all drawn).
+        rows: Values of the section's roles for this connector or what is on it.
+        controls: Presses the section's control roles offer on this connector.
+    """
+
+    label: str
+    kind: str
+    lamp: str | None = None
+    sides: tuple[tuple[FarEnd, ...], ...] = ((),)
+    rows: tuple[BlockRow, ...] = ()
+    controls: tuple[Control, ...] = ()
+
+
+@dataclass(frozen=True)
+class FrontGroup:
+    """The connectors of one group of a face, in the unit's own order.
+
+    ``empty`` is the line drawn when the group has no connector stated (a switch's
+    ports, whose count and assignment no source states)."""
+
+    face: str
+    title: str
+    connectors: tuple[Connector, ...]
+    empty: str | None = None
+
+
+@dataclass(frozen=True)
+class Front:
+    """A device's faces with their connectors and what is on each.
+
+    Attributes:
+        groups: The groups, by ``order``.
+        loose: Things the face's relations name on no stated port, by class:
+            ``(class, things)``; each thing with its rows.
+        loose_note: The line over them.
+        writes: The line of what the connectors' presses write, or ``None``.
+        caption: The line under it, or ``None``.
+        entries: The typed values of the section's roles per connector, one group
+            per role, each entry named by its connector: drawn under the front.
+    """
+
+    groups: tuple[FrontGroup, ...]
+    loose: tuple[tuple[str, tuple[tuple[FarEnd, tuple[BlockRow, ...]], ...]], ...] = ()
+    loose_note: str | None = None
+    writes: str | None = None
+    caption: str | None = None
+    entries: tuple[ControlGroup, ...] = ()
+
+
+@dataclass(frozen=True)
+class RingMember:
+    """One member of a ring-strip: a column with its name and values.
+
+    Attributes:
+        thing: Its id.
+        label: The name its column shows.
+        link: Its card, or ``None`` for the card's own device.
+        rows: The section's roles it plays, each a value or a lamp.
+        focus: Whether it is the card's own device.
+        inferred: For a member on an inferred relation, the rule it rests on.
+        stated: Marked "stated": in a section most of whose members are inferred
+            (its caption says so), the member that rests on a stated relation.
+    """
+
+    thing: str
+    label: str
+    link: Link | None
+    rows: tuple[BlockRow, ...]
+    focus: bool = False
+    inferred: str | None = None
+    stated: bool = False
+
+
+@dataclass(frozen=True)
+class RingStrip:
+    """The devices of a group, one column each, in ring order.
+
+    Attributes:
+        members: In order along the ring, else in number order.
+        ordered: ``s`` (by ring position) or ``number`` (no position stated for one).
+        caption: The line under it, or ``None``.
+        places: When every member has a place: the runs of *members* by place, in
+            ring order, ``(place, how many)``; empty otherwise.
+        counted: The words over the count of members whose lamp is ok now
+            ("giving permit now"), or ``None``.
+    """
+
+    members: tuple[RingMember, ...]
+    ordered: str
+    caption: str | None = None
+    places: tuple[tuple[str, int], ...] = ()
+    counted: str | None = None
+
+
+@dataclass(frozen=True)
+class LimitLadder:
+    """A device's value against its set points, in their stated order.
+
+    Attributes:
+        value: The value's channel, or ``None`` when it is not served.
+        unit: The value's unit, or ``None``.
+        marks: Each set point in order: its title and channel.
+        left_out: The set points of the section no channel serves (not drawn).
+        caption: The line under it, or ``None``.
+    """
+
+    value: str | None
+    unit: str | None
+    marks: tuple[tuple[str, str], ...]
+    left_out: tuple[str, ...] = ()
+    caption: str | None = None
+
+
+@dataclass(frozen=True)
+class PartFacts:
+    """Beside a part's drawing: what is stated about it, and what is not.
+
+    Attributes:
+        stated: Its relations, each a link to the other thing (or a fact naming it).
+        not_stated: Each fact the card needs that no source states.
+    """
+
+    stated: tuple[Link | Fact, ...]
+    not_stated: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CurvePlot:
+    """A curve the records state for a device, as x/y points.
+
+    Attributes:
+        title: The calibration kind's title.
+        points: ``(x, y)`` in order of x.
+        x_unit, y_unit: The units of the axes, or ``None``.
+        source: The document and version of the claim in force, or ``None``.
+        note: What is not drawn and why (no curve stated, no operating point).
+    """
+
+    title: str
+    points: tuple[tuple[float, float], ...]
+    x_unit: str | None = None
+    y_unit: str | None = None
+    source: str | None = None
+    note: str | None = None
+
+
 Item = (
     ValueRow
     | Light
@@ -623,6 +1083,19 @@ Item = (
     | Totals
     | Calibrations
     | CalibrationTallies
+    | CardHead
+    | KeyTile
+    | Chain
+    | CardStrip
+    | Operate
+    | ChannelGrid
+    | ChannelCount
+    | CardFoot
+    | Front
+    | RingStrip
+    | LimitLadder
+    | PartFacts
+    | CurvePlot
 )
 
 

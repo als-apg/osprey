@@ -60,6 +60,28 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     )
     assert ",".join(COLUMNS["calibration_curves.csv"]) == "id,x,y"
     assert ",".join(COLUMNS["state_labels.csv"]) == "channel,value,label,source,revision,locator"
+    assert ",".join(COLUMNS["units.csv"]) == "channel,unit,scale,label,source,revision,locator"
+    assert ",".join(COLUMNS["channel_roles.csv"]) == (
+        "class,role,signal,scope,shown_as,unit,scale,press_value,label,basis,source,revision,"
+        "locator"
+    )
+    assert ",".join(COLUMNS["card_sections.csv"]) == (
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source"
+    )
+    assert ",".join(COLUMNS["chains.csv"]) == (
+        "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source"
+    )
+    assert ",".join(COLUMNS["symbols.csv"]) == "class,devices,symbol,lane,source"
+    assert ",".join(COLUMNS["card_recipes.csv"]) == (
+        "class,under,devices,recipe,description,channels_cols,source"
+    )
+    assert ",".join(COLUMNS["no_cards.csv"]) == (
+        "class,under,devices,owner_relation,owner_direction,owner_to,reason,source"
+    )
+    assert ",".join(COLUMNS["fronts.csv"]) == (
+        "recipe,face,group,order,connector,kind,count,channel,far_relation,far_direction,"
+        "far_port,label,source,roles,apart"
+    )
     assert OPTIONAL_FILES == frozenset(
         {
             "pictures.csv",
@@ -71,6 +93,14 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
             "calibration_curves.csv",
             "probe_pictures.csv",
             "state_labels.csv",
+            "units.csv",
+            "channel_roles.csv",
+            "card_recipes.csv",
+            "card_sections.csv",
+            "chains.csv",
+            "symbols.csv",
+            "fronts.csv",
+            "no_cards.csv",
         }
     )
 
@@ -343,3 +373,64 @@ def test_the_graph_finds_a_state_word_for_a_value_however_it_is_written(tmp_path
     for value in (1, 1.0, "1", " 1 "):
         assert graph.state_label("XR01-PS1:On-Cmd", value) == "On"
     assert graph.state_label("XR01-PS1:On-Cmd", 0) is None
+
+
+@pytest.mark.parametrize(
+    ("row", "why"),
+    [
+        ("Pump,start,*:Go,device,action,,,1,,stated,S,1,l", "names its press in label"),
+        ("Pump,p,*:IP{n}:P,device,value,,,,,stated,S,1,l", "come from a walked relation"),
+        ("Pump,p,*:P,device,value,,0,,,stated,S,1,l", "scale is 0"),
+        ("Pump,p,*:P,beside,value,,,,,stated,S,1,l", "scope is 'beside'"),
+    ],
+)
+def test_a_channel_role_row_that_cannot_be_drawn_is_refused(tmp_path, row: str, why: str):
+    from osprey.facility.panels.tables import CHANNEL_ROLES
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / CHANNEL_ROLES).write_text(",".join(COLUMNS[CHANNEL_ROLES]) + "\n" + row + "\n")
+    with pytest.raises(PanelTableError, match=re.escape(why)):
+        read_tables(tables)
+
+
+def test_a_card_key_number_names_its_class_and_shows_a_value_or_a_word(tmp_path):
+    tables = copy_tables(tmp_path / "panels")
+    path = tables / "metrics.csv"
+    base = path.read_text()
+    path.write_text(base + "card,,1,Pressure,word,pressure,Pump,,,S\n")
+    assert [m.measure for m in read_tables(tables).metrics if m.view == "card"] == ["word"]
+    path.write_text(base + "card,,1,Pressure,rms,pressure,Pump,,,S\n")
+    with pytest.raises(PanelTableError, match="one of value, word, count_true, max, sum"):
+        read_tables(tables)
+    path.write_text(base + "card,,1,Pressure,value,pressure,,,,S\n")
+    with pytest.raises(PanelTableError, match="names its class"):
+        read_tables(tables)
+    path.write_text(base + "place,,9,Pressure,word,pressure,Pump,,,S\n")
+    with pytest.raises(PanelTableError, match="only a card's key number is a word"):
+        read_tables(tables)
+
+
+@pytest.mark.parametrize(
+    "far",
+    ["powered_by,", ",in"],
+)
+def test_a_front_row_with_one_of_far_relation_and_far_direction_is_refused(
+    tmp_path: Path, far: str
+) -> None:
+    directory = copy_tables(tmp_path / "panels")
+    (directory / "fronts.csv").write_text(
+        _header("fronts.csv")
+        + "\nsupply,front,outputs,1,Out1,power,,,powered_by,in,,,S,,"
+        + f"\nsupply,front,outputs,2,Out2,power,,,{far},,,S,,\n"
+    )
+    with pytest.raises(PanelTableError, match=r"fronts\.csv line 3\b.*both given or both empty"):
+        read_tables(directory)
+
+
+def test_a_front_row_with_neither_far_relation_nor_far_direction_is_read(tmp_path: Path) -> None:
+    directory = copy_tables(tmp_path / "panels")
+    (directory / "fronts.csv").write_text(
+        _header("fronts.csv") + "\nsupply,front,inputs,1,In1,io,,,,,,,S,,\n"
+    )
+    (row,) = read_tables(directory).fronts
+    assert (row.far_relation, row.far_direction) == (None, None)

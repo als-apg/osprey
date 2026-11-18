@@ -1388,12 +1388,14 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    facility tree (``--tables DIRECTORY`` names another), and draw with the
    settings in ``draw.json`` beside the tables (``--draw FILE`` names another;
    with neither, the empty settings, and one line says so). The screens are
-   Canopy Screen-IR documents, one file per screen, in seven view kinds:
+   Canopy Screen-IR documents, one file per screen, in eight view kinds:
    ``card`` (one device, its signals, picture, relations and calibration
-   records), ``set`` (the members of a group as a grid), ``calibration`` (one
+   records), ``channels`` (every channel of a device with more than a card
+   lists, grouped by role, then record type: the one plain list), ``set`` (the members of a group as a grid), ``calibration`` (one
    calibration kind over a set), ``place`` (a place's devices in beam order
    with a band of key numbers), ``rack`` (a rack elevation, chassis at their
-   unit), ``rollup`` (the health of a place and everything in it, level by
+   unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
+   ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
    level) and ``checkout`` (every setpoint beside its readback).
 
    The rule tables are CSV files, each held to its header: ``positions.csv``
@@ -1404,10 +1406,163 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    sources give two states is ``disagree``) must be there;
    ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
    ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv``,
-   ``calibration_curves.csv`` and ``state_labels.csv`` (the word each value of a
+   ``calibration_curves.csv``, ``state_labels.csv`` (the word each value of a
    discrete channel means; a command's button reads the word for the value it
-   writes, else the action its channel's name says) may be absent. A table that
-   breaks its schema
+   writes, else the action its channel's name says), ``units.csv`` (a channel's
+   unit and the divisor its raw value is shown through), ``channel_roles.csv``
+   (what a channel is to a device card, by class and name pattern) and
+   ``card_recipes.csv`` (a class's card recipe, optionally for the devices under a
+   place or whose id matches a pattern; the first row that takes a device wins),
+   ``card_sections.csv`` (a recipe's drawn sections in order) and ``chains.csv``
+   (the hops of a recipe's chains: each walks one relation in one direction from
+   the device or an earlier hop, keeps the things its ``to`` filter takes, and
+   shows its roles in the block; a hop that reaches nothing is a dashed "not
+   stated" block, two answers are stacked as contested) and ``symbols.csv`` (how
+   a card's strip draws a device of a class: a symbol and a lane above, on or
+   below the beam pipe) may be absent. A strip section draws the devices of its
+   classes within its window of the device along the beam, to scale, each with
+   the value of the section's role; a device placed only by a place around it
+   (its raft) is drawn in a dashed bracket round that place's point, and a card
+   whose device is placed by neither says "where it sits is not stated".
+   ``fronts.csv`` (a recipe's connectors: one row per connector or numbered range
+   ``Outlet{n}``, by face, group and order) draws a front section: the connectors
+   at one pitch on a panel body, numbered by a stated count, else the served
+   channels that match the row's ``channel``, else the sockets that exist as things
+   of their own (``<device>:<connector>``), else the ports the relation states, in
+   number order; under each, what is on it (the thing whose ``far_relation`` names
+   that port, ``in``; the device's own relation from it, ``out``; both sides of a
+   socket thing, ``socket``), a dashed "—" where nothing is stated and every thing,
+   dashed and "contested", where a side has two; its state lamp; under the line,
+   in bands each labelled at the left (the role's title and unit, "press" for
+   the buttons; where every connector has as many rows and the labels at each
+   place end alike, one band per place, labelled with the words they share),
+   the section's
+   roles of that connector and its presses (drawn there, not again under
+   operate). A row's optional ``roles`` column (``;``-separated) names the section
+   roles its connectors carry; empty means every section role. A role binds to a
+   connector only through a row that lists it, so two groups numbered alike
+   (outlets 1-8, phases 1-3) never take each other's channels; on a connector
+   with no number the listed roles bind the device's channel of that role whose
+   name carries the connector's name. A ``{n}`` row with ``roles`` and no
+   ``channel`` is numbered by the last number of the device's channels of its
+   first role, with no lamp; a device that serves none gets no such group. A
+   connector with no number whose row lists ``roles`` is left out on a device
+   where neither its lamp nor any listed role binds, and a group all of whose
+   connectors are left out is dropped. ``far_relation`` and ``far_direction``
+   are given together or both left empty; a row with neither is a reading, and
+   a group whose connectors wrap onto a second line names it "<group>
+   (continued)"; a group of readings is a table on a line of its own: no socket, cable or far end, the connectors'
+   names as column heads, the lamps first in a "state" band, then a band per
+   role. Clients the relation names on no stated port
+   are drawn apart by class, unless the row's optional ``apart`` column says
+   ``no``: then only the clients on a stated port are drawn; a range with nothing in it is left out. ``write``
+   prints per recipe the connectors with something stated, contested or nothing,
+   the readings apart, and the devices with every connector that is not a reading
+   stated, some, none, or readings only. A ``ring-strip`` section draws a group
+   (``same place``: the devices of the card's recipe in the device's place; or
+   ``<relation> <direction>``: the devices that relation names) one column each,
+   by ring position, else in number order with "in number order: positions not
+   stated", each with the value or lamp of the first of the section's roles it
+   plays (an empty ring where it plays none), the device in focus and every other
+   opening its card; values are shown as numbers, since no table states a scale
+   for a bar. When the members have places, they run by place, a row each
+   under the place's name, at the finest level of the place tree that gives two
+   to eight places, in ring order (in number order without positions), those
+   with no place last; over the strip, "giving <first role> now: n of m" counts
+   the lamps ok now with one formula over the same lamps' rules, or, when that
+   formula is too long, each place's row counts its own. Inside a place a
+   member shows the last segment of its id (two alike keep what follows the part
+   of their ids they share), its full id on hover. A chain hop, a front
+   connector's far end or a ring-strip member that rests on a relation claim
+   with ``basis: inferred`` says "inferred" beside it, the claim's ``rule`` on
+   hover ("the rule is not stated" when it has none); when every member of a
+   ring-strip is inferred, its caption says it once ("all 12 inferred: <rule>")
+   and no member does; when most are, the caption says "inferred unless marked
+   stated: <rule>" and only the others are marked "stated". A ``ladder`` section draws the section's first role against the
+   others as set points, evenly in their order (not to scale), each with its live
+   value, and the live value as a dot in the gap between the set points it lies
+   between; a set point not served is left out and named, and ``write`` counts
+   the ladders drawn whole. A ``section`` row with a ``focus`` relation
+   (``part_of``) draws a part's card: the thing that relation names, drawn as its
+   class's picture with the part outlined in the focus colour (the picture rows
+   whose ``signal`` matches a channel of the part), and beside it what is stated
+   about the part (its relations, each opening the other thing) and, dashed, what
+   is not (its owner, its place on the drawing, a drawing at all, each hop of the
+   recipe's chains that found nothing). A ``curve`` section draws the points of
+   the claim in force of the calibration kind its ``members`` names (an
+   excitation curve) as dots joined by a line, the least and most of each axis
+   at its corners and the claim's source under it; the operating point is not
+   drawn, since no table states the conversion from set point to current. A
+   device with no such curve says none is stated. The claim in force is the
+   newest accepted one: a contested claim is never in force nor a base value; it
+   is named "contested, not in force" beside the value in force, alone it makes
+   the row and its cell "contested" with no value, and a contested curve is not
+   drawn. The calibration block is the
+   ``calibration-strip``. ``no_cards.csv`` (class, under, devices,
+   owner_relation, owner_direction, owner_to) names devices that get no card:
+   the first row that takes a device wins; the device is drawn on its owner's
+   card (the thing the stated relation names), a link to it opens that card, and
+   ``index.json`` lists it under ``drawn_on`` with the owner's screen. A device
+   whose owner is not stated gets no entry; ``check`` counts both. A device card is drawn:
+   its title line, up to five key tiles (the ``metrics.csv`` rows of view
+   ``card`` whose ``level`` names its recipe, else its roles; a tile's measure is
+   ``value`` or ``word`` of the role's first channel, or over every channel of
+   the role on the device ``count_true`` shown "k of N", ``max`` or ``sum``, a
+   dash and "one of N has no value" while any member has none), its relations as
+   a chain of blocks (the device's own block showing only roles one channel of
+   it plays: a role played per connector or member is not rows there), its
+   drawings (a drawing none of whose parts has a place is a compact row of
+   blocks, each the part's name over its signal's light and value, with
+   "arrangement not stated", not an empty frame; a picture any of whose rows
+   has state ``schematic``, or that is drawn wholly at the default proportions,
+   says "schematic, not to scale" in its caption, while a stated scale keeps its
+   bar; a light is ``disagree`` only at
+   a value its rows give two states, so a value every row calls normal is
+   normal), an operate block (its control roles, else its
+   writable channels: a choice of stated states, an action, or a typed value
+   applied with Apply, never a text record (``drawn_as: text``: Apply writes
+   only a number, so it stays in the channels view), a line beside Apply saying what it will write from the
+   same formula as its press value; more than six entries of one role are a grid
+   of three columns under the role's title, their line naming no channel (each
+   on hover), and an entry of a front's role on a connector is set under the
+   front, named by the connector; press groups side by side, up to three; a choice with one
+   stated value is an action with the live status beside it; "no operator
+   actions stated" when there is none), every channel the card is about in a
+   grid (its own, and of a device its roles reach the channels beside the ones a
+   role names; up to 60; a device with more shows the counts by
+   owner and opens its ``channels`` view), then one muted line for where it is
+   and one for its sources (the count of statements and their documents, each
+   statement on hover). A channel ``channel_roles.csv`` gives the role
+   ``internal`` (a driver's own record) is never offered and never listed on a
+   card, only counted. A relation the chain names is drawn once per thing it
+   reaches after the ``to`` filter (the place for ``located_in``, a device for
+   the rest); only two distinct things after the filter make the hop contested,
+   both named (a claim's own standing does not); a hop after a step that reached
+   several things walks from each and unites what they reach. A button writes
+   only a value a source states (a role's press value or the value of its state
+   word) or one marked inferred (a role's inferred press value, 1 for a command
+   whose states do not name 1), and an inferred value is said so wherever the
+   card names it ("(value inferred, not stated in the database)"); a press with
+   no value is left out. A writable channel of another thing that the card
+   reaches only through a relation claim with ``basis: inferred`` (a walked
+   relation such as ``read_out_by``, or ``part_of``) is never offered as an
+   action, a choice or an entry: it is shown read only where it would have
+   stood, under "join inferred, command not offered" with the claim's rule on
+   hover; the device's own channels are not affected. ``check`` counts the
+   presses stated, inferred, left out, and withheld because their join is
+   inferred. Apply stays off the canvas and out of the page (so the keyboard
+   cannot reach it either), with "type a value first" in its place, until the
+   field holds a number, so no press writes a value nobody typed. A light takes a
+   colour only where its meaning is stated (a state word, or a number's
+   thresholds); else it is the neutral outline, on a tile, in a chain block and in
+   the grid alike. An arrow's word and a block's title are never cut: the arrow
+   takes the run its word needs, a word may take two lines or its last name
+   segment with the whole word on hover, and a title two lines. ``check`` also counts the default-recipe
+   cards with no key tile (no card metric and no role that shows a value). A class with no recipe row is drawn with the default recipe (the
+   sections stated for the recipe ``default``, else a chain of its place, power,
+   network and controller); ``write`` prints how many device cards each recipe
+   drew, per chain, how many were drawn whole and the hop most often missing, and
+   per strip, how many devices are placed, on a raft or not placed. A table that breaks its schema
    prints the file and line and exits 1. A ``pictures.csv`` row with a place id
    in its optional ``under`` column draws only the devices of its class in that
    place, so two machines with devices of one class name each state their own

@@ -222,9 +222,11 @@ def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
 
     (light,) = on_drawing("polygon", "switch 1", "tooltip")
     assert light.get("rules") and bound(doc, light) == ("XR01-QF1:Current-SP",)
-    (number,) = on_drawing("pv-label", "XR01-QF1:Current-RB", "pv")
     (gauge,) = _tipped(doc, "gauge 1")  # a plain dot, its number beside it, outward
     gx, gy = _centre(gauge)
+    number = min(  # the one beside it; the grid below lists it again
+        on_drawing("pv-label", "XR01-QF1:Current-RB", "pv"), key=lambda n: abs(_centre(n)[1] - gy)
+    )
     assert _centre(number)[1] == pytest.approx(gy, abs=1)
     assert number["geometry"]["x"] + number["geometry"]["width"] <= gx
     (plain,) = _tipped(doc, "switch 2")
@@ -242,15 +244,15 @@ def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
     assert not leaders
 
 
-def test_the_picture_stands_in_the_cards_left_column_under_the_signals(tmp_path) -> None:
+def test_the_picture_is_a_drawing_of_its_own_after_the_relations(tmp_path) -> None:
     doc = _card(_graph(tmp_path, _six_poles()))
     heads = {n["props"]["text"]: n["geometry"] for n in _by_type(doc, "text-label")}
-    view, settings = heads["END VIEW"], heads["SIGNALS"]
-    assert view["x"] == settings["x"] == layout.MARGIN
-    assert view["y"] > settings["y"]
+    view, relations = heads["END VIEW"], heads["1 · RELATIONS"]
+    assert view["x"] == relations["x"] == layout.MARGIN
+    assert view["y"] > relations["y"]
     drawn = [n for t in ("yoke", "pole 1", "coil 1", "bore") for n in _tipped(doc, t)]
     assert all(
-        n["geometry"]["x"] + n["geometry"]["width"] <= layout.MARGIN + layout.CARD_LEFT
+        n["geometry"]["x"] + n["geometry"]["width"] <= layout.MARGIN + layout.STRIP_WIDTH
         for n in drawn
     )
     assert "PARTS" not in _texts(doc) and "PICTURE" not in _texts(doc)
@@ -442,7 +444,7 @@ def test_poles_with_an_angle_and_no_size_draw_from_the_bore_and_say_so(
             [_row("yoke", "yoke", "", "", w=420, h=420)],
             "scaled from the yoke; pole, coil at default proportions",
         ),  # fmt: skip
-        ([], "size not stated: default proportions"),
+        ([], "size not stated: default proportions · schematic, not to scale"),
     ],
 )
 def test_the_scale_caption_names_what_the_drawing_is_scaled_from(
@@ -615,6 +617,26 @@ def test_parts_not_placed_with_no_body_stand_in_the_frames_corner(tmp_path) -> N
     assert "1, 2 (2 not placed)" in _texts(doc)
 
 
+def test_a_picture_with_no_part_placed_is_a_row_of_blocks_not_an_empty_frame(tmp_path) -> None:
+    from osprey.facility.panels import layout
+
+    rows = [
+        "Quadrupole,end,thermal switch 1,thermal_switch,,,,X,A,s,l,,,,",
+        "Quadrupole,end,thermal switch 2,thermal_switch,,,,X,A,s,l,,,,",
+    ]
+    doc = _card(_graph(tmp_path, rows))
+    texts = _texts(doc)
+    assert "arrangement not stated" in texts
+    assert "thermal switch 1" in texts and "thermal switch 2" in texts  # named on their blocks
+    assert not any("not placed" in t for t in texts)  # no legend list of them
+    dashed = [n for n in _by_type(doc, "rectangle") if n["props"].get("lineStyle") == "dashed"]
+    assert not [n for n in dashed if n["geometry"]["width"] >= layout.PICTURE_SIZE / 2]
+    blocks = [
+        n for n in _by_type(doc, "rectangle") if n["geometry"]["width"] == layout.ARRANGED_BLOCK
+    ]
+    assert len(blocks) == 2 and blocks[0]["geometry"]["y"] == blocks[1]["geometry"]["y"]
+
+
 def test_check_counts_the_parts_not_placed_per_class_as_information(tmp_path) -> None:
     from osprey.facility.panels.emit import check, unplaced_parts, write
 
@@ -782,3 +804,23 @@ def test_check_notes_a_signal_that_matches_two_part_devices(tmp_path) -> None:
     (found,) = [p for p in check(graph, out) if p.kind == "ambiguous_picture"]
     assert not found.failing
     assert "XR01:QF1-TS1" in found.detail and "XR01:QF1-TS2" in found.detail
+
+
+def test_a_picture_whose_rows_state_schematic_says_not_to_scale(tmp_path) -> None:
+    rows = [
+        "Quadrupole,end,thermal switch 1,thermal_switch,,,,X,A,schematic,l,,,,",
+        "Quadrupole,end,thermal switch 2,thermal_switch,,,,X,A,schematic,l,,,,",
+    ]
+    texts = _texts(_card(_graph(tmp_path, rows)))
+    assert "arrangement not stated · schematic, not to scale" in texts
+
+
+def test_a_picture_wholly_at_default_proportions_says_not_to_scale(tmp_path) -> None:
+    rows = [r for r in _unsized(4, 45) if ",bore," not in r]
+    texts = _texts(_card(_graph(tmp_path, rows)))
+    assert "size not stated: default proportions · schematic, not to scale" in texts
+
+
+def test_a_scaled_picture_of_stated_rows_says_nothing_of_schematic(tmp_path) -> None:
+    texts = _texts(_card(_graph(tmp_path, _six_poles())))
+    assert not [t for t in texts if "not to scale" in t]
