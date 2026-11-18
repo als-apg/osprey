@@ -30,6 +30,8 @@ from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_merge import _resolve_extends, compute_preset_hash
 from osprey.cli.build_profile_presets import _load_preset_raw, list_tiers
+from osprey.cli.build_profile_schema import DispatchConfig
+from osprey.port_layout import is_layout_port_field
 from osprey_connectors.errors import BuildProfileError
 from tests.fixtures.lifecycle_repo import lay_preset_applications
 
@@ -251,24 +253,47 @@ def test_layer_files_carry_their_provenance_block(preset: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Active opt-in blocks are written with the keys they build with
+# Active opt-in blocks are written whole, at the values they build with
 # ---------------------------------------------------------------------------
 
-
-def _block_defaults_of(block: str) -> dict[str, object]:
-    cls, comments = build_profile_emit._BLOCK_DEFAULTS[block]
-    defaults = {f.name: f.default for f in fields(cls)}
-    return {key: defaults[key] for key in comments}
+_OPT_IN_BLOCKS = {"dispatch": DispatchConfig, "va_archiver": VAArchiverConfig}
 
 
 def test_an_active_block_carries_its_code_defaults() -> None:
-    """The demo preset leaves the run budgets and the archive identity unstated;
-    the emitted profile writes each at the value the block builds with."""
+    """Each key with a concrete default that the demo preset leaves unstated is
+    written at that default; a port derived from the port base, an empty or
+    unset default and a required key are written only when the preset states
+    them."""
     emitted = yaml.safe_load(_standalone(HOST_PRESET))
+    raw, anchor = _load_preset_raw(HOST_PRESET)
+    preset = _resolve_extends(raw, anchor, [])
 
-    for block in ("dispatch", "va_archiver"):
-        for key, default in _block_defaults_of(block).items():
-            assert emitted[block][key] == default, f"{block}.{key}"
+    for block, cls in _OPT_IN_BLOCKS.items():
+        for field in fields(cls):
+            if field.name in preset[block]:
+                continue
+            key = f"{block}.{field.name}"
+            if field.default in (MISSING, None, "") or is_layout_port_field(field):
+                assert field.name not in emitted[block], key
+            else:
+                assert emitted[block][field.name] == field.default, key
+
+
+def test_a_written_dispatch_block_states_the_stride_but_not_the_derived_ports() -> None:
+    """The worker port spacing is a rule the block declares, so it is written;
+    the dispatcher and first worker ports are derived from the port base, so
+    they are not."""
+    text = _standalone(HOST_PRESET)
+    dispatch = yaml.safe_load(text)["dispatch"]
+
+    assert dispatch["worker_port_stride"] == DispatchConfig.worker_port_stride
+    line = next(
+        line for line in text.splitlines() if line.strip().startswith("worker_port_stride:")
+    )
+    assert "#" in line
+    assert "dispatcher_port" not in dispatch
+    assert "worker_port_base" not in dispatch
+    assert "bus_port" not in dispatch
 
 
 def test_a_stated_value_is_kept_over_the_default() -> None:
@@ -305,15 +330,16 @@ def test_the_written_defaults_build_what_the_unstated_block_builds() -> None:
     ) == parse_va_archiver_block({"name": "x", "va_archiver": preset["va_archiver"]})
 
 
-def test_every_written_default_is_a_field_of_its_block() -> None:
-    """Each listed key is a defaulted field of its block, and none is derived."""
-    for block, (cls, comments) in build_profile_emit._BLOCK_DEFAULTS.items():
-        by_name = {f.name: f for f in fields(cls)}
-        for key in comments:
-            assert key in by_name, f"{block}.{key}"
-            assert by_name[key].default is not MISSING, f"{block}.{key}"
-            assert "port" not in key, f"{block}.{key}"
-            assert key not in {"host", "freshness_channel"}, f"{block}.{key}"
+@pytest.mark.parametrize("block", sorted(_OPT_IN_BLOCKS))
+def test_every_key_an_active_block_writes_has_a_note(block: str) -> None:
+    """The notes cover exactly the keys the block is written with, none of them derived."""
+    cls, notes = build_profile_emit._BLOCK_KEY_NOTES[block]
+    written = build_profile_emit._written_defaults(cls)
+
+    assert cls is _OPT_IN_BLOCKS[block]
+    assert set(notes) == set(written)
+    assert not {f.name for f in fields(cls) if is_layout_port_field(f)} & set(written)
+    assert not {"host", "freshness_channel"} & set(written)
 
 
 def test_the_archiver_example_states_the_dataclass_defaults() -> None:

@@ -27,7 +27,7 @@ import copy
 import io
 import re
 from collections.abc import Mapping
-from dataclasses import fields
+from dataclasses import MISSING, fields
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +38,7 @@ from ruamel.yaml.tokens import CommentToken
 from osprey import __version__
 from osprey.agent_runner.build_artifacts.catalog import DEFAULT_CLAUDE_MD_TEMPLATE
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
-from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT
+from osprey.port_layout import CA_DEFAULT_PORT, PVA_DEFAULT_PORT, is_layout_port_field
 from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
 from osprey.utils.workspace import LAYER_DIR_KINDS, TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
@@ -53,7 +53,7 @@ from .build_profile_presets import (
     preset_apps,
 )
 from .build_profile_resolve import apply_cli_edits
-from .build_profile_schema import DispatchConfig
+from .build_profile_schema import VALID_DISPATCH_TRANSPORTS, VALID_NETWORK_MODES, DispatchConfig
 from .profile_conventions import BUILD_OUTPUT_DIR, PROFILE_TRIGGERS_FILENAME
 
 # Every BuildProfile field belongs to exactly one of the three sets below. The
@@ -186,37 +186,67 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "claude_md_template": "Bundled template rendered as CLAUDE.md, the agent's instructions.",
 }
 
-# Keys of an opt-in block that the emitter writes whenever the block is active,
-# each at the value the block builds with when the key is unstated (its
-# dataclass default) and with a one-fact end-of-line comment. A stated value is
-# never touched, and an absent block gets nothing. Ports, `host` and
-# `freshness_channel` are derived from elsewhere at build time and are never
-# listed.
-_BLOCK_DEFAULTS: dict[str, tuple[type, dict[str, str]]] = {
+# An active opt-in block is written whole: every key the block builds with that
+# the profile leaves unstated is written at its dataclass default, with the
+# one-fact end-of-line comment below. The keys are the block's fields that
+# carry a concrete, non-empty default. A port the build derives from the port
+# base (its field made by layout_port_field), a key whose default is None
+# (`host`, `freshness_channel`, `tier`: derived or off), an empty default
+# (`env`, `channel_strip_prefix`) and a required key are never written. A stated value is never touched, and an
+# absent block gets nothing.
+_BLOCK_KEY_NOTES: dict[str, tuple[type, dict[str, str]]] = {
     "dispatch": (
         DispatchConfig,
         {
+            "worker_count": "dispatch workers the build deploys",
+            "workspace_mode": "isolated: each run gets its own workspace; shared: one for all",
+            "max_concurrent_runs": "runs a worker executes at once",
+            "max_queue_depth": "queued runs held before new ones are refused",
+            "worker_port_stride": "port gap between workers, host network only",
+            "transport": " | ".join(VALID_DISPATCH_TRANSPORTS),
             "timeout_sec": "wall-clock ceiling on one run",
             "inactivity_sec": "seconds a run may produce nothing before it is cut off",
             "max_turns": "agent turns one run may take",
+            "network": " | ".join(VALID_NETWORK_MODES),
         },
     ),
     "va_archiver": (
         VAArchiverConfig,
         {
+            "retention_days": "how far back the archive reaches",
+            "hot_span_hours": "how much of it is kept at the dense sample rate",
+            "hot_cadence_sec": "seconds between samples inside the hot span",
+            "tail_cadence_sec": "and outside it (a whole multiple of the above)",
+            "recorder_cadence_sec": "how often the recorder samples the machine",
+            "recorder_tail_cadence_sec": "how often a recorded sample is kept for the full span",
+            "recorder_poll_sec": "how often the recorder re-reads config.yml",
             "database": "database holding the history",
             "collection": "collection the samples go to",
+            "compression": " | ".join(COMPRESSORS),
             "username": "user the agent connects as",
             "auth_database": "database that user authenticates against",
             "password_env": "variable naming that user's password",
+            "timeout_sec": "seconds the agent waits to reach the store",
         },
     ),
 }
 
 
+def _written_defaults(cls: type) -> dict[str, Any]:
+    """The keys of an active block written at their default, with that default."""
+    return {
+        f.name: f.default
+        for f in fields(cls)
+        if f.default is not MISSING
+        and f.default is not None
+        and f.default != ""
+        and not is_layout_port_field(f)
+    }
+
+
 def _block_default(block: str, key: str) -> Any:
     """The value ``block.key`` builds with when the profile leaves it unstated."""
-    cls, _ = _BLOCK_DEFAULTS[block]
+    cls, _ = _BLOCK_KEY_NOTES[block]
     return next(f.default for f in fields(cls) if f.name == key)
 
 
@@ -275,8 +305,8 @@ _VA_ARCHIVER_EXAMPLE = "\n".join(
 # The run budgets as commented example lines, for the dispatch template a
 # profile without a `dispatch:` block carries.
 _DISPATCH_LIMIT_EXAMPLE = "\n".join(
-    f"#   {key}: {_block_default('dispatch', key)}  # {comment}"
-    for key, comment in _BLOCK_DEFAULTS["dispatch"][1].items()
+    f"#   {key}: {_block_default('dispatch', key)}  # {_BLOCK_KEY_NOTES['dispatch'][1][key]}"
+    for key in ("timeout_sec", "inactivity_sec", "max_turns")
 )
 
 
@@ -1623,18 +1653,19 @@ def emit_standalone_profile_yaml(
     for layer in extra_layers:
         resolved = _deep_merge(resolved, dict(layer))
 
-    # An active opt-in block is written with the keys it builds with even when
-    # the preset leaves them unstated, so the run budgets and the archive's
-    # identity are visible where a deployer edits them.
+    # An active opt-in block is written whole, so every key it builds with is
+    # visible where a deployer edits it, at the value it builds with.
     block_filled: dict[str, list[str]] = {}
-    for block, (_, comments) in _BLOCK_DEFAULTS.items():
+    for block, (cls, _) in _BLOCK_KEY_NOTES.items():
         value = resolved.get(block)
         if not isinstance(value, Mapping):
             continue
-        missing = [key for key in comments if key not in value]
+        missing = {
+            key: default for key, default in _written_defaults(cls).items() if key not in value
+        }
         if missing:
-            resolved[block] = {**value, **{key: _block_default(block, key) for key in missing}}
-            block_filled[block] = missing
+            resolved[block] = {**value, **missing}
+            block_filled[block] = list(missing)
     resolved["name"] = profile_name
     resolved["project_name"] = project_name
 
@@ -1719,7 +1750,7 @@ def emit_standalone_profile_yaml(
         column = max(len(f"  {key}: {node[key]}") for key in keys) + 2
         for key in keys:
             trailing = _take_trailing(node, key)
-            node.yaml_add_eol_comment(_BLOCK_DEFAULTS[block][1][key], key, column=column)
+            node.yaml_add_eol_comment(_BLOCK_KEY_NOTES[block][1][key], key, column=column)
             if trailing is not None:
                 node.ca.items[key][2].value += "\n"
                 _append_trailing(node, key, trailing)

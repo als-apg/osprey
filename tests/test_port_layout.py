@@ -18,6 +18,7 @@ Two properties are structural rather than numeric and are worth naming:
 """
 
 import warnings
+from dataclasses import dataclass, fields
 
 import pytest
 
@@ -34,6 +35,8 @@ from osprey.port_layout import (
     PortSlot,
     block_range,
     default_port,
+    is_layout_port_field,
+    layout_port_field,
     layout_ports,
     resolve_port_base,
 )
@@ -406,3 +409,18 @@ class TestImportPurity:
             "osprey.port_layout must import nothing but the stdlib however the "
             f"parent package resolves its version. A fresh import pulled in: {offenders}"
         )
+
+
+def test_a_layout_port_field_defaults_to_its_slot_and_says_so() -> None:
+    """A dataclass field made by ``layout_port_field`` defaults to the slot's
+    port at the layout's own base and is told apart from a plain field."""
+
+    @dataclass
+    class _Block:
+        port: int = layout_port_field("worker", 1)
+        stride: int = 1
+
+    port, stride = fields(_Block)
+    assert _Block().port == default_port("worker", 1)
+    assert is_layout_port_field(port)
+    assert not is_layout_port_field(stride)
