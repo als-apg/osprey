@@ -96,6 +96,22 @@ def test_unstated_limits_take_the_dataclass_defaults() -> None:
     assert profile.dispatch.max_turns == DispatchConfig.max_turns
 
 
+@pytest.mark.parametrize(
+    "key", ["worker_count", "workspace_mode", "channel_strip_prefix", "network"]
+)
+def test_an_unstated_key_takes_the_dataclass_default(
+    key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unstated key builds with the `DispatchConfig` value, whatever that value is."""
+    sentinel = {"worker_count": 7, "workspace_mode": "shared", "network": "host"}.get(key, "X:")
+    monkeypatch.setattr(DispatchConfig, key, sentinel)
+
+    profile = _parse_profile({"name": "x", "dispatch": {}})
+
+    assert profile.dispatch is not None
+    assert getattr(profile.dispatch, key) == sentinel
+
+
 def test_max_turns_is_read_from_the_block() -> None:
     """An authored ceiling survives parsing."""
     profile = _parse_profile({"name": "x", "dispatch": {"max_turns": 60}})
