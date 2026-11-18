@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 NO_EXTENT_REASON = "installed osprey-connectors cannot list the archive's channels (upgrade it)"
 
 #: The recorder knob the configuration shows beside the seed's.
-_RECORDER_CADENCE = "recorder_cadence_sec"
+_RECORDER_CADENCE = "recorder_cadence_s"
 
 
 @dataclass(frozen=True)
@@ -126,7 +126,7 @@ def freshness_bound_s(config: Mapping[str, Any]) -> int | None:
     knobs = _knobs(config)
     if knobs is None:
         return None
-    return freshness_max_age_s(VAArchiverConfig(recorder_cadence_sec=knobs[_RECORDER_CADENCE]))
+    return freshness_max_age_s(VAArchiverConfig(recorder_cadence_s=knobs["recorder_cadence_sec"]))
 
 
 def served_targets(config: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -139,7 +139,11 @@ def served_targets(config: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _knobs(config: Mapping[str, Any]) -> dict[str, int] | None:
-    """The store's shape as rendered: the seed's knobs and the recorder's cadence."""
+    """The store's shape as rendered: the seed's knobs and the recorder's cadence.
+
+    Keyed by the names the directory API serves, which predate the rendered
+    keys' ``_h``/``_s`` spelling and stay as served.
+    """
     try:
         seed = SeedKnobs.from_config(config)
     except ValueError:
@@ -148,12 +152,12 @@ def _knobs(config: Mapping[str, Any]) -> dict[str, int] | None:
     rendered = block if isinstance(block, Mapping) else {}
     knobs = {
         "retention_days": seed.retention_days,
-        "hot_span_hours": seed.hot_span_hours,
-        "hot_cadence_sec": seed.hot_cadence_sec,
-        "tail_cadence_sec": seed.tail_cadence_sec,
+        "hot_span_hours": seed.hot_span_h,
+        "hot_cadence_sec": seed.hot_cadence_s,
+        "tail_cadence_sec": seed.tail_cadence_s,
     }
-    cadence = rendered.get(_RECORDER_CADENCE, VAArchiverConfig.recorder_cadence_sec)
+    cadence = rendered.get(_RECORDER_CADENCE, VAArchiverConfig.recorder_cadence_s)
     if isinstance(cadence, bool) or not isinstance(cadence, int) or cadence < 1:
         return None
-    knobs[_RECORDER_CADENCE] = cadence
+    knobs["recorder_cadence_sec"] = cadence
     return knobs

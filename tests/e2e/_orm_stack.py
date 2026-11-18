@@ -204,7 +204,7 @@ DEFAULT_BPM_COUNT = 4
 # drift. Stated as top-level profile keys, so the two span knobs replace the
 # preset's values for those two keys while `host:` and both cadences keep what
 # the preset ships.
-VA_ARCHIVER_CI_KNOBS: dict[str, Any] = {"va_archiver": {"retention_days": 2, "hot_span_hours": 2}}
+VA_ARCHIVER_CI_KNOBS: dict[str, Any] = {"va_archiver": {"retention_days": 2, "hot_span_h": 2}}
 
 
 # The services a substrate lane deploys only because the preset lists them.

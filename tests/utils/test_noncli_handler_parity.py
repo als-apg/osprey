@@ -51,7 +51,7 @@ RECORD_SPECS: tuple[tuple[int, str, str], ...] = (
     (logging.DEBUG, "debug", "Resolving handler chain"),
     (logging.INFO, "info", "Connected to 3 channels"),
     (logging.INFO, "key_info", "Profile: als-apg"),
-    (logging.INFO, "status", "[bold cyan]Deploying[/bold cyan] stack [1/3]"),
+    (logging.INFO, "info", "[bold cyan]Deploying[/bold cyan] stack [1/3]"),
     (logging.WARNING, "warning", "Retrying in 5s"),
     (logging.ERROR, "error", "Write refused for SR:BPM1"),
 )

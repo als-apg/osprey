@@ -57,7 +57,7 @@ SPIKE_OFFSET_S = -1800.0
 SPIKE = {"shape": "spike", "at_offset": SPIKE_OFFSET_S, "amplitude": 5e-9, "width": 60.0}
 
 #: A day of coarse history and an hour of dense: enough grid for a spike.
-KNOBS = SeedKnobs(retention_days=1, hot_span_hours=1, hot_cadence_sec=10, tail_cadence_sec=60)
+KNOBS = SeedKnobs(retention_days=1, hot_span_h=1, hot_cadence_s=10, tail_cadence_s=60)
 
 
 class _Collection:
@@ -263,7 +263,7 @@ def test_the_deploy_seed_writes_the_traces_the_supply_fired_at_the_persisted_anc
     traces = {
         stamp.timestamp(): sample[field_name(WAVE)] for stamp, sample in waveforms.samples().items()
     }
-    assert len(traces) == KNOBS.retention_s // KNOBS.tail_cadence_sec + 1
+    assert len(traces) == KNOBS.retention_s // KNOBS.tail_cadence_s + 1
     before = [moment for moment in traces if moment < off_at]
     after = [moment for moment in traces if moment >= off_at]
     assert before and after
@@ -363,9 +363,9 @@ def store(tmp_path: Path, mongo_store: dict[str, Any]):
         },
         "va_archiver": {
             "retention_days": KNOBS.retention_days,
-            "hot_span_hours": KNOBS.hot_span_hours,
-            "hot_cadence_sec": KNOBS.hot_cadence_sec,
-            "tail_cadence_sec": KNOBS.tail_cadence_sec,
+            "hot_span_h": KNOBS.hot_span_h,
+            "hot_cadence_s": KNOBS.hot_cadence_s,
+            "tail_cadence_s": KNOBS.tail_cadence_s,
         },
     }
     (root / "config.yml").write_text(yaml.safe_dump(config))

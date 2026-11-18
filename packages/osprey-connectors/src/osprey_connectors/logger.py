@@ -1,9 +1,9 @@
 """
 Component Logger Framework
 
-Provides colored logging for Osprey and application components with:
+Provides Rich logging for Osprey and application components with:
 - Unified API for all components (capabilities, infrastructure, pipelines)
-- Rich terminal output on stderr with component-specific colors
+- Rich terminal output on stderr
 - Graceful fallbacks when configuration is unavailable
 - Simple, clear interface
 
@@ -23,14 +23,8 @@ Usage:
     logger = get_logger("data_processor")
     logger.info("Processing data")
     logger.debug("Detailed trace")
-    logger.success("Operation completed")
     logger.warning("Something to note")
     logger.error("Something went wrong")
-    logger.timing("Execution took 2.5 seconds")
-    logger.approval("Waiting for user approval")
-
-    # Custom loggers with explicit parameters
-    logger = get_logger(name="custom_component", color="blue")
 """
 
 import logging
@@ -60,25 +54,14 @@ _ExcInfo: TypeAlias = (
     | None
 )
 
-#: Keywords of the retired event system that callers may still pass; dropped.
-_EVENT_KWARGS = frozenset({"error", "error_type", "recoverable", "stack_trace", "warning"})
-
 
 class ComponentLogger:
     """
-    Rich-formatted logger for Osprey and application components with color coding and message hierarchy.
+    Rich-formatted logger for Osprey and application components.
 
-    Message Types:
-    - status: High-level status updates
-    - key_info: Important operational information
-    - info: Normal operational messages
-    - debug: Detailed tracing information
-    - warning: Warning messages
-    - error: Error messages
-    - success: Success messages
-    - timing: Timing information
-    - approval: Approval messages
-    - resume: Resume messages
+    It has the stdlib logger's methods (``debug``, ``info``, ``warning``,
+    ``error``, ``critical``, ``exception``) with their keywords, plus
+    ``key_info`` for important operational information.
 
     Every emitted record carries the name of the method that produced it as the
     ``osprey_intent`` attribute, so handlers and filters can tell intents apart
@@ -86,26 +69,16 @@ class ComponentLogger:
     metadata only: no level is remapped and no formatter reads it.
     """
 
-    def __init__(
-        self,
-        base_logger: logging.Logger,
-        component_name: str,
-        color: str = "white",
-        state: object = None,
-    ):
+    def __init__(self, base_logger: logging.Logger, component_name: str):
         """
         Initialize component logger.
 
         Args:
             base_logger: Underlying Python logger
             component_name: Name of the component (e.g., 'data_analysis', 'router', 'mongo')
-            color: Rich color name for this component
-            state: Optional state for context (unused, kept for API compat)
         """
         self.base_logger = base_logger
         self.component_name = component_name
-        self.color = color
-        self._state = state
 
     def _log(
         self,
@@ -117,7 +90,6 @@ class ComponentLogger:
         stack_info: bool,
         stacklevel: int,
         extra: Mapping[str, object] | None,
-        other: Mapping[str, object],
     ) -> None:
         """Core logging method that delegates to the stdlib logger.
 
@@ -135,14 +107,7 @@ class ComponentLogger:
             stacklevel: Forwarded to :meth:`logging.Logger.log`.
             extra: Forwarded to :meth:`logging.Logger.log`, merged, not
                 replaced; the caller's dict is left unmutated.
-            other: Every other keyword the caller passed. The retired
-                event-system keywords are dropped; any other is refused, as
-                :meth:`logging.Logger.log` refuses it: only when the level is
-                enabled.
         """
-        unknown = sorted(set(other) - _EVENT_KWARGS)
-        if unknown and self.base_logger.isEnabledFor(level):
-            raise TypeError(f"{intent}() got an unexpected keyword argument {unknown[0]!r}")
         merged = {**(extra or {}), "osprey_intent": intent}
         self.base_logger.log(
             level,
@@ -154,29 +119,6 @@ class ComponentLogger:
             extra=merged,
         )
 
-    def status(
-        self,
-        message: str,
-        *args: object,
-        exc_info: _ExcInfo = None,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-        **other: object,
-    ) -> None:
-        """Status update — high-level progress messages."""
-        self._log(
-            logging.INFO,
-            message,
-            *args,
-            intent="status",
-            exc_info=exc_info,
-            stack_info=stack_info,
-            stacklevel=stacklevel,
-            extra=extra,
-            other=other,
-        )
-
     def key_info(
         self,
         message: str,
@@ -185,7 +127,6 @@ class ComponentLogger:
         stack_info: bool = False,
         stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
-        **other: object,
     ) -> None:
         """Important operational information."""
         self._log(
@@ -197,7 +138,6 @@ class ComponentLogger:
             stack_info=stack_info,
             stacklevel=stacklevel,
             extra=extra,
-            other=other,
         )
 
     def info(
@@ -208,7 +148,6 @@ class ComponentLogger:
         stack_info: bool = False,
         stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
-        **other: object,
     ) -> None:
         """Normal operational messages."""
         self._log(
@@ -220,7 +159,6 @@ class ComponentLogger:
             stack_info=stack_info,
             stacklevel=stacklevel,
             extra=extra,
-            other=other,
         )
 
     def debug(
@@ -231,7 +169,6 @@ class ComponentLogger:
         stack_info: bool = False,
         stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
-        **other: object,
     ) -> None:
         """Debug-level messages."""
         self._log(
@@ -243,7 +180,6 @@ class ComponentLogger:
             stack_info=stack_info,
             stacklevel=stacklevel,
             extra=extra,
-            other=other,
         )
 
     def warning(
@@ -254,7 +190,6 @@ class ComponentLogger:
         stack_info: bool = False,
         stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
-        **other: object,
     ) -> None:
         """Warning messages."""
         self._log(
@@ -266,18 +201,16 @@ class ComponentLogger:
             stack_info=stack_info,
             stacklevel=stacklevel,
             extra=extra,
-            other=other,
         )
 
     def error(
         self,
         message: str,
         *args: object,
-        exc_info: bool = False,
+        exc_info: _ExcInfo = None,
         stack_info: bool = False,
         stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
-        **other: object,
     ) -> None:
         """Error messages."""
         self._log(
@@ -289,99 +222,6 @@ class ComponentLogger:
             stack_info=stack_info,
             stacklevel=stacklevel,
             extra=extra,
-            other=other,
-        )
-
-    def success(
-        self,
-        message: str,
-        *args: object,
-        exc_info: _ExcInfo = None,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-        **other: object,
-    ) -> None:
-        """Success messages."""
-        self._log(
-            logging.INFO,
-            message,
-            *args,
-            intent="success",
-            exc_info=exc_info,
-            stack_info=stack_info,
-            stacklevel=stacklevel,
-            extra=extra,
-            other=other,
-        )
-
-    def timing(
-        self,
-        message: str,
-        *args: object,
-        exc_info: _ExcInfo = None,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-        **other: object,
-    ) -> None:
-        """Timing information."""
-        self._log(
-            logging.INFO,
-            message,
-            *args,
-            intent="timing",
-            exc_info=exc_info,
-            stack_info=stack_info,
-            stacklevel=stacklevel,
-            extra=extra,
-            other=other,
-        )
-
-    def approval(
-        self,
-        message: str,
-        *args: object,
-        exc_info: _ExcInfo = None,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-        **other: object,
-    ) -> None:
-        """Approval messages."""
-        self._log(
-            logging.INFO,
-            message,
-            *args,
-            intent="approval",
-            exc_info=exc_info,
-            stack_info=stack_info,
-            stacklevel=stacklevel,
-            extra=extra,
-            other=other,
-        )
-
-    def resume(
-        self,
-        message: str,
-        *args: object,
-        exc_info: _ExcInfo = None,
-        stack_info: bool = False,
-        stacklevel: int = 1,
-        extra: Mapping[str, object] | None = None,
-        **other: object,
-    ) -> None:
-        """Resume messages."""
-        self._log(
-            logging.INFO,
-            message,
-            *args,
-            intent="resume",
-            exc_info=exc_info,
-            stack_info=stack_info,
-            stacklevel=stacklevel,
-            extra=extra,
-            other=other,
         )
 
     def critical(
@@ -392,7 +232,6 @@ class ComponentLogger:
         stack_info: bool = False,
         stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
-        **other: object,
     ) -> None:
         """Critical error messages."""
         self._log(
@@ -404,7 +243,6 @@ class ComponentLogger:
             stack_info=stack_info,
             stacklevel=stacklevel,
             extra=extra,
-            other=other,
         )
 
     def exception(
@@ -414,7 +252,6 @@ class ComponentLogger:
         stack_info: bool = False,
         stacklevel: int = 1,
         extra: Mapping[str, object] | None = None,
-        **other: object,
     ) -> None:
         """Exception with traceback."""
         self._log(
@@ -426,7 +263,6 @@ class ComponentLogger:
             stack_info=stack_info,
             stacklevel=stacklevel,
             extra=extra,
-            other=other,
         )
 
     # Delegate stdlib Logger interface so callers can treat ComponentLogger as a Logger.
@@ -646,14 +482,7 @@ def configure_logging(level: int = logging.INFO) -> None:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
-def get_logger(
-    component_name: str | None = None,
-    level: int = logging.INFO,
-    *,
-    state: object = None,
-    name: str | None = None,
-    color: str | None = None,
-) -> ComponentLogger:
+def get_logger(name: str, /) -> ComponentLogger:
     """
     Get a unified logger for CLI logging.
 
@@ -662,16 +491,9 @@ def get_logger(
     once at startup. A module that only imports Osprey therefore leaves the
     host application's logging exactly as it found it.
 
-    Name the logger by its component (the recommended form), or give ``name``
-    and ``color`` directly for a custom or module-level logger.
-
     Args:
-        component_name: Component name (e.g., 'orchestrator', 'data_analysis')
-        level: Accepted for backwards compatibility and ignored — set levels
-            through :func:`configure_logging` or on the returned logger.
-        state: Optional state for context
-        name: Direct logger name (keyword-only)
-        color: Direct color specification (keyword-only)
+        name: Logger name: a component (e.g., 'orchestrator', 'data_analysis')
+            or a dotted module-level name (e.g., 'registry.loader').
 
     Returns:
         ComponentLogger instance
@@ -679,35 +501,12 @@ def get_logger(
     Examples:
         .. code-block:: python
 
-            # Module-level
             logger = get_logger("orchestrator")
             logger.info("Planning started")
-
-            # Custom logger
-            logger = get_logger(name="test_logger", color="blue")
     """
-    del level  # configures nothing here; see configure_logging()
-
-    if name is not None:
-        base_logger = logging.getLogger(name)
-        actual_color = color or "white"
-        return ComponentLogger(base_logger, name, actual_color, state=state)
-
-    # Validate that component_name is provided
-    if component_name is None:
-        raise ValueError(
-            "Component name is required. Usage: get_logger('component_name') or "
-            "get_logger(name='custom_name', color='blue')"
-        )
-
-    base_logger = logging.getLogger(component_name)
-
-    # No config lookup here, deliberately. Resolving
-    # ``logging.logging_colors.<component>`` would buy nothing —
-    # ComponentLogger.color is write-only and _log() delegates
-    # straight to the stdlib logger — while dragging
-    # the whole config machinery — and its ``.env`` load — into all ~70
+    # No config lookup here, deliberately. A per-component setting would
+    # drag the whole config machinery — and its ``.env`` load — into all ~70
     # module-level ``logger = get_logger(...)`` sites, making a bare
     # ``import osprey.<anything>`` rewrite os.environ. See the module
     # docstring in osprey_connectors.config on where .env loading belongs.
-    return ComponentLogger(base_logger, component_name, "white", state=state)
+    return ComponentLogger(logging.getLogger(name), name)
