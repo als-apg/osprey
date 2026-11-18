@@ -1300,6 +1300,8 @@ def _operate(
                     )
                     for c in items
                 ]
+            if kind == "choice":
+                items = _distinct(items)
             if items:
                 groups.append(
                     ControlGroup(
@@ -1319,6 +1321,7 @@ def _operate(
             if (number := _as_number(v)) is not None
         ]
         if enumerated and len(stated) > 1:  # a choice of its stated states
+            stated = _distinct(stated)
             title = action_word(channel.name)
             groups.append(
                 ControlGroup("choice", title, tuple(stated), _writes("choice", stated, thing.id))
@@ -1448,6 +1451,15 @@ def press_words(control: Control) -> str:
     """``<value>``, with :data:`INFERRED_NOTE` after an inferred one."""
     value = _press_text(control.press_value)
     return f"{value} {INFERRED_NOTE}" if control.inferred else value
+
+
+def _distinct(controls: list[Control]) -> list[Control]:
+    """Segments that share one word say nothing apart: each gets its value beside it."""
+    if len({c.label for c in controls}) == len(controls):
+        return controls
+    return [
+        dataclasses.replace(c, label=f"{c.label} = {_press_text(c.press_value)}") for c in controls
+    ]
 
 
 def _writes(kind: str, controls: list[Control], device: str) -> str:

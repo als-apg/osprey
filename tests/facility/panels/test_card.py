@@ -1280,3 +1280,13 @@ def test_tables_without_no_cards_give_every_device_its_card(panel_graph):
     from osprey.facility.panels.describe import no_card_counts
 
     assert no_card_counts(panel_graph) == (0, 0)
+
+
+def test_choice_segments_that_share_a_word_carry_their_value() -> None:
+    from osprey.facility.panels.describe import _distinct
+    from osprey.facility.panels.view import Control
+
+    both = [Control("Reboot", "X:REBOOT", 0.0), Control("Reboot", "X:REBOOT", 1.0)]
+    assert [c.label for c in _distinct(both)] == ["Reboot = 0", "Reboot = 1"]
+    apart = [Control("Off", "X:C", 0.0), Control("On", "X:C", 1.0)]
+    assert _distinct(apart) == apart
