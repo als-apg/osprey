@@ -449,10 +449,20 @@ EXCERPT_OF = {"GTB/gtblattice.m": "gtblattice_excerpt.m"}
 
 
 def _facility_demo(name: str) -> ModuleType:
-    """A ``scripts/facility_demo`` module, imported by the bare name the generator uses."""
-    if str(SOURCES) not in sys.path:
+    """A ``scripts/facility_demo`` module, imported by the bare name the generator uses.
+
+    The modules import their siblings by bare name at import time, so the
+    ``sys.path`` entry is held only while the import runs and never leaks into
+    later tests on the worker.
+    """
+    added = str(SOURCES) not in sys.path
+    if added:
         sys.path.insert(0, str(SOURCES))
-    return importlib.import_module(name)
+    try:
+        return importlib.import_module(name)
+    finally:
+        if added:
+            sys.path.remove(str(SOURCES))
 
 
 def _table_addresses() -> set[str]:
