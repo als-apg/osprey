@@ -2069,13 +2069,11 @@ keys:
   system.timezone:
     all-templates: true
     same-value: true
-    evidence: '"facility_timezone": self\.get\("system\.timezone", "UTC"\)'
+    evidence: '_walk\(tree, "system\.timezone"\)'
     note: >-
-      Anchored on the read that SUPPLIES the value (the loader's configurable
-      payload, which is where `facility_timezone` comes from), not on the
-      container-TZ drift warning that also names the key. The warning reads it
-      with a `None` default to detect "unstated", so citing that site would have
-      documented a fallback of None beside a column that says UTC.
+      Anchored on the read that SUPPLIES the value (the load's facility zone,
+      `LoadedConfig.system_zone`, which is UTC when the key is unstated), not
+      on the container-TZ drift warning that also names the key.
     default: UTC
   agent_data:
     evidence: '\(config or \{\}\)\.get\("agent_data"\) or \{\}'

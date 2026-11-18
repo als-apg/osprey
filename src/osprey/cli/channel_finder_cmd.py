@@ -51,7 +51,9 @@ def _setup_config(project: str | None):
             "Run 'osprey init my-project --preset hello-world' to create one, then "
             "'osprey build' from inside it, or name a project with --project."
         )
-    os.environ["CONFIG_FILE"] = str(config_path)
+    # Both names: the connectors package locates its config by OSPREY_CONFIG
+    # alone, and framework readers here still read CONFIG_FILE.
+    os.environ["OSPREY_CONFIG"] = os.environ["CONFIG_FILE"] = str(config_path)
 
 
 def _initialize_registry():

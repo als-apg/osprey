@@ -506,9 +506,10 @@ class ConnectorHostPool:
         control_system: The ``control_system`` config section, as loaded.
             Copied; ``${VAR}`` placeholders in it are resolved at each spawn.
         config_file: The project config the children read their write posture
-            and limits from. Without one, a child finds whatever
-            ``CONFIG_FILE`` (or ``./config.yml``) this process's environment
-            leads it to, and with none its writes stay off.
+            and limits from. Without one, a child reads the file
+            :func:`~osprey_connectors.config.locate_config` finds in its
+            environment (``OSPREY_CONFIG``, else the working directory's), and
+            with none its writes stay off.
         python: The interpreter children run under.
         start_timeout_s: Bound on a child starting and answering its init frame.
         call_timeout_s: Local timeout for a call that names no ``timeout_s``;
@@ -1119,7 +1120,7 @@ class ConnectorHostPool:
             )
         if verification.field == "writes_enabled":
             child_writes = verification.got is True
-            source = self._config_file or "none given, so CONFIG_FILE or ./config.yml"
+            source = self._config_file or "none given, so OSPREY_CONFIG or the working directory's"
             raise failure(
                 "verify",
                 f"reports writes {'armed' if child_writes else 'off'} where the section "

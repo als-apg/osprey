@@ -17,7 +17,7 @@ from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 from osprey_connectors.archiver import PROCESSING_MODES, ProcessingMode
 from osprey_connectors.archiver_selection import resolve_archiver_type
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.control_context import published_machine_kind
 from osprey_connectors.deployment.archive_targets import archive_targets, archive_withheld
 from osprey_connectors.refusals import KIND_WORDS
@@ -109,7 +109,7 @@ def _parse_time(time_str: str) -> datetime:
     Raises:
         ValueError: If *time_str* is not one of the accepted spellings.
     """
-    tz = get_facility_timezone()
+    tz = facility_timezone()
     if not time_str or time_str.strip().lower() == "now":
         return datetime.now(tz)
 

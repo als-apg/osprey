@@ -34,7 +34,7 @@ from osprey.simulation.sessions import (
     parse_sessions,
     resolve,
 )
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation.series import _instant
 from tests._archiver_events import event as view_event
 
@@ -109,11 +109,11 @@ def _event_instant() -> float:
             "width": 1.0,
         }
     )
-    return _instant(event.placement, anchor_s=ANCHOR.timestamp(), tz=get_facility_timezone())
+    return _instant(event.placement, anchor_s=ANCHOR.timestamp(), tz=facility_timezone())
 
 
 def _axis_seconds(axis: list[str]) -> list[float]:
-    tz = get_facility_timezone()
+    tz = facility_timezone()
     return [datetime.fromisoformat(stamp).replace(tzinfo=tz).timestamp() for stamp in axis]
 
 
@@ -159,7 +159,7 @@ def test_the_plot_shows_the_current_drop_and_the_pressure_spike_at_1432_yesterda
     }
     assert set(traces) == {DCCT, SR07}
     event = _event_instant()
-    assert datetime.fromtimestamp(event, get_facility_timezone()).strftime("%H:%M:%S") == "14:32:08"
+    assert datetime.fromtimestamp(event, facility_timezone()).strftime("%H:%M:%S") == "14:32:08"
 
     for name in (DCCT, SR07):
         seconds = _axis_seconds(traces[name]["x"])
@@ -273,7 +273,7 @@ def test_the_plot_samples_are_the_archive_samples(project: Path, payloads) -> No
     archive = build(
         SimulatorView.of_project(project),
         ActiveState(names=NAMES, anchor_at=ANCHOR),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
     archived = archive.samples([DCCT, SR07], seconds)
 

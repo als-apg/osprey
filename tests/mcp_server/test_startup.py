@@ -59,7 +59,7 @@ def test_startup_timer_emits_on_exception(capsys, monkeypatch):
 
 def test_prime_config_builder_noop_without_env(monkeypatch):
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-    with patch("osprey_connectors.config.get_config_builder") as gcb:
+    with patch("osprey_connectors.config.load_config") as gcb:
         startup.prime_config_builder()
     gcb.assert_not_called()
 
@@ -67,13 +67,13 @@ def test_prime_config_builder_noop_without_env(monkeypatch):
 def test_prime_config_builder_primes_and_loads_extension_types(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/does-not-matter/config.yml")
     with (
-        patch("osprey_connectors.config.get_config_builder") as gcb,
+        patch("osprey_connectors.config.load_config") as gcb,
+        patch("osprey_connectors.config.install_config") as install,
         patch("osprey.stores.type_registry.load_extension_types", return_value={}) as load_ext,
     ):
         startup.prime_config_builder()
-    gcb.assert_called_once()
-    assert gcb.call_args.kwargs["config_path"] == "/tmp/does-not-matter/config.yml"
-    assert gcb.call_args.kwargs["set_as_default"] is True
+    gcb.assert_called_once_with("/tmp/does-not-matter/config.yml")
+    install.assert_called_once_with(gcb.return_value)
     load_ext.assert_called_once()
 
 
@@ -81,11 +81,12 @@ def test_prime_config_builder_expands_vars(monkeypatch):
     monkeypatch.setenv("MYROOT", "/opt/osprey")
     monkeypatch.setenv("OSPREY_CONFIG", "$MYROOT/config.yml")
     with (
-        patch("osprey_connectors.config.get_config_builder") as gcb,
+        patch("osprey_connectors.config.load_config") as gcb,
+        patch("osprey_connectors.config.install_config"),
         patch("osprey.stores.type_registry.load_extension_types", return_value={}),
     ):
         startup.prime_config_builder()
-    assert gcb.call_args.kwargs["config_path"] == "/opt/osprey/config.yml"
+    assert gcb.call_args.args[0] == "/opt/osprey/config.yml"
 
 
 def test_prime_config_builder_swallows_priming_failure(monkeypatch):
@@ -95,7 +96,7 @@ def test_prime_config_builder_swallows_priming_failure(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/config.yml")
     with (
         patch(
-            "osprey_connectors.config.get_config_builder",
+            "osprey_connectors.config.load_config",
             side_effect=RuntimeError("bad config"),
         ),
         patch.object(startup, "logger") as mock_logger,
@@ -109,7 +110,8 @@ def test_prime_config_builder_survives_extension_type_load_failure(monkeypatch):
     """Extension type loading is best-effort; its failure doesn't abort priming."""
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/config.yml")
     with (
-        patch("osprey_connectors.config.get_config_builder"),
+        patch("osprey_connectors.config.load_config"),
+        patch("osprey_connectors.config.install_config"),
         patch(
             "osprey.stores.type_registry.load_extension_types",
             side_effect=RuntimeError("registry down"),

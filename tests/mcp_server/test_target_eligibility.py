@@ -905,7 +905,7 @@ def test_unset_va_ports_follow_the_deployed_va_service_port(monkeypatch) -> None
 def test_eligibility_fills_an_unset_va_port_from_the_config_file_it_is_given(
     tmp_path, monkeypatch
 ) -> None:
-    """The file the child reads, not whatever ``CONFIG_FILE`` this process has."""
+    """The file the child reads, not whatever ``OSPREY_CONFIG`` this process has."""
     import yaml
 
     def project(name: str, port: int):
@@ -914,7 +914,7 @@ def test_eligibility_fills_an_unset_va_port_from_the_config_file_it_is_given(
         return str(path)
 
     file_a = project("a.yml", 5071)
-    monkeypatch.setenv("CONFIG_FILE", project("b.yml", 5072))
+    monkeypatch.setenv("OSPREY_CONFIG", project("b.yml", 5072))
     # The live gateway sits on the port file B would fill in, so the verdict
     # turns on which file the derivation read.
     live = _epics_block(

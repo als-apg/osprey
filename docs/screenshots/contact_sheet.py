@@ -1062,7 +1062,7 @@ def hermetic_hub(
                 ("osprey.interfaces.web_terminal.routes.chat.HAS_SDK", True),
                 ("osprey.agent_runner.session.ClaudeSDKClient", chat.client),
                 (f"{seam}.validate_project_directory", lambda _cwd: []),
-                (f"{seam}.get_facility_timezone", lambda: None),
+                (f"{seam}.facility_timezone", lambda: None),
             ):
                 stack.enter_context(mock.patch(target, value))
             stack.enter_context(

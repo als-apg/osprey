@@ -137,16 +137,16 @@ NOT_CONNECTED = "the in-process simulator is not connected"
 
 def _loaded_config_path() -> str | None:
     """The config this process's unqualified lookups read, loading it when none is."""
-    from osprey_connectors.config import default_config_path, get_config_builder
+    from osprey_connectors.config import active_config, current_config
+    from osprey_connectors.errors import ConfigLoadError, ConfigurationError
 
-    path = default_config_path()
-    if path is not None:
-        return path
+    loaded = active_config()
+    if loaded is not None:
+        return str(loaded.path)
     try:
-        get_config_builder()
-    except (FileNotFoundError, IsADirectoryError, KeyError, RuntimeError, ValueError):
+        return str(current_config().path)
+    except (ConfigLoadError, ConfigurationError):
         return None
-    return default_config_path()
 
 
 def simulator_view_dir(setting: str | Path | None = None) -> SimulatorView:
@@ -181,13 +181,13 @@ def simulator_view_dir(setting: str | Path | None = None) -> SimulatorView:
 
 def _rendered_config(view: Path) -> tuple[Path, Mapping[str, object]]:
     """The rendered config beside a view, and its contents; empty when there is none."""
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
     path = view.parent.parent / _RENDERED_CONFIG
     if not path.is_file():
         return path, {}
     try:
-        return path, load_project_config(path)
+        return path, load_config(path).raw_tree()
     except Exception as exc:
         logger.warning(f"cannot read {path} beside the simulator view: {exc}")
         return path, {}

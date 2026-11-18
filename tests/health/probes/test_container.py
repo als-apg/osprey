@@ -50,6 +50,9 @@ from osprey.health.probes import ProbeContext, get_probe
 from osprey.health.probes import container as container_mod
 from osprey.health.probes.container import run
 from osprey.health.runtime import HealthRuntime
+from osprey_connectors.config import LoadedConfig
+from osprey_connectors.errors import ConfigNotFoundError
+from osprey_connectors.testing import config_of
 
 
 @pytest.fixture(autouse=True)
@@ -371,7 +374,9 @@ async def test_several_running_one_unhealthy_is_warning(monkeypatch: pytest.Monk
 async def test_the_global_config_is_read_when_the_context_has_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(container_mod, "get_full_configuration", lambda: {"project_name": "proj"})
+    monkeypatch.setattr(
+        container_mod, "current_config", lambda: config_of({"project_name": "proj"})
+    )
     _serve(
         monkeypatch,
         _row("other-graphdb", **{PROJECT_LABEL: "other"}),
@@ -383,10 +388,14 @@ async def test_the_global_config_is_read_when_the_context_has_none(
 
 
 async def test_no_config_anywhere_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _missing() -> dict:
-        raise FileNotFoundError("No config.yml found in current directory")
+    def _missing() -> LoadedConfig:
+        raise ConfigNotFoundError(
+            "No config.yml found in current directory",
+            path=Path("config.yml"),
+            searched=(Path("config.yml"),),
+        )
 
-    monkeypatch.setattr(container_mod, "get_full_configuration", _missing)
+    monkeypatch.setattr(container_mod, "current_config", _missing)
     _serve(monkeypatch, _row("graphdb"))
     result = await run({"container": "graphdb"}, ProbeContext(runtime=HealthRuntime({})))
     assert result.status is Status.SKIP

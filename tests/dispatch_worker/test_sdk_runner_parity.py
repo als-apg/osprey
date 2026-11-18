@@ -45,6 +45,8 @@ _ENV_KEYS = [
     "CONFIG_FILE",
     "MCP_TIMEOUT",
     "OSPREY_AGENT_DATA_ROOT",
+    # The render, by the one name the connectors locate it with, beside CONFIG_FILE.
+    "OSPREY_CONFIG",
     "OSPREY_CONTROL_OWNER",
     "OSPREY_DISPATCH_RUN",
     "OSPREY_DISPATCH_RUN_ID",

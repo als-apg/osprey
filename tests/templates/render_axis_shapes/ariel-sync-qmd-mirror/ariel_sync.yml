@@ -86,8 +86,10 @@ services:
       # Under the project directory, in build/ — the same four-zone shape the
       # repo has, because this container runs the PROJECT image and anything it
       # renders against a project root expects that layout (the dispatch worker
-      # carries the same note).
+      # carries the same note). The connectors package reads OSPREY_CONFIG
+      # alone, so it names the same file.
       CONFIG_FILE: /app/golden-project/build/config.yml
+      OSPREY_CONFIG: /app/golden-project/build/config.yml
       OSPREY_PROJECT_DIR: /app/golden-project
       TZ: UTC
       # The mirror mount's target, named to the image entrypoint: its root phase

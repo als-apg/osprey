@@ -233,6 +233,6 @@ def to_facility_iso(value: Any) -> str | None:
         # values into the facility zone for display.
         # Read through the module, so the zone is the one the connector
         # package's config resolver answers at call time.
-        zone = connector_config.get_facility_timezone()
-        return str(connector_config.localize_facility(value).astimezone(zone).isoformat())
+        zone = connector_config.facility_timezone()
+        return str(connector_config.localize_facility(value, zone).astimezone(zone).isoformat())
     return str(value)

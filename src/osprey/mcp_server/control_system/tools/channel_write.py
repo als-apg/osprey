@@ -137,7 +137,7 @@ from osprey.mcp_server.errors import NothingAnsweredError, make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import control_context
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.control_system import ControlSystem
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
@@ -357,7 +357,7 @@ async def _note_old_values(connector: ControlSystem, channels: list[str]) -> Non
             # Connectors stamp readings in UTC; the noted stamp stays facility-local.
             old_values[channel] = {
                 "value": _project_observed_value(value.value),
-                "timestamp": value.sampled_at.astimezone(get_facility_timezone()).isoformat(),
+                "timestamp": value.sampled_at.astimezone(facility_timezone()).isoformat(),
             }
     except Exception as exc:
         old_values = {channel: {"error": type(exc).__name__} for channel in channels}

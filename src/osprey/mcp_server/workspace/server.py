@@ -27,7 +27,7 @@ def create_server() -> FastMCP:
     )
     from osprey_connectors.workspace import resolve_agent_data_root
 
-    # Prime the main ConfigBuilder and registry so downstream services
+    # Install the process config and prime the registry so downstream services
     # (LimitsValidator, pattern_detection) find their config when tools
     # like create_static_plot call execute_code().
     prime_config_builder()

@@ -34,7 +34,7 @@ from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
 )
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -1055,9 +1055,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         config_path = resolve_config_path()
         if config_path.exists():
-            from osprey_connectors.config import get_config_builder
+            from osprey_connectors.config import install_config, load_config
 
-            get_config_builder(config_path=str(config_path), set_as_default=True)
+            install_config(load_config(config_path))
             from osprey.stores.type_registry import load_extension_types
 
             load_extension_types()
@@ -1079,7 +1079,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     # Resolved once, after config priming like the theme pin, because the
     # priming above is what points the resolver at this deployment's config.
-    facility_timezone = get_facility_timezone().key
+    zone_name = facility_timezone().key
 
     # Resolved once, after config priming like the theme pin, because the
     # listing route's own ``limit`` default is built from it when the route is
@@ -1230,7 +1230,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             "index.html",
             {
                 "web_theme_pin": web_theme_pin,
-                "facility_timezone": facility_timezone,
+                "facility_timezone": zone_name,
                 "artifact_dir": artifact_dir_for_agent,
             },
         )

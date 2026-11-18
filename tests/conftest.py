@@ -1279,7 +1279,7 @@ def test_config(tmp_path):
                 # Config file exists at test_config
                 assert test_config.exists()
                 # Set environment to use it
-                monkeypatch.setenv("CONFIG_FILE", str(test_config))
+                monkeypatch.setenv("OSPREY_CONFIG", str(test_config))
 
         With custom modifications::
 

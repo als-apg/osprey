@@ -37,6 +37,7 @@ from pydantic import ValidationError
 
 from osprey.services.bluesky_bridge import plan_loader, preflight, qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import ConnectorReadable, ConnectorSettable
+from osprey_connectors.testing import config_of
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -523,7 +524,8 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     )
     render = served_tree(tmp_path / "served", ["SR:MAG:HCM:01:CUR:SP"]).parent.parent
     monkeypatch.setattr(
-        "osprey_connectors.config.default_config_path", lambda: str(render / "config.yml")
+        "osprey_connectors.config.active_config",
+        lambda: config_of({}, path=render / "config.yml"),
     )
     # The write posture is refused outright in a readonly run, which would make
     # both lanes agree for a reason that has nothing to do with the stamp.

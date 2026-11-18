@@ -20,7 +20,7 @@ import pytest
 
 from osprey.deployment import container_lifecycle
 from osprey_connectors.archiver._field_names import field_name
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.simulation import archive as archive_module
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import pulse
@@ -120,7 +120,7 @@ def test_a_seeded_monitor_sample_is_the_reading_the_simulator_serves(
     recorded one at the same instant are the same number and a trend across
     the seam between them shows no step.
     """
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     _activate(demo_render, {}, [], T0)
     view = demo_render / "build" / "data" / "simulator"
     state = resolve_simulation_state_dir({}, demo_render)
@@ -141,7 +141,7 @@ def test_a_seeded_monitor_sample_is_the_reading_the_simulator_serves(
 def test_a_seeded_monitor_sample_under_a_readout_fault_is_the_served_reading(
     demo_render: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     _activate(demo_render, {}, ["bpm-polarity"], T0)
     view = demo_render / "build" / "data" / "simulator"
     state = resolve_simulation_state_dir({}, demo_render)
@@ -161,7 +161,7 @@ def test_a_seeded_monitor_sample_under_a_readout_fault_is_the_served_reading(
 def test_a_stand_in_deployment_seeds_the_history_a_sandbox_seeds(
     demo_render: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     standin = {
         "services": {"live_standin": {"port": 5064}},
         "deployed_services": ["archiver_recorder"],
@@ -282,9 +282,9 @@ def test_the_archive_composite_places_the_event_from_the_anchor_it_is_given(
     )
     at = [T0.timestamp() + SPIKE_OFFSET_S]
 
-    assert build(
-        view, ActiveState(names=["burst"], anchor_at=T0), tz=get_facility_timezone()
-    ).series(PRESSURE, at) == [pytest.approx(6e-9)]
+    assert build(view, ActiveState(names=["burst"], anchor_at=T0), tz=facility_timezone()).series(
+        PRESSURE, at
+    ) == [pytest.approx(6e-9)]
 
 
 # -- the rewrite, against a real store -------------------------------------------
@@ -381,7 +381,7 @@ def store(tmp_path: Path, mongo_store: dict[str, Any]):
     collection.drop()
     seed_base(
         collection,
-        build(root / "data" / "simulator", ActiveState(), tz=get_facility_timezone()),
+        build(root / "data" / "simulator", ActiveState(), tz=facility_timezone()),
         KNOBS,
         anchor_at=ANCHOR,
         chunk_size=256,
@@ -412,7 +412,7 @@ def _reseed(root: Path, collection) -> None:
     collection.drop()
     seed_base(
         collection,
-        build(root / "data" / "simulator", ActiveState(), tz=get_facility_timezone()),
+        build(root / "data" / "simulator", ActiveState(), tz=facility_timezone()),
         KNOBS,
         anchor_at=ANCHOR,
         chunk_size=256,
@@ -482,7 +482,7 @@ def test_applying_one_set_then_another_leaves_none_of_the_first_s_events(store) 
     archive = build(
         root / "data" / "simulator",
         ActiveState(names=["warm"], anchor_at=ANCHOR),
-        tz=get_facility_timezone(),
+        tz=facility_timezone(),
     )
     moments = sorted(stored)
     expected = archive.samples(

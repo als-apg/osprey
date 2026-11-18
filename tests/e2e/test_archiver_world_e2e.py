@@ -363,9 +363,9 @@ class DeployedArchiverWorld:
 
 def _load_config(repo: Path) -> dict[str, Any]:
     """The as-built config the deploy runs on — the render, never the source."""
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
-    return load_project_config(str(repo / "build" / "config.yml"), wrap_errors=True)
+    return load_config(str(repo / "build" / "config.yml")).raw_tree()
 
 
 @pytest.fixture(scope="module")
@@ -716,8 +716,8 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     # it, and the autouse fixture in conftest clears the singletons again after.
     arm_switch(monkeypatch, tmp_path / "armed-data", TARGET_VA, stamp=False)
     monkeypatch.setenv("CONFIG_FILE", str(archiver_world.repo / "build" / "config.yml"))
-    monkeypatch.setattr(config_module, "_default_config", None)
-    monkeypatch.setattr(config_module, "_default_configurable", None)
+    monkeypatch.setattr(config_module, "_installed", None)
+    monkeypatch.setattr(config_module, "_last_lazy", None)
 
     limits = json.loads(
         (archiver_world.repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")

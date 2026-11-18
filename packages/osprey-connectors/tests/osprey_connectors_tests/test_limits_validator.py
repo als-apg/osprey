@@ -25,6 +25,7 @@ from osprey_connectors.control_system._limits_validator import (
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
 from osprey_connectors.limits_posture import LimitsPosture
+from osprey_connectors.testing import config_of
 
 
 def _make_validator(tmp_path, db: dict, policy: dict | None = None) -> LimitsValidator:
@@ -136,34 +137,43 @@ def test_violation_always_raises_regardless_of_policy(tmp_path, on_violation_val
 
 class TestResolveDatabasePath:
     def test_absolute_path_is_returned_unchanged(self, monkeypatch):
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         abs_path = str(Path("/etc/osprey/limits.json"))
 
         assert LimitsValidator.resolve_database_path(abs_path, "/some/root") == abs_path
 
     def test_config_file_directory_wins(self, monkeypatch):
-        """A relative path resolves against CONFIG_FILE's directory when set."""
-        monkeypatch.setenv("CONFIG_FILE", "/app/project/config.yml")
+        """A relative path resolves against OSPREY_CONFIG's directory when set."""
+        monkeypatch.setenv("OSPREY_CONFIG", "/app/project/config.yml")
 
         resolved = LimitsValidator.resolve_database_path("limits.json", "/host/build/path")
 
         assert resolved == str(Path("/app/project/limits.json"))
 
+    def test_config_file_names_no_anchor(self, monkeypatch):
+        """``CONFIG_FILE`` is not a name the package reads: only ``OSPREY_CONFIG`` anchors."""
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        monkeypatch.setenv("CONFIG_FILE", "/app/project/config.yml")
+
+        resolved = LimitsValidator.resolve_database_path("limits.json", "/proj/root")
+
+        assert resolved == str(Path("/proj/root/limits.json"))
+
     def test_project_root_fallback_when_no_config_file(self, monkeypatch):
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
         resolved = LimitsValidator.resolve_database_path("limits.json", "/proj/root")
 
         assert resolved == str(Path("/proj/root/limits.json"))
 
     def test_relative_path_unchanged_when_no_bases(self, monkeypatch):
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
         assert LimitsValidator.resolve_database_path("limits.json", None) == "limits.json"
 
     def test_loaded_config_directory_beats_env_and_project_root(self, monkeypatch):
-        """The config actually loaded is the anchor, ahead of CONFIG_FILE and project_root."""
-        monkeypatch.setenv("CONFIG_FILE", "/somewhere/else/config.yml")
+        """The config actually loaded is the anchor, ahead of OSPREY_CONFIG and project_root."""
+        monkeypatch.setenv("OSPREY_CONFIG", "/somewhere/else/config.yml")
 
         resolved = LimitsValidator.resolve_database_path(
             "data/limits.json", "/repo", config_path="/repo/build/config.yml"
@@ -172,7 +182,7 @@ class TestResolveDatabasePath:
         assert resolved == str(Path("/repo/build/data/limits.json"))
 
     def test_loaded_config_anchor_ignores_absolute_paths(self, monkeypatch):
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         abs_path = str(Path("/etc/osprey/limits.json"))
 
         resolved = LimitsValidator.resolve_database_path(
@@ -238,10 +248,10 @@ def _patch_config(
     block, or a section that is present but empty — passes ``control_system``
     itself as an entry, and that value is returned verbatim.
 
-    ``config_path`` stands in for ``default_config_path()`` — the path of the
-    config the singleton actually loaded. ``None`` (the default) models a
-    process whose config came from somewhere the singleton can't name, which
-    keeps the env-var/project_root fallback branches testable in isolation.
+    ``config_path`` stands in for the path of ``active_config()`` — the config
+    the process actually loaded. ``None`` (the default) models a process that
+    has loaded none yet, which keeps the env-var/project_root fallback
+    branches testable in isolation.
     """
     if "control_system" in values:
         section = values["control_system"]
@@ -256,7 +266,10 @@ def _patch_config(
         return values.get(key, default)
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: config_path)
+    monkeypatch.setattr(
+        "osprey_connectors.config.active_config",
+        lambda: None if config_path is None else config_of({}, path=config_path),
+    )
 
 
 class TestFromConfig:
@@ -399,7 +412,7 @@ class TestFromConfig:
 
     def test_resolves_relative_path_against_project_root(self, monkeypatch, tmp_path):
         """A relative database_path is resolved via project_root (debug branch)."""
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         (tmp_path / "limits.json").write_text(
             json.dumps({"BAR": {"writable": True, "max_value": 5.0}})
         )
@@ -417,12 +430,12 @@ class TestFromConfig:
 
         assert "BAR" in validator.limits
 
-    def test_resolves_relative_path_against_config_file(self, monkeypatch, tmp_path):
-        """CONFIG_FILE's directory takes priority for relative paths (debug branch)."""
+    def test_resolves_relative_path_against_osprey_config(self, monkeypatch, tmp_path):
+        """OSPREY_CONFIG's directory takes priority for relative paths (debug branch)."""
         (tmp_path / "limits.json").write_text(
             json.dumps({"BAZ": {"writable": True, "max_value": 5.0}})
         )
-        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
         _patch_config(
             monkeypatch,
             {
@@ -447,11 +460,11 @@ class TestFromConfig:
 
         The four-zone hook scenario: the render lives at <repo>/build (config +
         data/ side by side), the config's ``project_root`` names <repo>, and the
-        hook process has no CONFIG_FILE in its environment. The database must be
+        hook process has no OSPREY_CONFIG in its environment. The database must be
         found next to the loaded config — not resolved against project_root,
         where it does not exist and every write would hit the empty-DB failsafe.
         """
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         build = tmp_path / "build"
         (build / "data").mkdir(parents=True)
         (build / "data" / "channel_limits.json").write_text(
@@ -966,7 +979,7 @@ class TestFromPosture:
         (tmp_path / "limits.json").write_text(
             json.dumps({"BAR": {"writable": True, "max_value": 5.0}})
         )
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         _patch_config(
             monkeypatch,
             {

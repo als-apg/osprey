@@ -298,9 +298,9 @@ def _roster_usernames(config_path: str) -> list[str]:
         The usernames, empty for a deployment with no web-terminal roster.
     """
     from osprey.deployment.web_terminals.roster import normalize_users
-    from osprey_connectors.config import load_project_config
+    from osprey_connectors.config import load_config
 
-    config = load_project_config(config_path)
+    config = load_config(config_path).raw_tree()
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
 
@@ -972,9 +972,9 @@ def list_users(user: str | None, as_json: bool, live: bool, repo: Path | None) -
             build_roster_report,
         )
         from osprey.utils.workspace import TIERS_DIRNAME
-        from osprey_connectors.config import load_project_config
+        from osprey_connectors.config import load_config
 
-        config = load_project_config(session.config)
+        config = load_config(session.config).raw_tree()
         document = build_roster_report(
             config,
             session.root,
@@ -1041,7 +1041,7 @@ def login_url(user: str, repo: Path | None) -> None:
             deployment_external_origin,
             terminal_login_url,
         )
-        from osprey_connectors.config import load_project_config
+        from osprey_connectors.config import load_config
         from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
         roster = _roster_usernames(session.config)
@@ -1073,7 +1073,7 @@ def login_url(user: str, repo: Path | None) -> None:
         # should not leave the deployment to accomplish nothing. The
         # predicate is the deploy summary's own, so the verb and the closing
         # card cannot disagree about who has a login page.
-        config = load_project_config(session.config)
+        config = load_config(session.config).raw_tree()
         if user not in token_login_users(config):
             try:
                 origin = deployment_external_origin(config)
@@ -1242,7 +1242,7 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             _provider_endpoint_vars,
             render_env_users,
         )
-        from osprey_connectors.config import load_project_config
+        from osprey_connectors.config import load_config
         from osprey_connectors.dotenv import (
             ENV_LOCAL_FILENAME,
             ENV_SHARED_FILENAME,
@@ -1286,7 +1286,7 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             dotenv = merge_chain(project_root)
             source_desc = " + ".join(str(path) for path in sources)
 
-        deploy_config = load_project_config(session.config)
+        deploy_config = load_config(session.config).raw_tree()
 
         # This verb renders the file the terminals RUN with, so it is the other
         # moment an operator prepares a terminal by hand. The mint's own line

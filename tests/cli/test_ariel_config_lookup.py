@@ -36,9 +36,9 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     monkeypatch.delenv("CONFIG_FILE", raising=False)
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-    monkeypatch.setattr(config_module, "_default_config", None)
-    monkeypatch.setattr(config_module, "_default_configurable", None)
-    monkeypatch.setattr(config_module, "_config_cache", {})
+    monkeypatch.setattr(config_module, "_installed", None)
+    monkeypatch.setattr(config_module, "_last_lazy", None)
+    monkeypatch.setattr(config_module, "_loads", {})
     return tmp_path
 
 
@@ -79,7 +79,7 @@ def test_the_anchor_does_not_outlive_the_command(deployment: Path, monkeypatch: 
 
     CliRunner().invoke(ariel_group, ["vocab-check"])
 
-    assert config_module.default_config_path() is None
+    assert config_module._installed is None
 
 
 def test_an_ambient_config_file_does_not_redirect_the_command(

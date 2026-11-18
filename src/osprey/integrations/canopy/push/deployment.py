@@ -29,7 +29,7 @@ from osprey.deployment.web_terminals.roster import (
 )
 from osprey.integrations.canopy import LIBRARY_SUBPATH, PAYLOAD_DIRNAME
 from osprey.integrations.canopy.library import library_is_fresh, regeneration_command
-from osprey_connectors.config import load_project_config
+from osprey_connectors.config import load_config
 
 from .refusals import (
     EXIT_BAD_USER,
@@ -134,7 +134,7 @@ def _load_deployment(repo: str | None, library: str | None) -> Deployment:
     if not config_path.is_file():
         raise Refusal(EXIT_NO_DEPLOYMENT, f"no build in {root}: {config_path} does not exist")
     try:
-        config = load_project_config(config_path)
+        config = load_config(config_path).raw_tree()
     except Exception as exc:
         raise Refusal(EXIT_NO_DEPLOYMENT, f"cannot read {config_path}: {exc}") from None
     try:

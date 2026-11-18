@@ -505,9 +505,9 @@ class TestStubAnswersPlausibly:
             as_built_compose_files,
             as_built_config_path,
         )
-        from osprey_connectors.config import load_project_config
+        from osprey_connectors.config import load_config
 
-        config = load_project_config(str(as_built_config_path(exemplar_repo)), wrap_errors=True)
+        config = load_config(as_built_config_path(exemplar_repo)).raw_tree()
         compose_files = as_built_compose_files(config, exemplar_repo)
         assert compose_files, f"the exemplar rendered no compose files into {exemplar_repo}/build"
 

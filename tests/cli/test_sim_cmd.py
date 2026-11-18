@@ -17,6 +17,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
+from osprey_connectors.testing import config_of
 from tests._simulator_view import write_scenarios_view
 from tests.cli._lifecycle_build import STUB_CONFIG, stub_build
 
@@ -47,7 +48,7 @@ def _invoke(deployment: Path, args, env=None):
     from being a second thing that can fail here.
     """
     with (
-        patch("osprey.cli.sim.load_config", return_value={}),
+        patch("osprey.cli.sim.load_config", return_value=config_of({})),
         patch("osprey.simulation.apply.apply_scenarios", return_value=_FAKE_RESULT) as apply_mock,
     ):
         result = CliRunner().invoke(sim_group, [*args, "--repo", str(deployment)], env=env or {})

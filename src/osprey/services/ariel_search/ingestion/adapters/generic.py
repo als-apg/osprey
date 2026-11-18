@@ -20,7 +20,7 @@ from osprey.services.ariel_search.attachments import fetchable_url
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter, parse_entry_time
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
-from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.config import facility_timezone
 from osprey_connectors.logger import get_logger
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 from osprey_connectors.safety_file import atomic_replace
@@ -302,7 +302,7 @@ class GenericJSONAdapter(FacilityAdapter):
         # time-of-day in this anchor's zone, so a seeded scenario narrative lands at the
         # documented facility-local clock time (matching the telemetry it
         # accompanies). Absolute timestamps ignore ``now`` (see _resolve_timestamp).
-        now = datetime.now(get_facility_timezone())
+        now = datetime.now(facility_timezone())
 
         timestamp = self._resolve_timestamp(data, now)
 

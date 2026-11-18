@@ -38,6 +38,15 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.archiver.ArchiverMetadata": (
         "an archiver's get_metadata answers in this type"
     ),
+    "osprey_connectors.config.FacilityZone": (
+        "LoadedConfig.system_zone answers the facility clock in this type"
+    ),
+    "osprey_connectors.config.UnresolvedRef": (
+        "LoadedConfig.unresolved names each unset variable in this type"
+    ),
+    "osprey_connectors.config.using_config": (
+        "a program or a test scopes the process config to one context through it"
+    ),
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
@@ -179,8 +188,12 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
+    "osprey_connectors.testing.config_of": "a test hands code a config without writing a file",
     "osprey_connectors.testing.invalidate_cache": (
         "a test drops the parsed control-context files through it"
+    ),
+    "osprey_connectors.workspace.reset_config_cache": (
+        "a test puts the process config and its warn-once latches back between cases"
     ),
     "osprey_connectors.write_authorization.ApprovalSurface": (
         "a person approves a request from one of these surfaces"

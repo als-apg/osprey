@@ -86,7 +86,7 @@ from osprey.port_layout import layout_ports, resolve_port_base
 # the container and every refusal that names the key back to the operator all
 # read it from there.
 from osprey_connectors import dotenv, yaml_loader
-from osprey_connectors.config import ConfigBuilder, load_project_config
+from osprey_connectors.config import load_config
 from osprey_connectors.control_system import LIMITS_DATABASE_CONFIG_KEY
 from osprey_connectors.log_filter import quiet_logger
 from osprey_connectors.logger import get_logger
@@ -6415,7 +6415,7 @@ def setup_build_dir(
 
     .. seealso::
        :func:`render_template` : Template rendering used by this function
-       :class:`configs.config.ConfigBuilder` : Configuration flattening
+       :func:`osprey_connectors.config.load_config` : Configuration flattening
     """
     # Create the build directory for this service
     source_dir = os.path.relpath(os.path.dirname(template_path), os.getcwd())
@@ -6604,9 +6604,8 @@ def setup_build_dir(
             # The container will expand ${VAR} placeholders at runtime from environment variables
             try:
                 with quiet_logger(["registry", "CONFIG"]):
-                    global_config = ConfigBuilder()
                     # Preserves ${VAR} placeholders - secrets not written to disk
-                    flattened_config = global_config.get_unexpanded_config()
+                    flattened_config = load_config().unexpanded_tree()
 
                 # Adjust paths for container environment
                 # In containers, src/ is copied to repo_src/, so config paths must be updated
@@ -7093,7 +7092,7 @@ def prepare_compose_files(
     if dev_mode:
         preflight_dev_mode()
 
-    config = load_project_config(config_path, wrap_errors=True)
+    config = load_config(config_path).raw_tree()
 
     # Where the config sits, and where the config this render produces will be
     # READ from. Both are recorded before the ``build_dir`` override below,

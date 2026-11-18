@@ -80,7 +80,7 @@ def _patch_config(monkeypatch, section: dict[str, Any], db_path: Path) -> None:
         return default
 
     monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-    monkeypatch.setattr("osprey_connectors.config.default_config_path", lambda: None)
+    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
 
 
 def _posture(connector) -> tuple[Any, Any]:

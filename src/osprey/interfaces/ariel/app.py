@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
@@ -137,17 +136,15 @@ def load_ariel_config_with_path(
         )
 
     logger.info(f"Loading config from {path}")
-    with open(path) as f:
-        # resolve_env_vars matches the framework's ConfigBuilder
-        # behavior (load_osprey_config): a DSN written out in config.yml
-        # may carry a ${ARIEL_DB_PASSWORD:-ariel} placeholder that must
-        # expand here too, or the web interface would hand psycopg a
-        # literal `${…}` password.
-        from osprey_connectors.config import resolve_env_vars
+    # The one loader, so ``${VAR}`` expands as for every other reader: a DSN
+    # written out in config.yml may carry a ${ARIEL_DB_PASSWORD:-ariel}
+    # placeholder that must expand here too, or the web interface would hand
+    # psycopg a literal `${…}` password.
+    from osprey_connectors.config import load_config
 
-        config = resolve_env_vars(yaml.safe_load(f))
-        ariel_config = config.get("ariel", {})
-        services = config.get("services") or {}
+    config = load_config(path).raw_tree()
+    ariel_config = config.get("ariel", {})
+    services = config.get("services") or {}
 
     if ariel_config:
         # One rung owns the store address. `resolve_ariel_dsn` derives

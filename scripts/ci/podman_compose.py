@@ -163,7 +163,7 @@ def check_merged_topology() -> list[str]:
     from osprey.deployment.container_lifecycle import _env_file_args, as_built_compose_files
     from osprey_connectors.config import load_config
 
-    config = load_config("build/config.yml")
+    config = load_config("build/config.yml").raw_tree()
     root = Path(resolve_repo_root(config)).resolve()
     runtime_cmd, info = _probe_provider(config)
     if info is None:

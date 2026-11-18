@@ -371,7 +371,7 @@ rendered. This list is what the two commands do, in order; you don't run these
 steps yourself. ``osprey build`` does steps 1–9, and ``osprey up`` does step
 10:
 
-1. Resolve the deployment repository and load ``config.yml`` via ``ConfigBuilder``.
+1. Resolve the deployment repository and load ``config.yml`` via ``load_config``.
 2. Apply ``deployment.bind_address`` (``127.0.0.1`` by default; change it with ``osprey set config.deployment.bind_address=0.0.0.0`` and rebuild).
 3. Render the root ``services/docker-compose.yml.j2`` (shared ``osprey-network``).
 4. For each entry in ``deployed_services``: clean and create the build dir, render the service compose template, copy service files.

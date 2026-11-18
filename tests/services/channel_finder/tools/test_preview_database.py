@@ -37,6 +37,7 @@ from osprey.services.channel_finder.tools.preview_database import (
     preview_in_context,
     preview_middle_layer,
 )
+from osprey_connectors.testing import config_of
 
 
 def _capture_console() -> Console:
@@ -533,7 +534,7 @@ class TestPreviewDatabaseDispatch:
     def test_no_config_reports_error(self, monkeypatch):
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of({}))
         monkeypatch.setattr(mod, "detect_pipeline_config", lambda config: (None, None))
         console = _capture_console()
         preview_database(console=console)
@@ -542,7 +543,7 @@ class TestPreviewDatabaseDispatch:
     def test_config_path_dispatches(self, monkeypatch, in_context_file: Path):
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: {})
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of({}))
         monkeypatch.setattr(
             mod,
             "detect_pipeline_config",
@@ -571,7 +572,7 @@ class TestPreviewGraphParadigm:
         """Detection resolves ``graph`` from the mode alone; preview says so."""
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of(GRAPH_CONFIG))
         console = _capture_console()
         preview_database(console=console)
         out = " ".join(_text(console).split())
@@ -585,7 +586,7 @@ class TestPreviewGraphParadigm:
         """Nothing on disk is opened --- there is no path to open."""
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of(GRAPH_CONFIG))
 
         def _no_files(*args, **kwargs):
             raise AssertionError("the graph paradigm must not resolve a database path")
@@ -599,7 +600,7 @@ class TestPreviewGraphParadigm:
         """The 'configure a database path' panel is the wrong advice here."""
         import osprey_connectors.config as config_mod
 
-        monkeypatch.setattr(config_mod, "load_config", lambda *a, **k: GRAPH_CONFIG)
+        monkeypatch.setattr(config_mod, "current_config", lambda *a, **k: config_of(GRAPH_CONFIG))
         console = _capture_console()
         preview_database(console=console)
         out = _text(console)

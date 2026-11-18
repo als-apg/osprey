@@ -35,8 +35,8 @@ from osprey.models.display import CLAUDE_CODE_ALIASES, claude_code_alias_candida
 from osprey.models.provider_registry import PROVIDER_API_KEYS, get_provider_registry
 from osprey.models.spend_attribution import apply_attribution_env, gateway_for
 from osprey_connectors import yaml_loader
-from osprey_connectors.config import apply_env_chain, is_unresolved_placeholder
-from osprey_connectors.dotenv import chain_files
+from osprey_connectors.config import is_unresolved_placeholder
+from osprey_connectors.dotenv import apply_env_chain, chain_files
 
 if TYPE_CHECKING:
     from osprey.agent_record.host import HostRecord
@@ -533,7 +533,7 @@ def inject_provider_env(
     ``PHOEBUS_BRIDGE_URL``, ``BLUESKY_*``) from ``os.environ``, so this is a
     full host-propagation contract — narrowing it would silently break control-
     system MCP addressing. The one exception is the shell-only launch
-    variables, which :func:`osprey_connectors.config.apply_env_chain` skips, so
+    variables, which :func:`osprey_connectors.dotenv.apply_env_chain` skips, so
     they keep the shell's value. The chain is applied local-over-shared, and the
     result wins over a stale shell export. An unparseable
     ``HTTP_PROXY`` (from the chain or the shell) is carried straight through

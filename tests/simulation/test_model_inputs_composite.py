@@ -138,7 +138,7 @@ def engines(monkeypatch: pytest.MonkeyPatch) -> None:
         return found.select(**selection) if selection else found
 
     monkeypatch.setattr(metadata, "entry_points", entry_points)
-    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    monkeypatch.setattr(composite_module, "active_config", lambda: None)
     CALLS.clear()
 
 

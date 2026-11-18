@@ -166,7 +166,7 @@ def _stub_sdk_helpers(monkeypatch):
         lambda *a, **k: "system",
     )
     monkeypatch.setattr(
-        "osprey_connectors.config.get_facility_timezone",
+        "osprey_connectors.config.facility_timezone",
         lambda *a, **k: "UTC",
     )
 

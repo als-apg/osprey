@@ -106,20 +106,23 @@ The simulator
    defaults, and logs a warning that it fell back to UTC the first time it
    needs the facility's timezone. A channel read does not: every reading is
    stamped in UTC (``ChannelValue.sampled_at``). To set the timezone,
-   name a ``config.yml`` in ``CONFIG_FILE`` that states ``system.timezone``:
+   name a ``config.yml`` in ``OSPREY_CONFIG`` that states ``system.timezone``:
 
    .. literalinclude:: examples/system-timezone.yml
       :language: yaml
       :caption: config.yml
 
-   With ``CONFIG_FILE`` unset, the file is the one ``OSPREY_CONFIG`` names,
-   else ``build/config.yml`` under the working directory, else ``config.yml``
-   in it. A process started in a built project directory therefore reads that
+   With ``OSPREY_CONFIG`` unset, the file is ``build/config.yml`` under the
+   working directory, else ``config.yml`` in it
+   (``osprey_connectors.config.locate_config``); ``CONFIG_FILE`` is not read.
+   A process started in a built project directory therefore reads that
    project's config with nothing set. The same file answers
    ``create_control_system_connector()`` and ``create_archiver_connector()``
    called with no dict, which build the connector its ``control_system:`` or
    ``archiver:`` section selects. Without a config they raise
-   ``FileNotFoundError``, naming where they looked.
+   ``ConfigNotFoundError`` (a ``FileNotFoundError``), naming where they looked.
+   A program that loads its config itself passes it to
+   ``osprey_connectors.config.install_config(load_config(path))``.
 
 Writes
    Every write passes the verdict in :ref:`write-safety-config`: the write tier,

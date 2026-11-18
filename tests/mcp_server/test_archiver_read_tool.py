@@ -192,7 +192,7 @@ def test_parse_time_interprets_naive_input_as_facility_local(monkeypatch):
     from osprey.mcp_server.control_system.tools import archiver_read as mod
 
     tokyo = ZoneInfo("Asia/Tokyo")  # UTC+9, fixed offset (no DST)
-    monkeypatch.setattr(mod, "get_facility_timezone", lambda: tokyo)
+    monkeypatch.setattr(mod, "facility_timezone", lambda: tokyo)
 
     parsed = mod._parse_time("2026-06-01 12:00:00")  # naive, no offset
     assert parsed.tzinfo is not None
@@ -224,7 +224,7 @@ def test_parse_time_relative_expressions(expression, expected_delta, monkeypatch
 
     from osprey.mcp_server.control_system.tools import archiver_read as mod
 
-    monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
+    monkeypatch.setattr(mod, "facility_timezone", lambda: UTC)
 
     before = datetime.now(UTC)
     parsed = mod._parse_time(expression)
@@ -255,7 +255,7 @@ def test_parse_time_unrecognized_relative_falls_through_to_iso(expression, monke
 
     from osprey.mcp_server.control_system.tools import archiver_read as mod
 
-    monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
+    monkeypatch.setattr(mod, "facility_timezone", lambda: UTC)
 
     with pytest.raises(ValueError):
         mod._parse_time(expression)
@@ -277,7 +277,7 @@ def test_parse_time_refuses_ambiguous_dates(expression, monkeypatch):
 
     from osprey.mcp_server.control_system.tools import archiver_read as mod
 
-    monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
+    monkeypatch.setattr(mod, "facility_timezone", lambda: UTC)
 
     with pytest.raises(ValueError):
         mod._parse_time(expression)
@@ -298,7 +298,7 @@ def test_parse_time_accepts_iso_spellings(expression, monkeypatch):
 
     from osprey.mcp_server.control_system.tools import archiver_read as mod
 
-    monkeypatch.setattr(mod, "get_facility_timezone", lambda: UTC)
+    monkeypatch.setattr(mod, "facility_timezone", lambda: UTC)
 
     parsed = mod._parse_time(expression)
 
@@ -799,7 +799,7 @@ async def test_archiver_read_echoes_facility_local_time_range(archiver_read_tool
     from zoneinfo import ZoneInfo
 
     monkeypatch.setattr(
-        "osprey.mcp_server.control_system.tools.archiver_read.get_facility_timezone",
+        "osprey.mcp_server.control_system.tools.archiver_read.facility_timezone",
         lambda: ZoneInfo("America/Los_Angeles"),
     )
 

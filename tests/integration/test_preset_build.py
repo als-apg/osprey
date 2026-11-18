@@ -59,9 +59,9 @@ def _fresh_middle_layer_server() -> Iterator[None]:
     def reset() -> None:
         reset_cf_ml_context()
         reset_config_cache()
-        config._default_config = None
-        config._default_configurable = None
-        config._config_cache.clear()
+        config._installed = None
+        config._last_lazy = None
+        config._loads.clear()
 
     reset()
     yield

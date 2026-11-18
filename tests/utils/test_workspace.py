@@ -205,11 +205,12 @@ class TestResetConfigCache:
 
         from osprey_connectors import config as config_module
 
-        assert config_module._default_config is not None
+        assert config_module._installed is not None
+        assert config_module._loads
         reset_config_cache()
-        assert config_module._default_config is None
-        assert config_module._default_configurable is None
-        assert config_module._config_cache == {}
+        assert config_module._installed is None
+        assert config_module._last_lazy is None
+        assert config_module._loads == {}
 
 
 class TestResolveAgentDataRoot:
@@ -336,13 +337,13 @@ class TestRepoRootForAgentData:
 class TestResolvePath:
     def test_absolute_path_returned_unchanged(self, tmp_path, monkeypatch):
         _write_config(tmp_path, f"project_root: {tmp_path}\n")
-        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
         abs_path = tmp_path / "already" / "absolute"
         assert resolve_path(str(abs_path)) == abs_path
 
     def test_relative_path_resolved_against_project_root(self, tmp_path, monkeypatch):
         _write_config(tmp_path, f"project_root: {tmp_path}\n")
-        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "config.yml"))
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
         assert resolve_path("data/limits.json") == tmp_path / "data" / "limits.json"
 
 

@@ -115,8 +115,9 @@ async def read_in_child(
         target: The control target.
         models: The served physics models to report.
         addresses: Each model's status address.
-        config_path: The rendered config the child reads as ``CONFIG_FILE``,
-            which decides the port of a gateway that states none.
+        config_path: The rendered config the child reads, named to it as
+            ``OSPREY_CONFIG`` (and ``CONFIG_FILE``), which decides the port of
+            a gateway that states none.
         timeout_s: Seconds the child may take; it is killed after that.
 
     Returns:
@@ -128,7 +129,7 @@ async def read_in_child(
     """
     env = dict(os.environ)
     if config_path is not None:
-        env["CONFIG_FILE"] = str(config_path)
+        env["OSPREY_CONFIG"] = env["CONFIG_FILE"] = str(config_path)
     child = await asyncio.create_subprocess_exec(
         sys.executable,
         # Safe path: the cwd is the operator's, and code found there must not run.

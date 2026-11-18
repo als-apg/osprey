@@ -174,7 +174,7 @@ def test_default_time_window_is_facility_local(tmp_path, monkeypatch):
     """With no explicit range the default 24 h window is facility wall-clock."""
     tokyo = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST
     monkeypatch.setattr(
-        "osprey.mcp_server.phoebus.plt_generator.get_facility_timezone",
+        "osprey.mcp_server.phoebus.plt_generator.facility_timezone",
         lambda: tokyo,
     )
     plt_path = plt_generator.create_plt_from_config(
@@ -191,7 +191,7 @@ def test_default_time_window_is_facility_local(tmp_path, monkeypatch):
 
 def _patch_zone(monkeypatch, zone) -> None:
     monkeypatch.setattr(
-        "osprey.mcp_server.phoebus.plt_generator.get_facility_timezone",
+        "osprey.mcp_server.phoebus.plt_generator.facility_timezone",
         lambda: zone,
     )
 

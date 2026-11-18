@@ -31,16 +31,21 @@ def resolve_va_gateway_port(config_path: str | None = None) -> object:
 
     Args:
         config_path: The project config to read. ``None`` reads the one a child
-            reads — ``CONFIG_FILE``, else ``./config.yml``.
+            reads — ``OSPREY_CONFIG``, else ``build/config.yml`` or
+            ``config.yml`` under the working directory.
 
     Returns:
         The port to default-fill unset gateway ports with.
     """
     from osprey_connectors.config import get_config_value
+    from osprey_connectors.errors import ConfigLoadError
 
     try:
         return get_config_value("services.virtual_accelerator.port", DEFAULT_VA_PORT, config_path)
-    except (FileNotFoundError, KeyError, RuntimeError, ValueError):
+    except (ConfigLoadError, FileNotFoundError, KeyError, RuntimeError, ValueError):
+        # Every way a config cannot be read: ConfigNotFoundError is a
+        # FileNotFoundError, ConfigParseError and ConfigurationError ValueErrors,
+        # and a directory a ConfigLoadError.
         return DEFAULT_VA_PORT
 
 

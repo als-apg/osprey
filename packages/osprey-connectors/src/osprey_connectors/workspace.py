@@ -77,7 +77,7 @@ _SIMULATION_STATE_DIR_NAME = "simulation"
 
 #: Config key naming that directory explicitly (relative paths resolve against
 #: the project root). Unset — the normal case — puts it under the agent-data
-#: root. :class:`osprey_connectors.config.ConfigBuilder`'s runtime-write
+#: root. :func:`osprey_connectors.config.load_config`'s runtime-write
 #: advisory and :func:`resolve_simulation_state_dir` read this one spelling.
 SIMULATION_STATE_DIR_CONFIG_KEY = "simulation.state_dir"
 
@@ -165,7 +165,7 @@ def resolve_simulation_state_dir(config: Mapping[str, object] | None, project_ro
 
     A mistyped :data:`SIMULATION_STATE_DIR_CONFIG_KEY` (anything but a non-empty
     string) falls through to the default rather than raising, matching how
-    :class:`osprey_connectors.config.ConfigBuilder`'s runtime-write advisory
+    :func:`osprey_connectors.config.load_config`'s runtime-write advisory
     reads the same key.
 
     Args:
@@ -184,85 +184,56 @@ def resolve_simulation_state_dir(config: Mapping[str, object] | None, project_ro
 def resolve_config_path() -> Path:
     """Resolve the path to the rendered ``config.yml``.
 
-    Resolution order:
-      1. ``OSPREY_CONFIG`` environment variable (with shell variable expansion).
-         The CLI sets it on the host, every framework MCP server definition
-         sets it, and so does the compose service of every container whose
-         working directory does not hold the render: the Bluesky bridge, its
-         queueserver and the Bluesky sidecar run from ``/app`` with the config
-         mounted at ``/app/project/config.yml``.
-      2. ``build/config.yml`` under the current working directory — standing in
-         a repo root with a render in it.
-      3. ``config.yml`` under the current working directory — a container
-         project directory, whose root *is* the render, and the path reported
-         when nothing exists at all.
-
-    This is also where a lookup that names no config reads from
-    (:func:`osprey_connectors.config.get_config_value` and the connector
-    factory's no-argument forms), once ``CONFIG_FILE`` is ruled out, so a
-    process has one answer however it asks.
-
-    ``CONFIG_FILE`` is deliberately NOT read here, even though
-    :func:`osprey.agent_runner.artifact_resolve.deployed_config_path` reads it
-    ahead of ``OSPREY_CONFIG``. That helper answers for one deployed process
-    whose compose service sets the variable; this one answers for the framework
-    everywhere, and ``CONFIG_FILE`` is a name generic enough that honoring it
-    globally would let an unrelated export redirect every OSPREY process on the
-    host. Where a container is handed both, they agree by construction rather
-    than by precedence. The Bluesky compose services set both to the one
-    mounted path. The dispatch worker's sets ``CONFIG_FILE`` to
-    ``/app/<project>/build/config.yml``, and the image's ``WORKDIR`` is
-    ``/app/<project>``, so step 2 above finds that same file.
+    The file :func:`osprey_connectors.config.locate_config` names, from the
+    process environment and working directory: ``OSPREY_CONFIG``, else
+    ``build/config.yml`` under the current directory, else ``config.yml`` in
+    it. ``CONFIG_FILE`` is not read (see that function).
     """
-    import os
+    from osprey_connectors.config import locate_config
 
-    configured = os.environ.get("OSPREY_CONFIG")
-    if configured:
-        return Path(os.path.expandvars(configured))
-
-    cwd = Path.cwd()
-    rendered = rendered_config_path(cwd)
-    return rendered if rendered.is_file() else cwd / "config.yml"
+    return locate_config()
 
 
 # The values are the YAML parse's, which every consumer reads by the shape its
 # own config has.
 def load_osprey_config() -> dict[str, ContractAny]:
-    """Load OSPREY configuration (delegates to ConfigBuilder singleton).
+    """Load the located config, install it as the process default, and return its tree.
 
-    Delegates to the framework's ``ConfigBuilder`` so that ``${VAR:-default}``
-    environment-variable placeholders are resolved consistently.
-
-    The file is the one :func:`resolve_config_path` names.
+    The file is the one :func:`resolve_config_path` names, loaded by the lazy
+    default's rule (the working directory's env chain applied before it loads,
+    cached until it changes) and installed with
+    :func:`osprey_connectors.config.install_config`.
 
     Returns:
-        Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.
+        Parsed YAML dict (with env vars resolved), as a copy; an empty dict when
+        the config does not load, for any reason.
     """
-    config_path = resolve_config_path()
     try:
-        from osprey_connectors.config import get_config_builder
+        from osprey_connectors.config import _cached_load, install_config
 
-        builder = get_config_builder(config_path=str(config_path), set_as_default=True)
-        return builder.raw_config
-    except (FileNotFoundError, Exception):
+        loaded = _cached_load(resolve_config_path())
+        install_config(loaded)
+        return loaded.raw_tree()
+    except Exception:
         return {}
 
 
 def reset_config_cache() -> None:
-    """Clear all config caches — used between tests.
+    """Clear all config state — used between tests.
 
-    The warn-once latch on the facility-timezone fallback is cleared with them.
-    It is process state in exactly the way a cache is: left set, whichever test
-    happened to run first would consume the single warning and every later test
-    asserting on it would see none — an order-dependent pass that says nothing
-    about the code.
+    The process default, every cached load, the current context's
+    ``using_config`` scope, the env chain's shell-override record and every
+    warn-once latch (the facility-timezone fallback, the ignored shell-only
+    variables). The latches are process state in exactly the way a cache is:
+    left set, whichever test happened to run first would consume the single
+    warning and every later test asserting on it would see none — an
+    order-dependent pass that says nothing about the code.
     """
     from osprey_connectors import config as config_module
+    from osprey_connectors import dotenv as dotenv_module
 
-    config_module._default_config = None
-    config_module._default_configurable = None
-    config_module._config_cache.clear()
-    config_module._tz_fallback_warned = False
+    config_module._clear_process_state()
+    dotenv_module._clear_process_state()
 
 
 def repo_root_for_config(config_path: Path | str) -> Path:
@@ -393,10 +364,9 @@ def resolve_path(path_str: str) -> Path:
     Returns:
         Resolved absolute Path object
     """
-    from osprey_connectors.config import get_config_builder
+    from osprey_connectors.config import current_config
 
-    config_builder = get_config_builder()
-    configured = config_builder.get("project_root")
+    configured = current_config().get("project_root")
     if not isinstance(configured, str | os.PathLike):
         # The TypeError ``Path(configured)`` raised, named.
         raise TypeError(f"'project_root' must be a path, got {type(configured).__name__}")

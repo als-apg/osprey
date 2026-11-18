@@ -710,9 +710,9 @@ def facility_timezone():
 
     Reached through the module, so a test replaces it like :func:`record_client`.
     """
-    from osprey_connectors.config import get_facility_timezone
+    from osprey_connectors import config
 
-    return get_facility_timezone()
+    return config.facility_timezone()
 
 
 #: The line a transcript export carries when the record answered only part of it.

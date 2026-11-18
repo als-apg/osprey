@@ -314,11 +314,15 @@ def test_flatten_failure_fallback_still_stages_the_map(
     repo = untiered
     build = repo / "build"
 
-    class _Broken:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            raise RuntimeError("flatten unavailable")
+    real_load = compose_generator.load_config
 
-    monkeypatch.setattr(compose_generator, "ConfigBuilder", _Broken)
+    def _flatten_fails(path: Any = None, **kwargs: Any) -> Any:
+        # The flatten is the one load that names no file; the render's own still loads.
+        if path is None:
+            raise RuntimeError("flatten unavailable")
+        return real_load(path, **kwargs)
+
+    monkeypatch.setattr(compose_generator, "load_config", _flatten_fails)
     for staged_path in (_BLUESKY, _WORKER):
         (build / staged_path).unlink()
 

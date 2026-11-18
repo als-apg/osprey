@@ -99,7 +99,7 @@ def test_a_placeholder_default_applies_when_the_variable_is_unset(tmp_path, monk
 
     import osprey_connectors.config as _cfg
 
-    _cfg._config_cache.clear()
+    _cfg._loads.clear()
     monkeypatch.setenv("CF_DB", "")
     assert _ml_database(load_cf_config(_logger())) == {"path": "data/demo.json"}
     assert _warnings(caplog) == []
@@ -134,16 +134,16 @@ def test_an_unloadable_config_warns_and_returns_empty(tmp_path, monkeypatch, cap
     assert any(str(config) in m and "could not be loaded" in m for m in messages)
 
 
-def test_the_primed_builder_is_reused(tmp_path, monkeypatch):
+def test_the_primed_config_is_reused(tmp_path, monkeypatch):
     import osprey_connectors.config as _cfg
     from osprey.mcp_server.startup import prime_config_builder
 
     _write_osprey_config(tmp_path, monkeypatch, "facility:\n  name: ERF\n")
     prime_config_builder()
-    primed = _cfg._default_config
+    primed = _cfg._installed
     assert primed is not None
 
     raw = load_cf_config(_logger())
 
-    assert _cfg._default_config is primed
-    assert raw is primed.raw_config
+    assert _cfg._installed is primed
+    assert raw == primed.raw_tree()

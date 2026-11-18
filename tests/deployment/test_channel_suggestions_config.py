@@ -7,7 +7,7 @@ framework template renders no ``web`` section — so this is a guard on the
 preset, and on what the build makes of it.
 
 The assertion is on *resolution*, not on text: the preset's block is expanded
-the way a build expands it and handed to ``ConfigBuilder``, because config.yml
+the way a build expands it and handed to ``load_config``, because config.yml
 is never flattened. Presets author config keys dotted on purpose; a dotted key
 that survived the expansion would still match a text search for the dotted
 spelling while reading as nothing at all.
@@ -36,14 +36,14 @@ def _expanded() -> dict:
 
 def _resolved(tmp_path):
     """Write the expanded config out and load it through the production reader."""
-    from osprey_connectors.config import ConfigBuilder
+    from osprey_connectors.config import load_config
 
     config = _expanded()
     config["project_root"] = str(tmp_path)
     config_path = tmp_path / "config.yml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
-    return ConfigBuilder(str(config_path))
+    return load_config(config_path)
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ class TestChannelSuggestionKeys:
     def test_the_keys_are_nested_not_dotted(self):
         """A dotted key would be stored verbatim and read by nothing.
 
-        ``ConfigBuilder.get`` walks the mapping, so a top-level
+        ``LoadedConfig.get`` walks the mapping, so a top-level
         ``"web.channel_suggestions.enabled"`` string key resolves to nothing
         while still matching a text search for the dotted spelling.
         """

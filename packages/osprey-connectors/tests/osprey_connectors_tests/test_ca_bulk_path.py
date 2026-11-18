@@ -158,7 +158,7 @@ def count_closes(monitors: list[FakeSubscription]) -> list[str]:
 @pytest.fixture
 def utc(monkeypatch):
     monkeypatch.setattr(
-        "osprey_connectors.config.get_facility_timezone",
+        "osprey_connectors.config.facility_timezone",
         lambda: zoneinfo.ZoneInfo("UTC"),
     )
 

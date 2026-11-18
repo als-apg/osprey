@@ -184,8 +184,8 @@ def derive_endpoints(
             :func:`~osprey_connectors.execution_mode.is_readonly_run`.
         config_path: The project config an unset virtual-accelerator gateway
             port is filled from — the file the child reads, so the port derived
-            here is the port it connects to. ``None`` reads ``CONFIG_FILE``,
-            else ``./config.yml``.
+            here is the port it connects to. ``None`` reads the file
+            :func:`~osprey_connectors.config.locate_config` finds.
 
     Returns:
         The derivation, whose ``endpoints`` may be empty when the deployment has

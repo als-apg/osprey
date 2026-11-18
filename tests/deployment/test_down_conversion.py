@@ -21,6 +21,7 @@ import pytest
 
 from osprey.deployment import container_lifecycle
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
+from osprey_connectors.testing import config_of
 
 #: What the start before each live ``down`` below recorded.
 _RECORDED = DeploymentRecord("docker", "myrepo")
@@ -55,7 +56,7 @@ def _mock_live_down(monkeypatch, tmp_path):
 
     monkeypatch.setattr(container_lifecycle, "as_built_config_path", lambda root: config_path)
     monkeypatch.setattr(
-        container_lifecycle, "load_project_config", lambda p, **k: {"project_name": "myrepo"}
+        container_lifecycle, "load_config", lambda p, **k: config_of({"project_name": "myrepo"})
     )
     monkeypatch.setattr(
         container_lifecycle, "as_built_compose_files", lambda config, root: ["docker-compose.yml"]
