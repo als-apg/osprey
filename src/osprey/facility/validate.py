@@ -484,16 +484,9 @@ def check_schema(document: Mapping[str, Any], sources: Sources) -> list[Facility
     Returns:
         Every error, one per path.
     """
-    import pydantic
-
-    from osprey.facility.schema import Facility
-
     failures: dict[tuple[Any, ...], Mapping[str, Any]] = {}
-    try:
-        Facility.model_validate(document)
-    except pydantic.ValidationError as exc:
-        for item in exc.errors():
-            failures.setdefault(_path(item["loc"]), item)
+    for loc, item in _model_failures(document):
+        failures.setdefault(_path(loc), item)
     errors = [_schema_error(document, sources, loc, item) for loc, item in failures.items()]
     for index, scenario in enumerate(document.get("scenarios") or []):
         if not isinstance(scenario, dict):
@@ -518,6 +511,73 @@ def check_schema(document: Mapping[str, Any], sources: Sources) -> list[Facility
         if isinstance(measurement, dict):
             errors.extend(_measurement_shape(index, str(model.get("name")), measurement))
     return errors
+
+
+def _model_failures(document: Mapping[str, Any]) -> Iterator[tuple[tuple[Any, ...], Any]]:
+    """Every failure of the generated model on ``document``, with its full location.
+
+    The same failures ``Facility.model_validate(document)`` raises, found record
+    by record: validating the whole file at once builds a model object for
+    every record before it is thrown away, which for a large facility is the
+    biggest allocation of the build. The facility model checks each record list
+    item by item and checks nothing across items, so each list of records is
+    validated one record at a time and the rest of the file with those lists
+    empty; each failure's location is the one the whole-file validation gives.
+
+    Args:
+        document: The document from ``schema_document``.
+
+    Yields:
+        ``(loc, error)`` per failure: the full location, and pydantic's error.
+    """
+    from osprey.facility.schema import Facility
+
+    lists = _record_lists()
+    rest = dict(document)
+    for name in lists:
+        if isinstance(rest.get(name), list):
+            rest[name] = []
+    yield from _failures_of(Facility, rest, ())
+    for name, model in lists.items():
+        records = document.get(name)
+        if isinstance(records, list):
+            for index, record in enumerate(records):
+                yield from _failures_of(model, record, (name, index))
+
+
+def _failures_of(
+    model: Any, value: Any, prefix: tuple[Any, ...]
+) -> Iterator[tuple[tuple[Any, ...], Any]]:
+    import pydantic
+
+    try:
+        model.model_validate(value)
+    except pydantic.ValidationError as exc:
+        for item in exc.errors():
+            yield (*prefix, *item["loc"]), {**item, "loc": (*prefix, *item["loc"])}
+
+
+@cache
+def _record_lists() -> dict[str, Any]:
+    """The facility model's fields that are lists of records, and each record's model.
+
+    Read from the generated model: a field annotated ``Optional[list[M]]`` with
+    ``M`` a model.
+    """
+    import typing
+
+    import pydantic
+
+    from osprey.facility.schema import Facility
+
+    found: dict[str, Any] = {}
+    for name, info in Facility.model_fields.items():
+        for member in typing.get_args(info.annotation) or (info.annotation,):
+            if typing.get_origin(member) is list:
+                (item,) = typing.get_args(member)
+                if isinstance(item, type) and issubclass(item, pydantic.BaseModel):
+                    found[info.alias or name] = item
+    return found
 
 
 #: Each open map of a measurement file, what it is keyed by, what each value is, and the test.
