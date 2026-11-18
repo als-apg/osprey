@@ -848,11 +848,13 @@ class Operate:
 @dataclass(frozen=True)
 class ChannelGrid:
     """Every channel of the device not drawn above, compact: (short name, channel);
-    *hidden* driver-internal records are left out and counted under it."""
+    *hidden* driver-internal records are left out and counted under it, with *full*
+    the link to the ``channels`` view that lists them, read only."""
 
     rows: tuple[tuple[str, str], ...]
     columns: int = 4
     hidden: int = 0
+    full: Link | None = None
 
 
 @dataclass(frozen=True)

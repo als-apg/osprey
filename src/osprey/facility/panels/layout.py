@@ -3336,7 +3336,14 @@ class _Page:
             )  # fmt: skip
         self.y = top + per * GRID_ROW + ROW_GAP
         if grid.hidden:
-            self.small(self.x0, self.y, _HIDDEN.format(grid.hidden), fg=MUTED_TEXT)
+            note = _HIDDEN.format(grid.hidden)
+            self.small(self.x0, self.y, note, fg=MUTED_TEXT)
+            if grid.full is not None:  # where they are listed, read only
+                x = self.x0 + text_width(note, SMALL_SIZE) + GAP
+                link_text = f"{grid.full.label} {_MORE}"
+                lw = text_width(link_text, SMALL_SIZE)
+                self.small(x, self.y, link_text, fg=symbols.FOCUS)
+                self.nav(x, self.y, lw, SMALL_LINE, grid.full)
             self.y += SMALL_LINE + ROW_GAP
 
     def channel_count(self, count: ChannelCount) -> None:

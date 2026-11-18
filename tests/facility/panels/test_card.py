@@ -770,6 +770,45 @@ def test_driver_internal_records_are_never_offered_nor_listed_only_counted(tmp_p
     assert [n for n in nodes(doc) if "XR01-PS1:On-Sts" in _reads(doc, n)]
 
 
+def test_written_screens_offer_no_press_nor_entry_on_an_internal_record(tmp_path) -> None:
+    """A device whose bo command record is internal: on the written card no button
+    and no entry acts on it, through no section and no fallback; its channels view
+    lists it, read only, and the card links there."""
+    import json
+
+    from osprey.facility.panels.emit import write
+
+    roles = "PowerSupply,internal,*:On-Cmd,device,value,,,,,stated,S,1,l\n"
+    graph = _roles_graph(tmp_path, roles)
+    assert graph.record_type("XR01-PS1:On-Cmd").record_type == "bo"
+    out = tmp_path / "out"
+    write(graph, out)
+    (card,) = out.glob("card/*xr01-ps1.screen.json")
+    (listing,) = out.glob("channels/*xr01-ps1.screen.json")
+    writing = {"pv-button", "pv-text-input", "pv-slider", "pv-combo"}
+
+    def touching(doc: dict) -> list[dict]:
+        return [n for n in nodes(doc) if "XR01-PS1:On-Cmd" in _reads(doc, n)]
+
+    doc = json.loads(card.read_text())
+    assert not [n for n in touching(doc) if n["type"] in writing]
+    assert not [
+        n
+        for n in nodes(doc)
+        if n["type"] in writing and n["props"].get("pv", "").startswith("XR01-PS1:On-Cmd")
+    ]
+    assert _text(doc, "1 driver-internal records not shown")
+    assert [n for n in nodes(doc) if n["props"].get("text", "").startswith("in the full list")]
+    shown = json.loads(listing.read_text())
+    found = touching(shown)
+    assert found and {n["type"] for n in found} <= {
+        "pv-label",
+        "rectangle",
+        "polygon",
+        "text-label",
+    }
+
+
 def test_a_device_over_the_cap_shows_counts_and_opens_its_channels_view(tmp_path, monkeypatch):
     import importlib
 
@@ -785,7 +824,7 @@ def test_a_device_over_the_cap_shows_counts_and_opens_its_channels_view(tmp_path
     graph = _roles_graph(tmp_path, roles)
     found = {t for t in targets(graph) if t.view == "channels"}
     assert Target("channels", "device", "XR01:QF1") in found
-    assert Target("channels", "device", "XR01:PS1") not in found  # one listed, one internal
+    assert Target("channels", "device", "XR01:PS1") in found  # its internal record is read there
     view = device_card(graph, "XR01:QF1")
     (count,) = [i for s in view.sections for i in s.items if isinstance(i, ChannelCount)]
     assert count.total == 2 and count.parts[0] == "2 on Quadrupole XR01:QF1"

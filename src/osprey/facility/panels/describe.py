@@ -302,11 +302,9 @@ def _build_index(graph: PanelGraph) -> _Index:
                 owners[thing.id] = _owner(graph, thing.id, taken)
             elif channels or graph.pose(thing.id) is not None or _neighbour_edges(graph, thing):
                 carded.add(thing.id)
-            if (
-                taken is None
-                and len(channels) > GRID_CAP
-                and len(_listed(graph, thing.id, channels)) > GRID_CAP
-            ):
+            shown = _listed(graph, thing.id, channels)
+            # over the cap, or with driver-internal records: those are read only there
+            if taken is None and (len(shown) > GRID_CAP or len(shown) < len(channels)):
                 listed.add(thing.id)
             if thing.place is not None:
                 place_views.add(thing.place)
@@ -2567,7 +2565,8 @@ def _drawn_card(
         owners = {c: _owner_name(graph, c) for _s, c in rows if c not in own}
         listing = [_channel_count(thing, rows, owners, hidden)]
     elif rows or hidden:
-        listing = [ChannelGrid(rows, columns, hidden)]
+        full = Link("in the full list", Target("channels", "device", thing.id)) if hidden else None
+        listing = [ChannelGrid(rows, columns, hidden, full)]
     pairs: list[tuple[str, list[Item]]] = [
         (CARD_SECTIONS["head"], [CardHead(kind, description, recipe is None, nowhere)]),
         (CARD_SECTIONS["tiles"], list(tiles)),
