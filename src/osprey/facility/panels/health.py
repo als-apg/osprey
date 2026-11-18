@@ -257,7 +257,7 @@ def channel_state(graph: PanelGraph, channel: str, value: Any) -> State:
         return "unknown"
     if disagree(states):
         return "disagree"
-    return states.pop()  # type: ignore[return-value]
+    return states.pop()
 
 
 def worst(states: Iterable[str]) -> State | None:

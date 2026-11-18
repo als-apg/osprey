@@ -40,6 +40,7 @@ from osprey.facility.panels.describe import NO_POSITION, PROBE_SECTION, RELATION
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
 from osprey.facility.panels.model import Citation, PanelGraph
+from osprey.facility.panels.strip import Placed
 from osprey.facility.panels.symbols import (
     BOX_BORDER,
     FIELD_BACKGROUND,
@@ -104,7 +105,7 @@ __all__ = [
 # --- constants: every size, spacing and font size of a panel screen -----------
 PAGE_WIDTH = 1200
 MARGIN = 32  # the left edge of every section's content
-# type: body 13, small 11 and nothing smaller anywhere (a text-label below
+# text sizes: body 13, small 11 and nothing smaller anywhere (a text-label below
 # SMALL_SIZE is raised to it), headings small and muted, the page title 20
 TITLE_SIZE = 20
 HEADING_SIZE = 11
@@ -495,8 +496,10 @@ def _number(value: float) -> str:
 def _condition(row_form: health.Form, token: str) -> str | None:
     """A rule condition over *token* for one health row form; ``None`` when none can say it."""
     if row_form.kind == "compare":
+        assert row_form.number is not None
         return f"{token} {row_form.op} {_number(row_form.number)}"
     if row_form.kind == "bit":
+        assert row_form.bit is not None
         weight = 2**row_form.bit
         return f"{token} == {token} // 1 and ({token} // {weight}) % 2 == {row_form.wanted}"
     if row_form.number is None:
@@ -700,8 +703,8 @@ def _bit_arms(
     ints: list[dict[tuple[int, ...], State]] = []
     for k in range(2 * len(points) + 1):
         value, found = _segment_values(points, k, bits)
-        state = health.channel_state(graph, item.channel, value) if value is not None else None
-        other.append(_shown(state, item) if state is not None else None)
+        seen = health.channel_state(graph, item.channel, value) if value is not None else None
+        other.append(_shown(seen, item) if seen is not None else None)
         ints.append(
             {
                 c: _shown(health.channel_state(graph, item.channel, v), item)
@@ -896,10 +899,10 @@ def ladder(graph: PanelGraph, lights: Sequence[Light], *, node: bool = False) ->
         found = [c for arms in per_channel if (c := arms[state])]
         if found:
             out.append((" or ".join(found), state))
-    normals = [arms["normal"] for arms in per_channel]
-    if normals and all(normals):
-        joined = " and ".join(f"({c})" if " or " in c else c for c in normals)  # type: ignore[operator]
-        out.append((joined, "normal"))  # type: ignore[arg-type]
+    normals = [c for arms in per_channel if (c := arms["normal"])]
+    if normals and len(normals) == len(per_channel):
+        joined = " and ".join(f"({c})" if " or " in c else c for c in normals)
+        out.append((joined, "normal"))
     rule = Ladder(tuple(item.channel for item in lights), tuple(out), tuple(unwritten))
     return too_long if engine_length(rule) > RULE_EXPRESSION_LIMIT else rule
 
@@ -1310,13 +1313,13 @@ class _Page:
 
     def text(
         self,
-        x,
-        y,
+        x: float,
+        y: float,
         text: str,
         *,
-        size=TEXT_SIZE,
-        w=None,
-        h=ROW,
+        size: float = TEXT_SIZE,
+        w: float | None = None,
+        h: float = ROW,
         fg=PAGE_TEXT,
         bg=TRANSPARENT,
         align="left",
@@ -1393,7 +1396,13 @@ class _Page:
         self.s.widget("rectangle", x, y, w, h, props)
 
     def button(
-        self, x, y, link: Link, *, label: str | None = None, width: float | None = None
+        self,
+        x: float,
+        y: float,
+        link: Link,
+        *,
+        label: str | None = None,
+        width: float | None = None,
     ) -> float:
         """A link to another screen, at most *width* wide; returns the right edge of what it drew."""
         text = link.label if label is None else label
@@ -1425,8 +1434,8 @@ class _Page:
 
     def light(
         self,
-        x,
-        y,
+        x: float,
+        y: float,
         lights: Sequence[Light],
         *,
         rule: Ladder | str | None = None,
@@ -1485,7 +1494,7 @@ class _Page:
         mark_tags = [_need("hatched fill")] if mark_rules else []
         self.s.add(mark, rules=mark_rules, tags=mark_tags)
 
-    def no_rule(self, x, y, size: float = LIGHT_SIZE) -> float:
+    def no_rule(self, x: float, y: float, size: float = LIGHT_SIZE) -> float:
         """The look of a thing with no rule: a bare outline, no rules, no mark; its right edge."""
         shape, _mark = symbols.light(x, y + (ROW - size) / 2, size, symbols.NONE)
         shape["props"][_TOOLTIP] = _NO_RULE
@@ -1496,7 +1505,7 @@ class _Page:
         """A light's rules: one per shape prop and one for its mark, all from *rule*."""
         looks = {state: symbols.look(state) for state in symbols.STATES}
         for prop in symbols.LIGHT_PROPS:
-            values = {state: looks[state][prop] for state in symbols.STATES}
+            values: dict[str, Any] = {state: looks[state][prop] for state in symbols.STATES}
             shape_rules.append(self.s.rule(f"{names} {prop}", prop, rule, values))
         values = {state: looks[state][symbols.MARK_PROP] for state in symbols.STATES}
         mark_rules.append(self.s.rule(f"{names} mark", symbols.MARK_PROP, rule, values))
@@ -1542,14 +1551,14 @@ class _Page:
 
     def field(
         self,
-        x,
-        y,
+        x: float,
+        y: float,
         channel: str,
         *,
         drawn_as: str | None = None,
-        writable=False,
-        w=VALUE_WIDTH,
-        units=False,
+        writable: bool = False,
+        w: float = VALUE_WIDTH,
+        units: bool = False,
     ) -> float:
         """A channel's value in the widget :data:`WIDGETS` names for its ``drawn_as``.
 
@@ -1590,8 +1599,9 @@ class _Page:
             }
             rules = []
             w = max(w, self.value_span(channel))  # the unit printed whole
-            if self.own_kind(channel) in _WHOLE_KINDS:  # a readback shown without its row's kind
-                kind = self.own_kind(channel)
+            own = self.own_kind(channel)
+            if own is not None and own in _WHOLE_KINDS:  # a readback shown without its row's kind
+                kind = own
             if kind in _PRINTED and self.cuts_unit(channel):
                 expression = self.number_expression(channel, kind)
                 if self.budget.take([(1, frozenset({channel}))]):
@@ -1703,7 +1713,7 @@ class _Page:
         w = max(VALUE_WIDTH, self.value_span(channel))
         return self.field(x, self.y, channel, drawn_as=drawn_as, writable=writable, w=w, units=True)
 
-    def unit(self, x, y, unit: str | None) -> float:
+    def unit(self, x: float, y: float, unit: str | None) -> float:
         """A value's unit, its own label beside the value; the right edge (*x* with none)."""
         if not unit:
             return x
@@ -1881,7 +1891,7 @@ class _Page:
             x = self.light(self.x0, self.y, lights, rule="aggregate state")
             note = _AGGREGATE_TEXT.format(count)
         x = self.text(x + GAP, self.y, f"{root.label} · {note}", size=SMALL_SIZE, fg=MUTED_TEXT)
-        height = ROW
+        height: float = ROW
         if plan == "parts":
             height = self.parts(chunks(self.graph, lights), x + GAP, self.x0 + INDENT)
         self.next_row(height)
@@ -2197,7 +2207,7 @@ class _Page:
             },
         )
         y = HEADER_PAD
-        x = MARGIN - GAP
+        x: float = MARGIN - GAP
         for crumb in self.view.crumbs:
             x = self.button(x + GAP, y, crumb)
             x = self.text(x + GAP, y, "›", w=MARK_WIDTH, fg=MUTED_TEXT)
@@ -2291,7 +2301,7 @@ class _Page:
         self.next_row()
 
     def item(self, item: object) -> None:
-        draw = {
+        draws: dict[type, Callable[[Any], object]] = {
             ValueRow: self.value_row,
             Light: self.light_row,
             Link: self.link_row,
@@ -2308,8 +2318,8 @@ class _Page:
             CheckRow: self.check_row,
             Totals: self.totals,
             Calibrations: self.calibrations,
-        }[type(item)]
-        draw(item)
+        }
+        draws[type(item)](item)
 
     # -- rows -----------------------------------------------------------------
 
@@ -2453,7 +2463,7 @@ class _Page:
     def calibration_legend(self) -> None:
         """What a calibration view's cell looks like in each state: a sample cell each."""
         self.y += ROW_GAP
-        x = MARGIN
+        x: float = MARGIN
         for state in _CAL_STATES:
             word = _LEGEND[state]
             w = text_width(word, SMALL_SIZE) + GAP
@@ -2727,7 +2737,7 @@ class _Page:
         root that is not live with children shows them instead, under a
         line that says its summary needs a server-side aggregate.
         """
-        x = MARGIN + depth * INDENT
+        x: float = MARGIN + depth * INDENT
         lights = [describe_light(self.graph, c) for c in node.channels]
         rule: Ladder | str | None = None
         decisions: dict[int, str] = {}
@@ -2757,7 +2767,7 @@ class _Page:
             x = self.button(x + GAP, self.y, node.link, label=node.label)
         else:
             x = self.text(x + GAP, self.y, node.label)
-        height = ROW
+        height: float = ROW
         if not node.no_rule and plan != "live":
             text = _AGGREGATE_TEXT.format(len(node.channels))
             if plan == "open" and node.link is not None:
@@ -2896,7 +2906,7 @@ class _Page:
         levels = stem_levels([p.x for p in badges])
         # the upper lane only when something stands in it
         tags = stem_levels([p.x for p in beam], TAG_WIDTH + STRIP_LABEL_GAP)
-        above = STRIP_AXIS  # room over the axis: rings' words, then badges with theirs
+        above: float = STRIP_AXIS  # room over the axis: rings' words, then badges with theirs
         if any(p.channels for p in beam):
             above += RING_PAD + (max(tags) + 1) * TAG_HEIGHT
         if badges:
@@ -2938,7 +2948,7 @@ class _Page:
         else:
             self.y += ROW_GAP
 
-    def value_blocks(self, beam: Sequence[strip.Placed]) -> dict[int, _Block]:
+    def value_blocks(self, beam: Sequence[Placed]) -> dict[int, _Block]:
         """The symbols whose values the strip shows, by ``id`` of the placed symbol: each
         a block of its short name over its values, centred on the symbol and as wide as
         the name and :func:`value_width` of each unit need, in one of
@@ -2991,7 +3001,7 @@ class _Page:
                 self.value(block.left, y0 + i * VALUE_STEP, block.w, channel)
         return y - ROW_GAP if heights else top
 
-    def affordable(self, element: strip.Placed) -> list[str]:
+    def affordable(self, element: Placed) -> list[str]:
         """The channels of *element*'s values, when the screen's budget allows them all;
         none, counted in :attr:`dropped`, when it does not."""
         channels = [channel for channel, _unit in element.annotations]
@@ -3046,7 +3056,7 @@ class _Page:
                 self.text(MARGIN, self.y, not_shown(count, words), size=SMALL_SIZE, fg=MUTED_TEXT)
                 self.next_row()
 
-    def badge(self, element: strip.Placed, cx: float, cy: float) -> None:
+    def badge(self, element: Placed, cx: float, cy: float) -> None:
         """A device off the axis: a circle with its kind's letter, filled with its
         type colour, its state ringed (:meth:`marked`)."""
         circle, letter = symbols.badge(cx, cy, BADGE, element.symbol, SMALL_SIZE)
@@ -3067,7 +3077,7 @@ class _Page:
             link = replace(element.link, label=element.thing)
             self.nav(cx - BADGE / 2, cy - BADGE / 2, BADGE, BADGE, link)
 
-    def badge_text(self, element: strip.Placed, cx: float, cy: float) -> None:
+    def badge_text(self, element: Placed, cx: float, cy: float) -> None:
         """A badge's short name right of it, its values under the name; each left out
         only when it would touch a tag, a badge or another badge's text, or leave
         the strip."""
@@ -3096,7 +3106,7 @@ class _Page:
             for ox, oy, ow, oh in self.taken
         )
 
-    def symbol_rule(self, element: strip.Placed) -> tuple[Ladder | None, list[str]]:
+    def symbol_rule(self, element: Placed) -> tuple[Ladder | None, list[str]]:
         """The live rule of a strip element (the worst of its channels, as a roll-up
         node reads them) and the needs it hits; ``None`` when it has no live rule."""
         if not element.channels:
@@ -3115,9 +3125,7 @@ class _Page:
             tags.append(_need("label condition"))
         return (rule if rule.arms else None), tags
 
-    def symbol(
-        self, element: strip.Placed, x: float, y: float, unit: float, level: int = 0
-    ) -> None:
+    def symbol(self, element: Placed, x: float, y: float, unit: float, level: int = 0) -> None:
         """A device's symbol: filled with its type colour, never with its state; its
         state is a ring around it and a word above (:meth:`marked`)."""
         shapes = symbols.coloured(
@@ -3132,7 +3140,7 @@ class _Page:
             node["props"][_TOOLTIP] = element.thing
         self.marked(element, shapes, level)
 
-    def marked(self, element: strip.Placed, shapes: list[dict], level: int = 0) -> None:
+    def marked(self, element: Placed, shapes: list[dict], level: int = 0) -> None:
         """*shapes*, and around them the ring and the tag that show the worst state of
         the element's channels live. A thing with no rule gets neither (its outline is
         dashed); one whose rule cannot be written or is past the budget gets them in
@@ -3180,7 +3188,7 @@ class _Page:
         self.s.add(outline, rules=rules, tags=tags)
         self.s.add(word, rules=word_rules)
 
-    def locator(self, beam: Sequence[strip.Placed], extent: tuple[float, float]) -> None:
+    def locator(self, beam: Sequence[Placed], extent: tuple[float, float]) -> None:
         """The to-scale bar under a row: its caption, a mark per symbol where the
         symbol truly is, a leader from each symbol's name down to its mark, and
         the metres."""
@@ -3210,7 +3218,7 @@ class _Page:
         """Each symbol the strip draws, as it is drawn, and its name."""
         present = {e.symbol if e.symbol in symbols.WIDTH_UNITS else "generic" for e in elements}
         above = {e.symbol for e in elements if e.lane == "above"}
-        x = MARGIN
+        x: float = MARGIN
         cy = self.y + LEGEND_ROW / 2
         for kind in symbols.KINDS:
             if kind not in present:
@@ -3255,7 +3263,7 @@ class _Page:
         words = [f"{t.title} {t.good} / {t.total}" for t in found.tallies]
         widths = [text_width(w, SMALL_SIZE) + GAP for w in words]
         last = _NOT_STARTED.format(found.not_started) if found.not_started else None
-        room = STRIP_WIDTH + CHIP_GAP  # each chip takes its width and a gap
+        room: float = STRIP_WIDTH + CHIP_GAP  # each chip takes its width and a gap
         if last is not None:
             room -= text_width(last, SMALL_SIZE) + GAP + CHIP_GAP
         shown = len(words)
@@ -3265,7 +3273,8 @@ class _Page:
             else text_width(_MORE_CHIPS.format(len(words) - shown), SMALL_SIZE) + GAP + CHIP_GAP
         ):
             shown -= 1
-        x, y = MARGIN, self.y
+        x: float = MARGIN
+        y = self.y
         for tally, word, w in zip(found.tallies[:shown], words, widths, strict=False):
             self.tally_box(x, y, w, _TALLY_LOOKS.get(tally.state, tally.basis), word)
             self.text(x + GAP / 2, y, word, size=SMALL_SIZE, h=CHIP_HEIGHT)
@@ -3290,7 +3299,7 @@ class _Page:
         """A calibration chip's box in the look of a calibration cell's state (a basis,
         ``contested``, ``none``); a plain chip with ``None``."""
         props: dict[str, Any] = {"lineWidth": LINE_WIDTH, _TOOLTIP: tooltip}
-        if look in symbols.BASIS_TINTS:
+        if look is not None and look in symbols.BASIS_TINTS:
             props |= {
                 "lineColor": symbols.BASIS_ROLES[look],
                 "fill": True,
@@ -3473,9 +3482,9 @@ class _Page:
             )  # fmt: skip
         counted = item.measure in _COUNTS
         own_unit = formula is None and pv is not None  # a channel: the viewer prints its unit
-        cut = own_unit and not counted and self.cuts_unit(pv)  # type: ignore[arg-type]
-        if cut:  # the number a formula's, the unit whole beside it
-            expression = self.number_expression(pv, None, item.precision)  # type: ignore[arg-type]
+        cut = pv is not None and own_unit and not counted and self.cuts_unit(pv)
+        if cut and pv is not None:  # the number a formula's, the unit whole beside it
+            expression = self.number_expression(pv, None, item.precision)
             cut = self.budget.take([(1, frozenset({pv}))])
         beside = f"of {total}" if counted else ("" if own_unit else (item.unit or ""))
         if cut:
@@ -3550,7 +3559,9 @@ class _Page:
             return
         self.text(MARGIN, self.y, group.title.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
         self.y += ROW
-        entries = [(n.label, n.link, n) for n in group.nodes]
+        entries: list[tuple[str, Link | None, Node | None]] = [
+            (n.label, n.link, n) for n in group.nodes
+        ]
         if group.more is not None:
             entries.append((group.more.label, group.more, None))
         self.chips(MARGIN, entries)
@@ -3665,7 +3676,7 @@ class _Page:
         anchors = [p for p in probe.parts if p.element.shape == "anchor"]
         reach = reach or max((p.element.radius_mm or 0 for p in anchors), default=0) or 1
         scale = PROBE_BORE / (2 * reach)
-        box = PROBE_BOX
+        box: float = PROBE_BOX
         if bore is not None:
             row = bore.element
             w = 2 * (row.radius_mm or 0) * scale
@@ -3992,7 +4003,7 @@ class _Page:
         top = self.y
         self.y += PANEL_PAD
         self.heading(_NOT_AT_A_UNIT)
-        x = MARGIN
+        x: float = MARGIN
         for unit in entries:
             name = unit.link.label if isinstance(unit.link, Link) else unit.link.text
             label = f"{name} · unit {unit.unit_text}" if unit.unit_text else name
@@ -4110,7 +4121,7 @@ def _uncross(
 def _crossing(p1, p2, q1, q2) -> bool:
     """Whether the segments p1-p2 and q1-q2 cross at a point inside both."""
 
-    def turn(a, b, c) -> float:
+    def turn(a: Sequence[float], b: Sequence[float], c: Sequence[float]) -> float:
         return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 
     d1, d2 = turn(q1, q2, p1), turn(q1, q2, p2)
@@ -4234,7 +4245,7 @@ def _tile_width(per_row: int) -> float:
     return (STRIP_WIDTH - (per_row - 1) * GAP) / per_row
 
 
-def strip_labels(placed: Sequence[strip.Placed]) -> list[tuple[str, float, float, int]]:
+def strip_labels(placed: Sequence[Placed]) -> list[tuple[str, float, float, int]]:
     """Each symbol's name under it: ``(text, left, width, level)``, in beam order.
 
     The name is the last component of the id, cut to the symbol's budget

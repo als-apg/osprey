@@ -468,6 +468,11 @@ def _number(value: float) -> str:
     return f"{value:g}"
 
 
+def _ring_s(pose: Pose | None) -> float | None:
+    """The pose's ``s_m`` when it is a true ring position (:attr:`Pose.is_ring_position`)."""
+    return pose.s_m if pose is not None and pose.is_ring_position else None
+
+
 def _pose_text(pose: Pose) -> str:
     parts = []
     if pose.s_m is not None:
@@ -1086,9 +1091,8 @@ def _member_rows(
     rows_of = _row_places(graph, members)
 
     def beam(member: Thing) -> tuple[float, str]:
-        pose = graph.pose(member.id)
-        ring = pose is not None and pose.is_ring_position
-        return (pose.s_m if ring else math.inf, member.id)  # type: ignore[union-attr]
+        s_m = _ring_s(graph.pose(member.id))
+        return (s_m if s_m is not None else math.inf, member.id)
 
     order = {thing.id: n for n, thing in enumerate(graph.things()) if thing.kind == "place"}
     grouped: dict[str | None, list[Thing]] = {}
@@ -1197,23 +1201,25 @@ def place_view(
     for thing in graph.contents(place_id):
         if thing.kind != "device":
             continue
-        link = _ref(graph, index, thing)
-        link = link if isinstance(link, Link) else None
+        ref = _ref(graph, index, thing)
+        link = ref if isinstance(ref, Link) else None
         pose = graph.pose(thing.id)
-        drawn = thing.cls is not None and thing.cls in symbols
-        if drawn and pose is not None and pose.is_ring_position:
-            symbol = symbols[thing.cls]  # type: ignore[index]
+        s_m = _ring_s(pose)
+        cls = thing.cls
+        drawn = cls is not None and cls in symbols
+        if cls is not None and cls in symbols and s_m is not None:
+            symbol = symbols[cls]
             lane = "above" if symbol in above else "beam"
             channels = tuple(rule_channels(graph, thing.id, "device"))
             elements.append(
                 StripElement(
                     thing.id,
-                    thing.cls,
-                    pose.s_m,
+                    cls,
+                    s_m,
                     symbol,
                     lane,
                     link,
-                    channels,  # type: ignore[arg-type]
+                    channels,
                     short=thing.short_name,
                     annotations=_annotations(graph, thing, annotate.get(symbol, ())),
                 )
@@ -1427,10 +1433,10 @@ def ring_arcs(graph: PanelGraph, place_id: str) -> list[str]:
         if child.kind != "place":
             continue
         found = sorted(
-            pose.s_m
+            s_m
             for thing in graph.contents(child.id)
-            for pose in (graph.pose(thing.id),)
-            if pose is not None and pose.is_ring_position
+            for s_m in (_ring_s(graph.pose(thing.id)),)
+            if s_m is not None
         )
         if found:
             spans[child.id] = found
@@ -1446,9 +1452,8 @@ def ring_arcs(graph: PanelGraph, place_id: str) -> list[str]:
 
 def _beam_key(graph: PanelGraph, label: str) -> tuple[float, str]:
     """Beam order for a node of a thing with a true ring position, else name order after."""
-    pose = graph.pose(label)
-    ring = pose is not None and pose.is_ring_position
-    return (pose.s_m if ring else math.inf, label)  # type: ignore[union-attr]
+    s_m = _ring_s(graph.pose(label))
+    return (s_m if s_m is not None else math.inf, label)
 
 
 def _ordered(
