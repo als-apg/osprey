@@ -2203,11 +2203,14 @@ def card_curve(graph: PanelGraph, thing: Thing, section: CardSection) -> CurvePl
     source = None
     if claim is not None and claim.document:
         source = f"{claim.document} {claim.version or ''}".strip()
+    if not points and found.contested:  # a contested curve is not drawn as the one in force
+        return CurvePlot(title, (), x_unit, y_unit, None, _CURVE_CONTESTED.format(title.lower()))
     if not points:
         return CurvePlot(title, (), x_unit, y_unit, source, _NO_CURVE.format(title.lower()))
     return CurvePlot(title, points, x_unit, y_unit, source, _NO_OPERATING_POINT)
 
 
+_CURVE_CONTESTED = "the {} is contested: no claim in force, none drawn"
 _NO_OWNER = "its {} not stated"
 _NOT_ON_DRAWING = "where it sits on {}'s drawing"
 _NO_DRAWING = "a drawing of {}"
@@ -2699,6 +2702,7 @@ _REPLACES = "replaces {}"
 _EARLIER = "{} earlier"
 _FROM_DESIGN = "{:+.2f} % from design"
 _ALSO_CLAIMED = "also claimed: {}"
+_CONTESTED_CLAIMS = "contested, not in force: {}"
 _POINTS = "{} points"
 _CONTESTED = "two sources disagree"
 _LIVE = "EPICS"
@@ -2724,14 +2728,25 @@ def calibration_row(
     found = graph.calibration(device_id, kind.kind)
     claim = found.in_force
     channels = _held_in(graph, device_id, kind)
+    disputed = ", ".join(
+        f"{_claim_text(c, kind)} ({' '.join(t for t in (c.document, c.version) if t) or _NOT_STATED})"
+        for c in found.contested
+    )
     if claim is None:
+        if found.contested:  # claimed, but contested: shown so, never as a base value
+            return CalibrationRow(
+                kind.title, None, None, _CONTESTED_CLAIMS.format(disputed), "contested",
+                _CONTESTED, True, None, None, None, channels, link,
+            )  # fmt: skip
         chip = _LIVE if channels else _WANTED.format(kind.wanted_basis)
         return CalibrationRow(
             kind.title, None, None, None, "none", chip, True, None, None, None, channels, link
         )
     value = _claim_text(claim, kind, len(found.points))
     note = None
-    if found.rivals:
+    if found.contested:
+        note = _CONTESTED_CLAIMS.format(disputed)
+    elif found.rivals:
         note = _ALSO_CLAIMED.format(", ".join(_claim_text(c, kind) for c in found.rivals))
     elif found.design is not None and claim is not found.design:
         mine, design = calibration_numbers(claim.value), calibration_numbers(found.design.value)
@@ -2868,6 +2883,7 @@ _DESIGN_TEXT = "design"
 _NO_VALUE_SHORT = "no value"
 _DEVIATION = "{:+.2f} %"
 _VIEW_TITLE = "{} {}"
+_CONTESTED_SHORT = "contested"
 
 
 def calibration_cell(graph: PanelGraph, device_id: str, kind: CalibrationKind) -> CalibrationCell:
@@ -2876,6 +2892,8 @@ def calibration_cell(graph: PanelGraph, device_id: str, kind: CalibrationKind) -
     channels = _held_in(graph, device_id, kind)
     claim = found.in_force
     if claim is None:
+        if found.contested:
+            return CalibrationCell(_CONTESTED_SHORT, "contested", channels)
         return CalibrationCell(_NO_VALUE_SHORT, "none", channels)
     if claim is found.design:
         return CalibrationCell(_DESIGN_TEXT, found.state, channels)

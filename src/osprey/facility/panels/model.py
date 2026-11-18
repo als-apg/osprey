@@ -343,8 +343,8 @@ class CalibrationState:
         kind: The kind.
         subject: The device.
         in_force: The claim in force: the newest accepted claim no other claim
-            supersedes (a contested one when no accepted claim is left), or
-            ``None``.
+            supersedes, or ``None``. A contested claim is never in force: it is
+            no base value, shown only as contested.
         state: ``contested`` when the claim in force says so or two accepted
             claims in force of one basis differ by more than the kind's
             tolerance; else the basis of the claim in force; else ``none``.
@@ -357,6 +357,7 @@ class CalibrationState:
         rivals: The accepted claims in force that disagree with the claim in
             force, with it excluded.
         points: The points of the claim in force when its value is a curve.
+        contested: The contested claims no other claim supersedes, newest first.
     """
 
     kind: CalibrationKind
@@ -368,6 +369,7 @@ class CalibrationState:
     earlier: tuple[Calibration, ...]
     rivals: tuple[Calibration, ...]
     points: tuple[CurvePoint, ...] = ()
+    contested: tuple[Calibration, ...] = ()
 
 
 def calibration_numbers(value: str) -> tuple[float, ...] | None:
@@ -1082,7 +1084,8 @@ class PanelGraph:
         )  # newest first; a later row wins a tie
         live = [c for c in claims if c.id not in self._superseded and c.standing != "superseded"]
         accepted = [c for c in live if c.standing == "accepted"]
-        in_force = accepted[0] if accepted else next(iter(live), None)
+        in_force = accepted[0] if accepted else None  # a contested claim is no base value
+        disputed = tuple(c for c in live if c.standing == "contested")
         rivals = tuple(
             c
             for c in accepted
@@ -1091,10 +1094,10 @@ class PanelGraph:
             and c.basis == in_force.basis
             and _disagree(c, in_force, found.tolerance)
         )
-        if in_force is None:
-            state = "none"
-        elif rivals or any(c.standing == "contested" for c in live):
+        if rivals or disputed:
             state = "contested"
+        elif in_force is None:
+            state = "none"
         else:
             state = in_force.basis
         rank = CALIBRATION_BASES.index  # a display order, not a precedence
@@ -1115,6 +1118,7 @@ class PanelGraph:
             earlier=tuple(c for c in claims if c is not in_force),
             rivals=rivals,
             points=points,
+            contested=disputed,
         )
 
     def probe(self, device_id: str) -> tuple[ProbeElement, ...]:

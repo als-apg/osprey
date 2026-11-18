@@ -1472,7 +1472,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    excitation curve) as dots joined by a line, the least and most of each axis
    at its corners and the claim's source under it; the operating point is not
    drawn, since no table states the conversion from set point to current. A
-   device with no such curve says none is stated. The calibration block is the
+   device with no such curve says none is stated. The claim in force is the
+   newest accepted one: a contested claim is never in force nor a base value; it
+   is named "contested, not in force" beside the value in force, alone it makes
+   the row and its cell "contested" with no value, and a contested curve is not
+   drawn. The calibration block is the
    ``calibration-strip``. ``no_cards.csv`` (class, under, devices,
    owner_relation, owner_direction, owner_to) names devices that get no card:
    the first row that takes a device wins; the device is drawn on its owner's
