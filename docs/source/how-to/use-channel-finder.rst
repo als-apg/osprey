@@ -317,24 +317,29 @@ target reads ``Not available for this target``.
 IOCs: the Fleet View
 ====================
 
-With ``pv_directory.fleet`` set (``fleet: {}`` is enough) the deployment runs
-the IOC fleet service. It reads every IOC's liveness PV once per refresh period
-and keeps one snapshot per refreshed target. The **IOCs** view of the panel and
-the agent's ``ioc_fleet`` tool both answer from that snapshot; neither reads a
-channel. The ``demo`` preset turns it on with a 10 s period; ``fleet: null``
-turns it off. Without the section there is no view, no tool, no service and no
-periodic read. :ref:`config-pv-directory` has the keys.
+The directory says which IOCs exist, not which of them are running. Answering
+that for a whole facility means reading every IOC's liveness PV, too many
+reads to repeat each time someone asks. The IOC fleet service reads them once
+per refresh period and keeps one snapshot per control target. The **IOCs**
+view of the panel, the agent's ``ioc_fleet`` tool and the IOC page all answer
+from that snapshot, so they agree and a liveness question costs the control
+system no read.
 
-**The view.** The header names the time the snapshot was taken and its age,
-the state of the read path and the outcome of each roster source. Below it,
-one tile per state and per finding with its count, the grouping choice and a
-refresh button. The table has one row per IOC: IOC, Host, State, In state
-(how long), Findings, Directory and Sources. Rows come worst first: stalled,
-silent, unreached with a finding, alive with a finding, unknown, unreached,
-alive. A tile or the text filter only removes rows; grouping by host, class or
-group only gathers them under headings.
+The service is off unless ``config.yml`` has ``pv_directory.fleet``
+(``fleet: {}`` is enough). The ``demo`` preset runs it with a 10 s period, and
+:doc:`/getting-started/demo` stops an IOC to show it.
+:ref:`config-pv-directory` has the keys.
 
-States, one per IOC:
+**The view.** The header gives the time the snapshot was taken and its age,
+the state of the read path, and the outcome of the directory and of each
+roster source. Below it is one tile per state and per finding with its count;
+a tile keeps only its rows, and so do words in the search box. The table has
+one row per IOC: IOC, Host, State, In state (how long), Findings, Directory
+and Sources. Rows come worst first: stalled, silent, unreached with a finding,
+alive with a finding, unknown, unreached, alive. **Group by** gathers them
+under the field ``group_by`` names.
+
+Each IOC has one state:
 
 .. list-table::
    :header-rows: 1
@@ -356,37 +361,8 @@ States, one per IOC:
        counter has only one reading so far, or the read path is unverified and
        every IOC that answered last cycle went quiet at once.
 
-How a liveness read ends decides between them:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 35 20 20 25
-
-   * - The read
-     - Outcome
-     - Answered before
-     - Never answered
-   * - returns a value
-     - answered
-     - ``alive``
-     - ``alive``
-   * - ``ChannelUnreachableError`` or a timeout
-     - no answer
-     - ``silent``
-     - ``unreached``
-   * - ``ConnectorUnavailableError``
-     - connector loss
-     - ``unknown``
-     - ``unknown``
-   * - any other exception
-     - read failed
-     - ``unknown``
-     - ``unknown``
-
-Two counter readings less than 2.5 s apart are not judged: the row keeps its
-previous state.
-
-Findings, beside the state:
+``unreached`` and ``unknown`` say that no state could be established, never
+that an IOC stopped. A finding may stand beside the state:
 
 .. list-table::
    :header-rows: 1
@@ -411,27 +387,26 @@ The three expectation findings exist only with a roster source configured.
 and every such statement ends "This says nothing about whether any IOC runs.":
 
 - *No snapshot yet*: the first refresh of the target has not completed.
-- *Target not refreshed*: the target is not in ``fleet.targets``, or it is a
-  virtual accelerator served in process.
+- *Target not refreshed*: the target is not in ``fleet.targets``, it is a
+  virtual accelerator served in process, or the service cannot connect to it.
 - *Cannot list the IOCs*: no listing of the target's directory has ever
   succeeded, or the directory cannot list its IOCs.
 - *Snapshot stale*: the service stopped refreshing; the snapshot is older than
   three refresh periods (or three cycle durations, when a cycle overruns).
 - *IOC fleet unavailable*: the service gave no usable answer.
 
-The ``ioc_fleet`` tool returns the same statements, the counts, the rows
-filtered by state, finding, group, host or text (100 by default), the meaning
-of each state, and links to the view and to each IOC page.
+The ``ioc_fleet`` tool answers the agent from the same snapshot: the counts,
+the rows filtered by state, finding, group, host or text (100 by default), the
+meaning of each state and the same statements. On a stale snapshot it still
+returns the rows, marked as the states of that time.
 
-**One listing rule.** Every target lists the IOCs its own PV directory lists,
-including IOCs whose every PV is inactive, and reads their liveness from that
-target. On the stand-in that is the facility's directory, so an IOC whose
-liveness PV the stand-in does not serve shows ``unreached``. Roster sources
-and named classes apply on ``live`` only: on the virtual accelerator and the
-stand-in every IOC has the default class (its directory heartbeat, read as a
-counter), is never ``degraded`` and carries no expectation finding. An IOC
-that left the directory and every roster source is kept, labelled no longer
-listed, while it is alive and for ``retention_days`` after it goes quiet.
+**Which IOCs are listed.** Each target lists the IOCs its own PV directory
+lists, including IOCs whose every PV is inactive, and reads their liveness
+from that target. On the stand-in that is the facility's directory, so an IOC
+whose liveness PV the stand-in does not serve shows ``unreached``. An IOC that
+left the directory and every roster source stays in the view, its Directory
+column reading ``not listed``, while it answers and for ``retention_days``
+after it goes quiet.
 
 **The read path.** Each refresh first reads the target's probe channel, one PV
 the target always serves. Unanswered, every IOC is ``unknown`` and the header
@@ -441,39 +416,45 @@ says the read path is down. A target without one is *unverified*.
 snapshot's row: its state, findings and the time the liveness PV was read. The
 page no longer reads the heartbeat itself, so the answer can be up to one
 refresh period old. Without a fresh row the chip says why and that no state is
-known for the IOC. ``ioc_record`` answers the same way. With the fleet off,
-both are unchanged.
+known for the IOC. ``ioc_record`` answers the same way.
 
 Load per refresh
 ----------------
 
-Per refreshed target and refresh period:
+Only the service reads liveness PVs, so this load does not grow with the
+number of users. Per refreshed target and refresh period:
 
 - **Channel reads**: one probe read, then one read of every liveness and health
   PV, all concurrent, each on the connector's own timeout. No read when the
   probe is unanswered.
-- **Audit records**: one, surface ``ioc_fleet``, naming the target, the PV
-  count and the cycle number.
+- **Audit records**: one, surface ``ioc_fleet``
+  (:doc:`/reference/contracts/audit-trail`).
 - **Directory queries**: one listing of the IOCs and one paged search per
-  liveness and health selector, every ten refreshes, on the first refresh of
+  liveness and health suffix, every ten refreshes, on the first refresh of
   the service and after a failed attempt, each bounded by
   ``listing_deadline_s``.
+- **Roster sources**: one read of each, on ``live``.
 
-Views, tool calls and IOC pages add none: they read the snapshot. A light source with
-about 1,600 liveness and health channels through one gateway, at the default
-30 s, sees
-about 53 reads per second, 2,880 audit records per day, and a directory
-listing every five minutes.
+A light source with about 1,600 liveness and health channels through one
+gateway, at the default 30 s, sees about 53 reads per second, 2,880 audit
+records per day, and a directory listing every five minutes.
 
 Roster sources
 --------------
 
-A roster source states what the facility expects of its IOCs. It is any object
-with a ``name`` and a ``read(deadline)`` method returning a list of
-``RosterRow(name, host, class_name, expected, group=None)``, where
-``expected`` is ``"running"``, ``"stopped"`` or ``None``; ``read`` raises to
-report a failure. Both live in ``osprey.services.pv_directory.roster``. The
-contract is public and not yet declared stable.
+On its own the view knows only what answers. A roster source states what the
+facility expects of its IOCs, which is what turns a ``silent`` IOC into
+``expected_running_not_alive`` and gives each IOC its class and group. Roster
+sources and the named classes of ``pv_directory.fleet.classes`` apply on
+``live`` only: on the virtual accelerator and the stand-in every IOC is read
+by its directory heartbeat, is never ``degraded`` and carries no expectation
+finding.
+
+A source is any object with a ``name`` and a ``read(deadline)`` method
+returning a list of ``RosterRow(name, host, class_name, expected, group=None)``,
+where ``expected`` is ``"running"``, ``"stopped"`` or ``None``; ``read`` raises
+to report a failure. ``RosterRow`` is in ``osprey.services.pv_directory.roster``.
+The contract is public and not yet declared stable.
 
 ``pv_directory.fleet.roster_sources`` lists ``module:attribute`` references to
 a source or to a zero-argument factory. Rows from every source merge into one
@@ -483,10 +464,9 @@ reason and the others still count.
 The example source ``StaticRoster`` reads a YAML list of IOCs; it is in
 ``docs/source/how-to/control-systems/examples/roster/``, with
 ``roster_static.yml`` beside it. With that directory importable,
-``roster_sources: ["roster_static:roster"]`` uses it. To check a source of your
-own, call ``check_roster_source(source)`` from the same module: an empty list
-means it conforms, otherwise each entry names one problem (no name, a read
-that does not return ``RosterRow`` objects in time, an IOC named twice).
+``roster_sources: ["roster_static:roster"]`` uses it. ``check_roster_source(source)``
+from the same module checks a source of your own: it returns one line per
+problem, none when the source conforms.
 
 
 Web Interface

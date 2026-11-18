@@ -240,10 +240,11 @@ The agent **never fabricates PV names**: every address it returns is one the
 graph or the directory holds. For the other search strategies, see
 :doc:`../how-to/use-channel-finder`.
 
-**Stop an IOC.** The preset runs the IOC fleet service with a 10 s refresh
-period; the panel's **IOCs** view lists every simulated IOC as ``alive``. The
-``line-ioc-stopped`` scenario stops the transfer-line IOC ``sim-LINE``. Add it
-to the active set:
+**Stop an IOC.** When channels stop answering, the first question is which
+IOC went down. The preset's IOC fleet service reads every simulated IOC's
+heartbeat every 10 s, and the panel's **IOCs** view lists each as ``alive``.
+The ``line-ioc-stopped`` scenario stops the transfer-line IOC ``sim-LINE``.
+Add it to the active set:
 
 .. code-block:: bash
 
@@ -256,9 +257,9 @@ names it. Everything the IOC serves goes quiet with it: every channel starting
 PVs give no answer, so a LINE scan or orbit read fails. The storage ring and
 the BTS and LTB lines keep answering. ``osprey sim apply rf-thermal
 demo-history`` starts it again, and it returns to ``alive`` within two refresh
-periods. Both
-commands reseed the logbook and the archive windows of the active set (see
-:doc:`/how-to/control-systems/use-virtual-accelerator`).
+periods. Both commands reseed the logbook and the archive windows of the
+active set (:doc:`/how-to/control-systems/use-virtual-accelerator`);
+:ref:`channel-finder-ioc-fleet` explains the states.
 
 Step 4: Search the Electronic Logbook
 --------------------------------------
