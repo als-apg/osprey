@@ -61,7 +61,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Annotated, Any, Final, Literal, get_args, get_origin
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 from pydantic.fields import FieldInfo
 
 CHANNEL_ROLE_KEY: Final = "x-channel-role"
@@ -417,3 +417,29 @@ def resolve_regressor_column(
         if demand in columns:
             return demand
     return resolve_column(channel_name, columns)
+
+
+def validate_field_value(model: type[BaseModel], key: str, value: Any) -> Any:
+    """Coerce and validate *value* against *model*'s field *key*; return it JSON-safe.
+
+    The one judge of "is this value allowed for this field": a value an
+    operator or agent types into a draft and a default the plan itself declares
+    pass the same check, so a plan's own bounds hold whoever supplied the value.
+
+    The adapter is ``TypeAdapter(Annotated[field.annotation, field])`` -- the
+    field's own ``FieldInfo`` as the ``Annotated`` metadata, never unpacked with
+    a leading ``*``: the starred form raises ``TypeError`` for a field with no
+    ``Field()``-level constraints (an empty ``metadata`` list, and ``Annotated``
+    requires at least one argument), while the ``FieldInfo`` itself works
+    whether or not the field carries constraints. The coerced value is dumped
+    with ``mode="json"``, so a nested-model field comes back as plain dicts,
+    never live model instances.
+
+    Raises `KeyError` for a field *model* does not declare; a value the field
+    refuses raises pydantic's `ValidationError` unchanged.
+    """
+    field = model.model_fields.get(key)
+    if field is None:
+        raise KeyError(key)
+    adapter: TypeAdapter[Any] = TypeAdapter(Annotated[field.annotation, field])
+    return adapter.dump_python(adapter.validate_python(value), mode="json")
