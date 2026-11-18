@@ -1560,7 +1560,7 @@ def test_five_chain_blocks_fit_one_row_and_a_sixth_wraps() -> None:
 def test_an_arrow_word_and_a_block_title_are_never_cut() -> None:
     lines, short = layout.arrow_lines("controlled by")
     assert " ".join(lines) == "controlled by" and not short
-    lines, short = layout.arrow_lines("A0502:PLC1:PCTRL1_CH1")
-    assert lines == ["PCTRL1_CH1"] and short  # the whole word on hover
+    lines, short = layout.arrow_lines("XR05:CTL1:PORTA1_CH01")
+    assert lines == ["PORTA1_CH01"] and short  # the whole word on hover
     for line in layout.arrow_lines("an arrow word too long for any one line")[0]:
         assert layout.text_width(line, layout.SMALL_SIZE) <= layout.ARROW_RUN_MOST - layout.GAP

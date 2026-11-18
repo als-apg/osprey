@@ -1525,8 +1525,8 @@ def test_inside_a_place_a_member_shows_its_short_name_and_two_alike_keep_what_di
 def test_number_order_compares_numbers_as_numbers() -> None:
     from osprey.facility.panels.describe import _number_key
 
-    names = ["AR03C:VTC10", "AR03C:VTC9", "AR03C:VTC30"]
-    assert sorted(names, key=_number_key) == ["AR03C:VTC9", "AR03C:VTC10", "AR03C:VTC30"]
+    names = ["XR03:T10", "XR03:T9", "XR03:T30"]
+    assert sorted(names, key=_number_key) == ["XR03:T9", "XR03:T10", "XR03:T30"]
 
 
 def test_a_ladder_marks_the_set_points_in_order_and_names_those_not_served(tmp_path):
