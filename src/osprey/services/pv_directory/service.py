@@ -527,11 +527,14 @@ class DirectoryService:
     async def _read_extent(self, at: tuple[str, int] | None, deadline: float) -> Any:
         """Read the store's extent and cache the answer, known or not, like a fetched set."""
         archive, _source, reason = await self._archive_connector()
-        extent = (
-            Unavailable(cause="failed", reason=reason or NO_SOURCE_REASON)
-            if archive is None
-            else await self._bounded(archive.extent(timeout_s=deadline), deadline)
-        )
+        if archive is None:
+            # The archive could not be built from its settings, or the target moved.
+            if reason == _MOVED_REASON:
+                extent = Unavailable(cause="not_ready", reason=reason)
+            else:
+                extent = Unavailable(cause="misconfigured", reason=reason or NO_SOURCE_REASON)
+        else:
+            extent = await self._bounded(archive.extent(timeout_s=deadline), deadline)
         self._store(at, _ARCHIVE_EXTENT, extent)
         return extent
 
