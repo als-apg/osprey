@@ -1190,7 +1190,7 @@ def _panel_graph(
     raise click.exceptions.Exit(1)
 
 
-def _panel_draw(ctx: click.Context, tables: Path, draw_file: Path | None):
+def _panel_draw(tables: Path, draw_file: Path | None):
     """The drawing settings: ``--draw``, else ``draw.json`` beside the rule tables, else none."""
     from osprey.facility.panels import emit
 
@@ -1202,7 +1202,7 @@ def _panel_draw(ctx: click.Context, tables: Path, draw_file: Path | None):
         return emit.load_draw(path)
     except emit.EmitError as error:
         fail("The drawing settings cannot be used.", str(error))
-        ctx.exit(1)
+        raise click.exceptions.Exit(1) from error
 
 
 def _megabytes(size: int) -> str:
@@ -1287,7 +1287,7 @@ def panels_write(
     from osprey.facility.panels import emit
 
     graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
-    draw = _panel_draw(ctx, tables_dir, draw_file)
+    draw = _panel_draw(tables_dir, draw_file)
     keep = [lambda target: target.view in kinds] if kinds else []
     if place is not None:
         try:
@@ -1362,8 +1362,13 @@ def panels_check(
     would refuse as too long) or over_budget (more rules or channels than one
     screen may bind).
     A link to a screen outside the written set (``outside_set``), a card or
-    checkout over its budget, and a probe row whose signal no channel states
-    (``unbound_probe``) are notes and fail only under --strict.
+    checkout over its budget, a probe row whose signal no channel states
+    (``unbound_probe``), a pictures row whose signal resolves to no channel
+    (``unbound_picture``) and one whose signal matches channels of several devices
+    (``ambiguous_picture``) are notes and fail only under --strict.
+    First it prints the device classes by how ``pictures.csv`` draws them:
+    with a drawing, with parts only, with none; then, per class, how many of its
+    parts are not placed (no position, no angle): information, not a problem.
     Prints the count per kind and the first --limit of each.
     """
     from collections import Counter
@@ -1371,8 +1376,13 @@ def panels_check(
     from osprey.facility.panels import emit
 
     graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
-    draw = _panel_draw(ctx, tables_dir, draw_file)
+    draw = _panel_draw(tables_dir, draw_file)
     problems = emit.check(graph, out, max_bytes=max_bytes, draw=draw)
+    for standing, classes in emit.picture_classes(graph).items():
+        report(f"pictures, {standing}: {emit.named_classes(classes)}")
+    loose = emit.unplaced_parts(graph)
+    counted = ", ".join(f"{cls} {n}" for cls, n in loose.items()) or "none"
+    report(f"pictures, parts not placed: {counted}")
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")

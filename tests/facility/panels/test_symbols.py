@@ -138,6 +138,16 @@ THEME_ROLES = {
     "MINOR",
     "MAJOR",
     "DISCONNECTED",
+    # what a magnet's drawing is made of: material, never a type or a state
+    "Material_Steel",
+    "Material_Steel_Dark",
+    "Material_Steel_Edge",
+    "Material_Copper",
+    "Material_Copper_Edge",
+    "Material_Winding",
+    "Material_Water",
+    "Material_Winding_2",
+    "Material_Bore",
 }
 NEUTRAL_ROLES = {
     "Page_Background",

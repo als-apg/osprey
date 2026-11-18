@@ -97,6 +97,16 @@ BENCH_TINT = role("Basis_Bench_Tint", "#e3eefa", "#1f3347")
 SURVEY_TINT = role("Basis_Survey_Tint", "#dff3f1", "#173a38")
 BEAM_TINT = role("Basis_Beam_Tint", "#e1f2e8", "#1a3627")
 DISAGREE_TINT = role("Disagree_Tint", "#efe3f5", "#33263d")
+# what a magnet's drawing is made of: material, never state (a picture's own colours)
+STEEL = role("Material_Steel", "#9aa3b2", "#4b5364")  # poles, a terminal block
+STEEL_DARK = role("Material_Steel_Dark", "#c3c9d3", "#3a4150")  # the yoke
+STEEL_EDGE = role("Material_Steel_Edge", "#d3d7de", "#353b47")
+COPPER = role("Material_Copper", "#c06f25", "#c9803c")  # a main coil
+COPPER_EDGE = role("Material_Copper_Edge", "#8a4d18", "#8a5526")
+WINDING = role("Material_Winding", "#2f6fb0", "#6fa8dc")  # a corrector winding
+WATER = role("Material_Water", "#1f7fa6", "#4aa3c7")  # a manifold
+WINDING_2 = role("Material_Winding_2", "#7a4fb3", "#b58be0")  # a second winding, stacked
+BORE = role("Material_Bore", "#eef0f3", "#15181d")  # the bore, the gap
 #: The curves of one plot, in turn: page text first, then two hues that are no state.
 CURVE_2 = role("Curve_2", "#1f6fb8", "#5aa5e6")
 CURVE_3 = role("Curve_3", "#b45309", "#f0a050")

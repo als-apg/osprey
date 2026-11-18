@@ -211,15 +211,22 @@ def test_an_excluded_thing_is_never_read(panel_graph):
 
 
 def test_a_roll_up_does_not_read_values_outside_its_channels(panel_graph):
-    class Strict(dict):
+    class Recording(dict):
+        read: list[str]
+
         def __getitem__(self, key):
-            raise AssertionError(key)
+            self.read.append(key)
+            return super().__getitem__(key)
 
         def get(self, key, default=None):
-            assert key in {PUMP, SUPPLY, *PLACE_XR02, "XR02-BEND1:Current-RB"}, key
+            self.read.append(key)
             return super().get(key, default)
 
-    rollup(panel_graph, "XR", Strict({PUMP: 1, SUPPLY: 1}))
+    values = Recording({PUMP: 1, SUPPLY: 1})
+    values.read = []
+    rollup(panel_graph, "XR", values)
+    assert values.read
+    assert set(values.read) <= {PUMP, SUPPLY, *PLACE_XR02, "XR02-BEND1:Current-RB"}
 
 
 def test_a_roll_up_over_a_large_place_is_linear():

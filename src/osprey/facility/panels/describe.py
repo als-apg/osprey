@@ -631,13 +631,18 @@ def _within(graph: PanelGraph, index: _Index, place: Thing) -> list[Item]:
     return items
 
 
-def _pictures(graph: PanelGraph, thing: Thing) -> list[Item]:
+def _pictures(graph: PanelGraph, thing: Thing, symbols: Mapping[str, str]) -> list[Item]:
+    """A device's drawing per view of its class, each row with the channel its
+    ``signal`` resolves to on this device (:meth:`PanelGraph.picture_channel`)."""
     if thing.kind != "device" or thing.cls is None:
         return []
     views: dict[str, list] = {}
-    for part in graph.pictures(thing.cls):
+    for part in graph.pictures(thing.cls, thing.id):
+        if part.signal is not None:
+            part = dataclasses.replace(part, channel=graph.picture_channel(thing.id, part.signal))
         views.setdefault(part.view, []).append(part)
-    return [Picture(thing.cls, view, tuple(parts)) for view, parts in views.items()]
+    symbol = symbols.get(thing.cls)
+    return [Picture(thing.cls, view, tuple(parts), symbol) for view, parts in views.items()]
 
 
 #: The section a pickup's cross-section is drawn in.
@@ -701,6 +706,7 @@ def device_card(
     kind: ThingKind | None = None,
     *,
     rack_classes: frozenset[str] = frozenset(),
+    symbols: Mapping[str, str] = _EMPTY,
 ) -> View:
     """The card of a device, a place or a group.
 
@@ -717,6 +723,7 @@ def device_card(
         thing_id: The thing.
         kind: Picks between things that share an id.
         rack_classes: The place levels that mark a rack, as passed to :func:`targets`.
+        symbols: Device class to strip symbol; a picture is drawn in its symbol's colour.
 
     Raises:
         KeyError: No such thing, or it is excluded.
@@ -749,7 +756,7 @@ def device_card(
             *_neighbours(graph, index, thing),
             (PROBE_SECTION, _probe(graph, thing)),
             ("calibration", _calibration(graph, index, thing)),
-            ("picture", _pictures(graph, thing)),
+            ("picture", _pictures(graph, thing, symbols)),
             ("where", _where(graph, index, thing, rack_classes)),
             ("sources", sources),
         ]
@@ -761,7 +768,6 @@ def device_card(
 
 # -- calibration -----------------------------------------------------------------
 
-_NO_VALUE = "no value yet"
 _WANTED = "{} wanted"
 _FIRST = "first value"
 _REPLACES = "replaces {}"
@@ -1719,7 +1725,9 @@ def describe(
         ValueError: The target's view kind is unknown.
     """
     if target.view == "card":
-        return device_card(graph, target.id, target.kind, rack_classes=rack_classes)
+        return device_card(
+            graph, target.id, target.kind, rack_classes=rack_classes, symbols=symbols
+        )
     if target.view == "set":
         return set_overview(graph, target.id)
     if target.view == "calibration":

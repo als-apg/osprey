@@ -1,6 +1,6 @@
 """The rule tables a facility repository writes beside its facility file.
 
-A panels directory holds six CSV files; :data:`COLUMNS` is each one's header
+A panels directory holds the CSV files below; :data:`COLUMNS` is each one's header
 line, the schema this module holds them to:
 
 - ``positions.csv``: where a thing sits, one row per thing and frame;
@@ -10,12 +10,16 @@ line, the schema this module holds them to:
 - ``health.csv``: the state a channel's value means, one row per stated value
   and source, so two sources may state two states for one value;
 - ``excluded.csv``: things, channels and documents no screen shows;
-- ``pictures.csv``: the parts drawn on a device class's picture;
+- ``pictures.csv``: the drawing of a device class, seen from the end or the
+  side: its body (yoke, poles, coils, corrector windings, bore) and its parts
+  at their positions (see :class:`PicturePart`);
 - ``names.csv``: a thing's short name; ``metrics.csv``: the key numbers;
 - ``calibration_kinds.csv``: the calibration quantities a device class has;
 - ``calibrations.csv``: the calibration claims, one value of one kind for one
   subject each, with basis, date, source and standing;
-- ``calibration_curves.csv``: the points of a claim whose value is a curve.
+- ``calibration_curves.csv``: the points of a claim whose value is a curve;
+- ``state_labels.csv``: the word a discrete channel's value means, one row per
+  channel and value, as its record states it.
 
 ``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
 must be there; every other file may be absent, which reads as empty. Across
@@ -33,6 +37,7 @@ on.
 from __future__ import annotations
 
 import csv
+import dataclasses
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +53,7 @@ __all__ = [
     "OPTIONAL_COLUMNS",
     "OPTIONAL_FILES",
     "TOLERANCE_TERMS",
+    "PICTURE_SHAPES",
     "PICTURE_VIEWS",
     "PROBE_NEEDS",
     "PROBE_SHAPES",
@@ -60,6 +66,7 @@ __all__ = [
     "PanelTables",
     "PicturePart",
     "ShortName",
+    "StateLabel",
     "Metric",
     "CalibrationKind",
     "Calibration",
@@ -84,6 +91,7 @@ CALIBRATION_KINDS = "calibration_kinds.csv"
 CALIBRATIONS = "calibrations.csv"
 CALIBRATION_CURVES = "calibration_curves.csv"
 PROBE_PICTURES = "probe_pictures.csv"
+STATE_LABELS = "state_labels.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -98,6 +106,7 @@ TABLE_FILES: tuple[str, ...] = (
     CALIBRATIONS,
     CALIBRATION_CURVES,
     PROBE_PICTURES,
+    STATE_LABELS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -147,7 +156,13 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "version",
             "state",
             "locator",
+            "w_mm",
+            "h_mm",
+            "angle_deg",
+            "signal",
+            "under",
         ],
+        STATE_LABELS: ["channel", "value", "label", "source", "revision", "locator"],
         NAMES: [
             "thing",
             "short_name",
@@ -229,6 +244,8 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
 OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         CALIBRATION_KINDS: frozenset({"under", "short"}),
+        # a file of the first eleven columns (parts at points, no signals) still reads
+        PICTURES: frozenset({"w_mm", "h_mm", "angle_deg", "signal", "under"}),
         PROBE_PICTURES: frozenset({"under"}),
         METRICS: frozenset({"precision"}),
     }
@@ -245,6 +262,7 @@ OPTIONAL_FILES = frozenset(
         CALIBRATIONS,
         CALIBRATION_CURVES,
         PROBE_PICTURES,
+        STATE_LABELS,
     }
 )
 
@@ -258,6 +276,9 @@ DRAWN_AS: tuple[str, ...] = ("value", "setpoint", "state", "command", "text", "w
 HEALTH_STATES: tuple[str, ...] = ("normal", "warn", "bad")
 EXCLUDED_KINDS: tuple[str, ...] = ("thing", "channel", "document")
 PICTURE_VIEWS: tuple[str, ...] = ("end", "side")
+#: The kinds of a ``pictures.csv`` row that draw the body of the class, not a part
+#: (in a file that has the size columns; in one without, every row is a part).
+PICTURE_SHAPES: tuple[str, ...] = ("yoke", "pole", "coil", "corrector_winding", "bore", "gap")
 METRIC_VIEWS: tuple[str, ...] = ("place", "rollup")
 #: What a key number computes over the channels its row selects.
 MEASURES: tuple[str, ...] = (
@@ -300,13 +321,14 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         PAIRS: ("setpoint", "readback", "basis"),
         HEALTH: ("channel", "value", "state", "basis"),
         EXCLUDED: ("kind", "id"),
-        PICTURES: ("device_class", "view", "part", "kind", "x_mm", "y_mm", "z_mm"),
+        PICTURES: ("device_class", "view", "part", "kind"),
         NAMES: ("thing", "short_name", "basis"),
         METRICS: ("view", "order", "title", "measure", "signal"),
         CALIBRATION_KINDS: ("kind", "title", "class", "shape", "wanted_basis"),
         CALIBRATIONS: ("id", "kind", "subject", "value", "basis", "standing"),
         CALIBRATION_CURVES: ("id", "x", "y"),
         PROBE_PICTURES: ("class", "element", "shape"),
+        STATE_LABELS: ("channel", "value", "label"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -324,6 +346,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CALIBRATIONS: {"basis": CALIBRATION_BASES, "standing": STANDINGS},
         CALIBRATION_CURVES: {},
         PROBE_PICTURES: {"shape": PROBE_SHAPES},
+        STATE_LABELS: {},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -339,7 +362,7 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "side_mm",
             "height_mm",
         ),
-        PICTURES: ("x_mm", "y_mm", "z_mm"),
+        PICTURES: ("x_mm", "y_mm", "z_mm", "w_mm", "h_mm", "angle_deg"),
         METRICS: ("order",),
         CALIBRATION_KINDS: ("order",),
         CALIBRATION_CURVES: ("x", "y"),
@@ -355,6 +378,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         METRICS: ("view", "level", "order"),
         CALIBRATION_KINDS: ("kind", "class"),
         CALIBRATIONS: ("id",),
+        STATE_LABELS: ("channel", "value"),
     }
 )
 
@@ -463,22 +487,157 @@ class Exclusion:
 
 @dataclass(frozen=True)
 class PicturePart:
-    """One row of ``pictures.csv``: a part drawn on a device class's picture."""
+    """One row of ``pictures.csv``: an element of a device class's drawing.
+
+    The drawing is in the plane of ``view``: ``end`` draws ``x_mm`` across and
+    ``y_mm`` up, looking along the beam; ``side`` draws ``z_mm`` across and
+    ``y_mm`` up. The origin is the beam axis. ``document``, ``version``,
+    ``state`` and ``locator`` cite where the row is stated.
+
+    By ``kind`` (:data:`PICTURE_SHAPES`; any other word is a part):
+
+    - ``yoke``: the iron, an ellipse ``w_mm`` across and ``h_mm`` high (a
+      circle when ``h_mm`` is empty) centred at ``x_mm``, ``y_mm``;
+    - ``outline``: one point of the yoke as a polygon (a hexagon, a C or an H),
+      the class's rows of this kind joined in file order;
+    - ``pole``: a rectangle ``w_mm`` wide and ``h_mm`` long, its length along
+      ``angle_deg`` (0 is +x, counter-clockwise), centred at ``x_mm``, ``y_mm``;
+    - ``coil``: the coil round the pole at the same ``angle_deg``: two sides,
+      each ``w_mm`` wide and ``h_mm`` long, one at each flank of that pole;
+      with no such pole, one block where the row puts it; its number in
+      ``part`` is drawn on the yoke ring at its angle (``coil 6``: 6); a
+      ``signal`` with a health row sets the outline of its blocks by state;
+    - ``corrector_winding``: a thin band outside each block of the coil at its
+      ``angle_deg``; a second row at the same angle is a second band, stacked
+      outside the first and drawn in a second colour;
+    - ``bore``: the aperture, an ellipse as the yoke's, with the beam at its
+      centre;
+    - ``gap``: instead of a bore, the gap between two pole faces: ``w_mm``
+      is its full height; ``angle_deg`` tilts the faces (a gradient); the beam
+      at ``x_mm``, ``y_mm``;
+    - any other word: a part, named by ``part``.
+
+    A class of two poles is drawn as a rectangular yoke with a pole above and below
+    the gap; of more, as a ring yoke (or the outline) with the poles at their
+    angles. A part sits by its kind: a water part (a kind naming a manifold, water
+    or cooling) or a terminal block is a block in a column beside the yoke, right of
+    it unless its row places it left: a position left of the beam, or with no
+    position an ``angle_deg`` pointing left (a source that states only the side,
+    "on the +x side", is ``angle_deg`` 0, and 180 for -x); with neither, a dashed
+    block in the row of parts not placed (it claims no side); any other part
+    is a sensor: with an ``angle_deg`` and no position, a dot on the coil at that
+    angle (two on one coil side by side); with a position, a dot on the coil nearest
+    its position's angle (a drawing with no coil: at its position); with neither, it
+    is not placed: a hollow ring in a row of its kind beside the drawing, and the
+    legend says "not placed".
+
+    ``x_mm``, ``y_mm`` and ``z_mm`` are optional on every row: a facility leaves
+    empty what no source states. A yoke, a bore or a gap with no position is
+    centred on the beam.
+
+    ``under`` (optional) is a place id: the row applies only to the devices of the
+    class in that place or a place within it (:meth:`PanelGraph.contents`, the walk
+    the place views use). Empty, it applies to every device of the class. Two
+    machines with devices of one class name (two rings' ``QF``) each state their
+    own rows under their own place; a device under neither gets no drawing, and
+    ``check`` notes nothing for it.
+
+    A shape row may leave its size empty, the normal case: a pole, a coil or a
+    corrector winding is then placed by its ``angle_deg`` alone (its ``x_mm``,
+    ``y_mm`` are not read), at the default proportions of
+    :mod:`osprey.facility.panels.picture`: a broad pole from the yoke's cavity to a
+    rounded tip short of the bore, the coil blocks along its flanks. The proportions
+    are scaled to a stated bore (or gap), else to a stated yoke or outline, else to
+    :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM`. The caption under the
+    drawing's scale bar names the row the drawing is scaled from and the kinds drawn
+    at the default proportion ("scaled from the yoke; pole, coil at default
+    proportions"), or says "size not stated" when no row states a size; a yoke no
+    row sizes has a dashed outline.
+
+    ``signal`` (any row) names what the element shows live: a signal name
+    stated on a channel, or a channel pattern with ``*``, ``?`` and ``[``
+    matched against channel names; looked for on the device, then on its
+    parts (the devices ``part_of`` it), then where it is read out
+    (:meth:`PanelGraph.picture_matches`).
+    A part whose signal has a health row shows its state where it sits; a value
+    its channel prints stands beside it; a part with no signal is drawn plain. No part is named on the drawing: its tooltip and the
+    legend under the drawing name it.
+
+    The last four columns are optional: a file of the first eleven reads as
+    before, every row a part at a point, a shape kind included. ``w_mm`` and
+    ``h_mm``, when stated, are above 0.
+    A class with shape or outline rows is drawn; one with parts only has them in
+    a dashed frame that says the outline is not stated; one with no rows has no
+    picture. An invented four-pole class (one pole, its coil, the bore, two
+    parts shown; ``x_mm``/``y_mm`` of a pole are its centre)::
+
+        device_class,view,part,kind,x_mm,y_mm,z_mm,document,version,state,locator,w_mm,h_mm,angle_deg,signal
+        Quad4,end,yoke,yoke,0,0,0,DWG-100,B,released,sheet 1,260,,,
+        Quad4,end,pole 1,pole,35.4,35.4,0,DWG-100,B,released,sheet 1,24,70,45,
+        Quad4,end,coil 1,coil,45.3,45.3,0,DWG-100,B,released,sheet 1,10,36,45,
+        Quad4,end,bore,bore,0,0,0,DWG-100,B,released,sheet 1,30,,,
+        Quad4,end,switch 1,thermal_switch,70,95,0,DWG-100,B,released,sheet 3,,,,switch_1_status
+        Quad4,end,water in,manifold,150,-40,0,DWG-100,B,released,sheet 3,,,,
+    """
 
     device_class: str
     view: str
     part: str
     kind: str
-    x_mm: float
-    y_mm: float
-    z_mm: float
+    x_mm: float | None
+    y_mm: float | None
+    z_mm: float | None
     document: str | None
     version: str | None
     state: str | None
     locator: str | None
-    #: The channel the part reads, for a light on the picture. A hook: the
-    #: table has no column for it yet, so every row read today gives ``None``.
+    w_mm: float | None = None
+    h_mm: float | None = None
+    angle_deg: float | None = None
+    signal: str | None = None
+    under: str | None = None
+    #: The channel ``signal`` resolves to on one device: set when a card is
+    #: described (:func:`osprey.facility.panels.describe.device_card`), ``None``
+    #: as the table is read.
     channel: str | None = None
+    #: Read from a file without the size columns: the row is a part at a point,
+    #: whatever its kind.
+    as_point: bool = False
+
+    @property
+    def shape(self) -> bool:
+        """Whether the row draws the body: a shape kind, from a file with the size columns."""
+        return self.kind in PICTURE_SHAPES and not self.as_point
+
+    @property
+    def sized(self) -> bool:
+        """Whether the row states its size (its width)."""
+        return self.w_mm is not None
+
+    @property
+    def positioned(self) -> bool:
+        """Whether the row states its position in its view's plane."""
+        across = self.z_mm if self.view == "side" else self.x_mm
+        return across is not None and self.y_mm is not None
+
+    @property
+    def placed(self) -> bool:
+        """Whether the row places its part: a position, or an angle (its coil's)."""
+        return self.positioned or self.angle_deg is not None
+
+
+@dataclass(frozen=True)
+class StateLabel:
+    """One row of ``state_labels.csv``: the word a discrete channel's *value* means,
+    as its record states it (kept as stated, even where it reads inverted: the
+    colour of a state comes from ``health.csv``, never from the word)."""
+
+    channel: str
+    value: str
+    label: str
+    source: str | None
+    revision: str | None
+    locator: str | None
 
 
 @dataclass(frozen=True)
@@ -652,6 +811,7 @@ class PanelTables:
     calibrations: tuple[Calibration, ...] = ()
     calibration_curves: tuple[CurvePoint, ...] = ()
     probe_pictures: tuple[ProbeElement, ...] = ()
+    state_labels: tuple[StateLabel, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -668,6 +828,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CALIBRATIONS: Calibration,
         CALIBRATION_CURVES: CurvePoint,
         PROBE_PICTURES: _probe_element,
+        STATE_LABELS: StateLabel,
     }
 )
 
@@ -799,6 +960,11 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             _check_kind_unit(rows[-1], line)
         if name == PROBE_PICTURES:
             _check_probe_row(rows[-1], line, seen_probe)
+        if name == PICTURES:
+            if "w_mm" in header:
+                _check_picture_row(rows[-1], line)
+            else:
+                rows[-1] = dataclasses.replace(rows[-1], as_point=True)
         if lines is not None:
             lines.append(line)
     return tuple(rows)
@@ -840,6 +1006,14 @@ def _check_probe_row(row: ProbeElement, line: int, seen: dict[tuple[str | None, 
                 f"class {row.cls}{under} already has {what} at line {seen[key]}",
             )
         seen[key] = line
+
+
+def _check_picture_row(row: PicturePart, line: int) -> None:
+    """A size a pictures row states is above 0; a row may state none."""
+    for column in ("w_mm", "h_mm"):
+        value = getattr(row, column)
+        if value is not None and not value > 0:
+            raise PanelTableError(PICTURES, line, f"{column} is {value:g}, not above 0")
 
 
 def _check_calibrations(
@@ -897,6 +1071,7 @@ def read_tables(panels_dir: Path) -> PanelTables:
         metrics=_read(directory, METRICS),
         **_read_calibrations(directory),
         probe_pictures=_read(directory, PROBE_PICTURES),
+        state_labels=_read(directory, STATE_LABELS),
     )
 
 

@@ -42,7 +42,8 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     )
     assert ",".join(COLUMNS["excluded.csv"]) == "kind,id,reason,source,revision,locator"
     assert ",".join(COLUMNS["pictures.csv"]) == (
-        "device_class,view,part,kind,x_mm,y_mm,z_mm,document,version,state,locator"
+        "device_class,view,part,kind,x_mm,y_mm,z_mm,document,version,state,locator,"
+        "w_mm,h_mm,angle_deg,signal,under"
     )
     assert ",".join(COLUMNS["names.csv"]) == (
         "thing,short_name,scheme,basis,document,version,state,locator"
@@ -58,6 +59,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
         "supersedes,standing"
     )
     assert ",".join(COLUMNS["calibration_curves.csv"]) == "id,x,y"
+    assert ",".join(COLUMNS["state_labels.csv"]) == "channel,value,label,source,revision,locator"
     assert OPTIONAL_FILES == frozenset(
         {
             "pictures.csv",
@@ -68,6 +70,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
             "calibrations.csv",
             "calibration_curves.csv",
             "probe_pictures.csv",
+            "state_labels.csv",
         }
     )
 
@@ -96,7 +99,7 @@ def test_the_fixture_tables_read(panel_tables: Path) -> None:
 def test_a_missing_optional_file_is_empty(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
     for name in OPTIONAL_FILES:
-        (directory / name).unlink()
+        (directory / name).unlink(missing_ok=True)
     tables = read_tables(directory)
     assert tables.pictures == ()
     assert tables.excluded == ()
@@ -310,3 +313,33 @@ def test_a_metric_may_state_its_decimals_and_nothing_else_there(tmp_path) -> Non
     path.write_text("\n".join([lines[0] + ",precision", lines[1] + ",1.5"]) + "\n")
     with pytest.raises(PanelTableError, match="precision"):
         read_tables(tables)
+
+
+def test_state_labels_read_one_word_per_channel_and_value(tmp_path) -> None:
+    from osprey.facility.panels.tables import STATE_LABELS
+
+    tables = copy_tables(tmp_path / "panels")
+    assert read_tables(tables).state_labels == ()  # absent: no words
+    header = "channel,value,label,source,revision,locator\n"
+    (tables / STATE_LABELS).write_text(header + "X:A,0,Closed,S,1,l\nX:A,1,Open,S,1,l\n")
+    assert [(r.value, r.label) for r in read_tables(tables).state_labels] == [
+        ("0", "Closed"),
+        ("1", "Open"),
+    ]
+    (tables / STATE_LABELS).write_text(header + "X:A,1,Open,S,1,l\nX:A,1,Shut,S,1,l\n")
+    with pytest.raises(PanelTableError, match="already has a row"):
+        read_tables(tables)
+
+
+def test_the_graph_finds_a_state_word_for_a_value_however_it_is_written(tmp_path) -> None:
+    from osprey.facility.panels.model import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "state_labels.csv").write_text(
+        "channel,value,label,source,revision,locator\nXR01-PS1:On-Cmd,1,On,S,1,l\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    for value in (1, 1.0, "1", " 1 "):
+        assert graph.state_label("XR01-PS1:On-Cmd", value) == "On"
+    assert graph.state_label("XR01-PS1:On-Cmd", 0) is None

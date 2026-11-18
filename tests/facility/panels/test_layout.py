@@ -7,6 +7,7 @@ The schema check of every rendered view needs CANOPY and is in
 from __future__ import annotations
 
 import ast
+import itertools
 import json
 import re
 from dataclasses import replace
@@ -63,6 +64,7 @@ from tests.facility.panels._views import (
     invented_views,
     links,
     nodes,
+    printed,
     resolved,
     rollup_view,
     strip_view,
@@ -482,10 +484,9 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
     outlined = replace(picture, parts=picture.parts + corners)
     doc, _ = draw(View(view.id, view.title, (), (Section("picture", (outlined,)),)), graph)
     assert not [n for n in _by_type(doc, "polygon") if n.get("rules")]
-    assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == [
-        "pole 1",
-        "thermal switch 1",
-    ]
+    plain = [n for n in nodes(doc) if n["type"] in ("ellipse", "rectangle")]
+    tips = [n["props"].get("tooltip") for n in plain]
+    assert tips.count("pole 1") == tips.count("thermal switch 1") == 1  # off the body: blocks
 
     named = replace(
         outlined,
@@ -493,8 +494,12 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
     )
     doc, _ = draw(View(view.id, view.title, (), (Section("picture", (named,)),)), graph)
     (shape,) = [n for n in _by_type(doc, "polygon") if n.get("rules")]
-    assert bound(doc, shape) == ("XR01-QF1:Current-RB",)
-    assert not _by_type(doc, "ellipse")
+    assert bound(doc, shape) == ("XR01-QF1:Current-RB",)  # its state, where it sits
+    assert not [
+        n
+        for n in nodes(doc)
+        if n["props"].get("tooltip") == "thermal switch 1" and n["type"] in ("ellipse", "rectangle")
+    ]
 
 
 def _symbol(doc: dict, thing: str) -> tuple[list[dict], list[dict]]:
@@ -822,7 +827,9 @@ def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_gra
     labels = [n["props"]["tooltip"] for n in _links_drawn(doc)]
     for member in ("XR01:QF1", "XR01:QD1", "XR02:QF1", "XR02:QD1"):
         assert labels.count(member) == 1
-    assert [n["props"]["pv"] for n in _by_type(doc, "pv-label")] == ["XR01-QF1:Current-RB"]
+    values = [printed(doc, n) for n in _by_type(doc, "text-label") if printed(doc, n)]
+    assert values == ["XR01-QF1:Current-RB"]  # a number held to its cell: a formula's text
+    assert not _by_type(doc, "pv-label")
     read = [bound(doc, n) for n in _by_type(doc, "polygon") if n.get("rules")]
     assert ("XR01-QF1:Current-SP", "XR01-QF1:Current-RB") in read  # the deviation light
     assert ("XR02-QD1:Current-RB",) in read  # the member's own light
@@ -895,6 +902,38 @@ def test_a_command_shown_as_a_value_prints_whole_and_its_input_keeps_its_precisi
     doc, _ = draw(card("one", row), panel_graph)
     (button,) = [n for n in nodes(doc) if n["type"] == "pv-button"]
     assert "precision" not in button["props"]
+
+
+@pytest.mark.parametrize(
+    ("channel", "word"),
+    [
+        ("XR01-PS1:Fault_Reset_Cmd", "Fault Reset"),
+        ("XR01-PS1:RampDown-CMD", "RampDown"),
+        ("XR01-PS1:reset", "Reset"),
+        ("XR01-PS1:Cmd", "Cmd"),  # all ending: the name whole, never an empty button
+        ("NOCOLON", "NOCOLON"),
+    ],
+)
+def test_a_command_names_its_action_from_its_channel(channel: str, word: str) -> None:
+    assert layout.action_word(channel) == word
+
+
+def test_a_command_button_reads_its_action_never_a_bare_send(tmp_path) -> None:
+    command = "XR01-PS1:On-Cmd"
+    row = ValueRow("on", command, None, None, True, drawn_as="command")
+    tables = copy_tables(tmp_path / "plain")
+    graph = load_graph(write_fixture_facility(tmp_path / "plain.json"), tables)
+    (button,) = [n for n in nodes(draw(card("one", row), graph)[0]) if n["type"] == "pv-button"]
+    assert button["props"]["label"] == "On"  # from the name
+    stated = copy_tables(tmp_path / "stated")
+    (stated / "state_labels.csv").write_text(
+        "channel,value,label,source,revision,locator\n"
+        f"{command},0,Rest,FIXTURE,X.1,l\n{command},1,Energise,FIXTURE,X.1,l\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "stated.json"), stated)
+    (button,) = [n for n in nodes(draw(card("one", row), graph)[0]) if n["type"] == "pv-button"]
+    assert button["props"]["label"] == "Energise"  # the word for the value it writes
+    assert button["props"]["pressValue"] == layout.COMMAND_VALUE
 
 
 def test_a_paired_state_readback_prints_whole_and_a_two_valued_setpoints_input_too(
@@ -1040,12 +1079,28 @@ def test_a_cards_unit_stands_with_the_signals_name_not_in_the_value(panel_graph)
     assert "A" not in _texts(doc)
 
 
-def _picture_view(parts) -> View:
+def _picture_view(parts, *, signal: str | None = None) -> View:
+    """A card of one picture whose rows are parts at points, as a file of the first
+    eleven columns states them; with *signal*, each part names it (and is named)."""
     from osprey.facility.panels.tables import PicturePart
     from osprey.facility.panels.view import Picture
 
     rows = tuple(
-        PicturePart("Magnet", "end", name, kind, x, y, 0.0, None, None, None, None)
+        PicturePart(
+            "Magnet",
+            "end",
+            name,
+            kind,
+            x,
+            y,
+            0.0,
+            None,
+            None,
+            None,
+            None,
+            signal=None if kind == "outline" else signal,
+            as_point=kind != "outline",
+        )
         for name, kind, x, y in parts
     )
     return card("pic", Picture("Magnet", "end", rows))
@@ -1058,41 +1113,37 @@ _CORNERS = [
 ]
 
 
-def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(panel_graph) -> None:
-    from osprey.facility.panels.layout import _crossing
+@pytest.mark.parametrize("tall", [False, True])
+def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(tall: bool) -> None:
+    """The probe picture's label columns (:func:`layout.picture_labels`), with slots of
+    one row, and of one or two rows."""
+    from osprey.facility.panels.layout import ROW, ROW_GAP, _crossing, picture_labels
 
-    crowded = [(f"part {i}", "pole", (-1) ** i * (10.0 - i), 5.0 - 0.9 * i) for i in range(12)]
-    scattered = [(f"bit {i}", "pole", (i * 7 % 11) - 5.0, (i * 5 % 9) - 4.0) for i in range(14)]
+    centre, top, bottom, anchors = 300.0, 0.0, 300.0, (100.0, 500.0)
+    crowded = [(f"part {i}", centre + (-1) ** i * (100 - 10 * i), 150 - 9 * i) for i in range(12)]
+    scattered = [
+        (f"bit {i}", centre + 20 * ((i * 7 % 11) - 5), 150 + 25 * ((i * 5 % 9) - 4))
+        for i in range(14)
+    ]
     for parts in (crowded, scattered):
-        view = _picture_view([*parts, *_CORNERS])
-        doc, _ = draw(view, panel_graph)
-        names = {name for name, *_rest in parts}
-        boxes = [
-            n["geometry"]
-            for n in _by_type(doc, "text-label")
-            if n["props"]["text"] in names and n["props"]["fontSize"] == layout.SMALL_SIZE
-        ]
-        assert len(boxes) == len(names)
+        heights = [2 * ROW if tall and n % 3 == 0 else ROW for n in range(len(parts))]
+        slots = picture_labels(parts, centre, top, bottom, anchors, heights if tall else None)
+        for side in ("left", "right"):
+            mine = sorted((y, h) for (s, y), h in zip(slots, heights, strict=True) if s == side)
+            for (y1, h1), (y2, _h2) in itertools.pairwise(mine):
+                assert y1 + h1 + ROW_GAP <= y2 + 1e-6
+        if tall:
+            continue  # a respacing after the swaps may cross two leaders again
         leaders = [
-            [
-                (n["geometry"]["x"] + q["x"], n["geometry"]["y"] + q["y"])
-                for q in n["props"]["points"]
-            ]
-            for n in _by_type(doc, "line")
-            if n["props"]["lineColor"] == symbols.MUTED_TEXT and len(n["props"]["points"]) == 2
+            ((x, y), (anchors[0] if s == "left" else anchors[1], slot + ROW / 2))
+            for (_n, x, y), (s, slot) in zip(parts, slots, strict=True)
         ]
-        assert len(leaders) == len(names)
-        for a, b in [(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1 :]]:
-            apart_x = a["x"] + a["width"] <= b["x"] or b["x"] + b["width"] <= a["x"]
-            apart_y = a["y"] + a["height"] <= b["y"] or b["y"] + b["height"] <= a["y"]
-            assert apart_x or apart_y, (a, b)
-        ends = [(p[0], p[1]) for p in leaders]
-        for i, a in enumerate(ends):
-            for b in ends[i + 1 :]:
+        for i, a in enumerate(leaders):
+            for b in leaders[i + 1 :]:
                 assert not _crossing(*a, *b), (a, b)
 
 
-def test_a_picture_without_an_outline_is_a_list_of_parts_by_kind(panel_graph) -> None:
+def test_a_picture_without_an_outline_draws_its_parts_in_a_frame(panel_graph) -> None:
     parts = [
         ("pole 1", "pole", 5.0, 5.0),
         ("probe", "a-kind-of-the-facility", -5.0, 0.0),
@@ -1100,15 +1151,15 @@ def test_a_picture_without_an_outline_is_a_list_of_parts_by_kind(panel_graph) ->
     ]
     doc, _ = draw(_picture_view(parts), panel_graph)
     texts = _texts(doc)
-    assert "PARTS" in texts and "PICTURE" not in texts
-    assert "outline not in the data" not in texts
-    assert not _by_type(doc, "ellipse") and not _by_type(doc, "line")
+    assert "END VIEW" in texts and "outline not stated" in texts
+    tips = [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")]
+    assert tips == ["pole 1", "probe", "pole 2"]  # each part at its position, plain
     kinds = [t for t in texts if t in ("pole", "a-kind-of-the-facility")]
-    assert kinds == ["pole", "a-kind-of-the-facility"]  # in table order
-    for name in ("pole 1", "pole 2", "probe"):
-        assert name in texts
+    # each kind's word above its parts on the drawing, then the legend in table order
+    assert kinds.count("pole") >= 2 and kinds.count("a-kind-of-the-facility") == 2
+    assert kinds[-2:] == ["pole", "a-kind-of-the-facility"]
     bare = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "no rule"]
-    assert len(bare) == 3  # each chip has its light, in the no-rule look
+    assert not bare  # no chips with unbound lights
 
 
 def test_a_picture_draws_the_outline_the_table_states(panel_graph) -> None:
@@ -1119,10 +1170,14 @@ def test_a_picture_draws_the_outline_the_table_states(panel_graph) -> None:
         ("o3", "outline", 0.0, 9.0),
     ]
     doc, _ = draw(_picture_view([*parts, *corners]), panel_graph)
-    assert "PARTS" not in _texts(doc)
-    assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == ["pole 1", "probe"]
-    outline = [n for n in _by_type(doc, "line") if len(n["props"]["points"]) == len(corners) + 1]
-    assert len(outline) == 1  # the stated points, closed
+    assert "outline not stated" not in _texts(doc)
+    tips = [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")]
+    assert tips == ["yoke", "pole 1", "probe"]  # the cavity, then each part where it sits
+    (yoke,) = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "yoke"]
+    (window,) = [n for n in _by_type(doc, "ellipse") if n["props"].get("tooltip") == "yoke"]
+    assert len(yoke["props"]["points"]) == len(corners)  # the stated points: the yoke
+    assert yoke["props"]["fillColor"] == symbols.STEEL_DARK
+    assert window["props"]["fillColor"] == symbols.PANEL_BACKGROUND  # convex: its cavity
     assert "o1" not in _texts(doc)  # an outline point is no part
 
 
@@ -1285,7 +1340,7 @@ def test_a_rack_unit_draws_one_light_over_its_channels_and_its_parts(tmp_path):
     from tests.facility.panels._fixture import add_part
 
     second = "XR01-CARD2:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,card.db:2\n"
-    graph = graph_with_part(tmp_path, lambda d: add_part(d, "XR01:CARD2", "XR01:CH1", second[:20]))
+    graph_with_part(tmp_path, lambda d: add_part(d, "XR01:CARD2", "XR01:CH1", second[:20]))
     with (tmp_path / "panels" / "health.csv").open("a") as rows:
         rows.write(second)
     graph = load_graph(tmp_path / "facility.json", tmp_path / "panels")

@@ -328,12 +328,16 @@ class Picture:
     Attributes:
         device_class: The class.
         view: ``end`` or ``side``.
-        parts: The ``pictures.csv`` rows of that view, in file order.
+        parts: The ``pictures.csv`` rows of that view, in file order, each with
+            the channel its ``signal`` resolves to on the device.
+        symbol: The class's strip symbol (the drawing settings' ``symbols``),
+            whose colour the body is drawn in; ``None`` when it has none.
     """
 
     device_class: str
     view: str
     parts: tuple[PicturePart, ...]
+    symbol: str | None = None
 
 
 @dataclass(frozen=True)

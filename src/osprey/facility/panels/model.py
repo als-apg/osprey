@@ -46,6 +46,7 @@ one), unless :func:`load_graph` is told which.
 from __future__ import annotations
 
 import dataclasses
+import fnmatch
 import hashlib
 import json
 from collections import Counter
@@ -342,6 +343,16 @@ def _disagree(a: Calibration, b: Calibration, tolerance: tuple[str, float] | Non
     )
 
 
+def _value_key(value: object) -> str:
+    """A discrete value as one text: a whole number without its point."""
+    text = str(value).strip()
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    return str(int(number)) if number.is_integer() else text
+
+
 class PanelGraph:
     """The things, channels, relations, poses and rules screens are drawn from.
 
@@ -398,10 +409,14 @@ class PanelGraph:
                 self._rules.setdefault(rule.channel, []).append(rule)
         self._read_pairs(tables)
         self._pictures: dict[str, list[PicturePart]] = {}
+        self._held_by: dict[str, frozenset[str]] = {}
         for part in tables.pictures:
             if part.document not in self._excluded_documents:
                 self._pictures.setdefault(part.device_class, []).append(part)
         self._read_calibrations(tables)
+        self._labels: dict[tuple[str, str], str] = {
+            (row.channel, _value_key(row.value)): row.label for row in tables.state_labels
+        }
 
     def _read_calibrations(self, tables: PanelTables) -> None:
         self._kinds = {(kind.kind, kind.cls): kind for kind in tables.calibration_kinds}
@@ -880,9 +895,25 @@ class PanelGraph:
         """The ``record_types.csv`` row of a channel the graph holds, or ``None``."""
         return self._types.get(channel)
 
-    def pictures(self, device_class: str) -> list[PicturePart]:
-        """The ``pictures.csv`` rows of a device class, in file order."""
-        return list(self._pictures.get(device_class, ()))
+    def pictures(self, device_class: str, device: str | None = None) -> list[PicturePart]:
+        """The ``pictures.csv`` rows of a device class, in file order; with *device*,
+        only those that apply to it: a row with no ``under``, or one whose ``under``
+        place holds the device (:meth:`contents`). A row under a place the graph
+        does not hold applies to no device."""
+        rows = list(self._pictures.get(device_class, ()))
+        if device is None:
+            return rows
+        return [r for r in rows if r.under is None or device in self._held(r.under)]
+
+    def _held(self, place_id: str) -> frozenset[str]:
+        """The ids of the devices in a place (:meth:`contents`), once per place."""
+        if place_id not in self._held_by:
+            try:
+                things = self.contents(place_id)
+            except KeyError:
+                things = []
+            self._held_by[place_id] = frozenset(t.id for t in things if t.kind == "device")
+        return self._held_by[place_id]
 
     def metrics(self, view: str, level: str | None) -> list[Metric]:
         """The rows of ``metrics.csv`` for *view* (``place`` or ``rollup``) of a place
@@ -1070,6 +1101,66 @@ class PanelGraph:
             KeyError: No such device.
         """
         return next(iter(self.signal_channels(device_id, signal)), None)
+
+    def picture_matches(self, device_id: str, signal: str) -> list[tuple[str, str]]:
+        """What a ``pictures.csv`` row's *signal* matches for a device, as ``(device,
+        channel)`` pairs from the first of these levels that has any: (1) the device
+        itself; (2) its parts, the devices ``part_of`` it (one level); (3) the device
+        the ``port`` of its ``read_out_by`` claims names; (4) the devices it is read
+        out by. *signal* is a signal name, matched against a channel's stated
+        signal, or a pattern with ``*``, ``?`` or ``[``, matched against channel
+        names. Matches on more than one device of a level are all returned: the
+        caller says which it shows (:meth:`picture_channel`) and ``check`` notes them.
+
+        Raises:
+            KeyError: No such device.
+        """
+        pattern = any(mark in signal for mark in "*?[")
+        edges = self.neighbours(device_id, "device")
+        parts = [
+            edge.other
+            for edge in edges.get(PART_RELATION, ())
+            if not edge.outgoing and edge.other_kind == "device"
+        ]
+        read = [
+            edge
+            for edge in edges.get(READ_OUT_RELATION, ())
+            if edge.outgoing and edge.other_kind == "device"
+        ]
+        ports = [
+            edge.other_port
+            for edge in read
+            if edge.other_port is not None and ("device", edge.other_port) in self._things
+        ]
+        for level in ([device_id], parts, ports, [edge.other for edge in read]):
+            found = [
+                (each, channel.name)
+                for each in dict.fromkeys(level)
+                for channel in self.channels(each, "device")
+                if (
+                    fnmatch.fnmatchcase(channel.name, signal)
+                    if pattern
+                    else channel.signal == signal
+                )
+            ]
+            if found:
+                return found
+        return []
+
+    def picture_channel(self, device_id: str, signal: str) -> str | None:
+        """The channel a ``pictures.csv`` row's *signal* shows on a device: the first
+        of :meth:`picture_matches`, or ``None`` when nothing matches.
+
+        Raises:
+            KeyError: No such device.
+        """
+        found = self.picture_matches(device_id, signal)
+        return found[0][1] if found else None
+
+    def state_label(self, channel: str, value: object) -> str | None:
+        """The word ``state_labels.csv`` states for *channel* at *value* (``1``,
+        ``1.0`` and ``"1"`` are one value), or ``None``."""
+        return self._labels.get((channel, _value_key(value)))
 
     def pair(self, setpoint: str) -> Pair | None:
         """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""
