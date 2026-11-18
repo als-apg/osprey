@@ -20,7 +20,7 @@ from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.facility import views
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.render import WrittenViews, render_facility_outputs
 from osprey.facility.views.benchmarks import (
     BENCHMARK_DATASET_KEY,
     QUERY_SOURCES,
@@ -153,7 +153,7 @@ def test_two_renders_that_differ_in_mode_each_carry_their_own_file(
     (view,) = [view for view in views.VIEWS if view.name == "benchmarks"]
     monkeypatch.setattr(views, "VIEWS", (view,))
     facility_dir = _facility_with_sources(tmp_path)
-    views_written: dict[Any, list[tuple[str, bytes]]] = {}
+    views_written: WrittenViews = {}
 
     for mode in ("in_context", "graph"):
         render_dir = tmp_path / mode

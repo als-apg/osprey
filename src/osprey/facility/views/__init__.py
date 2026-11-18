@@ -160,10 +160,37 @@ def view_bytes(document: Mapping[str, Any]) -> bytes:
     Returns:
         Its UTF-8 bytes.
     """
+    return json_bytes(document)
+
+
+def json_bytes(document: Any, *, sort_keys: bool = True) -> bytes:
+    """``(json.dumps(document, indent=2, ...) + "\\n").encode("utf-8")``, without its copies.
+
+    An indented ``json.dumps`` joins a list of every token it wrote, then the
+    text is copied once more into its bytes: for a document of a large facility
+    the transient copies are several times the size of the file. Encoding
+    into a byte buffer token by token holds only the bytes. The output is the
+    same, byte for byte: ``json.dump`` and ``json.dumps`` write one token
+    stream.
+
+    Args:
+        document: The document.
+        sort_keys: Whether keys are written sorted.
+
+    Returns:
+        Its UTF-8 bytes: two-space indent, non-ASCII written as itself, NaN
+        refused, one final newline.
+    """
+    import io
     import json
 
-    text = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
-    return (text + "\n").encode("utf-8")
+    buffer = io.BytesIO()
+    text = io.TextIOWrapper(buffer, encoding="utf-8", newline="")
+    json.dump(document, text, indent=2, sort_keys=sort_keys, ensure_ascii=False, allow_nan=False)
+    text.write("\n")
+    text.flush()
+    text.detach()
+    return buffer.getvalue()
 
 
 def report_omitted(view: View, reason: str) -> None:
