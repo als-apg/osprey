@@ -100,7 +100,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from .output import fail, report
+from .output import fail, report, warn
 from .phase_reporter import current_reporter
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
@@ -1305,7 +1305,7 @@ def panels_write(
                 only=(lambda t: all(test(t) for test in keep)) if keep else None,
             )
         for warning in caught:
-            click.echo(str(warning.message), err=True)
+            warn(str(warning.message))
     except emit.EmitError as error:
         fail("Nothing was written.", str(error))
         ctx.exit(1)
