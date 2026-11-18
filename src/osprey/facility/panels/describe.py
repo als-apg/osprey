@@ -2425,18 +2425,28 @@ def ring_strip(
     if len(set(labels)) < len(labels):  # one short name for two members: each its id
         out = [dataclasses.replace(m, label=m.thing) for m in out]
     places: list[tuple[str, int]] = []
-    if all(m.place is not None for m in members):  # by place, the places in ring order
+    held = _ring_places(graph, members)
+    if held:  # by place, in ring order; those with none last
         first: dict[str, int] = {}
         for i, member in enumerate(members):
-            first.setdefault(member.place or "", i)
-        rank = {m.id: (first[m.place or ""], i) for i, m in enumerate(members)}
+            if held.get(member.id) is not None:
+                first.setdefault(held[member.id] or "", i)
+        if ordered == RING_BY_NUMBER:  # no ring position: the places in number order
+            named = sorted(first, key=_number_key)
+            first = {place: n for n, place in enumerate(named)}
+        last = len(members)
+        rank = {
+            m.id: (first[held[m.id] or ""] if held.get(m.id) is not None else last, i)
+            for i, m in enumerate(members)
+        }
         out.sort(key=lambda m: rank[m.thing])
         members.sort(key=lambda m: rank[m.id])
         for member in members:
-            if places and places[-1][0] == member.place:
-                places[-1] = (places[-1][0], places[-1][1] + 1)
+            run = held.get(member.id) or _PLACE_NOT_STATED
+            if places and places[-1][0] == run:
+                places[-1] = (run, places[-1][1] + 1)
             else:
-                places.append((member.place or "", 1))
+                places.append((run, 1))
     caption = section.caption
     if ordered == RING_BY_NUMBER and not (caption or "").lower().startswith("in number order"):
         caption = "; ".join(c for c in (_RING_NUMBER_NOTE, caption) if c)
@@ -2446,6 +2456,39 @@ def ring_strip(
 
 
 _RING_NUMBER_NOTE = "in number order: positions not stated"
+#: A ring-strip runs by place at the finest level of the place tree that gives at
+#: most this many places, so a row holds a group, not one member.
+RING_PLACES_MOST = 8
+
+
+def _ring_places(graph: PanelGraph, members: list[Thing]) -> dict[str, str | None]:
+    """Each member's place at the finest level of the place tree whose places number
+    at most :data:`RING_PLACES_MOST` and at least two (``None`` for a member in no
+    place); empty when no level groups them."""
+    paths: dict[str, list[str]] = {}
+    for member in members:
+        path: list[str] = []
+        place = member.place
+        while place is not None and place not in path:
+            path.insert(0, place)
+            try:
+                place = graph.thing(place, "place").place
+            except KeyError:
+                break
+        paths[member.id] = path
+    deepest = max((len(p) for p in paths.values()), default=0)
+    for depth in range(deepest, 0, -1):
+        at = {
+            m: (p[depth - 1] if len(p) >= depth else (p[-1] if p else None))
+            for m, p in paths.items()
+        }
+        count = len({v for v in at.values() if v is not None})
+        if 1 < count <= RING_PLACES_MOST:
+            return at
+    return {}
+
+
+_PLACE_NOT_STATED = "place not stated"
 
 
 def chain_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:

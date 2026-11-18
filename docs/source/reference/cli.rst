@@ -1451,10 +1451,12 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    stated", each with the value or lamp of the first of the section's roles it
    plays (an empty ring where it plays none), the device in focus and every other
    opening its card; values are shown as numbers, since no table states a scale
-   for a bar. When every member has a place, the members run by place, a row
-   each under the place's name, the places in ring order; over the strip,
-   "giving <first role> now: n of m" counts the lamps ok now with one formula
-   over the same lamps' rules. A chain hop, a front connector's far end or a
+   for a bar. When the members have places, they run by place, a row each
+   under the place's name, at the finest level of the place tree that gives two
+   to eight places, in ring order (in number order without positions), those
+   with no place last; over the strip, "giving <first role> now: n of m" counts
+   the lamps ok now with one formula over the same lamps' rules, or, when that
+   formula is too long, each place's row counts its own. A chain hop, a front connector's far end or a
    ring-strip member that rests on a relation claim with ``basis: inferred``
    says "inferred" beside it, the claim's ``rule`` on hover ("the rule is not
    stated" when it has none). A ``ladder`` section draws the section's first role against the

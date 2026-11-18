@@ -569,6 +569,7 @@ _NEEDS_SERVER = "needs a server-side aggregate"
 _A_MEMBER_MISSING = "one of {} has no value"
 _NO_OK_STATED = "no ok state stated"
 _INFERRED_WORD = "inferred"
+_PER_PLACE = "counted per place"
 _MANY_VALUES = "{} channels state it: the row names no one"
 _DASH = "—"
 NO_VALUE = _DASH  # an annotation's text until its formula delivers, and while disconnected
@@ -2781,8 +2782,7 @@ class _Page:
         """One column per member in its order, wrapping into rows: its name, then the
         value or lamp of its role (a bare outline where it plays none: not served);
         the card's own device in the focus colour, every other opens its card."""
-        if ring.counted:
-            self.ok_count(ring)
+        whole = self.ok_count(ring) if ring.counted else True
         runs = list(ring.places) or [("", len(ring.members))]
         head = RING_PLACE_HEAD if ring.places else 0
         room = STRIP_WIDTH - head
@@ -2798,6 +2798,9 @@ class _Page:
                 self.small(
                     self.x0, self.y + GAP / 2, _cut(place, head - GAP, SMALL_SIZE), fg=MUTED_TEXT
                 )
+                lamps = _ring_lamps(ring.members[start : start + k])
+                if not whole and lamps:  # the count per place, under its name
+                    self.ok_label(self.x0, self.y + GAP / 2 + SMALL_LINE + ROW_GAP, lamps, place)
             self.ring_columns(ring.members[start : start + k], self.x0 + head, cw, per, height)
             start += k
         if ring.caption:
@@ -2806,61 +2809,75 @@ class _Page:
                 self.y += SMALL_LINE
         self.y += ROW_GAP
 
-    def ok_count(self, ring: RingStrip) -> None:
-        """Over a ring-strip: how many of its lamps are ok now, of how many, from one
-        formula over the same lamps' rules (a member in no ok state counts none);
-        "needs a server-side aggregate" when the formula is too long."""
-        lamps = [
-            r.channel
-            for m in ring.members
-            for r in m.rows[:1]
-            if r.shown_as == "lamp" and r.channel
-        ]
+    def ok_formula(self, channels: Sequence[str]) -> tuple[str, dict[str, str]] | None:
+        """How many of *channels*' lights are ok now: a sum of one term per light, its
+        arms in order up to its ok arm, first match wins as the light; ``None`` when
+        no light states an ok state."""
         terms: list[str] = []
         bindings: dict[str, str] = {}
-        for i, channel in enumerate(lamps):
+        for i, channel in enumerate(channels):
             rule = ladder(self.graph, [describe_light(self.graph, channel)])
-            if isinstance(rule, str) or not any(st == "normal" for _c, st in rule.arms):
+            if isinstance(rule, str):
+                continue
+            states = [st for _c, st in rule.arms]
+            if "normal" not in states:
                 continue  # no ok state stated: it counts none
+            arms = rule.arms[: states.index("normal") + 1]  # after the ok arm: none ok
             key = f"m{i}"
             bindings[key] = channel
             term = "0"
-            for condition, state in reversed(rule.arms):  # first match wins, as the light
+            for condition, state in reversed(arms):
                 term = f"({int(state == 'normal')} if {condition} else {term})"
             terms.append(term.replace("{0}", f"{{{key}}}"))
-        words = f"{ring.counted}:"
-        x = self.small(self.x0, self.y, words, fg=MUTED_TEXT) + GAP
-        expression = " + ".join(terms) if terms else "0"
-        reads = frozenset(bindings.values())
-        if (
-            not terms
-            or len(expression) > RULE_EXPRESSION_LIMIT
-            or not self.budget.take([(1, reads)])
+        return (" + ".join(terms), bindings) if terms else None
+
+    def ok_label(self, x: float, y: float, channels: Sequence[str], name: str) -> bool:
+        """At (*x*, *y*): "n of m" lights of *channels* ok now, from one formula;
+        False, and nothing drawn, when it cannot be written (too long, over budget,
+        no ok state stated)."""
+        found = self.ok_formula(channels)
+        if found is None:
+            return False
+        expression, bindings = found
+        if len(expression) > RULE_EXPRESSION_LIMIT or not self.budget.take(
+            [(1, frozenset(bindings.values()))]
         ):
-            note = _NEEDS_SERVER if terms else _NO_OK_STATED
-            self.small(x, self.y, f"{note} ({len(lamps)} lamps)", fg=MUTED_TEXT)
-            self.y += SMALL_LINE + ROW_GAP
-            return
-        name = f"ok-{len(self.s.formulas)}"
+            return False
+        formula = f"ok-{len(self.s.formulas)}"
         self.s.formulas.append(
-            {"name": name, "kind": "scalar", "expression": expression, "bindings": bindings}
+            {"name": formula, "kind": "scalar", "expression": expression, "bindings": bindings}
         )
         self.s._rules += 1
-        rule_ = {
+        rule = {
             "id": f"r-{self.s._rules:04d}",
-            "name": f"{ring.counted} count",
+            "name": f"{name} count",
             "targetProperty": "text",
             "default": NO_VALUE,
-            "formula": _FORMULA_PREFIX + name,
+            "formula": _FORMULA_PREFIX + formula,
         }
         w = COUNT_DIGITS * CHAR_WIDTH * TEXT_SIZE + NUMBER_PAD
         props = {"text": NO_VALUE, "fontSize": TEXT_SIZE, "foregroundColor": PAGE_TEXT,
                  "backgroundColor": TRANSPARENT, "align": "right"}  # fmt: skip
-        self.s.widget(
-            "text-label", x, self.y - (ROW - SMALL_LINE) / 2, w, ROW, props, rules=[rule_]
-        )
-        self.small(x + w + GAP, self.y, f"of {len(lamps)}", fg=MUTED_TEXT)
+        self.s.widget("text-label", x, y - (ROW - SMALL_LINE) / 2, w, ROW, props, rules=[rule])
+        self.small(x + w + GAP, y, f"of {len(channels)}", fg=MUTED_TEXT)
+        return True
+
+    def ok_count(self, ring: RingStrip) -> bool:
+        """Over a ring-strip: how many of its lamps are ok now, of how many, from one
+        formula over the same lamps' rules; when that formula cannot be written, the
+        line says the count is per place (each place's row then counts its own) or
+        that it needs a server-side aggregate. Returns whether it counted them all."""
+        lamps = _ring_lamps(ring.members)
+        x = self.small(self.x0, self.y, f"{ring.counted}:", fg=MUTED_TEXT) + GAP
+        whole = self.ok_label(x, self.y, lamps, ring.counted or "")
+        if not whole:
+            if self.ok_formula(lamps) is None:
+                note = _NO_OK_STATED
+            else:
+                note = _PER_PLACE if ring.places else _NEEDS_SERVER
+            self.small(x, self.y, f"{note} ({len(lamps)} lamps)", fg=MUTED_TEXT)
         self.y += SMALL_LINE + ROW_GAP
+        return whole
 
     def ring_columns(
         self, members: Sequence[RingMember], x0: float, cw: float, per: int, height: float
@@ -6138,6 +6155,11 @@ def rack_lanes(units: Sequence[RackUnit]) -> list[tuple[int, int]]:
         for members in clusters
     ]
     return [(lanes[i], width[cluster[i]]) for i in range(len(units))]
+
+
+def _ring_lamps(members: Sequence[RingMember]) -> list[str]:
+    """The channels of the members' lamps: the first row of each, when a lamp."""
+    return [r.channel for m in members for r in m.rows[:1] if r.shown_as == "lamp" and r.channel]
 
 
 #: The lane of a half-width unit's stated side, of two.

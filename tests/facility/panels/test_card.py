@@ -1401,12 +1401,10 @@ def test_a_ring_strip_of_placed_members_runs_by_place_under_a_count_of_ok_lamps(
             handle.write(f"{pump}:Permit-Sts,0,bad,screen,stated,s,1,l\n")
     graph = load_graph(write_fixture_facility(tmp_path / "g.json", permit), tables)
     ring = _item(device_card(graph, "XR01:IP1"), "RingStrip")
-    place = graph.thing("XR01:IP1", "device").place
-    assert ring.places == ((place, 2),)  # one place: one run, its name heading it
+    assert ring.places == ()  # one place: no rows by place
     assert ring.counted == "giving state now"
     doc = stub_render(device_card(graph, "XR01:IP1"), graph)
     assert _text(doc, "giving state now:")
-    assert [n for n in _by_type(doc, "text-label") if n["props"]["text"] == place]
     (count,) = [
         n
         for n in _by_type(doc, "text-label")
@@ -1418,6 +1416,15 @@ def test_a_ring_strip_of_placed_members_runs_by_place_under_a_count_of_ok_lamps(
     assert set(formula["bindings"].values()) == {"XR01-IP1:Permit-Sts", "XR01-IP2:Permit-Sts"}
     assert "1 if" in formula["expression"]  # ok counts one, by the lamp's own arms
     assert _text(doc, "of 2")
+
+
+def test_ring_members_group_at_the_finest_level_with_few_places(panel_graph) -> None:
+    from osprey.facility.panels.describe import _ring_places
+
+    members = [panel_graph.thing(d, "device") for d in ("XR01:QF1", "XR01:QD1", "XR02:QF1")]
+    held = _ring_places(panel_graph, members)
+    assert len(set(held.values())) == 2  # one group per place, not one per member
+    assert held["XR01:QF1"] == held["XR01:QD1"] != held["XR02:QF1"]
 
 
 def test_a_ring_strip_of_a_relation_takes_the_devices_it_names(tmp_path):
