@@ -410,7 +410,9 @@ def _unplaced_carded(graph: PanelGraph, carded: frozenset[str]) -> dict[str, lis
 def _owner(graph: PanelGraph, device: str, row: NoCard) -> tuple[str, ThingKind] | None:
     """The thing a ``no_cards.csv`` row's relation names at *device* (its ``owner_to``
     taking it, as a chain hop's ``to``): one thing, else ``None`` (none, or several:
-    no owner is stated)."""
+    no owner is stated, as when the row names no owner relation)."""
+    if row.owner_relation is None or row.owner_direction is None:
+        return None
     to = row.owner_to or None
     step = ChainStep(
         DEFAULT_RECIPE, "owner", 1, 0, row.owner_relation, row.owner_direction, to, None, None,
@@ -454,6 +456,13 @@ def drawn_on(graph: PanelGraph) -> list[tuple[str, Target]]:
         for thing, owner in sorted(index.owners.items())
         if owner is not None
     ]
+
+
+def no_card_takes(graph: PanelGraph) -> list[tuple[NoCard, int]]:
+    """Each ``no_cards.csv`` row, in file order, with how many devices it takes (a
+    device is taken by the first row that matches it)."""
+    taken = Counter(graph.no_card(device) for device in _index(graph).owners)
+    return [(row, taken[row]) for row in graph.no_card_rows()]
 
 
 def no_card_counts(graph: PanelGraph) -> tuple[int, int]:

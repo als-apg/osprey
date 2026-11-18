@@ -1205,6 +1205,20 @@ def _panel_draw(tables: Path, draw_file: Path | None):
         raise click.exceptions.Exit(1) from error
 
 
+def _no_card_terms(row: Any) -> str:
+    """The terms a ``no_cards.csv`` row matches devices by, as one line."""
+    terms = [f"class {row.cls}"]
+    if row.under:
+        terms.append(f"under {row.under}")
+    if row.devices:
+        terms.append(f"devices {row.devices}")
+    if row.attribute:
+        terms.append(f"attribute {row.attribute[0]}={row.attribute[1]}")
+    if row.when:
+        terms.append(f"when {';'.join(row.when)}")
+    return ", ".join(terms)
+
+
 def _megabytes(size: int) -> str:
     return f"{size / 1_000_000:.1f} MB"
 
@@ -1441,7 +1455,12 @@ def panels_check(
     loose = emit.unplaced_parts(graph)
     counted = ", ".join(f"{cls} {n}" for cls, n in loose.items()) or "none"
     report(f"pictures, parts not placed: {counted}")
-    from osprey.facility.panels.describe import no_card_counts, press_counts, tile_less
+    from osprey.facility.panels.describe import (
+        no_card_counts,
+        no_card_takes,
+        press_counts,
+        tile_less,
+    )
 
     devices = [t.id for t in graph.things() if t.kind == "device"]
     presses = press_counts(graph, devices)
@@ -1458,6 +1477,8 @@ def panels_check(
         f"no card (no_cards.csv): {taken} devices, {taken - ownerless} drawn on their "
         f"owner's card, {ownerless} with no owner stated (no index entry)"
     )
+    for number, (row, n) in enumerate(no_card_takes(graph), start=1):
+        report(f"  no_cards.csv row {number} ({_no_card_terms(row)}): {n} devices")
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")

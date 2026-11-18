@@ -5,6 +5,8 @@ from __future__ import annotations
 import dataclasses
 import json
 
+import pytest
+
 from osprey.facility.panels import layout
 from osprey.facility.panels.describe import device_card
 from osprey.facility.panels.view import Section, ValueRow
@@ -1760,6 +1762,110 @@ def test_a_thing_no_cards_takes_gets_no_card_and_its_index_entry_points_to_its_o
 
     link = _ref(graph, _index(graph), graph.thing("XR01:CARD1", "device"))
     assert link.target == Target("card", "device", "XR01:CH1") and link.label == "XR01:CARD1"
+
+
+NO_CARDS_FULL = NO_CARDS_HEADER.rstrip("\n") + ",when,attribute\n"
+
+
+def _attributed(tmp_path, rows: str, attributes: dict):
+    """The no-card graph with *attributes* set on XR01:CARD1, and *rows* as the full
+    no_cards.csv body."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import (
+        PART_RULE,
+        add_part,
+        copy_tables,
+        write_fixture_facility,
+    )
+
+    def change(document) -> None:
+        add_part(document, "XR01:CARD1", "XR01:CH1", "XR01-CARD1:Fault-Sts")
+        add_part(document, "XR01:CARD2", "XR01:CH1")
+        document["relations"][-1]["subject"]["device"] = "XR01:CARD2"
+        document["relations"][-1]["type"] = "cabled_to"
+        for device in document["devices"]:
+            if device["id"] == "XR01:CARD1":
+                device["attributes"] = attributes
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "health.csv").open("a") as handle:
+        handle.write(PART_RULE)
+    (tables / "no_cards.csv").write_text(NO_CARDS_FULL + rows)
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def test_a_no_cards_row_with_an_attribute_takes_only_the_devices_that_carry_it(tmp_path):
+    from osprey.facility.panels.describe import no_card_takes, targets
+    from osprey.facility.panels.view import Target
+
+    graph = _attributed(
+        tmp_path,
+        "ElectronicsModule,,,part_of,out,device,a carrier card,S,,kind=carrier\n",
+        {"kind": "carrier", "slots": [1, 2]},
+    )
+    found = targets(graph)
+    assert Target("card", "device", "XR01:CARD1") not in found
+    assert Target("card", "device", "XR01:CARD2") in found  # same class, no such attribute
+    ((row, taken),) = no_card_takes(graph)
+    assert row.attribute == ("kind", "carrier") and taken == 1
+    assert ("slots", "1") in graph.thing("XR01:CARD1", "device").attributes
+
+
+def test_a_no_cards_row_when_no_channel_of_any_class_takes_the_bare_devices(tmp_path):
+    from osprey.facility.panels.describe import _index, _ref, drawn_on, no_card_takes, targets
+    from osprey.facility.panels.view import Fact, Target
+
+    row = "no reading of its own,S,no-channel,\n"
+    graph = _attributed(tmp_path, "*,XR,XR01:CARD*,,,," + row, {})
+    assert [n for _row, n in no_card_takes(graph)] == [0]  # no place: under XR holds neither
+    graph = _attributed(tmp_path / "b", "*,,XR01:CARD*,,,," + row, {})
+    assert [n for _row, n in no_card_takes(graph)] == [1]
+    assert Target("card", "device", "XR01:CARD1") in targets(graph)  # it has a channel
+    # no owner named: no screen, no index entry, and a related card names it as a fact
+    assert Target("card", "device", "XR01:CARD2") not in targets(graph)
+    assert "XR01:CARD2" not in {thing for thing, _target in drawn_on(graph)}
+    ref = _ref(graph, _index(graph), graph.thing("XR01:CARD2", "device"))
+    assert isinstance(ref, Fact)
+
+
+def test_a_no_cards_row_when_no_recipe_spares_a_class_with_a_recipe(tmp_path):
+    from osprey.facility.panels.describe import no_card_takes
+
+    graph = _attributed(tmp_path, "*,,XR01:*,,,,the default card says nothing,S,no-recipe,\n", {})
+    taken = {d for d in (t.id for t in graph.things()) if graph.no_card(d) is not None}
+    assert taken and all(graph.recipe(d) is None for d in taken)
+    assert [n for _row, n in no_card_takes(graph)] == [len(taken)]
+
+
+def test_the_first_matching_no_cards_row_takes_a_device(tmp_path):
+    from osprey.facility.panels.describe import no_card_takes
+
+    graph = _attributed(
+        tmp_path,
+        "ElectronicsModule,,,,,,first,S,,kind=carrier\nElectronicsModule,,,,,,second,S,,\n",
+        {"kind": "carrier"},
+    )
+    assert [n for _row, n in no_card_takes(graph)] == [1, 1]
+
+
+@pytest.mark.parametrize(
+    ("row", "said"),
+    [
+        ("ElectronicsModule,,,part_of,,,r,S,,\n", "together"),
+        ("ElectronicsModule,,,,,device,r,S,,\n", "owner_to needs owner_relation"),
+        ("ElectronicsModule,,,,,,r,S,no-place,\n", "when is 'no-place'"),
+        ("ElectronicsModule,,,,,,r,S,no-channel;no-channel,\n", "when is"),
+        ("ElectronicsModule,,,,,,r,S,,carrier\n", "attribute is 'carrier', not name=value"),
+    ],
+)
+def test_a_no_cards_row_that_cannot_be_read_says_why(tmp_path, row, said):
+    from osprey.facility.panels.tables import NO_CARDS, PanelTableError, read_tables
+    from tests.facility.panels._fixture import copy_tables
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / NO_CARDS).write_text(NO_CARDS_FULL + row)
+    with pytest.raises(PanelTableError, match=said):
+        read_tables(tables)
 
 
 def test_tables_without_no_cards_give_every_device_its_card(panel_graph):

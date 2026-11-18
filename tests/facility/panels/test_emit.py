@@ -329,6 +329,43 @@ def test_under_a_place_writes_what_is_within_it(panel_graph, tmp_path):
     assert _kinds(check(panel_graph, out)) <= {"outside_set"}
 
 
+def test_write_under_keeps_a_write_to_places_and_check_agrees(tmp_path):
+    from osprey.facility.panels.emit import Draw, write_scope
+
+    graph = graph_with_part(tmp_path)  # XR01:CARD1, in no place, part of a racked chassis
+    draw = Draw(write_under=("XR/XR01",))
+    assert draw.digest == Draw().digest  # the screens do not depend on it
+    scope = write_scope(graph, draw.write_under)
+    assert "XR01:CARD1" in scope.devices and "XR02:QF1" not in scope.devices
+    assert "XR/XR01/RK1" in scope.places and "XR/XR02" not in scope.places
+    out = tmp_path / "out"
+    write(graph, out, draw=draw)
+    index = json.loads((out / "index.json").read_text())
+    written = {(e["kind"], e["thing_kind"], e["thing"]) for e in index["screens"]}
+    assert ("home", "place", "facility") in written
+    assert ("card", "device", "XR01:CARD1") in written
+    assert ("card", "device", "XR02:QF1") not in written
+    assert any(e["thing"] == "XR02:QF1" for e in index["outside"])
+    problems = check(graph, out, draw=draw)
+    assert not [p for p in problems if p.failing], problems
+    # a screen the scope keeps must be there
+    (out / next(e["file"] for e in index["screens"] if e["thing"] == "XR01:QF1")).unlink()
+    assert "missing" in _kinds(check(graph, out, draw=draw))
+
+
+def test_write_under_a_place_that_is_not_there_is_refused(panel_graph, tmp_path):
+    from osprey.facility.panels.emit import Draw, load_draw
+
+    path = tmp_path / "draw.json"
+    path.write_text(json.dumps({"write_under": ["XR/XR01"]}))
+    assert load_draw(path).write_under == ("XR/XR01",)
+    path.write_text(json.dumps({"write_under": "XR/XR01"}))
+    with pytest.raises(EmitError, match="write_under must be a list"):
+        load_draw(path)
+    with pytest.raises(EmitError, match="no place of the facility"):
+        write(panel_graph, tmp_path / "out", draw=Draw(write_under=("XR/XR99",)))
+
+
 def test_a_later_subset_write_keeps_the_files_of_the_earlier_one(panel_graph, tmp_path):
     out = tmp_path / "out"
     write(panel_graph, out, only=lambda t: t.view == "card")
