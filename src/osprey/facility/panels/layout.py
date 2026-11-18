@@ -63,6 +63,7 @@ from osprey.facility.panels.tables import PicturePart
 from osprey.facility.panels.view import (
     ENTRIES_IN_ONE_COLUMN,
     Band,
+    BlockRow,
     CalibrationRow,
     Calibrations,
     CalibrationTallies,
@@ -255,6 +256,7 @@ FRONT_BODY_PAD = 10  # the panel body round its connectors
 FRONT_CABLE = 14  # the cable from the body to what is on the connector
 FAR_BOX_HEIGHT = 34  # a far end's box: two small lines
 FRONT_EMPTY_WIDTH = 360  # a group with no connector stated: its body with the note
+FRONT_LABEL_GUTTER = 120  # the row labels left of a front's values and presses
 LOOSE_COLUMNS = 4  # things on no stated port, in columns
 RING_COLUMN_LEAST, RING_COLUMN_MOST = 72, 140  # a ring-strip member's column
 LADDER_DOT = 14  # the live value on a ladder
@@ -552,6 +554,8 @@ _ROWS_NOT_DRAWN = "rows not drawn: the screen holds a table of at most this many
 _CONTESTED = "contested"
 _NOTHING = "\u2014"  # what a connector with nothing stated on it shows
 _NO_CONNECTOR = "no connector stated for this unit"
+_STATE_BAND = "state"
+_PRESS_BAND = "press"
 _LADDER_NOW = "now"
 _STATED = "STATED"
 _NOT_STATED_HEAD = "NOT STATED"
@@ -2895,6 +2899,11 @@ class _Page:
                 self.box(x, y, w, height, line=BOX_BORDER, fill=PANEL_BACKGROUND)
             colour = symbols.FOCUS if member.focus else PAGE_TEXT
             self.text(x, y + GAP / 2, _cut(member.label, w, SMALL_SIZE), size=SMALL_SIZE, w=w, h=SMALL_LINE, fg=colour, align="center")  # fmt: skip
+            if member.link is None and member.label != member.thing:  # its id on hover
+                self.s.widget(
+                    "rectangle", x, y, w, SMALL_LINE + GAP,
+                    {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: member.thing},
+                )  # fmt: skip
             vy = y + SMALL_LINE + GAP
             if not member.rows:
                 self.no_rule(x + (w - LIGHT_SIZE) / 2, vy)
@@ -2919,33 +2928,39 @@ class _Page:
         connector stated is an empty body with its note. Then the line of what the
         presses write, the things on no stated port by class, and the caption."""
         slots = sum(max(len(g.connectors), 1) for g in front.groups)
-        room = STRIP_WIDTH - FRONT_GROUP_GAP * max(len(front.groups) - 1, 0)
+        labelled = any(c.rows or c.controls or c.lamp for g in front.groups for c in g.connectors)
+        gutter = FRONT_LABEL_GUTTER if labelled else 0
+        room = STRIP_WIDTH - gutter - FRONT_GROUP_GAP * max(len(front.groups) - 1, 0)
         pitch = max(FRONT_PITCH_LEAST, min(FRONT_PITCH_MOST, room / max(slots, 1)))
+        width = STRIP_WIDTH - gutter
         line: list[tuple[FrontGroup, list[Connector]]] = []
         x = 0.0
         for group in front.groups:
+            if line and _reading(group) != _reading(line[0][0]):  # a reading: lines apart
+                self.front_line(line, pitch, gutter)
+                line, x = [], 0.0
             if not group.connectors:
-                width = FRONT_EMPTY_WIDTH
-                if line and x + FRONT_GROUP_GAP + width > STRIP_WIDTH:
-                    self.front_line(line, pitch)
+                empty = FRONT_EMPTY_WIDTH
+                if line and x + FRONT_GROUP_GAP + empty > width:
+                    self.front_line(line, pitch, gutter)
                     line, x = [], 0.0
-                x += (FRONT_GROUP_GAP if line else 0) + width
+                x += (FRONT_GROUP_GAP if line else 0) + empty
                 line.append((group, []))
                 continue
             x += FRONT_GROUP_GAP if line else 0
             part: list[Connector] = []
             line.append((group, part))
             for connector in group.connectors:
-                if x + pitch > STRIP_WIDTH and (part or len(line) > 1):
+                if x + pitch > width and (part or len(line) > 1):
                     if not part:
                         line.pop()
-                    self.front_line(line, pitch)
+                    self.front_line(line, pitch, gutter)
                     part = []
                     line, x = [(group, part)], 0.0
                 part.append(connector)
                 x += pitch
         if line:
-            self.front_line(line, pitch)
+            self.front_line(line, pitch, gutter)
         if not front.groups:
             self.small(self.x0, self.y, _NO_CONNECTOR, fg=MUTED_TEXT)
             self.y += SMALL_LINE + ROW_GAP
@@ -2964,40 +2979,112 @@ class _Page:
                 self.y += SMALL_LINE
         self.y += ROW_GAP
 
-    def front_line(self, line: list[tuple[FrontGroup, list[Connector]]], pitch: float) -> None:
+    def front_line(
+        self, line: list[tuple[FrontGroup, list[Connector]]], pitch: float, gutter: float
+    ) -> None:
         """One line of a front: each group's title over its part of the body, the
-        connectors, and under each what is on it, its values and its presses."""
+        connectors, under each what is on it; then the values and presses in bands,
+        each band's label at the left. A line of readings (connectors nothing is
+        looked for on) is a table instead: no body, socket or cable, the connectors'
+        names as column heads, the lamps first."""
         top = self.y
+        reading = _reading(line[0][0])
         body_top = top + SMALL_LINE + ROW_GAP
-        body_h = 2 * FRONT_BODY_PAD + SOCKET_SIZE + GAP + LIGHT_SIZE + SMALL_LINE
-        under = body_top + body_h + FRONT_CABLE
-        x = self.x0
+        if reading:
+            body_h = SMALL_LINE + ROW_GAP
+        else:
+            body_h = 2 * FRONT_BODY_PAD + SOCKET_SIZE + GAP + LIGHT_SIZE + SMALL_LINE
+        under = body_top + body_h + (0 if reading else FRONT_CABLE)
+        x = self.x0 + gutter
         bottom = under
+        columns: list[tuple[float, Connector]] = []
         for k, (group, connectors) in enumerate(line):
             x += FRONT_GROUP_GAP if k else 0
             width = pitch * len(connectors) if connectors else FRONT_EMPTY_WIDTH
             title = group.title if group.face in ("", "front") else f"{group.face} · {group.title}"
             self.text(x, top, _cut(title, width, SMALL_SIZE), size=SMALL_SIZE, w=width, h=SMALL_LINE, fg=MUTED_TEXT)  # fmt: skip
-            self.box(x, body_top, width, body_h, line=BOX_BORDER, fill=PANEL_BACKGROUND)
+            if reading:
+                rule_y = under - ROW_GAP / 2
+                self.line([(x, rule_y), (x + width, rule_y)], BOX_BORDER)
+            else:
+                self.box(x, body_top, width, body_h, line=BOX_BORDER, fill=PANEL_BACKGROUND)
             if not connectors:
                 self.box(x + GAP, body_top + FRONT_BODY_PAD, width - 2 * GAP, SOCKET_SIZE, line=MUTED_TEXT, dashed=True)  # fmt: skip
                 self.text(
                     x + GAP, body_top + FRONT_BODY_PAD + SOCKET_SIZE + GAP, group.empty or "",
                     size=SMALL_SIZE, w=width - 2 * GAP, h=SMALL_LINE, fg=MUTED_TEXT,
                 )  # fmt: skip
-            for connector in connectors:
-                bottom = max(bottom, self.connector(x, body_top, pitch, connector, under))
-                x += pitch
-            if not connectors:
                 x += width
-        self.y = bottom + ROW_GAP + GAP
+                continue
+            for connector in connectors:
+                if reading:
+                    self.text(
+                        x, body_top, _cut(connector.label, pitch - GAP, SMALL_SIZE),
+                        size=SMALL_SIZE, w=pitch, h=SMALL_LINE, align="center",
+                    )  # fmt: skip
+                else:
+                    bottom = max(bottom, self.connector(x, body_top, pitch, connector, under))
+                columns.append((x, connector))
+                x += pitch
+        self.y = bottom
+        self.front_bands(columns, pitch, reading)
+        self.y += ROW_GAP + GAP
+
+    def front_bands(
+        self, columns: list[tuple[float, Connector]], pitch: float, reading: bool
+    ) -> None:
+        """Under a line of connectors: a band per value the section's roles give
+        them, then per press, each its label (and unit) at the left and each
+        connector's own in its column; a reading's lamps are the first band."""
+        w = pitch - GAP
+        label_w = FRONT_LABEL_GUTTER - GAP
+        mid = (ROW - SMALL_LINE) / 2
+        if reading and any(c.lamp for _x, c in columns):
+            self.small(self.x0, self.y + mid, _STATE_BAND, fg=MUTED_TEXT)
+            for x, connector in columns:
+                if connector.lamp is not None:
+                    self.shown_value(
+                        x + GAP / 2, self.y, w, connector.lamp, "lamp",
+                        self.graph_words(connector.lamp), size=SMALL_SIZE, h=ROW,
+                    )  # fmt: skip
+            self.y += ROW + ROW_GAP
+        bands: dict[str, list[tuple[float, BlockRow]]] = {}
+        for x, connector in columns:
+            for row in connector.rows:
+                bands.setdefault(row.label, []).append((x, row))
+        for label, cells in bands.items():
+            unit = next((row.unit for _x, row in cells if row.unit), None)
+            title = f"{label} ({unit})" if unit else label
+            self.small(self.x0, self.y + mid, _cut(title, label_w, SMALL_SIZE), fg=MUTED_TEXT)
+            for x, row in cells:
+                bx = x + GAP / 2
+                self.shown_value(
+                    bx, self.y, w, row.channel, row.shown_as, row.words, scale=row.scale,
+                    size=SMALL_SIZE, h=ROW, text=row.text,
+                )  # fmt: skip
+                self.s.widget(
+                    "rectangle", bx, self.y, w, ROW,
+                    {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0,
+                     _TOOLTIP: f"{row.label}: {row.channel or row.text or ''}"},
+                )  # fmt: skip
+            self.y += ROW + ROW_GAP
+        presses: dict[str, list[tuple[float, Control]]] = {}
+        for x, connector in columns:
+            for control in connector.controls:
+                presses.setdefault(control.label, []).append((x, control))
+        for n, pressed in enumerate(presses.values()):
+            if not n:
+                self.small(self.x0, self.y + mid, _PRESS_BAND, fg=MUTED_TEXT)
+            for x, control in pressed:
+                self.press(x + GAP / 2, self.y, control, True, w, ROW)
+            self.y += ROW + ROW_GAP
 
     def connector(
         self, x: float, body_top: float, pitch: float, connector: Connector, under: float
     ) -> float:
         """One connector in its slot: socket, lamp, label on the body; under it the
-        cable and what is on it per side, its values, its presses. Returns the
-        bottom."""
+        cable and what is on it per side (its values and presses are in the bands
+        under the line, :meth:`front_bands`). Returns the bottom."""
         cx = x + pitch / 2
         sy = body_top + FRONT_BODY_PAD
         self.box(cx - SOCKET_SIZE / 2, sy, SOCKET_SIZE, SOCKET_SIZE, line=PAGE_TEXT, fill=PANEL_BACKGROUND)  # fmt: skip
@@ -3036,20 +3123,6 @@ class _Page:
             if contested:
                 self.text(bx, y, _CONTESTED, size=SMALL_SIZE, w=w, h=SMALL_LINE, fg=MUTED_TEXT, align="center")  # fmt: skip
                 y += SMALL_LINE + ROW_GAP
-        for row in connector.rows:
-            self.shown_value(
-                bx, y, w, row.channel, row.shown_as, row.words, unit=row.unit, scale=row.scale,
-                size=SMALL_SIZE, h=ROW, text=row.text,
-            )  # fmt: skip
-            self.s.widget(
-                "rectangle", bx, y, w, ROW,
-                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0,
-                 _TOOLTIP: f"{row.label}: {row.channel or row.text or ''}"},
-            )  # fmt: skip
-            y += ROW + ROW_GAP
-        for control in connector.controls:
-            self.press(bx, y, control, True, w, ROW)
-            y += ROW + ROW_GAP
         return y
 
     def inferred_word(self, x: float, y: float, rule: str) -> float:
@@ -6419,6 +6492,11 @@ def _standing_word(item: object) -> str | None:
     if getattr(item, "basis", None) == "inferred":
         return "inferred"
     return None
+
+
+def _reading(group: FrontGroup) -> bool:
+    """Whether a front group is readings: connectors, each with no far side."""
+    return bool(group.connectors) and all(not c.sides for c in group.connectors)
 
 
 def schematic_note(parts: Sequence[PicturePart], note: str | None) -> str | None:

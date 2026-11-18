@@ -1481,10 +1481,44 @@ def test_an_inferred_relation_says_so_on_a_hop_a_connector_and_a_member(tmp_path
         "pump,1,ring-strip,Read out by,,read_out_by out,,,,S\n",
         change=_inferred("xr01-ip1-readout"),
     )
-    (member,) = _item(device_card(graph, "XR01:IP1"), "RingStrip").members
-    assert member.inferred == "joined by the document's name"
+    ring = _item(device_card(graph, "XR01:IP1"), "RingStrip")
+    (member,) = ring.members  # every member inferred: said once, in the caption
+    assert member.inferred is None
+    assert ring.caption.endswith("all 1 inferred: joined by the document's name")
     # a stated one says nothing
     assert inferred_rule(graph.neighbours("XR01:QF1", "device").get("powered_by", ())) is None
+
+
+def test_in_a_mixed_ring_strip_only_the_inferred_member_says_so(tmp_path):
+    def second(document) -> None:
+        document["relations"].append(
+            {
+                "id": "xr01-ip1-readout-2",
+                "type": "read_out_by",
+                "subject": {"device": "XR01:IP1"},
+                "object": {"device": "XR01:CH1"},
+                "standing": "accepted",
+            }
+        )
+
+    graph = _sectioned(
+        tmp_path,
+        "pump,1,ring-strip,Read out by,,read_out_by out,,,,S\n",
+        change=_both(second, _inferred("xr01-ip1-readout")),
+    )
+    ring = _item(device_card(graph, "XR01:IP1"), "RingStrip")
+    marked = {m.thing: m.inferred for m in ring.members}
+    assert marked == {"XR01:CH1": None, "XR01:CH2": "joined by the document's name"}
+    assert "inferred" not in (ring.caption or "")
+
+
+def test_inside_a_place_a_member_shows_its_short_name_and_two_alike_keep_what_differs():
+    from types import SimpleNamespace
+
+    from osprey.facility.panels.describe import _short_labels
+
+    members = [SimpleNamespace(id=i, short_name=None) for i in ("XR05A:G1", "XR05A:P1", "XR05B:P1")]
+    assert _short_labels(members) == {"XR05A:G1": "G1", "XR05A:P1": "A:P1", "XR05B:P1": "B:P1"}
 
 
 def test_number_order_compares_numbers_as_numbers() -> None:
@@ -1776,3 +1810,43 @@ def test_a_group_all_of_whose_literal_connectors_are_left_out_is_dropped(tmp_pat
     graph = _literal(tmp_path, ())
     front = _front_of(device_card(graph, "XR01:PS1"))
     assert [g.title for g in front.groups] == ["outputs"]
+
+
+def test_a_reading_group_is_a_table_with_its_rows_labelled_at_the_left(tmp_path):
+    graph = _two_groups(tmp_path, phases=True)  # outlets on sockets, phases readings
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    sockets = [
+        n
+        for n in _by_type(doc, "rectangle")
+        if n["geometry"]["width"] == layout.SOCKET_SIZE == n["geometry"]["height"]
+    ]
+    assert len(sockets) == 2  # the two outlets; a reading has no socket
+    heads = [_text(doc, "Ph1"), _text(doc, "Ph2")]  # the phases' names as column heads
+    (label,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "current"]
+    assert label["geometry"]["x"] < min(h["geometry"]["x"] for h in heads)  # at the left
+    cells = [n for n in nodes(doc) if "current: XR01-PS1:Ph" in n["props"].get("tooltip", "")]
+    assert len({c["geometry"]["y"] for c in cells}) == 1  # one row across the columns
+
+
+def test_a_front_s_values_under_its_sockets_are_one_band_labelled_with_role_and_unit(tmp_path):
+    def currents(document) -> None:
+        for n in (1, 2, 3):
+            document["channels"].append(
+                {"id": f"XR01-PS1:Out{n}-Cur", "on": {"device": "XR01:PS1"}}
+            )
+
+    roles = "PowerSupply,current,*:Out[0-9]-Cur,device,value,A,,,,stated,S,1,l\n"
+    _fronted(tmp_path, currents, roles=roles)
+    (tmp_path / "panels" / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "supply,1,front,Outputs,,front,,current,,S\n"
+    )
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    graph = load_graph(write_fixture_facility(tmp_path / "g.json", currents), tmp_path / "panels")
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    (label,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "current (A)"]
+    cells = [n for n in nodes(doc) if "current: XR01-PS1:Out" in n["props"].get("tooltip", "")]
+    assert len(cells) == 3 and {c["geometry"]["y"] for c in cells} == {cells[0]["geometry"]["y"]}
+    assert label["geometry"]["x"] < min(c["geometry"]["x"] for c in cells)

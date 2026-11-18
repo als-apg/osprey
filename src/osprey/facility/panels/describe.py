@@ -28,6 +28,7 @@ from __future__ import annotations
 import dataclasses
 import fnmatch
 import math
+import os
 import re
 import weakref
 from collections import Counter
@@ -2462,7 +2463,18 @@ def ring_strip(
                 places[-1] = (run, places[-1][1] + 1)
             else:
                 places.append((run, 1))
+        start = 0
+        for _run, k in places:  # inside a place a member's short name, its id on hover
+            short = _short_labels(members[start : start + k])
+            out[start : start + k] = [
+                dataclasses.replace(m, label=short[m.thing]) for m in out[start : start + k]
+            ]
+            start += k
     caption = section.caption
+    if out and all(m.inferred for m in out):  # said once, not under every member
+        rules = "; ".join(dict.fromkeys(m.inferred or "" for m in out))
+        caption = "; ".join(c for c in (caption, _ALL_INFERRED.format(len(out), rules)) if c)
+        out = [dataclasses.replace(m, inferred=None) for m in out]
     if ordered == RING_BY_NUMBER and not (caption or "").lower().startswith("in number order"):
         caption = "; ".join(c for c in (_RING_NUMBER_NOTE, caption) if c)
     lamps = any(r.shown_as == "lamp" for m in out for r in m.rows)
@@ -2471,6 +2483,24 @@ def ring_strip(
 
 
 _RING_NUMBER_NOTE = "in number order: positions not stated"
+_ALL_INFERRED = "all {} inferred: {}"
+
+
+def _short_labels(members: list[Thing]) -> dict[str, str]:
+    """Each member's name inside its place: its short name, else the last segment of
+    its id; members that would share one name each keep what follows the part of
+    their ids they all share (``A:P1``, ``B:P1``)."""
+    first = {m.id: m.short_name or m.id.rsplit(":", 1)[-1] for m in members}
+    seen = Counter(first.values())
+    out = dict(first)
+    for name, n in seen.items():
+        if n > 1:
+            ids = [i for i, v in first.items() if v == name]
+            cut = len(os.path.commonprefix(ids))
+            out.update({i: i[cut:] or i for i in ids})
+    return out
+
+
 #: A ring-strip runs by place at the finest level of the place tree that gives at
 #: most this many places, so a row holds a group, not one member.
 RING_PLACES_MOST = 8

@@ -1432,7 +1432,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    number order; under each, what is on it (the thing whose ``far_relation`` names
    that port, ``in``; the device's own relation from it, ``out``; both sides of a
    socket thing, ``socket``), a dashed "—" where nothing is stated and every thing,
-   dashed and "contested", where a side has two; its state lamp, the section's
+   dashed and "contested", where a side has two; its state lamp; under the line,
+   in bands each labelled at the left (the role's title and unit, "press" for
+   the buttons), the section's
    roles of that connector and its presses (drawn there, not again under
    operate). A row's optional ``roles`` column (``;``-separated) names the section
    roles its connectors carry; empty means every section role. A role binds to a
@@ -1445,8 +1447,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    connector with no number whose row lists ``roles`` is left out on a device
    where neither its lamp nor any listed role binds, and a group all of whose
    connectors are left out is dropped. ``far_relation`` and ``far_direction``
-   are given together or both left empty; a row with neither is a reading: no far
-   end is drawn under it and no "—". Clients the relation names on no stated port
+   are given together or both left empty; a row with neither is a reading, and
+   a group of readings is a table: no socket, cable or far end, the connectors'
+   names as column heads, the lamps first in a "state" band, then a band per
+   role. Clients the relation names on no stated port
    are drawn apart by class; a range with nothing in it is left out. ``write``
    prints per recipe the connectors with something stated, contested or nothing,
    the readings apart, and the devices with every connector that is not a reading
@@ -1462,10 +1466,14 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    to eight places, in ring order (in number order without positions), those
    with no place last; over the strip, "giving <first role> now: n of m" counts
    the lamps ok now with one formula over the same lamps' rules, or, when that
-   formula is too long, each place's row counts its own. A chain hop, a front connector's far end or a
-   ring-strip member that rests on a relation claim with ``basis: inferred``
-   says "inferred" beside it, the claim's ``rule`` on hover ("the rule is not
-   stated" when it has none). A ``ladder`` section draws the section's first role against the
+   formula is too long, each place's row counts its own. Inside a place a
+   member shows the last segment of its id (two alike keep what follows the part
+   of their ids they share), its full id on hover. A chain hop, a front
+   connector's far end or a ring-strip member that rests on a relation claim
+   with ``basis: inferred`` says "inferred" beside it, the claim's ``rule`` on
+   hover ("the rule is not stated" when it has none); when every member of a
+   ring-strip is inferred, its caption says it once ("all 43 inferred: <rule>")
+   and no member does. A ``ladder`` section draws the section's first role against the
    others as set points, evenly in their order (not to scale), each with its live
    value, and the live value as a dot in the gap between the set points it lies
    between; a set point not served is left out and named, and ``write`` counts
