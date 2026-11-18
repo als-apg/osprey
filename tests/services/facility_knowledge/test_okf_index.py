@@ -4,7 +4,7 @@ Covers:
 - regenerate_indexes: one index.md per non-empty directory, grouped by type,
   bundle-relative /… links, root index gets okf_version frontmatter.
 - _synthesize_description: deterministic, no model call.
-- validate_index: okf_version allowed in root index.md, forbidden elsewhere;
+- validate_index: bundle metadata allowed in root index.md, forbidden elsewhere;
   any non-root index.md with frontmatter raises OKFIndexError.
 """
 
@@ -103,7 +103,7 @@ class TestRegenerateIndexes:
         assert written[0] == tmp_path / "index.md"
 
     def test_root_index_has_okf_version_frontmatter(self, tmp_path):
-        """Root index.md must include okf_version frontmatter (OKF §11)."""
+        """Root index.md must include okf_version frontmatter (OKF §8.1)."""
         _concept(tmp_path, "a.md", type_="Device", title="Device A")
 
         regenerate_indexes(tmp_path)
@@ -113,7 +113,7 @@ class TestRegenerateIndexes:
         assert "okf_version" in text
 
     def test_sub_index_has_no_frontmatter(self, tmp_path):
-        """Sub-directory index.md must NOT contain frontmatter (OKF §6)."""
+        """Sub-directory index.md must NOT contain frontmatter (OKF §8)."""
         _concept(tmp_path, "devices/pump.md", type_="Device", title="Pump")
 
         regenerate_indexes(tmp_path)
@@ -534,13 +534,6 @@ class TestValidateIndex:
 
         validate_index(idx, bundle_root=tmp_path)  # must not raise
 
-    def test_root_index_extra_key_raises(self, tmp_path):
-        idx = tmp_path / "index.md"
-        idx.write_text('---\nokf_version: "0.1"\ntitle: Root\n---\n\n# Device\n', encoding="utf-8")
-
-        with pytest.raises(OKFIndexError, match="title"):
-            validate_index(idx, bundle_root=tmp_path)
-
     def test_sub_index_no_frontmatter_passes(self, tmp_path):
         sub = tmp_path / "devices"
         sub.mkdir()
@@ -570,3 +563,144 @@ class TestValidateIndex:
 
         for idx_path in written:
             validate_index(idx_path, bundle_root=tmp_path)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# OKF v0.3: which files an index lists, and the bundle metadata it keeps
+# ---------------------------------------------------------------------------
+
+
+class TestIndexListsConceptsOnly:
+    """OKF §3.2: an index lists concepts, not every Markdown file."""
+
+    @pytest.mark.parametrize(
+        ("name", "text"),
+        [
+            pytest.param("README.md", "# Read me\n", id="no-frontmatter"),
+            pytest.param("SKILL.md", "---\nname: a-skill\n---\n\nBody.\n", id="no-type"),
+            pytest.param("log.md", "# Directory Update Log\n", id="log"),
+            pytest.param(".draft.md", "---\ntype: Device\ntitle: Draft\n---\n", id="dot-file"),
+        ],
+    )
+    def test_a_file_that_is_not_a_concept_is_not_listed(
+        self, tmp_path: Path, name: str, text: str
+    ) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / name).write_text(text, encoding="utf-8")
+
+        regenerate_indexes(tmp_path)
+
+        index = (tmp_path / "index.md").read_text(encoding="utf-8")
+        assert "[A](/a.md)" in index
+        assert name not in index
+        assert "# Other" not in index
+
+    def test_a_directory_holding_no_concept_gets_no_index(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        _write(tmp_path / "notes" / "README.md", "# Notes\n")
+
+        regenerate_indexes(tmp_path)
+
+        assert not (tmp_path / "notes" / "index.md").exists()
+        assert "(/notes/)" not in (tmp_path / "index.md").read_text(encoding="utf-8")
+
+    def test_a_dot_directory_is_not_indexed(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        _concept(tmp_path, ".cache/b.md", type_="Device", title="B")
+
+        regenerate_indexes(tmp_path)
+
+        assert not (tmp_path / ".cache" / "index.md").exists()
+        assert ".cache" not in (tmp_path / "index.md").read_text(encoding="utf-8")
+
+    def test_such_a_bundle_has_no_drift(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        _write(tmp_path / "README.md", "# Read me\n")
+        _write(tmp_path / "notes" / "README.md", "# Notes\n")
+        regenerate_indexes(tmp_path)
+
+        assert check_indexes(tmp_path) == []
+
+
+class TestRootIndexMetadata:
+    """OKF §8.1: the bundle-root index carries the bundle's metadata."""
+
+    _METADATA = (
+        "---\n"
+        'okf_version: "0.3"\n'
+        "title: Quokka facility knowledge\n"
+        "description: Devices and procedures of the Quokka ring.\n"
+        "license: CC-BY-4.0\n"
+        "x-quokka-owner: team:controls   # kept as written\n"
+        "---\n"
+    )
+
+    def test_a_new_root_index_declares_the_version_this_producer_writes(
+        self, tmp_path: Path
+    ) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+
+        regenerate_indexes(tmp_path)
+
+        text = (tmp_path / "index.md").read_text(encoding="utf-8")
+        assert text.startswith('---\nokf_version: "0.3"\n---\n\n')
+
+    def test_regeneration_keeps_existing_root_frontmatter_as_written(self, tmp_path: Path) -> None:
+        """A producer that regenerates index.md MUST keep the root frontmatter."""
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / "index.md").write_text(self._METADATA + "\n# Old\n", encoding="utf-8")
+
+        regenerate_indexes(tmp_path)
+
+        text = (tmp_path / "index.md").read_text(encoding="utf-8")
+        assert text.startswith(self._METADATA + "\n# Device\n")
+        assert "# Old" not in text
+
+    def test_an_earlier_declared_version_is_kept(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / "index.md").write_text('---\nokf_version: "0.1"\n---\n\n', encoding="utf-8")
+
+        regenerate_indexes(tmp_path)
+
+        text = (tmp_path / "index.md").read_text(encoding="utf-8")
+        assert text.startswith('---\nokf_version: "0.1"\n---\n\n# Device\n')
+
+    def test_a_root_index_with_metadata_has_no_drift(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / "index.md").write_text(self._METADATA, encoding="utf-8")
+        regenerate_indexes(tmp_path)
+
+        assert check_indexes(tmp_path) == []
+
+    def test_regeneration_with_metadata_is_byte_identical(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / "index.md").write_text(self._METADATA, encoding="utf-8")
+        regenerate_indexes(tmp_path)
+        before = (tmp_path / "index.md").read_bytes()
+
+        regenerate_indexes(tmp_path)
+
+        assert (tmp_path / "index.md").read_bytes() == before
+
+    def test_unparseable_root_frontmatter_is_replaced(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / "index.md").write_text("---\nkey: [\n---\n\n# Old\n", encoding="utf-8")
+
+        regenerate_indexes(tmp_path)
+
+        text = (tmp_path / "index.md").read_text(encoding="utf-8")
+        assert text.startswith('---\nokf_version: "0.3"\n---\n\n# Device\n')
+
+    def test_metadata_passes_validation(self, tmp_path: Path) -> None:
+        idx = tmp_path / "index.md"
+        idx.write_text(self._METADATA + "\n# Device\n", encoding="utf-8")
+
+        validate_index(idx, bundle_root=tmp_path)  # must not raise
+
+    def test_an_unquoted_version_is_refused(self, tmp_path: Path) -> None:
+        """An unquoted 0.3 is a YAML number, and 0.10 would read as 0.1."""
+        idx = tmp_path / "index.md"
+        idx.write_text("---\nokf_version: 0.3\n---\n\n# Device\n", encoding="utf-8")
+
+        with pytest.raises(OKFIndexError, match="okf_version"):
+            validate_index(idx, bundle_root=tmp_path)

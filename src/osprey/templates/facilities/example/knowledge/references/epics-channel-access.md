@@ -5,12 +5,16 @@ title: EPICS Channel Access Reference
 description: Channel naming conventions, access modes, and common PV types used at the Example Research Facility.
 tags: [epics, channel-access, pv, naming, convention, reference]
 resource: https://epics.anl.gov/EpicsDocumentation/AppDevManuals/ChannelAccess/cadoc_4.htm
+sources:
+  - id: ca-manual
+    resource: https://epics.anl.gov/EpicsDocumentation/AppDevManuals/ChannelAccess/cadoc_4.htm
+    title: EPICS Channel Access Reference Manual
 ---
 
 # EPICS Channel Access Reference
 
 The Example Research Facility uses EPICS (Experimental Physics and Industrial
-Control System) Channel Access as its primary control-system protocol.  This
+Control System) Channel Access[^ca-manual] as its primary control-system protocol.  This
 document summarises how ERF channels are named and the common record types.
 
 ## Naming Convention
@@ -59,6 +63,4 @@ each carry their own.
 - [Vacuum System](/subsystems/vacuum.md) — pressure channels
 - [Transport and Delivery](/subsystems/transport-delivery.md) — magnet and BPM channels
 
-# Citations
-
-[1] [EPICS Channel Access Reference Manual](https://epics.anl.gov/EpicsDocumentation/AppDevManuals/ChannelAccess/cadoc_4.htm)
+[^ca-manual]: EPICS Channel Access Reference Manual
