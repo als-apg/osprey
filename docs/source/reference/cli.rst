@@ -1396,7 +1396,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    be absent, and only the health rules of what it keeps must be read. The
    screens are
    Canopy Screen-IR documents, one file per screen, in nine view kinds:
-   ``home`` (the one screen above all others: the top places, every set under
+   ``home`` (the one screen above all others: the top places, those that hold
+   a device of a model first as the machines and the others below, every set under
    its class and every group with no set view, and what is in no place, by
    class, each class opening a page of its devices, so every screen is reached
    from it), ``card`` (one device, its signals, picture, relations and calibration

@@ -3995,6 +3995,8 @@ def health_rollup(
 _TOP_PLACES = "places"
 _NOT_PLACED_SECTION = "not placed"
 _OTHER_GROUPS = "other groups"
+_MACHINES = "machines"
+_OTHER_PLACES = "other places"
 _BY_CLASS = "by class"
 
 
@@ -4003,7 +4005,8 @@ def home(graph: PanelGraph) -> View:
 
     Sections, each left out when empty: ``places``, one chip per top place (a
     place in no other), opening its place view, else its roll-up by place, else
-    its card; ``sets``, one chip per set view, under its class, then
+    its card, the machines first (a top place that holds a device of a model)
+    and the other places below them; ``sets``, one chip per set view, under its class, then
     ``other groups``: each group with no set view (its members of several
     classes, or no device), opening its card; ``not placed``, the roll-up of what is in no
     place when there is one, then one chip per class of the devices in no place
@@ -4012,7 +4015,9 @@ def home(graph: PanelGraph) -> View:
     reached that way or from no screen at all.
     """
     index = _index(graph)
+    machines = _machine_places(graph)
     tops: list[Node] = []
+    others: list[Node] = []
     for thing in graph.things():
         if thing.kind != "place" or thing.place is not None:
             continue
@@ -4022,7 +4027,7 @@ def home(graph: PanelGraph) -> View:
             if _has(graph, index, target):
                 link = Link(thing.id, target)
                 break
-        tops.append(_node(thing.id, link, ()))
+        (tops if thing.id in machines or not machines else others).append(_node(thing.id, link, ()))
     by_class: dict[str, list[Node]] = {}
     for group in sorted(index.sets):
         cls = index.set_class[group]
@@ -4040,7 +4045,11 @@ def home(graph: PanelGraph) -> View:
     ]
     if classes:  # one index per class: every card of a device in no place is reached
         not_placed.append(Group(_BY_CLASS, "chips", tuple(classes)))
-    places: list[Item] = [Group(_TOP_PLACES, "chips", tuple(tops))] if tops else []
+    places: list[Item] = []
+    if tops:
+        places.append(Group(_MACHINES if machines else _TOP_PLACES, "chips", tuple(tops)))
+    if others:
+        places.append(Group(_OTHER_PLACES, "chips", tuple(others)))
     sets: list[Item] = [Group(cls, "chips", tuple(by_class[cls])) for cls in sorted(by_class)]
     if groups:
         sets.append(Group(_OTHER_GROUPS, "chips", tuple(groups)))
@@ -4048,6 +4057,19 @@ def home(graph: PanelGraph) -> View:
         [(_TOP_PLACES, places), (SETS_SECTION, sets), (_NOT_PLACED_SECTION, not_placed)]
     )
     return View(HOME_TARGET, HOME, (), sections)
+
+
+def _machine_places(graph: PanelGraph) -> frozenset[str]:
+    """The top places that hold a device of a model (the facility's machines)."""
+    found: set[str] = set()
+    for thing in graph.things():
+        if thing.kind != "device" or thing.model is None or thing.place is None:
+            continue
+        top = thing.place
+        while (parent := graph.thing(top, "place").place) is not None:
+            top = parent
+        found.add(top)
+    return frozenset(found)
 
 
 def _unplaced_page(cls: str) -> Target:
