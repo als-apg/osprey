@@ -1404,10 +1404,20 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    sources give two states is ``disagree``) must be there;
    ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
    ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv``,
-   ``calibration_curves.csv`` and ``state_labels.csv`` (the word each value of a
+   ``calibration_curves.csv``, ``state_labels.csv`` (the word each value of a
    discrete channel means; a command's button reads the word for the value it
-   writes, else the action its channel's name says) may be absent. A table that
-   breaks its schema
+   writes, else the action its channel's name says), ``units.csv`` (a channel's
+   unit and the divisor its raw value is shown through), ``channel_roles.csv``
+   (what a channel is to a device card, by class and name pattern) and
+   ``card_recipes.csv`` (a class's card recipe, optionally for the devices under a
+   place or whose id matches a pattern) may be absent. A device card is drawn:
+   its title line, up to five key tiles (the ``metrics.csv`` rows of view
+   ``card`` whose ``level`` names its recipe, else its roles), its relations as
+   a chain of blocks, its drawings, an operate block (its control roles, else its
+   writable channels: a choice of stated states, an action, or a typed value
+   applied with Apply), every other channel in a grid, where it is and its
+   sources. A class with no recipe row is drawn with the default recipe; ``write``
+   prints how many device cards each recipe drew. A table that breaks its schema
    prints the file and line and exits 1. A ``pictures.csv`` row with a place id
    in its optional ``under`` column draws only the devices of its class in that
    place, so two machines with devices of one class name each state their own

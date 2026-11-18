@@ -907,8 +907,10 @@ def test_a_command_shown_as_a_value_prints_whole_and_its_input_keeps_its_precisi
 @pytest.mark.parametrize(
     ("channel", "word"),
     [
-        ("XR01-PS1:Fault_Reset_Cmd", "Fault Reset"),
-        ("XR01-PS1:RampDown-CMD", "RampDown"),
+        ("XR01-PS1:Fault_Reset_Cmd", "Fault reset"),
+        ("XR01-PS1:RampDown-CMD", "Ramp down"),
+        ("XR01-PS1:resetRelay1", "Reset relay 1"),
+        ("XR01-PS1:HV_On-Cmd", "HV on"),
         ("XR01-PS1:reset", "Reset"),
         ("XR01-PS1:Cmd", "Cmd"),  # all ending: the name whole, never an empty button
         ("NOCOLON", "NOCOLON"),
@@ -1068,15 +1070,15 @@ def test_the_devices_off_the_beamline_are_one_line_that_opens_the_place_card(pan
     assert "XR02:BLOCK1" not in _texts(doc)  # listed on the place card, not in the tray
 
 
-def test_a_cards_unit_stands_with_the_signals_name_not_in_the_value(panel_graph) -> None:
+def test_a_cards_grid_prints_a_value_with_its_unit_beside_its_short_name(panel_graph) -> None:
     from osprey.facility.panels.describe import device_card
 
     doc, _ = draw(device_card(panel_graph, "XR01:QF1"), panel_graph)
     labels = {n["props"]["pv"]: n for n in _by_type(doc, "pv-label")}
     value = labels["XR01-QF1:Current-RB"]
-    assert value["props"]["showUnits"] is False
-    assert "current setpoint (A)" in _texts(doc)
-    assert "A" not in _texts(doc)
+    assert value["props"]["showUnits"] is True  # the unit with the value, whole
+    assert value["geometry"]["width"] >= layout.value_width("A", layout.TEXT_SIZE)
+    assert "XR01-QF1:Current-RB" in _texts(doc)  # its name, muted, left of it
 
 
 def _picture_view(parts, *, signal: str | None = None) -> View:

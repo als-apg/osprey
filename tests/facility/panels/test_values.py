@@ -311,7 +311,7 @@ def test_values_in_card_columns_have_room_for_the_number_and_its_unit(tmp_path) 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", crowd_with_knobs), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:BPM0"), graph)
     texts = [n["props"]["text"] for n in nodes(doc) if n["type"] == "text-label"]
-    assert texts.count("READBACK") >= 2  # in columns
+    assert any("· ALL CHANNELS" in t for t in texts)  # in the grid's columns
     room = layout.value_width("mm", layout.TEXT_SIZE)
     for n in nodes(doc):
         if n["type"] == "pv-label" and n["props"]["pv"].startswith("XR01:BPM0:position"):
@@ -367,9 +367,8 @@ def test_a_value_box_holds_the_number_and_the_whole_unit(tmp_path) -> None:
     for label in labels.values():
         others = [n for n in drawn if n is not label]
         assert not [n for n in others if _overlap(label, n)], label["props"]["pv"]
-        assert label["geometry"]["x"] + label["geometry"]["width"] <= (
-            layout.MARGIN + layout.CARD_LEFT - layout.COLUMN_GAP
-        )
+        row = _row_of(doc, label["props"]["pv"])
+        assert label["geometry"]["x"] + label["geometry"]["width"] <= _box(row)[2]
 
 
 def test_a_key_number_with_a_long_unit_fits_its_tile_whole(tmp_path) -> None:
@@ -396,6 +395,14 @@ def test_a_key_number_with_a_long_unit_fits_its_tile_whole(tmp_path) -> None:
     assert number["geometry"]["x"] + number["geometry"]["width"] <= (
         frame["geometry"]["x"] + frame["geometry"]["width"]
     )
+
+
+def _row_of(doc: dict, channel: str) -> dict:
+    """The grid row of *channel*: the box that shows its full name on hover."""
+    (row,) = [
+        n for n in nodes(doc) if n["type"] == "rectangle" and n["props"].get("tooltip") == channel
+    ]
+    return row
 
 
 def _unit_beside(doc: dict, number: dict, unit: str) -> dict:
@@ -426,7 +433,6 @@ def test_a_unit_longer_than_channel_access_carries_is_printed_whole_beside_a_for
     gauges = {n["props"]["pv"] for n in nodes(doc) if n["type"] == "pv-label"}
     numbers = _annotations(doc)
     drawn = [n for n in nodes(doc) if n["type"] in ("pv-label", "text-label")]
-    column_end = layout.MARGIN + layout.CARD_LEFT - layout.COLUMN_GAP
     long = [(i, u) for i, u in enumerate(LONG_UNITS) if len(u) > layout.CHANNEL_ACCESS_UNIT_CHARS]
     assert long
     for i, unit in long:
@@ -439,7 +445,9 @@ def test_a_unit_longer_than_channel_access_carries_is_printed_whole_beside_a_for
         assert _formula(doc, rule)["expression"] == layout.significant_expression("{v}")
         beside = _unit_beside(doc, number, unit)
         assert beside["geometry"]["width"] >= layout.text_width(unit, beside["props"]["fontSize"])
-        assert beside["geometry"]["x"] + beside["geometry"]["width"] <= column_end
+        assert (
+            beside["geometry"]["x"] + beside["geometry"]["width"] <= _box(_row_of(doc, channel))[2]
+        )
         for label in (number, beside):
             others = [n for n in drawn if n is not label]
             assert not [n for n in others if _overlap(label, n)], channel

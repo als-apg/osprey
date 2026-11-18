@@ -65,6 +65,12 @@ def _section(view: View, title: str):
     return found[0]
 
 
+def _blocks(view: View) -> list:
+    """The blocks of a drawn card's relations chain."""
+    (chain,) = _section(view, "relations").items
+    return list(chain.blocks)
+
+
 def _titles(view: View) -> list[str]:
     return [section.title for section in view.sections]
 
@@ -105,85 +111,61 @@ def _graph(tmp_path: Path, change) -> PanelGraph:
 
 def test_a_magnet_fed_by_the_shared_supply_links_to_it(panel_graph):
     view = device_card(panel_graph, "XR01:QF1")
-    fed = _section(view, "fed by")
-    assert [(item.label, item.target) for item in fed.items] == [("XR01:PS1", card("XR01:PS1"))]
+    (feeder,) = [b for b in _blocks(view) if b.link is not None and b.title.startswith("Power")]
+    assert feeder.link.target == card("XR01:PS1")
 
 
 def test_the_supply_links_back_to_both_magnets(panel_graph):
-    feeds = _section(device_card(panel_graph, "XR01:PS1"), "feeds")
+    blocks = _blocks(device_card(panel_graph, "XR01:PS1"))
+    feeds = [b.link.target for b in blocks if b.title.startswith("Feeds")]
     # graph order: the built facility sorts claims by id
-    assert [item.target for item in feeds.items] == [card("XR01:QD1"), card("XR01:QF1")]
+    assert feeds == [card("XR01:QD1"), card("XR01:QF1")]
 
 
-def test_a_paired_setpoint_sits_beside_its_readback_in_signals(panel_graph):
+def test_a_setpoint_is_an_entry_and_its_readback_stands_in_the_channels(panel_graph):
     view = device_card(panel_graph, "XR01:QF1")
-    signals = _section(view, "signals")
-    assert signals.items == (
-        ValueRow(
-            label="current setpoint",  # the stated signal, never cut from the name
-            channel="XR01-QF1:Current-SP",
-            readback="XR01-QF1:Current-RB",
-            tolerance=("absolute", 0.05),
-            writable=True,
-            drawn_as="setpoint",
-            inferred=False,
-            unit="A",
-            readback_unit="A",
-        ),
-    )
-    assert "settings" not in _titles(view)
-
-
-def test_a_writable_channel_with_no_pair_lands_in_settings(panel_graph):
-    view = device_card(panel_graph, "XR01:QD1")
-    settings = _section(view, "settings")
-    assert [(row.channel, row.writable, row.readback) for row in settings.items] == [
-        ("XR01-QD1:Current-SP", True, None)
+    (operate,) = _section(view, "operate").items
+    assert [(g.kind, [c.channel for c in g.controls]) for g in operate.groups] == [
+        ("entry", ["XR01-QF1:Current-SP"])
     ]
-    signals = _section(view, "signals")
-    assert [(row.channel, row.writable) for row in signals.items] == [
-        ("XR01-QD1:Current-RB", False)
+    (grid,) = _section(view, "all channels").items
+    assert [channel for _short, channel in grid.rows] == ["XR01-QF1:Current-RB"]
+    assert grid.rows[0][0] == "XR01-QF1:Current-RB"  # no device prefix to cut
+
+
+def test_the_channels_grid_keeps_the_channel_order(panel_graph):
+    (grid,) = _section(device_card(panel_graph, "XR01:IP1"), "all channels").items
+    assert [channel for _short, channel in grid.rows] == [
+        channel.name for channel in panel_graph.channels("XR01:IP1", "device")
     ]
-
-
-def test_readable_signals_are_ordered_by_how_they_are_drawn(panel_graph):
-    signals = _section(device_card(panel_graph, "XR01:IP1"), "signals")
-    assert [row.channel for row in signals.items] == [
-        "XR01-IP1:State-Sts",  # drawn as state
-        "XR01-IP1:Pressure-RB",  # untyped, last
-    ]
-
-
-def test_an_inferred_pair_marks_its_value_row(panel_graph):
-    signals = _section(device_card(panel_graph, "XR01:PS1"), "signals")
-    row = signals.items[0]
-    assert (row.channel, row.readback, row.inferred) == (
-        "XR01-PS1:On-Cmd",
-        "XR01-PS1:On-Sts",
-        True,
-    )
 
 
 def test_a_light_per_rule_bearing_channel_marks_inferred_and_disagree(panel_graph):
-    supply = _section(device_card(panel_graph, "XR01:PS1"), "health")
-    assert supply.items == (Light("XR01-PS1:On-Sts", inferred=True),)
-    pump = _section(device_card(panel_graph, "XR01:IP1"), "health")
+    from osprey.facility.panels.describe import light
+
+    assert light(panel_graph, "XR01-PS1:On-Sts") == Light("XR01-PS1:On-Sts", inferred=True)
     # one stated row and one inferred row: not all inferred; they disagree on 0
-    assert pump.items == (Light("XR01-IP1:State-Sts", disagree=True),)
+    pump = light(panel_graph, "XR01-IP1:State-Sts")
+    assert pump == Light("XR01-IP1:State-Sts", disagree=True)
 
 
 def test_a_light_whose_rules_the_engine_cannot_evaluate_says_so(panel_graph):
-    (bend,) = _section(device_card(panel_graph, "XR02:BEND1"), "health").items
-    assert bend.unsupported is True
-    (mixed,) = _section(device_card(panel_graph, "XR02:QF1"), "health").items
-    assert (mixed.channel, mixed.unsupported) == ("XR02-QF1:Current-RB", True)
-    (plain,) = _section(device_card(panel_graph, "XR02:IP1"), "health").items
-    assert plain.unsupported is False
+    from osprey.facility.panels.describe import light
+
+    lit = {
+        c.name: light(panel_graph, c.name)
+        for thing in ("XR02:BEND1", "XR02:QF1", "XR02:IP1")
+        for c in panel_graph.channels(thing, "device")
+        if panel_graph.rule(c.name)
+    }
+    assert [x.unsupported for x in lit.values() if x.channel.startswith("XR02-BEND1")] == [True]
+    assert lit["XR02-QF1:Current-RB"].unsupported is True
+    assert all(not x.unsupported for x in lit.values() if x.channel.startswith("XR02-IP1"))
 
 
 def test_a_channel_less_thing_has_place_pose_and_no_signal_or_health(panel_graph):
     view = device_card(panel_graph, "XR02:SHIELD1")
-    assert _titles(view) == ["where", "sources"]
+    assert _titles(view) == ["head", "relations", "where", "sources"]
     where = _section(view, "where").items
     assert where[0] == Link("place", Target("card", "place", "XR/XR02"))
     (pose,) = [item for item in where if isinstance(item, Fact)]
@@ -201,17 +183,19 @@ def test_a_derived_pose_carries_its_assumption_as_a_caveat(panel_graph):
 
 def test_card_sections_come_in_their_fixed_order(panel_graph):
     assert _titles(device_card(panel_graph, "XR01:QF1")) == [
-        "signals",
-        "fed by",
-        "calibration",
+        "head",
+        "relations",
         "picture",
+        "calibration",
+        "operate",
+        "all channels",
         "where",
         "sources",
     ]
     assert _titles(device_card(panel_graph, "XR01:IP1")) == [
-        "signals",
-        "health",
-        "read out by",
+        "head",
+        "relations",
+        "all channels",
         "where",
     ]
 
@@ -236,16 +220,17 @@ def test_a_card_with_every_section_has_them_in_order(tmp_path):
     facility = write_fixture_facility(tmp_path / "facility.json", everything)
     view = device_card(load_graph(facility, tables), "XR01:QD1")
     assert _titles(view) == [
-        "signals",
-        "settings",
-        "health",
-        "fed by",
-        "feeds",
-        "calibration",
+        "head",
+        "relations",
         "picture",
+        "calibration",
+        "operate",
+        "all channels",
         "where",
         "sources",
     ]
+    words = [b.title.split()[0] for b in _blocks(view)]
+    assert "Power" in words and "Feeds" in words  # fed by the supply, feeding the pump
 
 
 def test_sources_hold_a_fact_per_citation(panel_graph):
@@ -281,7 +266,7 @@ def test_a_card_shows_each_claim_even_when_two_sources_agree(panel_graph):
 def test_unit_claims_show_under_where_without_a_built_place(panel_graph):
     view = device_card(panel_graph, "XR02:CH5")
     assert view.crumbs == ()
-    assert _titles(view) == ["where"]  # no raw located_in section
+    assert _titles(view) == ["head", "relations", "where"]  # no raw located_in section
     where = _section(view, "where").items
     assert [(p.link.target, p.unit, p.link.standing) for p in where] == [
         (Target("rack", "place", "XR/XR01/RK1"), 40, "contested"),
@@ -331,18 +316,21 @@ def _add_claims(document: dict[str, Any]) -> None:
 
 def test_a_contested_or_inferred_relation_is_marked_on_its_link(tmp_path):
     graph = _graph(tmp_path, _add_claims)
-    (link,) = _section(device_card(graph, "XR01:IP1"), "read out by").items
+    (block,) = [b for b in _blocks(device_card(graph, "XR01:IP1")) if b.title.startswith("Read")]
+    link = block.link
     assert (link.target, link.standing, link.basis) == (card("XR01:CH2"), "contested", "inferred")
-    (back,) = _section(device_card(graph, "XR01:CH2"), "reads out").items
-    assert (back.standing, back.basis) == ("contested", "inferred")
+    assert block.standing == "contested"
+    (back,) = [b for b in _blocks(device_card(graph, "XR01:CH2")) if b.title.startswith("Reads")]
+    assert (back.link.standing, back.link.basis) == ("contested", "inferred")
 
 
 def test_an_unknown_relation_kind_is_titled_by_its_own_name(tmp_path):
     graph = _graph(tmp_path, _add_claims)
-    assert _section(device_card(graph, "XR01:QF1"), "aligned_with").items[0].target == card(
-        "XR01:QD1"
-    )
-    assert "aligned_with" in _titles(device_card(graph, "XR01:QD1"))
+    blocks = _blocks(device_card(graph, "XR01:QF1"))
+    (aligned,) = [b for b in blocks if b.title.startswith("Aligned with")]
+    assert aligned.link.target == card("XR01:QD1")
+    back = _blocks(device_card(graph, "XR01:QD1"))
+    assert any(b.title.startswith("Aligned with") for b in back)
 
 
 def test_a_class_with_picture_rows_yields_a_picture_and_one_without_none(panel_graph):

@@ -32,12 +32,19 @@ import re
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from functools import partial
 from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import health, strip, symbols
 from osprey.facility.panels import picture as drawing
-from osprey.facility.panels.describe import NO_POSITION, PROBE_SECTION, RELATION_TITLES
+from osprey.facility.panels.describe import (
+    ENUMERATED_OUTPUTS,
+    NO_POSITION,
+    PROBE_SECTION,
+    RELATION_TITLES,
+    action_word,
+)
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
 from osprey.facility.panels.model import Citation, PanelGraph
@@ -57,16 +64,23 @@ from osprey.facility.panels.view import (
     CalibrationRow,
     Calibrations,
     CalibrationTallies,
+    CardHead,
+    Chain,
+    ChainBlock,
+    ChannelGrid,
     CheckRow,
+    Control,
     Elevation,
     Fact,
     Grid,
     GridCell,
     GridRow,
     Group,
+    KeyTile,
     Light,
     Link,
     Node,
+    Operate,
     Picture,
     Placement,
     Probe,
@@ -185,6 +199,55 @@ CHIP_LIGHT = 12
 LEGEND_ROW = 52
 BIG_SIZE = 22  # a key number
 TILE_PAD = 10
+# -- a drawn card: its title line, key tiles, chain blocks, controls and channel grid
+CARD_NAME_SIZE = 22
+CARD_NAME_LINE = 34
+CARD_KIND_SIZE = 13
+CARD_DESCRIPTION_SIZE = 12
+KEY_TILE_HEIGHT = 76
+KEY_TILES_WIDE = 4  # a row of fewer tiles keeps the width of this many
+KEY_TILE_GAP = 10
+KEY_VALUE_SIZE = 20
+KEY_VALUE_LINE = 34
+KEY_WORD_SIZE = 18
+BLOCK_LEAST, BLOCK_MOST = 200, 270  # a chain block's width
+BLOCK_GAP = 72  # between two blocks: the arrow and its word
+BLOCK_TITLE = 20  # a block's title line, over its box
+BLOCK_TEXT_SIZE = 12
+BLOCK_ROW_TOP = 12  # a block's first line under the box's top
+BLOCK_LINE = 1.5  # a block's outline, and an arrow's
+ARROW_INSET = 4  # an arrow stops short of the next block
+WORD_GAP = 24  # between a name and the muted words after it
+DESCRIPTION_LINE = 19
+KEY_VALUE_TOP = 30  # a key tile's value under its top
+CHIP_HEIGHT_SMALL = 20  # the dashed "not served yet" chip
+BLOCK_ROW = 26
+BLOCK_TOP = 30  # a block's box above its first line
+BLOCK_LABEL = 100  # a block line's label column
+BLOCKS_PER_ROW = 5
+CONTROL_WIDTH = 160
+CONTROL_HEIGHT = 28
+CONTROL_TAG_HEIGHT = 18
+GRID_ROW = ROW + ROW_GAP
+GRID_VALUE = 100
+GRID_NAME_LEAST = 80  # a grid row's name, however wide its value and unit
+CARD_END = 30  # the stated height: the last section's end and this
+#: The kinds of control, as the operate block's legend names and explains them.
+CONTROL_LEGEND: tuple[tuple[str, str], ...] = (
+    ("ACTION", "writes once, when pressed"),
+    ("CHOICE", "stays; shaded = the device's status"),
+    ("ENTRY", "type, check, Apply"),
+    ("READ ONLY", "nothing to press"),
+)
+_NOT_SERVED = "not served yet"
+#: The drawn card's closing sections, drawn as muted lines.
+_FACT_SECTIONS = frozenset({"where", "sources"})
+_NOT_STATED_TEXT = "not stated"
+_MEANING_NOT_STATED = "meaning not stated"
+_GRID_NOTE = "hover a row for the full channel name"
+_APPLY = "Apply"
+_NOW = "now"
+_VALUE_NOT_STATED = "value not stated"
 MIN_TILE_WIDTH = 150  # the band takes the fewest rows whose tiles are this wide
 LINE_HEIGHT = 1.5  # a line of text, in parts of its size: the viewer shrinks what overflows
 NUMBER_HEIGHT = 36  # a key number's box: one line at the big size, and its border
@@ -278,9 +341,6 @@ PROBE_VALUE_WIDTH = 72
 PROBE_READOUT_WIDTH = 96
 WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
-#: A command name's ending that says "this is a command", not what it does; the
-#: button's word is the name without it.
-_COMMAND_ENDING = re.compile(r"[-_.]?(?:cmd|command|cmnd)$", re.IGNORECASE)
 COMMAND_VALUE = 1  # what pressing a command's button writes
 # What one screen may bind. The formula engine allows 1,000 subscriptions per
 # client (``max_subscriptions_per_client``, canopy/formula_engine/config.py at
@@ -384,7 +444,6 @@ _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
 _WHOLE_KINDS = frozenset({"state", "command"})  # an enum, a two-valued output: printed whole
-ENUMERATED_OUTPUTS = frozenset({"bo", "mbbo"})  # record types whose setpoint is a whole number
 _PRINTED = _NUMBERS | _WHOLE_KINDS  # the kinds a formula can print: numbers
 _WHOLE = re.compile(r"(?:==|!=)?\s*-?\d+")  # a health rule's value naming one state, or not it
 _TOKEN = re.compile(r"\{(\d+)\}")
@@ -1778,6 +1837,11 @@ class _Page:
             self.text(MARGIN, self.y, self.view.title, size=TITLE_SIZE, w=STRIP_WIDTH, h=ROW + GAP)
             self.y += ROW + GAP
         sections = list(self.view.sections)
+        if self.on_card and any(
+            isinstance(i, CardHead) for section in sections for i in section.items
+        ):
+            self.drawn_card(sections)  # the stated height: the last frame's end and a margin
+            return self.s.document(self.y - PANEL_GAP + CARD_END)
         if self.on_card:
             if any(s.title == PROBE_SECTION for s in sections):  # the picture is the point
                 first = [s for s in sections if s.title in _PICTURE_FIRST]
@@ -1979,6 +2043,514 @@ class _Page:
             self.small(inner, top + ROW + i * SMALL_LINE, line, fg=MUTED_TEXT)
         if node.link is not None:
             self.nav(x, y, w, h, replace(node.link, label=node.label))
+
+    # -- the drawn card -------------------------------------------------------
+
+    def drawn_card(self, sections: list[Section]) -> None:
+        """A device's drawn card: the title line, the key tiles, then each section in
+        its frame, numbered, the relations as a chain, the operate block and the
+        channels grid last; a drawing (picture, probe, calibration) as on the old card."""
+        number = 0
+        for section in sections:
+            first = section.items[0] if section.items else None
+            if isinstance(first, CardHead):
+                self.title_line(first)
+            elif isinstance(first, KeyTile):
+                self.key_tiles([i for i in section.items if isinstance(i, KeyTile)])
+            elif isinstance(first, Chain):
+                number += 1
+                self.framed(f"{number} · {section.title}", partial(self.chain_blocks, first))
+            elif isinstance(first, Operate):
+                number += 1
+                self.framed(f"{number} · {section.title}", partial(self.operate, first))
+            elif isinstance(first, ChannelGrid):
+                number += 1
+                title = f"{number} · {section.title} ({len(first.rows)})"
+                self.framed(title, partial(self.channel_grid, first), note=_GRID_NOTE)
+            elif isinstance(first, Picture | Probe):
+                self.section(section)  # a drawing heads itself, by its view
+            elif section.title in _FACT_SECTIONS:
+                number += 1
+                self.framed(f"{number} · {section.title}", partial(self.fact_lines, section.items))
+            else:
+                number += 1
+                self.section(Section(f"{number} · {section.title}", section.items))
+
+    def fact_lines(self, items: Sequence[object]) -> None:
+        """Where a device is and what it is read from, one muted line each: the place,
+        each placement claim with its unit and source, each pose, each source; a
+        link opens its screen, a contested or inferred claim says so."""
+        for item in items:
+            link: Link | None = None
+            if isinstance(item, Placement):
+                link = item.link
+                unit = f"unit {item.unit}" if item.unit is not None else None
+                source = _citation_line(item.citation) if item.citation else None
+                text = " · ".join(t for t in (item.link.label, unit, source) if t)
+            elif isinstance(item, Link):
+                link = item
+                text = (
+                    f"{item.label}: {item.target.id}"
+                    if item.label != item.target.id
+                    else item.label
+                )
+            elif isinstance(item, Fact):
+                text = f"{item.label} · {item.text}" if item.text != item.label else item.label
+                if item.caveat:
+                    text += f" ({item.caveat})"
+            else:
+                continue
+            marks = [m for m in (_standing_word(link or item),) if m]
+            if marks:
+                text += " · " + ", ".join(marks)
+            line = _cut(text, STRIP_WIDTH, SMALL_SIZE)
+            right = self.small(self.x0, self.y, line, fg=MUTED_TEXT)
+            if link is not None:
+                self.nav(self.x0, self.y, right - self.x0, SMALL_LINE, link)
+            self.y += SMALL_LINE + ROW_GAP
+
+    def framed(self, title: str, draw: Callable[[], None], *, note: str | None = None) -> None:
+        """A section's frame and head around what *draw* draws (as :meth:`section`)."""
+        first = len(self.s.nodes)
+        top = self.y
+        self.y += PANEL_PAD
+        head_y = self.y
+        self.heading(title)
+        if note:
+            x = self.x0 + text_width(title.upper(), HEADING_SIZE) + WORD_GAP
+            self.small(x, head_y, note, fg=MUTED_TEXT)
+        draw()
+        self.y += PANEL_PAD - ROW_GAP
+        self.s.widget(
+            "rectangle",
+            MARGIN - PANEL_PAD,
+            top,
+            STRIP_WIDTH + 2 * PANEL_PAD,
+            self.y - top,
+            {
+                "lineColor": BOX_BORDER,
+                "lineWidth": LINE_WIDTH,
+                "fill": True,
+                "fillColor": PANEL_BACKGROUND,
+            },
+        )
+        self.s.nodes.insert(first, self.s.nodes.pop())  # under what it frames
+        self.y += PANEL_GAP
+
+    def title_line(self, head: CardHead) -> None:
+        """The device's name, large; its class and recipe beside it, muted; the
+        recipe's sentence under it."""
+        name = self.view.id.id
+        x = self.text(MARGIN, self.y, name, size=CARD_NAME_SIZE, h=CARD_NAME_LINE)
+        self.text(x + WORD_GAP, self.y + GAP, head.kind, size=CARD_KIND_SIZE, fg=MUTED_TEXT)
+        self.y += CARD_NAME_LINE
+        if head.description:
+            for line in _wrap(head.description, STRIP_WIDTH, CARD_DESCRIPTION_SIZE):
+                self.text(
+                    MARGIN,
+                    self.y,
+                    line,
+                    size=CARD_DESCRIPTION_SIZE,
+                    h=DESCRIPTION_LINE,
+                    fg=MUTED_TEXT,
+                )
+                self.y += DESCRIPTION_LINE
+        self.y += GAP
+
+    def key_tiles(self, tiles: Sequence[KeyTile]) -> None:
+        """The top row: one tile per value, across the frames' width."""
+        left = MARGIN - PANEL_PAD
+        total = STRIP_WIDTH + 2 * PANEL_PAD
+        slots = max(len(tiles), KEY_TILES_WIDE)  # a lone tile keeps a tile's width
+        w = (total - (slots - 1) * KEY_TILE_GAP) / slots
+        for i, tile in enumerate(tiles):
+            x = left + i * (w + KEY_TILE_GAP)
+            self.box(x, self.y, w, KEY_TILE_HEIGHT, fill=PANEL_BACKGROUND)
+            inner = x + TILE_PAD + GAP / 2
+            self.text(
+                inner,
+                self.y + GAP,
+                tile.title.upper(),
+                size=HEADING_SIZE,
+                h=SMALL_LINE + 2,
+                fg=MUTED_TEXT,
+            )
+            room = w - 2 * TILE_PAD - GAP
+            self.shown_value(
+                inner, self.y + KEY_VALUE_TOP, room, tile.channel, tile.shown_as, tile.words,
+                unit=tile.unit, scale=tile.scale, size=KEY_VALUE_SIZE, h=KEY_VALUE_LINE,
+            )  # fmt: skip
+        self.y += KEY_TILE_HEIGHT + 2 * GAP
+
+    def shown_value(
+        self,
+        x: float,
+        y: float,
+        w: float,
+        channel: str | None,
+        shown_as: str,
+        words: Sequence[tuple[str, str]],
+        *,
+        unit: str | None = None,
+        scale: float | None = None,
+        size: float = TEXT_SIZE,
+        h: float = ROW,
+        text: str | None = None,
+    ) -> None:
+        """One shown value: a number with its unit, a state word, a lamp and its word,
+        a stated text, or a dashed chip "not served yet"."""
+        if shown_as == "text":
+            self.text(x, y, text or "", size=size, w=w, h=h)
+            return
+        if channel is None:
+            inset = (ROW - CHIP_HEIGHT_SMALL) / 2
+            chip_w = min(w, text_width(_NOT_SERVED, SMALL_SIZE) + 2 * GAP)
+            self.box(x, y + inset, chip_w, CHIP_HEIGHT_SMALL, line=MUTED_TEXT, dashed=True)
+            self.text(
+                x + GAP, y + inset, _NOT_SERVED, size=SMALL_SIZE, h=CHIP_HEIGHT_SMALL, fg=MUTED_TEXT
+            )
+            return
+        if shown_as == "lamp":
+            top = y + (h - LIGHT_SIZE) / 2
+            if self.graph.rule(channel):
+                x = self.light(x, top, [describe_light(self.graph, channel)])
+            else:
+                x = self.no_rule(x, top)
+            x += GAP
+            w -= LIGHT_SIZE + GAP
+            shown_as = "word"
+        if shown_as == "word":
+            if words and self.budget.take([(1, frozenset({channel}))]):
+                self.word(x, y, w, h, channel, words, size=size)
+                return
+            if not words:  # a number, and the note that no word is stated for it
+                right = self.number(x, y, min(w, VALUE_WIDTH), h, channel, None, None, size)
+                self.text(right + GAP, y, _MEANING_NOT_STATED, size=SMALL_SIZE, h=h, fg=MUTED_TEXT)
+                return
+        self.number(x, y, w, h, channel, unit, scale, size)
+
+    def number(
+        self, x, y, w, h, channel: str, unit: str | None, scale: float | None, size: float
+    ) -> float:
+        """A live number: a label of the channel, or with a divisor a formula's text
+        and the unit beside it. Returns the right edge."""
+        if scale not in (None, 1.0) and scale:
+            expression = significant_expression(f"({{v}} / {scale:g})")
+            uw = text_width(unit or "", size) + GAP if unit else 0
+            self.formula_text(x, y, w - uw, h, channel, expression, size=size, fg=PAGE_TEXT, bg=TRANSPARENT, align="left")  # fmt: skip
+            if unit:
+                self.text(x + w - uw + GAP / 2, y, unit, size=size, h=h)
+            return float(x + w)
+        props = {
+            "pv": channel,
+            "fontSize": size,
+            "foregroundColor": PAGE_TEXT,
+            "backgroundColor": TRANSPARENT,
+            "showUnits": True,
+            "alarmSensitive": True,
+            "alarmSensitiveBorder": False,
+            "align": "left",
+        }
+        rules = (
+            self.precision(props, "{v}", {"v": channel}) if not self.prints_whole(channel) else []
+        )
+        if self.prints_whole(channel) or self.enumerated(channel):
+            props["precision"] = 0
+        self.s.widget("pv-label", x, y, w, h, props, rules=rules or None)
+        return float(x + w)
+
+    def word(self, x, y, w, h, channel: str, words: Sequence[tuple[str, str]], *, size) -> None:
+        """A state shown as its stated word: a label whose text a rule sets from the
+        value; the dash while no value holds."""
+        self.s._rules += 1
+        rule = {
+            "id": f"r-{self.s._rules:04d}",
+            "name": f"{channel} word",
+            "targetProperty": "text",
+            "pvs": [{"name": channel, "trigger": True}],
+            "conditions": [
+                {"expression": f"{{0}} == {value}", "value": word} for value, word in words
+            ],
+            "default": NO_VALUE,
+        }
+        props = {
+            "text": NO_VALUE,
+            "fontSize": size,
+            "foregroundColor": PAGE_TEXT,
+            "backgroundColor": TRANSPARENT,
+            "align": "left",
+            _TOOLTIP: channel,
+        }
+        self.s.widget("text-label", x, y, w, h, props, rules=[rule])
+
+    def chain_blocks(self, chain: Chain) -> None:
+        """Blocks left to right, centred, as many a row as fit the width (at most
+        :data:`BLOCKS_PER_ROW`); each its title over its box of lines, the arrow and
+        its word to the next in the row."""
+        widths = [self.block_width(b) for b in chain.blocks]
+        rows: list[list[int]] = [[]]
+        used = 0.0
+        for i, w in enumerate(widths):
+            need = w + (BLOCK_GAP if rows[-1] else 0)
+            if rows[-1] and (used + need > STRIP_WIDTH or len(rows[-1]) == BLOCKS_PER_ROW):
+                rows.append([])
+                used, need = 0.0, w
+            rows[-1].append(i)
+            used += need
+        for row in rows:
+            total = sum(widths[i] for i in row) + BLOCK_GAP * (len(row) - 1)
+            x = self.x0 + max(0.0, (STRIP_WIDTH - total) / 2)
+            top = self.y
+            bottom = top
+            for i in row:
+                block, w = chain.blocks[i], widths[i]
+                bottom = max(bottom, self.chain_block(x, top, w, block))
+                if i != row[-1]:
+                    ya = top + BLOCK_TITLE + BLOCK_TOP
+                    start, end = x + w + ARROW_INSET / 2, x + w + BLOCK_GAP - ARROW_INSET
+                    self.line([(start, ya), (end, ya)], PAGE_TEXT, BLOCK_LINE, arrow=True)
+                    if block.arrow:
+                        word = _cut(block.arrow, BLOCK_GAP - GAP, SMALL_SIZE)
+                        ww = text_width(word, SMALL_SIZE)
+                        left = x + w + (BLOCK_GAP - ww) / 2
+                        self.small(left, ya - SMALL_LINE - ARROW_INSET, word, fg=MUTED_TEXT)
+                x += w + BLOCK_GAP
+            self.y = bottom + GAP
+        if chain.foot:
+            for line in _wrap(chain.foot, STRIP_WIDTH, SMALL_SIZE):
+                self.small(self.x0, self.y, line, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+        self.y += ROW_GAP
+
+    def block_width(self, block: ChainBlock) -> float:
+        need = text_width(block.title, BLOCK_TEXT_SIZE) + 2 * GAP
+        for row in block.rows:
+            if row.shown_as == "text":
+                text = text_width(row.text or "", BLOCK_TEXT_SIZE)
+                need = max(need, BLOCK_LABEL + text + WORD_GAP)
+        return max(BLOCK_LEAST, min(BLOCK_MOST, need))
+
+    def chain_block(self, x: float, top: float, w: float, block: ChainBlock) -> float:
+        """One block: its title (in the focus colour for the card's own device, a link
+        to the thing's card otherwise), its box, its lines; a hop nothing states is a
+        dashed box, a contested one a dashed box in the minor colour. Returns its
+        bottom."""
+        colour = symbols.FOCUS if block.focus else (MUTED_TEXT if block.dashed else PAGE_TEXT)
+        title = _cut(block.title, w, BLOCK_TEXT_SIZE)
+        self.text(x, top, title, size=BLOCK_TEXT_SIZE, w=w, h=BLOCK_TITLE, fg=colour)
+        if block.link is not None:
+            self.nav(x, top, w, BLOCK_TITLE, replace(block.link, label=f"open {block.link.label}"))
+        box_top = top + BLOCK_TITLE + ROW_GAP
+        height = BLOCK_TOP + BLOCK_ROW * max(len(block.rows), 1) - BLOCK_ROW_TOP
+        if block.dashed or block.standing == _CONTESTED:
+            line = symbols.ALARM_MINOR if block.standing == _CONTESTED else MUTED_TEXT
+            self.box(x, box_top, w, height, line=line, dashed=True)
+        else:
+            props = {
+                "lineColor": symbols.FOCUS if block.focus else PAGE_TEXT,
+                "lineWidth": 2 if block.focus else BLOCK_LINE,
+                "fill": True,
+                "fillColor": symbols.FOCUS_TINT if block.focus else PANEL_BACKGROUND,
+            }
+            self.s.widget("rectangle", x, box_top, w, height, props)
+        bottom = box_top + height
+        if block.standing == _CONTESTED:
+            self.small(x + GAP, bottom + ROW_GAP, _CONTESTED, fg=MUTED_TEXT)
+            bottom += SMALL_LINE + ROW_GAP
+        line_h = BLOCK_ROW - ROW_GAP
+        if not block.rows:
+            self.text(
+                x + GAP, box_top + BLOCK_ROW_TOP, _NOT_STATED_TEXT,
+                size=SMALL_SIZE, w=w - 2 * GAP, h=line_h, fg=MUTED_TEXT,
+            )  # fmt: skip
+        for n, row in enumerate(block.rows):
+            y = box_top + BLOCK_ROW_TOP + n * BLOCK_ROW
+            self.text(
+                x + GAP, y, row.label, size=SMALL_SIZE, w=BLOCK_LABEL - GAP, h=line_h, fg=MUTED_TEXT
+            )
+            vx, vw = x + BLOCK_LABEL, w - BLOCK_LABEL - GAP
+            self.shown_value(
+                vx, y, vw, row.channel, row.shown_as, row.words,
+                unit=row.unit, scale=row.scale, size=BLOCK_TEXT_SIZE, h=line_h, text=row.text,
+            )  # fmt: skip
+        return bottom
+
+    def operate(self, operate: Operate) -> None:
+        """The legend of the kinds of control, then each group: its tag, its title,
+        its controls in a row, the line of what it writes."""
+        x = self.x0
+        for kind, meaning in CONTROL_LEGEND:
+            x = self.control_tag(x, self.y, kind)
+            x = self.small(x + GAP / 2, self.y, meaning, fg=MUTED_TEXT) + WORD_GAP
+        self.y += CONTROL_TAG_HEIGHT + 2 * GAP
+        for group in operate.groups:
+            x = self.control_tag(self.x0, self.y, group.kind.upper())
+            if group.title:
+                self.small(x + GAP, self.y, group.title, fg=MUTED_TEXT)
+            self.y += CONTROL_TAG_HEIGHT + ROW_GAP + 2
+            if group.kind == "entry":
+                for control in group.controls:
+                    self.entry(control)
+            else:
+                x = self.x0
+                for control in group.controls:
+                    if x + CONTROL_WIDTH > self.x0 + STRIP_WIDTH:
+                        x = self.x0
+                        self.y += CONTROL_HEIGHT + GAP
+                    self.press(x, self.y, control, group.kind == "choice")
+                    x += CONTROL_WIDTH + GAP
+                self.y += CONTROL_HEIGHT + ROW_GAP
+            for line in _wrap(group.writes, STRIP_WIDTH, SMALL_SIZE):
+                self.small(self.x0, self.y, line, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+            self.y += GAP
+
+    def control_tag(self, x: float, y: float, kind: str) -> float:
+        """A small tag saying what kind of control follows. Returns its right edge."""
+        colour = (
+            symbols.CONTROL_ACTION
+            if kind == "ACTION"
+            else (MUTED_TEXT if kind == "READ ONLY" else PAGE_TEXT)
+        )
+        w = text_width(kind, SMALL_SIZE) + 2 * GAP
+        self.box(
+            x, y, w, CONTROL_TAG_HEIGHT, line=colour, fill=TRANSPARENT, dashed=kind == "READ ONLY"
+        )
+        self.text(x, y, kind, size=SMALL_SIZE, w=w, h=CONTROL_TAG_HEIGHT, fg=colour, align="center")
+        return x + w
+
+    def press(self, x: float, y: float, control: Control, choice: bool) -> None:
+        """An action button (filled) or a choice's segment (outlined, shaded while the
+        status reads its value); a press whose value no source states is a dashed box."""
+        if control.press_value is None:
+            self.box(x, y, CONTROL_WIDTH, CONTROL_HEIGHT, line=MUTED_TEXT, dashed=True)
+            label = f"{control.label}: {_VALUE_NOT_STATED}"
+            self.text(x, y, _cut(label, CONTROL_WIDTH, SMALL_SIZE), size=SMALL_SIZE, w=CONTROL_WIDTH, h=CONTROL_HEIGHT, fg=MUTED_TEXT, align="center")  # fmt: skip
+            return
+        value = control.press_value
+        props: dict[str, Any] = {
+            "pv": control.channel,
+            "label": control.label,
+            "pressValue": int(value) if float(value).is_integer() else value,
+            "fontSize": BLOCK_TEXT_SIZE,
+            _TOOLTIP: f"writes {control.channel} = {value:g}",
+        }
+        rules = None
+        if choice:
+            props |= {"backgroundColor": PANEL_BACKGROUND, "foregroundColor": PAGE_TEXT}
+            status = control.status or control.channel
+            if self.budget.take([(1, frozenset({status}))]):
+                self.s._rules += 1
+                rules = [
+                    {
+                        "id": f"r-{self.s._rules:04d}",
+                        "name": f"{status} selected",
+                        "targetProperty": "backgroundColor",
+                        "pvs": [{"name": status, "trigger": True}],
+                        "conditions": [
+                            {
+                                "expression": f"{{0}} == {value:g}",
+                                "value": symbols.CONTROL_CHOICE_SELECTED,
+                            }
+                        ],
+                        "default": PANEL_BACKGROUND,
+                    }
+                ]
+            self.box(x - 1, y - 1, CONTROL_WIDTH + 2, CONTROL_HEIGHT + 2, fill=TRANSPARENT)
+        else:
+            props |= {
+                "backgroundColor": symbols.CONTROL_ACTION,
+                "foregroundColor": symbols.CONTROL_ACTION_TEXT,
+            }
+        self.s.widget("pv-button", x, y, CONTROL_WIDTH, CONTROL_HEIGHT, props, rules=rules)
+
+    def entry(self, control: Control) -> None:
+        """Type, check, Apply: the name, the live value (now), a field that writes a
+        local value on Enter (new), and Apply, which writes the new value to the
+        channel."""
+        x = self.x0
+        self.text(x, self.y, control.label, size=BLOCK_TEXT_SIZE, w=2 * BLOCK_LABEL, h=ROW)
+        x += 2 * BLOCK_LABEL + GAP
+        self.small(x, self.y + (ROW - SMALL_LINE) / 2, _NOW, fg=MUTED_TEXT)
+        x += text_width(_NOW, SMALL_SIZE) + GAP
+        self.number(x, self.y, VALUE_WIDTH, ROW, control.channel, None, None, TEXT_SIZE)
+        x += VALUE_WIDTH + 2 * GAP
+        local = (
+            "loc://"
+            + re.sub(r"[^A-Za-z0-9]+", "_", f"{self.s.doc_id}_{control.channel}")
+            + "<VDouble>(0)"
+        )
+        self.box(x - 1, self.y - 1, VALUE_WIDTH + 2, ROW + 2, line=MUTED_TEXT, fill=TRANSPARENT)
+        props = {
+            "pv": local,
+            "fontSize": TEXT_SIZE,
+            "foregroundColor": PAGE_TEXT,
+            "backgroundColor": FIELD_BACKGROUND,
+            "alarmSensitiveBorder": False,
+            _TOOLTIP: f"new value for {control.channel}: Enter keeps it here, nothing is written",
+        }
+        self.s.widget("pv-text-input", x, self.y, VALUE_WIDTH, ROW, props)
+        x += VALUE_WIDTH + GAP
+        name = f"draft-{len(self.s.formulas)}"
+        self.s.formulas.append(
+            {"name": name, "kind": "scalar", "expression": "{v} + 0", "bindings": {"v": local}}
+        )
+        self.s._rules += 1
+        rule = {
+            "id": f"r-{self.s._rules:04d}",
+            "name": f"{control.channel} apply value",
+            "targetProperty": "pressValue",
+            "default": 0,
+            "formula": _FORMULA_PREFIX + name,
+        }
+        button = {
+            "pv": control.channel,
+            "label": _APPLY,
+            "pressValue": 0,
+            "fontSize": BLOCK_TEXT_SIZE,
+            "backgroundColor": symbols.CONTROL_ACTION,
+            "foregroundColor": symbols.CONTROL_ACTION_TEXT,
+            _TOOLTIP: f"writes the new value to {control.channel}",
+        }
+        self.s.widget("pv-button", x, self.y, 2 * BLOCK_GAP, ROW, button, rules=[rule])
+        self.y += ROW + ROW_GAP
+
+    def channel_grid(self, grid: ChannelGrid) -> None:
+        """Every channel not drawn above, in columns filled top to bottom: its light
+        when a rule states its health, its short name, its value as a card prints
+        one (a state word where one is stated); hovering a row shows the full name."""
+        columns = max(1, grid.columns)
+        cw = STRIP_WIDTH / columns
+        per = -(-len(grid.rows) // columns)
+        top = self.y
+        for i, (short, channel) in enumerate(grid.rows):
+            c, r = divmod(i, per)
+            x, y = self.x0 + c * cw, top + r * GRID_ROW
+            span = max(GRID_VALUE, self.value_span(channel))
+            value_w = min(span, cw - GRID_NAME_LEAST - 2 * GAP)  # the name keeps its least
+            vx = x + cw - value_w - GAP
+            name_x = x
+            lit = [describe_light(self.graph, channel)] if self.graph.rule(channel) else []
+            rule = ladder(self.graph, lit) if lit else None
+            if isinstance(rule, Ladder) and self.budget.take([light_cost(rule)]):
+                name_x = self.light(x, y + (ROW - LIGHT_SIZE) / 2, lit, rule=rule) + GAP
+
+            name_w = vx - GAP - name_x
+            self.text(
+                name_x, y, _cut(short, name_w, SMALL_SIZE), size=SMALL_SIZE, w=name_w, fg=MUTED_TEXT
+            )
+            words = tuple(self.graph.state_words(channel).items())
+            if words and self.budget.take([(1, frozenset({channel}))]):
+                self.word(vx, y, value_w, ROW, channel, words, size=TEXT_SIZE)
+            else:
+                drawn_as = self.graph.channel(channel).drawn_as
+                held = "unit" if span > value_w else None
+                self.field(vx, y, channel, drawn_as=drawn_as, w=value_w, units=True, within=held)
+            self.s.widget(
+                "rectangle", x, y, cw - GAP, ROW,
+                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: channel},
+            )  # fmt: skip
+        self.y = top + per * GRID_ROW + ROW_GAP
 
     # -- the device card ------------------------------------------------------
 
@@ -4637,15 +5209,19 @@ def caps_width(text: str, size: float) -> float:
     return text_width(text, size) * CAPS_WIDTH / CHAR_WIDTH
 
 
-def action_word(channel: str) -> str:
-    """The action a command channel's name says: its last segment (after the last
-    ``:``), a command ending (``_Cmd``, ``-CMD``) cut off, ``_`` and ``-`` read as
-    spaces, the first letter upper case (``Fault_Reset_Cmd`` gives ``Fault Reset``).
-    A name that is all ending reads whole."""
-    segment = channel.rsplit(":", 1)[-1]
-    words = re.sub(r"[-_.]+", " ", _COMMAND_ENDING.sub("", segment)).strip()
-    words = words or segment
-    return words[:1].upper() + words[1:]
+def _citation_line(citation: Citation) -> str:
+    return " ".join(
+        p for p in (citation.document, citation.version, citation.state, citation.locator) if p
+    )
+
+
+def _standing_word(item: object) -> str | None:
+    """``contested`` or ``inferred`` for a claim that is, else ``None``."""
+    if getattr(item, "standing", None) == _CONTESTED:
+        return _CONTESTED
+    if getattr(item, "basis", None) == "inferred":
+        return "inferred"
+    return None
 
 
 def scale_note(body: drawing.Body) -> str | None:

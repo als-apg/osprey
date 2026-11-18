@@ -445,7 +445,9 @@ def test_every_channel_a_written_screen_binds_is_a_channel_of_the_facility(panel
                     bound.add(pv["name"])
             bound.update((node.get("bindings") or {}).values())  # a screen formula's
     assert bound
-    for name in bound:
+    locals_ = {name for name in bound if name.startswith("loc://")}  # a typed value before Apply
+    assert all(name.endswith("<VDouble>(0)") for name in locals_)
+    for name in bound - locals_:
         panel_graph.channel(name)
 
 
@@ -634,7 +636,7 @@ def test_a_rule_the_engine_would_refuse_as_too_long_is_a_long_formula(tmp_path, 
     assert not [p for p in emit.check(panel_graph, out) if p.kind == "long_formula"]
     victim = next(f for f in sorted(out.rglob("*.screen.json")) if '"conditions"' in f.read_text())
     doc = json.loads(victim.read_text())
-    ruled = next(n for n in _walk(doc) if n.get("rules"))
+    ruled = next(n for n in _walk(doc) if n.get("rules") and "conditions" in n["rules"][0])
     ruled["rules"][0]["conditions"][0]["expression"] = " or ".join(["{0} == 1"] * 300)
     victim.write_text(json.dumps(doc))
     found = [p for p in emit.check(panel_graph, out) if p.kind == "long_formula"]

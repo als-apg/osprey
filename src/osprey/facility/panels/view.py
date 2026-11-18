@@ -18,6 +18,15 @@ from osprey.facility.panels.tables import PicturePart, ProbeElement
 __all__ = [
     "VIEW_KINDS",
     "Band",
+    "BlockRow",
+    "CardHead",
+    "Chain",
+    "ChainBlock",
+    "ChannelGrid",
+    "Control",
+    "ControlGroup",
+    "KeyTile",
+    "Operate",
     "Tile",
     "CheckRow",
     "Elevation",
@@ -605,6 +614,149 @@ class CalibrationTallies:
     more: Link | None
 
 
+@dataclass(frozen=True)
+class CardHead:
+    """A drawn card's title line under the bar: the device's class and recipe in
+    muted words, and the recipe's sentence (``None`` with none).
+
+    Attributes:
+        kind: What it is: ``"<class> · <recipe> recipe"`` or ``"<class> · default
+            recipe"``.
+        description: The recipe's sentence, its relation slots filled.
+        default: The card is drawn with the default recipe (its class has no row).
+    """
+
+    kind: str
+    description: str | None
+    default: bool = True
+
+
+@dataclass(frozen=True)
+class KeyTile:
+    """One tile of a drawn card's top row: one value.
+
+    Attributes:
+        title: Its head.
+        channel: The channel it shows, or ``None``: not served yet.
+        shown_as: ``value`` (a number with its unit), ``word`` (the state word)
+            or ``lamp`` (a light and the state word).
+        unit: The unit printed after the number, or ``None``.
+        scale: The divisor the raw value is shown through, or ``None`` (1).
+        precision: The decimals of the number, or ``None`` (significant digits).
+        words: The stated word per value, ``(value, word)``.
+    """
+
+    title: str
+    channel: str | None
+    shown_as: str = "value"
+    unit: str | None = None
+    scale: float | None = None
+    precision: int | None = None
+    words: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class BlockRow:
+    """One line inside a chain block: a muted label and what it shows.
+
+    Attributes:
+        label: The line's label (a role or a relation word).
+        channel: A live channel, or ``None``.
+        text: A stated text (a port, a class, ``not stated``), when no channel.
+        shown_as: ``value``, ``word``, ``lamp`` or ``text``.
+        unit, scale, words: As :class:`KeyTile`.
+    """
+
+    label: str
+    channel: str | None = None
+    text: str | None = None
+    shown_as: str = "text"
+    unit: str | None = None
+    scale: float | None = None
+    words: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class ChainBlock:
+    """One block of a chain: a thing, its lines, the arrow to the next block.
+
+    Attributes:
+        title: Its title (the thing's class word and id), or ``not stated``.
+        link: Its card, or ``None``.
+        rows: Its lines.
+        focus: It is the card's own device, drawn in the focus colour.
+        dashed: Nothing is stated for this hop.
+        arrow: The word on the arrow into the next block, or ``None``.
+        standing: ``contested`` when sources disagree on the hop, else ``None``.
+    """
+
+    title: str
+    link: Link | None
+    rows: tuple[BlockRow, ...] = ()
+    focus: bool = False
+    dashed: bool = False
+    arrow: str | None = None
+    standing: str | None = None
+
+
+@dataclass(frozen=True)
+class Chain:
+    """Blocks left to right, arrows between them, a muted line under them."""
+
+    blocks: tuple[ChainBlock, ...]
+    foot: str | None = None
+
+
+@dataclass(frozen=True)
+class Control:
+    """One press or entry of a drawn card's operate block.
+
+    Attributes:
+        label: The word on it (an entry's: what it sets).
+        channel: The channel it writes.
+        press_value: What a press writes; ``None`` for an entry, or a press whose
+            value no source states (drawn, not pressable).
+        status: The channel whose value shades a choice's segment, or ``None``.
+    """
+
+    label: str
+    channel: str
+    press_value: float | None = None
+    status: str | None = None
+
+
+@dataclass(frozen=True)
+class ControlGroup:
+    """Controls of one kind that belong together, and the line saying what they write.
+
+    Attributes:
+        kind: ``action``, ``choice`` or ``entry``.
+        title: What the group is (a role), or ``None``.
+        controls: Its controls.
+        writes: The muted line under it: the channels it writes and the values.
+    """
+
+    kind: str
+    title: str | None
+    controls: tuple[Control, ...]
+    writes: str
+
+
+@dataclass(frozen=True)
+class Operate:
+    """A drawn card's operate block."""
+
+    groups: tuple[ControlGroup, ...]
+
+
+@dataclass(frozen=True)
+class ChannelGrid:
+    """Every channel of the device not drawn above, compact: (short name, channel)."""
+
+    rows: tuple[tuple[str, str], ...]
+    columns: int = 4
+
+
 Item = (
     ValueRow
     | Light
@@ -623,6 +775,11 @@ Item = (
     | Totals
     | Calibrations
     | CalibrationTallies
+    | CardHead
+    | KeyTile
+    | Chain
+    | Operate
+    | ChannelGrid
 )
 
 

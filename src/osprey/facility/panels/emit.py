@@ -123,6 +123,7 @@ _FILE_MODE = 0o644
 DRAW_FILE = "draw.json"
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 _FORMULA_PREFIX = "formula://"
+_LOCAL_PREFIX = "loc://"
 
 
 class EmitError(Exception):
@@ -693,7 +694,13 @@ def write(
 
 def _bound_channels(document: Any) -> Iterator[str]:
     """Every channel a screen binds: a widget's ``pv``, a curve's ``y_channel``, each
-    name in a rule's ``pvs`` but a screen formula's, and each binding of a screen formula."""
+    name in a rule's ``pvs`` but a screen formula's, and each binding of a screen
+    formula; a screen's own local value (``loc://``, a typed value before Apply) is
+    no channel."""
+    yield from (name for name in _bound_names(document) if not name.startswith(_LOCAL_PREFIX))
+
+
+def _bound_names(document: Any) -> Iterator[str]:
     stack = [document]
     while stack:
         node = stack.pop()

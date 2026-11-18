@@ -148,6 +148,12 @@ THEME_ROLES = {
     "Material_Water",
     "Material_Winding_2",
     "Material_Bore",
+    # a drawn card: its own device in focus, and the look of a control
+    "Focus",
+    "Focus_Tint",
+    "Control_Action",
+    "Control_Action_Text",
+    "Control_Choice_Selected",
 }
 NEUTRAL_ROLES = {
     "Page_Background",

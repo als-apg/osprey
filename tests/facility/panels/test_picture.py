@@ -242,15 +242,15 @@ def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
     assert not leaders
 
 
-def test_the_picture_stands_in_the_cards_left_column_under_the_signals(tmp_path) -> None:
+def test_the_picture_is_a_drawing_of_its_own_after_the_relations(tmp_path) -> None:
     doc = _card(_graph(tmp_path, _six_poles()))
     heads = {n["props"]["text"]: n["geometry"] for n in _by_type(doc, "text-label")}
-    view, settings = heads["END VIEW"], heads["SIGNALS"]
-    assert view["x"] == settings["x"] == layout.MARGIN
-    assert view["y"] > settings["y"]
+    view, relations = heads["END VIEW"], heads["1 · RELATIONS"]
+    assert view["x"] == relations["x"] == layout.MARGIN
+    assert view["y"] > relations["y"]
     drawn = [n for t in ("yoke", "pole 1", "coil 1", "bore") for n in _tipped(doc, t)]
     assert all(
-        n["geometry"]["x"] + n["geometry"]["width"] <= layout.MARGIN + layout.CARD_LEFT
+        n["geometry"]["x"] + n["geometry"]["width"] <= layout.MARGIN + layout.STRIP_WIDTH
         for n in drawn
     )
     assert "PARTS" not in _texts(doc) and "PICTURE" not in _texts(doc)

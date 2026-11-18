@@ -1,8 +1,6 @@
-"""The device card's looks: two columns, a signals table, the fed-by chain, chips."""
+"""The device card's looks: the drawn frame, its chain, controls and grid; the calibration block."""
 
 from __future__ import annotations
-
-from dataclasses import replace
 
 from osprey.facility.panels import layout
 from osprey.facility.panels.describe import device_card
@@ -30,102 +28,160 @@ def _fields(doc: dict) -> dict[str, dict]:
     return {n["props"]["pv"]: n for n in _columns(doc) if n["type"].startswith("pv-")}
 
 
-def test_a_device_card_has_its_signals_left_and_its_relations_right(panel_graph) -> None:
-    doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
-    signals, fed = _text(doc, "SIGNALS"), _text(doc, "FED BY")
-    assert signals["geometry"]["x"] == layout.MARGIN
-    assert fed["geometry"]["x"] >= layout.MARGIN + layout.CARD_LEFT
-    assert fed["geometry"]["y"] == signals["geometry"]["y"]  # side by side, from the top
-    left_edge = layout.MARGIN + layout.CARD_LEFT
-    for n in _columns(doc):  # nothing of the left column reaches into the right one
-        g = n["geometry"]
-        if g["x"] < left_edge and n["type"] in ("text-label", "pv-label", "pv-text-input"):
-            assert g["x"] + g["width"] <= left_edge, n
+ROLES_HEADER = (
+    "class,role,signal,scope,shown_as,unit,scale,press_value,label,basis,source,revision,locator\n"
+)
 
 
-def test_the_signals_are_a_table_with_heads_equal_fields_and_the_light_after(panel_graph):
+def _roles_graph(tmp_path, roles: str, labels: str = "", metrics: str = ""):
+    """The fixture with a channel_roles.csv (and state words, card key numbers)."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(ROLES_HEADER + roles)
+    if labels:
+        (tables / "state_labels.csv").write_text(
+            "channel,value,label,source,revision,locator\n" + labels
+        )
+    if metrics:
+        with (tables / "metrics.csv").open("a") as handle:
+            handle.write(metrics)
+    return load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+
+
+def _reads(doc: dict, node: dict) -> set[str]:
+    """The channels a node shows: its own, its rules', their formulas' bindings."""
+    found = {node["props"].get("pv")}
+    formulas = {"formula://" + f["name"]: f for f in doc.get("formulas", ())}
+    for rule in node.get("rules", ()):
+        found |= {pv["name"] for pv in rule.get("pvs", ())}
+        found |= set(formulas.get(rule.get("formula"), {}).get("bindings", {}).values())
+    return found - {None}
+
+
+def _heads(doc: dict) -> list[str]:
+    """The numbered section heads, in page order."""
+    texts = sorted(_by_type(doc, "text-label"), key=lambda n: n["geometry"]["y"])
+    return [n["props"]["text"] for n in texts if " · " in n["props"]["text"][:5]]
+
+
+def test_a_drawn_card_has_its_title_line_numbered_sections_and_no_signal_table(panel_graph):
     doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
-    heads = [_text(doc, word) for word in ("SIGNAL", "SETPOINT", "READBACK")]
-    assert len({h["geometry"]["y"] for h in heads}) == 1
-    fields = _fields(doc)
-    sp, rb = fields["XR01-QF1:Current-SP"], fields["XR01-QF1:Current-RB"]
-    assert sp["geometry"]["x"] == heads[1]["geometry"]["x"]
-    assert rb["geometry"]["x"] == heads[2]["geometry"]["x"]
-    assert sp["geometry"]["width"] == rb["geometry"]["width"]
-    assert sp["geometry"]["y"] == rb["geometry"]["y"]
-    assert rb["props"]["align"] == "right"
-    lights = [
-        n
-        for n in _by_type(doc, "polygon")
-        if n["geometry"]["y"] <= rb["geometry"]["y"] + layout.ROW
-        and n["geometry"]["y"] >= rb["geometry"]["y"]
-        and n["geometry"]["x"] >= rb["geometry"]["x"] + rb["geometry"]["width"]
+    name = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "XR01:QF1"]
+    assert any(n["props"]["fontSize"] == layout.CARD_NAME_SIZE for n in name)
+    assert (
+        _text(doc, "Quadrupole · default recipe")["props"]["foregroundColor"] == layout.MUTED_TEXT
+    )
+    assert _heads(doc) == [
+        "1 · RELATIONS",
+        "2 · CALIBRATION",
+        "3 · OPERATE",
+        "4 · ALL CHANNELS (1)",
+        "5 · WHERE",
+        "6 · SOURCES",
     ]
-    assert lights  # the deviation light after the readback
-    label = _text(doc, "current setpoint (A)")  # the unit with the signal's name
-    assert label["geometry"]["x"] == layout.MARGIN
+    texts = {n["props"]["text"] for n in _by_type(doc, "text-label")}
+    assert not texts & {"SIGNAL", "SETPOINT", "READBACK", "SIGNALS", "SETTINGS"}
+    bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in nodes(doc))
+    assert doc["metadata"]["size"]["height"] == bottom + layout.CARD_END
 
 
-def test_a_readable_channel_sits_in_the_readback_column(panel_graph) -> None:
-    doc = stub_render(device_card(panel_graph, "XR01:IP1"), panel_graph)
-    rb = _fields(doc)["XR01-IP1:Pressure-RB"]
-    assert rb["geometry"]["x"] == _text(doc, "READBACK")["geometry"]["x"]
-    # its rule's light is after it, so no health row repeats the channel
-    assert "XR01-IP1:State-Sts" not in [n["props"]["text"] for n in _by_type(doc, "text-label")]
+def test_the_relations_are_blocks_with_arrows_the_device_in_focus(panel_graph) -> None:
+    from osprey.facility.panels import symbols
 
-
-def test_the_fed_by_chain_is_boxes_with_arrows_into_the_device(panel_graph) -> None:
     doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
     arrows = [n for n in _by_type(doc, "line") if n["props"].get("arrowEnd")]
-    assert arrows
-    feeder = [n for n in nodes(doc) if n["props"].get("tooltip") == "XR01:PS1"]
+    assert len(arrows) >= 2
+    (focus,) = [
+        n for n in _by_type(doc, "rectangle")
+        if n["props"].get("lineColor") == symbols.FOCUS
+    ]  # fmt: skip
+    assert focus["props"]["fillColor"] == symbols.FOCUS_TINT
+    feeder = [n for n in nodes(doc) if n["props"].get("tooltip") == "open XR01:PS1"]
     assert feeder and feeder[0]["props"]["actions"]
-    # the device's own box carries its short name (the header's chip is the other "F1")
-    mine = [
-        n
-        for n in _by_type(doc, "text-label")
-        if n["props"]["text"] == "F1" and n["geometry"]["x"] >= layout.MARGIN + layout.CARD_LEFT
-    ]
-    assert len(mine) == 1
-    (arrow,) = arrows
-    # the arrow points from the feeder (right) to the device (left)
-    pts = arrow["props"]["points"]
-    assert pts[-1]["x"] < pts[0]["x"]
+    # no network or controller is stated: a dashed block says so
+    dashed = [n for n in _by_type(doc, "polygon") if n["props"].get("lineStyle") == "dashed"]
+    assert len(dashed) >= 2
+    assert _text(doc, "Network: not stated")
 
 
-def test_other_relations_are_chips_under_also(panel_graph) -> None:
+def test_a_setpoint_is_typed_checked_and_applied(panel_graph) -> None:
+    doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
+    (field,) = _by_type(doc, "pv-text-input")
+    local = field["props"]["pv"]
+    assert local.startswith("loc://") and local.endswith("<VDouble>(0)")
+    (apply,) = [n for n in _by_type(doc, "pv-button") if n["props"]["label"] == "Apply"]
+    assert apply["props"]["pv"] == "XR01-QF1:Current-SP"
+    (rule,) = apply["rules"]
+    assert rule["targetProperty"] == "pressValue"
+    (formula,) = [f for f in doc["formulas"] if "formula://" + f["name"] == rule["formula"]]
+    assert formula["bindings"] == {"v": local}
+    now = [n for n in _by_type(doc, "pv-label") if n["props"]["pv"] == "XR01-QF1:Current-SP"]
+    assert now and now[0]["geometry"]["x"] < field["geometry"]["x"]  # the live value first
+    for kind in ("ACTION", "CHOICE", "ENTRY", "READ ONLY"):  # the legend
+        assert [n for n in _by_type(doc, "text-label") if n["props"]["text"] == kind]
+
+
+def test_a_command_with_no_role_is_an_action_named_by_its_word(panel_graph) -> None:
+    doc = stub_render(device_card(panel_graph, "XR01:PS1"), panel_graph)
+    (button,) = _by_type(doc, "pv-button")
+    assert (button["props"]["label"], button["props"]["pressValue"]) == ("On", 1)
+    assert button["props"]["backgroundColor"]["$role"] == "Control_Action"
+    assert _text(doc, "each writes its channel = 1 once (XR01-PS1:On-Cmd)")
+
+
+def test_every_channel_not_drawn_above_is_in_the_grid_with_its_full_name_on_hover(
+    panel_graph,
+) -> None:
     doc = stub_render(device_card(panel_graph, "XR01:IP1"), panel_graph)
-    also = _text(doc, "ALSO")
-    chip = _text(doc, "read out by: XR01:CH2")
-    assert chip["geometry"]["y"] > also["geometry"]["y"]
-    assert chip["geometry"]["x"] >= layout.MARGIN + layout.CARD_LEFT
+    for channel in ("XR01-IP1:Pressure-RB", "XR01-IP1:State-Sts"):
+        assert [n for n in _by_type(doc, "rectangle") if n["props"].get("tooltip") == channel]
+        assert [n for n in nodes(doc) if n["type"] != "polygon" and channel in _reads(doc, n)]
+    lights = [n for n in _by_type(doc, "polygon") if n.get("rules")]
+    assert lights  # the state channel's rule lights it in the grid
 
 
-def test_a_card_with_many_signals_draws_the_pairs_and_counts_the_rest_by_type(panel_graph):
-    view = device_card(panel_graph, "XR01:QF1")
-    (pair,) = view.sections[0].items
-    many = [
-        ValueRow(f"bit {i}", "XR01-QF1:Current-RB", None, None, False, drawn_as="state")
-        for i in range(layout.CARD_ROWS + 5)
+def test_tiles_and_controls_come_from_the_channel_roles(tmp_path) -> None:
+    roles = (
+        "Pump,pressure,*:Pressure-RB,device,value,Torr,,,,stated,S,1,l\n"
+        "Pump,state,*:State-Sts,device,lamp,,,,,stated,S,1,l\n"
+        "PowerSupply,on-command,*:On-Cmd,device,choice,,,1,On,stated,S,1,l\n"
+        "PowerSupply,on-command,*:On-Cmd,device,choice,,,,Off,stated,S,1,l\n"
+        "PowerSupply,on,*:On-Sts,device,word,,,,,stated,S,1,l\n"
+    )
+    labels = (
+        "XR01-IP1:State-Sts,0,Off,S,1,l\nXR01-IP1:State-Sts,1,Running,S,1,l\n"
+        "XR01-PS1:On-Cmd,0,Off,S,1,l\nXR01-PS1:On-Cmd,1,On,S,1,l\n"
+    )
+    graph = _roles_graph(tmp_path, roles, labels)
+    pump = stub_render(device_card(graph, "XR01:IP1"), graph)
+    assert _text(pump, "PRESSURE") and _text(pump, "STATE")  # one tile per role
+    (word,) = [n for n in _by_type(pump, "text-label") if n.get("rules") and n["props"].get("tooltip") == "XR01-IP1:State-Sts"]  # fmt: skip
+    conditions = word["rules"][0]["conditions"]
+    assert [c["value"] for c in conditions] == ["Off", "Running"]
+    supply = stub_render(device_card(graph, "XR01:PS1"), graph)
+    segments = _by_type(supply, "pv-button")
+    assert [(b["props"]["label"], b["props"]["pressValue"]) for b in segments] == [
+        ("On", 1),
+        ("Off", 0),  # its value from the channel's own state words
     ]
-    signals = Section("signals", (pair, *many))
-    doc = stub_render(replace(view, sections=(signals, *view.sections[1:])), panel_graph)
-    texts = [n["props"]["text"] for n in _by_type(doc, "text-label")]
-    assert "current setpoint (A)" in texts  # the pair first
-    drawn = [t for t in texts if t.startswith("bit ")]
-    assert len(drawn) == layout.CARD_ROWS - 1
-    assert "6 more state channels not drawn" in texts
+    shade = segments[0]["rules"][0]
+    assert shade["targetProperty"] == "backgroundColor"
+    assert shade["pvs"] == [{"name": "XR01-PS1:On-Sts", "trigger": True}]  # the status role
 
 
-def test_a_card_with_many_health_lights_draws_the_limit_and_counts_the_rest(panel_graph):
-    from osprey.facility.panels.view import Light
-
-    view = device_card(panel_graph, "XR01:PS1")
-    lights = tuple(Light("XR01-IP1:State-Sts") for _ in range(layout.CARD_ROWS + 3))
-    sections = tuple(Section("health", lights) if s.title == "health" else s for s in view.sections)
-    doc = stub_render(replace(view, sections=sections), panel_graph)
-    texts = [n["props"]["text"] for n in _by_type(doc, "text-label")]
-    assert "3 more not drawn" in texts
+def test_card_key_numbers_name_their_roles_and_a_missing_one_is_not_served(tmp_path) -> None:
+    roles = "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
+    metrics = (
+        "card,,1,Vacuum,value,pressure,Pump,Torr,,XR-METRICS-001\n"
+        "card,,2,Supply,word,supply-status,Pump,,,XR-METRICS-001\n"
+    )
+    graph = _roles_graph(tmp_path, roles, metrics=metrics)
+    doc = stub_render(device_card(graph, "XR01:IP1"), graph)
+    assert _text(doc, "VACUUM") and _text(doc, "SUPPLY")
+    assert _text(doc, "not served yet")
+    assert [n for n in _by_type(doc, "pv-label") if n["props"]["pv"] == "XR01-IP1:Pressure-RB"]
 
 
 def test_a_row_named_by_its_raw_channel_shows_the_last_part_and_the_name_muted(
@@ -157,8 +213,15 @@ def test_a_value_field_is_framed_once_by_the_viewer(panel_graph) -> None:
 
 
 def _calibration(doc: dict) -> list[dict]:
-    (head,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "CALIBRATION"]
-    return [n for n in nodes(doc) if n["geometry"]["y"] > head["geometry"]["y"]]
+    """The calibration section's nodes: under its head, above the next section's."""
+    heads = sorted(
+        (n for n in _by_type(doc, "text-label") if " · " in n["props"]["text"][:5]),
+        key=lambda n: n["geometry"]["y"],
+    )
+    (head,) = [n for n in heads if n["props"]["text"].endswith("· CALIBRATION")]
+    later = [n["geometry"]["y"] for n in heads if n["geometry"]["y"] > head["geometry"]["y"]]
+    end = min(later, default=float("inf")) - layout.PANEL_PAD
+    return [n for n in nodes(doc) if head["geometry"]["y"] < n["geometry"]["y"] < end]
 
 
 def test_the_calibration_block_is_full_width_under_the_columns_and_read_only(panel_graph):
@@ -169,7 +232,7 @@ def test_the_calibration_block_is_full_width_under_the_columns_and_read_only(pan
     texts = {n["props"]["text"]: n for n in block if n["type"] == "text-label"}
     for head in ("PARAMETER", "VALUE IN FORCE", "BASIS", "DATE", "SOURCE", "HISTORY"):
         assert head in texts
-    assert texts["HISTORY"]["geometry"]["x"] > layout.MARGIN + layout.CARD_LEFT
+    assert texts["HISTORY"]["geometry"]["x"] > layout.MARGIN + layout.STRIP_WIDTH / 2
     assert not [n for n in block if n["type"] in ("pv-text-input", "pv-button")]
     (live,) = [n for n in block if n["type"] == "pv-label"]
     assert live["props"]["pv"] == "XR01-QF1:Current-SP"  # held in EPICS: shown live
@@ -248,3 +311,98 @@ def test_a_parameter_title_wraps_and_is_never_cut_and_long_conditions_wrap(tmp_p
     assert "serial=XQF-01" in words
     value = next(n for n in texts if n["props"]["text"].startswith("-4.9198"))
     assert all(n["geometry"]["x"] == value["geometry"]["x"] for n in lines)  # under the value
+
+
+def _ported(document) -> None:
+    """The pump read out on port CH2 of its chassis, which states one channel per port."""
+    for claim in document["relations"]:
+        if claim["id"] == "xr01-ip1-readout":
+            claim["object"]["port"] = "CH2"
+    for n in (1, 2):
+        document["channels"].append({"id": f"XR01-CH2:IP{n}:P", "on": {"device": "XR01:CH2"}})
+
+
+def test_a_walked_role_takes_the_channel_of_its_port_and_a_contested_one_none(tmp_path):
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.model import substitute
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    assert substitute("*:IP{n}:P", "CH2") == "*:IP2:P"
+    assert substitute("*:{port}:P", "A[1]") == "*:A[[]1]:P"  # the port matched literally
+    assert substitute("*:IP{n}:P", "CH") is None and substitute("*:{port}", None) is None
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "Pump,pressure,*:IP{n}:P,read_out_by,value,,,,,stated,S,1,l\n"
+        + "Pump,current,*:IP?:P,read_out_by,value,,,,,stated,S,1,l\n"  # two match: contested
+        + "Pump,state,*:State-Sts,device,word,,,,,stated,S,1,l\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _ported), tables)
+    hits = graph.roles("XR01:IP1")
+    assert [(h.role.role, h.channel, h.owner, h.port) for h in hits] == [
+        ("pressure", "XR01-CH2:IP2:P", "XR01:CH2", "CH2"),
+        ("state", "XR01-IP1:State-Sts", "XR01:IP1", None),
+    ]
+
+
+def test_a_recipe_names_the_card_fills_its_sentence_and_sets_the_grid_columns(tmp_path):
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import CardHead, ChannelGrid
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,recipe,description,channels_cols,source\n"
+        "Pump,,pump,Pump on {located_in}; read out by {read_out_by}; fed by {powered_by},2,S\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    view = device_card(graph, "XR01:IP1")
+    head = next(i for s in view.sections for i in s.items if isinstance(i, CardHead))
+    assert head.kind == "Pump · pump recipe" and head.default is False
+    assert head.description == "Pump on XR/XR01; read out by XR01:CH2; fed by not stated"
+    grid = next(i for s in view.sections for i in s.items if isinstance(i, ChannelGrid))
+    assert grid.columns == 2
+    doc = stub_render(view, graph)
+    assert _text(doc, head.description)
+    other = device_card(graph, "XR01:QF1")
+    assert next(i for s in other.sections for i in s.items if isinstance(i, CardHead)).default
+
+
+def test_where_and_sources_are_muted_lines_a_contested_claim_says_so(panel_graph) -> None:
+    doc = stub_render(device_card(panel_graph, "XR02:CH5"), panel_graph)
+    lines = [
+        n for n in _by_type(doc, "text-label")
+        if n["props"]["text"].startswith("XR/XR0") and "unit" in n["props"]["text"]
+    ]  # fmt: skip
+    assert len(lines) == 3
+    assert all(n["props"]["text"].endswith("· contested") for n in lines)
+    assert all(n["props"]["foregroundColor"] == layout.MUTED_TEXT for n in lines)
+    opens = [n for n in _by_type(doc, "rectangle") if n["props"].get("actions")]
+    assert len([n for n in opens if n["geometry"]["y"] in {m["geometry"]["y"] for m in lines}]) == 3
+
+
+def test_a_recipe_for_some_devices_of_a_class_wins_and_keys_its_own_tiles(tmp_path):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\n"
+        "Pump,,,pump,,,S\n"
+        "Pump,XR,*:IP1,first-pump,,,S\n"
+    )
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
+    )
+    with (tables / "metrics.csv").open("a") as handle:
+        handle.write("card,first-pump,1,Vacuum,value,pressure,Pump,,,S\n")
+        handle.write("card,pump,1,Pressure here,value,pressure,Pump,,,S\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    assert graph.recipe("XR01:IP1").recipe == "first-pump"  # the pattern's row first
+    assert graph.recipe("XR01:IP2").recipe == "pump"
+    first = stub_render(device_card(graph, "XR01:IP1"), graph)
+    other = stub_render(device_card(graph, "XR01:IP2"), graph)
+    assert _text(first, "VACUUM") and not [
+        n for n in _by_type(first, "text-label") if n["props"]["text"] == "PRESSURE HERE"
+    ]
+    assert _text(other, "PRESSURE HERE")

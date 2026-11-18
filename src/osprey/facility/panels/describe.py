@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
 import weakref
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
@@ -41,11 +42,13 @@ from osprey.facility.panels.model import (
     Citation,
     Edge,
     PanelGraph,
+    RoleHit,
     Thing,
     ThingKind,
     calibration_numbers,
 )
 from osprey.facility.panels.tables import (
+    CONTROLS,
     CURVE_PREFIX,
     DRAWN_AS,
     Calibration,
@@ -54,12 +57,19 @@ from osprey.facility.panels.tables import (
 )
 from osprey.facility.panels.view import (
     Band,
+    BlockRow,
     CalibrationCell,
     CalibrationRow,
     Calibrations,
     CalibrationTallies,
     CalibrationTally,
+    CardHead,
+    Chain,
+    ChainBlock,
+    ChannelGrid,
     CheckRow,
+    Control,
+    ControlGroup,
     Elevation,
     Fact,
     Grid,
@@ -67,9 +77,11 @@ from osprey.facility.panels.view import (
     GridRow,
     Group,
     Item,
+    KeyTile,
     Light,
     Link,
     Node,
+    Operate,
     Picture,
     Placement,
     Probe,
@@ -94,7 +106,10 @@ __all__ = [
     "NO_SYSTEM",
     "PLACE_RELATION",
     "RACK_ORDER",
+    "ENUMERATED_OUTPUTS",
+    "action_word",
     "RELATION_TITLES",
+    "CARD_SECTIONS",
     "checkout",
     "describe",
     "device_card",
@@ -700,6 +715,13 @@ def _screens(
     ]
 
 
+def _sources(thing: Thing) -> list[Item]:
+    return [
+        Fact(citation.document, _citation_text(citation), citation=citation)
+        for citation in thing.citations
+    ]
+
+
 def device_card(
     graph: PanelGraph,
     thing_id: str,
@@ -730,6 +752,21 @@ def device_card(
     """
     thing = graph.thing(thing_id, kind)
     index = _index(graph)
+    if thing.kind == "device":
+        extra = [
+            (PROBE_SECTION, _probe(graph, thing)),
+            ("picture", _pictures(graph, thing, symbols)),
+            ("calibration", _calibration(graph, index, thing)),
+        ]
+        crumbs = _crumbs(graph, index, thing.place)
+        after = [
+            ("where", _where(graph, index, thing, rack_classes)),
+            ("sources", _sources(thing)),
+        ]
+        sections = _drawn_card(graph, index, thing, extra, after)
+        return View(
+            Target("card", "device", thing.id), thing.id, crumbs, sections, alias=thing.short_name
+        )
     channels = graph.channels(thing.id, thing.kind)
     signals, settings = _signals(graph, index, channels)
     within: list[Item] = []
@@ -741,10 +778,7 @@ def device_card(
     health: list[Item] = [
         light(graph, channel.name) for channel in channels if graph.rule(channel.name)
     ]
-    sources: list[Item] = [
-        Fact(citation.document, _citation_text(citation), citation=citation)
-        for citation in thing.citations
-    ]
+    sources = _sources(thing)
     sections = _sections(
         [
             ("screens", _screens(graph, index, thing, rack_classes)),
@@ -764,6 +798,449 @@ def device_card(
     crumbs = _crumbs(graph, index, thing.place) if thing.kind != "group" else ()
     target = Target("card", thing.kind, thing.id)
     return View(target, thing.id, crumbs, sections, alias=thing.short_name)
+
+
+# -- the drawn card --------------------------------------------------------------
+
+#: The section titles of a drawn card that are no numbered drawing: the title line,
+#: the key tiles, the operate block and the all-channels grid.
+CARD_SECTIONS: Mapping[str, str] = MappingProxyType(
+    {
+        "head": "head",
+        "tiles": "tiles",
+        "relations": "relations",
+        "operate": "operate",
+        "channels": "all channels",
+    }
+)
+#: The most key tiles a card shows, and how many the default recipe takes from roles.
+MAX_TILES = 5
+DEFAULT_TILES = 4
+#: Roles that say what the device is rather than how it is: drawn in its own chain
+#: block, never as a tile. Words of the role vocabulary the facility writes.
+IDENTITY_ROLES = ("model", "serial", "firmware")
+#: The default recipe's chain: the relations of the device, each a block (a dashed
+#: "not stated" one where the device has none), with the word its block carries
+#: and the word on the arrow from the device's side.
+DEFAULT_CHAIN: tuple[tuple[str, str, str], ...] = (
+    (PLACE_RELATION, "place", "holds"),
+    ("powered_by", "power", "feeds"),
+    ("networked_to", "network", "network"),
+    ("controlled_by", "controller", "controlled by"),
+)
+#: Relations the default chain never draws as blocks: a name claim is no hop.
+_NO_BLOCK = frozenset({"same_as"})
+_NOT_STATED = "not stated"
+_CHAIN_FOOT = (
+    "The chain is drawn from the device's place, power, network and controller; any "
+    "other relation the device has is one more block."
+)
+_DEFAULT_COLUMNS = 4
+#: Record types whose setpoint is a whole number: an output of two or more states.
+ENUMERATED_OUTPUTS = frozenset({"bo", "mbbo"})
+_DEFAULT_PRESS = 1.0  # what a command a record types writes, with no role saying otherwise
+
+
+def _filled(template: str, graph: PanelGraph, thing: Thing) -> str:
+    """A recipe's sentence with each ``{relation}`` slot the first thing the device's
+    claims of that relation name (outgoing), else "not stated"."""
+    edges = graph.neighbours(thing.id, thing.kind)
+
+    def slot(name: str) -> str:
+        found = [e.other for e in edges.get(name, ()) if e.outgoing]
+        if name == PLACE_RELATION and not found and thing.place is not None:
+            found = [thing.place]
+        return found[0] if found else _NOT_STATED
+
+    out, rest = [], template
+    while "{" in rest and "}" in rest.split("{", 1)[1]:
+        before, after = rest.split("{", 1)
+        name, rest = after.split("}", 1)
+        out.append(before + slot(name.strip()))
+    out.append(rest)
+    return "".join(out)
+
+
+def _words(graph: PanelGraph, channel: str) -> tuple[tuple[str, str], ...]:
+    return tuple(graph.state_words(channel).items())
+
+
+def _role_unit(graph: PanelGraph, hit: RoleHit) -> tuple[str | None, float | None]:
+    """A role's channel's unit and divisor: the role's own where it states them, else
+    ``units.csv``'s, else the facility file's unit."""
+    stated = graph.unit(hit.channel)
+    unit = hit.role.unit or (stated.unit if stated is not None else None)
+    scale = hit.role.scale or (stated.scale if stated is not None else None)
+    if unit is None:
+        try:
+            unit = graph.channel(hit.channel).unit
+        except KeyError:
+            unit = None
+    return unit, scale
+
+
+def _role_title(role: str) -> str:
+    return role.replace("-", " ").replace("_", " ").capitalize()
+
+
+def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[KeyTile]:
+    """The tiles: the ``metrics.csv`` rows of view ``card`` of the device's class
+    whose ``level`` is its recipe or empty, by order, each
+    the first channel of its role (``signal``) or not served yet; with none, the
+    first :data:`DEFAULT_TILES` roles that one channel plays and that show a value,
+    a word or a lamp, identity roles left out."""
+    by_role: dict[str, list[RoleHit]] = {}
+    for hit in hits:
+        by_role.setdefault(hit.role.role, []).append(hit)
+    recipe = graph.recipe(thing.id)
+    name = recipe.recipe if recipe is not None else None
+    rows = [
+        m
+        for m in graph.metrics("card", name)
+        if m.cls == thing.cls and (m.level is None or m.level == name)
+    ][:MAX_TILES]
+    tiles: list[KeyTile] = []
+    for row in rows:
+        found = by_role.get(row.signal, [])
+        if not found:
+            tiles.append(KeyTile(row.title, None, row.measure, row.unit))
+            continue
+        hit = found[0]
+        unit, scale = _role_unit(graph, hit)
+        shown = "word" if row.measure == "word" else "value"
+        if shown == "word" and hit.role.shown_as == "lamp":
+            shown = "lamp"
+        tiles.append(
+            KeyTile(
+                row.title,
+                hit.channel,
+                shown,
+                row.unit or unit,
+                scale,
+                row.precision,
+                _words(graph, hit.channel),
+            )
+        )
+    if rows:
+        return tiles
+    for role, found in by_role.items():
+        if len(tiles) == DEFAULT_TILES:
+            break
+        first = found[0].role
+        if role in IDENTITY_ROLES or first.shown_as in CONTROLS or len(found) != 1:
+            continue
+        unit, scale = _role_unit(graph, found[0])
+        tiles.append(
+            KeyTile(
+                _role_title(role),
+                found[0].channel,
+                first.shown_as,
+                unit,
+                scale,
+                None,
+                _words(graph, found[0].channel),
+            )
+        )
+    return tiles
+
+
+def _relation_block(
+    graph: PanelGraph, index: _Index, edge: Edge, word: str, arrow: str | None
+) -> ChainBlock:
+    """A block for the thing one claim of the device names."""
+    item = _edge_item(graph, index, word, edge)
+    link = item if isinstance(item, Link) else None
+    try:
+        other = graph.thing(edge.other, edge.other_kind)
+        kind = other.cls or other.level or edge.other_kind
+    except KeyError:
+        kind = edge.other_kind
+    rows: list[BlockRow] = []
+    if edge.kind == PLACE_RELATION:
+        unit = edge.unit_text or (str(edge.unit) if edge.unit is not None else None)
+        rows.append(BlockRow("unit", text=unit or _NOT_STATED))
+    elif edge.other_port is not None or edge.port is not None:
+        rows.append(BlockRow("port", text=edge.other_port or edge.port))
+    else:
+        rows.append(BlockRow("kind", text=kind))
+    standing = "contested" if edge.standing == "contested" else None
+    if edge.kind == PLACE_RELATION and kind != edge.other_kind:  # the place's level: rack
+        word = kind
+    title = f"{word.capitalize()}  {edge.other}"
+    return ChainBlock(title, link, tuple(rows), arrow=arrow, standing=standing)
+
+
+def _default_chain(
+    graph: PanelGraph, index: _Index, thing: Thing, hits: list[RoleHit]
+) -> tuple[Chain, set[str]]:
+    """The default recipe's chain and the channels its blocks show: the device's
+    place and power left of it, then the device (focus, its identity roles), then
+    its network, its controller and every other relation it claims, one block per
+    thing; a dashed "not stated" block where it claims no place, power, network or
+    controller."""
+    edges = graph.neighbours(thing.id, thing.kind)
+    before: list[ChainBlock] = []
+    after: list[ChainBlock] = []
+    for relation, word, arrow in DEFAULT_CHAIN:
+        found = [
+            e
+            for e in edges.get(relation, ())
+            if e.outgoing and not (relation == "networked_to" and e.other_kind == "place")
+        ]
+        if relation == PLACE_RELATION:
+            found = _one_per_thing(found)
+        side = before if relation in (PLACE_RELATION, "powered_by") else after
+        if not found:
+            side.append(
+                ChainBlock(f"{word.capitalize()}: {_NOT_STATED}", None, dashed=True, arrow=arrow)
+            )
+        for edge in _one_per_thing(found):
+            side.append(_relation_block(graph, index, edge, word, arrow))
+    shown = {relation for relation, _w, _a in DEFAULT_CHAIN}
+    for outgoing in (True, False):  # what the device claims, then what claims it
+        for kind in sorted(edges):
+            if kind in _NO_BLOCK or (outgoing and kind in shown) or kind == PLACE_RELATION:
+                continue
+            word = _relation_word(kind, outgoing)
+            after.extend(
+                _relation_block(graph, index, edge, word, word)
+                for edge in _one_per_thing([e for e in edges[kind] if e.outgoing is outgoing])
+            )
+    identity = [h for h in hits if h.role.role in IDENTITY_ROLES and h.owner == thing.id]
+    rows = tuple(
+        BlockRow(h.role.role, h.channel, shown_as="value", words=_words(graph, h.channel))
+        for h in identity
+    )
+    if not rows:
+        rows = (BlockRow("class", text=thing.cls or thing.kind),)
+    device = ChainBlock(thing.id, None, rows, focus=True)
+    # the arrow between two blocks carries the word of the one nearer the device
+    blocks = [replace_arrow(b, b.arrow) for b in before] + [device]
+    for block in after:
+        blocks[-1] = replace_arrow(blocks[-1], block.arrow)
+        blocks.append(replace_arrow(block, None))
+    return Chain(tuple(blocks), _CHAIN_FOOT), {h.channel for h in identity}
+
+
+def _relation_word(kind: str, outgoing: bool) -> str:
+    """A relation's word seen from the device: its subject's title, or its object's."""
+    titles = RELATION_TITLES.get(kind, (kind.replace("_", " "), kind.replace("_", " ")))
+    return titles[0] if outgoing else titles[1]
+
+
+def replace_arrow(block: ChainBlock, arrow: str | None) -> ChainBlock:
+    return dataclasses.replace(block, arrow=arrow)
+
+
+def _one_per_thing(edges: list[Edge]) -> list[Edge]:
+    """The first claim per other end, contested ones kept beside accepted ones."""
+    seen: dict[tuple[str, str], Edge] = {}
+    for edge in edges:
+        key = (edge.other_kind, edge.other)
+        if key not in seen or (seen[key].unit is None and edge.unit is not None):
+            seen[key] = edge
+    return list(seen.values())
+
+
+def _press(graph: PanelGraph, hit: RoleHit) -> float | None:
+    """What a press of a role row writes: its own value, else the value whose state
+    word is its label, else ``None``."""
+    if hit.role.press_value is not None:
+        return hit.role.press_value
+    if hit.role.label is None:
+        return None
+    value = graph.state_value(hit.channel, hit.role.label)
+    return _as_number(value) if value is not None else None
+
+
+def _short_channel(channel: str, device: str) -> str:
+    return channel[len(device) + 1 :] if channel.startswith(device + ":") else channel
+
+
+def _as_number(text: str) -> float | None:
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _press_text(value: float | None) -> str:
+    return _NOT_STATED if value is None else f"{value:g}"
+
+
+def _operate(
+    graph: PanelGraph, thing: Thing, hits: list[RoleHit], channels: list[Channel]
+) -> tuple[Operate | None, set[str]]:
+    """The operate block: the control roles of the device grouped by role (a choice
+    by role and channel), each group with the line of what it writes. With no
+    control role, from the writable channels: a two- or more-state output with
+    stated words is a choice of them, one with none or a command an action that
+    writes 1, any other an entry."""
+    groups: list[ControlGroup] = []
+    used: set[str] = set()
+    controls = [h for h in hits if h.role.shown_as in CONTROLS]
+    status = {h.role.role: h.channel for h in hits if h.role.shown_as not in CONTROLS}
+    if controls:
+        keyed: dict[tuple[str, str, str], list[RoleHit]] = {}
+        for hit in controls:
+            channel_key = hit.channel if hit.role.shown_as == "choice" else ""
+            keyed.setdefault((hit.role.shown_as, hit.role.role, channel_key), []).append(hit)
+        for (kind, role, _channel), found in keyed.items():
+            items = []
+            for hit in found:
+                press = _press(graph, hit) if kind != "entry" else None
+                shade = _status(graph, hit, status) if kind == "choice" else None
+                label = hit.role.label or _role_title(role)
+                items.append(Control(label, hit.channel, press, shade or hit.channel))
+                used.add(hit.channel)
+            groups.append(
+                ControlGroup(kind, _role_title(role), tuple(items), _writes(kind, items, thing.id))
+            )
+        return Operate(tuple(groups)), used
+    actions: list[Control] = []
+    entries: list[Control] = []
+    for channel in (c for c in channels if c.writable):
+        words = graph.state_words(channel.name)
+        row = graph.record_type(channel.name)
+        enumerated = row is not None and row.record_type in ENUMERATED_OUTPUTS
+        if enumerated and len(words) > 1:  # a choice of its stated states
+            segments = [
+                Control(w, channel.name, _as_number(v), channel.name) for v, w in words.items()
+            ]
+            title = action_word(channel.name)
+            groups.append(
+                ControlGroup(
+                    "choice", title, tuple(segments), _writes("choice", segments, thing.id)
+                )
+            )
+        elif enumerated or channel.drawn_as == "command":
+            actions.append(Control(_action_word(channel.name, graph), channel.name, _DEFAULT_PRESS))
+        else:
+            entries.append(Control(_short_channel(channel.name, thing.id), channel.name))
+        used.add(channel.name)
+    if actions:
+        groups.insert(
+            0, ControlGroup("action", None, tuple(actions), _writes("action", actions, thing.id))
+        )
+    if entries:
+        groups.append(
+            ControlGroup("entry", None, tuple(entries), _writes("entry", entries, thing.id))
+        )
+    return (Operate(tuple(groups)) if groups else None), used
+
+
+def _status(graph: PanelGraph, hit: RoleHit, status: Mapping[str, str]) -> str | None:
+    """The channel whose value says which segment of a choice is in force: the
+    readback ``pairs.csv`` pairs with the command, else the channel of the role
+    named as the command's without ``-cmd``, else ``None`` (the command itself)."""
+    pair = graph.pair(hit.channel)
+    if pair is not None:
+        return pair.readback
+    return status.get(hit.role.role.removesuffix("-cmd"))
+
+
+def _action_word(channel: str, graph: PanelGraph) -> str:
+    """A command's word: the state word of the value it writes, else its name's."""
+    return graph.state_label(channel, _DEFAULT_PRESS) or action_word(channel)
+
+
+#: A command name's ending that says "this is a command", not what it does; the
+#: button's word is the name without it.
+_COMMAND_ENDING = re.compile(r"[-_.]?(?:cmd|command|cmnd)$", re.IGNORECASE)
+
+
+def action_word(channel: str) -> str:
+    """The action a command channel's name says: its last segment (after the last
+    ``:``), a command ending (``_Cmd``, ``-CMD``) cut off, split at ``_``, ``-``,
+    ``.``, a lower-to-upper case step and a number, in sentence case (a word all in
+    capitals kept): ``resetRelay1`` gives ``Reset relay 1``, ``HV_On-Cmd`` gives
+    ``HV on``. A name that is all ending reads whole."""
+    segment = channel.rsplit(":", 1)[-1]
+    text = _COMMAND_ENDING.sub("", segment)
+    text = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ", text)
+    words = [w for w in re.split(r"[-_. ]+", text) if w]
+    if not words:
+        return segment
+    words = [w if w.isupper() else w.lower() for w in words]
+    first = words[0]
+    return " ".join([first[:1].upper() + first[1:], *words[1:]])
+
+
+def _writes(kind: str, controls: list[Control], device: str) -> str:
+    """The muted line under a group: what it writes, and when."""
+    names = ", ".join(dict.fromkeys(_short_channel(c.channel, device) for c in controls))
+    if kind == "entry":
+        return f"type a value, check it beside the live one, Apply writes it ({names})"
+    presses = ", ".join(f"{c.label} = {_press_text(c.press_value)}" for c in controls)
+    if kind == "choice":
+        return f"writes {names}: {presses}; stays until changed"
+    if len({c.channel for c in controls}) == len(controls) and all(
+        c.press_value == controls[0].press_value for c in controls
+    ):
+        return f"each writes its channel = {_press_text(controls[0].press_value)} once ({names})"
+    return f"writes {names}: {presses}, once per press"
+
+
+def _drawn_in(graph: PanelGraph, thing: Thing, items: list[Item]) -> set[str]:
+    """The channels a drawing shows: a probe's readouts and marker, a picture's parts
+    by their signal, the live values of the calibration rows."""
+    found: set[str] = set()
+    for item in items:
+        if isinstance(item, Probe):
+            found |= {c for part in item.parts for c in (part.channel, part.channel_y) if c}
+        elif isinstance(item, Picture):
+            for part in item.parts:
+                if part.signal:
+                    channel = graph.picture_channel(thing.id, part.signal)
+                    if channel is not None:
+                        found.add(channel)
+        elif isinstance(item, Calibrations):
+            found |= {c for row in item.rows for c in row.channels}
+    return found
+
+
+def _drawn_card(
+    graph: PanelGraph,
+    index: _Index,
+    thing: Thing,
+    extra: list[tuple[str, list[Item]]],
+    after: list[tuple[str, list[Item]]],
+) -> tuple[Section, ...]:
+    """The sections of a device's drawn card: the title line, the key tiles, the
+    relations chain, the drawings *extra* holds (probe, picture, calibration), the
+    operate block, every channel not drawn above, then *after* (where it is, its
+    sources)."""
+    recipe = graph.recipe(thing.id)
+    cls = thing.cls or thing.kind
+    kind = f"{cls} · {recipe.recipe} recipe" if recipe is not None else f"{cls} · default recipe"
+    description = None
+    if recipe is not None and recipe.description:
+        description = _filled(recipe.description, graph, thing)
+    hits = graph.roles(thing.id)
+    channels = graph.channels(thing.id, thing.kind)
+    tiles = _key_tiles(graph, thing, hits)
+    chain, in_chain = _default_chain(graph, index, thing, hits)
+    operate, in_operate = _operate(graph, thing, hits, channels)
+    drawn = {t.channel for t in tiles if t.channel} | in_chain | in_operate
+    drawn |= _drawn_in(graph, thing, [item for _title, items in extra for item in items])
+    columns = (
+        int(recipe.channels_cols)
+        if recipe is not None and recipe.channels_cols
+        else _DEFAULT_COLUMNS
+    )
+    rows = tuple(
+        (_short_channel(c.name, thing.id), c.name) for c in channels if c.name not in drawn
+    )
+    pairs: list[tuple[str, list[Item]]] = [
+        (CARD_SECTIONS["head"], [CardHead(kind, description, recipe is None)]),
+        (CARD_SECTIONS["tiles"], list(tiles)),
+        (CARD_SECTIONS["relations"], [chain]),
+        *extra,
+        (CARD_SECTIONS["operate"], [operate] if operate is not None else []),
+        (CARD_SECTIONS["channels"], [ChannelGrid(rows, columns)] if rows else []),
+        *after,
+    ]
+    return _sections(pairs)
 
 
 # -- calibration -----------------------------------------------------------------

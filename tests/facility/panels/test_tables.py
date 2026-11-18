@@ -60,6 +60,14 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     )
     assert ",".join(COLUMNS["calibration_curves.csv"]) == "id,x,y"
     assert ",".join(COLUMNS["state_labels.csv"]) == "channel,value,label,source,revision,locator"
+    assert ",".join(COLUMNS["units.csv"]) == "channel,unit,scale,label,source,revision,locator"
+    assert ",".join(COLUMNS["channel_roles.csv"]) == (
+        "class,role,signal,scope,shown_as,unit,scale,press_value,label,basis,source,revision,"
+        "locator"
+    )
+    assert ",".join(COLUMNS["card_recipes.csv"]) == (
+        "class,under,devices,recipe,description,channels_cols,source"
+    )
     assert OPTIONAL_FILES == frozenset(
         {
             "pictures.csv",
@@ -71,6 +79,9 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
             "calibration_curves.csv",
             "probe_pictures.csv",
             "state_labels.csv",
+            "units.csv",
+            "channel_roles.csv",
+            "card_recipes.csv",
         }
     )
 
@@ -343,3 +354,38 @@ def test_the_graph_finds_a_state_word_for_a_value_however_it_is_written(tmp_path
     for value in (1, 1.0, "1", " 1 "):
         assert graph.state_label("XR01-PS1:On-Cmd", value) == "On"
     assert graph.state_label("XR01-PS1:On-Cmd", 0) is None
+
+
+@pytest.mark.parametrize(
+    ("row", "why"),
+    [
+        ("Pump,start,*:Go,device,action,,,1,,stated,S,1,l", "names its press in label"),
+        ("Pump,p,*:IP{n}:P,device,value,,,,,stated,S,1,l", "come from a walked relation"),
+        ("Pump,p,*:P,device,value,,0,,,stated,S,1,l", "scale is 0"),
+        ("Pump,p,*:P,beside,value,,,,,stated,S,1,l", "scope is 'beside'"),
+    ],
+)
+def test_a_channel_role_row_that_cannot_be_drawn_is_refused(tmp_path, row: str, why: str):
+    from osprey.facility.panels.tables import CHANNEL_ROLES
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / CHANNEL_ROLES).write_text(",".join(COLUMNS[CHANNEL_ROLES]) + "\n" + row + "\n")
+    with pytest.raises(PanelTableError, match=re.escape(why)):
+        read_tables(tables)
+
+
+def test_a_card_key_number_names_its_class_and_shows_a_value_or_a_word(tmp_path):
+    tables = copy_tables(tmp_path / "panels")
+    path = tables / "metrics.csv"
+    base = path.read_text()
+    path.write_text(base + "card,,1,Pressure,word,pressure,Pump,,,S\n")
+    assert [m.measure for m in read_tables(tables).metrics if m.view == "card"] == ["word"]
+    path.write_text(base + "card,,1,Pressure,rms,pressure,Pump,,,S\n")
+    with pytest.raises(PanelTableError, match="a value or a word"):
+        read_tables(tables)
+    path.write_text(base + "card,,1,Pressure,value,pressure,,,,S\n")
+    with pytest.raises(PanelTableError, match="names its class"):
+        read_tables(tables)
+    path.write_text(base + "place,,9,Pressure,word,pressure,Pump,,,S\n")
+    with pytest.raises(PanelTableError, match="only a card's key number is a word"):
+        read_tables(tables)

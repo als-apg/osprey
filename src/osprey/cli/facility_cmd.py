@@ -1319,6 +1319,16 @@ def panels_write(
     for kind in _PANEL_VIEWS:
         if count[kind]:
             report(f"  {kind}: {count[kind]} screens, {_megabytes(sizes[kind])}")
+    devices = [e["thing"] for e in screens if e["kind"] == "card" and e["thing_kind"] == "device"]
+    if devices:
+        recipes = Counter(
+            getattr(graph.recipe(device), "recipe", None) or "default" for device in devices
+        )
+        named = ", ".join(f"{n} {name}" for name, n in sorted(recipes.items()) if name != "default")
+        report(
+            f"  device cards: {recipes['default']} with the default recipe"
+            + (f", {named}" if named else "")
+        )
     if index["outside"]:
         report(f"  {len(index['outside'])} screens not written (outside the selection)")
     largest = sorted(screens, key=lambda entry: (-entry["bytes"], entry["file"]))[:top]

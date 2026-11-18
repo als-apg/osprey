@@ -43,6 +43,8 @@ def test_write_prints_the_counts_the_total_and_the_largest(facility_file, tmp_pa
     assert result.output.count(".screen.json") == 3
     biggest = max(index["screens"], key=lambda e: e["bytes"])
     assert biggest["file"] in result.output
+    devices = sum(e["kind"] == "card" and e["thing_kind"] == "device" for e in index["screens"])
+    assert f"  device cards: {devices} with the default recipe" in result.output  # no recipe rows
 
 
 def test_check_after_write_exits_0(facility_file, tmp_path):

@@ -49,6 +49,7 @@ import dataclasses
 import fnmatch
 import hashlib
 import json
+import re
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -64,6 +65,9 @@ from osprey.facility.panels.tables import (
     TABLE_FILES,
     Calibration,
     CalibrationKind,
+    CardRecipe,
+    ChannelRole,
+    ChannelUnit,
     CurvePoint,
     DrawnAs,
     HealthRule,
@@ -89,6 +93,7 @@ __all__ = [
     "Citation",
     "Edge",
     "PanelGraph",
+    "RoleHit",
     "Thing",
     "ThingKind",
     "load_graph",
@@ -103,6 +108,9 @@ PART_RELATION = "part_of"
 #: The relation from a device to the device that reads it out.
 READ_OUT_RELATION = "read_out_by"
 
+#: A port's trailing number, which a role pattern's ``{n}`` stands for.
+_PORT_NUMBER = re.compile(r"(\d+)$")
+
 #: The prefix of a channel only the simulation serves; no screen shows one.
 SIMULATION_PREFIX = "VA:"
 
@@ -110,6 +118,44 @@ ThingKind = Literal["device", "place", "group"]
 
 #: ``(kind, id)``: one thing.
 _Key = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class RoleHit:
+    """A channel that plays a ``channel_roles.csv`` role for a device.
+
+    Attributes:
+        role: The row.
+        channel: The channel.
+        owner: The device the channel is on: the device itself, a part of it, or
+            the device a walked relation names.
+        port: The walked relation's object port, or ``None``.
+    """
+
+    role: ChannelRole
+    channel: str
+    owner: str
+    port: str | None = None
+
+
+def substitute(pattern: str, port: str | None) -> str | None:
+    """*pattern* with ``{port}`` and ``{n}`` filled from a relation's object port.
+
+    ``None`` where the pattern needs what the port does not give: no port, or for
+    ``{n}`` a port with no trailing number. The port is matched literally. The
+    facility repository's role producer does the same, so a card and the table
+    agree on what a pattern means.
+    """
+    if "{port}" in pattern:
+        if not port:
+            return None
+        pattern = pattern.replace("{port}", re.sub(r"([*?\[])", r"[\1]", port))
+    if "{n}" in pattern:
+        match = _PORT_NUMBER.search(port or "")
+        if not match:
+            return None
+        pattern = pattern.replace("{n}", match.group(1))
+    return pattern
 
 
 @dataclass(frozen=True)
@@ -417,6 +463,17 @@ class PanelGraph:
         self._labels: dict[tuple[str, str], str] = {
             (row.channel, _value_key(row.value)): row.label for row in tables.state_labels
         }
+        self._words: dict[str, dict[str, str]] = {}
+        for label in tables.state_labels:
+            self._words.setdefault(label.channel, {})[_value_key(label.value)] = label.label
+        self._units = {row.channel: row for row in tables.units}
+        self._roles_of: dict[str, list[ChannelRole]] = {}
+        for role in tables.channel_roles:
+            if role.source not in self._excluded_documents:
+                self._roles_of.setdefault(role.cls, []).append(role)
+        self._recipes: dict[str, list[CardRecipe]] = {}
+        for recipe in tables.card_recipes:
+            self._recipes.setdefault(recipe.cls, []).append(recipe)
 
     def _read_calibrations(self, tables: PanelTables) -> None:
         self._kinds = {(kind.kind, kind.cls): kind for kind in tables.calibration_kinds}
@@ -1156,6 +1213,94 @@ class PanelGraph:
         """
         found = self.picture_matches(device_id, signal)
         return found[0][1] if found else None
+
+    def state_words(self, channel: str) -> dict[str, str]:
+        """Every word ``state_labels.csv`` states for *channel*, by value (``"0"``,
+        ``"1"``), in file order; empty when it states none."""
+        return dict(self._words.get(channel, {}))
+
+    def state_value(self, channel: str, word: str) -> str | None:
+        """The value whose stated word for *channel* is *word*, or ``None``."""
+        return next((v for v, w in self._words.get(channel, {}).items() if w == word), None)
+
+    def unit(self, channel: str) -> ChannelUnit | None:
+        """The ``units.csv`` row of *channel*, or ``None``."""
+        return self._units.get(channel)
+
+    def recipe(self, device_id: str) -> CardRecipe | None:
+        """The ``card_recipes.csv`` row of a device: of its class's rows whose
+        ``under`` holds the device and whose ``devices`` pattern matches its id (an
+        empty one holds and matches every device), one with a pattern before one
+        without, then the deepest ``under``; ``None`` when none applies (the default
+        recipe).
+
+        Raises:
+            KeyError: No such device.
+        """
+        thing = self.thing(device_id, "device")
+        rows = [
+            r
+            for r in self._recipes.get(thing.cls or "", [])
+            if (r.under is None or device_id in self._held(r.under))
+            and (r.devices is None or fnmatch.fnmatchcase(device_id, r.devices))
+        ]
+        if not rows:
+            return None
+        return max(rows, key=lambda r: (r.devices is not None, (r.under or "").count("/")))
+
+    def roles(self, device_id: str) -> list[RoleHit]:
+        """The channels that play a role for a device, in ``channel_roles.csv``
+        order, each row's channels in channel order.
+
+        A ``device`` row matches the device's own channels and a ``parts`` row
+        those of its parts (``part_of`` it, one level); every match plays the role.
+        A ``read_out_by`` or ``controlled_by`` row walks each such relation of the
+        device to a device, fills the pattern from that relation's object port
+        (:func:`substitute`) and matches that device's channels: exactly one
+        channel over all walked relations plays the role, more than one is
+        contested and none plays it.
+
+        Raises:
+            KeyError: No such device.
+        """
+        thing = self.thing(device_id, "device")
+        rows = self._roles_of.get(thing.cls or "", [])
+        if not rows:
+            return []
+        edges = self.neighbours(device_id, "device")
+        parts = [
+            e.other
+            for e in edges.get(PART_RELATION, ())
+            if not e.outgoing and e.other_kind == "device"
+        ]
+        own = [c.name for c in self.channels(device_id, "device")]
+        found: list[RoleHit] = []
+        for role in rows:
+            if role.scope == "device":
+                found += [
+                    RoleHit(role, c, device_id) for c in own if fnmatch.fnmatchcase(c, role.signal)
+                ]
+            elif role.scope == "parts":
+                found += [
+                    RoleHit(role, c.name, part)
+                    for part in dict.fromkeys(parts)
+                    for c in self.channels(part, "device")
+                    if fnmatch.fnmatchcase(c.name, role.signal)
+                ]
+            else:
+                hits = {
+                    (c.name, e.other, e.other_port)
+                    for e in edges.get(role.scope, ())
+                    if e.outgoing and e.other_kind == "device"
+                    for pattern in [substitute(role.signal, e.other_port)]
+                    if pattern is not None
+                    for c in self.channels(e.other, "device")
+                    if fnmatch.fnmatchcase(c.name, pattern)
+                }
+                if len({h[0] for h in hits}) == 1:
+                    name, owner, port = min(hits, key=lambda h: (h[1], h[2] or ""))
+                    found.append(RoleHit(role, name, owner, port))
+        return found
 
     def state_label(self, channel: str, value: object) -> str | None:
         """The word ``state_labels.csv`` states for *channel* at *value* (``1``,

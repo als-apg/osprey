@@ -26,15 +26,26 @@ from tests.facility.panels._views import (
 #: A calibration chip's outline and text: its basis, or disagree when contested.
 _BASIS = {role["$role"] for role in symbols.BASIS_ROLES.values()}
 
+#: A drawn card's own device (Focus, Focus_Tint) and a control's tag (Control_Action).
+_CARD = {"Focus", "Control_Action"}
 ALLOWED = {
-    ("text-label", "foregroundColor"): {"Page_Text", "Text_Muted", *_BASIS},
+    ("text-label", "foregroundColor"): {"Page_Text", "Text_Muted", *_BASIS, *_CARD},
     ("text-label", "backgroundColor"): {"Transparent", "Field_Background"},
     ("line", "lineColor"): {"Page_Text", "Text_Muted", "MINOR", "MAJOR", "DISCONNECTED"},
     # Page_Text: a drawn outline, as the strip's symbols (the rack's frame)
-    ("rectangle", "lineColor"): {"Box_Border", "Transparent", "Page_Text", "Text_Muted", *_BASIS},
+    ("rectangle", "lineColor"): {
+        "Box_Border",
+        "Transparent",
+        "Page_Text",
+        "Text_Muted",
+        *_BASIS,
+        *_CARD,
+    },
     ("rectangle", "fillColor"): {
         "Field_Background",
         "Tile_Background",
+        "Transparent",  # a control's tag, an outline round a choice or an entry
+        "Focus_Tint",
         *(t["$role"] for t in symbols.BASIS_TINTS.values()),
     },  # fmt: skip
 }

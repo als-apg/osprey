@@ -19,7 +19,12 @@ line, the schema this module holds them to:
   subject each, with basis, date, source and standing;
 - ``calibration_curves.csv``: the points of a claim whose value is a curve;
 - ``state_labels.csv``: the word a discrete channel's value means, one row per
-  channel and value, as its record states it.
+  channel and value, as its record states it;
+- ``units.csv``: a channel's engineering unit and the divisor its raw value is
+  shown through (``0.1A``: unit ``A``, scale 10);
+- ``channel_roles.csv``: what a channel is to a device card, by class and name
+  pattern (see :class:`ChannelRole`);
+- ``card_recipes.csv``: a class's card recipe and its title-line sentence.
 
 ``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
 must be there; every other file may be absent, which reads as empty. Across
@@ -67,6 +72,9 @@ __all__ = [
     "PicturePart",
     "ShortName",
     "StateLabel",
+    "ChannelRole",
+    "ChannelUnit",
+    "CardRecipe",
     "Metric",
     "CalibrationKind",
     "Calibration",
@@ -92,6 +100,9 @@ CALIBRATIONS = "calibrations.csv"
 CALIBRATION_CURVES = "calibration_curves.csv"
 PROBE_PICTURES = "probe_pictures.csv"
 STATE_LABELS = "state_labels.csv"
+UNITS = "units.csv"
+CHANNEL_ROLES = "channel_roles.csv"
+CARD_RECIPES = "card_recipes.csv"
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -107,6 +118,9 @@ TABLE_FILES: tuple[str, ...] = (
     CALIBRATION_CURVES,
     PROBE_PICTURES,
     STATE_LABELS,
+    UNITS,
+    CHANNEL_ROLES,
+    CARD_RECIPES,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -163,6 +177,31 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "under",
         ],
         STATE_LABELS: ["channel", "value", "label", "source", "revision", "locator"],
+        UNITS: ["channel", "unit", "scale", "label", "source", "revision", "locator"],
+        CHANNEL_ROLES: [
+            "class",
+            "role",
+            "signal",
+            "scope",
+            "shown_as",
+            "unit",
+            "scale",
+            "press_value",
+            "label",
+            "basis",
+            "source",
+            "revision",
+            "locator",
+        ],
+        CARD_RECIPES: [
+            "class",
+            "under",
+            "devices",
+            "recipe",
+            "description",
+            "channels_cols",
+            "source",
+        ],
         NAMES: [
             "thing",
             "short_name",
@@ -248,6 +287,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
         PICTURES: frozenset({"w_mm", "h_mm", "angle_deg", "signal", "under"}),
         PROBE_PICTURES: frozenset({"under"}),
         METRICS: frozenset({"precision"}),
+        CARD_RECIPES: frozenset({"devices"}),
     }
 )
 
@@ -263,6 +303,9 @@ OPTIONAL_FILES = frozenset(
         CALIBRATION_CURVES,
         PROBE_PICTURES,
         STATE_LABELS,
+        UNITS,
+        CHANNEL_ROLES,
+        CARD_RECIPES,
     }
 )
 
@@ -279,10 +322,11 @@ PICTURE_VIEWS: tuple[str, ...] = ("end", "side")
 #: The kinds of a ``pictures.csv`` row that draw the body of the class, not a part
 #: (in a file that has the size columns; in one without, every row is a part).
 PICTURE_SHAPES: tuple[str, ...] = ("yoke", "pole", "coil", "corrector_winding", "bore", "gap")
-METRIC_VIEWS: tuple[str, ...] = ("place", "rollup")
+METRIC_VIEWS: tuple[str, ...] = ("place", "rollup", "card")
 #: What a key number computes over the channels its row selects.
 MEASURES: tuple[str, ...] = (
     "value",
+    "word",
     "count_true",
     "count_false",
     "count_in_tolerance",
@@ -309,6 +353,14 @@ PROBE_NEEDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "readout": ("label", "signal"),
     }
 )
+#: Where a ``channel_roles.csv`` row looks for its channels: the device's own, its
+#: parts', or those of the device a relation of the device names.
+ROLE_SCOPES: tuple[str, ...] = ("device", "parts", "read_out_by", "controlled_by")
+#: How a card shows a channel of a role: a number, its state word, a lamp, or a
+#: control (a typed entry, one segment of a choice, an action button).
+SHOWN_AS: tuple[str, ...] = ("value", "word", "lamp", "entry", "choice", "action")
+#: The ways of showing that are a control a press or a typed value writes.
+CONTROLS: tuple[str, ...] = ("entry", "choice", "action")
 #: A claim's standing, as relation claims have it.
 STANDINGS: tuple[str, ...] = ("accepted", "contested", "superseded")
 
@@ -329,6 +381,9 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CALIBRATION_CURVES: ("id", "x", "y"),
         PROBE_PICTURES: ("class", "element", "shape"),
         STATE_LABELS: ("channel", "value", "label"),
+        UNITS: ("channel",),
+        CHANNEL_ROLES: ("class", "role", "signal", "scope", "shown_as", "basis"),
+        CARD_RECIPES: ("class", "recipe"),
     }
 )
 _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
@@ -347,6 +402,9 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CALIBRATION_CURVES: {},
         PROBE_PICTURES: {"shape": PROBE_SHAPES},
         STATE_LABELS: {},
+        UNITS: {},
+        CHANNEL_ROLES: {"scope": ROLE_SCOPES, "shown_as": SHOWN_AS, "basis": BASES},
+        CARD_RECIPES: {},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -367,6 +425,9 @@ _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CALIBRATION_KINDS: ("order",),
         CALIBRATION_CURVES: ("x", "y"),
         PROBE_PICTURES: ("angle_deg", "radius_mm", "size_mm", "min", "max", "range_mm", "count"),
+        UNITS: ("scale",),
+        CHANNEL_ROLES: ("scale", "press_value"),
+        CARD_RECIPES: ("channels_cols",),
     }
 )
 _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -375,10 +436,12 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         RECORD_TYPES: ("channel",),
         PAIRS: ("setpoint",),
         NAMES: ("thing",),
-        METRICS: ("view", "level", "order"),
+        METRICS: ("view", "level", "class", "order"),
         CALIBRATION_KINDS: ("kind", "class"),
         CALIBRATIONS: ("id",),
         STATE_LABELS: ("channel", "value"),
+        UNITS: ("channel",),
+        CARD_RECIPES: ("class", "under", "devices"),
     }
 )
 
@@ -641,6 +704,76 @@ class StateLabel:
 
 
 @dataclass(frozen=True)
+class ChannelUnit:
+    """One row of ``units.csv``: a channel's unit as its record states it
+    (``label``), cut to the unit (``unit``, ``None`` when the label is no unit) and
+    the divisor (``scale``) its raw value is shown through."""
+
+    channel: str
+    unit: str | None
+    scale: float | None
+    label: str | None
+    source: str | None
+    revision: str | None
+    locator: str | None
+
+
+@dataclass(frozen=True)
+class ChannelRole:
+    """One row of ``channel_roles.csv``: on a device of class ``cls``, the channels
+    whose name matches ``signal`` (a pattern with ``*``, ``?`` and ``[``, matched
+    against the whole name), looked for where ``scope`` says, play ``role`` and are
+    shown as ``shown_as``. In the scopes ``read_out_by`` and ``controlled_by`` the
+    pattern may hold ``{port}`` (the relation's object port) and ``{n}`` (that
+    port's trailing number). A ``choice`` or ``action`` row is one press:
+    ``label`` is the word on it, ``press_value`` what it writes (``None``: the
+    value whose state word is ``label``). ``unit`` and ``scale`` (a divisor) win
+    over ``units.csv``. The role words are the facility's vocabulary; the engine
+    reads them as text."""
+
+    cls: str
+    role: str
+    signal: str
+    scope: str
+    shown_as: str
+    unit: str | None
+    scale: float | None
+    press_value: float | None
+    label: str | None
+    basis: Basis
+    source: str | None
+    revision: str | None
+    locator: str | None
+
+
+def _channel_role(**columns: Any) -> ChannelRole:
+    return ChannelRole(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
+class CardRecipe:
+    """One row of ``card_recipes.csv``: the card recipe of the devices of ``cls``
+    (under the place ``under``, and whose id matches the pattern ``devices``, when
+    given). ``recipe`` names it: the key the card's key numbers (``metrics.csv``
+    rows of view ``card`` whose ``level`` is the recipe) attach to. Its
+    ``description`` is the title line's sentence, ``{relation}`` slots filled from
+    the device's claims (``on {located_in}``); ``channels_cols`` the columns of its
+    all-channels grid."""
+
+    cls: str
+    under: str | None
+    recipe: str
+    description: str | None
+    channels_cols: float | None
+    source: str | None
+    devices: str | None = None
+
+
+def _card_recipe(**columns: Any) -> CardRecipe:
+    return CardRecipe(cls=columns.pop("class"), **columns)
+
+
+@dataclass(frozen=True)
 class ShortName:
     """One row of ``names.csv``: the short name a strip shows for a thing.
 
@@ -812,6 +945,9 @@ class PanelTables:
     calibration_curves: tuple[CurvePoint, ...] = ()
     probe_pictures: tuple[ProbeElement, ...] = ()
     state_labels: tuple[StateLabel, ...] = ()
+    units: tuple[ChannelUnit, ...] = ()
+    channel_roles: tuple[ChannelRole, ...] = ()
+    card_recipes: tuple[CardRecipe, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -829,6 +965,9 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CALIBRATION_CURVES: CurvePoint,
         PROBE_PICTURES: _probe_element,
         STATE_LABELS: StateLabel,
+        UNITS: ChannelUnit,
+        CHANNEL_ROLES: _channel_role,
+        CARD_RECIPES: _card_recipe,
     }
 )
 
@@ -935,6 +1074,7 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
     unique = _UNIQUE.get(name)
     seen: dict[tuple[str, ...], int] = {}
     seen_probe: dict[tuple[str | None, ...], int] = {}
+    seen_metric: dict[tuple[str | float | None, ...], int] = {}
     rows = []
     for line, record in records:
         if not record:
@@ -945,7 +1085,7 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             )
         texts = dict(zip(header, record, strict=True))
         if unique is not None:
-            key = tuple(texts[column] for column in unique)
+            key = tuple(texts.get(column, "") for column in unique)  # an optional one: empty
             if key in seen:
                 raise PanelTableError(
                     name,
@@ -958,6 +1098,10 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
         )
         if name == CALIBRATION_KINDS:
             _check_kind_unit(rows[-1], line)
+        if name == CHANNEL_ROLES:
+            _check_role(rows[-1], line)
+        if name == METRICS:
+            _check_metric(rows[-1], line, seen_metric)
         if name == PROBE_PICTURES:
             _check_probe_row(rows[-1], line, seen_probe)
         if name == PICTURES:
@@ -968,6 +1112,44 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
         if lines is not None:
             lines.append(line)
     return tuple(rows)
+
+
+def _check_metric(
+    metric: Metric, line: int, seen: dict[tuple[str | float | None, ...], int]
+) -> None:
+    """A card's key number names its class and shows a value or a word; a place's or
+    a roll-up's is one per view, level and order, whatever its class."""
+    if metric.view == "card":
+        if metric.cls is None:
+            raise PanelTableError(METRICS, line, "a card's key number names its class")
+        if metric.measure not in ("value", "word"):
+            raise PanelTableError(
+                METRICS, line, f"a card's key number is a value or a word, not {metric.measure!r}"
+            )
+        return
+    if metric.measure == "word":
+        raise PanelTableError(METRICS, line, "only a card's key number is a word")
+    key = (metric.view, metric.level, metric.order)
+    if key in seen:
+        raise PanelTableError(
+            METRICS, line, f"view, level, order {key!r} already has a row at line {seen[key]}"
+        )
+    seen[key] = line
+
+
+def _check_role(role: ChannelRole, line: int) -> None:
+    """A press names its word; a relation's port fills a pattern only where a
+    relation is walked; a divisor is not 0."""
+    if role.shown_as in ("choice", "action") and not role.label:
+        raise PanelTableError(CHANNEL_ROLES, line, f"a {role.shown_as} names its press in label")
+    if role.scope in ("device", "parts") and ("{port}" in role.signal or "{n}" in role.signal):
+        raise PanelTableError(
+            CHANNEL_ROLES,
+            line,
+            "{port} and {n} come from a walked relation, not scope " + role.scope,
+        )
+    if role.scale is not None and role.scale == 0:
+        raise PanelTableError(CHANNEL_ROLES, line, "scale is 0; it divides the raw value")
 
 
 def _check_kind_unit(kind: CalibrationKind, line: int) -> None:
@@ -1072,6 +1254,9 @@ def read_tables(panels_dir: Path) -> PanelTables:
         **_read_calibrations(directory),
         probe_pictures=_read(directory, PROBE_PICTURES),
         state_labels=_read(directory, STATE_LABELS),
+        units=_read(directory, UNITS),
+        channel_roles=_read(directory, CHANNEL_ROLES),
+        card_recipes=_read(directory, CARD_RECIPES),
     )
 
 

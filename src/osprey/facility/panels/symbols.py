@@ -111,6 +111,12 @@ BORE = role("Material_Bore", "#eef0f3", "#15181d")  # the bore, the gap
 CURVE_2 = role("Curve_2", "#1f6fb8", "#5aa5e6")
 CURVE_3 = role("Curve_3", "#b45309", "#f0a050")
 CURVES: tuple[dict[str, str], ...] = (PAGE_TEXT, CURVE_2, CURVE_3)
+#: A drawn card's own device, highlighted (no state); a control's look.
+FOCUS = role("Focus", "#1f6fb8", "#5aa5e6")
+FOCUS_TINT = role("Focus_Tint", "#e6f0fa", "#1a2a3a")
+CONTROL_ACTION = role("Control_Action", "#1f6fb8", "#3d8bd6")
+CONTROL_ACTION_TEXT = role("Control_Action_Text", "#ffffff", "#ffffff")
+CONTROL_CHOICE_SELECTED = role("Control_Choice_Selected", "#dbe9f7", "#1d3a57")
 # --- end theme roles -----------------------------------------------------------
 
 #: The colour of each calibration basis, and of a contested value (the disagree role).
