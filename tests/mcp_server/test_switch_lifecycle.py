@@ -42,20 +42,17 @@ from osprey.mcp_server.control_system.target_eligibility import (
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
 )
-from osprey_connectors.connector_types import VIRTUAL_ACCELERATOR
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
 from osprey_connectors.errors import ChannelUnreachableError, ConnectorUnavailableError
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.ipc._launch import host_env
+from osprey_connectors.gateways import Endpoint, TargetDerivation
+from osprey_connectors.ipc._handle import _host_env
 from osprey_connectors.ipc._pool import DEFAULT_CALL_TIMEOUT_S
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
-from osprey_connectors.ipc._verification import (
-    Endpoint,
-    TargetDerivation,
-    verify_host_report,
-)
+from osprey_connectors.ipc._verification import verify_host_report
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import isolated_connector_registries, state_dir_under
+from osprey_connectors_tests.ipc._host_reports import host_report
 from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config
 from tests.fixtures.control_context import context_for
@@ -719,7 +716,7 @@ class TestPerTargetPosture:
     ):
         """Both switches verify, and they verify against different roles.
 
-        A switch that returns a result at all has passed ``verify_child_report``:
+        A switch that returns a result at all has passed ``_verify_child_report``:
         the role and endpoint the child reported were compared against the
         parent's derivation for that target. Here the two derivations disagree —
         'va' is switched on and selects the write-capable gateway, 'live' is
@@ -828,11 +825,11 @@ class TestTheSwitchGovernsWrites:
         recording_spawn = manager._spawn
         flipped = []
 
-        async def spawn_after_turn_off(target):
+        async def spawn_after_turn_off(target, init):
             if not flipped:
                 flipped.append(target)
                 arm(state_root)
-            return await recording_spawn(target)
+            return await recording_spawn(target, init)
 
         manager._spawn = spawn_after_turn_off
 
@@ -1108,11 +1105,11 @@ class TestTheChildsConfigFile:
         manager = await started_on(make_manager, "live", raw=self._raw(), config_path=file_a)
 
         derived = manager._derive("va")
-        payload = manager._init_kwargs("va", VIRTUAL_ACCELERATOR)
+        payload = manager._init(derived.derivation)
         result = await manager.switch("va")
 
         assert derived.derivation.endpoints["read_only"].port == self.PORT_A
-        assert payload["config_file"] == str(file_a.resolve())
+        assert payload.config_file == str(file_a.resolve())
         assert result["target"] == "va"
         assert int(result["endpoint"]["port"]) == self.PORT_A
 
@@ -1692,7 +1689,9 @@ class TestVerificationRule:
         )
 
     def test_a_gatewayless_target_passes_when_the_child_configured_nothing(self):
-        verification = verify_host_report(self._derivation(), self.NOTHING_CONFIGURED)
+        verification = verify_host_report(
+            self._derivation(), host_report(**self.NOTHING_CONFIGURED)
+        )
 
         assert verification.ok is True
         assert "derives no gateway" in verification.detail
@@ -1708,7 +1707,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = verify_host_report(self._derivation(), report)
+        verification = verify_host_report(self._derivation(), host_report(**report))
 
         assert verification.ok is False
         assert verification.field == "_epics_configured"
@@ -1732,7 +1731,7 @@ class TestVerificationRule:
             transport="ca",
         )
 
-        verification = verify_host_report(derivation, self.NOTHING_CONFIGURED)
+        verification = verify_host_report(derivation, host_report(**self.NOTHING_CONFIGURED))
 
         assert verification.ok is False
         assert verification.field == "_epics_configured"
@@ -1755,7 +1754,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = verify_host_report(derivation, report)
+        verification = verify_host_report(derivation, host_report(**report))
 
         assert verification.ok is False
         assert verification.field == "endpoints"
@@ -1772,7 +1771,7 @@ class TestVerificationRule:
             "_epics_configured": True,
         }
 
-        verification = verify_host_report(derivation, report)
+        verification = verify_host_report(derivation, host_report(**report))
 
         assert verification.ok is False
         assert verification.field == "host"
@@ -1788,7 +1787,7 @@ class TestVerificationRule:
             "readonly_run": False,
         }
         report.update(changes)
-        return report
+        return host_report(**report)
 
     def test_a_gatewayless_child_armed_where_the_parent_derived_off_fails_on_writes(self):
         # The endpoint check sees posture only through the gateway role, which
@@ -1960,7 +1959,7 @@ class TestConfigDerivedFacts:
         monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", "ambient.example.org:5075")
         monkeypatch.setenv("CA_CLIENT_LIBRARY", "/opt/libca.dylib")
 
-        env = host_env()
+        env = _host_env()
 
         assert "EPICS_CA_ADDR_LIST" not in env
         assert "EPICS_PVA_NAME_SERVERS" not in env

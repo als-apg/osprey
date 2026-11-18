@@ -54,7 +54,7 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.control_system._ca_loop import CaLoop, current_ca_env, get_ca_loop
 from osprey_connectors.control_system._epics_bulk import Aioca, CABulk, normalise_address
-from osprey_connectors.control_system._gateway_role import ROLE_WRITE_ACCESS, SelectedRole
+from osprey_connectors.control_system._gateway_role import SelectedRole
 from osprey_connectors.control_system._limits_validator import CurrentValueReader, c_numeral
 from osprey_connectors.errors import (
     ChannelUnreachableError,
@@ -1018,7 +1018,7 @@ class EPICSConnector(ControlSystemConnector):
             writes_enabled = False  # Can't tell -> assume the safe (read-only) path
 
         readonly_run = is_readonly_run()
-        write_gateway = gateways.get(ROLE_WRITE_ACCESS) or {}
+        write_gateway = gateways.get("write_access") or {}
         gateway_role = _selected_role(
             gateways, writes_enabled=bool(writes_enabled), readonly_run=readonly_run
         )
@@ -1039,12 +1039,12 @@ class EPICSConnector(ControlSystemConnector):
             target = self._control_target
             kind = machine_kind(section, target) if is_control_target(target) else None
             raise ConnectRefusedError(readonly_gateway_refusal(kind))
-        if gateway_role == ROLE_WRITE_ACCESS and not writes_enabled:
+        if gateway_role == "write_access" and not writes_enabled:
             logger.debug(
                 "EPICS connector: no read_only gateway; reading through write_access "
                 "with writes refused"
             )
-        elif gateway_role == ROLE_WRITE_ACCESS:
+        elif gateway_role == "write_access":
             logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
         elif readonly_run and write_gateway:
             logger.debug("EPICS connector: readonly run, staying on read_only gateway")
@@ -1885,7 +1885,7 @@ class EPICSConnector(ControlSystemConnector):
     @override
     def _write_route_open(self) -> bool:
         """No write gateway is configured, or ``connect()`` selected it."""
-        return not self._write_gateway_configured or self._selected_role == ROLE_WRITE_ACCESS
+        return not self._write_gateway_configured or self._selected_role == "write_access"
 
     def _role_refusal(self, address: str, value: object) -> ChannelWriteResult | None:
         """The ``switching`` refusal for a write the selected gateway cannot carry, or ``None``.

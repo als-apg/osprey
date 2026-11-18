@@ -37,7 +37,7 @@ from osprey.services.bluesky_bridge.plan_validation import (
     hash_plan_body,
     validate_plan,
 )
-from osprey_connectors.ipc._host import EPICS_ENV_PREFIXES
+from osprey_connectors.epics_env import EPICS_ENV_PREFIXES
 
 # ---------------------------------------------------------------------------
 # A tiny, fully-contract-compliant benign plan body: one movable channel, one

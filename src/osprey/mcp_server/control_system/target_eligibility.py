@@ -20,7 +20,7 @@ can say *why* rather than merely *no*.
 
 **VERIFICATION** is answered after the connector-host child has connected, by
 comparing what the child says it did against what
-:func:`~osprey_connectors.ipc.derive_endpoints` derived it should
+:func:`~osprey_connectors.gateways.derive_endpoints` derived it should
 do. It is positive and role-aware: not "nothing looked wrong" but "the child
 configured exactly this host, this port, this mode, for exactly the role the
 derivation selected". A mismatch names the field, the expected value and the
@@ -33,9 +33,9 @@ somewhere the config never described — the failure mode where every layer
 reports success and the tool calls land on the wrong machine.
 
 Both are computed from the same inputs the connector itself uses. The
-derivation and the verification live in :mod:`osprey_connectors.ipc`,
-shared with the library's
-:class:`~osprey_connectors.ipc.ConnectorHostPool`: it restates
+derivation lives in :mod:`osprey_connectors.gateways` and the verification in
+:mod:`osprey_connectors.ipc`, both shared with the library's
+:class:`~osprey_connectors.ipc.ConnectorHostPool`: the derivation restates
 ``EPICSConnector.connect()``'s gateway selection and environment derivation
 *positively* — the role it would pick given the write verdict for the target and
 :func:`~osprey_connectors.execution_mode.is_readonly_run`, and the
@@ -117,7 +117,12 @@ from osprey.deployment.honesty import (
     target_section,
 )
 from osprey_connectors import write_switch
-from osprey_connectors.config import unresolved_placeholders
+from osprey_connectors.config import (
+    config_section,
+    connector_block,
+    subsection,
+    unresolved_placeholders,
+)
 from osprey_connectors.connector_types import (
     CONTROL_TARGETS,
     TARGET_LIVE,
@@ -128,17 +133,12 @@ from osprey_connectors.connector_types import (
 from osprey_connectors.deployment.simulator import virtual_accelerator_active
 from osprey_connectors.deployment.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
 from osprey_connectors.execution_mode import is_readonly_run
-from osprey_connectors.ipc import (
-    GATEWAYS_MISSING,
-    GATEWAYS_NONE_DECLARED,
+from osprey_connectors.gateways import (
     Endpoint,
     TargetDerivation,
-    config_section,
-    connector_block,
     declared_gateways,
     derive_endpoints,
     live_collision,
-    subsection,
 )
 from osprey_connectors.refusals import VerdictReason
 from osprey_connectors.targets import resolve_target
@@ -255,7 +255,7 @@ def target_write_verdict(section: Any, target: str) -> write_switch.WriteVerdict
     Every caller of :func:`derive_endpoints` in this stack passes the
     verdict's ``allowed`` as ``writes_enabled``. That is not a convenience:
     the child selects its gateway from exactly this verdict, so a parent
-    deriving anything else would hand :func:`verify_child_report` a
+    deriving anything else would hand :func:`~osprey_connectors.ipc.verify_host_report` a
     ``selected_role`` mismatch and abort a switch that was configured
     correctly.
 
@@ -587,7 +587,7 @@ def evaluate_eligibility(
                 "— what it cannot do is move a session onto it.",
             )
 
-        if derivation.gateways_declared == GATEWAYS_NONE_DECLARED:
+        if derivation.gateways_declared == "none_declared":
             return Eligibility(
                 False,
                 REASON_GATEWAYS_MISSING,
@@ -595,7 +595,7 @@ def evaluate_eligibility(
                 "so a switch has no gateway to point a connector at. Only a return to "
                 "the deployment baseline accepts a target with nothing to probe.",
             )
-        if derivation.gateways_declared == GATEWAYS_MISSING:
+        if derivation.gateways_declared == "missing":
             return Eligibility(
                 False,
                 REASON_GATEWAYS_MISSING,
@@ -1158,7 +1158,7 @@ def _declared_gateways(config: Any, target: str) -> tuple[str | None, str]:
     The shape is ``None`` for a target that does not resolve, or whose connector does not
     speak Channel Access: the gateways table is that protocol's shape, and the
     rung asks nothing of a block it cannot apply to. Otherwise it is
-    :func:`~osprey_connectors.ipc.declared_gateways` of the block, the one
+    :func:`~osprey_connectors.gateways.declared_gateways` of the block, the one
     reader of that fact, so a forgotten table never reads as "direct".
     """
     control_system = config_section(config, "control_system")
@@ -1314,7 +1314,7 @@ def evaluate_switch(
     # skipped and says so; eligibility has already refused it on any leg but
     # the return to the baseline.
     declared, connector_type = _declared_gateways(config, wanted)
-    if declared == GATEWAYS_NONE_DECLARED:
+    if declared == "none_declared":
         return GateVerdict(
             allowed=True,
             detail=(
@@ -1353,7 +1353,7 @@ def evaluate_switch(
         )
 
     live = list(reports)
-    if state == REACHABILITY_NOT_PROBED and live and declared == GATEWAYS_MISSING:
+    if state == REACHABILITY_NOT_PROBED and live and declared == "missing":
         block_key = f"control_system.connector.{connector_type}"
         return GateVerdict(
             allowed=False,

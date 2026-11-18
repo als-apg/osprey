@@ -127,7 +127,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors import control_context, write_switch
-from osprey_connectors.ipc import derive_endpoints
+from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.limits_posture import target_limits_posture
 from osprey_connectors.targets import configured_targets
 
@@ -410,7 +410,7 @@ def _write_verdict(config: Any, target: str) -> write_switch.WriteVerdict:
     the tier, this run's mode, the owner and the login's switch for *target*,
     decided once by :func:`~osprey_connectors.write_switch.write_verdict`. Its
     ``allowed`` is also the value the roster hands
-    :func:`~osprey_connectors.ipc.derive_endpoints`, so the flag a row reports
+    :func:`~osprey_connectors.gateways.derive_endpoints`, so the flag a row reports
     and the gateway that row names are the same answer rather than two
     readings that could drift apart, and its ``reason`` is what the row reports
     when writes are refused.

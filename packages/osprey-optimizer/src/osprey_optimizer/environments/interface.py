@@ -65,6 +65,7 @@ from osprey_optimizer.models.types import PVValues, VariableInputs
 if TYPE_CHECKING:
     from osprey_connectors.connector_types import ControlTarget
     from osprey_connectors.control_system import ChannelValue, ControlSystem
+    from osprey_connectors.execution_mode import ExecutionMode
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ def pool_section(control_system: dict[str, Any]) -> dict[str, Any]:
 
 
 #: A bridge's connector key: ``(target, execution_mode, owner, authorization)``.
-_ConnectorKey = tuple[str, str | None, str | None, str | None]
+_ConnectorKey = tuple[str, "ExecutionMode | None", str | None, str | None]
 
 
 class _PoolBridge:
@@ -176,7 +177,7 @@ class _PoolBridge:
     def connector(
         self,
         target: ControlTarget,
-        execution_mode: str | None,
+        execution_mode: ExecutionMode | None,
         *,
         owner: str | None = None,
         authorization: str | None = None,
@@ -194,7 +195,7 @@ class _PoolBridge:
     def retire(
         self,
         target: str,
-        execution_mode: str | None,
+        execution_mode: ExecutionMode | None,
         *,
         owner: str | None = None,
         authorization: str | None = None,
@@ -257,12 +258,17 @@ class ConnectorInterface:
             raise InterfaceError(
                 f"Unknown control target {target!r}; expected one of {tuple(CONTROL_TARGETS)}"
             )
-        if execution_mode not in (None, "readonly"):
+        mode: ExecutionMode | None
+        if execution_mode is None:
+            mode = None
+        elif execution_mode == "readonly":
+            mode = "readonly"
+        else:
             raise InterfaceError(
                 f"Unknown execution mode {execution_mode!r}; expected None or 'readonly'"
             )
         self.target = target
-        self.execution_mode = execution_mode
+        self.execution_mode = mode
         self._bridge = bridge or get_bridge()
         # Brought up now, so a target the pool cannot serve fails at construction.
         self._reader()

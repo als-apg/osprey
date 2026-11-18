@@ -55,7 +55,7 @@ from osprey_connectors.archiver import address_overrides
 from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.connector_types import TARGET_VA
 from osprey_connectors.deployment.simulator import virtual_accelerator_port
-from osprey_connectors.ipc import derive_endpoints
+from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.simulation.records import AddressesDocument, VariablesDocument
 from osprey_connectors.simulation.values import is_waveform
 from osprey_connectors.simulation.view import NoSimulatorViewError, SimulatorView
@@ -379,7 +379,7 @@ def _recorded_target_is_virtual_accelerator(config: dict[str, Any], config_path:
        (:mod:`osprey_connectors.deployment.archive_targets`), so the store this recorder
        writes is a ``va`` archive exactly when something samples it.
     2. **Does the ``va`` target still land on it?** The endpoint is derived by
-       :func:`~osprey_connectors.ipc.derive_endpoints` — the same
+       :func:`~osprey_connectors.gateways.derive_endpoints` — the same
        resolver the roster's label and the target switch use — and judged by
        :func:`~osprey.mcp_server.control_system.target_eligibility.endpoint_is_virtual_accelerator`:
        loopback, on the port the deployment published. A ``va`` block whose

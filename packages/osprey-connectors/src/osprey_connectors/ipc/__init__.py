@@ -1,155 +1,100 @@
 """Inter-process plumbing for the connector-host child.
 
 The child process owns the control-system client library; the parent talks to
-it over a pipe pair. This namespace holds what a supervisor needs: launching
-and stopping a child, the proxy that drives one and the pool that keeps them,
-the endpoint derivation and verification of what a child reports, and the two
-errors the wire format raises when a frame cannot be written or read. The wire
-codec itself and the typed-exception registry that carries a failure across
+it over a pipe pair. This namespace holds what a supervisor needs: the handle
+that starts, asks after and stops one child (:class:`ConnectorHost`), the
+records its ``init`` frame and its answer cross the pipe as, the proxy that
+drives a child and the pool that keeps them, their errors, and the
+verification of what a child reports. Where a target's child will connect is
+answered by :mod:`osprey_connectors.gateways`, and the EPICS environment a
+child is started without by :mod:`osprey_connectors.epics_env`.
+The wire codec and the typed-exception registry that carries a failure across
 the boundary are internal to this package (``_frames``, ``_exceptions``).
 
-The frame errors are imported here. Every other name is resolved on access
-(PEP 562): the child runs as ``python -m osprey_connectors.ipc._host``, and a
-package that imported ``_host`` eagerly would load it a second time under
+Every name is resolved on access (PEP 562), so importing this namespace loads
+none of its modules: the child runs as ``python -m osprey_connectors.ipc._host``,
+and a package that imported ``_host`` eagerly would load it a second time under
 ``__main__``.
 """
 
 from typing import TYPE_CHECKING
 
-from osprey_connectors.ipc._frames import (
-    FrameDecodeError,
-    FrameEncodeError,
-)
-
 if TYPE_CHECKING:
-    from osprey_connectors.ipc._host import (
-        scrub_epics_env,
+    from osprey_connectors.ipc._handle import (
+        ConnectorHost,
+        ConnectorHostError,
+        ConnectorHostStartError,
+        HostLossCause,
+        HostStartStage,
+        StartMark,
     )
-    from osprey_connectors.ipc._launch import (
-        AttributedReader,
-        host_env,
-        kill_host,
-        spawn_host,
-        stop_host,
-    )
+    from osprey_connectors.ipc._host import HostInit, HostReport
     from osprey_connectors.ipc._pool import (
         DEFAULT_CALL_TIMEOUT_S,
         DEFAULT_PING_TIMEOUT_S,
-        READONLY,
-        ConnectorHostError,
         ConnectorHostLostError,
         ConnectorHostPool,
-        ConnectorHostStartError,
+        ConnectorHostSlowCallError,
         ConnectorHostUnresponsiveError,
         ConnectorHostWriteTimeoutError,
+        HostKey,
         PooledConnector,
     )
     from osprey_connectors.ipc._proxy import (
+        ChildLostError,
         ChildUnresponsiveError,
         ConnectorHostProxy,
-        raised_by_child,
     )
-    from osprey_connectors.ipc._verification import (
-        GATEWAYS_MISSING,
-        GATEWAYS_NONE_DECLARED,
-        GATEWAYS_ROWS,
-        MODE_NAME_SERVER,
-        ROLE_READ_ONLY,
-        ROLE_WRITE_ACCESS,
-        Endpoint,
-        LiveCollision,
-        SelectedRole,
-        TargetDerivation,
-        Verification,
-        config_section,
-        connector_block,
-        declared_gateways,
-        derive_endpoints,
-        live_collision,
-        subsection,
-        verify_host_report,
-    )
+    from osprey_connectors.ipc._verification import Verification, verify_host_report
 
 __all__ = [
-    "scrub_epics_env",
-    "AttributedReader",
-    "host_env",
-    "kill_host",
-    "spawn_host",
-    "stop_host",
+    "ConnectorHost",
+    "ConnectorHostError",
+    "ConnectorHostStartError",
+    "HostLossCause",
+    "HostStartStage",
+    "StartMark",
+    "HostInit",
+    "HostReport",
     "DEFAULT_CALL_TIMEOUT_S",
     "DEFAULT_PING_TIMEOUT_S",
-    "READONLY",
-    "ConnectorHostError",
     "ConnectorHostLostError",
     "ConnectorHostPool",
-    "ConnectorHostStartError",
+    "ConnectorHostSlowCallError",
     "ConnectorHostUnresponsiveError",
     "ConnectorHostWriteTimeoutError",
+    "HostKey",
     "PooledConnector",
+    "ChildLostError",
     "ChildUnresponsiveError",
     "ConnectorHostProxy",
-    "raised_by_child",
-    "GATEWAYS_MISSING",
-    "GATEWAYS_NONE_DECLARED",
-    "GATEWAYS_ROWS",
-    "MODE_NAME_SERVER",
-    "ROLE_READ_ONLY",
-    "ROLE_WRITE_ACCESS",
-    "Endpoint",
-    "LiveCollision",
-    "SelectedRole",
-    "TargetDerivation",
     "Verification",
-    "config_section",
-    "connector_block",
-    "declared_gateways",
-    "derive_endpoints",
-    "live_collision",
-    "subsection",
     "verify_host_report",
-    "FrameDecodeError",
-    "FrameEncodeError",
 ]
 
 #: Public name -> the module that defines it, for the names resolved lazily.
 _LAZY_EXPORTS: dict[str, str] = {
-    "scrub_epics_env": "osprey_connectors.ipc._host",
-    "AttributedReader": "osprey_connectors.ipc._launch",
-    "host_env": "osprey_connectors.ipc._launch",
-    "kill_host": "osprey_connectors.ipc._launch",
-    "spawn_host": "osprey_connectors.ipc._launch",
-    "stop_host": "osprey_connectors.ipc._launch",
+    "ConnectorHost": "osprey_connectors.ipc._handle",
+    "ConnectorHostError": "osprey_connectors.ipc._handle",
+    "ConnectorHostStartError": "osprey_connectors.ipc._handle",
+    "HostLossCause": "osprey_connectors.ipc._handle",
+    "HostStartStage": "osprey_connectors.ipc._handle",
+    "StartMark": "osprey_connectors.ipc._handle",
+    "HostInit": "osprey_connectors.ipc._host",
+    "HostReport": "osprey_connectors.ipc._host",
     "DEFAULT_CALL_TIMEOUT_S": "osprey_connectors.ipc._pool",
     "DEFAULT_PING_TIMEOUT_S": "osprey_connectors.ipc._pool",
-    "READONLY": "osprey_connectors.ipc._pool",
-    "ConnectorHostError": "osprey_connectors.ipc._pool",
     "ConnectorHostLostError": "osprey_connectors.ipc._pool",
     "ConnectorHostPool": "osprey_connectors.ipc._pool",
-    "ConnectorHostStartError": "osprey_connectors.ipc._pool",
+    "ConnectorHostSlowCallError": "osprey_connectors.ipc._pool",
     "ConnectorHostUnresponsiveError": "osprey_connectors.ipc._pool",
     "ConnectorHostWriteTimeoutError": "osprey_connectors.ipc._pool",
+    "HostKey": "osprey_connectors.ipc._pool",
     "PooledConnector": "osprey_connectors.ipc._pool",
+    "ChildLostError": "osprey_connectors.ipc._proxy",
     "ChildUnresponsiveError": "osprey_connectors.ipc._proxy",
     "ConnectorHostProxy": "osprey_connectors.ipc._proxy",
-    "raised_by_child": "osprey_connectors.ipc._proxy",
-    "GATEWAYS_MISSING": "osprey_connectors.ipc._verification",
-    "GATEWAYS_NONE_DECLARED": "osprey_connectors.ipc._verification",
-    "GATEWAYS_ROWS": "osprey_connectors.ipc._verification",
-    "MODE_NAME_SERVER": "osprey_connectors.ipc._verification",
-    "ROLE_READ_ONLY": "osprey_connectors.ipc._verification",
-    "ROLE_WRITE_ACCESS": "osprey_connectors.ipc._verification",
-    "Endpoint": "osprey_connectors.ipc._verification",
-    "LiveCollision": "osprey_connectors.ipc._verification",
-    "SelectedRole": "osprey_connectors.ipc._verification",
-    "TargetDerivation": "osprey_connectors.ipc._verification",
     "Verification": "osprey_connectors.ipc._verification",
-    "config_section": "osprey_connectors.ipc._verification",
-    "connector_block": "osprey_connectors.ipc._verification",
-    "declared_gateways": "osprey_connectors.ipc._verification",
-    "derive_endpoints": "osprey_connectors.ipc._verification",
-    "live_collision": "osprey_connectors.ipc._verification",
-    "subsection": "osprey_connectors.ipc._verification",
     "verify_host_report": "osprey_connectors.ipc._verification",
 }
 
