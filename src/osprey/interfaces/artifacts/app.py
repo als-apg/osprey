@@ -530,14 +530,15 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
     <style> or comments are ignored.
     """
     html = html_bytes.decode("utf-8", errors="replace")
-    body_at = None
+    at: int | None = None
+    body_at: int | None = None
     for m in _SKIP_OR_CLOSE_TAG.finditer(html):
         if m.group("head"):
             at = m.start()
             break
         if m.group("body") and body_at is None:
             body_at = m.start()
-    else:
+    if at is None:
         at = body_at
     if at is None:
         return (snippet + html).encode("utf-8")
