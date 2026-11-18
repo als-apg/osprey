@@ -26,9 +26,9 @@ import osprey.channel_roster as channel_roster
 from osprey.services.pv_directory import _connectors, service
 from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey_connectors import control_context
-from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
+from osprey_connectors.alarm_state import AlarmCondition, AlarmEntry, AlarmStates
 from osprey_connectors.archiver import ArchiveExtent
-from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
+from osprey_connectors.directory import DirectoryDetail, DirectoryEntry, DirectoryPage
 from osprey_connectors.service_answers import NotListed, Source, Unavailable
 from tests._service_factory import patch_create_service
 
@@ -90,7 +90,7 @@ class FakeBackend:
 
 
 def _row(name: str, **fields: Any) -> Any:
-    return DirectoryRow(address=name, **fields)
+    return DirectoryEntry(address=name, **fields)
 
 
 class FakeDirectory(FakeBackend):
@@ -150,7 +150,7 @@ class FakeAlarmState(FakeBackend):
         pass
 
     async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return AlarmStateRecord(severity="MAJOR")
+        return AlarmCondition(severity="MAJOR")
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return Unavailable(cause="unreachable", reason="no message from the feed yet")
@@ -159,7 +159,7 @@ class FakeAlarmState(FakeBackend):
         if isinstance(self.held, Unavailable):
             return self.held
         rows = tuple(
-            AlarmStateRow(address=channel, path=f"/Demo/{channel}", state=state)
+            AlarmEntry(address=channel, path=f"/Demo/{channel}", condition=state)
             for channel, state in self.held.items()
         )
         return AlarmStates(rows=rows, stale=False, last_contact_at=None)
@@ -508,7 +508,7 @@ _FEED = {
     "type": "phoebus_alarm_server",
     "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
 }
-_MAJOR = AlarmStateRecord(
+_MAJOR = AlarmCondition(
     severity="MAJOR",
     status="HIHI_ALARM",
     latched=True,
@@ -519,7 +519,7 @@ _MAJOR = AlarmStateRecord(
 def _alarmed_directory(tmp_path: Path, **display: Any) -> Any:
     """Three rows: PV1 in MAJOR, PV2 held OK, PV3 with no state in the feed."""
     FakeDirectory.rows = [_row(f"SR:PV{i}", server="ioc-a") for i in (1, 2, 3)]
-    FakeAlarmState.held = {"SR:PV1": _MAJOR, "SR:PV2": AlarmStateRecord(severity="OK")}
+    FakeAlarmState.held = {"SR:PV1": _MAJOR, "SR:PV2": AlarmCondition(severity="OK")}
     section = {**FACILITY, "alarm_state": _FEED, "display": display}
     return _service(_config(tmp_path, LIVE_BUILD, section, "SR:PV1"), tmp_path)
 
@@ -884,8 +884,8 @@ async def test_the_archive_is_closed_when_the_target_moves(
 
 async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path: Path) -> None:
     FakeDirectory.records = {
-        "SR:BPM1": DirectoryRecord(
-            row=_row("SR:BPM1", status="Inactive", host="h1"),
+        "SR:BPM1": DirectoryDetail(
+            entry=_row("SR:BPM1", status="Inactive", host="h1"),
             properties={"Engineer": "A. Person", "secret": "x"},
         )
     }
@@ -909,7 +909,7 @@ async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path:
 def _described_rows(name: str) -> None:
     FakeDirectory.rows = [_row(name, description="Cavity temperature", server="ioc-a")]
     FakeDirectory.records = {
-        name: DirectoryRecord(row=_row(name, description="Cavity temperature"))
+        name: DirectoryDetail(entry=_row(name, description="Cavity temperature"))
     }
 
 

@@ -312,12 +312,12 @@ class Facts:
         if _is_unavailable(answer):
             return _section(backend, "unavailable", reason=answer.reason)
         active = sorted(
-            (row for row in answer.rows if row.state.severity not in ("OK", None)),
+            (row for row in answer.rows if row.condition.severity not in ("OK", None)),
             key=_alarm_order,
             reverse=True,
         )
         if severities:
-            active = [row for row in active if row.state.severity in severities]
+            active = [row for row in active if row.condition.severity in severities]
         served = active if limit is None else active[: max(limit, 0)]
         return _section(
             backend,
@@ -662,15 +662,15 @@ def _feed_kind(backend: Any) -> str:
 
 def _alarm_order(row: Any) -> tuple[int, bool, datetime]:
     """An active alarm's place, largest first: most severe, then newest, an untimed one last."""
-    event_at = row.state.event_at
-    return row.state.severity.rank, event_at is not None, event_at or _NO_TIME
+    event_at = row.condition.event_at
+    return row.condition.severity.rank, event_at is not None, event_at or _NO_TIME
 
 
 def _alarm_row(row: Any) -> dict[str, Any]:
-    """One active alarm as served: ``pv`` and ``path``, then its state's fields."""
+    """One active alarm as served: ``pv`` and ``path``, then its condition's fields."""
     served = as_payload(row)
-    state = served.pop("state")
-    return {**served, **state}
+    condition = served.pop("condition")
+    return {**served, **condition}
 
 
 def _page_outcome(sections: Sequence[Mapping[str, Any]]) -> dict[str, Any]:

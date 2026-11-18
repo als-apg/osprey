@@ -33,8 +33,8 @@ from pydantic import ConfigDict, OnErrorOmit, TypeAdapter
 from typing_extensions import override
 
 from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
-from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
-from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmSeverity
+from osprey_connectors.alarm_log._contract import AlarmLog, AlarmLogEntry
+from osprey_connectors.alarm_state import AlarmConfiguration, AlarmSeverity
 from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
@@ -146,7 +146,7 @@ class PhoebusAlarmLogger(AlarmLog):
         start_at: datetime | None = None,
         limit: int,
         timeout_s: float,
-    ) -> LogPage[AlarmHistoryRow] | Unavailable:
+    ) -> LogPage[AlarmLogEntry] | Unavailable:
         if start_at is not None:
             require_aware(start_at, name="start_at")
         # One row more than asked for tells a full page from a longer history.
@@ -166,7 +166,7 @@ class PhoebusAlarmLogger(AlarmLog):
     @override
     async def config_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmConfigRecord | Unavailable:
+    ) -> AlarmConfiguration | Unavailable:
         started = time.monotonic()
         answer = await self._search(address, _CONFIG_SEARCH_SIZE, None, timeout_s)
         if isinstance(answer, Unavailable):
@@ -176,7 +176,7 @@ class PhoebusAlarmLogger(AlarmLog):
         if newest is not None:
             return _config_record(newest)
         if not rows:
-            return AlarmConfigRecord(in_tree="no")
+            return AlarmConfiguration(in_tree="no")
         # State rows prove a path but not the tree's entry, so nothing below answers "no".
         path = rows[0].tree_path
         if path is not None:
@@ -188,7 +188,7 @@ class PhoebusAlarmLogger(AlarmLog):
                 newest = _newest_config_row(_rows_of(fallback, address))
                 if newest is not None:
                     return _config_record(newest)
-        return AlarmConfigRecord(in_tree="unknown", path=path)
+        return AlarmConfiguration(in_tree="unknown", path=path)
 
     @override
     async def probe(self, *, timeout_s: float) -> str | Unavailable:
@@ -217,10 +217,10 @@ class PhoebusAlarmLogger(AlarmLog):
         self,
         outcome: PageOutcome,
         *,
-        rows: list[AlarmHistoryRow] | None = None,
+        rows: list[AlarmLogEntry] | None = None,
         truncated: bool = False,
         note: str | None = None,
-    ) -> LogPage[AlarmHistoryRow]:
+    ) -> LogPage[AlarmLogEntry]:
         return LogPage(
             outcome=outcome,
             source=self.source,
@@ -248,15 +248,15 @@ def _newest_config_row(rows: list[_LoggedRow]) -> _LoggedRow | None:
     return next((row for row in rows if row.is_config), None)
 
 
-def _config_record(row: _LoggedRow) -> AlarmConfigRecord:
+def _config_record(row: _LoggedRow) -> AlarmConfiguration:
     """What a ``config:`` row says; one that cannot be read leaves the answer unknown."""
     path = row.tree_path
     body = _config_body(row)
     if body is None:
-        return AlarmConfigRecord(in_tree="unknown", path=path)
+        return AlarmConfiguration(in_tree="unknown", path=path)
     if body.deleted:
-        return AlarmConfigRecord(in_tree="no", path=path)
-    return AlarmConfigRecord(
+        return AlarmConfiguration(in_tree="no", path=path)
+    return AlarmConfiguration(
         in_tree="yes",
         path=path,
         guidance=body.guidance,
@@ -276,17 +276,17 @@ def _config_body(row: _LoggedRow) -> _ConfigBody | None:
         return None
 
 
-def _history_row(row: _LoggedRow) -> AlarmHistoryRow:
+def _history_row(row: _LoggedRow) -> AlarmLogEntry:
     if row.is_config:
         body = _config_body(row) or _ConfigBody()
-        return AlarmHistoryRow(
+        return AlarmLogEntry(
             event_at=_instant(row.message_time),
             message=body.delete if body.deleted else body.description,
             user=row.user,
             kind="config",
         )
     severity, acknowledged = AlarmSeverity.of_recorded(row.severity)
-    return AlarmHistoryRow(
+    return AlarmLogEntry(
         event_at=row.event_at,
         severity=severity,
         acknowledged=acknowledged,

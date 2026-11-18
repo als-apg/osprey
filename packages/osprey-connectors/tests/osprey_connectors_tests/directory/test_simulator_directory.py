@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory import DirectoryDetail, DirectoryQuery
 from osprey_connectors.directory._simulator import SimulatorDirectory
 from osprey_connectors.service_answers import BackendSpec, NotListed, Source, Unavailable
 from osprey_connectors.simulation.records import (
@@ -182,7 +182,7 @@ async def test_each_health_and_status_pv_says_what_it_is_in_plain_words(
     directory: SimulatorDirectory,
 ) -> None:
     rows = {
-        suffix: (await directory.describe(f"T:SIM:SR:{suffix}", timeout_s=DEADLINE)).row  # type: ignore[union-attr]
+        suffix: (await directory.describe(f"T:SIM:SR:{suffix}", timeout_s=DEADLINE)).entry  # type: ignore[union-attr]
         for suffix in ("HEARTBEAT", "UPTIME", "ENGINEER", "STATUS")
     }
 
@@ -204,10 +204,10 @@ async def test_each_status_and_health_row_carries_its_signal(
 ) -> None:
     for signal in (STATUS_SIGNAL, HEARTBEAT, UPTIME, ENGINEER):
         record = await directory.describe(f"T:SIM:SR:{signal}", timeout_s=DEADLINE)
-        assert isinstance(record, DirectoryRecord)
+        assert isinstance(record, DirectoryDetail)
         assert record.properties == {SERVED_SIGNAL_PROPERTY: signal}
     channel = await directory.describe(SETPOINT, timeout_s=DEADLINE)
-    assert isinstance(channel, DirectoryRecord)
+    assert isinstance(channel, DirectoryDetail)
     assert SERVED_SIGNAL_PROPERTY not in channel.properties
 
 
@@ -320,8 +320,8 @@ async def test_the_record_type_comes_from_role_and_value_type(
 
     record = await directory.describe("T:X", timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.channel_type == record_type
+    assert isinstance(record, DirectoryDetail)
+    assert record.entry.channel_type == record_type
 
 
 @pytest.mark.parametrize(
@@ -340,8 +340,8 @@ async def test_the_description_is_the_first_sentence(tmp_path: Path, text: str, 
 
     record = await directory.describe("T:X", timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.description == first
+    assert isinstance(record, DirectoryDetail)
+    assert record.entry.description == first
 
 
 @pytest.mark.parametrize("description", [None, "", "   "])
@@ -353,8 +353,8 @@ async def test_a_channel_with_no_description_has_none(
 
     record = await directory.describe("T:X", timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.description is None
+    assert isinstance(record, DirectoryDetail)
+    assert record.entry.description is None
     assert await _names(directory, words="anything") == []
 
 
@@ -395,8 +395,8 @@ async def test_a_channel_of_an_unserved_model_is_the_textures_as_the_composite_s
 ) -> None:
     record = await directory.describe(ORPHAN, timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
-    assert record.row.server == "sim-texture"
+    assert isinstance(record, DirectoryDetail)
+    assert record.entry.server == "sim-texture"
     assert await _names(directory, server="sim-LN") == []
 
 
@@ -406,9 +406,9 @@ async def test_a_record_carries_no_ports_and_no_engineer_property(
     record = await directory.describe(SETPOINT, timeout_s=DEADLINE)
     health = await directory.describe("T:SIM:SR:ENGINEER", timeout_s=DEADLINE)
 
-    assert isinstance(record, DirectoryRecord)
+    assert isinstance(record, DirectoryDetail)
     assert record.properties == {"role": "setpoint", "unit": "A", "valueType": "float"}
-    assert isinstance(health, DirectoryRecord)
+    assert isinstance(health, DirectoryDetail)
     assert health.properties == {SERVED_SIGNAL_PROPERTY: ENGINEER}
     names = await directory.property_names(timeout_s=DEADLINE)
     assert isinstance(names, list)

@@ -273,7 +273,7 @@ class DirectoryService:
         if isinstance(answer, NotListed):
             return {**payload, "outcome": "not_listed"}
         hidden = self._hidden()
-        row = self._hide_row(backend, answer.row, hidden)
+        row = self._hide_row(backend, answer.entry, hidden)
         record = as_payload(
             evolve(
                 answer,
@@ -606,7 +606,7 @@ class DirectoryService:
         answer = await snapshot.states(deadline)
         if isinstance(answer, Unavailable):
             return answer
-        return {row.address: row.state for row in answer.rows}
+        return {row.address: row.condition for row in answer.rows}
 
     def _cut_page(
         self,

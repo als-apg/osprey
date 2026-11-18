@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 import osprey.channel_roster as channel_roster
 from osprey_connectors import control_context
 from osprey_connectors.archiver import ArchiveExtent
-from osprey_connectors.directory import DirectoryPage, DirectoryRow
+from osprey_connectors.directory import DirectoryEntry, DirectoryPage
 from osprey_connectors.service_answers import Source
 from tests._service_factory import patch_create_service
 
@@ -55,9 +55,9 @@ class FakeDirectory:
     """A directory of three PVs on two IOCs."""
 
     rows = (
-        DirectoryRow(address="SR:BPM1", server="sim-SR"),
-        DirectoryRow(address="SR:BPM2", server="sim-SR"),
-        DirectoryRow(address="BR:BPM1", server="sim-BR"),
+        DirectoryEntry(address="SR:BPM1", server="sim-SR"),
+        DirectoryEntry(address="SR:BPM2", server="sim-SR"),
+        DirectoryEntry(address="BR:BPM1", server="sim-BR"),
     )
 
     def __init__(self, spec: Any, **seams: Any) -> None:

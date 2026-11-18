@@ -26,9 +26,9 @@ from osprey.mcp_server.pv_directory.tools import ioc_record, pv_record
 from osprey.services.pv_directory import _connectors
 from osprey_connectors import control_context
 from osprey_connectors.directory import (
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
-    DirectoryRecord,
-    DirectoryRow,
 )
 from osprey_connectors.service_answers import (
     LogPage,
@@ -79,15 +79,15 @@ class FakeDirectory(FakeBackend):
 
     def _hits(self, query: Any) -> list[Any]:
         return [
-            record.row
+            record.entry
             for record in self.records.values()
-            if (not query.server or record.row.server in query.server)
-            and (query.status is None or record.row.status == query.status)
+            if (not query.server or record.entry.server in query.server)
+            and (query.status is None or record.entry.status == query.status)
             and (
                 query.address_pattern is None
-                or fnmatch.fnmatchcase(record.row.address, query.address_pattern)
+                or fnmatch.fnmatchcase(record.entry.address, query.address_pattern)
             )
-            and query.words in record.row.address
+            and query.words in record.entry.address
             and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
@@ -198,12 +198,12 @@ def _install(
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = DirectoryRow(address=name, server=ioc, host="host-a", status=status)
-    return DirectoryRecord(row=row, properties=properties)
+    row = DirectoryEntry(address=name, server=ioc, host="host-a", status=status)
+    return DirectoryDetail(entry=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
-    return {record.row.address: record for record in records}
+    return {record.entry.address: record for record in records}
 
 
 def _by_name(result: dict[str, Any]) -> dict[str, dict[str, Any]]:

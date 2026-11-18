@@ -28,7 +28,7 @@ from osprey_connectors.service_answers import (
 DirectoryStatus = Literal["Active", "Inactive"]
 
 
-class DirectoryRow(FrozenModel):
+class DirectoryEntry(FrozenModel):
     """One channel, as the directory lists it.
 
     ``server`` is the process serving the channel and ``channel_type`` its type
@@ -57,10 +57,10 @@ class DirectoryRow(FrozenModel):
         return self
 
 
-class DirectoryRecord(FrozenModel):
+class DirectoryDetail(FrozenModel):
     """One channel in full. Every property is optional and a string, as measured."""
 
-    row: DirectoryRow
+    entry: DirectoryEntry
     properties: ReadOnlyMapping[str, str] = Field(default_factory=empty_mapping)
     tags: FrozenTuple[str] = ()
 
@@ -104,7 +104,7 @@ class DirectoryQuery(FrozenModel):
         )
 
 
-class DirectoryPage(Page[DirectoryRow]):
+class DirectoryPage(Page[DirectoryEntry]):
     """One page of a search.
 
     ``searched`` is the search in plain words and ``request`` the literal request
@@ -141,7 +141,7 @@ class ChannelDirectory(_Backend, ABC):
     @abstractmethod
     async def describe(
         self, address: str, *, timeout_s: float
-    ) -> DirectoryRecord | NotListed | Unavailable:
+    ) -> DirectoryDetail | NotListed | Unavailable:
         """The record of the channel at exactly *address*, or :class:`NotListed`."""
 
     @abstractmethod

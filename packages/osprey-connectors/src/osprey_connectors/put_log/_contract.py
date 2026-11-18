@@ -21,7 +21,7 @@ from osprey_connectors.service_answers import (
 )
 
 
-class PutRow(FrozenModel):
+class PutLogEntry(FrozenModel):
     """One logged write, as the log recorded it.
 
     ``address`` is what was written: an EPICS PV, a Tango attribute, a DOOCS
@@ -58,8 +58,8 @@ class PutLog(_Backend, ABC):
         start_at: datetime | None = None,
         limit: int,
         timeout_s: float,
-    ) -> LogPage[PutRow] | Unavailable:
-        """The logged writes of *address*, ``PutRow`` rows, field puts included, newest first.
+    ) -> LogPage[PutLogEntry] | Unavailable:
+        """The logged writes of *address*, ``PutLogEntry`` rows, field puts included, newest first.
 
         With *start_at*, an aware instant, only writes at or after it, and those
         whose time cannot be placed; a naive one raises

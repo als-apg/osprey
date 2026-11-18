@@ -28,8 +28,8 @@ from osprey.interfaces.channel_finder import directory_api
 from osprey.interfaces.channel_finder.directory_values_ipc import ValueRow
 from osprey.services.pv_directory import _connectors, service
 from osprey_connectors import control_context
-from osprey_connectors.alarm_state import AlarmStateRecord
-from osprey_connectors.directory import ChannelDirectory, DirectoryPage, DirectoryRow
+from osprey_connectors.alarm_state import AlarmCondition
+from osprey_connectors.directory import ChannelDirectory, DirectoryEntry, DirectoryPage
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import Source
 
@@ -355,11 +355,9 @@ def test_the_fixture_search_is_a_directory_page() -> None:
             if k not in ("origin", "alarm", "archived")
         }
 
-    rows = [DirectoryRow(**_fields(row)) for row in page["rows"]]
+    rows = [DirectoryEntry(**_fields(row)) for row in page["rows"]]
     states = {
-        row["name"]: AlarmStateRecord(**_fields(row["alarm"]))
-        for row in page["rows"]
-        if row["alarm"]
+        row["name"]: AlarmCondition(**_fields(row["alarm"])) for row in page["rows"] if row["alarm"]
     }
     held = frozenset(row["name"] for row in page["rows"] if row["archived"])
     served = page["source"]

@@ -22,7 +22,7 @@ import pytest
 
 pytest.importorskip("osprey_connectors.service_answers")
 
-from osprey_connectors.alarm_state import AlarmStateRecord
+from osprey_connectors.alarm_state import AlarmCondition
 from osprey_connectors.service_answers import BackendSpec
 
 _replay = pytest.importorskip("osprey_connectors.alarm_state._replay")
@@ -126,7 +126,7 @@ class TestFold:
     def test_the_file_folds_and_is_not_stale_on_load(self):
         states, _, probe = _fold()
 
-        assert all(isinstance(state, AlarmStateRecord) for state in states.values())
+        assert all(isinstance(state, AlarmCondition) for state in states.values())
         assert not any(state.stale for state in states.values())
         assert "stopped" not in probe
 

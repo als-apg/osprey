@@ -2,7 +2,7 @@
 
 import asyncio
 
-from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory import DirectoryDetail, DirectoryQuery
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
@@ -27,8 +27,8 @@ async def main() -> None:
         print(f"  {row.address:<10} {row.channel_type:<3} {row.server:<7} {row.description}")
 
     record = await directory.describe("SR:BPM1:X", timeout_s=TIMEOUT_S)
-    if isinstance(record, DirectoryRecord):
-        print(f"{record.row.address}: {record.row.status} on {record.row.host}")
+    if isinstance(record, DirectoryDetail):
+        print(f"{record.entry.address}: {record.entry.status} on {record.entry.host}")
     else:
         print(record)  # NotListed(address=...), or Unavailable(cause=..., reason=...)
 

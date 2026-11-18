@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors.directory import (
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
     DirectoryQuery,
-    DirectoryRecord,
-    DirectoryRow,
 )
 from osprey_connectors.service_answers import Source
 
@@ -19,7 +19,7 @@ SOURCE = Source(kind="directory", target="va", service="simulator_view", rehears
     ("record", "fields"),
     [
         (
-            DirectoryRow,
+            DirectoryEntry,
             [
                 "address",
                 "status",
@@ -31,7 +31,7 @@ SOURCE = Source(kind="directory", target="va", service="simulator_view", rehears
                 "recorded_stamp",
             ],
         ),
-        (DirectoryRecord, ["row", "properties", "tags"]),
+        (DirectoryDetail, ["entry", "properties", "tags"]),
         (
             DirectoryQuery,
             [
@@ -56,7 +56,7 @@ def test_a_record_has_the_contract_fields_in_order(record, fields):
 
 
 def test_neither_a_row_nor_a_query_carries_an_origin():
-    assert "origin" not in DirectoryRow.model_fields
+    assert "origin" not in DirectoryEntry.model_fields
     assert "origin" not in DirectoryQuery.model_fields
 
 
@@ -75,9 +75,9 @@ def test_a_page_carries_rows_and_its_count_and_no_framework_fields():
 
 
 def test_a_record_converts_to_the_json_shape():
-    record = DirectoryRecord(row=DirectoryRow(address="A"), properties={"caPort": "5064"})
+    record = DirectoryDetail(entry=DirectoryEntry(address="A"), properties={"caPort": "5064"})
 
-    assert record.model_dump()["row"]["address"] == "A"
+    assert record.model_dump()["entry"]["address"] == "A"
     assert record.model_dump()["properties"] == {"caPort": "5064"}
 
 

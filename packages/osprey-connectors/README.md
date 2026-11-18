@@ -92,9 +92,9 @@ and their names are imported from the subpackage itself:
 | `osprey_connectors.archiver` | The archive service contract (`ChannelArchive`, `ArchiveCoverage`, `ArchiveExtent`), the processing modes, the field name a channel is stored under, the MongoDB client arguments |
 | `osprey_connectors.ipc` | What a connector-host supervisor needs: the handle on one child (`ConnectorHost`) and the records it starts on, the pool and the proxy, their errors, and the verification of what a child reports (the wire codec itself is internal) |
 | `osprey_connectors.directory` | The channel directory contract (`ChannelDirectory`, `DirectoryQuery`, `DirectoryPage`, ...) |
-| `osprey_connectors.alarm_state` | The alarm-state feed contract (`AlarmState`, `AlarmStateRecord`, `AlarmStateRow`, `AlarmStates`, `AlarmConfigRecord`, `AlarmSeverity`) |
-| `osprey_connectors.alarm_log` | The alarm log contract (`AlarmLog`, `AlarmHistoryRow`) |
-| `osprey_connectors.put_log` | The put log contract (`PutLog`, `PutRow`) |
+| `osprey_connectors.alarm_state` | The alarm-state feed contract (`AlarmState`, `AlarmCondition`, `AlarmEntry`, `AlarmStates`, `AlarmConfiguration`, `AlarmSeverity`) |
+| `osprey_connectors.alarm_log` | The alarm log contract (`AlarmLog`, `AlarmLogEntry`) |
+| `osprey_connectors.put_log` | The put log contract (`PutLog`, `PutLogEntry`) |
 
 `osprey_connectors.control_system.write_door`, the door a connector opens around
 its own write, is a public module of its own.

@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("osprey_connectors.service_answers")
 
-from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStates
+from osprey_connectors.alarm_state import AlarmCondition, AlarmStates
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 _replay = pytest.importorskip("osprey_connectors.alarm_state._replay")
@@ -112,7 +112,7 @@ async def test_the_first_read_answers_the_snapshot():
     finally:
         await snapshot.aclose()
 
-    assert isinstance(state, AlarmStateRecord)
+    assert isinstance(state, AlarmCondition)
     assert state.severity == "MAJOR"
     assert state.latched is True
     assert state.stale is False

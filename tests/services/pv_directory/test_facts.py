@@ -27,22 +27,22 @@ import osprey.channel_roster as channel_roster
 from osprey.services.pv_directory import _connectors, facts, service
 from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
 from osprey_connectors import control_context
-from osprey_connectors.alarm_log import AlarmHistoryRow
+from osprey_connectors.alarm_log import AlarmLogEntry
 from osprey_connectors.alarm_state import (
-    AlarmConfigRecord,
+    AlarmCondition,
+    AlarmConfiguration,
+    AlarmEntry,
     AlarmSeverity,
-    AlarmStateRecord,
-    AlarmStateRow,
     AlarmStates,
 )
 from osprey_connectors.archiver import ArchiveCoverage, ArchiveExtent
 from osprey_connectors.directory import (
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
-    DirectoryRecord,
-    DirectoryRow,
 )
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.put_log import PutRow
+from osprey_connectors.put_log import PutLogEntry
 from osprey_connectors.service_answers import (
     LogPage,
     NotListed,
@@ -131,15 +131,15 @@ class FakeDirectory(FakeBackend):
 
     def _hits(self, query: Any) -> list[Any]:
         return [
-            record.row
+            record.entry
             for record in self.records.values()
-            if (not query.server or record.row.server in query.server)
-            and (query.status is None or record.row.status == query.status)
+            if (not query.server or record.entry.server in query.server)
+            and (query.status is None or record.entry.status == query.status)
             and (
                 query.address_pattern is None
-                or fnmatch.fnmatchcase(record.row.address, query.address_pattern)
+                or fnmatch.fnmatchcase(record.entry.address, query.address_pattern)
             )
-            and query.words in record.row.address
+            and query.words in record.entry.address
             and all(record.properties.get(key) == value for key, value in query.properties.items())
         ]
 
@@ -204,7 +204,7 @@ class FakeAlarmLog(FakeBackend):
             outcome="found",
             source=self.source,
             rows=[
-                AlarmHistoryRow(
+                AlarmLogEntry(
                     event_at=datetime(2026, 11, 11, 6, tzinfo=UTC),
                     severity="MAJOR",
                     user="operator one",
@@ -224,7 +224,9 @@ class FakePutLog(FakeBackend):
             outcome="found",
             source=self.source,
             rows=[
-                PutRow(recorded_stamp="t2", address=address, old="1", new="2", user="operator two")
+                PutLogEntry(
+                    recorded_stamp="t2", address=address, old="1", new="2", user="operator two"
+                )
             ],
         )
 
@@ -310,12 +312,12 @@ def _facts(config: dict[str, Any], tmp_path: Path) -> Any:
 
 def _record(name: str, ioc: str = "ioc-a", **properties: str) -> Any:
     status = properties.pop("status", "Active")
-    row = DirectoryRow(address=name, server=ioc, host="host-a", status=status)
-    return DirectoryRecord(row=row, properties=properties)
+    row = DirectoryEntry(address=name, server=ioc, host="host-a", status=status)
+    return DirectoryDetail(entry=row, properties=properties)
 
 
 def _records(*records: Any) -> dict[str, Any]:
-    return {record.row.address: record for record in records}
+    return {record.entry.address: record for record in records}
 
 
 def _sections(answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -327,8 +329,8 @@ def _sections(answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 async def test_every_configured_section_answers(tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1", recordDesc="beam position"))
-    FakeAlarmState.state = AlarmStateRecord(severity="MINOR", stale=True)
-    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
+    FakeAlarmState.state = AlarmCondition(severity="MINOR", stale=True)
+    FakeAlarmState.config = AlarmConfiguration(in_tree="yes", path="/SR/BPM1")
     page = _facts(_config(tmp_path, LIVE_BUILD, EVERY_SERVICE, "SR:BPM1"), tmp_path)
 
     answer = await page.pv_facts("SR:BPM1")
@@ -526,7 +528,7 @@ async def test_a_backend_that_cannot_be_built_says_why(
 async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path: Path) -> None:
     FakeAlarmState.state = Unavailable(cause="not_ready", reason="alarm feed still loading")
     FakeAlarmState.config = Unavailable(cause="not_ready", reason="alarm feed still loading")
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="no")
+    FakeAlarmLog.config = AlarmConfiguration(in_tree="no")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -544,7 +546,7 @@ async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path
 
 async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Path) -> None:
     FakeAlarmState.config = Unavailable(cause="unreachable", reason="no message from the feed yet")
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
+    FakeAlarmLog.config = AlarmConfiguration(in_tree="yes", path="/SR/BPM1")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -613,8 +615,8 @@ async def test_alarm_state_on_va_from_the_replay(
 def _row(channel: str, severity: str | None, time: str, **state: Any) -> Any:
     """A feed's row of *channel*, its recorded *severity* word read as the fold reads it."""
     member, _acknowledged = AlarmSeverity.of_recorded(severity)
-    record = AlarmStateRecord(severity=member, event_at=datetime.fromisoformat(time), **state)
-    return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=record)
+    record = AlarmCondition(severity=member, event_at=datetime.fromisoformat(time), **state)
+    return AlarmEntry(address=channel, path=f"/SR/{channel}", condition=record)
 
 
 def _listed(*rows: Any, stale: bool = False) -> Any:
@@ -781,8 +783,8 @@ async def test_active_alarms_on_va_from_the_replay(
 
 async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_path: Path) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1"))
-    FakeAlarmState.state = AlarmStateRecord(severity="MINOR")
-    FakeAlarmState.config = AlarmConfigRecord(in_tree="yes")
+    FakeAlarmState.state = AlarmCondition(severity="MINOR")
+    FakeAlarmState.config = AlarmConfiguration(in_tree="yes")
     section = {
         **FACILITY,
         "caveats": ["names only, no values"],
@@ -805,7 +807,7 @@ async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_pat
 
 async def test_the_logged_configuration_carries_the_logger_caveats(tmp_path: Path) -> None:
     FakeAlarmState.config = Unavailable(cause="unreachable", reason="no message from the feed yet")
-    FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes")
+    FakeAlarmLog.config = AlarmConfiguration(in_tree="yes")
     section = {
         **FACILITY,
         "alarm_state": {**KAFKA, "caveats": ["covers the SR tree only"]},

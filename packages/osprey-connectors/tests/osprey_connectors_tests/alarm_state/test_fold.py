@@ -265,15 +265,15 @@ def test_each_row_is_the_channels_record_under_its_latest_path():
     snapshot = _folded((STATE_KEY, _state("MINOR", "MINOR")), (other, _state("MAJOR", "OK")))
     row = _rows(snapshot, stale=True)[PV]
     assert row.path == f"/Demo/Other/{PV}"
-    assert row.state == state_record(snapshot, PV, stale=True)
-    assert row.state.latched is True
-    assert row.state.stale is True
+    assert row.condition == state_record(snapshot, PV, stale=True)
+    assert row.condition.latched is True
+    assert row.condition.stale is True
 
 
 def test_an_acknowledged_alarm_lists_acknowledged():
     row = _rows(_folded((STATE_KEY, _state("MAJOR_ACK", "MAJOR"))))[PV]
-    assert row.state.severity == "MAJOR"
-    assert row.state.acknowledged is True
+    assert row.condition.severity == "MAJOR"
+    assert row.condition.acknowledged is True
 
 
 def test_a_tombstoned_channel_is_gone():

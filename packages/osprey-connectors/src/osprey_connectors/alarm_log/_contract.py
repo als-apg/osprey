@@ -13,13 +13,13 @@ from typing import Literal
 
 from pydantic import AwareDatetime
 
-from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.alarm_state import AlarmConfiguration
 from osprey_connectors.alarm_state._contract import _Severity
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import LogPage, Unavailable, _Backend
 
 
-class AlarmHistoryRow(FrozenModel):
+class AlarmLogEntry(FrozenModel):
     """One logged alarm event, as the logger recorded it.
 
     ``event_at`` is when the logger says it happened, ``None`` when the row gave
@@ -48,8 +48,8 @@ class AlarmLog(_Backend, ABC):
         start_at: datetime | None = None,
         limit: int,
         timeout_s: float,
-    ) -> LogPage[AlarmHistoryRow] | Unavailable:
-        """The logged alarm events of *address*, ``AlarmHistoryRow`` rows, newest first.
+    ) -> LogPage[AlarmLogEntry] | Unavailable:
+        """The logged alarm events of *address*, ``AlarmLogEntry`` rows, newest first.
 
         With *start_at*, an aware instant, only events at or after it, and those
         whose time cannot be placed; a naive one raises
@@ -59,7 +59,7 @@ class AlarmLog(_Backend, ABC):
     @abstractmethod
     async def config_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmConfigRecord | Unavailable:
+    ) -> AlarmConfiguration | Unavailable:
         """The last logged alarm configuration of *address*."""
 
     @abstractmethod

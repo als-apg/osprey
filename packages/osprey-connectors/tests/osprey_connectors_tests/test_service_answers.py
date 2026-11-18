@@ -14,24 +14,24 @@ from pydantic import ValidationError
 
 import osprey_connectors
 from osprey_connectors import service_answers
-from osprey_connectors.alarm_log import AlarmHistoryRow, AlarmLog
+from osprey_connectors.alarm_log import AlarmLog, AlarmLogEntry
 from osprey_connectors.alarm_state import (
-    AlarmConfigRecord,
+    AlarmCondition,
+    AlarmConfiguration,
+    AlarmEntry,
     AlarmSeverity,
     AlarmState,
-    AlarmStateRecord,
-    AlarmStateRow,
     AlarmStates,
 )
 from osprey_connectors.directory import (
     ChannelDirectory,
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
     DirectoryQuery,
-    DirectoryRecord,
-    DirectoryRow,
 )
 from osprey_connectors.model import evolve
-from osprey_connectors.put_log import PutLog, PutRow
+from osprey_connectors.put_log import PutLog, PutLogEntry
 from osprey_connectors.service_answers import (
     BackendSpec,
     LogPage,
@@ -57,18 +57,18 @@ RECORDS = (
     NotListed,
     Source,
     BackendSpec,
-    DirectoryRow,
-    DirectoryRecord,
+    DirectoryEntry,
+    DirectoryDetail,
     DirectoryQuery,
     DirectoryPage,
-    AlarmHistoryRow,
-    PutRow,
+    AlarmLogEntry,
+    PutLogEntry,
     Page,
     LogPage,
-    AlarmStateRecord,
-    AlarmStateRow,
+    AlarmCondition,
+    AlarmEntry,
     AlarmStates,
-    AlarmConfigRecord,
+    AlarmConfiguration,
 )
 
 
@@ -130,11 +130,11 @@ def test_the_archive_is_a_service_kind_and_the_logbook_is_not():
         (Source, ["kind", "target", "service", "rehearsal"]),
         (BackendSpec, ["kind", "type", "target", "settings", "rehearsal"]),
         (
-            AlarmHistoryRow,
+            AlarmLogEntry,
             ["event_at", "severity", "acknowledged", "status", "message", "user", "kind"],
         ),
         (
-            PutRow,
+            PutLogEntry,
             ["put_at", "recorded_stamp", "address", "field", "old", "new", "user", "client"],
         ),
         (Unavailable, ["cause", "reason"]),
@@ -146,13 +146,13 @@ def test_the_archive_is_a_service_kind_and_the_logbook_is_not():
             ["outcome", "source", "rows", "truncated", "note", "searched", "request", "total"],
         ),
         (
-            AlarmStateRecord,
+            AlarmCondition,
             ["severity", "status", "latched", "acknowledged", "message", "event_at", "stale"],
         ),
-        (AlarmStateRow, ["address", "path", "state"]),
+        (AlarmEntry, ["address", "path", "condition"]),
         (AlarmStates, ["rows", "stale", "last_contact_at"]),
         (
-            AlarmConfigRecord,
+            AlarmConfiguration,
             ["in_tree", "path", "guidance", "displays", "enabled", "latching"],
         ),
     ],
@@ -187,8 +187,8 @@ def test_an_unavailable_cause_is_one_of_the_closed_words():
         Unavailable(cause="loading", reason="alarm feed still loading")  # type: ignore[arg-type]
 
 
-def _row(channel: str, severity: str | None) -> AlarmStateRow:
-    return AlarmStateRow(address=channel, path=None, state=AlarmStateRecord(severity=severity))
+def _row(channel: str, severity: str | None) -> AlarmEntry:
+    return AlarmEntry(address=channel, path=None, condition=AlarmCondition(severity=severity))
 
 
 def test_the_counts_are_derived_from_the_rows_and_cannot_be_passed():
@@ -214,10 +214,10 @@ def test_the_list_converts_to_the_json_shape_with_its_counts():
     "build",
     [
         lambda moment: AlarmStates(rows=(), stale=False, last_contact_at=moment),
-        lambda moment: AlarmStateRecord(event_at=moment),
-        lambda moment: AlarmHistoryRow(event_at=moment),
-        lambda moment: PutRow(put_at=moment, address="A"),
-        lambda moment: DirectoryRow(address="A", announced_at=moment),
+        lambda moment: AlarmCondition(event_at=moment),
+        lambda moment: AlarmLogEntry(event_at=moment),
+        lambda moment: PutLogEntry(put_at=moment, address="A"),
+        lambda moment: DirectoryEntry(address="A", announced_at=moment),
     ],
 )
 def test_a_record_refuses_an_instant_with_no_zone_or_as_text(build):
@@ -271,7 +271,7 @@ def test_a_recorded_severity_word_reads_as_its_member_and_acknowledgement(record
     assert AlarmSeverity.of_recorded(recorded) == read
 
 
-@pytest.mark.parametrize("record", [AlarmStateRecord, AlarmHistoryRow])
+@pytest.mark.parametrize("record", [AlarmCondition, AlarmLogEntry])
 def test_a_record_reads_a_severity_word_as_its_member_and_refuses_another(record):
     assert record(severity="MAJOR").severity is AlarmSeverity.MAJOR
     assert record(severity=AlarmSeverity.MINOR).severity is AlarmSeverity.MINOR
@@ -281,7 +281,7 @@ def test_a_record_reads_a_severity_word_as_its_member_and_refuses_another(record
 
 
 def test_a_severity_dumps_as_its_word():
-    record = AlarmStateRecord(severity="MAJOR")
+    record = AlarmCondition(severity="MAJOR")
 
     assert record.model_dump(mode="json")["severity"] == "MAJOR"
     assert '"severity":"MAJOR"' in record.model_dump_json()
@@ -370,7 +370,7 @@ def test_a_directory_answers_no_field_properties_unless_it_has_them():
         properties["server"] = "iocName"  # type: ignore[index]
 
 
-@pytest.mark.parametrize("record", [Source, AlarmConfigRecord, DirectoryRow])
+@pytest.mark.parametrize("record", [Source, AlarmConfiguration, DirectoryEntry])
 def test_no_answer_carries_a_display_label(record):
     assert "label" not in record.model_fields
     assert not hasattr(ChannelDirectory, "label")

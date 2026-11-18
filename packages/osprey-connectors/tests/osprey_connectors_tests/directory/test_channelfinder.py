@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors._service_http import ReadOnlyTransport
-from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
+from osprey_connectors.directory import DirectoryDetail, DirectoryQuery
 from osprey_connectors.directory._channelfinder import ChannelFinderDirectory
 from osprey_connectors.service_answers import BackendSpec, NotListed, Source, Unavailable
 
@@ -514,8 +514,8 @@ class TestDescribe:
 
         record = await directory.describe("DEMO:RF1:CAV:Temp-I", timeout_s=DEADLINE)
 
-        assert isinstance(record, DirectoryRecord)
-        assert record.row.status == "Active"
+        assert isinstance(record, DirectoryDetail)
+        assert record.entry.status == "Active"
         assert record.properties["caPort"] == "5064"
         assert record.properties["Engineer"] == "rf-group"
         assert record.tags == ()
@@ -530,12 +530,12 @@ class TestDescribe:
 
         record = await directory.describe(fixture["name"], timeout_s=DEADLINE)
 
-        assert isinstance(record, DirectoryRecord)
+        assert isinstance(record, DirectoryDetail)
         for field, prop in directory.field_properties.items():
             if field != "announced_at":  # the recorded time has no zone: recorded_stamp
-                assert getattr(record.row, field) == values[prop]
+                assert getattr(record.entry, field) == values[prop]
             assert prop not in record.properties
-        assert record.row.description == values["recordDesc"]
+        assert record.entry.description == values["recordDesc"]
 
     def test_field_properties_are_the_recsync_map_and_the_description_property(self):
         default, _ = backend(always())
@@ -560,7 +560,7 @@ class TestDescribe:
         record = await directory.describe("DEMO:RF2:CAV:Temp-I", timeout_s=DEADLINE)
 
         assert record.tags == ("archived",)
-        assert record.row.status == "Inactive"
+        assert record.entry.status == "Inactive"
         assert record.properties["alias"] == "DEMO:RF2:Temp"
 
     async def test_an_exact_miss_is_not_listed(self):
@@ -580,7 +580,7 @@ class TestDescribe:
 
         record = await directory.describe("DEMO:A,B", timeout_s=DEADLINE)
 
-        assert record.row.address == "DEMO:A,B"
+        assert record.entry.address == "DEMO:A,B"
         assert ("~name", "DEMO:A?B") in replay.params_to(CHANNELS)[0]
 
     async def test_a_failure_is_the_reason_not_a_miss(self):
@@ -737,7 +737,7 @@ class TestConstruction:
         evidence = await directory.probe(timeout_s=DEADLINE)
 
         assert page.outcome == "found"
-        assert isinstance(record, DirectoryRecord)
+        assert isinstance(record, DirectoryDetail)
         assert isinstance(evidence, str)
         assert (
             "https://cf.demo.lab/ChannelFinder/resources/channels"

@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors.alarm_state import (
-    AlarmConfigRecord,
-    AlarmStateRecord,
+    AlarmCondition,
+    AlarmConfiguration,
     _replay,
 )
 from osprey_connectors.alarm_state._fold import FeedSnapshot, fold_message
@@ -136,7 +136,7 @@ async def test_reads_answer_the_folded_record():
     backend = _backend()
     await backend.start()
 
-    assert await backend.state_for(PV, timeout_s=1.0) == AlarmStateRecord(
+    assert await backend.state_for(PV, timeout_s=1.0) == AlarmCondition(
         severity="MAJOR",
         status="NO_ALARM",
         latched=True,
@@ -149,7 +149,7 @@ async def test_reads_answer_the_folded_record():
     assert acked.severity == "MINOR"
     assert acked.acknowledged is True
     config = await backend.config_for(PV, timeout_s=1.0)
-    assert isinstance(config, AlarmConfigRecord)
+    assert isinstance(config, AlarmConfiguration)
     assert config.in_tree == "yes"
     assert await backend.state_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0) == NotListed(
         address="DEMO:NOT:IN:THE:TREE"
@@ -209,7 +209,7 @@ async def test_a_read_during_the_load_waits_and_answers_once_the_load_lands(held
         await releasing
         await starting
 
-    assert isinstance(state, AlarmStateRecord)
+    assert isinstance(state, AlarmCondition)
     assert state.severity == "MAJOR"
     await backend.aclose()
 
@@ -497,7 +497,7 @@ async def test_the_list_holds_every_channel_its_counts_and_the_load_moment():
         ACKED_PV: f"/Demo/Vac/{ACKED_PV}",
     }
     for row in states.rows:
-        assert row.state == await backend.state_for(row.address, timeout_s=1.0)
+        assert row.condition == await backend.state_for(row.address, timeout_s=1.0)
     assert dict(states.counts) == {"MAJOR": 1, "MINOR": 1}
     assert states.stale is False
     assert states.last_contact_at == LOAD_MOMENT
@@ -509,7 +509,7 @@ async def test_the_list_of_a_stopped_feed_is_stale():
 
     states = await backend.states(timeout_s=1.0)
     assert states.stale is True
-    assert all(row.state.stale for row in states.rows)
+    assert all(row.condition.stale for row in states.rows)
 
 
 async def test_a_list_read_during_the_load_waits_for_it(held_load):

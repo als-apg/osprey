@@ -12,7 +12,7 @@ instead of `page.outcome is Outcome.UNAVAILABLE`. `Outcome` is gone: a page's
 `outcome` is the `PageOutcome` word `"found"` or `"no_match"`, and the text that
 says why a page has no rows is `note` (was `reason`). `HistoryPage` is now
 `Page` (the shared fields) and `LogPage` (adds `retention_known`), and
-`DirectoryPage` is a `Page[DirectoryRow]` with `searched`, `request` and
+`DirectoryPage` is a `Page[DirectoryEntry]` with `searched`, `request` and
 `total: int | Unavailable`, which replaces `total: int | None` and the count
 entry of `partial`; `partial`, `facets` and `facets_reason` are no longer
 contract fields. `history` takes `start_at` and `limit` as keywords:
@@ -24,11 +24,11 @@ An exact lookup that finds nothing answers `NotListed(address=...)`:
 
 `AlarmSeverity` (`OK` < `MINOR` < `MAJOR` < `INVALID` < `UNDEFINED`, with
 `.rank` and `AlarmSeverity.of_recorded(word)`) replaces `severity_rank`.
-`AlarmStateRecord.severity` and `AlarmHistoryRow.severity` hold its members,
+`AlarmCondition.severity` and `AlarmLogEntry.severity` hold its members,
 built from the member or its word; a word that is no severity now reads as
-`UNDEFINED` instead of being kept. `AlarmHistoryRow` gains `acknowledged`: a
+`UNDEFINED` instead of being kept. `AlarmLogEntry` gains `acknowledged`: a
 logged `MAJOR_ACK` is `severity=MAJOR, acknowledged=True`, as on
-`AlarmStateRecord`.
+`AlarmCondition`.
 
 `ServiceKind` gains `"archive"`, and every backend has the `start()` and
 `aclose()` pair, doing nothing unless the backend overrides it.

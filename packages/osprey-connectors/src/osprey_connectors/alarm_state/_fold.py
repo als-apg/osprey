@@ -19,10 +19,10 @@ from typing import Literal
 
 from osprey_connectors.alarm_state._contract import (
     _ACK_SUFFIX,
-    AlarmConfigRecord,
+    AlarmCondition,
+    AlarmConfiguration,
+    AlarmEntry,
     AlarmSeverity,
-    AlarmStateRecord,
-    AlarmStateRow,
 )
 from osprey_connectors.errors import require_aware
 from osprey_connectors.service_answers import NotListed, _flag, _instant, _text
@@ -85,7 +85,7 @@ def fold_message(
 
 def state_record(
     snapshot: FeedSnapshot, address: str, *, stale: bool
-) -> AlarmStateRecord | NotListed:
+) -> AlarmCondition | NotListed:
     """The alarm state of *address*, or :class:`NotListed` when the feed holds none for it."""
     paths = snapshot.states.get(pv_name(address))
     if not paths:
@@ -93,7 +93,7 @@ def state_record(
     return _state_of(list(paths.values())[-1], stale=stale)
 
 
-def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmStateRow, ...]:
+def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmEntry, ...]:
     """One row per channel whose latest state is a leaf's, under the path it was reported on.
 
     A leaf's state carries ``current_severity``. The alarm server also publishes
@@ -105,16 +105,16 @@ def state_rows(snapshot: FeedSnapshot, *, stale: bool) -> tuple[AlarmStateRow, .
         path, body = list(paths.items())[-1]
         if "current_severity" in body:
             rows.append(
-                AlarmStateRow(address=channel, path=path, state=_state_of(body, stale=stale))
+                AlarmEntry(address=channel, path=path, condition=_state_of(body, stale=stale))
             )
     return tuple(rows)
 
 
-def _state_of(body: Mapping[str, object], *, stale: bool) -> AlarmStateRecord:
+def _state_of(body: Mapping[str, object], *, stale: bool) -> AlarmCondition:
     recorded = body.get("severity")
     severity, acknowledged = AlarmSeverity.of_recorded(recorded)
     bare = None if recorded is None else str(recorded).removesuffix(_ACK_SUFFIX)
-    return AlarmStateRecord(
+    return AlarmCondition(
         severity=severity,
         status=_text(body.get("current_message")),
         latched=not acknowledged
@@ -138,7 +138,7 @@ def _rank_or_worst(word: object) -> int:
         return len(AlarmSeverity)
 
 
-def config_record(snapshot: FeedSnapshot, address: str) -> AlarmConfigRecord:
+def config_record(snapshot: FeedSnapshot, address: str) -> AlarmConfiguration:
     """Where *address* sits in the alarm tree, as the feed last configured it.
 
     A state with no configuration beside it proves the path but not the tree's
@@ -149,10 +149,10 @@ def config_record(snapshot: FeedSnapshot, address: str) -> AlarmConfigRecord:
     if not paths:
         states = snapshot.states.get(name)
         if states:
-            return AlarmConfigRecord(in_tree="unknown", path=list(states)[-1])
-        return AlarmConfigRecord(in_tree="no")
+            return AlarmConfiguration(in_tree="unknown", path=list(states)[-1])
+        return AlarmConfiguration(in_tree="no")
     path, body = list(paths.items())[-1]
-    return AlarmConfigRecord(
+    return AlarmConfiguration(
         in_tree="yes",
         path=path,
         guidance=body.get("guidance"),

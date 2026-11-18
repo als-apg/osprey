@@ -24,8 +24,8 @@ from osprey.services.pv_directory import _connectors
 from osprey.services.pv_directory.facts import ACTIVE_ALARMS_MAX_ROWS, panel_link
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import (
-    AlarmStateRecord,
-    AlarmStateRow,
+    AlarmCondition,
+    AlarmEntry,
     AlarmStates,
 )
 from osprey_connectors.factory import ConnectorFactory
@@ -110,8 +110,8 @@ def _install(tmp_path: Path, control_system: dict[str, Any], section: dict[str, 
 
 
 def _row(channel: str, severity: str, time: str) -> Any:
-    state = AlarmStateRecord(severity=severity, event_at=datetime.fromisoformat(time))
-    return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=state)
+    state = AlarmCondition(severity=severity, event_at=datetime.fromisoformat(time))
+    return AlarmEntry(address=channel, path=f"/SR/{channel}", condition=state)
 
 
 def _listed() -> Any:

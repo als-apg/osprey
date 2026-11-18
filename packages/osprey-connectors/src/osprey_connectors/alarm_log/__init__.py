@@ -4,9 +4,9 @@ The backends are the underscore-private modules beside this one, which the
 factory reaches from their type names.
 """
 
-from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
+from osprey_connectors.alarm_log._contract import AlarmLog, AlarmLogEntry
 
 __all__ = [
-    "AlarmHistoryRow",
     "AlarmLog",
+    "AlarmLogEntry",
 ]

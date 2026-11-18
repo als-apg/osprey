@@ -79,7 +79,7 @@ def _severity_member(value: object) -> object:
 _Severity = Annotated[AlarmSeverity | None, BeforeValidator(_severity_member)]
 
 
-class AlarmStateRecord(FrozenModel):
+class AlarmCondition(FrozenModel):
     """What one channel's alarm is now. The backend alone sets ``stale``; others pass it on.
 
     ``severity`` is the alarm server's, its ``_ACK`` folded into ``acknowledged``.
@@ -96,7 +96,7 @@ class AlarmStateRecord(FrozenModel):
     stale: bool = False
 
 
-class AlarmStateRow(FrozenModel):
+class AlarmEntry(FrozenModel):
     """One channel the feed holds a state for.
 
     ``address`` is the channel address; ``path`` is the alarm-tree place the state
@@ -106,7 +106,7 @@ class AlarmStateRow(FrozenModel):
 
     address: str
     path: str | None
-    state: AlarmStateRecord
+    condition: AlarmCondition
 
 
 class AlarmStates(FrozenModel):
@@ -119,7 +119,7 @@ class AlarmStates(FrozenModel):
     is derived, never passed, and is part of the record's dump.
     """
 
-    rows: tuple[AlarmStateRow, ...]
+    rows: tuple[AlarmEntry, ...]
     stale: bool
     last_contact_at: AwareDatetime | None
 
@@ -128,7 +128,7 @@ class AlarmStates(FrozenModel):
         """The rows per severity, by severity name."""
         counts: dict[str, int] = {}
         for row in self.rows:
-            severity = row.state.severity
+            severity = row.condition.severity
             if severity is not None:
                 counts[severity.value] = counts.get(severity.value, 0) + 1
         return dict(sorted(counts.items()))
@@ -139,7 +139,7 @@ class AlarmStates(FrozenModel):
         return {**dumped, "counts": self.counts}
 
 
-class AlarmConfigRecord(FrozenModel):
+class AlarmConfiguration(FrozenModel):
     """One channel's place in the alarm tree."""
 
     in_tree: Literal["yes", "no", "unknown"]
@@ -177,7 +177,7 @@ class AlarmState(_Backend, ABC):
     @abstractmethod
     async def state_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmStateRecord | NotListed | Unavailable:
+    ) -> AlarmCondition | NotListed | Unavailable:
         """The alarm state of *address*, waiting up to *timeout_s* seconds for catch-up.
 
         :class:`NotListed` is a caught-up feed that holds none for it.
@@ -193,7 +193,7 @@ class AlarmState(_Backend, ABC):
     @abstractmethod
     async def config_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmConfigRecord | Unavailable:
+    ) -> AlarmConfiguration | Unavailable:
         """The live alarm configuration of *address*, waiting up to *timeout_s* seconds for catch-up."""
 
     @abstractmethod

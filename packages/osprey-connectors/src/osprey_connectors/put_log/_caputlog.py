@@ -32,7 +32,7 @@ from typing_extensions import override
 from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
 from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
-from osprey_connectors.put_log._contract import PutLog, PutRow
+from osprey_connectors.put_log._contract import PutLog, PutLogEntry
 from osprey_connectors.service_answers import (
     BackendSpec,
     LogPage,
@@ -94,7 +94,7 @@ class CaPutLog(PutLog):
         start_at: datetime | None = None,
         limit: int,
         timeout_s: float,
-    ) -> LogPage[PutRow] | Unavailable:
+    ) -> LogPage[PutLogEntry] | Unavailable:
         """The logged writes of *address*, newest first within the page the service returned."""
         if start_at is not None:
             require_aware(start_at, name="start_at")
@@ -144,10 +144,10 @@ class CaPutLog(PutLog):
         self,
         outcome: PageOutcome,
         *,
-        rows: list[PutRow] | None = None,
+        rows: list[PutLogEntry] | None = None,
         truncated: bool = False,
         note: str | None = None,
-    ) -> LogPage[PutRow]:
+    ) -> LogPage[PutLogEntry]:
         return LogPage(
             outcome=outcome,
             source=self.source,
@@ -182,13 +182,13 @@ def _left_unread(envelope: _Envelope, limit: int) -> bool:
     return total > read if isinstance(total, int) else read > limit
 
 
-def _row(hit: Mapping[str, object], address: str) -> PutRow:
+def _row(hit: Mapping[str, object], address: str) -> PutLogEntry:
     """*hit* as a row; a stamp that cannot be placed, such as IOC local time, stays as text."""
     # A hit is kept only when it records a string pv, so str() changes nothing.
     recorded = str(_recorded(hit, "pv"))
     stamp = _at(hit)
     put_at = _instant(stamp)
-    return PutRow(
+    return PutLogEntry(
         put_at=put_at,
         recorded_stamp=_text(stamp) if put_at is None else None,
         address=recorded,

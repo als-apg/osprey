@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from osprey_connectors.alarm_state import AlarmStateRecord, _phoebus_kafka
+from osprey_connectors.alarm_state import AlarmCondition, _phoebus_kafka
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
 from osprey_connectors.service_answers import BackendSpec, NotListed, Unavailable
 
@@ -137,7 +137,7 @@ async def test_reads_answer_from_the_fold_after_catch_up():
     await _caught_up(backend)
 
     state = await _answer(backend)
-    assert isinstance(state, AlarmStateRecord)
+    assert isinstance(state, AlarmCondition)
     assert state.severity == "MAJOR"
     assert state.stale is False
     config = await backend.config_for(PV, timeout_s=1.0)
@@ -208,7 +208,7 @@ async def test_a_read_before_catch_up_waits_and_answers_once_the_feed_catches_up
     state = await _answer(backend, deadline=5.0)
     await releasing
 
-    assert isinstance(state, AlarmStateRecord)
+    assert isinstance(state, AlarmCondition)
     assert state.severity == "MAJOR"
     await backend.aclose()
 
@@ -596,7 +596,7 @@ async def test_a_caught_up_feed_lists_its_rows_and_last_contact(wall):
     states = await backend.states(timeout_s=1.0)
 
     assert [(row.address, row.path) for row in states.rows] == [(PV, f"/Demo/RF/{PV}")]
-    assert states.rows[0].state == await _answer(backend)
+    assert states.rows[0].condition == await _answer(backend)
     assert dict(states.counts) == {"MAJOR": 1}
     assert states.stale is False
     assert states.last_contact_at == _moment(wall.now)

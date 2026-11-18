@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors.errors import NaiveDatetimeError
-from osprey_connectors.put_log import PutLog, PutRow
+from osprey_connectors.put_log import PutLog, PutLogEntry
 from osprey_connectors.put_log._caputlog import CaPutLog
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
@@ -118,7 +118,7 @@ async def test_a_recorded_result_unboxes_to_a_row_as_recorded() -> None:
 
     assert page.outcome == "found"
     assert page.rows == (
-        PutRow(
+        PutLogEntry(
             put_at=datetime(2026, 10, 28, 21, 3, 11, tzinfo=UTC),
             address=f"{PV}.HIHI",
             field=".HIHI",
@@ -290,7 +290,7 @@ async def test_a_row_whose_time_cannot_be_placed_keeps_its_text_stays_and_sorts_
 
 def test_a_row_holds_an_instant_or_the_stamp_it_could_not_place_never_both() -> None:
     with pytest.raises(ValueError, match="recorded_stamp"):
-        PutRow(
+        PutLogEntry(
             put_at=datetime(2026, 10, 28, 21, 3, tzinfo=UTC),
             recorded_stamp="28-Oct-26 14:03:11",
             address=PV,

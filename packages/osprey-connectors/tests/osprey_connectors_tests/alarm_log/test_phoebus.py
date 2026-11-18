@@ -12,9 +12,9 @@ from typing import Any
 import pytest
 
 from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
-from osprey_connectors.alarm_log import AlarmHistoryRow
+from osprey_connectors.alarm_log import AlarmLogEntry
 from osprey_connectors.alarm_log._phoebus import PhoebusAlarmLogger
-from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmSeverity
+from osprey_connectors.alarm_state import AlarmConfiguration, AlarmSeverity
 from osprey_connectors.errors import NaiveDatetimeError
 from osprey_connectors.service_answers import BackendSpec, Unavailable
 
@@ -160,7 +160,7 @@ async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
 
     assert page.outcome == "found"
     assert [row.kind for row in page.rows] == ["state", "config", "state", "config", "state"]
-    assert page.rows[0] == AlarmHistoryRow(
+    assert page.rows[0] == AlarmLogEntry(
         event_at=datetime(2026, 10, 29, 3, 14, 7, 120000, tzinfo=UTC),
         severity="MAJOR",
         status="NO_ALARM",
@@ -168,7 +168,7 @@ async def test_history_keeps_both_kinds_as_recorded_and_newest_first():
         user=None,
         kind="state",
     )
-    assert page.rows[1] == AlarmHistoryRow(
+    assert page.rows[1] == AlarmLogEntry(
         event_at=datetime(2026, 10, 29, 3, 13, tzinfo=UTC),
         message="Cavity 1 over-temperature",
         user="opsuser",
@@ -316,7 +316,7 @@ async def test_config_found_reads_the_newest_config_row():
     transport = Recording(search=RECORDED)
     record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
 
-    assert record == AlarmConfigRecord(
+    assert record == AlarmConfiguration(
         in_tree="yes",
         path=PATH,
         guidance=[{"title": "Action", "details": "Check cooling water flow", "delay": 0}],
@@ -354,7 +354,7 @@ async def test_config_path_check_reads_an_escaped_slash_and_a_scheme():
 async def test_config_not_in_tree_when_the_logger_holds_nothing():
     transport = Recording(search=[])
     record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="no")
+    assert record == AlarmConfiguration(in_tree="no")
     # Nothing names a path to ask the second route about.
     assert len(transport.requests) == 1
 
@@ -390,14 +390,14 @@ async def test_config_lookup_failure_is_unknown(fallback: Any):
     # The state row proves the path; the unmeasured route's failure proves nothing.
     transport = Recording(search=[RECORDED[0]], config=fallback)
     record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=PATH)
+    assert record == AlarmConfiguration(in_tree="unknown", path=PATH)
 
 
 async def test_config_state_row_without_a_path_is_unknown_with_no_second_request():
     row = {"pv": PV, "severity": "OK", "time": "2026-10-29T03:14:07.120Z"}
     transport = Recording(search=[row])
     record = await _logger(transport).config_for(PV, timeout_s=DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=None)
+    assert record == AlarmConfiguration(in_tree="unknown", path=None)
     assert len(transport.requests) == 1
 
 
@@ -406,14 +406,14 @@ async def test_config_deleted_means_removed():
     record = await _logger(Recording(search=[deleted, *RECORDED])).config_for(
         PV, timeout_s=DEADLINE
     )
-    assert record == AlarmConfigRecord(in_tree="no", path=PATH)
+    assert record == AlarmConfiguration(in_tree="no", path=PATH)
 
 
 @pytest.mark.parametrize("config_msg", ["{not json", None, "[1]"], ids=["bad", "absent", "list"])
 async def test_config_row_that_cannot_be_read_is_unknown(config_msg: Any):
     row = {**_config("2026-10-29T03:13:00.000Z"), "config_msg": config_msg}
     record = await _logger(Recording(search=[row])).config_for(PV, timeout_s=DEADLINE)
-    assert record == AlarmConfigRecord(in_tree="unknown", path=PATH)
+    assert record == AlarmConfiguration(in_tree="unknown", path=PATH)
 
 
 async def test_config_record_never_carries_the_notification_actions():

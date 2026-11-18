@@ -31,17 +31,17 @@ import pytest
 
 from osprey_connectors._service_http import LOGIN_PAGE_REASON, ReadOnlyTransport
 from osprey_connectors.alarm_state import (
-    AlarmConfigRecord,
-    AlarmStateRecord,
+    AlarmCondition,
+    AlarmConfiguration,
     AlarmStates,
     _phoebus_kafka,
 )
 from osprey_connectors.directory import (
     ChannelDirectory,
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
     DirectoryQuery,
-    DirectoryRecord,
-    DirectoryRow,
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import BackendSpec as Spec
@@ -71,8 +71,8 @@ Answer = Callable[[str, str, Any], Any]
 
 # --- the out-of-tree backend ------------------------------------------------------
 
-_MEMORY_RECORD = DirectoryRecord(
-    row=DirectoryRow(
+_MEMORY_RECORD = DirectoryDetail(
+    entry=DirectoryEntry(
         address=PV, status="Active", description="Cavity 1 temperature", server="rf1-cav"
     ),
     properties={"iocName": "rf1-cav"},
@@ -82,8 +82,8 @@ _MEMORY_RECORD = DirectoryRecord(
 class MemoryDirectory(ChannelDirectory):
     """An out-of-tree directory, selected by its dotted path, holding one PV in memory."""
 
-    def _hits(self, query: DirectoryQuery) -> list[DirectoryRecord]:
-        row = _MEMORY_RECORD.row
+    def _hits(self, query: DirectoryQuery) -> list[DirectoryDetail]:
+        row = _MEMORY_RECORD.entry
         text = f"{row.address} {row.description}".casefold()
         matches = all(word.casefold() in text for word in query.words.split()) and (
             not query.address_pattern or query.address_pattern.removeprefix("=") in row.address
@@ -98,14 +98,14 @@ class MemoryDirectory(ChannelDirectory):
             request="memory",
             source=self.source,
             total=len(hits),
-            rows=[hit.row for hit in hits],
+            rows=[hit.entry for hit in hits],
         )
 
     async def count(self, query: DirectoryQuery, *, timeout_s: float) -> int:  # noqa: ARG002
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002
-        if address == _MEMORY_RECORD.row.address:
+        if address == _MEMORY_RECORD.entry.address:
             return _MEMORY_RECORD
         return NotListed(address=address)
 
@@ -498,13 +498,13 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
 _RETURNS: dict[str, tuple[type, ...]] = {
     "search": (DirectoryPage, Unavailable),
     "count": (int, Unavailable),
-    "describe": (DirectoryRecord, NotListed, Unavailable),
+    "describe": (DirectoryDetail, NotListed, Unavailable),
     "property_names": (list, Unavailable),
     "property_values": (list, Unavailable),
     "probe": (str, Unavailable),
     "history": (LogPage, Unavailable),
-    "config_for": (AlarmConfigRecord, Unavailable),
-    "state_for": (AlarmStateRecord, NotListed, Unavailable),
+    "config_for": (AlarmConfiguration, Unavailable),
+    "state_for": (AlarmCondition, NotListed, Unavailable),
     "states": (AlarmStates, Unavailable),
 }
 
@@ -642,7 +642,7 @@ async def test_a_read_before_catch_up_waits_and_answers_a_record(case, tmp_path,
         await starting
         await built.backend.aclose()
 
-    assert isinstance(state, AlarmStateRecord), state
+    assert isinstance(state, AlarmCondition), state
 
 
 @pytest.mark.parametrize("case", ALARM_STATE_CASES, ids=_ids(ALARM_STATE_CASES))
@@ -731,7 +731,7 @@ async def test_the_kafka_feed_reads_through_a_consumer_and_never_produces(monkey
     finally:
         await backend.aclose()
 
-    assert isinstance(state, AlarmStateRecord)
+    assert isinstance(state, AlarmCondition)
     assert "producer" not in made
     topics, options, consumer = made["consumer"]
     assert topics == ("Demo",)

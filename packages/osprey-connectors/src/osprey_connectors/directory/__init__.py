@@ -6,18 +6,18 @@ factory reaches from their type names.
 
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
     DirectoryQuery,
-    DirectoryRecord,
-    DirectoryRow,
     DirectoryStatus,
 )
 
 __all__ = [
     "ChannelDirectory",
+    "DirectoryDetail",
+    "DirectoryEntry",
     "DirectoryPage",
     "DirectoryQuery",
-    "DirectoryRecord",
-    "DirectoryRow",
     "DirectoryStatus",
 ]

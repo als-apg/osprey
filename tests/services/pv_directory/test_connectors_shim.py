@@ -38,22 +38,22 @@ _CONTRACT_NAMES = (
     "ENGINEER",
     "IOC_HEALTH_SIGNALS",
     "SERVED_SIGNAL_PROPERTY",
-    "AlarmConfigRecord",
-    "AlarmHistoryRow",
+    "AlarmConfiguration",
+    "AlarmLogEntry",
     "AlarmLog",
     "AlarmState",
-    "AlarmStateRecord",
-    "AlarmStateRow",
+    "AlarmCondition",
+    "AlarmEntry",
     "AlarmStates",
     "BackendSpec",
     "ChannelDirectory",
     "DirectoryPage",
     "DirectoryQuery",
-    "DirectoryRecord",
-    "DirectoryRow",
+    "DirectoryDetail",
+    "DirectoryEntry",
     "NotListed",
     "PutLog",
-    "PutRow",
+    "PutLogEntry",
     "Source",
     "Unavailable",
     "has_simulator",
@@ -162,7 +162,7 @@ def test_a_logged_alarm_serves_its_severity_as_the_logger_recorded_it(
     severity: str | None, acknowledged: bool, served: str | None
 ) -> None:
     pytest.importorskip("osprey_connectors.service_answers")
-    row = _connectors.AlarmHistoryRow(
+    row = _connectors.AlarmLogEntry(
         event_at=datetime(2026, 11, 11, 6, tzinfo=UTC),
         severity=severity,
         acknowledged=acknowledged,
@@ -202,10 +202,10 @@ def test_a_source_is_served_with_the_label_the_framework_names() -> None:
 
 def test_rows_are_served_under_the_epics_words() -> None:
     pytest.importorskip("osprey_connectors.service_answers")
-    put = _connectors.PutRow(
+    put = _connectors.PutLogEntry(
         recorded_stamp="t", address="SR:BPM1.HIHI", field=".HIHI", old="1", new="2"
     )
-    row = _connectors.DirectoryRow(address="SR:BPM1", channel_type="ai", server="ioc-a")
+    row = _connectors.DirectoryEntry(address="SR:BPM1", channel_type="ai", server="ioc-a")
 
     assert _connectors.as_payload(put) == {
         "at": "t",
@@ -230,14 +230,14 @@ def test_rows_are_served_under_the_epics_words() -> None:
 def test_instants_are_served_under_their_words_as_utc_text_to_the_millisecond() -> None:
     pytest.importorskip("osprey_connectors.service_answers")
     pacific = timezone(timedelta(hours=-7))
-    put = _connectors.PutRow(
+    put = _connectors.PutLogEntry(
         put_at=datetime(2026, 10, 28, 14, 3, 11, 884366, tzinfo=pacific), address="SR:BPM1"
     )
-    state = _connectors.AlarmStateRecord(
+    state = _connectors.AlarmCondition(
         severity="MAJOR", event_at=datetime(2026, 11, 11, 6, tzinfo=UTC)
     )
-    logged = _connectors.AlarmHistoryRow(event_at=None, severity="OK")
-    announced = _connectors.DirectoryRow(address="SR:BPM1", recorded_stamp="2026-10-30 08:12:44")
+    logged = _connectors.AlarmLogEntry(event_at=None, severity="OK")
+    announced = _connectors.DirectoryEntry(address="SR:BPM1", recorded_stamp="2026-10-30 08:12:44")
 
     assert _connectors.as_payload(put)["at"] == "2026-10-28T21:03:11.884Z"
     assert "recorded_stamp" not in _connectors.as_payload(put)

@@ -38,10 +38,10 @@ from typing_extensions import override
 from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
 from osprey_connectors.directory._contract import (
     ChannelDirectory,
+    DirectoryDetail,
+    DirectoryEntry,
     DirectoryPage,
     DirectoryQuery,
-    DirectoryRecord,
-    DirectoryRow,
     DirectoryStatus,
 )
 from osprey_connectors.model import FrozenModel, evolve
@@ -58,7 +58,7 @@ _COUNT = "/resources/channels/count"
 _PROPERTIES = "/resources/properties"
 
 
-#: The RecSync property that fills each ``DirectoryRow`` field, by field, in field order.
+#: The RecSync property that fills each ``DirectoryEntry`` field, by field, in field order.
 #: ``description`` is not here: its property is the section's ``description_property``.
 #: ``time`` fills ``announced_at``, or ``recorded_stamp`` when it cannot be placed, so
 #: hiding it clears both.
@@ -296,13 +296,13 @@ class ChannelFinderDirectory(ChannelDirectory):
             [*(("~name", _pattern(word)) for word in plain), *narrowing],
         ]
 
-    def _record(self, channel: _Channel) -> DirectoryRecord:
+    def _record(self, channel: _Channel) -> DirectoryDetail:
         """*channel* as a record; an announcement time with no zone stays as text."""
         properties = _properties_of(channel)
         announced = properties.pop(_ROW_FIELD_PROPERTIES["announced_at"], None)
         announced_at = _instant(announced)
-        return DirectoryRecord(
-            row=DirectoryRow(
+        return DirectoryDetail(
+            entry=DirectoryEntry(
                 address=channel.name,
                 status=_STATUSES.get(properties.pop(_ROW_FIELD_PROPERTIES["status"], "")),
                 description=properties.pop(self._description_property, None),
@@ -355,7 +355,7 @@ class ChannelFinderDirectory(ChannelDirectory):
                 request=" · ".join(sent),
                 source=self.source,
                 total=total,
-                rows=tuple(self._record(channel).row for channel in channels),
+                rows=tuple(self._record(channel).entry for channel in channels),
                 truncated=(
                     start + len(channels) < known
                     if known is not None
@@ -377,7 +377,7 @@ class ChannelFinderDirectory(ChannelDirectory):
     @override
     async def describe(
         self, address: str, *, timeout_s: float
-    ) -> DirectoryRecord | NotListed | Unavailable:
+    ) -> DirectoryDetail | NotListed | Unavailable:
         params: _Params = [("~name", _one_value(address)), ("~size", _DESCRIBE_SIZE)]
         channels = _channels(await self._get(_CHANNELS, params, timeout_s))
         if isinstance(channels, Unavailable):

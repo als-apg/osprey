@@ -20,9 +20,9 @@ from pydantic import AwareDatetime, ConfigDict, ValidationError, field_validator
 from typing_extensions import override
 
 from osprey_connectors.alarm_state._contract import (
-    AlarmConfigRecord,
+    AlarmCondition,
+    AlarmConfiguration,
     AlarmState,
-    AlarmStateRecord,
     AlarmStates,
 )
 from osprey_connectors.alarm_state._fold import (
@@ -92,7 +92,7 @@ class ReplayAlarmState(AlarmState):
     @override
     async def state_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmStateRecord | NotListed | Unavailable:
+    ) -> AlarmCondition | NotListed | Unavailable:
         await self._loading(timeout_s)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):
@@ -112,7 +112,7 @@ class ReplayAlarmState(AlarmState):
     @override
     async def config_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmConfigRecord | Unavailable:
+    ) -> AlarmConfiguration | Unavailable:
         await self._loading(timeout_s)
         snapshot = self._answering()
         return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, address)
