@@ -54,7 +54,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
 # application's ``.provenance``. An application is deploy-visible source as a
 # preset is: moving its digest reports every copy in a deployment as drifted.
 PINNED_APP_TREE_DIGESTS: dict[str, str] = {
-    "orbit-bump": ("sha256:53c17604619822569ff5b7cd80a5d1234defe7e53e813a0570d5c7d38eb32cf0"),
+    "orbit-bump": ("sha256:bd7fb3748979a0fdf5cbf3c08e67a63b266d8aa035f526743946aac67d54e3d2"),
 }
 
 
