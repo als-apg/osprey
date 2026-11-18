@@ -1290,3 +1290,13 @@ def test_choice_segments_that_share_a_word_carry_their_value() -> None:
     assert [c.label for c in _distinct(both)] == ["Reboot = 0", "Reboot = 1"]
     apart = [Control("Off", "X:C", 0.0), Control("On", "X:C", 1.0)]
     assert _distinct(apart) == apart
+
+
+def test_a_segment_carrying_its_value_is_not_given_it_twice_in_the_writes_line() -> None:
+    from osprey.facility.panels.describe import _distinct, _writes
+    from osprey.facility.panels.view import Control
+
+    both = _distinct([Control("Reboot", "X:REBOOT", 0.0), Control("Reboot", "X:REBOOT", 1.0)])
+    assert (
+        _writes("choice", both, "X") == "writes REBOOT: Reboot = 0, Reboot = 1; stays until changed"
+    )

@@ -1475,7 +1475,11 @@ def _writes(kind: str, controls: list[Control], device: str) -> str:
         return f"writes {each}; " + (
             "stays until changed" if kind == "choice" else "once per press"
         )
-    presses = ", ".join(f"{c.label} = {_press_text(c.press_value)}" for c in controls)
+    presses = ", ".join(
+        c.label if c.label.endswith(f"= {_press_text(c.press_value)}")
+        else f"{c.label} = {_press_text(c.press_value)}"
+        for c in controls
+    )  # fmt: skip
     if kind == "choice":
         return f"writes {names}: {presses}; stays until changed"
     if len({c.channel for c in controls}) == len(controls) and all(
