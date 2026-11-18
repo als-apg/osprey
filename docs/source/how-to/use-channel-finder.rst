@@ -290,6 +290,15 @@ list in the ``demo`` preset. Its names, descriptions and properties are shown
 as the control system records them; nothing in it is curated, and nothing that
 reads it can write.
 
+The directory is implemented for EPICS, through a ChannelFinder service, and
+for the simulator, and its words are EPICS's. The contract behind it is
+control-system neutral: a PV is a channel, an IOC is the server process that
+serves it (:doc:`/reference/connectors-api/services`). No TANGO or DOOCS
+backend ships. A deployment on another control system needs a directory
+backend written against that contract and named by its dotted path in
+``pv_directory.type``; without one, All PVs has no source on the facility's
+machine.
+
 The directory is on when ``config.yml`` has a ``pv_directory`` section; the
 ``demo`` preset ships one. The same section can name an alarm server, an alarm
 log and a put log. :ref:`config-pv-directory` has the keys and how to switch
@@ -302,8 +311,8 @@ without an approval prompt. The agent's prompt tells it to check the curated
 channels first and to say when a name is the control system's own.
 :doc:`/architecture/mcp-servers` lists the tools.
 
-**For the operator** it adds the All PVs, Alarms and Archive views of the
-panel: see `All PVs, Alarms and Archive`_.
+**For the operator** it adds the All PVs, IOCs, Alarms and Archive views of
+the panel: see `All PVs, IOCs, Alarms and Archive`_.
 
 Every answer comes from the machine the control-target chip shows: the
 simulator's own PVs and replayed alarm feed on *Simulator*, the facility's
@@ -324,6 +333,12 @@ per refresh period and keeps one snapshot per control target. The **IOCs**
 view of the panel, the agent's ``ioc_fleet`` tool and the IOC page all answer
 from that snapshot, so they agree and a liveness question costs the control
 system no read.
+
+The fleet lists what the directory lists, so it has the directory's scope:
+EPICS with ChannelFinder, and the simulator
+(:ref:`channel-finder-all-pvs`). It reads liveness through the target's
+connector, not through EPICS calls of its own: what another control system
+lacks is a directory backend that lists its servers.
 
 The service is off unless ``config.yml`` has ``pv_directory.fleet``
 (``fleet: {}`` is enough). The ``demo`` preset runs it with a 10 s period, and
@@ -553,8 +568,8 @@ channel-suggestion typeahead in the web panels still works in graph mode:
 ``osprey build`` reads the channel names from the facility file and writes them
 into the snapshot the panels use.
 
-All PVs, Alarms and Archive
----------------------------
+All PVs, IOCs, Alarms and Archive
+---------------------------------
 
 With a ``pv_directory`` section (:ref:`channel-finder-all-pvs`) the view switch
 gains **All PVs**, which searches the directory. In the ``demo`` preset:

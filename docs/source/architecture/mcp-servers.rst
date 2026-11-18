@@ -173,7 +173,10 @@ current control target. It is present only when the config has a
 ``pv_directory`` section; the alarm and put-log tools are present only when
 that section configures their source. Every tool is a read and is pre-approved.
 The ``channel-finder`` shared login carries the server; the ``logbook`` and
-``knowledge`` logins switch it off. See :ref:`channel-finder-all-pvs`.
+``knowledge`` logins switch it off. The directory is implemented for EPICS (a
+ChannelFinder service) and for the simulator, and the tool names use EPICS's
+words: a PV is a channel, an IOC the server process serving it. No TANGO or
+DOOCS backend ships. See :ref:`channel-finder-all-pvs`.
 
 **Tools:**
 

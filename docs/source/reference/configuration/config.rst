@@ -1179,7 +1179,9 @@ outrank their keys; see :doc:`environment-variables`.
 This section feeds the Channels panel's All PVs view and the ``pv-directory``
 MCP server. Each source answers on the control targets it serves: ``type``
 and the three sub-blocks on ``live`` and ``standin``, the simulator and
-``alarm_state.replay_file`` on ``va``.
+``alarm_state.replay_file`` on ``va``. The built-in sources are EPICS
+services and the simulator; no TANGO or DOOCS directory backend ships
+(:ref:`channel-finder-all-pvs`).
 
 .. list-table::
    :header-rows: 1
@@ -1188,8 +1190,9 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
    * - Key
      - What it does
    * - ``pv_directory.type``
-     - The facility's directory service; ``channelfinder`` is built in.
-       Absent, the section is simulator-only (below).
+     - The facility's directory service; ``channelfinder`` (EPICS) is the
+       one built in, and a dotted path names a backend of your own. Absent,
+       the section is simulator-only (below).
    * - ``pv_directory.settings.url``
      - The service URL. The build refuses a ``type`` without it.
    * - ``pv_directory.settings.timeout_s``
@@ -1245,7 +1248,9 @@ and the three sub-blocks on ``live`` and ``standin``, the simulator and
    * - ``pv_directory.fleet``
      - The IOCs view: present (``fleet: {}`` is enough), the view, the fleet
        tool and the fleet service are on. Absent or ``null``, none of them
-       exists and nothing is read periodically.
+       exists and nothing is read periodically. It lists the IOCs the
+       directory lists, so it has the directory's scope: EPICS and the
+       simulator.
    * - ``pv_directory.fleet.targets``
      - The control targets refreshed, a list of ``live``, ``va`` and
        ``standin``; each must be configured. Default: the deployment's own
