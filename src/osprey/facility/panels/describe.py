@@ -79,6 +79,7 @@ from osprey.facility.panels.view import (
     Connector,
     Control,
     ControlGroup,
+    CurvePlot,
     Elevation,
     Fact,
     FarEnd,
@@ -2001,6 +2002,35 @@ def front_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter
     return found
 
 
+_NO_CURVE = "no {} stated for this device"
+_NO_OPERATING_POINT = (
+    "operating point not drawn: the conversion from set point to current is not stated"
+)
+
+
+def card_curve(graph: PanelGraph, thing: Thing, section: CardSection) -> CurvePlot:
+    """A card's curve: the points of the claim in force of the calibration kind the
+    section's ``members`` names, for the device; with none, the note that none is
+    stated. The operating point is not drawn (no table states the conversion)."""
+    kind_id = section.members or ""
+    kinds = [k for k in graph.calibration_kinds_of(thing.id) if k.kind == kind_id]
+    title = kinds[0].title if kinds else kind_id
+    units = ((kinds[0].unit or "") if kinds else "").split(";")
+    x_unit = units[0] or None
+    y_unit = units[1] if len(units) > 1 and units[1] else None
+    if not kinds:
+        return CurvePlot(title, (), x_unit, y_unit, None, _NO_CURVE.format(title.lower()))
+    found = graph.calibration(thing.id, kind_id)
+    points = tuple(sorted((p.x, p.y) for p in found.points))
+    claim = found.in_force
+    source = None
+    if claim is not None and claim.document:
+        source = f"{claim.document} {claim.version or ''}".strip()
+    if not points:
+        return CurvePlot(title, (), x_unit, y_unit, source, _NO_CURVE.format(title.lower()))
+    return CurvePlot(title, points, x_unit, y_unit, source, _NO_OPERATING_POINT)
+
+
 _NO_OWNER = "its {} not stated"
 _NOT_ON_DRAWING = "where it sits on {}'s drawing"
 _NO_DRAWING = "a drawing of {}"
@@ -2197,6 +2227,9 @@ def ring_strip(
                 member.id, label, item if isinstance(item, Link) else None, tuple(rows), focus
             )
         )
+    labels = [m.label for m in out]
+    if len(set(labels)) < len(labels):  # one short name for two members: each its id
+        out = [dataclasses.replace(m, label=m.thing) for m in out]
     caption = section.caption
     if ordered == RING_BY_NUMBER and not (caption or "").lower().startswith("in number order"):
         caption = "; ".join(c for c in (_RING_NUMBER_NOTE, caption) if c)
@@ -2400,6 +2433,8 @@ def _drawn_card(
             drawings.append(
                 (row.title, part_section(graph, index, thing, hits, name, row, symbols))
             )
+        elif row.kind == "curve":
+            drawings.append((row.title, [card_curve(graph, thing, row)]))
         elif row.kind == "ladder":
             drawings.append((row.title, [limit_ladder(graph, thing, hits, row)]))
         elif row.kind == "ring-strip":

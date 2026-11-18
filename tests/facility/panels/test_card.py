@@ -1187,3 +1187,39 @@ def test_a_part_whose_place_on_the_drawing_is_not_stated_says_so(tmp_path):
     view = device_card(graph, "XR01:QF1:TSW1")
     facts = _item(view, "PartFacts")
     assert "where it sits on XR01:QF1's drawing" in facts.not_stated
+
+
+def _curved(tmp_path):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\nQuadrupole,,,magnet,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "magnet,1,curve,Excitation curve,,excitation,,,,S\n"
+    )
+    return load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+
+
+def test_a_curve_draws_the_points_of_the_claim_in_force(tmp_path):
+    graph = _curved(tmp_path)
+    view = device_card(graph, "XR01:QF1")
+    curve = _item(view, "CurvePlot")
+    assert curve.points == ((0.0, -0.02376), (73.33, -4.9198))
+    assert (curve.x_unit, curve.y_unit, curve.source) == ("A", "T", "XR-MAG-TEST A.2")
+    assert curve.note.startswith("operating point not drawn")
+    doc = stub_render(view, graph)
+    assert (
+        len([n for n in _by_type(doc, "ellipse") if n["props"].get("tooltip") == "73.33, -4.9198"])
+        == 1
+    )
+    assert _text(doc, "2 points from XR-MAG-TEST A.2")
+
+
+def test_a_device_with_no_curve_says_none_is_stated(tmp_path):
+    graph = _curved(tmp_path)
+    curve = _item(device_card(graph, "XR01:QD1"), "CurvePlot")
+    assert curve.points == () and curve.note == "no excitation curve stated for this device"

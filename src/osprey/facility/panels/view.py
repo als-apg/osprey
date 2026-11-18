@@ -29,6 +29,7 @@ __all__ = [
     "ChannelGrid",
     "Connector",
     "Control",
+    "CurvePlot",
     "ControlGroup",
     "KeyTile",
     "Operate",
@@ -1008,6 +1009,26 @@ class PartFacts:
     not_stated: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class CurvePlot:
+    """A curve the records state for a device, as x/y points.
+
+    Attributes:
+        title: The calibration kind's title.
+        points: ``(x, y)`` in order of x.
+        x_unit, y_unit: The units of the axes, or ``None``.
+        source: The document and version of the claim in force, or ``None``.
+        note: What is not drawn and why (no curve stated, no operating point).
+    """
+
+    title: str
+    points: tuple[tuple[float, float], ...]
+    x_unit: str | None = None
+    y_unit: str | None = None
+    source: str | None = None
+    note: str | None = None
+
+
 Item = (
     ValueRow
     | Light
@@ -1038,6 +1059,7 @@ Item = (
     | RingStrip
     | LimitLadder
     | PartFacts
+    | CurvePlot
 )
 
 

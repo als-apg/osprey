@@ -76,6 +76,7 @@ from osprey.facility.panels.view import (
     Connector,
     Control,
     ControlGroup,
+    CurvePlot,
     Elevation,
     Fact,
     FarEnd,
@@ -256,6 +257,8 @@ LOOSE_COLUMNS = 4  # things on no stated port, in columns
 RING_COLUMN_LEAST, RING_COLUMN_MOST = 72, 140  # a ring-strip member's column
 LADDER_DOT = 14  # the live value on a ladder
 FOCUS_RING = 6  # round a part in focus on its owner's drawing
+CURVE_WIDTH, CURVE_HEIGHT = 560, 240  # a curve's plot
+CURVE_POINT = 6  # a measured point on it
 LADDER_TICK = 18  # a set point's mark across the ladder's line
 CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
@@ -2153,6 +2156,9 @@ class _Page:
             elif isinstance(first, Chain):
                 number += 1
                 self.framed(f"{number} · {section.title}", partial(self.chain_blocks, first))
+            elif isinstance(first, CurvePlot):
+                number += 1
+                self.framed(f"{number} · {section.title}", partial(self.curve_plot, first))
             elif isinstance(first, LimitLadder):
                 number += 1
                 self.framed(f"{number} · {section.title}", partial(self.limit_ladder, first))
@@ -2529,6 +2535,48 @@ class _Page:
             for text in _wrap(line, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
+
+    def curve_plot(self, curve: CurvePlot) -> None:
+        """The curve's measured points as dots joined by a line, in a frame with the
+        least and most x and y at its corners and the axes' units; with no point,
+        a dashed frame and the note."""
+        x0, top = self.x0 + BLOCK_LABEL, self.y
+        if not curve.points:
+            self.box(x0, top, CURVE_WIDTH, CURVE_HEIGHT / 2, line=MUTED_TEXT, dashed=True)
+            self.text(x0 + GAP, top, curve.note or "", size=SMALL_SIZE, w=CURVE_WIDTH - 2 * GAP, h=CURVE_HEIGHT / 2, fg=MUTED_TEXT)  # fmt: skip
+            self.y = top + CURVE_HEIGHT / 2 + ROW_GAP
+            return
+        xs, ys = [p[0] for p in curve.points], [p[1] for p in curve.points]
+        lo_x, hi_x, lo_y, hi_y = min(xs), max(xs), min(ys), max(ys)
+
+        def at(point: tuple[float, float]) -> tuple[float, float]:
+            fx = (point[0] - lo_x) / ((hi_x - lo_x) or 1)
+            fy = (point[1] - lo_y) / ((hi_y - lo_y) or 1)
+            return x0 + fx * CURVE_WIDTH, top + (1 - fy) * CURVE_HEIGHT
+
+        self.box(x0, top, CURVE_WIDTH, CURVE_HEIGHT, line=BOX_BORDER, fill=PANEL_BACKGROUND)
+        if len(curve.points) > 1:
+            self.line([at(p) for p in curve.points], symbols.FOCUS, BLOCK_LINE)
+        for point in curve.points:
+            px, py = at(point)
+            props = {"lineColor": symbols.FOCUS, "lineWidth": 1, "fill": True, "fillColor": symbols.FOCUS, _TOOLTIP: f"{point[0]:g}, {point[1]:g}"}  # fmt: skip
+            self.s.widget("ellipse", px - CURVE_POINT / 2, py - CURVE_POINT / 2, CURVE_POINT, CURVE_POINT, props)  # fmt: skip
+        y_unit, x_unit = curve.y_unit or "", curve.x_unit or ""
+        self.small(self.x0, top, f"{hi_y:g} {y_unit}".strip(), fg=MUTED_TEXT)
+        self.small(self.x0, top + CURVE_HEIGHT - SMALL_LINE, f"{lo_y:g} {y_unit}".strip(), fg=MUTED_TEXT)  # fmt: skip
+        self.y = top + CURVE_HEIGHT + ROW_GAP
+        self.small(x0, self.y, f"{lo_x:g} {x_unit}".strip(), fg=MUTED_TEXT)
+        hi = f"{hi_x:g} {x_unit}".strip()
+        self.small(x0 + CURVE_WIDTH - text_width(hi, SMALL_SIZE), self.y, hi, fg=MUTED_TEXT)
+        self.y += SMALL_LINE + ROW_GAP
+        for text in (
+            f"{len(curve.points)} points from {curve.source}" if curve.source else None,
+            curve.note,
+        ):
+            if text:
+                self.small(self.x0, self.y, _cut(text, STRIP_WIDTH, SMALL_SIZE), fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+        self.y += ROW_GAP
 
     def limit_ladder(self, ladder: LimitLadder) -> None:
         """The set points as marks on one line, evenly in their order (not to

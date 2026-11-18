@@ -1453,7 +1453,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    whose ``signal`` matches a channel of the part), and beside it what is stated
    about the part (its relations, each opening the other thing) and, dashed, what
    is not (its owner, its place on the drawing, a drawing at all, each hop of the
-   recipe's chains that found nothing). A device card is drawn:
+   recipe's chains that found nothing). A ``curve`` section draws the points of
+   the claim in force of the calibration kind its ``members`` names (an
+   excitation curve) as dots joined by a line, the least and most of each axis
+   at its corners and the claim's source under it; the operating point is not
+   drawn, since no table states the conversion from set point to current. A
+   device with no such curve says none is stated. The calibration block is the
+   ``calibration-strip``. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
    ``card`` whose ``level`` names its recipe, else its roles), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its
