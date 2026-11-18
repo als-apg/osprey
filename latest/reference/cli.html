@@ -1532,7 +1532,7 @@ JS needs neither.</p>
 <span id="cli-osprey-facility"></span><h2>osprey facility<a class="headerlink" href="#osprey-facility" title="Link to this heading">#</a></h2>
 <p>Check and show the facility description under <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and import
 an export into it. See <a class="reference internal" href="../how-to/import-mml-export.html"><span class="doc">Import a Middle Layer export</span></a> for the import end to end.</p>
-<dl class="simple">
+<dl>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Run every check <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> makes of <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> and render the
 facility views against the repo’s main profile in a temporary directory.
 Nothing is written into the repo. A clean tree exits 0, and each model with
@@ -1709,6 +1709,62 @@ import never writes is refused. A refused name, directory or row prints one
 <code class="docutils literal notranslate"><span class="pre">facility:</span> <span class="pre">source-invalid:</span></code> line per problem; the import writes nothing
 and exits 1. A profile that does not resolve prints a one-line failure and
 exits 1. A profile that states <code class="docutils literal notranslate"><span class="pre">machine:</span></code> imports into that machine root.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span></code></dt><dd><p>Group for the operator screens drawn from the built facility. Both verbs
+read the facility file <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code> (<code class="docutils literal notranslate"><span class="pre">--facility</span> <span class="pre">FILE</span></code> names
+another; neither verb builds) and the rule tables in <code class="docutils literal notranslate"><span class="pre">panels/</span></code> beside the
+facility tree (<code class="docutils literal notranslate"><span class="pre">--tables</span> <span class="pre">DIRECTORY</span></code> names another), and draw with the
+settings in <code class="docutils literal notranslate"><span class="pre">draw.json</span></code> beside the tables (<code class="docutils literal notranslate"><span class="pre">--draw</span> <span class="pre">FILE</span></code> names another;
+with neither, the empty settings, and one line says so). The screens are
+Canopy Screen-IR documents, one file per screen, in seven view kinds:
+<code class="docutils literal notranslate"><span class="pre">card</span></code> (one device, its signals, picture, relations and calibration
+records), <code class="docutils literal notranslate"><span class="pre">set</span></code> (the members of a group as a grid), <code class="docutils literal notranslate"><span class="pre">calibration</span></code> (one
+calibration kind over a set), <code class="docutils literal notranslate"><span class="pre">place</span></code> (a place’s devices in beam order
+with a band of key numbers), <code class="docutils literal notranslate"><span class="pre">rack</span></code> (a rack elevation, chassis at their
+unit), <code class="docutils literal notranslate"><span class="pre">rollup</span></code> (the health of a place and everything in it, level by
+level) and <code class="docutils literal notranslate"><span class="pre">checkout</span></code> (every setpoint beside its readback).</p>
+<p>The rule tables are CSV files, each held to its header: <code class="docutils literal notranslate"><span class="pre">positions.csv</span></code>
+(where a thing sits), <code class="docutils literal notranslate"><span class="pre">record_types.csv</span></code> (each channel’s record type and
+how a screen draws it), <code class="docutils literal notranslate"><span class="pre">pairs.csv</span></code> (the readback a setpoint is shown
+beside) and <code class="docutils literal notranslate"><span class="pre">panels/health.csv</span></code> (the state a channel’s value means: <code class="docutils literal notranslate"><span class="pre">normal</span></code>,
+<code class="docutils literal notranslate"><span class="pre">warn</span></code>, <code class="docutils literal notranslate"><span class="pre">bad</span></code>; a value no row names is <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, and one that two
+sources give two states is <code class="docutils literal notranslate"><span class="pre">disagree</span></code>) must be there;
+<code class="docutils literal notranslate"><span class="pre">excluded.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">names.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code>,
+<code class="docutils literal notranslate"><span class="pre">probe_pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibration_kinds.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibrations.csv</span></code> and
+<code class="docutils literal notranslate"><span class="pre">calibration_curves.csv</span></code> may be absent. A table that breaks its schema
+prints the file and line and exits 1. Health is computed by the viewer from
+rules written into the screen; nothing is read from the control system
+while screens are written.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">write</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--kind</span> <span class="pre">KIND]...</span> <span class="pre">[--under</span> <span class="pre">PLACE_ID]</span> <span class="pre">[--top</span> <span class="pre">N]</span> <span class="pre">[--tables</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--facility</span> <span class="pre">FILE]</span> <span class="pre">[--draw</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write the screens under <code class="docutils literal notranslate"><span class="pre">--out</span></code> as <code class="docutils literal notranslate"><span class="pre">&lt;kind&gt;/&lt;screen</span> <span class="pre">id&gt;.screen.json</span></code>
+with an <code class="docutils literal notranslate"><span class="pre">index.json</span></code> that lists them. Equal inputs give equal bytes: no
+file holds a time, an absolute path or a host name, and each screen’s
+description ends with the facility’s hash and the panels format number.
+Files an earlier run listed and that are no screen any more are deleted;
+nothing else is touched, and a non-empty <code class="docutils literal notranslate"><span class="pre">--out</span></code> without an
+<code class="docutils literal notranslate"><span class="pre">index.json</span></code> is refused. <code class="docutils literal notranslate"><span class="pre">--kind</span></code> (repeatable) and <code class="docutils literal notranslate"><span class="pre">--under</span></code> write
+only the screens that match; links to the others are still written. The
+command prints the screen count and size per view kind and the <code class="docutils literal notranslate"><span class="pre">--top</span></code>
+largest screens (default 10).</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">check</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--strict]</span> <span class="pre">[--max-bytes</span> <span class="pre">N]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--tables</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--facility</span> <span class="pre">FILE]</span> <span class="pre">[--draw</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Regenerate every screen and compare it with the files under <code class="docutils literal notranslate"><span class="pre">--out</span></code>;
+nothing is written. It prints the count of each problem kind and the first
+<code class="docutils literal notranslate"><span class="pre">--limit</span></code> of each (default 20), and exits 1 on any failing problem:
+<code class="docutils literal notranslate"><span class="pre">stale</span></code>, <code class="docutils literal notranslate"><span class="pre">missing</span></code>, <code class="docutils literal notranslate"><span class="pre">orphan</span></code>, <code class="docutils literal notranslate"><span class="pre">dangling_link</span></code>, <code class="docutils literal notranslate"><span class="pre">unknown_channel</span></code>,
+<code class="docutils literal notranslate"><span class="pre">stamp</span></code>, <code class="docutils literal notranslate"><span class="pre">invalid</span></code>, <code class="docutils literal notranslate"><span class="pre">incomplete</span></code>, <code class="docutils literal notranslate"><span class="pre">oversize</span></code> (over
+<code class="docutils literal notranslate"><span class="pre">--max-bytes</span></code>), <code class="docutils literal notranslate"><span class="pre">unrolled</span></code> (a rule channel no roll-up reads),
+<code class="docutils literal notranslate"><span class="pre">static_rollup</span></code>, <code class="docutils literal notranslate"><span class="pre">long_formula</span></code> (an expression over the viewer’s
+length limit) or <code class="docutils literal notranslate"><span class="pre">over_budget</span></code> (more rules or channels than one screen
+may bind). A link outside the written set, a card or checkout over its
+budget, and a probe row whose signal no channel states are notes, and fail
+only with <code class="docutils literal notranslate"><span class="pre">--strict</span></code>. A clean set prints
+<code class="docutils literal notranslate"><span class="pre">The</span> <span class="pre">written</span> <span class="pre">screens</span> <span class="pre">match</span> <span class="pre">the</span> <span class="pre">model.</span></code></p>
+<p>Where a screen needs a widget the Screen-IR format lacks (a five-state
+light, a hatched fill, a scrolling table, clickable text, a condition on an
+enum label, a viewer- or server-side aggregate state, a rule longer than
+the expression limit), the nearest widget is drawn and the node’s
+<code class="docutils literal notranslate"><span class="pre">meta.comment</span></code> names the need as <code class="docutils literal notranslate"><span class="pre">format-request:</span> <span class="pre">&lt;name&gt;</span></code>;
+<code class="docutils literal notranslate"><span class="pre">osprey.facility.panels.layout.FORMAT_REQUESTS</span></code> lists them.</p>
 </dd>
 </dl>
 </section>

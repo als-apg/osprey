@@ -1381,6 +1381,67 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    and exits 1. A profile that does not resolve prints a one-line failure and
    exits 1. A profile that states ``machine:`` imports into that machine root.
 
+``osprey facility panels``
+   Group for the operator screens drawn from the built facility. Both verbs
+   read the facility file ``build/facility.json`` (``--facility FILE`` names
+   another; neither verb builds) and the rule tables in ``panels/`` beside the
+   facility tree (``--tables DIRECTORY`` names another), and draw with the
+   settings in ``draw.json`` beside the tables (``--draw FILE`` names another;
+   with neither, the empty settings, and one line says so). The screens are
+   Canopy Screen-IR documents, one file per screen, in seven view kinds:
+   ``card`` (one device, its signals, picture, relations and calibration
+   records), ``set`` (the members of a group as a grid), ``calibration`` (one
+   calibration kind over a set), ``place`` (a place's devices in beam order
+   with a band of key numbers), ``rack`` (a rack elevation, chassis at their
+   unit), ``rollup`` (the health of a place and everything in it, level by
+   level) and ``checkout`` (every setpoint beside its readback).
+
+   The rule tables are CSV files, each held to its header: ``positions.csv``
+   (where a thing sits), ``record_types.csv`` (each channel's record type and
+   how a screen draws it), ``pairs.csv`` (the readback a setpoint is shown
+   beside) and ``panels/health.csv`` (the state a channel's value means: ``normal``,
+   ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
+   sources give two states is ``disagree``) must be there;
+   ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
+   ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv`` and
+   ``calibration_curves.csv`` may be absent. A table that breaks its schema
+   prints the file and line and exits 1. Health is computed by the viewer from
+   rules written into the screen; nothing is read from the control system
+   while screens are written.
+
+``osprey facility panels write --out DIRECTORY [--kind KIND]... [--under PLACE_ID] [--top N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
+   Write the screens under ``--out`` as ``<kind>/<screen id>.screen.json``
+   with an ``index.json`` that lists them. Equal inputs give equal bytes: no
+   file holds a time, an absolute path or a host name, and each screen's
+   description ends with the facility's hash and the panels format number.
+   Files an earlier run listed and that are no screen any more are deleted;
+   nothing else is touched, and a non-empty ``--out`` without an
+   ``index.json`` is refused. ``--kind`` (repeatable) and ``--under`` write
+   only the screens that match; links to the others are still written. The
+   command prints the screen count and size per view kind and the ``--top``
+   largest screens (default 10).
+
+``osprey facility panels check --out DIRECTORY [--strict] [--max-bytes N] [--limit N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
+   Regenerate every screen and compare it with the files under ``--out``;
+   nothing is written. It prints the count of each problem kind and the first
+   ``--limit`` of each (default 20), and exits 1 on any failing problem:
+   ``stale``, ``missing``, ``orphan``, ``dangling_link``, ``unknown_channel``,
+   ``stamp``, ``invalid``, ``incomplete``, ``oversize`` (over
+   ``--max-bytes``), ``unrolled`` (a rule channel no roll-up reads),
+   ``static_rollup``, ``long_formula`` (an expression over the viewer's
+   length limit) or ``over_budget`` (more rules or channels than one screen
+   may bind). A link outside the written set, a card or checkout over its
+   budget, and a probe row whose signal no channel states are notes, and fail
+   only with ``--strict``. A clean set prints
+   ``The written screens match the model.``
+
+   Where a screen needs a widget the Screen-IR format lacks (a five-state
+   light, a hatched fill, a scrolling table, clickable text, a condition on an
+   enum label, a viewer- or server-side aggregate state, a rule longer than
+   the expression limit), the nearest widget is drawn and the node's
+   ``meta.comment`` names the need as ``format-request: <name>``;
+   ``osprey.facility.panels.layout.FORMAT_REQUESTS`` lists them.
+
 .. _cli-osprey-sim:
 
 osprey sim
