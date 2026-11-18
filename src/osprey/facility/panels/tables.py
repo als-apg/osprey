@@ -194,6 +194,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "angle_deg",
             "signal",
             "under",
+            "devices",
         ],
         STATE_LABELS: ["channel", "value", "label", "source", "revision", "locator"],
         UNITS: ["channel", "unit", "scale", "label", "source", "revision", "locator"],
@@ -357,7 +358,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
         CALIBRATION_KINDS: frozenset({"under", "short"}),
         # a file of the first eleven columns (parts at points, no signals) still reads
-        PICTURES: frozenset({"w_mm", "h_mm", "angle_deg", "signal", "under"}),
+        PICTURES: frozenset({"w_mm", "h_mm", "angle_deg", "signal", "under", "devices"}),
         PROBE_PICTURES: frozenset({"under"}),
         METRICS: frozenset({"precision"}),
         CARD_RECIPES: frozenset({"devices"}),
@@ -745,6 +746,11 @@ class PicturePart:
     own rows under their own place; a device under neither gets no drawing, and
     ``check`` notes nothing for it.
 
+    ``devices`` (optional) is an id pattern, as on ``card_recipes.csv``: the row
+    applies only to the devices of the class whose id it matches; with ``!``
+    first, to every device of the class but those, so a table can leave one
+    device out of a drawing. Empty, it applies to every device ``under`` takes.
+
     A shape row may leave its size empty, the normal case: a pole, a coil or a
     corrector winding is then placed by its ``angle_deg`` alone (its ``x_mm``,
     ``y_mm`` are not read), at the default proportions of
@@ -800,6 +806,7 @@ class PicturePart:
     angle_deg: float | None = None
     signal: str | None = None
     under: str | None = None
+    devices: str | None = None
     #: The channel ``signal`` resolves to on one device: set when a card is
     #: described (:func:`osprey.facility.panels.describe.device_card`), ``None``
     #: as the table is read.

@@ -157,6 +157,14 @@ def _join(edges: Iterable[Edge]) -> str | None:
     return None
 
 
+def _takes(pattern: str, thing_id: str) -> bool:
+    """Whether a ``devices`` pattern takes *thing_id*: a glob, or with ``!`` first every
+    id the rest does not match."""
+    if pattern.startswith("!"):
+        return not fnmatch.fnmatchcase(thing_id, pattern[1:])
+    return fnmatch.fnmatchcase(thing_id, pattern)
+
+
 def substitute(pattern: str, port: str | None) -> str | None:
     """*pattern* with ``{port}`` and ``{n}`` filled from a relation's object port.
 
@@ -214,6 +222,9 @@ class Thing:
     level: str | None = None
     short_name: str | None = None
     model: str | None = None
+    #: For a group: its kind as stated, ``family`` when absent (only a family is a
+    #: set); ``None`` for a device or a place.
+    group_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -588,6 +599,7 @@ class PanelGraph:
                     citations=self._citations(record),
                     level=_text(record.get("level")) if kind == "place" else None,
                     model=_text(record.get("model")) if kind == "device" else None,
+                    group_kind=(_text(record.get("kind")) or "family") if kind == "group" else None,
                 )
         return things
 
@@ -992,12 +1004,19 @@ class PanelGraph:
     def pictures(self, device_class: str, device: str | None = None) -> list[PicturePart]:
         """The ``pictures.csv`` rows of a device class, in file order; with *device*,
         only those that apply to it: a row with no ``under``, or one whose ``under``
-        place holds the device (:meth:`contents`). A row under a place the graph
-        does not hold applies to no device."""
+        place holds the device (:meth:`contents`); and a row with no ``devices``, or
+        one whose ``devices`` pattern takes the device's id (``!`` first: every
+        device but those it matches). A row under a place the graph does not hold
+        applies to no device."""
         rows = list(self._pictures.get(device_class, ()))
         if device is None:
             return rows
-        return [r for r in rows if r.under is None or device in self._held(r.under)]
+        return [
+            r
+            for r in rows
+            if (r.under is None or device in self._held(r.under))
+            and (r.devices is None or _takes(r.devices, device))
+        ]
 
     def _held(self, place_id: str) -> frozenset[str]:
         """The ids of the devices in a place (:meth:`contents`), once per place."""

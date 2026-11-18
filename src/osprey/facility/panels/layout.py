@@ -319,7 +319,10 @@ _MORE = "\u203a"
 _FOOT_JOIN = " · "
 _OR = "or "
 _SOURCES_WORD = "Sources:"
+_SETS_WORD = "Sets:"
 _MEANING_NOT_STATED = "meaning not stated"
+#: The widest number a value of three significant digits prints, for sizing its field.
+_WIDEST_NUMBER = "-0.000"
 _GRID_NOTE = "hover a row for the full channel name"
 _APPLY = "Apply"
 _TYPE_FIRST = "type a value first"
@@ -605,7 +608,8 @@ _MORE_CHIPS = "+{} more"
 _TALLY_LOOKS = {"contested": "contested", "none": "none", "below_wanted": "design"}
 _INFERRED = "inferred"  # an anchor row's state: its placement is inferred
 _PLACEMENT_INFERRED = "button placement inferred, not stated"
-_CHIPPED = ("set", "place", "rollup")  # views whose calibration section is chips
+_CHIPPED = ("set", "place", "rollup")
+_SETS_SECTION = "sets"  # describe.SETS_SECTION: the sets a place or a system holds  # views whose calibration section is chips
 _CAL_WHAT = "each cell: {}, deviation from design (the value when no design value)"
 #: The states of a calibration view, in the order its legend and counts give them.
 _CAL_STATES = ("design", "bench", "survey", "beam", "contested", "none")
@@ -2219,9 +2223,9 @@ class _Page:
                 self.section(Section(f"{number} · {section.title}", section.items))
 
     def card_foot(self, foot: CardFoot) -> None:
-        """Two muted lines under the last section, no frame and no number: where the
-        device is (opening the place), and its sources, each statement's full
-        provenance on hover."""
+        """Muted lines under the last section, no frame and no number: where the
+        device is (opening the place), the sets it is in (each opening its set
+        view), and its sources, each statement's full provenance on hover."""
         x = self.small(self.x0, self.y, _WHERE_WORD, fg=MUTED_TEXT) + WORD_GAP
         for n, (text, link) in enumerate(foot.where):
             if n:  # "<a> or <b>" reads on; anything else after a dot
@@ -2235,6 +2239,18 @@ class _Page:
                 self.nav(x, self.y, right - x, SMALL_LINE, link)
             x = right
         self.y += SMALL_LINE + ROW_GAP
+        if foot.sets:
+            x = self.small(self.x0, self.y, _SETS_WORD, fg=MUTED_TEXT) + WORD_GAP
+            for n, link in enumerate(foot.sets):
+                if n:
+                    x = self.small(x, self.y, _FOOT_JOIN, fg=MUTED_TEXT)
+                room = self.x0 + STRIP_WIDTH - x
+                if room < text_width(_ELLIPSIS, SMALL_SIZE):
+                    break
+                right = self.small(x, self.y, _cut(link.label, room, SMALL_SIZE), fg=MUTED_TEXT)
+                self.nav(x, self.y, right - x, SMALL_LINE, link)
+                x = right
+            self.y += SMALL_LINE + ROW_GAP
         line = _cut(f"{_SOURCES_WORD} {foot.sources}", STRIP_WIDTH, SMALL_SIZE)
         right = self.small(self.x0, self.y, line, fg=MUTED_TEXT)
         if foot.provenance:
@@ -2359,6 +2375,7 @@ class _Page:
             self.shown_value(
                 inner, self.y + KEY_VALUE_TOP, room, tile.channel, tile.shown_as, tile.words,
                 unit=tile.unit, scale=tile.scale, size=KEY_VALUE_SIZE, h=KEY_VALUE_LINE,
+                note_below=KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE,
             )  # fmt: skip
         self.y += KEY_TILE_HEIGHT + 2 * GAP
 
@@ -2450,9 +2467,13 @@ class _Page:
         size: float = TEXT_SIZE,
         h: float = ROW,
         text: str | None = None,
+        note_below: float | None = None,
     ) -> None:
         """One shown value: a number with its unit, a state word, a lamp and its word,
-        a stated text, or a dashed chip "not served yet"."""
+        a stated text, or a dashed chip "not served yet".
+
+        With *note_below* (the height the number then takes), a note that would leave
+        the number less than a value's width beside it goes on the line under it."""
         if shown_as == "text":
             self.text(x, y, text or "", size=size, w=w, h=h)
             return
@@ -2480,6 +2501,10 @@ class _Page:
             if not words:  # a number, and the note that no word is stated for it, if it fits
                 note_w = text_width(_MEANING_NOT_STATED, SMALL_SIZE)
                 room = w - note_w - GAP
+                if note_below is not None and room < VALUE_WIDTH:  # the number whole
+                    self.number(x, y, w, note_below, channel, None, None, size)
+                    self.small(x, y + note_below, _MEANING_NOT_STATED, fg=MUTED_TEXT)
+                    return
                 number_w = min(VALUE_WIDTH, room) if room >= GRID_VALUE / 2 else w
                 right = self.number(x, y, number_w, h, channel, None, None, size)
                 if number_w < w:
@@ -3317,7 +3342,19 @@ class _Page:
             if row.shown_as == "text":
                 text = text_width(row.text or "", BLOCK_TEXT_SIZE)
                 need = max(need, BLOCK_LABEL + text + WORD_GAP)
+            elif row.shown_as == "value" and row.channel is not None:
+                # a number of three significant digits with its unit, whole
+                unit = row.unit or self.channel_unit(row.channel)
+                text = text_width(f"{_WIDEST_NUMBER} {unit or ''}", BLOCK_TEXT_SIZE)
+                need = max(need, BLOCK_LABEL + text + 2 * GAP)
         return max(BLOCK_LEAST, min(BLOCK_MOST, need))
+
+    def channel_unit(self, channel: str) -> str | None:
+        """The unit the facility states for *channel*, which the viewer prints beside it."""
+        try:
+            return self.graph.channel(channel).unit
+        except KeyError:
+            return None
 
     def chain_block(
         self, x: float, top: float, w: float, block: ChainBlock, band: float | None = None
@@ -4075,7 +4112,7 @@ class _Page:
         if tallies:
             self.tallies(tallies[0])
             return
-        if section.title == _CALIBRATION_SECTION and self.view.id.view in _CHIPPED:
+        if section.title in (_CALIBRATION_SECTION, _SETS_SECTION) and self.view.id.view in _CHIPPED:
             # calibration views, or how far a place's are: one row of chips
             entries = [
                 (i.label, i, None) if isinstance(i, Link) else (i.text, None, None)
@@ -4384,9 +4421,10 @@ class _Page:
         return MARGIN + SET_ROW_HEAD + column * (self.cell_w + GAP)
 
     def grid_cell(self, x0: float, y: float, cell: GridCell) -> None:
-        """One member: the readback in its field, or the short name in a box, and one
-        light at the right end: the deviation light when the pair has one, else the
-        member's; the whole cell opens its card."""
+        """One member: the readback in its field, else (with no light) the value its
+        card's first key tile shows, else the short name in a box, and one light at
+        the right end: the deviation light when the pair has one, else the member's;
+        the whole cell opens its card."""
         w = self.cell_w
         if cell.calibration is not None:  # a calibration view: no light, static text
             found = cell.calibration
@@ -4417,6 +4455,13 @@ class _Page:
         if pair is not None and pair.readback is not None:
             # the viewer frames it; the number (and its unit, when the set's differ) in it
             self.field(x0, y, pair.readback, w=end - x0, within=self.cell_units)
+        elif cell.tile is not None:  # no light: the value its card shows first
+            tile = cell.tile
+            self.box(x0, y, end - x0, ROW, fill=FIELD_BACKGROUND)
+            self.shown_value(
+                x0 + GAP / 2, y, end - x0 - GAP, tile.channel, tile.shown_as, tile.words,
+                unit=tile.unit, scale=tile.scale, size=SMALL_SIZE,
+            )  # fmt: skip
         else:
             self.box(x0, y, end - x0, ROW, fill=FIELD_BACKGROUND)
             name = self.member_name(cell.member)

@@ -60,7 +60,14 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility.panels import layout
-from osprey.facility.panels.describe import describe, drawn_on, light, ring_arcs, targets
+from osprey.facility.panels.describe import (
+    describe,
+    drawn_on,
+    light,
+    ring_arcs,
+    targets,
+    unset_groups,
+)
 from osprey.facility.panels.health import supported
 from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
 from osprey.facility.panels.symbols import WIDTH_UNITS, near_state
@@ -147,8 +154,9 @@ class Problem:
             channels than one screen may have), ``unbound_probe`` (a note: a probe
             row of a device card names a signal no channel states), ``unbound_picture`` (a note: a
             pictures row's signal resolves to no channel on a device),
-            ``ambiguous_picture`` (a note: it matches channels of several devices) or
-            ``outside_set``.
+            ``ambiguous_picture`` (a note: it matches channels of several devices),
+            ``unset_group`` (a note: a family that is no set only because some of its
+            members are no device of a stated class) or ``outside_set``.
         file: The file the problem is in, relative to the output directory.
         detail: What is wrong, in one line.
     """
@@ -979,7 +987,26 @@ def check(
             for name in ruled
             if name not in rolled and _carried(graph, name)
         )
+    problems.extend(
+        Problem(
+            "unset_group",
+            INDEX,
+            f"{group} is no set: {_named(odd)} {'is' if len(odd) == 1 else 'are'} no device "
+            "of a stated class, while its other members share one",
+            note=True,
+        )
+        for group, odd in unset_groups(graph)
+    )
     return problems
+
+
+#: How many members an ``unset_group`` note names; the rest are counted.
+NAMED_MEMBERS = 8
+
+
+def _named(ids: tuple[str, ...]) -> str:
+    shown = ", ".join(ids[:NAMED_MEMBERS])
+    return shown + (f" and {len(ids) - NAMED_MEMBERS} more" if len(ids) > NAMED_MEMBERS else "")
 
 
 #: How many class names a ``pictures`` note names; the rest are counted.
