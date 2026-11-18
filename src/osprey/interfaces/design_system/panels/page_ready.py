@@ -15,8 +15,9 @@ without a browser:
 * **the literal attribute** -- a page with no script at all carries
   ``data-page-ready="true"`` in its markup.
 
-An app panel takes the late route only: ``pending`` in its markup, and a script its
-``index.html`` loads calling ``markPageReady()`` once its first state is drawn, error or not.
+A panel takes the late route only: ``pending`` in its markup, and a script its entry page
+loads calling ``markPageReady()`` once its first state is drawn, error or not. This holds for
+a bundle the web terminal discovers and for an application's panel alike.
 """
 
 from __future__ import annotations
@@ -184,11 +185,11 @@ def _undeclared(value: str) -> str:
     return f"data-page-ready={value!r} is not a declared value (true or pending)"
 
 
-def _app_panel_problem(page: str, where: Path, value: str | None) -> str | None:
+def _panel_problem(page: str, where: Path, value: str | None) -> str | None:
     if value == "true":
         return (
             'carries data-page-ready="true", which marks it before its first state is drawn; '
-            'an app panel declares "pending" and its script calls markPageReady()'
+            'a panel declares "pending" and its script calls markPageReady()'
         )
     if not any(_MARK_CALL.search(source) for source in _reached_sources(page, where)):
         return (
@@ -199,32 +200,32 @@ def _app_panel_problem(page: str, where: Path, value: str | None) -> str | None:
     if value != "pending":
         return (
             'calls markPageReady() without data-page-ready="pending" on <html>, so the page '
-            "can be marked before that call; an app panel declares it"
+            "can be marked before that call; a panel declares it"
         )
     return None
 
 
-def route_problem(page: str, where: Path, *, app_panel: bool = False) -> str | None:
+def route_problem(page: str, where: Path, *, panel: bool = False) -> str | None:
     """Why *page* never reaches the page-ready mark by a declared route, or None.
 
     Args:
         page: The page's markup.
         where: The file the page is served as; its relative script addresses resolve
             from here.
-        app_panel: Judge *page* as an app panel, which takes the late route only:
+        panel: Judge *page* as a panel, which takes the late route only:
             ``data-page-ready="pending"`` on ``<html>`` and a script the page loads (or a
             module that script imports) calling ``markPageReady()``. Neither a script
             that sets the literal attribute nor a script that dresses the page as a shell
-            excuses an app panel.
+            excuses a panel.
 
     Returns:
         One sentence naming what the page lacks, or None when it reaches the mark.
     """
     value = _ready_value(page)
-    if app_panel:
+    if panel:
         if value is not None and value not in MARKUP_VALUES:
             return _undeclared(value)
-        return _app_panel_problem(page, where, value)
+        return _panel_problem(page, where, value)
     if value == "true" or _LITERAL_BY_SCRIPT.search(page):
         return None
     sources = _reached_sources(page, where)

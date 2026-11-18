@@ -1,4 +1,4 @@
-"""The page-ready judge: the general routes, and the late route an app panel takes."""
+"""The page-ready judge: the general routes, and the late route a panel takes."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ PENDING = '<html data-page-ready="pending">'
 
 TRUE_PROBLEM = (
     'carries data-page-ready="true", which marks it before its first state is drawn; '
-    'an app panel declares "pending" and its script calls markPageReady()'
+    'a panel declares "pending" and its script calls markPageReady()'
 )
 NEVER_PROBLEM = (
     f"never sets the page-ready mark; the panel's script adds `{READY_IMPORT}` and calls "
@@ -42,7 +42,7 @@ FAILED_PROBLEM = (
 )
 PENDING_PROBLEM = (
     'calls markPageReady() without data-page-ready="pending" on <html>, so the page '
-    "can be marked before that call; an app panel declares it"
+    "can be marked before that call; a panel declares it"
 )
 
 
@@ -76,13 +76,11 @@ def _panel_index(root: Path) -> Path:
         "failed-in-markup",
     ],
 )
-def test_an_app_panel_takes_the_late_route_only(
-    page: str, expected: str | None, tmp_path: Path
-) -> None:
-    assert route_problem(page, _panel_index(tmp_path), app_panel=True) == expected
+def test_a_panel_takes_the_late_route_only(page: str, expected: str | None, tmp_path: Path) -> None:
+    assert route_problem(page, _panel_index(tmp_path), panel=True) == expected
 
 
-def test_an_app_panel_is_never_excused_by_a_dresser_or_a_literal_set_by_script() -> None:
+def test_a_panel_is_never_excused_by_a_dresser_or_a_literal_set_by_script() -> None:
     # A file a package script opens and dresses as a shell, and the sign-in frame's
     # inline write of the literal attribute: both reach the mark as served pages.
     shell = WEB_TERMINAL_STATIC / "attached-window.html"
@@ -94,8 +92,8 @@ def test_an_app_panel_is_never_excused_by_a_dresser_or_a_literal_set_by_script()
     assert route_problem(shell_page, shell) is None
     assert route_problem(literal, WEB_TERMINAL_STATIC / "x.html") is None
 
-    assert route_problem(shell_page, shell, app_panel=True) == NEVER_PROBLEM
-    assert route_problem(literal, WEB_TERMINAL_STATIC / "x.html", app_panel=True) == (NEVER_PROBLEM)
+    assert route_problem(shell_page, shell, panel=True) == NEVER_PROBLEM
+    assert route_problem(literal, WEB_TERMINAL_STATIC / "x.html", panel=True) == (NEVER_PROBLEM)
 
 
 def test_markup_that_declares_failed_is_refused_on_every_route(tmp_path: Path) -> None:
@@ -104,10 +102,8 @@ def test_markup_that_declares_failed_is_refused_on_every_route(tmp_path: Path) -
         f'<html data-page-ready="failed">{INLINE_MARK}</html>',
         f'<html data-page-ready="failed">{INLINE_THEME}</html>',
     ):
-        for app_panel in (False, True):
-            assert route_problem(page, _panel_index(tmp_path), app_panel=app_panel) == (
-                FAILED_PROBLEM
-            )
+        for panel in (False, True):
+            assert route_problem(page, _panel_index(tmp_path), panel=panel) == (FAILED_PROBLEM)
 
 
 def test_the_judge_and_the_writer_name_the_same_values() -> None:
@@ -142,7 +138,7 @@ def test_the_shipped_app_panels_are_found() -> None:
     "index", _shipped_app_panels(), ids=lambda p: p.relative_to(PACKAGE).as_posix()
 )
 def test_every_shipped_app_panel_takes_the_late_route(index: Path) -> None:
-    assert route_problem(index.read_text(encoding="utf-8"), index, app_panel=True) is None
+    assert route_problem(index.read_text(encoding="utf-8"), index, panel=True) is None
 
 
 def test_a_static_address_outside_the_package_resolves_to_nothing(tmp_path: Path) -> None:
@@ -152,4 +148,4 @@ def test_a_static_address_outside_the_package_resolves_to_nothing(tmp_path: Path
     (tmp_path / "static" / "x.js").write_text(READY_IMPORT + "\nmarkPageReady();\n")
     page = f'{PENDING}<script type="module" src="/static/x.js"></script></html>'
 
-    assert route_problem(page, index, app_panel=True) == NEVER_PROBLEM
+    assert route_problem(page, index, panel=True) == NEVER_PROBLEM
