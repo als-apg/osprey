@@ -505,7 +505,7 @@ def test_reload_nginx_config_emits_a_scoped_exec(monkeypatch):
     ]
 
 
-def test_reload_nginx_config_failure_is_advisory(monkeypatch):
+def test_reload_nginx_config_failure_is_advisory(monkeypatch, caplog):
     """A failing reload (container still starting, config rejected) warns but
     never raises: nginx keeps serving the old config, and the roster verb that
     triggered the reload did reconcile."""
@@ -515,7 +515,13 @@ def test_reload_nginx_config_failure_is_advisory(monkeypatch):
         lambda *a, **k: completed(returncode=1, stderr="boom"),
     )
 
-    postup_hooks.reload_nginx_config(["docker", "compose"], {})  # must not raise
+    with caplog.at_level("WARNING"):
+        postup_hooks.reload_nginx_config(["docker", "compose"], {})  # must not raise
+
+    warnings = [record for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1, caplog.text
+    assert "nginx config reload failed" in warnings[0].getMessage()
+    assert "boom" in warnings[0].getMessage()
 
 
 def test_a_redirect_counts_as_an_answer_and_is_never_followed() -> None:
