@@ -3,19 +3,30 @@
 A tree's exports are imported into a fresh ``data/facility/`` under the tree's
 mapping, the limits records its build stops on are widened to the edge the
 stop names, and the facility file is built in memory. :func:`build_tree` is
-that chain as a plain function; the session-scoped :func:`mml_built` fixture
-runs it once per tree and hands each test one model of it: the facility file,
-the model's record, its deck and its wiring as the simulator reads it.
+that chain as a plain function.
 
-A module whose tests read ``mml_built`` joins the ``mml_built`` xdist group,
-so the one build per tree serves every reader on one worker.
+Two session fixtures serve the chain once per run. ``mml_imported`` hands a
+test each tree's clean import (what it wrote and printed), and ``mml_built``
+each tree's build, one model at a time: the facility file, the model's record,
+its deck and its wiring as the simulator reads it. Under xdist the first worker
+to ask for a tree imports or builds it, holding a lock, in a directory every
+worker reads, and the others read its record (``tests._builds._built_once``),
+so readers need no common xdist group. Tests read both and never write to
+them; one that changes an import works on a copy.
+
+The YAML a test reads from an import parses with the loader the facility
+build reads it with (:func:`load_yaml`); :func:`read_yaml` serves a file
+parsed once to every reader that only reads it.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +34,8 @@ import pytest
 import yaml
 
 from osprey.facility.records import FacilityRecords
+from osprey_connectors.yaml_loader import safe_load
+from tests._builds import _built_once
 from tests.fixtures.mml._trees import SUPPORTED, names
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +59,27 @@ WIDENED: dict[str, dict[str, tuple[str, float]]] = {
     },
     "nsls2": {},
 }
+
+
+def load_yaml(path: Path) -> Any:
+    """``path`` parsed afresh, with the loader the facility build reads YAML with."""
+    return safe_load(path.read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=32)
+def _parsed(path: Path, _mtime_ns: int, _size: int) -> Any:
+    return load_yaml(path)
+
+
+def read_yaml(path: Path) -> Any:
+    """``path`` parsed once for every reader of the same bytes.
+
+    The parse is shared, so a caller only reads it; one that changes what it
+    read takes :func:`load_yaml`. A file written again since its last parse is
+    parsed afresh: the parse is kept by the file's modification time and size.
+    """
+    stat = path.stat()
+    return _parsed(path, stat.st_mtime_ns, stat.st_size)
 
 
 def mapped_facility(root: Path, tree: str) -> Path:
@@ -73,14 +107,10 @@ def import_tree(root: Path, tree: str) -> Path:
     return facility
 
 
-def _load(path: Path) -> Any:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
 def widen(facility: Path, edges: dict[str, tuple[str, float]]) -> None:
     """Apply the ``seed-invalid`` remedy: widen each named limits record by hand."""
     path = facility / "limits.yaml"
-    document = _load(path)
+    document = load_yaml(path)
     for row in document["records"]:
         if row["address"] in edges:
             key, value = edges[row["address"]]
@@ -147,9 +177,119 @@ class BuiltModel:
         return self.record.get("settings")
 
 
+@dataclass(frozen=True)
+class MmlImport:
+    """A tree's exports imported into a fresh ``data/facility``.
+
+    Attributes:
+        tree: The fixture tree.
+        facility: The ``data/facility`` directory the import wrote.
+        written: Each file the import returned, in its order.
+        printed: What the import printed.
+    """
+
+    tree: str
+    facility: Path
+    written: list[Path]
+    printed: str
+
+    def rows(self, name: str) -> Any:
+        """The layer's record file ``name``, parsed once for every reader."""
+        from osprey.facility.layers.mml.importer import LAYER_DIR
+
+        return read_yaml(self.facility / LAYER_DIR / name)
+
+    def load(self, relative: str) -> Any:
+        """The file at ``relative`` under ``facility``, parsed once for every reader."""
+        return read_yaml(self.facility / relative)
+
+    def copy(self, root: Path) -> Path:
+        """The imported facility copied to ``root/data/facility``, for a case that changes it."""
+        facility = root / "data" / "facility"
+        shutil.copytree(self.facility, facility)
+        return facility
+
+
+def import_record(tree: str, root: Path) -> MmlImport:
+    """Import ``tree`` under ``root`` as :func:`import_tree` does, keeping what it printed."""
+    from osprey.facility.layers.mml.importer import import_mml
+
+    printed = io.StringIO()
+    with contextlib.redirect_stdout(printed):
+        facility = mapped_facility(root, tree)
+        written = import_mml(export_files(tree), facility)
+    return MmlImport(tree, facility, written, printed.getvalue())
+
+
+def _import_fixture(tree: str) -> Any:
+    """The session fixture holding ``tree``'s one import of the run."""
+
+    def imported(tmp_path_factory: pytest.TempPathFactory) -> MmlImport:
+        record: MmlImport = _built_once(
+            tmp_path_factory,
+            f"mml-import-{tree}",
+            f"mml-import-{tree}.pickle",
+            lambda parent: import_record(tree, parent),
+        )
+        return record
+
+    return pytest.fixture(scope="session", name=f"mml_import_{tree}")(imported)
+
+
+def _build_fixture(tree: str) -> Any:
+    """The session fixture holding ``tree``'s one build of the run.
+
+    The build is :func:`build_tree` run over a copy of the tree's one import:
+    the import writes the same bytes wherever it is made, so the copy is the
+    facility a fresh import there would be.
+    """
+
+    def built(
+        tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest
+    ) -> tuple[dict[str, Any], Path]:
+        def make(parent: Path) -> tuple[dict[str, Any], Path]:
+            from osprey.facility.build import build_facility
+
+            imported: MmlImport = request.getfixturevalue(f"mml_import_{tree}")
+            facility = imported.copy(parent)
+            widen(facility, WIDENED[tree])
+            return build_facility(facility, project_name="demo"), facility
+
+        made: tuple[dict[str, Any], Path] = _built_once(
+            tmp_path_factory, f"mml-build-{tree}", f"mml-build-{tree}.pickle", make
+        )
+        return made
+
+    return pytest.fixture(scope="session", name=f"mml_build_{tree}")(built)
+
+
+# Under xdist each record is the run's one: the fixtures are named per tree, so
+# every tree has its own lock and a worker waits on no tree it does not read.
+mml_import_nsls2 = _import_fixture("nsls2")
+mml_import_spear3 = _import_fixture("spear3")
+mml_import_synthetic = _import_fixture("synthetic")
+mml_build_nsls2 = _build_fixture("nsls2")
+mml_build_spear3 = _build_fixture("spear3")
+
+
 @pytest.fixture(scope="session")
-def mml_built(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str, str], BuiltModel]:
-    """Each fixture tree built once per session, served one model at a time.
+def mml_imported(request: pytest.FixtureRequest) -> Callable[[str], MmlImport]:
+    """Each fixture tree imported once per run, served whole.
+
+    Returns a callable ``tree -> MmlImport``; a tree is imported on its first
+    request. Tests read the import and never write to it.
+    """
+
+    def imported(tree: str) -> MmlImport:
+        record: MmlImport = request.getfixturevalue(f"mml_import_{tree}")
+        return record
+
+    return imported
+
+
+@pytest.fixture(scope="session")
+def mml_built(request: pytest.FixtureRequest) -> Callable[[str, str], BuiltModel]:
+    """Each fixture tree built once per run, served one model at a time.
 
     Returns a callable ``(tree, stem) -> BuiltModel``. A tree is imported and
     built on its first request; every model of it is read from that one build.
@@ -157,16 +297,8 @@ def mml_built(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str, str], 
     """
     from osprey.facility.views.simulator import simulator_wiring
 
-    built: dict[str, tuple[dict[str, Any], Path]] = {}
-    # Made during setup, so the trees built on demand belong to this fixture.
-    parent = tmp_path_factory.mktemp("mml")
-
     def model(tree: str, stem: str) -> BuiltModel:
-        if tree not in built:
-            root = parent / tree
-            root.mkdir()
-            built[tree] = build_tree(tree, root)
-        document, facility = built[tree]
+        document, facility = request.getfixturevalue(f"mml_build_{tree}")
         name = model_name(document, stem)
         (record,) = [entry for entry in document["models"] if entry["name"] == name]
         return BuiltModel(

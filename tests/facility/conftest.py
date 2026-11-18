@@ -20,7 +20,15 @@ from click.testing import Result
 
 from tests._builds import BuiltProject, init_project, run_build
 from tests.facility._fixture_kind import read_entry_points_afresh
-from tests.facility._mml_built import mml_built  # noqa: F401 - the session MML builds
+from tests.facility._mml_built import (  # noqa: F401 - the session MML imports and builds
+    mml_build_nsls2,
+    mml_build_spear3,
+    mml_built,
+    mml_import_nsls2,
+    mml_import_spear3,
+    mml_import_synthetic,
+    mml_imported,
+)
 from tests.facility._synthetic_trees import write_tree
 
 __all__ = ["BuiltProject"]
