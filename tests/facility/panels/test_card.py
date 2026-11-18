@@ -1731,6 +1731,16 @@ def test_a_front_row_with_no_far_relation_is_a_reading_with_no_far_end(tmp_path)
     assert states["devices: none"] == 1  # the outlets have nothing on them; readings aside
 
 
+def test_a_device_whose_front_is_readings_only_is_counted_so(tmp_path):
+    from osprey.facility.panels.describe import FRONT_READING, front_states
+
+    graph = _literal(tmp_path, ("PSUA-Sts",))  # no row names a far relation
+    (states,) = front_states(graph, ["XR01:PS1"]).values()
+    assert states[FRONT_READING] == 3  # PSU A, Out 1, Out 2
+    assert states["devices: readings only"] == 1
+    assert states["devices: none"] == 0
+
+
 def _literal(tmp_path, served: tuple[str, ...]):
     def channels(document) -> None:
         for name in served:

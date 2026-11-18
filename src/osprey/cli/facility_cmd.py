@@ -1367,7 +1367,8 @@ def panels_write(
                 f"{states[FRONT_NONE]} with nothing stated, "
                 f"and {states[FRONT_READING]} readings; devices: "
                 f"{states['devices: all']} all stated, {states['devices: some']} some, "
-                f"{states['devices: none']} none"
+                f"{states['devices: none']} none, "
+                f"{states['devices: readings only']} with readings only"
             )
         for recipe_name, states in sorted(ladder_states(graph, devices).items()):
             whole = states.pop(HOP_FOUND, 0)

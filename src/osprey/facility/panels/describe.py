@@ -2173,7 +2173,8 @@ def front_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter
     """Per recipe with a front, how many connectors came out each way
     (:func:`front_state`, readings apart), as its card draws them, and its devices
     by whether every connector that is not a reading, some or none has something
-    stated on it (``all``, ``some``, ``none``)."""
+    stated on it (``all``, ``some``, ``none``; ``readings only`` when every one is a
+    reading)."""
     index = _index(graph)
     found: dict[str, Counter[str]] = {}
     for device in devices:
@@ -2190,6 +2191,9 @@ def front_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter
         total = sum(states.values()) - states[FRONT_READING]  # a reading has no far end
         whole = total and states[FRONT_STATED] == total
         some = states[FRONT_STATED] or states[FRONT_CONTESTED]
+        if not total and states[FRONT_READING]:
+            counts["devices: readings only"] += 1  # nothing on its front is looked for
+            continue
         counts["devices: all" if whole else "devices: some" if some else "devices: none"] += 1
     return found
 
