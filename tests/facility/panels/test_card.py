@@ -616,6 +616,28 @@ def _chain_of(view):
     return next(i for s in view.sections for i in s.items if isinstance(i, Chain))
 
 
+def test_the_device_s_block_shows_no_role_several_of_its_channels_play(tmp_path):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    def statuses(document) -> None:
+        _ported(document)
+        for n in (1, 2, 3):
+            document["channels"].append(
+                {"id": f"XR01-IP1:OutStatus{n}", "on": {"device": "XR01:IP1"}}
+            )
+
+    _chained(tmp_path)
+    tables = tmp_path / "panels"
+    with (tables / "channel_roles.csv").open("a") as handle:
+        handle.write("Pump,out-status,*:OutStatus[0-9],device,word,,,,,stated,S,1,l\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "g.json", statuses), tables)
+    device = _chain_of(device_card(graph, "XR01:IP1")).blocks[0]
+    assert [r.channel for r in device.rows] == [
+        "XR01-IP1:Pressure-RB"
+    ]  # one per connector: not here
+
+
 def test_a_recipe_chain_walks_its_hops_and_says_where_one_is_not_stated(tmp_path):
     from osprey.facility.panels.describe import chain_states
 
@@ -1258,6 +1280,66 @@ def test_a_literal_connector_takes_its_listed_role_s_channel_carrying_its_name(t
     }
 
 
+def _named_outlets(document) -> None:
+    for n in range(1, 9):
+        document["channels"].append(
+            {"id": f"XR01-PS1:Out{n}-Name", "on": {"device": "XR01:PS1"}, "role": "setpoint"}
+        )
+
+
+_NAME_ROLE = "PowerSupply,name,*:Out[0-9]-Name,device,entry,,,,Name,stated,S,1,l\n"
+
+
+def test_many_entries_of_one_role_are_a_grid_whose_line_names_no_channel(tmp_path):
+    from osprey.facility.panels import layout
+
+    graph = _fronted(tmp_path, _named_outlets, roles=_NAME_ROLE)  # name is no front role
+    view = device_card(graph, "XR01:PS1")
+    operate = [i for s in view.sections for i in s.items if type(i).__name__ == "Operate"]
+    (group,) = [g for o in operate for g in o.groups if g.kind == "entry"]
+    assert len(group.controls) == 8
+    assert group.writes.endswith("Apply writes each entry's own channel")
+    doc = stub_render(view, graph)
+    assert _text(doc, "NAME")  # the role's title over the grid
+    fields = _by_type(doc, "pv-text-input")
+    assert len({f["geometry"]["x"] for f in fields}) == layout.ENTRY_COLUMNS  # in columns
+    (hover,) = [
+        n
+        for n in _by_type(doc, "rectangle")
+        if "XR01-PS1:Out8-Name, " in n["props"].get("tooltip", "") + ", "
+        and "XR01-PS1:Out1-Name" in n["props"].get("tooltip", "")
+    ]
+    assert "XR01-PS1:Out1-Name" in hover["props"]["tooltip"]
+
+
+def test_a_connector_s_typed_value_is_set_under_the_front_named_by_its_connector(tmp_path):
+    graph = _fronted(
+        tmp_path, _named_outlets,
+        "supply,front,outputs,1,Out{n},socket,,*:Out{n}-Name,powered_by,in,{n},Out {n},S\n",
+        _NAME_ROLE,
+    )  # fmt: skip
+    (tmp_path / "panels" / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "supply,1,front,Outputs,,front,,name,,S\n"
+    )
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    graph = load_graph(
+        write_fixture_facility(tmp_path / "g.json", _named_outlets), tmp_path / "panels"
+    )
+    view = device_card(graph, "XR01:PS1")
+    front = _front_of(view)
+    (group,) = front.entries
+    assert [c.label for c in group.controls][:2] == ["Out 1 · Name", "Out 2 · Name"]
+    operate = [i for s in view.sections for i in s.items if type(i).__name__ == "Operate"]
+    assert not [
+        c for o in operate for g in o.groups for c in g.controls if c.channel.endswith("-Name")
+    ]
+    doc = stub_render(view, graph)
+    assert len(_by_type(doc, "pv-text-input")) == 8  # each once
+
+
 def test_tables_without_fronts_still_build(panel_graph):
     assert panel_graph.fronts("supply") == []
 
@@ -1297,6 +1379,45 @@ def test_a_ring_strip_draws_its_group_in_number_order_when_a_position_is_missing
         assert ring.caption.startswith("in number order: positions not stated")
     doc = stub_render(device_card(graph, "XR01:IP1"), graph)
     assert [n for n in nodes(doc) if n["props"].get("tooltip") == "open XR01:IP2"]
+
+
+def test_a_ring_strip_of_placed_members_runs_by_place_under_a_count_of_ok_lamps(tmp_path):
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    def permit(document) -> None:
+        document["channels"].append({"id": "XR01-IP2:Permit-Sts", "on": {"device": "XR01:IP2"}})
+        document["channels"].append({"id": "XR01-IP1:Permit-Sts", "on": {"device": "XR01:IP1"}})
+
+    _sectioned(
+        tmp_path,
+        "pump,1,ring-strip,The pumps here,,same place,,state,,S\n",
+        "Pump,state,*:Permit-Sts,device,lamp,,,,,stated,S,1,l\n",
+    )
+    tables = tmp_path / "panels"
+    with (tables / "health.csv").open("a") as handle:
+        for pump in ("XR01-IP1", "XR01-IP2"):
+            handle.write(f"{pump}:Permit-Sts,1,normal,screen,stated,s,1,l\n")
+            handle.write(f"{pump}:Permit-Sts,0,bad,screen,stated,s,1,l\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "g.json", permit), tables)
+    ring = _item(device_card(graph, "XR01:IP1"), "RingStrip")
+    place = graph.thing("XR01:IP1", "device").place
+    assert ring.places == ((place, 2),)  # one place: one run, its name heading it
+    assert ring.counted == "giving state now"
+    doc = stub_render(device_card(graph, "XR01:IP1"), graph)
+    assert _text(doc, "giving state now:")
+    assert [n for n in _by_type(doc, "text-label") if n["props"]["text"] == place]
+    (count,) = [
+        n
+        for n in _by_type(doc, "text-label")
+        if any(r["name"] == "giving state now count" for r in n.get("rules", ()))
+    ]
+    (formula,) = [
+        f for f in doc["formulas"] if "formula://" + f["name"] == count["rules"][0]["formula"]
+    ]
+    assert set(formula["bindings"].values()) == {"XR01-IP1:Permit-Sts", "XR01-IP2:Permit-Sts"}
+    assert "1 if" in formula["expression"]  # ok counts one, by the lamp's own arms
+    assert _text(doc, "of 2")
 
 
 def test_a_ring_strip_of_a_relation_takes_the_devices_it_names(tmp_path):

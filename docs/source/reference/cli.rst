@@ -1451,7 +1451,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    stated", each with the value or lamp of the first of the section's roles it
    plays (an empty ring where it plays none), the device in focus and every other
    opening its card; values are shown as numbers, since no table states a scale
-   for a bar. A ``ladder`` section draws the section's first role against the
+   for a bar. When every member has a place, the members run by place, a row
+   each under the place's name, the places in ring order; over the strip,
+   "giving <first role> now: n of m" counts the lamps ok now with one formula
+   over the same lamps' rules. A ``ladder`` section draws the section's first role against the
    others as set points, evenly in their order (not to scale), each with its live
    value, and the live value as a dot in the gap between the set points it lies
    between; a set point not served is left out and named, and ``write`` counts
@@ -1478,10 +1481,19 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``value`` or ``word`` of the role's first channel, or over every channel of
    the role on the device ``count_true`` shown "k of N", ``max`` or ``sum``, a
    dash and "one of N has no value" while any member has none), its relations as
-   a chain of blocks, its drawings, an operate block (its control roles, else its
+   a chain of blocks (the device's own block showing only roles one channel of
+   it plays: a role played per connector or member is not rows there), its
+   drawings (a drawing none of whose parts has a place is a compact row of
+   blocks, each the part's name over its signal's light and value, with
+   "arrangement not stated", not an empty frame; a light is ``disagree`` only at
+   a value its rows give two states, so a value every row calls normal is
+   normal), an operate block (its control roles, else its
    writable channels: a choice of stated states, an action, or a typed value
    applied with Apply, a line beside Apply saying what it will write from the
-   same formula as its press value; press groups side by side, up to three; a choice with one
+   same formula as its press value; more than six entries of one role are a grid
+   of three columns under the role's title, their line naming no channel (each
+   on hover), and an entry of a front's role on a connector is set under the
+   front, named by the connector; press groups side by side, up to three; a choice with one
    stated value is an action with the live status beside it; "no operator
    actions stated" when there is none), every channel the card is about in a
    grid (its own, and of a device its roles reach the channels beside the ones a

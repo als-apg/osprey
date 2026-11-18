@@ -110,11 +110,10 @@ def evaluate(rule, values) -> str:
 
 
 def flagged(state: str, item: Light) -> str:
-    """The engine's state as a light draws it: a flagged light is never normal."""
+    """The engine's state as a light draws it: a light with unsupported rows is never
+    normal; disagreement elsewhere does not colour a value every row calls normal."""
     if state != "normal":
         return state
-    if item.disagree:
-        return "disagree"
     return "unknown" if item.unsupported else state
 
 
@@ -187,12 +186,19 @@ def test_a_roll_up_rule_gives_the_worst_channel(panel_graph) -> None:
             assert evaluate(rule, values) == expected, values
 
 
-def test_flagged_lights_are_never_normal(panel_graph) -> None:
-    for channel in ("XR01-IP1:State-Sts", "XR02-QF1:Current-RB"):
-        item = light(panel_graph, channel)
-        assert item.disagree or item.unsupported
-        rule = ladder(panel_graph, [item])
-        assert all(state != "normal" for _, state in rule.arms)
+def test_a_light_is_disagree_only_where_its_rows_disagree(panel_graph) -> None:
+    item = light(panel_graph, "XR01-IP1:State-Sts")  # 0: bad and normal; 1: normal
+    assert item.disagree
+    rule = ladder(panel_graph, [item])
+    assert evaluate(rule, {0: 0}) == "disagree"
+    assert evaluate(rule, {0: 1}) == "normal"  # every row calls 1 normal: grey, not lilac
+
+
+def test_a_light_with_rows_it_cannot_evaluate_is_never_normal(panel_graph) -> None:
+    item = light(panel_graph, "XR02-QF1:Current-RB")
+    assert item.unsupported
+    rule = ladder(panel_graph, [item])
+    assert all(state != "normal" for _, state in rule.arms)
 
 
 def test_a_text_label_row_cannot_be_written_and_the_light_is_unknown(tmp_path) -> None:

@@ -62,6 +62,7 @@ from osprey.facility.panels.tables import (
     Pose,
 )
 from osprey.facility.panels.view import (
+    ENTRIES_IN_ONE_COLUMN,
     Band,
     BlockRow,
     CalibrationCell,
@@ -1484,6 +1485,8 @@ def _writes(kind: str, controls: list[Control], device: str) -> str:
     """The muted line under a group: what it writes, and when; an inferred value
     says so beside it."""
     names = ", ".join(dict.fromkeys(_short_channel(c.channel, device) for c in controls))
+    if kind == "entry" and len(controls) > ENTRIES_IN_ONE_COLUMN:
+        return "type a value, check it beside the live one, Apply writes each entry's own channel"
     if kind == "entry":
         return f"type a value, check it beside the live one, Apply writes it ({names})"
     if any(c.inferred for c in controls):
@@ -1719,7 +1722,7 @@ def recipe_chain(
     section: CardSection,
 ) -> tuple[Chain, set[str], str]:
     """A recipe's chain for a device: the device's block (in focus, its value roles
-    no hop shows), then one block per hop in step order, each the thing the hop
+    no hop or front shows that one channel of it plays), then one block per hop in step order, each the thing the hop
     reaches with its roles, the arrow into it carrying its port; a hop that reaches
     nothing is a dashed "not stated" block, one that reaches two distinct things
     stacks them dashed as contested, ``many`` stacks every thing it reaches. A hop
@@ -1771,19 +1774,17 @@ def recipe_chain(
         for r in (row.roles or "").split(";")
         if r
     }
+    # a role several of the device's channels play is one per connector or member:
+    # its place is the front, a grid or the channel list, never rows on this block
+    played = Counter(h.role.role for h in hits if h.owner == thing.id)
     mine = [
         h for h in hits
         if h.owner == thing.id and h.role.role not in shown_roles
+        and played[h.role.role] == 1
         and h.role.shown_as in ("value", "word", "lamp")
         and h.role.role not in (*IDENTITY_ROLES, INTERNAL_ROLE)
     ][:FOCUS_ROWS]  # fmt: skip
-    times = Counter(h.role.role for h in mine)
-    seen: Counter[str] = Counter()
-    labels = []
-    for h in mine:  # a role two channels play is numbered: relay 1, relay 2
-        seen[h.role.role] += 1
-        word = _role_title(h.role.role).lower()
-        labels.append(f"{word} {seen[h.role.role]}" if times[h.role.role] > 1 else word)
+    labels = [_role_title(h.role.role).lower() for h in mine]
     focus_rows = tuple(
         BlockRow(
             label, h.channel, shown_as=h.role.shown_as,
@@ -1962,6 +1963,7 @@ def card_front(
     groups: list[FrontGroup] = []
     presses: list[Control] = []
     ported: set[str] = set()
+    entries: dict[str, list[Control]] = {}
     loose_rows: list[FrontRow] = []
     client_groups: set[tuple[str, str]] = set()
     for (face, group), rows in _grouped(graph.fronts(recipe)):
@@ -1984,9 +1986,16 @@ def card_front(
                     )
                 carried = [r for r in roles if r in _row_roles(row)] if row.roles else roles
                 literal = row.connector if not n and row.roles else None
-                rows_, controls = _connector_roles(graph, own, carried, n, sides, lamp, literal)
+                rows_, controls, typed = _connector_roles(
+                    graph, own, carried, n, sides, lamp, literal
+                )
                 presses += controls
                 label = (row.label or row.connector).replace("{n}", n)
+                for hit in typed:
+                    word = hit.role.label or _role_title(hit.role.role)
+                    entries.setdefault(hit.role.role, []).append(
+                        Control(f"{label} · {word}", hit.channel)
+                    )
                 connectors.append(Connector(label, row.kind, lamp, sides, rows_, tuple(controls)))
         empty = None if connectors else _PORTS_NOT_STATED
         groups.append(FrontGroup(face, group, tuple(connectors), empty))
@@ -2000,6 +2009,12 @@ def card_front(
         _LOOSE.format(_PORTS_NOT_STATED) if loose else None,
         _front_writes(presses, thing.id) if presses else None,
         section.caption,
+        tuple(
+            ControlGroup(
+                "entry", _role_title(role), tuple(found), _writes("entry", found, thing.id)
+            )
+            for role, found in entries.items()
+        ),
     )
 
 
@@ -2018,12 +2033,13 @@ def _connector_roles(
     sides: tuple[tuple[FarEnd, ...], ...],
     lamp: str | None,
     literal: str | None = None,
-) -> tuple[tuple[BlockRow, ...], list[Control]]:
+) -> tuple[tuple[BlockRow, ...], list[Control], list[RoleHit]]:
     """The values and presses of *roles* on one connector: the device's channels of
     the role whose last number is *n*, or, on a literal connector whose row lists
     its roles, whose name carries the *literal*."""
     rows: list[BlockRow] = []
     controls: list[Control] = []
+    typed: list[RoleHit] = []
     single = [end.thing for side in sides for end in side]
     for role in roles:
         if literal is not None:
@@ -2039,7 +2055,8 @@ def _connector_roles(
         for hit in found:
             if hit.role.shown_as in CONTROLS:
                 if hit.role.shown_as == "entry":
-                    continue  # a typed value is set on the device's own operate block
+                    typed.append(hit)  # drawn under the front, named by its connector
+                    continue
                 press = _press(graph, hit)
                 if press is None:
                     continue  # no value stated: no press (the card's count has it)
@@ -2056,7 +2073,7 @@ def _connector_roles(
                     )
                 )  # fmt: skip
                 break  # one value per role and connector
-    return tuple(rows), controls
+    return tuple(rows), controls, typed
 
 
 def _loose(
@@ -2364,10 +2381,25 @@ def ring_strip(
     labels = [m.label for m in out]
     if len(set(labels)) < len(labels):  # one short name for two members: each its id
         out = [dataclasses.replace(m, label=m.thing) for m in out]
+    places: list[tuple[str, int]] = []
+    if all(m.place is not None for m in members):  # by place, the places in ring order
+        first: dict[str, int] = {}
+        for i, member in enumerate(members):
+            first.setdefault(member.place or "", i)
+        rank = {m.id: (first[m.place or ""], i) for i, m in enumerate(members)}
+        out.sort(key=lambda m: rank[m.thing])
+        members.sort(key=lambda m: rank[m.id])
+        for member in members:
+            if places and places[-1][0] == member.place:
+                places[-1] = (places[-1][0], places[-1][1] + 1)
+            else:
+                places.append((member.place or "", 1))
     caption = section.caption
     if ordered == RING_BY_NUMBER and not (caption or "").lower().startswith("in number order"):
         caption = "; ".join(c for c in (_RING_NUMBER_NOTE, caption) if c)
-    return RingStrip(tuple(out), ordered, caption)
+    lamps = any(r.shown_as == "lamp" for m in out for r in m.rows)
+    counted = f"giving {_role_title(roles[0]).lower()} now" if roles and lamps else None
+    return RingStrip(tuple(out), ordered, caption, tuple(places), counted)
 
 
 _RING_NUMBER_NOTE = "in number order: positions not stated"
@@ -2586,15 +2618,14 @@ def _drawn_card(
     if not graph.card_sections(name):  # no recipe rows: the built-in relations chain
         chain, _shown = _default_chain(graph, index, thing, hits)
         drawings.append((CARD_SECTIONS["relations"], [chain]))
+    fronts = [item for _title, items in drawings for item in items if isinstance(item, Front)]
     on_front = {
         control.channel
-        for _title, items in drawings
-        for item in items
-        if isinstance(item, Front)
+        for item in fronts
         for group in item.groups
         for connector in group.connectors
         for control in connector.controls
-    }
+    } | {control.channel for item in fronts for group in item.entries for control in group.controls}
     operate_hits = [h for h in hits if h.channel not in on_front]  # drawn on the front
     operate_channels = [c for c in channels if c.name not in on_front]  # nor as a fallback
     operate, _in_operate, _unstated = _operate(graph, thing, operate_hits, operate_channels)

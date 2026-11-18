@@ -806,6 +806,11 @@ class CardStrip:
     caption: str | None = None
 
 
+#: Entries of one role past this many are laid out as a grid under the role's title,
+#: and their line names no channel (each on hover).
+ENTRIES_IN_ONE_COLUMN = 6
+
+
 @dataclass(frozen=True)
 class Control:
     """One press or entry of a drawn card's operate block.
@@ -943,6 +948,8 @@ class Front:
         loose_note: The line over them.
         writes: The line of what the connectors' presses write, or ``None``.
         caption: The line under it, or ``None``.
+        entries: The typed values of the section's roles per connector, one group
+            per role, each entry named by its connector: drawn under the front.
     """
 
     groups: tuple[FrontGroup, ...]
@@ -950,6 +957,7 @@ class Front:
     loose_note: str | None = None
     writes: str | None = None
     caption: str | None = None
+    entries: tuple[ControlGroup, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -979,11 +987,17 @@ class RingStrip:
         members: In order along the ring, else in number order.
         ordered: ``s`` (by ring position) or ``number`` (no position stated for one).
         caption: The line under it, or ``None``.
+        places: When every member has a place: the runs of *members* by place, in
+            ring order, ``(place, how many)``; empty otherwise.
+        counted: The words over the count of members whose lamp is ok now
+            ("giving permit now"), or ``None``.
     """
 
     members: tuple[RingMember, ...]
     ordered: str
     caption: str | None = None
+    places: tuple[tuple[str, int], ...] = ()
+    counted: str | None = None
 
 
 @dataclass(frozen=True)

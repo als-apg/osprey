@@ -617,6 +617,26 @@ def test_parts_not_placed_with_no_body_stand_in_the_frames_corner(tmp_path) -> N
     assert "1, 2 (2 not placed)" in _texts(doc)
 
 
+def test_a_picture_with_no_part_placed_is_a_row_of_blocks_not_an_empty_frame(tmp_path) -> None:
+    from osprey.facility.panels import layout
+
+    rows = [
+        "Quadrupole,end,thermal switch 1,thermal_switch,,,,X,A,s,l,,,,",
+        "Quadrupole,end,thermal switch 2,thermal_switch,,,,X,A,s,l,,,,",
+    ]
+    doc = _card(_graph(tmp_path, rows))
+    texts = _texts(doc)
+    assert "arrangement not stated" in texts
+    assert "thermal switch 1" in texts and "thermal switch 2" in texts  # named on their blocks
+    assert not any("not placed" in t for t in texts)  # no legend list of them
+    dashed = [n for n in _by_type(doc, "rectangle") if n["props"].get("lineStyle") == "dashed"]
+    assert not [n for n in dashed if n["geometry"]["width"] >= layout.PICTURE_SIZE / 2]
+    blocks = [
+        n for n in _by_type(doc, "rectangle") if n["geometry"]["width"] == layout.ARRANGED_BLOCK
+    ]
+    assert len(blocks) == 2 and blocks[0]["geometry"]["y"] == blocks[1]["geometry"]["y"]
+
+
 def test_check_counts_the_parts_not_placed_per_class_as_information(tmp_path) -> None:
     from osprey.facility.panels.emit import check, unplaced_parts, write
 

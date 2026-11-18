@@ -61,6 +61,7 @@ from osprey.facility.panels.symbols import (
 )
 from osprey.facility.panels.tables import PicturePart
 from osprey.facility.panels.view import (
+    ENTRIES_IN_ONE_COLUMN,
     Band,
     CalibrationRow,
     Calibrations,
@@ -98,6 +99,7 @@ from osprey.facility.panels.view import (
     Probe,
     ProbePart,
     RackUnit,
+    RingMember,
     RingStrip,
     Section,
     Strip,
@@ -390,6 +392,10 @@ PART_BLOCK = (16, 11)  # a part off the body: width, height
 PART_BLOCK_CORNER = 2
 PART_WORD_ROOM = 16  # above the topmost block, for its kind's word
 PART_GROUP_DISTANCE = 56  # blocks of one kind this close share one word, px
+ARRANGED_BLOCK = 168  # a part's block in the row drawn when no part has a place
+RING_PLACE_HEAD = 120  # a ring-strip's place name, heading its row
+ENTRY_COLUMNS = 3  # entries of one role past ENTRIES_IN_ONE_COLUMN, side by side
+ENTRY_CELL_ROWS = 3  # an entry in a grid: name and value, field and Apply, what it writes
 #: The kinds of part drawn as water (a block in the water colour): a kind naming one.
 WATER_WORDS = ("manifold", "water", "cooling")
 SCALE_BAR_MM = (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000)
@@ -523,6 +529,8 @@ OUTLINE_KIND = "outline"
 _UNLISTED = frozenset({"yoke", "pole", "bore", "gap"})
 _NOT_STATED = "outline not stated"
 _NOT_PLACED = "not placed"
+_ARRANGEMENT_NOT_STATED = "arrangement not stated"
+_SIGNAL_NOT_STATED = "signal not stated"
 _SIZE_NOT_STATED = "size not stated: default proportions"
 _SCALED_FROM = "scaled from the {}"
 _SCHEMATIC = "{} at default proportions"
@@ -559,6 +567,7 @@ _TRAY_TITLE = "in our lists, not placed"
 _NO_DATA = "no data yet"
 _NEEDS_SERVER = "needs a server-side aggregate"
 _A_MEMBER_MISSING = "one of {} has no value"
+_NO_OK_STATED = "no ok state stated"
 _MANY_VALUES = "{} channels state it: the row names no one"
 _DASH = "—"
 NO_VALUE = _DASH  # an annotation's text until its formula delivers, and while disconnected
@@ -719,11 +728,12 @@ _RULED_OUT: Mapping[str, frozenset[str]] = MappingProxyType(
 
 
 def _shown(state: State, item: Light) -> State:
-    """The state a light draws: a flagged light is never normal (disagree, else unknown)."""
+    """The state a light draws: the engine's at the value. Sources that disagree at
+    another value do not colour this one: a value every row calls normal is
+    normal, one rows give two states is ``disagree`` already. A light with rows
+    the engine cannot evaluate is never normal (unknown)."""
     if state != "normal":
         return state
-    if item.disagree:
-        return "disagree"
     return "unknown" if item.unsupported else state
 
 
@@ -2770,13 +2780,92 @@ class _Page:
         """One column per member in its order, wrapping into rows: its name, then the
         value or lamp of its role (a bare outline where it plays none: not served);
         the card's own device in the focus colour, every other opens its card."""
-        n = len(ring.members)
-        cw = max(RING_COLUMN_LEAST, min(RING_COLUMN_MOST, STRIP_WIDTH / max(n, 1)))
-        per = max(1, int(STRIP_WIDTH // cw))
+        if ring.counted:
+            self.ok_count(ring)
+        runs = list(ring.places) or [("", len(ring.members))]
+        head = RING_PLACE_HEAD if ring.places else 0
+        room = STRIP_WIDTH - head
+        n = max(k for _place, k in runs) if ring.places else len(ring.members)
+        cw = max(RING_COLUMN_LEAST, min(RING_COLUMN_MOST, room / max(n, 1)))
+        per = max(1, int(room // cw))
         height = SMALL_LINE + ROW + 2 * GAP
-        for i, member in enumerate(ring.members):
+        start = 0
+        for place, k in runs:  # a row of columns per place, its name heading it
+            if place:
+                self.small(
+                    self.x0, self.y + GAP / 2, _cut(place, head - GAP, SMALL_SIZE), fg=MUTED_TEXT
+                )
+            self.ring_columns(ring.members[start : start + k], self.x0 + head, cw, per, height)
+            start += k
+        if ring.caption:
+            for text in _wrap(ring.caption, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
+                self.small(self.x0, self.y, text, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+        self.y += ROW_GAP
+
+    def ok_count(self, ring: RingStrip) -> None:
+        """Over a ring-strip: how many of its lamps are ok now, of how many, from one
+        formula over the same lamps' rules (a member in no ok state counts none);
+        "needs a server-side aggregate" when the formula is too long."""
+        lamps = [
+            r.channel
+            for m in ring.members
+            for r in m.rows[:1]
+            if r.shown_as == "lamp" and r.channel
+        ]
+        terms: list[str] = []
+        bindings: dict[str, str] = {}
+        for i, channel in enumerate(lamps):
+            rule = ladder(self.graph, [describe_light(self.graph, channel)])
+            if isinstance(rule, str) or not any(st == "normal" for _c, st in rule.arms):
+                continue  # no ok state stated: it counts none
+            key = f"m{i}"
+            bindings[key] = channel
+            term = "0"
+            for condition, state in reversed(rule.arms):  # first match wins, as the light
+                term = f"({int(state == 'normal')} if {condition} else {term})"
+            terms.append(term.replace("{0}", f"{{{key}}}"))
+        words = f"{ring.counted}:"
+        x = self.small(self.x0, self.y, words, fg=MUTED_TEXT) + GAP
+        expression = " + ".join(terms) if terms else "0"
+        reads = frozenset(bindings.values())
+        if (
+            not terms
+            or len(expression) > RULE_EXPRESSION_LIMIT
+            or not self.budget.take([(1, reads)])
+        ):
+            note = _NEEDS_SERVER if terms else _NO_OK_STATED
+            self.small(x, self.y, f"{note} ({len(lamps)} lamps)", fg=MUTED_TEXT)
+            self.y += SMALL_LINE + ROW_GAP
+            return
+        name = f"ok-{len(self.s.formulas)}"
+        self.s.formulas.append(
+            {"name": name, "kind": "scalar", "expression": expression, "bindings": bindings}
+        )
+        self.s._rules += 1
+        rule_ = {
+            "id": f"r-{self.s._rules:04d}",
+            "name": f"{ring.counted} count",
+            "targetProperty": "text",
+            "default": NO_VALUE,
+            "formula": _FORMULA_PREFIX + name,
+        }
+        w = COUNT_DIGITS * CHAR_WIDTH * TEXT_SIZE + NUMBER_PAD
+        props = {"text": NO_VALUE, "fontSize": TEXT_SIZE, "foregroundColor": PAGE_TEXT,
+                 "backgroundColor": TRANSPARENT, "align": "right"}  # fmt: skip
+        self.s.widget(
+            "text-label", x, self.y - (ROW - SMALL_LINE) / 2, w, ROW, props, rules=[rule_]
+        )
+        self.small(x + w + GAP, self.y, f"of {len(lamps)}", fg=MUTED_TEXT)
+        self.y += SMALL_LINE + ROW_GAP
+
+    def ring_columns(
+        self, members: Sequence[RingMember], x0: float, cw: float, per: int, height: float
+    ) -> None:
+        """Members as columns from *x0*, *per* to a row, wrapping."""
+        for i, member in enumerate(members):
             r, c = divmod(i, per)
-            x, y = self.x0 + c * cw, self.y + r * (height + GAP)
+            x, y = x0 + c * cw, self.y + r * (height + GAP)
             w = cw - GAP
             if member.focus:
                 props = {"lineColor": symbols.FOCUS, "lineWidth": 2, "fill": True, "fillColor": symbols.FOCUS_TINT}  # fmt: skip
@@ -2795,13 +2884,7 @@ class _Page:
                 )  # fmt: skip
             if member.link is not None:
                 self.nav(x, y, w, height, replace(member.link, label=f"open {member.thing}"))
-        rows = -(-n // per)
-        self.y += rows * (height + GAP)
-        if ring.caption:
-            for text in _wrap(ring.caption, STRIP_WIDTH, SMALL_SIZE, TILE_LINES):
-                self.small(self.x0, self.y, text, fg=MUTED_TEXT)
-                self.y += SMALL_LINE
-        self.y += ROW_GAP
+        self.y += -(-len(members) // per) * (height + GAP)
 
     def card_front(self, front: Front) -> None:
         """A device's faces: its connectors at one pitch on a panel body, group by
@@ -2847,6 +2930,8 @@ class _Page:
                 self.small(self.x0, self.y, text, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
             self.y += ROW_GAP
+        for typed in front.entries:  # the typed values per connector, under the front
+            self.entry_grid(typed)
         if front.loose:
             self.front_loose(front)
         if front.caption:
@@ -3183,7 +3268,9 @@ class _Page:
                 bottom = max(bottom, self.y)
             self.y = bottom
         for group in operate.groups:
-            if group.kind == "entry":  # a row each: name, now, field, Apply
+            if group.kind == "entry" and len(group.controls) > ENTRIES_IN_ONE_COLUMN:
+                self.entry_grid(group)  # many of one role: a grid, not a long list
+            elif group.kind == "entry":  # a row each: name, now, field, Apply
                 self.control_group(group, self.x0, STRIP_WIDTH)
 
     def control_group(self, group: ControlGroup, x0: float, width: float) -> None:
@@ -3295,17 +3382,8 @@ class _Page:
 
     def entry(self, control: Control) -> None:
         """Type, check, Apply: the name, the live value (now), a field that writes a
-        local value on Enter (new), and Apply, which writes the new value to the
-        channel.
-
-        The local starts as empty text: nothing entered. Until it holds a finite
-        number the Apply button is off the canvas, with "type a value first" in its
-        place, invisible (the viewer leaves it out of the page, so the keyboard
-        cannot reach it either) and its press value is text, not a number; a
-        geometry rule brings it in, a rule makes it visible and a formula gives it
-        the typed number, all from that local only. The
-        viewer cannot clear the local after a write, so the typed value stays in the
-        field beside the live one."""
+        local value on Enter (new), Apply, which writes the new value to the
+        channel, and what it will write (:meth:`apply_controls`)."""
         x = self.x0
         self.text(x, self.y, control.label, size=BLOCK_TEXT_SIZE, w=2 * BLOCK_LABEL, h=ROW)
         x += 2 * BLOCK_LABEL + GAP
@@ -3313,12 +3391,69 @@ class _Page:
         x += text_width(_NOW, SMALL_SIZE) + GAP
         self.number(x, self.y, VALUE_WIDTH, ROW, control.channel, None, None, TEXT_SIZE)
         x += VALUE_WIDTH + 2 * GAP
+        self.apply_controls(control, x, self.y)
+        self.y += ROW + ROW_GAP
+
+    def entry_cell(self, control: Control, x: float, y: float, w: float) -> None:
+        """One entry of a grid, *w* wide: its name and live value, then the field and
+        Apply, then what Apply will write."""
+        name_w = w - VALUE_WIDTH - GAP
+        self.text(x, y, _cut(control.label, name_w, SMALL_SIZE), size=SMALL_SIZE, w=name_w, h=ROW)
+        self.number(x + name_w + GAP, y, VALUE_WIDTH, ROW, control.channel, None, None, TEXT_SIZE)
+        self.apply_controls(control, x, y + ROW + ROW_GAP, (x, y + 2 * (ROW + ROW_GAP)))
+
+    def entry_grid(self, group: ControlGroup) -> None:
+        """Many entries of one role: a sub-heading with the role's title, then the
+        entries in :data:`ENTRY_COLUMNS` columns, filled row by row, then the line of
+        what they write, every channel's name on hover."""
+        if group.title:
+            self.small(self.x0, self.y, group.title.upper(), fg=MUTED_TEXT)
+            self.y += SMALL_LINE + ROW_GAP
+        cw = (STRIP_WIDTH - (ENTRY_COLUMNS - 1) * COLUMN_GAP) / ENTRY_COLUMNS
+        high = ENTRY_CELL_ROWS * (ROW + ROW_GAP) + GAP
+        for n, control in enumerate(group.controls):
+            x = self.x0 + (n % ENTRY_COLUMNS) * (cw + COLUMN_GAP)
+            self.entry_cell(control, x, self.y + (n // ENTRY_COLUMNS) * high, cw)
+        self.y += -(-len(group.controls) // ENTRY_COLUMNS) * high
+        self.writes_line(group, STRIP_WIDTH)
+
+    def writes_line(self, group: ControlGroup, width: float) -> None:
+        """A group's muted line of what it writes; over many channels, their names
+        on hover."""
+        top = self.y
+        for line in _wrap(group.writes, width, SMALL_SIZE):
+            self.small(self.x0, self.y, line, fg=MUTED_TEXT)
+            self.y += SMALL_LINE
+        if len(group.controls) > ENTRIES_IN_ONE_COLUMN:
+            names = ", ".join(dict.fromkeys(c.channel for c in group.controls))
+            self.s.widget(
+                "rectangle", self.x0, top, width, self.y - top,
+                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: names},
+            )  # fmt: skip
+        self.y += GAP
+
+    def apply_controls(
+        self, control: Control, x: float, y: float, will_at: tuple[float, float] | None = None
+    ) -> None:
+        """From (*x*, *y*): a field that writes a local value on Enter (new), Apply,
+        which writes the new value to the channel, then (at *will_at*, else beside)
+        what it will write.
+
+        The local starts as empty text: nothing entered. Until it holds a finite
+        number the Apply button is off the canvas, with "type a value first" in its
+        place, invisible (the viewer leaves it out of the page, so the keyboard
+        cannot reach it either) and its press value is text, not a number; a
+        geometry rule brings it in, a rule makes it visible and a formula gives it
+        the typed number, all from that local only. What it will write comes from
+        that same formula: when the field's text is no number, both keep the last
+        number, so the line says what a press writes. The viewer cannot clear the
+        local after a write, so the typed value stays in the field."""
         local = (
             "loc://"
             + re.sub(r"[^A-Za-z0-9]+", "_", f"{self.s.doc_id}_{control.channel}")
             + '<VString>("")'
         )
-        self.box(x - 1, self.y - 1, VALUE_WIDTH + 2, ROW + 2, line=MUTED_TEXT, fill=TRANSPARENT)
+        self.box(x - 1, y - 1, VALUE_WIDTH + 2, ROW + 2, line=MUTED_TEXT, fill=TRANSPARENT)
         props = {
             "pv": local,
             "fontSize": TEXT_SIZE,
@@ -3327,10 +3462,10 @@ class _Page:
             "alarmSensitiveBorder": False,
             _TOOLTIP: f"new value for {control.channel}: Enter keeps it here, nothing is written",
         }
-        self.s.widget("pv-text-input", x, self.y, VALUE_WIDTH, ROW, props)
+        self.s.widget("pv-text-input", x, y, VALUE_WIDTH, ROW, props)
         x += VALUE_WIDTH + GAP
         width = 2 * BLOCK_GAP
-        self.text(x, self.y, _TYPE_FIRST, size=SMALL_SIZE, w=width, h=ROW, fg=MUTED_TEXT)
+        self.text(x, y, _TYPE_FIRST, size=SMALL_SIZE, w=width, h=ROW, fg=MUTED_TEXT)
         name = f"draft-{len(self.s.formulas)}"
         self.s.formulas.append(
             {"name": name, "kind": "scalar", "expression": "{v} + 0", "bindings": {"v": local}}
@@ -3373,12 +3508,12 @@ class _Page:
             "foregroundColor": symbols.CONTROL_ACTION_TEXT,
             _TOOLTIP: f"writes the new value to {target}",
         }
-        self.s.widget("pv-button", APPLY_AWAY, self.y, width, ROW, button, rules=rules)
+        self.s.widget("pv-button", APPLY_AWAY, y, width, ROW, button, rules=rules)
         # what Apply writes, from the same formula as its press value: when the
         # field's text is no number, both keep the last number, so the line still
         # says what a press writes
-        x += width + GAP
-        self.small(x, self.y + (ROW - SMALL_LINE) / 2, _WILL_WRITE, fg=MUTED_TEXT)
+        x, y = will_at if will_at is not None else (x + width + GAP, y)
+        self.small(x, y + (ROW - SMALL_LINE) / 2, _WILL_WRITE, fg=MUTED_TEXT)
         x += text_width(_WILL_WRITE, SMALL_SIZE) + GAP
         self.s._rules += 1
         shown = {
@@ -3396,8 +3531,7 @@ class _Page:
             "backgroundColor": TRANSPARENT,
             _TOOLTIP: f"what Apply writes to {target}",
         }
-        self.s.widget("text-label", x, self.y, VALUE_WIDTH, ROW, props, rules=[shown])
-        self.y += ROW + ROW_GAP
+        self.s.widget("text-label", x, y, VALUE_WIDTH, ROW, props, rules=[shown])
 
     def channel_grid(self, grid: ChannelGrid) -> None:
         """Every channel not drawn above, in columns filled top to bottom: its light
@@ -5187,6 +5321,9 @@ class _Page:
         room = min(self.right - self.x0, CARD_LEFT - COLUMN_GAP)
         canvas = min(PICTURE_SIZE, room - 2 * PICTURE_PAD)
         x0 = self.x0 + (room - canvas) / 2
+        if not shape_rows and not outline and not any(p.positioned for p in parts):
+            self.unarranged(picture, parts)  # no frame round nothing
+            return
         if not shape_rows and not outline:
             scale = self.bare_picture(picture, parts, x0, canvas)
             self.scale_bar(x0, scale, canvas, _NOT_STATED)
@@ -5262,6 +5399,40 @@ class _Page:
         self.y = top + height + GAP
         self.scale_bar(x0, scale, canvas, scale_note(body))
         self.picture_legend(picture)
+
+    def unarranged(self, picture: Picture, parts: list[PicturePart]) -> None:
+        """A drawing none of whose parts has a place: no frame, but a compact row of
+        blocks, each the part's name over its signal's light and value, wrapping to
+        the column's width, its height fitted; "arrangement not stated" under it,
+        then the rows' sources."""
+        per = max(1, int((self.right - self.x0 + GAP) // (ARRANGED_BLOCK + GAP)))
+        high = 2 * ROW
+        for n, part in enumerate(parts):
+            x = self.x0 + (n % per) * (ARRANGED_BLOCK + GAP)
+            y = self.y + (n // per) * (high + GAP)
+            self.box(x, y, ARRANGED_BLOCK, high, fill=PANEL_BACKGROUND)
+            inner = ARRANGED_BLOCK - 2 * GAP
+            name = _cut(part.part, inner, SMALL_SIZE)
+            self.text(x + GAP, y, name, size=SMALL_SIZE, w=inner, h=ROW, fg=MUTED_TEXT)
+            self.parts_listed.add(part.part)
+            channel = part.channel
+            if channel is None:
+                self.small(x + GAP, y + ROW, _SIGNAL_NOT_STATED, fg=MUTED_TEXT)
+                continue
+            vx = x + GAP
+            if self.graph.rule(channel):
+                if meaning_stated(self.graph, channel):
+                    vx = self.light(vx, y + ROW, [describe_light(self.graph, channel)])
+                else:
+                    vx = self.no_rule(vx, y + ROW)
+                vx += GAP
+            if self.shows_number(part):
+                self.field(vx, y + ROW, channel, w=x + ARRANGED_BLOCK - GAP - vx, units=True)
+        rows = -(-len(parts) // per)
+        self.y += rows * (high + GAP)
+        self.small(self.x0, self.y, _ARRANGEMENT_NOT_STATED, fg=MUTED_TEXT)
+        self.y += SMALL_LINE + GAP
+        self.picture_legend(picture)  # the parts are named above: their sources only
 
     def bare_picture(
         self, picture: Picture, parts: list[PicturePart], x0: float, canvas: float
