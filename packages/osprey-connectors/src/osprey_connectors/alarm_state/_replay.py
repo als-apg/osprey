@@ -36,7 +36,7 @@ from osprey_connectors.alarm_state._fold import (
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel, parse_instant
-from osprey_connectors.service_answers import BackendSpec, Unavailable
+from osprey_connectors.service_answers import BackendSpec, NotListed, Unavailable
 
 logger = get_logger("alarm_replay")
 
@@ -92,7 +92,7 @@ class ReplayAlarmState(AlarmState):
     @override
     async def state_for(
         self, address: str, *, timeout_s: float
-    ) -> AlarmStateRecord | Unavailable | None:
+    ) -> AlarmStateRecord | NotListed | Unavailable:
         await self._loading(timeout_s)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):

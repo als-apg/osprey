@@ -40,9 +40,8 @@ from osprey.services.pv_directory._connectors import (
     FLOOR_REASON,
     NO_SOURCE_REASON,
     SERVED_QUERY_FIELD,
-    DirectoryPage,
     DirectoryQuery,
-    Outcome,
+    NotListed,
     Source,
     Unavailable,
     as_payload,
@@ -170,7 +169,7 @@ class DirectoryService:
         held = _result(store, late)
         await _cancel(tasks)
 
-        partial: list[Mapping[str, str]] = []
+        partial: list[dict[str, str]] = []
         total = counted if isinstance(counted, int) else None
         if isinstance(counted, Unavailable):
             partial.append({"part": "count", "reason": counted.reason})
@@ -194,22 +193,25 @@ class DirectoryService:
                 server, (origins, alarms, archived), marked, fetched, index, held
             )
         else:
-            fields_out = self._server_page(backend, _result(page, late), total, partial)
+            fields_out = self._server_page(backend, _result(page, late), total)
             if fields_out.get("total") is None:
                 fields_out["total"] = total
-        rows = fields_out.pop("rows", [])
-        payload: dict[str, Any] = as_payload(
-            DirectoryPage(
-                searched=_searched(server, origins, alarms, archived),
-                source=source,
-                partial=tuple(partial),
-                facets=None if facets is None else {k: tuple(v) for k, v in facets.items()},
-                facets_reason=facets_reason,
-                **fields_out,
-            )
-        )
         alarm_states = index if isinstance(index, dict) else None
-        payload["rows"] = [_served_row(row, origin, alarm_states, held) for row, origin in rows]
+        rows = fields_out.get("rows", [])
+        # The served search, key for key in the order the pages and tools have always read.
+        payload: dict[str, Any] = {
+            "outcome": fields_out["outcome"],
+            "searched": _searched(server, origins, alarms, archived),
+            "request": fields_out["request"],
+            "source": as_payload(source),
+            "total": fields_out.get("total"),
+            "rows": [_served_row(row, origin, alarm_states, held) for row, origin in rows],
+            "truncated": fields_out.get("truncated", False),
+            "partial": partial,
+            "facets": facets,
+            "facets_reason": facets_reason,
+            "reason": fields_out.get("reason"),
+        }
         if isinstance(held, Unavailable):
             payload["archived_reason"] = held.reason
         return payload
@@ -271,7 +273,7 @@ class DirectoryService:
         payload = {"source": as_payload(source), "origin": origin, "record": None}
         if isinstance(answer, Unavailable):
             return {**payload, "outcome": "unavailable", "reason": answer.reason}
-        if answer == Outcome.NOT_LISTED:
+        if isinstance(answer, NotListed):
             return {**payload, "outcome": "not_listed"}
         hidden = self._hidden()
         row = self._hide_row(backend, answer.row, hidden)
@@ -597,8 +599,8 @@ class DirectoryService:
             return _FullSet([], "")
         left = max(deadline - (time.monotonic() - started), 0.0)
         answer = await backend.search(evolve(server, page=0, page_size=total), timeout_s=left)
-        if answer.outcome == Outcome.UNAVAILABLE:
-            return Unavailable(cause="failed", reason=answer.reason or "no answer")
+        if isinstance(answer, Unavailable):
+            return answer
         fetched = _FullSet(list(answer.rows), answer.request)
         self._store(at, key, fetched)
         return fetched
@@ -634,43 +636,36 @@ class DirectoryService:
         """The page of an origin-, alarm- or archive-filtered search, cut from the fetched set."""
         origins, alarms, archived = filters
         if marked is None:
-            return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": fetched.reason}
+            return _unavailable_page(fetched.reason)
         refused = _unfiltered(alarms, index, archived, held)
         if refused is not None:
-            return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": refused.reason}
+            return _unavailable_page(refused.reason)
         keeps = _kept(origins, alarms, archived, index, held)
         kept = [pair for pair in marked if keeps(*pair)]
         size = max(query.page_size, 0)
         start = max(query.page, 0) * size
         rows = kept[start : start + size]
         return {
-            "outcome": Outcome.FOUND if kept else Outcome.NO_MATCH,
+            "outcome": "found" if kept else "no_match",
             "request": fetched.request,
             "total": len(kept),
             "rows": rows,
             "truncated": start + len(rows) < len(kept),
         }
 
-    def _server_page(
-        self, backend: Any, page: Any, total: int | None, partial: list[Mapping[str, str]]
-    ) -> dict[str, Any]:
-        """The page the server answered, its rows marked."""
+    def _server_page(self, backend: Any, page: Any, total: int | None) -> dict[str, Any]:
+        """The page the server answered, its rows marked; *total* is the search's own count."""
         if isinstance(page, Unavailable):
-            return {"outcome": Outcome.UNAVAILABLE, "request": "", "reason": page.reason}
-        known = {entry["part"] for entry in partial}
-        partial.extend(
-            dict(entry)
-            for entry in page.partial
-            if entry.get("part") not in known
-            and not (entry.get("part") == "count" and total is not None)
-        )
+            return _unavailable_page(page.reason)
+        if total is None and isinstance(page.total, int):
+            total = page.total
         return {
             "outcome": page.outcome,
             "request": page.request,
-            "total": page.total if total is None else total,
+            "total": total,
             "rows": self._marked(backend, page.rows),
             "truncated": page.truncated,
-            "reason": page.reason,
+            "reason": page.note,
         }
 
     def _marked(self, backend: Any, rows: Iterable[Any]) -> list[tuple[Any, Origin]]:
@@ -741,6 +736,11 @@ def _no_source_page(reason: str, target: str) -> dict[str, Any]:
         "facets": None,
         "facets_reason": None,
     }
+
+
+def _unavailable_page(reason: str) -> dict[str, Any]:
+    """The fields of a search page that has no answer: it names no request it sent."""
+    return {"outcome": "unavailable", "request": "", "reason": reason}
 
 
 def _no_source_count(reason: str, target: str) -> dict[str, Any]:

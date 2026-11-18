@@ -33,7 +33,7 @@ from osprey.services.pv_directory import _connectors, facts, service
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
 from osprey_connectors.directory import DirectoryPage, DirectoryRow
-from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from osprey_connectors.service_answers import NotListed, Source, Unavailable
 from tests._service_factory import patch_create_service
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -86,7 +86,7 @@ class FakeDirectory:
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="from the backend",
             request=f"GET /fake?q={query.words}",
             source=self.source,
@@ -102,7 +102,7 @@ class FakeDirectory:
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return Outcome.NOT_LISTED
+        return NotListed(address=address)
 
     async def property_values(
         self,

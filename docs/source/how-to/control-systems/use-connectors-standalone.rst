@@ -85,8 +85,9 @@ Against a directory listing those three BPM channels, it prints:
    :language: text
 
 Every answer is a value, never an exception: a search returns a page whose
-``outcome`` says how it ended, and ``describe`` returns the record,
-``Outcome.NOT_LISTED``, or ``Unavailable`` with the reason.
+``outcome`` says how it ended, or ``Unavailable`` with its ``cause`` and
+``reason``, and ``describe`` returns the record, ``NotListed``, or
+``Unavailable``.
 
 What needs a deployment
 -----------------------

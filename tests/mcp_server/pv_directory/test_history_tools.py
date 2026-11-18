@@ -39,8 +39,8 @@ from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmStateRecord
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.put_log import PutRow
 from osprey_connectors.service_answers import (
-    HistoryPage,
-    Outcome,
+    LogPage,
+    NotListed,
     Source,
     Unavailable,
 )
@@ -83,13 +83,13 @@ class FakeBackend:
 
     def _page(self, rows: list[Any]) -> Any:
         if not rows:
-            return HistoryPage(
-                outcome=Outcome.NO_MATCH,
+            return LogPage(
+                outcome="no_match",
                 source=self.source,
-                reason=self.empty_reason,
+                note=self.empty_reason,
             )
-        return HistoryPage(
-            outcome=Outcome.FOUND,
+        return LogPage(
+            outcome="found",
             source=self.source,
             rows=rows,
         )
@@ -100,7 +100,7 @@ class FakeDirectory(FakeBackend):
         return 0
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return Outcome.NOT_LISTED
+        return NotListed(address=address)
 
 
 class FakeAlarmState(FakeBackend):
@@ -116,7 +116,7 @@ class FakeAlarmState(FakeBackend):
         pass
 
     async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return self.states.get(address)
+        return self.states.get(address, NotListed(address=address))
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
@@ -127,8 +127,15 @@ class FakeAlarmLog(FakeBackend):
     config: Any = None
     asked: list[tuple[str, Any, int]] = []
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
-        self.asked.append((address, since, limit))
+    async def history(
+        self,
+        address: str,
+        *,
+        start_at: Any = None,
+        limit: int,
+        timeout_s: float,  # noqa: ARG002
+    ) -> Any:
+        self.asked.append((address, start_at, limit))
         return self._page(self.rows)
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
@@ -140,8 +147,15 @@ class FakePutLog(FakeBackend):
     rows: list[Any] = []
     asked: list[tuple[str, Any, int]] = []
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
-        self.asked.append((address, since, limit))
+    async def history(
+        self,
+        address: str,
+        *,
+        start_at: Any = None,
+        limit: int,
+        timeout_s: float,  # noqa: ARG002
+    ) -> Any:
+        self.asked.append((address, start_at, limit))
         return self._page(self.rows)
 
 
@@ -314,7 +328,7 @@ async def test_a_stale_alarm_state_is_reported_as_stale(tmp_path: Path) -> None:
 
 async def test_a_channel_with_no_answer_is_missing_beside_the_answered(tmp_path: Path) -> None:
     FakeAlarmState.states = {
-        "SR:BPM1": AlarmStateRecord(severity="NO_ALARM"),
+        "SR:BPM1": AlarmStateRecord(severity="OK"),
         "SR:BPM2": Unavailable(
             cause="unreachable", reason="alarm broker cannot be reached: refused"
         ),

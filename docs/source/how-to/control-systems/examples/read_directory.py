@@ -4,7 +4,7 @@ import asyncio
 
 from osprey_connectors.directory import DirectoryQuery, DirectoryRecord
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors.service_answers import BackendSpec
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 
 DIRECTORY = {"url": "https://channelfinder.facility.edu:8443/ChannelFinder", "timeout_s": 10}
 
@@ -19,6 +19,9 @@ async def main() -> None:
     directory = await ConnectorFactory.create_service(spec)
 
     page = await directory.search(DirectoryQuery(words="SR:BPM*"), timeout_s=TIMEOUT_S)
+    if isinstance(page, Unavailable):
+        print(f"{page.cause}: {page.reason}")
+        return
     print(f"{page.outcome}: {len(page.rows)} of {page.total}")
     for row in page.rows:
         print(f"  {row.address:<10} {row.channel_type:<3} {row.server:<7} {row.description}")
@@ -27,7 +30,7 @@ async def main() -> None:
     if isinstance(record, DirectoryRecord):
         print(f"{record.row.address}: {record.row.status} on {record.row.host}")
     else:
-        print(record)  # Outcome.NOT_LISTED, or Unavailable(cause=..., reason=...)
+        print(record)  # NotListed(address=...), or Unavailable(cause=..., reason=...)
 
 
 if __name__ == "__main__":

@@ -35,8 +35,8 @@ from osprey_connectors.model import FrozenModel
 from osprey_connectors.put_log._contract import PutLog, PutRow
 from osprey_connectors.service_answers import (
     BackendSpec,
-    HistoryPage,
-    Outcome,
+    LogPage,
+    PageOutcome,
     Unavailable,
     _instant,
     _text,
@@ -88,8 +88,13 @@ class CaPutLog(PutLog):
 
     @override
     async def history(
-        self, address: str, start_at: datetime | None, limit: int, *, timeout_s: float
-    ) -> HistoryPage[PutRow]:
+        self,
+        address: str,
+        *,
+        start_at: datetime | None = None,
+        limit: int,
+        timeout_s: float,
+    ) -> LogPage[PutRow] | Unavailable:
         """The logged writes of *address*, newest first within the page the service returned."""
         if start_at is not None:
             require_aware(start_at, name="start_at")
@@ -97,7 +102,7 @@ class CaPutLog(PutLog):
         # One row past the limit, so a full page differs from one that just fills.
         envelope = await self._search(f"{address}.*", limit + 1, timeout_s)
         if isinstance(envelope, Unavailable):
-            return self._page(Outcome.UNAVAILABLE, reason=envelope.reason)
+            return envelope
 
         written = [
             _row(hit, address)
@@ -111,8 +116,8 @@ class CaPutLog(PutLog):
         rows = written[:limit]
         truncated = len(written) > limit or _left_unread(envelope, limit)
         if not rows:
-            return self._page(Outcome.NO_MATCH, truncated=truncated, reason=_NO_ROWS_REASON)
-        return self._page(Outcome.FOUND, rows=rows, truncated=truncated)
+            return self._page("no_match", truncated=truncated, note=_NO_ROWS_REASON)
+        return self._page("found", rows=rows, truncated=truncated)
 
     @override
     async def probe(self, *, timeout_s: float) -> str | Unavailable:
@@ -137,19 +142,19 @@ class CaPutLog(PutLog):
 
     def _page(
         self,
-        outcome: Outcome,
+        outcome: PageOutcome,
         *,
         rows: list[PutRow] | None = None,
         truncated: bool = False,
-        reason: str | None = None,
-    ) -> HistoryPage[PutRow]:
-        return HistoryPage(
+        note: str | None = None,
+    ) -> LogPage[PutRow]:
+        return LogPage(
             outcome=outcome,
             source=self.source,
             rows=tuple(rows or ()),
             truncated=truncated,
+            note=note,
             retention_known=False,
-            reason=reason,
         )
 
 

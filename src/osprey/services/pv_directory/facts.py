@@ -40,10 +40,10 @@ from osprey.services.pv_directory._connectors import (
     IOC_HEALTH_SIGNALS,
     NO_SOURCE_REASON,
     SERVED_SIGNAL_PROPERTY,
+    NotListed,
     Unavailable,
     as_payload,
     served_instant,
-    severity_rank,
     unavailable_payload,
 )
 from osprey.services.pv_directory.archive import (
@@ -54,7 +54,7 @@ from osprey.services.pv_directory.archive import (
 )
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
-from osprey.services.pv_directory.vocabulary import CONFIG_LABELS, service_failed
+from osprey.services.pv_directory.vocabulary import CONFIG_LABELS, ServedOutcome, service_failed
 from osprey_connectors.deployment.archive_targets import archive_targets
 
 __all__ = ["ACTIVE_ALARMS_MAX_ROWS", "Facts", "panel_link"]
@@ -83,7 +83,7 @@ _REPLAY_BACKEND = "alarm_replay"
 #: How long past its deadline a backend call may run before the section gives up on it.
 _GRACE_S = 0.5
 _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
-_FEED_LOADING = "alarm feed still loading"
+_MOVED_REASON = "the target moved"
 #: Where an alarm with no time sorts among those of its severity: after every timed one.
 _NO_TIME = datetime.min.replace(tzinfo=UTC)
 _LIVE_CONFIGURATION = CONFIG_LABELS["alarm_state"]
@@ -289,9 +289,9 @@ class Facts:
             return _NoSource(reason or NO_SOURCE_REASON, record=None)
         snapshot = await self._service.snapshot()
         if snapshot is None:
-            return _section(backend, "unavailable", record=None, reason="the target moved")
+            return _section(backend, "unavailable", record=None, reason=_MOVED_REASON)
         answer = await _ask(snapshot.state_for(name, deadline), deadline)
-        if answer is None:
+        if isinstance(answer, NotListed):
             return _section(backend, "not_listed", record=None)
         if _is_unavailable(answer):
             return _section(backend, "unavailable", record=None, reason=answer.reason)
@@ -305,7 +305,7 @@ class Facts:
             return _NoSource(reason or NO_SOURCE_REASON)
         snapshot = await self._service.snapshot()
         if snapshot is None:
-            return _section(backend, "unavailable", reason="the target moved")
+            return _section(backend, "unavailable", reason=_MOVED_REASON)
         answer = await _ask(snapshot.states(deadline), deadline)
         if _is_unavailable(answer):
             return _section(backend, "unavailable", reason=answer.reason)
@@ -332,20 +332,19 @@ class Facts:
     async def _alarm_config(self, name: str, deadline: float) -> Any:
         """The live configuration from the feed, else the logger's (D4); one source per page."""
         backend, _source, reason = await self._service.backend("alarm_state")
+        feed: tuple[Any, str] | None = None
         if backend is not None:
             snapshot = await self._service.snapshot()
-            answer = (
-                await _ask(snapshot.config_for(name, deadline), deadline)
-                if snapshot is not None
-                else _Reason("the target moved")
-            )
-            if not _is_unavailable(answer):
-                return _config_section(backend, answer)
-            if answer.reason == _FEED_LOADING:
-                return _failed_config(backend, _LIVE_CONFIGURATION, answer.reason)
-            feed = (backend, answer.reason)
-        else:
-            feed = None
+            if snapshot is None:
+                feed = (backend, _MOVED_REASON)
+            else:
+                answer = await _ask(snapshot.config_for(name, deadline), deadline)
+                if not _is_unavailable(answer):
+                    return _config_section(backend, answer)
+                if answer.cause == "not_ready":
+                    # A feed still loading will answer: the logged configuration is not asked.
+                    return _failed_config(backend, _LIVE_CONFIGURATION, answer.reason)
+                feed = (backend, answer.reason)
         log, _log_source, log_reason = await self._service.backend("alarm_log")
         if log is None:
             if feed is not None:
@@ -372,16 +371,18 @@ class Facts:
         backend, _source, reason = await self._service.backend(kind)
         if backend is None:
             return _NoSource(reason or NO_SOURCE_REASON, rows=[])
-        answer = await _ask(backend.history(name, since, limit, timeout_s=deadline), deadline)
+        read = backend.history(name, start_at=since, limit=limit, timeout_s=deadline)
+        answer = await _ask(read, deadline)
         if _is_unavailable(answer):
             return _section(backend, "unavailable", rows=[], reason=answer.reason)
-        page = as_payload(answer)
-        fields = {
-            key: value
-            for key, value in page.items()
-            if key not in ("outcome", "source") and (key != "reason" or value)
-        }
-        return _section(backend, page["outcome"], **fields)
+        return _section(
+            backend,
+            answer.outcome,
+            rows=as_payload(answer.rows),
+            truncated=answer.truncated,
+            retention_known=answer.retention_known,
+            **({"reason": answer.note} if answer.note else {}),
+        )
 
     async def _finished(
         self, answer: dict[str, Any] | _NoSource, target: str | None = None
@@ -616,18 +617,19 @@ class _Reason:
 
 
 async def _ask(call: Awaitable[Any], deadline: float) -> Any:
-    """*call*'s answer, or the reason it has none when it misses *deadline* or raises.
+    """*call*'s answer, or ``Unavailable`` when it misses *deadline* or raises.
 
     The call was handed *deadline* and answers by it; the guard here, a grace
-    later, only stops a backend that does not.
+    later, only stops a backend that does not. A backend is only asked when the
+    installed connectors have the service modules, so ``Unavailable`` is bound.
     """
     try:
         return await asyncio.wait_for(call, deadline + _GRACE_S)
     except TimeoutError:
-        return _Reason(f"no answer within {deadline:g} s")
+        return Unavailable(cause="timeout", reason=f"no answer within {deadline:g} s")
     except Exception as failure:
         logger.warning("PV facts backend failed", exc_info=True)
-        return _Reason(service_failed(failure))
+        return Unavailable(cause="failed", reason=service_failed(failure))
 
 
 async def _archive_metadata(connector: Any, name: str) -> Any:
@@ -659,7 +661,7 @@ def _is_unavailable(answer: Any) -> bool:
     )
 
 
-def _section(backend: Any, outcome: str, **fields: Any) -> dict[str, Any]:
+def _section(backend: Any, outcome: ServedOutcome, **fields: Any) -> dict[str, Any]:
     """A section answered by *backend*, with its source and the caveats configured on it."""
     return {
         "outcome": outcome,
@@ -677,7 +679,7 @@ def _feed_kind(backend: Any) -> str:
 def _alarm_order(row: Any) -> tuple[int, bool, datetime]:
     """An active alarm's place, largest first: most severe, then newest, an untimed one last."""
     event_at = row.state.event_at
-    return severity_rank(row.state.severity), event_at is not None, event_at or _NO_TIME
+    return row.state.severity.rank, event_at is not None, event_at or _NO_TIME
 
 
 def _alarm_row(row: Any) -> dict[str, Any]:

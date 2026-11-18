@@ -20,7 +20,7 @@ from osprey_connectors.alarm_state import (
 from osprey_connectors.alarm_state._fold import FeedSnapshot, fold_message
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
 from osprey_connectors.alarm_state._replay import ReplayAlarmState
-from osprey_connectors.service_answers import BackendSpec, Unavailable
+from osprey_connectors.service_answers import BackendSpec, NotListed, Unavailable
 
 from .test_kafka_backend import FakeConsumer, Record
 
@@ -151,7 +151,9 @@ async def test_reads_answer_the_folded_record():
     config = await backend.config_for(PV, timeout_s=1.0)
     assert isinstance(config, AlarmConfigRecord)
     assert config.in_tree == "yes"
-    assert await backend.state_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0) is None
+    assert await backend.state_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0) == NotListed(
+        address="DEMO:NOT:IN:THE:TREE"
+    )
     assert (await backend.config_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0)).in_tree == "no"
 
 

@@ -30,7 +30,7 @@ import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import ConfigDict, Field, OnErrorOmit, TypeAdapter, ValidationError
 from typing_extensions import override
@@ -44,10 +44,10 @@ from osprey_connectors.directory._contract import (
     DirectoryRow,
     DirectoryStatus,
 )
-from osprey_connectors.model import FrozenModel
+from osprey_connectors.model import FrozenModel, evolve
 from osprey_connectors.service_answers import (
     BackendSpec,
-    Outcome,
+    NotListed,
     Unavailable,
     _instant,
     _Recorded,
@@ -320,34 +320,14 @@ class ChannelFinderDirectory(ChannelDirectory):
         return await self._transport.request("GET", path, params=params, timeout_s=timeout_s)
 
     @override
-    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
+    async def search(
+        self, query: DirectoryQuery, *, timeout_s: float
+    ) -> DirectoryPage | Unavailable:
         started = time.monotonic()
-        searched = _searched(query)
         size = max(query.page_size, 0)
         start = max(query.page, 0) * size
         searches = self._searches(query)
         sent: list[str] = []
-
-        def answer(
-            outcome: Outcome,
-            *,
-            total: int | None = None,
-            rows: list[DirectoryRow] | None = None,
-            truncated: bool = False,
-            partial: list[Mapping[str, str]] | None = None,
-            reason: str | None = None,
-        ) -> DirectoryPage:
-            return DirectoryPage(
-                outcome=outcome,
-                searched=searched,
-                request=" · ".join(sent),
-                source=self.source,
-                total=total,
-                rows=tuple(rows or ()),
-                truncated=truncated,
-                partial=tuple(partial or ()),
-                reason=reason,
-            )
 
         while True:
             narrowing = searches.pop(0)
@@ -359,28 +339,28 @@ class ChannelFinderDirectory(ChannelDirectory):
             )
             channels, total = _channels(body), _total(counted)
             known = None if isinstance(total, Unavailable) else total
-            why_no_count = total.reason if isinstance(total, Unavailable) else ""
             if isinstance(channels, Unavailable):
-                return answer(Outcome.UNAVAILABLE, reason=channels.reason, total=known)
+                return channels
             if not channels and searches:
                 if known == 0 or (known is None and start == 0):
                     continue
-                if known is None:
+                if isinstance(total, Unavailable):
                     # Past the end of this search, or a page of the next: nothing here says.
-                    return answer(
-                        Outcome.UNAVAILABLE,
-                        reason=f"cannot tell which search this page is of: {why_no_count}",
+                    return evolve(
+                        total, reason=f"cannot tell which search this page is of: {total.reason}"
                     )
-            return answer(
-                Outcome.FOUND if channels or known else Outcome.NO_MATCH,
-                total=known,
-                rows=[self._record(channel).row for channel in channels],
+            return DirectoryPage(
+                outcome="found" if channels or known else "no_match",
+                searched=_searched(query),
+                request=" · ".join(sent),
+                source=self.source,
+                total=total,
+                rows=tuple(self._record(channel).row for channel in channels),
                 truncated=(
                     start + len(channels) < known
                     if known is not None
                     else bool(channels) and len(channels) == size
                 ),
-                partial=[{"part": "count", "reason": why_no_count}] if known is None else [],
             )
 
     @override
@@ -397,7 +377,7 @@ class ChannelFinderDirectory(ChannelDirectory):
     @override
     async def describe(
         self, address: str, *, timeout_s: float
-    ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
+    ) -> DirectoryRecord | NotListed | Unavailable:
         params: _Params = [("~name", _one_value(address)), ("~size", _DESCRIBE_SIZE)]
         channels = _channels(await self._get(_CHANNELS, params, timeout_s))
         if isinstance(channels, Unavailable):
@@ -405,7 +385,7 @@ class ChannelFinderDirectory(ChannelDirectory):
         for channel in channels:
             if channel.name == address:
                 return self._record(channel)
-        return Outcome.NOT_LISTED
+        return NotListed(address=address)
 
     @override
     async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:

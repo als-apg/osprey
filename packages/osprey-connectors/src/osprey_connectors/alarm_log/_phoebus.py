@@ -34,13 +34,13 @@ from typing_extensions import override
 
 from osprey_connectors._service_http import MALFORMED, ReadOnlyTransport, Transport
 from osprey_connectors.alarm_log._contract import AlarmHistoryRow, AlarmLog
-from osprey_connectors.alarm_state import AlarmConfigRecord
+from osprey_connectors.alarm_state import AlarmConfigRecord, AlarmSeverity
 from osprey_connectors.errors import require_aware
 from osprey_connectors.model import FrozenModel
 from osprey_connectors.service_answers import (
     BackendSpec,
-    HistoryPage,
-    Outcome,
+    LogPage,
+    PageOutcome,
     Unavailable,
     _instant,
     _Recorded,
@@ -140,22 +140,27 @@ class PhoebusAlarmLogger(AlarmLog):
 
     @override
     async def history(
-        self, address: str, start_at: datetime | None, limit: int, *, timeout_s: float
-    ) -> HistoryPage[AlarmHistoryRow]:
+        self,
+        address: str,
+        *,
+        start_at: datetime | None = None,
+        limit: int,
+        timeout_s: float,
+    ) -> LogPage[AlarmHistoryRow] | Unavailable:
         if start_at is not None:
             require_aware(start_at, name="start_at")
         # One row more than asked for tells a full page from a longer history.
         answer = await self._search(address, limit + 1, start_at, timeout_s)
         if isinstance(answer, Unavailable):
-            return self._page(Outcome.UNAVAILABLE, reason=answer.reason)
+            return answer
         matching = _rows_of(answer, address)
         rows = [row for row in matching if _in_window(row, start_at)]
         if not rows:
-            return self._page(Outcome.NO_MATCH, reason=_NO_LOGGED_EVENTS)
+            return self._page("no_match", note=_NO_LOGGED_EVENTS)
         # A row older than the window means the page already reached the window's end.
         truncated = len(rows) > limit if len(rows) < len(matching) else len(answer) > limit
         return self._page(
-            Outcome.FOUND, rows=[_history_row(row) for row in rows[:limit]], truncated=truncated
+            "found", rows=[_history_row(row) for row in rows[:limit]], truncated=truncated
         )
 
     @override
@@ -210,18 +215,18 @@ class PhoebusAlarmLogger(AlarmLog):
 
     def _page(
         self,
-        outcome: Outcome,
+        outcome: PageOutcome,
         *,
         rows: list[AlarmHistoryRow] | None = None,
         truncated: bool = False,
-        reason: str | None = None,
-    ) -> HistoryPage[AlarmHistoryRow]:
-        return HistoryPage(
+        note: str | None = None,
+    ) -> LogPage[AlarmHistoryRow]:
+        return LogPage(
             outcome=outcome,
             source=self.source,
             rows=tuple(rows or ()),
             truncated=truncated,
-            reason=reason,
+            note=note,
         )
 
 
@@ -280,9 +285,11 @@ def _history_row(row: _LoggedRow) -> AlarmHistoryRow:
             user=row.user,
             kind="config",
         )
+    severity, acknowledged = AlarmSeverity.of_recorded(row.severity)
     return AlarmHistoryRow(
         event_at=row.event_at,
-        severity=row.severity,
+        severity=severity,
+        acknowledged=acknowledged,
         status=row.current_message,
         message=row.message,
         user=row.user,

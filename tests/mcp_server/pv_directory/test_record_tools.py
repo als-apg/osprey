@@ -33,8 +33,8 @@ from osprey_connectors.directory import (
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import (
-    HistoryPage,
-    Outcome,
+    LogPage,
+    NotListed,
     Source,
     Unavailable,
 )
@@ -97,7 +97,7 @@ class FakeDirectory(FakeBackend):
         hits = self._hits(query)
         rows = hits[query.page * query.page_size : (query.page + 1) * query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="",
             request="GET /fake",
             source=self.source,
@@ -114,16 +114,16 @@ class FakeDirectory(FakeBackend):
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail or address in self.failing:
             return Unavailable(cause="unreachable", reason=self.fail or "connection refused")
-        return self.records.get(address, Outcome.NOT_LISTED)
+        return self.records.get(address, NotListed(address=address))
 
 
 class FakePutLog(FakeBackend):
     failing: set[str] = set()
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, **_: Any) -> Any:
         if address in self.failing:
             return Unavailable(cause="timeout", reason="put log did not answer")
-        return HistoryPage(outcome=Outcome.FOUND, source=self.source, rows=[])
+        return LogPage(outcome="found", source=self.source, rows=[])
 
 
 _FAKES = {"pv_directory": FakeDirectory, "put_log": FakePutLog}

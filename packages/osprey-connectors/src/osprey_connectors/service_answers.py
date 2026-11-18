@@ -1,7 +1,8 @@
 """What every read-only service backend answers, whatever its kind.
 
-A backend is read-only and never raises: a service that gives no answer is a
-value, :class:`Unavailable`, or a page whose outcome says so. Every method is
+A backend is read-only and never raises: every method answers its value or
+:class:`Unavailable`, the one shape of "no answer, and why", and an exact lookup
+that finds nothing answers :class:`NotListed`. Every method is
 async and takes the keyword ``timeout_s``, the seconds this call may spend; the caller owns
 the overall budget and hands the same figure to calls it runs concurrently.
 
@@ -27,30 +28,29 @@ exception to "never raises".
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Generic, Literal, Self, TypeVar
+from typing import Annotated, Generic, Literal, TypeVar
 
 from pydantic import (
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
-    model_validator,
 )
 
 from osprey_connectors.connector_types import ControlTarget
 from osprey_connectors.model import FrozenModel, FrozenTuple, ReadOnlyMapping, parse_instant
 
-#: The row record a :class:`HistoryPage` holds.
+#: The row record a :class:`Page` holds.
 _RowT = TypeVar("_RowT")
 #: The type a :data:`_Recorded` field holds.
 _RecordedT = TypeVar("_RecordedT")
 
 __all__ = [
     "BackendSpec",
-    "HistoryPage",
+    "LogPage",
     "NotListed",
-    "Outcome",
+    "Page",
+    "PageOutcome",
     "ServiceKind",
     "Source",
     "SourceKind",
@@ -90,21 +90,6 @@ UnavailableCause = Literal[
     "unsupported",
     "failed",
 ]
-
-
-class Outcome(StrEnum):
-    """How a lookup ended. ``NOT_LISTED`` is only an exact-name lookup's answer."""
-
-    FOUND = "found"
-    INACTIVE = "inactive"
-    NOT_LISTED = "not_listed"
-    NO_MATCH = "no_match"
-    UNAVAILABLE = "unavailable"
-
-
-def _require_reason(outcome: Outcome, reason: str | None) -> None:
-    if outcome is Outcome.UNAVAILABLE and not reason:
-        raise ValueError("an unavailable outcome carries its reason")
 
 
 def _require_one_time(placed: datetime | None, recorded_stamp: str | None) -> None:
@@ -193,23 +178,33 @@ class BackendSpec(FrozenModel):
     rehearsal: bool
 
 
-class HistoryPage(FrozenModel, Generic[_RowT]):
-    """Logged rows of one PV. No rows means nothing was logged, not that nothing happened.
+#: How a page of rows ended: rows matched, or none did.
+PageOutcome = Literal["found", "no_match"]
 
-    ``rows`` are the records of the kind that answered.
+
+class Page(FrozenModel, Generic[_RowT]):
+    """One page of the rows a service answered for a search or a channel's history.
+
+    ``rows`` are the records of the kind that answered; ``truncated`` says more
+    rows match than the page holds. ``note`` says, in a reader's words, why a
+    page holds no rows. A service that gave no answer answers
+    :class:`Unavailable` instead of a page.
     """
 
-    outcome: Outcome
+    outcome: PageOutcome
     source: Source
     rows: FrozenTuple[_RowT] = ()
     truncated: bool = False
-    retention_known: bool = False
-    reason: str | None = None
+    note: str | None = None
 
-    @model_validator(mode="after")
-    def _unavailable_says_why(self) -> Self:
-        _require_reason(self.outcome, self.reason)
-        return self
+
+class LogPage(Page[_RowT], Generic[_RowT]):
+    """Logged rows of one channel. No rows means nothing was logged, not that nothing happened.
+
+    ``retention_known`` says whether the log states how far back it keeps rows.
+    """
+
+    retention_known: bool = False
 
 
 class _Backend:

@@ -29,7 +29,7 @@ from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
-from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from osprey_connectors.service_answers import NotListed, Source, Unavailable
 from tests._service_factory import patch_create_service
 
 _NEW_MODULES = (
@@ -120,7 +120,7 @@ class FakeDirectory(FakeBackend):
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="from the backend",
             request=f"GET /fake?q={query.words}&size={query.page_size}",
             source=self.source,
@@ -135,7 +135,7 @@ class FakeDirectory(FakeBackend):
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return self.records.get(address, Outcome.NOT_LISTED)
+        return self.records.get(address, NotListed(address=address))
 
 
 class FakeAlarmState(FakeBackend):
@@ -372,19 +372,18 @@ def test_the_filter_cap_answers_display_filter_cap(
     assert _service(_config(tmp_path, LIVE_BUILD, section), tmp_path).filter_cap == cap
 
 
-async def test_a_zero_count_drops_the_backend_count_partial(
+async def test_the_search_own_count_answers_over_a_page_whose_count_missed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def search(self: Any, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG001 - a fake
         return DirectoryPage(
-            outcome=Outcome.NO_MATCH,
+            outcome="no_match",
             searched="from the backend",
             request="GET /fake",
             source=self.source,
-            total=None,
+            total=Unavailable(cause="timeout", reason="the count timed out"),
             rows=[],
             truncated=False,
-            partial=[{"part": "count", "reason": "the count timed out"}],
         )
 
     monkeypatch.setattr(FakeDirectory, "search", search)
@@ -392,6 +391,7 @@ async def test_a_zero_count_drops_the_backend_count_partial(
 
     page = await directory.search(words="nothing")
 
+    assert (page["outcome"], page["request"]) == ("no_match", "GET /fake")
     assert page["total"] == 0
     assert page["partial"] == []
     await directory.aclose()
@@ -1161,10 +1161,25 @@ async def test_a_search_with_no_source_on_live_is_the_shared_fixture_page(
     await directory.aclose()
 
 
+#: The served search's keys, in the order the pages and the tools have always read them.
+_SEARCH_KEYS = [
+    "outcome",
+    "searched",
+    "request",
+    "source",
+    "total",
+    "rows",
+    "truncated",
+    "partial",
+    "facets",
+    "facets_reason",
+    "reason",
+]
+
+
 async def test_every_search_outcome_carries_the_page_fields(
     tmp_path: Path, record: _Record
 ) -> None:
-    page_keys = set(DirectoryPage.model_fields)
     FakeDirectory.rows = [_row("SR:BPM1")]
     record.move("live", 1)
     found = await _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path).search(words="SR")
@@ -1180,8 +1195,29 @@ async def test_every_search_outcome_carries_the_page_fields(
         "unavailable",
         _connectors.NO_SOURCE_REASON,
     )
-    for answer in (found, late, no_source):
-        assert set(answer) == page_keys, answer["outcome"]
+    for answer in (found, late):
+        assert list(answer) == _SEARCH_KEYS, answer["outcome"]
+    assert set(no_source) == set(_SEARCH_KEYS)
+
+
+async def test_a_search_whose_backend_gave_no_answer_names_no_request(
+    tmp_path: Path, record: _Record, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def refused(self: Any, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG001
+        return Unavailable(cause="refused", reason="answered with a login page")
+
+    monkeypatch.setattr(FakeDirectory, "search", refused)
+    record.move("live", 1)
+
+    answer = await _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path).search(words="SR")
+
+    # As a search that timed out answers: the backend's request is not served.
+    assert list(answer) == _SEARCH_KEYS
+    assert (answer["outcome"], answer["request"], answer["reason"]) == (
+        "unavailable",
+        "",
+        "answered with a login page",
+    )
 
 
 @pytest.mark.parametrize(
