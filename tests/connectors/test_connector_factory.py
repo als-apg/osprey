@@ -9,7 +9,7 @@ from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.factory import (
-    _BUILTIN_ARCHIVES,
+    _BUILTIN_ARCHIVERS,
     _BUILTIN_CONTROL_SYSTEMS,
     ConnectorFactory,
 )
@@ -136,7 +136,7 @@ def _archive_spec(archive_type: str, settings: dict | None = None) -> BackendSpe
 
 
 # Written out here rather than read from ``_BUILTIN_CONTROL_SYSTEMS`` /
-# ``_BUILTIN_ARCHIVES``: a name dropped from a tuple must still produce a case.
+# ``_BUILTIN_ARCHIVERS``: a name dropped from a tuple must still produce a case.
 _EVERY_BUILTIN_CONTROL_SYSTEM = (
     connector_types.EPICS,
     connector_types.VIRTUAL_ACCELERATOR,
@@ -163,7 +163,7 @@ class TestBuiltinRegistrationConverges:
     """``ConnectorFactory._ensure_builtins()`` heals a partially-populated registry.
 
     The function short-circuits when every name in ``_BUILTIN_CONTROL_SYSTEMS``
-    and ``_BUILTIN_ARCHIVES`` is already registered. A built-in left out of
+    and ``_BUILTIN_ARCHIVERS`` is already registered. A built-in left out of
     those tuples is invisible to the check: a registry holding every other
     built-in satisfies the early return and the missing entry is never added —
     leaving a project configured for that type unable to build its connector.
@@ -180,7 +180,7 @@ class TestBuiltinRegistrationConverges:
         registered = set(ConnectorFactory._control_system_connectors) | set(
             ConnectorFactory._service_backends["archive"]
         )
-        assert registered == set(_BUILTIN_CONTROL_SYSTEMS) | set(_BUILTIN_ARCHIVES)
+        assert registered == set(_BUILTIN_CONTROL_SYSTEMS) | set(_BUILTIN_ARCHIVERS)
         assert registered == set(_EVERY_BUILTIN_CONTROL_SYSTEM) | set(_EVERY_BUILTIN_ARCHIVER)
 
     @pytest.mark.parametrize(
@@ -267,7 +267,7 @@ class TestBuiltinsRegisterOnFirstUse:
     def test_listing_the_archives_registers_them(self):
         ConnectorFactory._service_backends["archive"].clear()
 
-        assert set(ConnectorFactory.list_services("archive")) == set(_BUILTIN_ARCHIVES)
+        assert set(ConnectorFactory.list_services("archive")) == set(_BUILTIN_ARCHIVERS)
 
     def test_listing_an_unknown_kind_is_refused(self):
         with pytest.raises(ValueError, match="Unknown service kind: 'archiver'"):
@@ -299,7 +299,7 @@ class TestBuiltinArchiverRegistration:
             for reg in FrameworkRegistryProvider().get_registry_config().connectors
             if reg.connector_type == "archiver"
         }
-        assert set(_BUILTIN_ARCHIVES) == registry_archivers
+        assert set(_BUILTIN_ARCHIVERS) == registry_archivers
 
 
 class TestLiveStandinRegistration:
@@ -397,7 +397,7 @@ class TestArchiverTypeResolution:
                 # Every built-in is registered on first use, so the list names
                 # them all although this module's registry held only the mock.
                 f"Unknown archive type: 'hdf5_archiver'. Available types: "
-                f"{list(_BUILTIN_ARCHIVES)}. Use a dotted module path for custom connectors.",
+                f"{list(_BUILTIN_ARCHIVERS)}. Use a dotted module path for custom connectors.",
                 id="unknown-name-lists-available",
             ),
         ],

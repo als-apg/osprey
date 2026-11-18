@@ -155,6 +155,6 @@ class TestArchiverSettingsErrors:
 def test_the_known_archiver_names_are_the_factory_builtins():
     """A built-in's own name block is read, so every built-in has to be a known name."""
     from osprey_connectors import archiver_selection
-    from osprey_connectors.factory import _BUILTIN_ARCHIVES
+    from osprey_connectors.factory import _BUILTIN_ARCHIVERS
 
-    assert sorted(archiver_selection._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVES)
+    assert sorted(archiver_selection._CLI_ARCHIVER_TYPES) == sorted(_BUILTIN_ARCHIVERS)

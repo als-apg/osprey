@@ -253,7 +253,7 @@ class ConnectorFactory:
             name for name in _BUILTIN_CONTROL_SYSTEMS if name not in cls._control_system_connectors
         ]
         missing_archives = [
-            name for name in _BUILTIN_ARCHIVES if name not in cls._service_backends["archive"]
+            name for name in _BUILTIN_ARCHIVERS if name not in cls._service_backends["archive"]
         ]
         missing_service_rows = [
             row for row in _SERVICE_BUILTINS if row.name not in cls._service_backends[row.kind]
@@ -541,7 +541,7 @@ class ConnectorFactory:
 
 _BUILTIN_CONTROL_SYSTEMS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "control_system")
 #: The archives the connector table lists, registered as service backends of kind ``archive``.
-_BUILTIN_ARCHIVES = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
+_BUILTIN_ARCHIVERS = tuple(c.name for c in BUILTIN_CONNECTORS if c.kind == "archiver")
 
 
 class _ServiceBuiltin(FrozenModel):

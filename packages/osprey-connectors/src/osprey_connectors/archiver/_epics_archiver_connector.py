@@ -183,12 +183,15 @@ class EPICSArchiverConnector(ChannelArchive):
             f"EPICS Archiver connector initialized: {self._url} (retrieval at {self._retrieval_path})"
         )
 
-    def _fetch_single_pv(self, address: str, start_str: str, end_str: str) -> SampleSeries:
+    def _fetch_single_pv(
+        self, address: str, start_str: str, end_str: str, *, channel: str
+    ) -> SampleSeries:
         """
         Fetch archived data for a single PV via direct HTTP.
 
         Args:
             address: PV name (may include processing operators, e.g. mean_60(SR:DCCT))
+            channel: The channel the series is named by: the address the caller asked for
             start_str: ISO 8601 UTC start time string
             end_str: ISO 8601 UTC end time string
 
@@ -241,7 +244,7 @@ class EPICSArchiverConnector(ChannelArchive):
         # Empty response: [] or [{"meta": ..., "data": []}]
         samples = _data_points(payload, address)
         if not samples:
-            return pd.Series(dtype=float, name=address)
+            return pd.Series(dtype=float, name=channel)
 
         # Check for waveform PV (array-valued val)
         if isinstance(samples[0].val, list):
@@ -254,7 +257,7 @@ class EPICSArchiverConnector(ChannelArchive):
         ) + pd.to_timedelta([sample.nanos for sample in samples], unit="ns")
         values = [sample.val for sample in samples]
 
-        return pd.Series(values, index=timestamps, name=address)
+        return pd.Series(values, index=timestamps, name=channel)
 
     def _refused_login_message(self, code: int) -> str:
         """Name the login the appliance refused, or the keys that would supply one."""
@@ -336,8 +339,8 @@ class EPICSArchiverConnector(ChannelArchive):
             # query, so a refusal below names the address the caller asked for.
             return {
                 pv: self._fetch_single_pv(
-                    f"{operator}({pv})" if operator else pv, start_str, end_str
-                ).rename(pv)
+                    f"{operator}({pv})" if operator else pv, start_str, end_str, channel=pv
+                )
                 for pv in addresses
             }
 
