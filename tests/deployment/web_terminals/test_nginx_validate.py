@@ -63,6 +63,7 @@ from tests._container_support import (
     runtime_command,
 )
 from tests._renders import tier_render
+from tests.deployment.web_terminals._harness_image import NGINX_IMAGE
 from tests.deployment.web_terminals._nginx import (
     nginx_directives,
     nginx_terminals_part,
@@ -72,7 +73,7 @@ from tests.deployment.web_terminals._nginx import (
 #: moves them, so they are the layout's own — derived here so a cookie name or a
 #: proxy_pass target asserted further down follows a slot that moves.
 _BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel")}
-_NGINX_IMAGE = "nginx:1.31-alpine"
+_NGINX_IMAGE = NGINX_IMAGE
 
 #: The `tls.port` a rootless deployment names: above 1024, so an unprivileged
 #: nginx can bind it, and pointedly not `TLS_LISTEN_PORT` — the whole point of
