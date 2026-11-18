@@ -48,7 +48,11 @@ def _render_reuses_parsed_templates_and_tokens():
     tree is memoized for the packaged ``tokens/`` directory only.
 
     Package scope, so the patch is lifted when this directory's tests are done
-    and never reaches a test elsewhere that loads the token tree itself.
+    and never reaches a test elsewhere that loads the token tree itself. One
+    thing does run under it: the run's shared ``built_demo``, when a test here is
+    the first to ask for it. That is harmless: a demo build never calls the
+    patched ``Environment`` (counted: none), and the token tree's one consumer,
+    ``theme_config``, only reads the memoized tree.
     """
     from osprey.interfaces.design_system.generator import model
     from osprey.interfaces.design_system.generator.build import DEFAULT_TOKENS_DIR
