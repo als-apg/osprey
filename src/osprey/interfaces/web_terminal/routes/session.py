@@ -1512,8 +1512,14 @@ def _chat_turns(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     the operator's turn, ``/name args`` as typed rather than the CLI's echo of
     it. A skill then opens the agent's turn with the row the live stream drew
     for it (:func:`~osprey.interfaces.web_terminal.slash_commands.operator_skill_frames`).
+
+    The closing ``result`` is marked ``ends_turn`` as on the live stream
+    (:func:`~osprey.interfaces.web_terminal.operator_session.mark_turn_end`).
     """
-    from osprey.interfaces.web_terminal.operator_session import _ASYNC_LAUNCH_MARK
+    from osprey.interfaces.web_terminal.operator_session import (
+        _ASYNC_LAUNCH_MARK,
+        mark_turn_end,
+    )
 
     main = [n for n in nodes if isinstance(n, dict) and not n.get("agent_id")]
     approved = _approved_in(main)
@@ -1699,6 +1705,9 @@ def _chat_turns(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for event in pending:
             add_result(current, event)
     close_agent(at_end=True)
+    for turn in turns:
+        if turn["role"] == "assistant":
+            turn["events"] = [mark_turn_end(event) for event in turn["events"]]
     return turns
 
 

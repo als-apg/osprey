@@ -733,6 +733,24 @@ class TestReplayedTurnEnds:
         )
         last = turn["events"][-1]
         assert (last["type"], last["is_error"]) == ("result", False)
+        assert last["ends_turn"] is True
+
+    def test_only_the_replayed_result_ends_the_turn(self, replay_client, transcripts):
+        """Replay marks the turn's end as the live wire does: on its closing result alone."""
+        (turn,) = self._agent_turns(
+            replay_client,
+            transcripts,
+            [
+                _entry("user", "read the orbit"),
+                _api_error("rate_limit", "API Error: Rate limited"),
+                _stopped(_call("toolu_1"), "tool_use"),
+                _result("toolu_1", "1"),
+                _stopped(_entry("assistant", "It is flat."), "end_turn"),
+            ],
+        )
+        events = turn["events"]
+        assert {"error", "tool_use", "text"} <= {e["type"] for e in events}
+        assert [e.get("ends_turn", False) for e in events] == [False] * (len(events) - 1) + [True]
 
     def test_a_turn_a_later_prompt_follows_has_ended(self, replay_client, transcripts):
         """However its last entry reads, the operator's next prompt came after it."""
