@@ -1713,3 +1713,56 @@ def test_a_segment_carrying_its_value_is_not_given_it_twice_in_the_writes_line()
     assert (
         _writes("choice", both, "X") == "writes REBOOT: Reboot = 0, Reboot = 1; stays until changed"
     )
+
+
+def test_a_front_row_with_no_far_relation_is_a_reading_with_no_far_end(tmp_path):
+    from osprey.facility.panels.describe import FRONT_READING, front_state, front_states
+
+    graph = _two_groups(tmp_path, phases=True)  # its phases row names no far relation
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    phases = front.groups[1].connectors
+    assert [c.sides for c in phases] == [(), ()]
+    assert {front_state(c.sides) for c in phases} == {FRONT_READING}
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    dashes = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == layout._NOTHING]
+    assert len(dashes) == 2  # the two outlets with nothing stated, not the phases
+    (states,) = front_states(graph, ["XR01:PS1"]).values()
+    assert states[FRONT_READING] == 2
+    assert states["devices: none"] == 1  # the outlets have nothing on them; readings aside
+
+
+def _literal(tmp_path, served: tuple[str, ...]):
+    def channels(document) -> None:
+        for name in served:
+            document["channels"].append({"id": f"XR01-PS1:{name}", "on": {"device": "XR01:PS1"}})
+
+    roles = "PowerSupply,state,*:PSU?-Sts,device,lamp,,,,,stated,S,1,l\n"
+    _fronted(tmp_path, channels, roles=roles)
+    tables = tmp_path / "panels"
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "supply,1,front,Outputs,,front,,state,,S\n"
+    )
+    (tables / "fronts.csv").write_text(
+        FRONTS_ROLES_HEADER
+        + "supply,rear,supplies,1,PSUA,power,,,,,,PSU A,S,state\n"
+        + "supply,rear,supplies,2,PSUB,power,,,,,,PSU B,S,state\n"
+        + "supply,front,outputs,3,Out{n},power,2,,,,,Out {n},S,\n"
+    )
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    return load_graph(write_fixture_facility(tmp_path / "g.json", channels), tables)
+
+
+def test_a_literal_connector_nothing_of_the_device_binds_to_is_left_out(tmp_path):
+    graph = _literal(tmp_path, ("PSUA-Sts",))
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    supplies = next(g for g in front.groups if g.title == "supplies")
+    assert [c.label for c in supplies.connectors] == ["PSU A"]  # PSU B: no channel binds
+
+
+def test_a_group_all_of_whose_literal_connectors_are_left_out_is_dropped(tmp_path):
+    graph = _literal(tmp_path, ())
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    assert [g.title for g in front.groups] == ["outputs"]

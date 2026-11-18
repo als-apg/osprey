@@ -1332,6 +1332,7 @@ def panels_write(
         from osprey.facility.panels.describe import (
             FRONT_CONTESTED,
             FRONT_NONE,
+            FRONT_READING,
             FRONT_STATED,
             HOP_FOUND,
             STRIP_NOWHERE,
@@ -1363,7 +1364,8 @@ def panels_write(
             report(
                 f"  front {recipe_name}: {total} connectors, {states[FRONT_STATED]} with "
                 f"something stated on them, {states[FRONT_CONTESTED]} contested, "
-                f"{states[FRONT_NONE]} with nothing stated; devices: "
+                f"{states[FRONT_NONE]} with nothing stated, "
+                f"and {states[FRONT_READING]} readings; devices: "
                 f"{states['devices: all']} all stated, {states['devices: some']} some, "
                 f"{states['devices: none']} none"
             )

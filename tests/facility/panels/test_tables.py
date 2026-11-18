@@ -408,3 +408,29 @@ def test_a_card_key_number_names_its_class_and_shows_a_value_or_a_word(tmp_path)
     path.write_text(base + "place,,9,Pressure,word,pressure,Pump,,,S\n")
     with pytest.raises(PanelTableError, match="only a card's key number is a word"):
         read_tables(tables)
+
+
+@pytest.mark.parametrize(
+    "far",
+    ["powered_by,", ",in"],
+)
+def test_a_front_row_with_one_of_far_relation_and_far_direction_is_refused(
+    tmp_path: Path, far: str
+) -> None:
+    directory = copy_tables(tmp_path / "panels")
+    (directory / "fronts.csv").write_text(
+        _header("fronts.csv")
+        + "\nsupply,front,outputs,1,Out1,power,,,powered_by,in,,,S,"
+        + f"\nsupply,front,outputs,2,Out2,power,,,{far},,,S,\n"
+    )
+    with pytest.raises(PanelTableError, match=r"fronts\.csv line 3\b.*both given or both empty"):
+        read_tables(directory)
+
+
+def test_a_front_row_with_neither_far_relation_nor_far_direction_is_read(tmp_path: Path) -> None:
+    directory = copy_tables(tmp_path / "panels")
+    (directory / "fronts.csv").write_text(
+        _header("fronts.csv") + "\nsupply,front,inputs,1,In1,io,,,,,,,S,\n"
+    )
+    (row,) = read_tables(directory).fronts
+    assert (row.far_relation, row.far_direction) == (None, None)

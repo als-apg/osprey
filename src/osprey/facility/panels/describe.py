@@ -1807,8 +1807,9 @@ def recipe_chain(
 
 
 #: How a connector of a front came out: something on it, nothing stated, or
-#: two things or more on one side.
+#: two things or more on one side; a reading has nothing to be on it.
 FRONT_STATED, FRONT_NONE, FRONT_CONTESTED = "stated", "nothing stated", "contested"
+FRONT_READING = "reading"
 _PORTS_NOT_STATED = "port count and assignment not stated"
 _LOOSE = "on no stated port: {}"
 
@@ -1919,8 +1920,11 @@ def front_sides(
     graph: PanelGraph, index: _Index, device: str, row: FrontRow, n: str
 ) -> tuple[tuple[FarEnd, ...], ...]:
     """What is on connector *n*, per side: a socket thing has two sides (its own
-    relation, then the relations naming it), any other connector one; on a side
-    one thing per thing, in id order."""
+    relation, then the relations naming it), a reading (a row with no far
+    relation) none, any other connector one; on a side one thing per thing, in id
+    order."""
+    if row.far_relation is None:
+        return ()
     if row.far_direction == "socket":
         socket = _socket(graph, device, row.connector.replace("{n}", n))
         if socket is None:
@@ -1955,8 +1959,11 @@ def front_sides(
 
 
 def front_state(sides: tuple[tuple[FarEnd, ...], ...]) -> str:
-    """:data:`FRONT_CONTESTED` when a side has two things or more, else
+    """:data:`FRONT_READING` for a connector with no side, else
+    :data:`FRONT_CONTESTED` when a side has two things or more, else
     :data:`FRONT_STATED` when a side has one, else :data:`FRONT_NONE`."""
+    if not sides:
+        return FRONT_READING
     if any(len(side) > 1 for side in sides):
         return FRONT_CONTESTED
     return FRONT_STATED if any(sides) else FRONT_NONE
@@ -1986,7 +1993,9 @@ def card_front(
     that role whose last number is the connector's, else the role on the one thing
     on it) and its presses (only with a stated or inferred value). Things the rows'
     relations name on no stated port are drawn apart, by class. A group with no
-    connector is left out, unless clients on no stated port are drawn for it."""
+    connector is left out, unless clients on no stated port are drawn for it; so
+    is a literal connector whose row lists roles when neither its lamp nor any of
+    them binds on the device."""
     roles = [r for r in (section.roles or "").split(";") if r]
     own = [h for h in hits if h.owner == thing.id and h.role.role in roles]
     channels = {c.name for c in graph.channels(thing.id, "device")}
@@ -2007,7 +2016,6 @@ def card_front(
                 client_groups.add((face, group))
             for n in numbers:
                 sides = front_sides(graph, index, thing.id, row, n)
-                ported |= {end.thing for side in sides for end in side}
                 lamp = None
                 if row.channel:
                     pattern = row.channel.replace("{n}", n)
@@ -2019,6 +2027,9 @@ def card_front(
                 rows_, controls, typed = _connector_roles(
                     graph, own, carried, n, sides, lamp, literal
                 )
+                if literal is not None and lamp is None and not (rows_ or controls or typed):
+                    continue  # a literal connector nothing of this device binds to
+                ported |= {end.thing for side in sides for end in side}
                 presses += controls
                 label = (row.label or row.connector).replace("{n}", n)
                 for hit in typed:
@@ -2160,23 +2171,23 @@ def _front_writes(controls: list[Control], device: str) -> str:
 
 def front_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter[str]]:
     """Per recipe with a front, how many connectors came out each way
-    (:func:`front_state`), and its devices by whether every connector, some or none
-    has something stated on it (``all``, ``some``, ``none``)."""
+    (:func:`front_state`, readings apart), as its card draws them, and its devices
+    by whether every connector that is not a reading, some or none has something
+    stated on it (``all``, ``some``, ``none``)."""
     index = _index(graph)
     found: dict[str, Counter[str]] = {}
     for device in devices:
         recipe = graph.recipe(device)
         name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
-        rows = graph.fronts(name)
-        if not rows or not any(r.kind == "front" for r in graph.card_sections(name)):
+        sections = [r for r in graph.card_sections(name) if r.kind == "front"]
+        if not graph.fronts(name) or not sections:
             continue
         counts = found.setdefault(name, Counter())
-        states: Counter[str] = Counter()
-        for row in rows:
-            for n in front_numbers(graph, device, row):
-                states[front_state(front_sides(graph, index, device, row, n))] += 1
+        thing = graph.thing(device, "device")
+        front = card_front(graph, index, thing, graph.roles(device), name, sections[0])
+        states = Counter(front_state(c.sides) for group in front.groups for c in group.connectors)
         counts.update(states)
-        total = sum(states.values())
+        total = sum(states.values()) - states[FRONT_READING]  # a reading has no far end
         whole = total and states[FRONT_STATED] == total
         some = states[FRONT_STATED] or states[FRONT_CONTESTED]
         counts["devices: all" if whole else "devices: some" if some else "devices: none"] += 1

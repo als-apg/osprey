@@ -1441,10 +1441,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    with no number the listed roles bind the device's channel of that role whose
    name carries the connector's name. A ``{n}`` row with ``roles`` and no
    ``channel`` is numbered by the last number of the device's channels of its
-   first role, with no lamp; a device that serves none gets no such group. Clients the relation names on no stated port are drawn apart by
-   class; a range with nothing in it is left out. ``write`` prints per recipe the
-   connectors with something stated, contested or nothing, and the devices with
-   every connector stated, some or none. A ``ring-strip`` section draws a group
+   first role, with no lamp; a device that serves none gets no such group. A
+   connector with no number whose row lists ``roles`` is left out on a device
+   where neither its lamp nor any listed role binds, and a group all of whose
+   connectors are left out is dropped. ``far_relation`` and ``far_direction``
+   are given together or both left empty; a row with neither is a reading: no far
+   end is drawn under it and no "—". Clients the relation names on no stated port
+   are drawn apart by class; a range with nothing in it is left out. ``write``
+   prints per recipe the connectors with something stated, contested or nothing,
+   the readings apart, and the devices with every connector that is not a reading
+   stated, some or none. A ``ring-strip`` section draws a group
    (``same place``: the devices of the card's recipe in the device's place; or
    ``<relation> <direction>``: the devices that relation names) one column each,
    by ring position, else in number order with "in number order: positions not

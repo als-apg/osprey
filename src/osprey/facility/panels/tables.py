@@ -1005,7 +1005,8 @@ class FrontRow:
     the socket things that exist (``far_direction`` ``socket``), else by the ports
     the relation states. ``channel`` is the connector's state channel. What is on it
     is found by ``far_relation`` in ``far_direction`` on the port ``far_port`` (empty:
-    any port; no relation: nothing is looked for on it); ``label`` is its word
+    any port); a row with neither relation nor direction is a reading, with nothing
+    on it; ``label`` is its word
     under the socket. ``roles`` (optional,
     ``;``-separated) are the section roles the row's connectors carry: empty, every
     section role; a role binds to a connector only through a row that lists it.
@@ -1367,6 +1368,8 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             _check_role(rows[-1], line)
         if name == METRICS:
             _check_metric(rows[-1], line, seen_metric)
+        if name == FRONTS:
+            _check_front_row(rows[-1], line)
         if name == PROBE_PICTURES:
             _check_probe_row(rows[-1], line, seen_probe)
         if name == PICTURES:
@@ -1402,6 +1405,15 @@ def _check_metric(
             METRICS, line, f"view, level, order {key!r} already has a row at line {seen[key]}"
         )
     seen[key] = line
+
+
+def _check_front_row(row: FrontRow, line: int) -> None:
+    """A front row names its far relation and its direction together, or neither
+    (a reading: nothing is on it)."""
+    if (row.far_relation is None) != (row.far_direction is None):
+        raise PanelTableError(
+            FRONTS, line, "far_relation and far_direction are both given or both empty"
+        )
 
 
 def _check_role(role: ChannelRole, line: int) -> None:
