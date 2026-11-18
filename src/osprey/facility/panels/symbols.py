@@ -265,6 +265,10 @@ _BELLOWS_FOLDS = 4
 _KICKER_HEIGHT = 1.75
 _SCRAPER_HEIGHT = 1.75
 _SKEW_TURN = 45  # degrees
+_ION_PUMP_HEIGHT = 0.86  # an ion pump's box, in parts of its width
+_FINS = 4  # its cooling fins, upright inside the box
+_FIN_INSET = 0.14  # between the box and its fins, in parts of its width
+_FINS_LEAST = 16  # px: a narrower box is drawn plain
 _LINE = 1.5  # line width of a drawn outline, in px, at the least
 _LINE_PER_UNIT = 0.1  # a symbol's outline grows with its unit
 _THICK = 2  # line width of the bellows and the kicker, at the least
@@ -451,9 +455,32 @@ def _draw(kind: str, left: float, y: float, w: float, unit: float) -> list[Node]
     if kind == "pump":  # a circle on top of the chamber: a pump of no stated kind
         r = w / 2
         return [_polygon(_ring(left + r, y - r, r, _CIRCLE_SIDES), fill=True)]
-    if kind == "ion_pump":  # a triangle pointing down, the pump hanging off the chamber
-        top, bottom = y - w / 2, y + w / 2
-        return [_polygon([(left, top), (left + w, top), (left + w / 2, bottom)], fill=True)]
+    if kind == "ion_pump":  # a box with cooling fins: how an operator knows the pump
+        h = _ION_PUMP_HEIGHT * w
+        top = y - h / 2
+        body = _box(left, top, w, h, fill=True)
+        if w < _FINS_LEAST:
+            return [body]
+        inset = _FIN_INSET * w
+        step = (w - 2 * inset) / (_FINS - 1)
+        fins: list[Node] = []
+        for i in range(_FINS):
+            x = left + inset + i * step
+            props = {
+                "lineColor": STEEL,
+                "lineWidth": 1,
+                "points": [{"x": 0, "y": 0}, {"x": 0, "y": h - 2 * inset}],
+                "arrowStart": False,
+                "arrowEnd": False,
+            }
+            fins.append(
+                {
+                    "type": "line",
+                    "props": props,
+                    "geometry": _geometry(x, top + inset, 1, h - 2 * inset),
+                }
+            )
+        return [body, *fins]
     if kind == "gauge":  # a triangle pointing up
         top, bottom = y - w / 2, y + w / 2
         return [_polygon([(left + w / 2, top), (left + w, bottom), (left, bottom)], fill=False)]
