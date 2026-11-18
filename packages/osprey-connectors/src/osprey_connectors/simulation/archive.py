@@ -66,7 +66,7 @@ import numpy.typing as npt
 from pydantic import AwareDatetime, ValidationError, model_validator
 
 from osprey_connectors.archiver._field_names import field_name
-from osprey_connectors.errors import ChannelNotFoundError, require_aware
+from osprey_connectors.errors import ChannelNotFoundError, ConfigurationError, require_aware
 from osprey_connectors.logger import get_logger
 from osprey_connectors.model import FrozenModel, FrozenTuple, evolve
 from osprey_connectors.simulation import pulse, topoff
@@ -275,19 +275,21 @@ class SeedKnobs(FrozenModel):
             The parsed knobs.
 
         Raises:
-            ValueError: If a knob is present but not a positive integer, the
-                set is internally inconsistent (see the class), or a knob is
-                written under its retired spelling (``hot_span_hours``,
-                ``hot_cadence_sec`` or ``tail_cadence_sec``).
+            ValueError: If a knob is present but not a positive integer, or the
+                set is internally inconsistent (see the class).
+            ConfigurationError: A knob is written under its retired spelling
+                (``hot_span_hours``, ``hot_cadence_sec`` or ``tail_cadence_sec``);
+                ``key`` is the key written, and the message names the new one.
         """
         block = config.get("va_archiver") or {}
         if not isinstance(block, Mapping):
             raise ValueError(f"config 'va_archiver' must be a mapping (got {type(block).__name__})")
         for old, new in _RENAMED_KNOBS.items():
             if old in block:
-                raise ValueError(
+                raise ConfigurationError(
                     f"va_archiver.{old} was renamed to va_archiver.{new} (same value, same "
-                    f"unit); rebuild the project so its config.yml spells the new key"
+                    f"unit); rebuild the project so its config.yml spells the new key",
+                    key=f"va_archiver.{old}",
                 )
         stated = {name: block[name] for name in cls.model_fields if name in block}
         try:

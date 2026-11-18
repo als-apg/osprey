@@ -37,7 +37,7 @@ from pydantic import ValidationError
 
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.config import facility_timezone
-from osprey_connectors.errors import NaiveDatetimeError
+from osprey_connectors.errors import ConfigurationError, NaiveDatetimeError
 from osprey_connectors.simulation import pulse, topoff
 from osprey_connectors.simulation.archive import (
     DATE_FIELD,
@@ -385,9 +385,10 @@ class TestSeedKnobs:
     def test_a_retired_knob_spelling_is_refused_naming_the_new_key(self, old, new):
         """Read as absent, it would seed the default rather than the value written."""
         with pytest.raises(
-            ValueError, match=rf"va_archiver\.{old} was renamed to va_archiver\.{new}"
-        ):
+            ConfigurationError, match=rf"va_archiver\.{old} was renamed to va_archiver\.{new}"
+        ) as refused:
             SeedKnobs.from_config({"va_archiver": {old: 6}})
+        assert refused.value.key == f"va_archiver.{old}"
 
     def test_a_non_dividing_cadence_names_both_knobs(self):
         """The fix needs both numbers; naming one leaves the reader guessing."""
