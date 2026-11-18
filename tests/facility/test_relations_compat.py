@@ -51,6 +51,11 @@ from osprey.facility.build import LATER_STAGES, build_facility, build_facility_w
 from osprey.facility.render import WrittenViews, facility_bytes, render_facility_outputs
 from osprey.facility.validate import run_stages
 from osprey.facility.views import VIEWS
+from osprey.facility.views.channel_finder import (
+    HIERARCHICAL_FILE,
+    IN_CONTEXT_FILE,
+    MIDDLE_LAYER_FILE,
+)
 from osprey.facility.views.facts import FACTS_FILE
 from tests._preset_data import packaged_facility_dir
 from tests.facility._appendix_a import example_without_appendix_a
@@ -387,6 +392,13 @@ _ROOT_FILES = {
 
 _MIDDLE_LAYER = "data/channel_finder/middle_layer"
 
+#: The channel-finder index each pipeline mode writes, under ``data/channel_finder/``.
+_MODE_INDEX = {
+    "in_context": IN_CONTEXT_FILE,
+    "hierarchical": HIERARCHICAL_FILE,
+    "middle_layer": MIDDLE_LAYER_FILE,
+}
+
 
 def test_every_view_is_compared_or_excluded_with_a_reason() -> None:
     names = [view.name for view in VIEWS]
@@ -479,6 +491,9 @@ def test_every_configured_view_is_written(
     files = _view_files(example_renders["shipped", mode])
     for prefix in ("simulator", "pyaml", "benchmarks", "channel_finder"):
         assert any(path.startswith(f"data/{prefix}/") for path in files), prefix
+    # The mode's own index, and no other mode's.
+    indexes = {f"data/channel_finder/{name}" for name in _MODE_INDEX.values()}
+    assert indexes & set(files) == {f"data/channel_finder/{_MODE_INDEX[mode]}"}
     for names in _ROOT_FILES.values():
         for name in names:
             assert f"data/{name}" in files, name
