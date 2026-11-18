@@ -1730,11 +1730,17 @@ beside) and <code class="docutils literal notranslate"><span class="pre">panels/
 <code class="docutils literal notranslate"><span class="pre">warn</span></code>, <code class="docutils literal notranslate"><span class="pre">bad</span></code>; a value no row names is <code class="docutils literal notranslate"><span class="pre">unknown</span></code>, and one that two
 sources give two states is <code class="docutils literal notranslate"><span class="pre">disagree</span></code>) must be there;
 <code class="docutils literal notranslate"><span class="pre">excluded.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">names.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">metrics.csv</span></code>,
-<code class="docutils literal notranslate"><span class="pre">probe_pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibration_kinds.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibrations.csv</span></code> and
-<code class="docutils literal notranslate"><span class="pre">calibration_curves.csv</span></code> may be absent. A table that breaks its schema
-prints the file and line and exits 1. Health is computed by the viewer from
-rules written into the screen; nothing is read from the control system
-while screens are written.</p>
+<code class="docutils literal notranslate"><span class="pre">probe_pictures.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibration_kinds.csv</span></code>, <code class="docutils literal notranslate"><span class="pre">calibrations.csv</span></code>,
+<code class="docutils literal notranslate"><span class="pre">calibration_curves.csv</span></code> and <code class="docutils literal notranslate"><span class="pre">state_labels.csv</span></code> (the word each value of a
+discrete channel means; a command’s button reads the word for the value it
+writes, else the action its channel’s name says) may be absent. A table that
+breaks its schema
+prints the file and line and exits 1. A <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code> row with a place id
+in its optional <code class="docutils literal notranslate"><span class="pre">under</span></code> column draws only the devices of its class in that
+place, so two machines with devices of one class name each state their own
+drawing; a device under no row’s place gets no drawing and no note. Health
+is computed by the viewer from rules written into the screen; nothing is
+read from the control system while screens are written.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">panels</span> <span class="pre">write</span> <span class="pre">--out</span> <span class="pre">DIRECTORY</span> <span class="pre">[--kind</span> <span class="pre">KIND]...</span> <span class="pre">[--under</span> <span class="pre">PLACE_ID]</span> <span class="pre">[--top</span> <span class="pre">N]</span> <span class="pre">[--tables</span> <span class="pre">DIRECTORY]</span> <span class="pre">[--facility</span> <span class="pre">FILE]</span> <span class="pre">[--draw</span> <span class="pre">FILE]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Write the screens under <code class="docutils literal notranslate"><span class="pre">--out</span></code> as <code class="docutils literal notranslate"><span class="pre">&lt;kind&gt;/&lt;screen</span> <span class="pre">id&gt;.screen.json</span></code>
 with an <code class="docutils literal notranslate"><span class="pre">index.json</span></code> that lists them. Equal inputs give equal bytes: no
@@ -1756,9 +1762,13 @@ nothing is written. It prints the count of each problem kind and the first
 <code class="docutils literal notranslate"><span class="pre">static_rollup</span></code>, <code class="docutils literal notranslate"><span class="pre">long_formula</span></code> (an expression over the viewer’s
 length limit) or <code class="docutils literal notranslate"><span class="pre">over_budget</span></code> (more rules or channels than one screen
 may bind). A link outside the written set, a card or checkout over its
-budget, and a probe row whose signal no channel states are notes, and fail
-only with <code class="docutils literal notranslate"><span class="pre">--strict</span></code>. A clean set prints
-<code class="docutils literal notranslate"><span class="pre">The</span> <span class="pre">written</span> <span class="pre">screens</span> <span class="pre">match</span> <span class="pre">the</span> <span class="pre">model.</span></code></p>
+budget, a probe row whose signal no channel states, and a <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>
+row whose signal binds no channel (<code class="docutils literal notranslate"><span class="pre">unbound_picture</span></code>) or channels of two
+devices (<code class="docutils literal notranslate"><span class="pre">ambiguous_picture</span></code>) are notes, and fail only with <code class="docutils literal notranslate"><span class="pre">--strict</span></code>.
+Before the problems it prints the device classes by how <code class="docutils literal notranslate"><span class="pre">pictures.csv</span></code>
+draws them (with a drawing, with parts only, with none) and, per class, the
+parts not placed (no position and no angle): information, never a problem.
+A clean set prints <code class="docutils literal notranslate"><span class="pre">The</span> <span class="pre">written</span> <span class="pre">screens</span> <span class="pre">match</span> <span class="pre">the</span> <span class="pre">model.</span></code></p>
 <p>Where a screen needs a widget the Screen-IR format lacks (a five-state
 light, a hatched fill, a scrolling table, clickable text, a condition on an
 enum label, a viewer- or server-side aggregate state, a rule longer than

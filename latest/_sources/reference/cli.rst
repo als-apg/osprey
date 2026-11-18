@@ -1403,11 +1403,17 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
    sources give two states is ``disagree``) must be there;
    ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
-   ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv`` and
-   ``calibration_curves.csv`` may be absent. A table that breaks its schema
-   prints the file and line and exits 1. Health is computed by the viewer from
-   rules written into the screen; nothing is read from the control system
-   while screens are written.
+   ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv``,
+   ``calibration_curves.csv`` and ``state_labels.csv`` (the word each value of a
+   discrete channel means; a command's button reads the word for the value it
+   writes, else the action its channel's name says) may be absent. A table that
+   breaks its schema
+   prints the file and line and exits 1. A ``pictures.csv`` row with a place id
+   in its optional ``under`` column draws only the devices of its class in that
+   place, so two machines with devices of one class name each state their own
+   drawing; a device under no row's place gets no drawing and no note. Health
+   is computed by the viewer from rules written into the screen; nothing is
+   read from the control system while screens are written.
 
 ``osprey facility panels write --out DIRECTORY [--kind KIND]... [--under PLACE_ID] [--top N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
    Write the screens under ``--out`` as ``<kind>/<screen id>.screen.json``
@@ -1431,9 +1437,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``static_rollup``, ``long_formula`` (an expression over the viewer's
    length limit) or ``over_budget`` (more rules or channels than one screen
    may bind). A link outside the written set, a card or checkout over its
-   budget, and a probe row whose signal no channel states are notes, and fail
-   only with ``--strict``. A clean set prints
-   ``The written screens match the model.``
+   budget, a probe row whose signal no channel states, and a ``pictures.csv``
+   row whose signal binds no channel (``unbound_picture``) or channels of two
+   devices (``ambiguous_picture``) are notes, and fail only with ``--strict``.
+   Before the problems it prints the device classes by how ``pictures.csv``
+   draws them (with a drawing, with parts only, with none) and, per class, the
+   parts not placed (no position and no angle): information, never a problem.
+   A clean set prints ``The written screens match the model.``
 
    Where a screen needs a widget the Screen-IR format lacks (a five-state
    light, a hatched fill, a scrolling table, clickable text, a condition on an
