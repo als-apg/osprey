@@ -35,6 +35,7 @@ on.
 from __future__ import annotations
 
 import csv
+import dataclasses
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -267,9 +268,9 @@ DRAWN_AS: tuple[str, ...] = ("value", "setpoint", "state", "command", "text", "w
 HEALTH_STATES: tuple[str, ...] = ("normal", "warn", "bad")
 EXCLUDED_KINDS: tuple[str, ...] = ("thing", "channel", "document")
 PICTURE_VIEWS: tuple[str, ...] = ("end", "side")
-#: The kinds of a ``pictures.csv`` row that draw the body of the class, not a part:
-#: each needs ``w_mm`` (in a file that has the column).
-PICTURE_SHAPES: tuple[str, ...] = ("yoke", "pole", "coil", "corrector_winding", "bore")
+#: The kinds of a ``pictures.csv`` row that draw the body of the class, not a part
+#: (in a file that has the size columns; in one without, every row is a part).
+PICTURE_SHAPES: tuple[str, ...] = ("yoke", "pole", "coil", "corrector_winding", "bore", "gap")
 METRIC_VIEWS: tuple[str, ...] = ("place", "rollup")
 #: What a key number computes over the channels its row selects.
 MEASURES: tuple[str, ...] = (
@@ -486,28 +487,42 @@ class PicturePart:
 
     - ``yoke``: the iron, an ellipse ``w_mm`` across and ``h_mm`` high (a
       circle when ``h_mm`` is empty) centred at ``x_mm``, ``y_mm``;
+    - ``outline``: one point of the yoke as a polygon (a hexagon, a C or an H),
+      the class's rows of this kind joined in file order;
     - ``pole``: a rectangle ``w_mm`` wide and ``h_mm`` long, its length along
       ``angle_deg`` (0 is +x, counter-clockwise), centred at ``x_mm``, ``y_mm``;
     - ``coil``: the coil round the pole at the same ``angle_deg``: two sides,
       each ``w_mm`` wide and ``h_mm`` long, one at each flank of that pole;
-      with no such pole, one rectangle where the row puts it;
-    - ``corrector_winding``: a rectangle as a pole's, one row per winding;
+      with no such pole, one rectangle where the row puts it; its number in
+      ``part`` is drawn at it (``coil 6``: 6);
+    - ``corrector_winding``: a winding on the pole at its ``angle_deg``, as a
+      coil's, outside the coil; with a size and no such pole, one rectangle;
     - ``bore``: the aperture, an ellipse as the yoke's, with the beam at its
       centre;
-    - ``outline``: one point of a polygon the class's rows of this kind make
-      in file order (the outline of a body no shape above states);
+    - ``gap``: instead of a bore, the gap between two pole faces: ``w_mm``
+      is its full height; the beam at ``x_mm``, ``y_mm``;
     - any other word: a part at ``x_mm``, ``y_mm`` (a thermal switch, a
       manifold, a terminal), named by ``part``.
 
+    A shape row may leave its size empty: a pole, a coil or a corrector
+    winding is then placed by its ``angle_deg`` alone (its ``x_mm``,
+    ``y_mm`` are not read), its tip at the bore and its root at the yoke's
+    inner edge, at a default proportion of the bore radius (of half the gap;
+    of a fifth of the yoke's radius when neither is sized; of
+    :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM` when nothing is).
+    A class so drawn says "size not stated" under its drawing.
+
     ``signal`` (any row) names what the element shows live: a signal name
-    stated on the device, or a channel pattern with ``*`` and ``?`` matched
-    against the device's channel names (:meth:`PanelGraph.picture_channel`).
+    stated on a channel, or a channel pattern with ``*``, ``?`` and ``[``
+    matched against channel names; looked for on the device, then on its
+    parts (the devices ``part_of`` it), then where it is read out
+    (:meth:`PanelGraph.picture_matches`).
     A part with a signal shows its state at its position (and its number
     beside it when the channel is a value); one without is drawn plain.
 
     The last four columns are optional: a file of the first eleven reads as
-    before, every row a part at a point, a shape kind included. In a file that
-    has them, a shape row must state ``w_mm``; ``w_mm`` and ``h_mm`` are above 0.
+    before, every row a part at a point, a shape kind included. ``w_mm`` and
+    ``h_mm``, when stated, are above 0.
     A class with shape or outline rows is drawn; one with parts only has them in
     a dashed frame that says the outline is not stated; one with no rows has no
     picture. An invented four-pole class (one pole, its coil, the bore, two
@@ -541,11 +556,19 @@ class PicturePart:
     #: described (:func:`osprey.facility.panels.describe.device_card`), ``None``
     #: as the table is read.
     channel: str | None = None
+    #: Read from a file without the size columns: the row is a part at a point,
+    #: whatever its kind.
+    as_point: bool = False
 
     @property
     def shape(self) -> bool:
-        """Whether the row draws the body: a shape kind with its width stated."""
-        return self.kind in PICTURE_SHAPES and self.w_mm is not None
+        """Whether the row draws the body: a shape kind, from a file with the size columns."""
+        return self.kind in PICTURE_SHAPES and not self.as_point
+
+    @property
+    def sized(self) -> bool:
+        """Whether the row states its size (its width)."""
+        return self.w_mm is not None
 
 
 @dataclass(frozen=True)
@@ -866,8 +889,11 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             _check_kind_unit(rows[-1], line)
         if name == PROBE_PICTURES:
             _check_probe_row(rows[-1], line, seen_probe)
-        if name == PICTURES and "w_mm" in header:
-            _check_picture_row(rows[-1], line)
+        if name == PICTURES:
+            if "w_mm" in header:
+                _check_picture_row(rows[-1], line)
+            else:
+                rows[-1] = dataclasses.replace(rows[-1], as_point=True)
         if lines is not None:
             lines.append(line)
     return tuple(rows)
@@ -912,9 +938,7 @@ def _check_probe_row(row: ProbeElement, line: int, seen: dict[tuple[str | None, 
 
 
 def _check_picture_row(row: PicturePart, line: int) -> None:
-    """In a file with the size columns, a shape row states its width; sizes are positive."""
-    if row.kind in PICTURE_SHAPES and row.w_mm is None:
-        raise PanelTableError(PICTURES, line, f"a {row.kind} needs w_mm")
+    """A size a pictures row states is above 0; a row may state none."""
     for column in ("w_mm", "h_mm"):
         value = getattr(row, column)
         if value is not None and not value > 0:

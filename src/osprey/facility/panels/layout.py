@@ -36,6 +36,7 @@ from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import health, strip, symbols
+from osprey.facility.panels import picture as drawing
 from osprey.facility.panels.describe import NO_POSITION, PROBE_SECTION, RELATION_TITLES
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
@@ -237,7 +238,9 @@ PART_MARKER = 8
 PART_LABEL_WIDTH = 128  # a part's name, in a column on its side
 PART_VALUE_WIDTH = 64  # a part's number beside it
 BEAM_POINT = 4  # the beam, at the bore's centre; half a beam-axis cross
-SAME_ANGLE = 0.5  # degrees: a coil and a pole this close in angle are one pole's
+PICTURE_SIZE_UNNAMED = 380  # a drawing's canvas at the most when no part is named on a leader
+NAMED_PARTS = 6  # a view with at most this many parts names each; past it, tags
+TAG_GAP = 3  # between a part's marker and its tag
 SCALE_BAR_MM = (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000)
 SCALE_BAR_SHARE = 0.34  # of the canvas a scale bar takes at the most
 PICTURE_SOURCES = 3  # sources a drawing's legend names; the rest are counted
@@ -365,11 +368,10 @@ _ID_PARTS = re.compile(r"[:/]")
 _PICTURE = "picture"
 #: The kind of a pictures row that is a point of the class's outline, not a part.
 OUTLINE_KIND = "outline"
-#: The body's shape kinds in the order they are drawn: the later on top.
-PICTURE_SHAPES_DRAWN = ("yoke", "pole", "coil", "corrector_winding", "bore")
 #: Kinds a drawing's legend does not list: the body's iron and its aperture.
-_UNLISTED = frozenset({"yoke", "pole", "bore"})
+_UNLISTED = frozenset({"yoke", "pole", "bore", "gap"})
 _NOT_STATED = "outline not stated"
+_SIZE_NOT_STATED = "size not stated: default proportions"
 _BEAM_AXIS = "beam axis"
 _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
@@ -1324,7 +1326,8 @@ class _Page:
         self.facts_bottom: float = 0  # a rack's right column, where it ends
         self.cell_w: float = SET_CELL_WIDTH  # a set overview's cell width
         self.drawn = 0  # a set overview's cells drawn so far
-        self.parts_listed: set[str] = set()  # a card's parts listed without a picture
+        self.parts_listed: set[str] = set()  # parts a card's picture legend has listed
+        self._ordinals: dict[str, int] = {}  # a part's place in its kind, in the picture drawn
 
     # -- primitives -----------------------------------------------------------
 
@@ -3621,34 +3624,46 @@ class _Page:
     def picture(self, picture: Picture) -> None:
         """A device class's drawing in one view, to scale, what its rows reach centred.
 
-        The body as the table states it (:class:`PicturePart`): the yoke, the poles,
-        a coil's two sides at the flanks of its pole, the corrector windings, the
-        bore with the beam point; the body in the class's colour, faint, the coils
-        a step stronger; state is the only other colour. Rows of kind
-        :data:`OUTLINE_KIND` are joined into one polygon. Each part sits where the
-        table puts it, named in a column on its side on a leader (no two leaders
-        cross, :func:`picture_labels`): with a channel it has its light there when
-        a health row reads it, and its number beside it when it is a value; with
-        none, a plain ring. A class whose rows state parts and no body has the
-        parts in a dashed frame that says the outline is not stated. A scale bar
-        under the drawing; under it the parts as the drawing's legend
-        (:meth:`picture_legend`)."""
-        body = [p for p in picture.parts if p.shape]
+        The body (:func:`osprey.facility.panels.picture.body`): the yoke (an
+        ellipse, or the polygon of the outline rows), the poles, a coil's two sides
+        at its pole's flanks with the coil's number beyond its end, the corrector
+        windings outside them, the bore with the beam point; in the class's colour,
+        faint, the coils a step stronger; state is the only other colour. A part
+        sits where the table puts it (:meth:`picture_part`). It is named on a
+        leader in a column on its side (no two cross, :func:`picture_labels`)
+        when it has a signal, or when the view has at most :data:`NAMED_PARTS`
+        parts; any other part carries a tag at its marker, its kind's
+        (:func:`~osprey.facility.panels.picture.tag_prefixes`) and its number,
+        the legend saying which kind each tag is. Parts with no body stand in a
+        dashed frame that says the outline is not stated; a body some row of
+        which states no size says so. A scale bar under the drawing; under it
+        the legend (:meth:`picture_legend`)."""
+        shape_rows = [p for p in picture.parts if p.shape]
         outline = [p for p in picture.parts if p.kind == OUTLINE_KIND]
         parts = [p for p in picture.parts if not p.shape and p.kind != OUTLINE_KIND]
+        body = drawing.body(shape_rows, outline)
+        counts: Counter[str] = Counter()
+        self._ordinals = {}
+        for part in parts:
+            counts[part.kind] += 1
+            self._ordinals[part.part] = counts[part.kind]
+        named = [p for p in parts if p.signal is not None or len(parts) <= NAMED_PARTS]
+        tagged = [p for p in parts if p not in named]
         self.heading(f"{picture.view} view")
         room = min(self.right - self.x0, CARD_LEFT - COLUMN_GAP)
-        canvas = min(PICTURE_SIZE, room - 2 * (PART_LABEL_WIDTH + PICTURE_PAD))
         left_col = self.x0
-        x0 = left_col + PART_LABEL_WIDTH + PICTURE_PAD
+        if named:
+            canvas = min(PICTURE_SIZE, room - 2 * (PART_LABEL_WIDTH + PICTURE_PAD))
+            x0 = left_col + PART_LABEL_WIDTH + PICTURE_PAD
+        else:  # no names on leaders: the drawing takes their room
+            canvas = min(PICTURE_SIZE_UNNAMED, room - 2 * PICTURE_PAD)
+            x0 = left_col + (room - canvas) / 2
         right_col = x0 + canvas + PICTURE_PAD
         top = self.y
         cx, cy = x0 + canvas / 2, top + canvas / 2
-        shapes = _body_shapes(body)
-        points = [pt for _row, kind, pts in shapes for pt in (pts if kind != "ellipse" else [])]
-        points += [pt for _row, kind, pts in shapes if kind == "ellipse" for pt in _corners(pts)]
-        points += [_picture_xy(picture.view, p) for p in (*outline, *parts)]
-        bare = not body and not outline
+        points = [pt for shape in body.shapes for pt in _reach(shape)]
+        points += [_picture_xy(picture.view, p) for p in parts]
+        bare = not body.shapes
         if bare:
             points.append((0.0, 0.0))  # the beam axis, the frame's one reference
         # what the rows reach, centred on the canvas: parts far out on one side
@@ -3663,11 +3678,26 @@ class _Page:
             return cx + (point[0] - mid[0]) * scale, cy - (point[1] - mid[1]) * scale
 
         colour = self.colours.get(picture.symbol) if picture.symbol is not None else None
-        for row, kind, pts in shapes:
-            self.body_shape(row, kind, [px(pt) for pt in pts], colour)
-        if outline:
-            ring = [px(_picture_xy(picture.view, p)) for p in outline]
-            self.line([*ring, ring[0]], colour or PAGE_TEXT)
+        for shape in body.shapes:
+            self.body_shape(shape.row, shape.form, [px(pt) for pt in shape.points], colour)
+        if body.beam is not None:
+            bx, by = px(body.beam)
+            dot = BEAM_POINT
+            fill = {"lineColor": PAGE_TEXT, "lineWidth": LINE_WIDTH, "fill": True}
+            fill |= {"fillColor": PAGE_TEXT, _TOOLTIP: "beam"}
+            self.s.widget("ellipse", bx - dot / 2, by - dot / 2, dot, dot, fill)
+        for mark in body.coils:  # the facility's number, on the pole between the coil's sides
+            nx, ny = px(mark.at)
+            w = text_width(mark.number, SMALL_SIZE)
+            self.text(
+                nx - w / 2,
+                ny - SMALL_LINE / 2,
+                mark.number,
+                size=SMALL_SIZE,
+                w=w,
+                h=SMALL_LINE,
+                align="center",
+            )
         if bare:  # the parts with no body stated: a frame, and the beam axis as a cross
             half = canvas / 2 - PICTURE_INSET / 2
             self.box(cx - half, cy - half, 2 * half, 2 * half, line=MUTED_TEXT, dashed=True)
@@ -3675,19 +3705,84 @@ class _Page:
             arm = BEAM_POINT
             for ends in (((ax - arm, ay), (ax + arm, ay)), ((ax, ay - arm), (ax, ay + arm))):
                 self.line(list(ends), MUTED_TEXT, tooltip=_BEAM_AXIS)
-        placed = [(p.part, *px(_picture_xy(picture.view, p))) for p in parts]
+        prefixes = drawing.tag_prefixes([p.kind for p in tagged])
+        spots: dict[tuple[int, int], list[tuple[PicturePart, float, float]]] = {}
+        for part in tagged:
+            x, y = px(_picture_xy(picture.view, part))
+            self.picture_part(part, x, y)
+            spots.setdefault((round(x), round(y)), []).append((part, x, y))
+        taken = [
+            (x - PART_MARKER / 2, y - PART_MARKER / 2, PART_MARKER, PART_MARKER)
+            for here in spots.values()
+            for _p, x, y in here[:1]
+        ]
+        for here in spots.values():  # parts at one point share one tag
+            self.part_tag(here, prefixes, cx, taken)
+        placed = [(p.part, *px(_picture_xy(picture.view, p))) for p in named]
         anchors = (left_col + PART_LABEL_WIDTH, right_col)
-        labels = picture_labels(placed, cx, top, top + canvas, anchors)
-        for part, (name, x, y), (side, label_y) in zip(parts, placed, labels, strict=True):
-            self.picture_part(part, x, y, cx)
+        heights = [2 * ROW if self.shows_number(p) else ROW for p in named]
+        labels = picture_labels(placed, cx, top, top + canvas, anchors, heights)
+        for part, (name, x, y), (side, label_y) in zip(named, placed, labels, strict=True):
+            self.picture_part(part, x, y)
             end = anchors[0] if side == "left" else anchors[1]
             self.line([(x, y), (end, label_y + ROW / 2)], MUTED_TEXT)
             lx = left_col if side == "left" else right_col
             align = "right" if side == "left" else "left"
             self.text(lx, label_y, name, size=SMALL_SIZE, w=PART_LABEL_WIDTH, align=align)
-        self.y = max([top + canvas, *(y + ROW for _side, y in labels)]) + GAP
-        self.scale_bar(x0, scale, canvas, _NOT_STATED if bare else None)
-        self.picture_legend(picture)
+            if self.shows_number(part):  # under its name, a readback box as the card's
+                channel = part.channel or ""
+                w = min(PART_LABEL_WIDTH, max(PART_VALUE_WIDTH, self.value_span(channel)))
+                vx = lx + PART_LABEL_WIDTH - w if side == "left" else lx
+                self.field(vx, label_y + ROW, channel, w=w, units=True)
+        bottoms = [y + h for (_side, y), h in zip(labels, heights, strict=True)]
+        self.y = max([top + canvas, *bottoms]) + GAP
+        note = _NOT_STATED if bare else (None if body.sized else _SIZE_NOT_STATED)
+        self.scale_bar(x0, scale, canvas, note)
+        self.picture_legend(picture, prefixes)
+
+    def part_tag(
+        self,
+        here: list[tuple[PicturePart, float, float]],
+        prefixes: Mapping[str, str],
+        cx: float,
+        taken: list[tuple[float, float, float, float]],
+    ) -> None:
+        """The tag of the parts at one point: each kind's prefix with its members'
+        numbers (``M1,2``), beside the marker: away from the centre *cx* first, then
+        the other side, above, below, wherever it overlaps no box in *taken* (the
+        markers and the tags placed so far), which it joins."""
+        by_kind: dict[str, list[str]] = {}
+        for part, _x, _y in here:
+            word = part.kind.replace("_", " ")
+            by_kind.setdefault(part.kind, []).append(
+                drawing.member_number(word, part.part, self.ordinal(part))
+            )
+        text = " ".join(prefixes[k] + ",".join(numbers) for k, numbers in by_kind.items())
+        _part, x, y = here[0]
+        w, h = text_width(text, SMALL_SIZE), SMALL_LINE
+        side = PART_MARKER / 2 + TAG_GAP
+        out = (x + side, y - h / 2)
+        back = (x - side - w, y - h / 2)
+        tries = [out, back] if x >= cx else [back, out]
+        tries += [(x - w / 2, y - side - h), (x - w / 2, y + side)]
+        tries += [(tx, ty + dy) for dy in (-h, h) for tx, ty in tries[:2]]
+
+        def free(at: tuple[float, float]) -> bool:
+            ax, ay = at
+            return all(
+                ax + w <= bx or bx + bw <= ax or ay + h <= by or by + bh <= ay
+                for bx, by, bw, bh in taken
+            )
+
+        tx, ty = next((t for t in tries if free(t)), tries[0])
+        taken.append((tx, ty, w, h))
+        tip = ", ".join(p.part for p, _x, _y in here)
+        self.text(tx, ty, text, size=SMALL_SIZE, w=w, h=h, align="center")
+        self.s.nodes[-1]["props"][_TOOLTIP] = tip
+
+    def ordinal(self, part: PicturePart) -> int:
+        """A part's place among the parts of its kind in the picture being drawn."""
+        return self._ordinals.get(part.part, 1)
 
     def body_shape(
         self, row: PicturePart, kind: str, points: list[tuple[float, float]], colour: str | None
@@ -3695,48 +3790,46 @@ class _Page:
         """One shape of a drawing's body, at *points* (px): an ellipse by its box, a
         polygon by its corners. Filled with the class *colour* at the strength of
         its kind (:data:`BODY_ALPHA`), outlined in it; with no colour, outlined in
-        the muted text. The bore is the field's ground with the beam point in it."""
+        the muted text. The bore is the field's ground."""
         props: dict[str, Any] = {"lineWidth": LINE_WIDTH, _TOOLTIP: row.part}
+        if row.kind == OUTLINE_KIND:
+            props[_TOOLTIP] = "yoke"  # the outline's points name no part
         if row.kind == "bore":
             props |= {"lineColor": MUTED_TEXT, "fill": True, "fillColor": FIELD_BACKGROUND}
         elif row.kind == "corrector_winding" or colour is None:
             props |= {"lineColor": MUTED_TEXT, "fill": False}
         else:
             props |= {"lineColor": colour + BODY_LINE_ALPHA, "fill": True}
-            props["fillColor"] = colour + BODY_ALPHA[row.kind]
+            props["fillColor"] = colour + BODY_ALPHA.get(row.kind, BODY_ALPHA["yoke"])
         if kind == "ellipse":
             (x1, y1), (x2, y2) = points
             x, y, w, h = min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)
             self.s.widget("ellipse", x, y, w, h, props)
-            if row.kind == "bore":
-                dot = BEAM_POINT
-                fill = {"lineColor": PAGE_TEXT, "lineWidth": LINE_WIDTH, "fill": True}
-                fill |= {"fillColor": PAGE_TEXT, _TOOLTIP: "beam"}
-                self.s.widget("ellipse", x + w / 2 - dot / 2, y + h / 2 - dot / 2, dot, dot, fill)
             return
         xs, ys = [p[0] for p in points], [p[1] for p in points]
         x, y = min(xs), min(ys)
         props["points"] = [{"x": _n(a - x), "y": _n(b - y)} for a, b in points]
         self.s.widget("polygon", x, y, max(xs) - x, max(ys) - y, props)
 
-    def picture_part(self, part: PicturePart, x: float, y: float, cx: float) -> None:
-        """A part at (*x*, *y*): its light when a health row reads its channel, else a
-        plain ring; its value beside it, on the side away from the centre *cx*,
-        when its channel prints a number or has no light to show it."""
+    def picture_part(self, part: PicturePart, x: float, y: float) -> None:
+        """A part's marker at (*x*, *y*): its light when a health row reads its channel,
+        else a plain ring."""
         channel = part.channel
-        ruled = channel is not None and bool(self.graph.rule(channel))
-        if ruled:
+        if channel is not None and self.graph.rule(channel):
             self.light(x - LIGHT_SIZE / 2, y - ROW / 2, [describe_light(self.graph, channel)])
-        else:
-            half = PART_MARKER / 2
-            props = {"lineColor": PAGE_TEXT, "lineWidth": LINE_WIDTH, "fill": False}
-            props[_TOOLTIP] = part.part
-            self.s.widget("ellipse", x - half, y - half, PART_MARKER, PART_MARKER, props)
-        if channel is None or (ruled and self.own_kind(channel) not in _NUMBERS):
             return
-        w = max(PART_VALUE_WIDTH, self.value_span(channel))
-        vx = x + LIGHT_SIZE / 2 + GAP / 2 if x >= cx else x - LIGHT_SIZE / 2 - GAP / 2 - w
-        self.field(vx, y - ROW / 2, channel, w=w, units=True)
+        half = PART_MARKER / 2
+        props = {"lineColor": PAGE_TEXT, "lineWidth": LINE_WIDTH, "fill": False}
+        props[_TOOLTIP] = part.part
+        self.s.widget("ellipse", x - half, y - half, PART_MARKER, PART_MARKER, props)
+
+    def shows_number(self, part: PicturePart) -> bool:
+        """Whether a named part shows its channel's value under its name: a number, or
+        a state with no light to show it."""
+        channel = part.channel
+        if channel is None:
+            return False
+        return self.own_kind(channel) in _NUMBERS or not self.graph.rule(channel)
 
     def scale_bar(self, x: float, scale: float, canvas: float, note: str | None) -> None:
         """A bar of a round number of millimetres under a drawing at *scale* (px per
@@ -3755,11 +3848,11 @@ class _Page:
             self.small(x + GAP, self.y, note, fg=MUTED_TEXT)
         self.y += SMALL_LINE + GAP
 
-    def picture_legend(self, picture: Picture) -> None:
+    def picture_legend(self, picture: Picture, prefixes: Mapping[str, str]) -> None:
         """The drawing's legend: per kind of part (coils and corrector windings with
-        them), its members once, numbered when their names are the kind and a
-        number; and the sources of the rows, once each. A part a former view of
-        the class listed is not listed again."""
+        them), its members once by number, after the kind's tag when its parts are
+        tagged on the drawing (*prefixes*); then the sources of the rows, once each.
+        A part a former view of the class listed is not listed again."""
         kinds: dict[str, list[PicturePart]] = {}
         for part in picture.parts:
             iron = part.shape and part.kind in _UNLISTED  # the drawing, not a part
@@ -3767,8 +3860,6 @@ class _Page:
                 continue
             self.parts_listed.add(part.part)
             kinds.setdefault(part.kind, []).append(part)
-        if not kinds:
-            return
         width = self.right - self.x0
         for kind, members in kinds.items():
             word = kind.replace("_", " ")
@@ -3781,14 +3872,19 @@ class _Page:
                 h=SMALL_LINE,
                 fg=MUTED_TEXT,
             )
-            names = [_member(word, m.part) for m in members]
+            names = []
+            for n, member in enumerate(members, start=1):
+                number = drawing.member_number(word, member.part, n)
+                own = member.part.startswith(word + " ")  # its name is the kind and a number
+                names.append(number if own else f"{number} ({member.part})")
             text = ", ".join(names)
+            if kind in prefixes:
+                text = f"{prefixes[kind]}: {text}"
             lines = _wrap(text, width - PART_LABEL_WIDTH - GAP, SMALL_SIZE)
             for n, line in enumerate(lines):
                 self.text(x + GAP, self.y + n * SMALL_LINE, line, size=SMALL_SIZE, h=SMALL_LINE)
             self.y += max(1, len(lines)) * SMALL_LINE + ROW_GAP
-        cited = [p for members in kinds.values() for p in members]
-        sources = list(dict.fromkeys(_source(p) for p in cited if _source(p)))
+        sources = list(dict.fromkeys(_source(p) for p in picture.parts if _source(p)))
         for source in sources[:PICTURE_SOURCES]:
             self.text(
                 self.x0, self.y, f"source {source}", size=SMALL_SIZE, h=SMALL_LINE, fg=MUTED_TEXT
@@ -4188,6 +4284,7 @@ def picture_labels(
     top: float,
     bottom: float,
     anchors: tuple[float, float] | None = None,
+    heights: Sequence[float] | None = None,
 ) -> list[tuple[str, float]]:
     """Where each part's name goes: ``(side, y)`` per ``(name, x, y)`` part, in order.
 
@@ -4198,25 +4295,35 @@ def picture_labels(
     above *top*. With *anchors* (the x where the left and the right
     column's leaders end), two leaders of a column that cross swap their
     names' places until none cross: each swap shortens the leaders, so it ends.
+    With *heights* (a slot's height per part, :data:`ROW` when not given), a
+    slot is that tall; after the swaps the column is spaced again, so that no
+    two slots overlap.
     """
+    tall = list(heights) if heights is not None else [ROW] * len(parts)
     slots: list[tuple[str, float]] = [("", 0.0)] * len(parts)
     for side in ("left", "right"):
         mine = [i for i, (_n, x, _y) in enumerate(parts) if (x < centre) == (side == "left")]
         mine.sort(key=lambda i: (parts[i][2], i))
         ys: list[float] = []
-        for i in mine:
+        for k, i in enumerate(mine):
             want = parts[i][2] - ROW / 2
-            ys.append(max(want, ys[-1] + ROW + ROW_GAP) if ys else want)
+            ys.append(max(want, ys[-1] + tall[mine[k - 1]] + ROW_GAP) if ys else want)
         for k in range(len(ys) - 1, -1, -1):  # push back up from the bottom
-            limit = bottom - ROW if k == len(ys) - 1 else ys[k + 1] - ROW - ROW_GAP
+            own = tall[mine[k]]
+            limit = bottom - own if k == len(ys) - 1 else ys[k + 1] - own - ROW_GAP
             ys[k] = min(ys[k], limit)
         if ys and ys[0] < top:  # a column taller than the picture runs on downward
             ys[0] = top
             for k in range(1, len(ys)):
-                ys[k] = max(ys[k], ys[k - 1] + ROW + ROW_GAP)
+                ys[k] = max(ys[k], ys[k - 1] + tall[mine[k - 1]] + ROW_GAP)
         if anchors is not None:
             ax = anchors[0] if side == "left" else anchors[1]
             _uncross(mine, ys, parts, ax)
+        if heights is not None:  # a swap may have put a tall slot where a short one was
+            order = sorted(range(len(mine)), key=lambda k: ys[k])
+            for n in range(1, len(order)):
+                above, here = order[n - 1], order[n]
+                ys[here] = max(ys[here], ys[above] + tall[mine[above]] + ROW_GAP)
         for i, y in zip(mine, ys, strict=True):
             slots[i] = (side, y)
     return slots
@@ -4253,68 +4360,13 @@ def _crossing(p1, p2, q1, q2) -> bool:
     return d1 * d2 < 0 and d3 * d4 < 0
 
 
-def _body_shapes(
-    rows: Sequence[PicturePart],
-) -> list[tuple[PicturePart, str, list[tuple[float, float]]]]:
-    """The shapes of a drawing's body in mm, in the order they are drawn (yokes,
-    poles, coils, corrector windings, bores): ``(row, "ellipse", [corner, corner])``
-    or ``(row, "polygon", corners)``; a coil gives one polygon per side."""
-    out: list[tuple[PicturePart, str, list[tuple[float, float]]]] = []
-    poles = [r for r in rows if r.kind == "pole"]
-    for kind in PICTURE_SHAPES_DRAWN:
-        for row in (r for r in rows if r.kind == kind):
-            a, b = _picture_xy(row.view, row)
-            w = row.w_mm or 0.0
-            h = row.h_mm if row.h_mm is not None else w
-            if kind in ("yoke", "bore"):
-                out.append((row, "ellipse", [(a - w / 2, b - h / 2), (a + w / 2, b + h / 2)]))
-                continue
-            turn = math.radians(row.angle_deg or 0.0)
-            pole = next((p for p in poles if _same_angle(p, row)), None) if kind == "coil" else None
-            if pole is None:
-                out.append((row, "polygon", _rectangle(a, b, w, h, turn)))
-                continue
-            offset = (pole.w_mm or 0.0) / 2 + w / 2
-            across = (-math.sin(turn), math.cos(turn))
-            for sign in (1, -1):
-                ca, cb = a + sign * offset * across[0], b + sign * offset * across[1]
-                out.append((row, "polygon", _rectangle(ca, cb, w, h, turn)))
-    return out
-
-
-def _same_angle(pole: PicturePart, coil: PicturePart) -> bool:
-    """Whether a pole and a coil of one view point the same way, to :data:`SAME_ANGLE` degrees."""
-    if pole.view != coil.view:
-        return False
-    apart = ((pole.angle_deg or 0.0) - (coil.angle_deg or 0.0)) % TURN
-    return min(apart, TURN - apart) <= SAME_ANGLE
-
-
-def _rectangle(a: float, b: float, w: float, h: float, turn: float) -> list[tuple[float, float]]:
-    """The corners of a rectangle *w* wide and *h* long centred at (*a*, *b*), its
-    length along the direction *turn* (radians, counter-clockwise from +x)."""
-    along = (math.cos(turn), math.sin(turn))
-    across = (-math.sin(turn), math.cos(turn))
-    return [
-        (
-            a + s * along[0] * h / 2 + t * across[0] * w / 2,
-            b + s * along[1] * h / 2 + t * across[1] * w / 2,
-        )
-        for s, t in ((1, 1), (1, -1), (-1, -1), (-1, 1))
-    ]
-
-
-def _corners(box: list[tuple[float, float]]) -> list[tuple[float, float]]:
-    """The four corners of an ellipse's box, as reach counts them: its extremes."""
-    (a1, b1), (a2, b2) = box
+def _reach(shape: drawing.Shape) -> list[tuple[float, float]]:
+    """The points of a body's shape that bound it: a polygon's corners, an ellipse's
+    four extremes."""
+    if shape.form != "ellipse":
+        return list(shape.points)
+    (a1, b1), (a2, b2) = shape.points
     return [(a1, (b1 + b2) / 2), (a2, (b1 + b2) / 2), ((a1 + a2) / 2, b1), ((a1 + a2) / 2, b2)]
-
-
-def _member(word: str, name: str) -> str:
-    """A part's name in its kind's legend line: the number, when the name is the
-    kind's word and a number (``thermal switch 3`` under thermal switch: ``3``)."""
-    rest = name.removeprefix(word).strip()
-    return rest if name.startswith(word + " ") and rest else name
 
 
 def _source(part: PicturePart) -> str:

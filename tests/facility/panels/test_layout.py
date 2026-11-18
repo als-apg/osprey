@@ -1040,12 +1040,28 @@ def test_a_cards_unit_stands_with_the_signals_name_not_in_the_value(panel_graph)
     assert "A" not in _texts(doc)
 
 
-def _picture_view(parts) -> View:
+def _picture_view(parts, *, signal: str | None = None) -> View:
+    """A card of one picture whose rows are parts at points, as a file of the first
+    eleven columns states them; with *signal*, each part names it (and is named)."""
     from osprey.facility.panels.tables import PicturePart
     from osprey.facility.panels.view import Picture
 
     rows = tuple(
-        PicturePart("Magnet", "end", name, kind, x, y, 0.0, None, None, None, None)
+        PicturePart(
+            "Magnet",
+            "end",
+            name,
+            kind,
+            x,
+            y,
+            0.0,
+            None,
+            None,
+            None,
+            None,
+            signal=None if kind == "outline" else signal,
+            as_point=kind != "outline",
+        )
         for name, kind, x, y in parts
     )
     return card("pic", Picture("Magnet", "end", rows))
@@ -1064,7 +1080,7 @@ def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(panel_graph) -> 
     crowded = [(f"part {i}", "pole", (-1) ** i * (10.0 - i), 5.0 - 0.9 * i) for i in range(12)]
     scattered = [(f"bit {i}", "pole", (i * 7 % 11) - 5.0, (i * 5 % 9) - 4.0) for i in range(14)]
     for parts in (crowded, scattered):
-        view = _picture_view([*parts, *_CORNERS])
+        view = _picture_view([*parts, *_CORNERS], signal="named_signal")  # named on leaders
         doc, _ = draw(view, panel_graph)
         names = {name for name, *_rest in parts}
         boxes = [
@@ -1121,8 +1137,8 @@ def test_a_picture_draws_the_outline_the_table_states(panel_graph) -> None:
     doc, _ = draw(_picture_view([*parts, *corners]), panel_graph)
     assert "outline not stated" not in _texts(doc)
     assert [n["props"]["tooltip"] for n in _by_type(doc, "ellipse")] == ["pole 1", "probe"]
-    outline = [n for n in _by_type(doc, "line") if len(n["props"]["points"]) == len(corners) + 1]
-    assert len(outline) == 1  # the stated points, closed
+    (outline,) = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "yoke"]
+    assert len(outline["props"]["points"]) == len(corners)  # the stated points: the yoke
     assert "o1" not in _texts(doc)  # an outline point is no part
 
 

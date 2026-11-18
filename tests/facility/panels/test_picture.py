@@ -14,7 +14,7 @@ from osprey.facility.panels import layout, symbols
 from osprey.facility.panels.describe import device_card
 from osprey.facility.panels.model import load_graph
 from osprey.facility.panels.tables import COLUMNS, PanelTableError, read_tables
-from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_facility
 from tests.facility.panels._views import nodes, stub_render
 
 PICTURES = "pictures.csv"
@@ -48,12 +48,18 @@ def _tables(tmp_path: Path, rows: list[str]) -> Path:
     return tables
 
 
-def _graph(tmp_path: Path, rows: list[str], rule: bool = False):
+def _graph(tmp_path: Path, rows: list[str], rule: bool = False, change=None):
     tables = _tables(tmp_path, rows)
     if rule:
         with (tables / "health.csv").open("a") as handle:
             handle.write("XR01-QF1:Current-SP,1,bad,screen,stated,xr-screens,4d5e6f7,m.screen:1\n")
-    return load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def _switches(document) -> None:
+    """Two thermal-switch devices, each ``part_of`` the magnet, each with a status channel."""
+    for n in (1, 2):
+        add_part(document, f"XR01:QF1-TS{n}", "XR01:QF1", f"XR01-QF1-TS{n}:Open-Sts")
 
 
 def _card(graph) -> dict:
@@ -100,7 +106,6 @@ def test_the_drawing_columns_read(tmp_path) -> None:
 @pytest.mark.parametrize(
     ("row", "word"),
     [
-        (_row("yoke", "yoke", 0, 0), "a yoke needs w_mm"),
         (_row("pole 1", "pole", 0, 50, w=0), "w_mm is 0"),
         (_row("coil 1", "coil", 0, 50, w=5, h=-1), "h_mm is -1"),
         (_row("pole 1", "pole", 0, 50, w="wide"), "not a number"),
@@ -144,7 +149,9 @@ def test_six_poles_are_drawn_at_their_angles_each_with_its_coils_two_sides(tmp_p
     for k in range(6):
         (pole,) = _tipped(doc, f"pole {k + 1}")
         assert pole["type"] == "polygon"
-        px, py = _centre(pole)
+        g, pts = pole["geometry"], pole["props"]["points"]
+        px = g["x"] + sum(q["x"] for q in pts) / len(pts)
+        py = g["y"] + sum(q["y"] for q in pts) / len(pts)
         angle = math.degrees(math.atan2(cy - py, px - cx)) % 360
         assert angle == pytest.approx(30 + 60 * k, abs=1)
         sides = _tipped(doc, f"coil {k + 1}")
@@ -207,10 +214,12 @@ def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
     (light,) = on_drawing("polygon", "XR01-QF1:Current-SP", "tooltip")
     assert light.get("rules")
     (number,) = on_drawing("pv-label", "XR01-QF1:Current-RB", "pv")
-    (gauge,) = _tipped(doc, "gauge 1")  # no rule: a plain ring, its number beside it
-    gx, gy = _centre(gauge)
-    nx, ny = _centre(number)
-    assert abs(ny - gy) < 1 and abs(nx - gx) < layout.PART_VALUE_WIDTH + layout.LIGHT_SIZE
+    # under the part's name, in the label column: the name's row, then the number's
+    (name,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "gauge 1"]
+    assert number["geometry"]["y"] == pytest.approx(name["geometry"]["y"] + layout.ROW)
+    assert number["geometry"]["x"] + number["geometry"]["width"] == pytest.approx(
+        name["geometry"]["x"] + name["geometry"]["width"]
+    )  # a part left of the centre: both end at the leader
     (plain,) = _tipped(doc, "switch 2")
     assert plain["type"] == "ellipse" and not plain.get("rules")
     assert plain["props"]["fill"] is False
@@ -257,7 +266,7 @@ def test_the_legend_lists_each_part_once_by_kind_with_its_source(tmp_path) -> No
     ]
     doc = _card(_graph(tmp_path, rows))
     texts = _texts(doc)
-    assert "1, 2, odd one" in texts  # a numbered member by its number, the rest whole
+    assert "1, 2, 3 (odd one)" in texts  # a numbered member by its number, the rest named
     assert "1, 2, 3, 4, 5, 6" in texts  # the coils
     assert "1, 2" in texts  # the corrector windings
     for kind in ("thermal switch", "coil", "corrector winding"):
@@ -271,6 +280,121 @@ def test_the_legend_lists_each_part_once_by_kind_with_its_source(tmp_path) -> No
 def test_a_class_with_no_rows_has_no_picture(tmp_path) -> None:
     doc = _card(_graph(tmp_path, [_row("yoke", "yoke", 0, 0, w=10, cls="Dipole")]))
     assert "END VIEW" not in _texts(doc)
+
+
+# -- shapes with no size, other pole counts, the yoke as a polygon -----------------
+
+
+def _unsized(poles: int, first: float, *, bore: str = "bore", gap: float = 30) -> list[str]:
+    """An invented class of *poles* poles from *first* degrees, no pole or coil sized;
+    its bore (or its gap) sized."""
+    rows = [_row(bore, bore, 0, 0, w=gap)]
+    for k in range(poles):
+        angle = first + 360 / poles * k
+        rows.append(_row(f"pole {k + 1}", "pole", 0, 0, angle=angle))
+        rows.append(_row(f"coil {k + 1}", "coil", 0, 0, angle=angle))
+    return rows
+
+
+@pytest.mark.parametrize(("poles", "first"), [(2, 90), (4, 45), (6, 30)])
+def test_poles_with_an_angle_and_no_size_draw_from_the_bore_and_say_so(
+    tmp_path, poles: int, first: float
+) -> None:
+    from osprey.facility.panels.picture import body
+    from osprey.facility.panels.tables import read_tables
+
+    rows = _unsized(poles, first, bore="gap" if poles == 2 else "bore")
+    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    drawn = body([r for r in pictures if r.shape])
+    assert not drawn.sized and drawn.beam == (0, 0)
+    for k in range(poles):
+        (pole,) = [s for s in drawn.shapes if s.row.part == f"pole {k + 1}"]
+        tip = min(math.hypot(a, b) for a, b in pole.points)
+        assert tip >= 15 * 0.99  # no pole reaches into the bore (radius 15)
+        sides = [s for s in drawn.shapes if s.row.part == f"coil {k + 1}"]
+        assert len(sides) == 2
+        for side in sides:  # beside the pole, not across it
+            assert not _overlap(side.points, pole.points)
+    assert [c.number for c in drawn.coils] == [str(k + 1) for k in range(poles)]
+    doc = _card(_graph(tmp_path / "g", rows))
+    texts = _texts(doc)
+    assert any(t.startswith("size not stated") for t in texts)
+    for k in range(poles):
+        assert str(k + 1) in texts  # each coil's number at the coil
+
+
+def _overlap(p: tuple, q: tuple) -> bool:
+    """Whether two convex polygons overlap by more than a touch (separating axes)."""
+    for poly in (p, q):
+        for i in range(len(poly)):
+            (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % len(poly)]
+            nx, ny = y1 - y2, x2 - x1
+            a = [nx * x + ny * y for x, y in p]
+            b = [nx * x + ny * y for x, y in q]
+            if max(a) <= min(b) + 1e-6 or max(b) <= min(a) + 1e-6:
+                return False
+    return True
+
+
+def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_path) -> None:
+    from osprey.facility.panels.picture import body
+    from osprey.facility.panels.tables import read_tables
+
+    hexagon = [
+        _row(
+            f"o{k}",
+            "outline",
+            100 * math.cos(math.radians(60 * k)),
+            100 * math.sin(math.radians(60 * k)),
+        )
+        for k in range(6)
+    ]
+    rows = [*_unsized(4, 45), *hexagon]
+    pictures = read_tables(_tables(tmp_path, rows)).pictures
+    drawn = body([r for r in pictures if r.shape], [r for r in pictures if r.kind == "outline"])
+    (yoke,) = [s for s in drawn.shapes if s.row.kind == "outline"]
+    assert len(yoke.points) == 6
+    inner = 100 * math.cos(math.radians(30))  # the hexagon's nearest edge
+    for shape in drawn.shapes:
+        if shape.row.kind == "pole":
+            assert max(math.hypot(a, b) for a, b in shape.points) < inner
+    doc = _card(_graph(tmp_path / "g", rows))
+    (polygon,) = _by_type_tip(doc, "polygon", "yoke")
+    assert polygon["props"]["fill"] is True
+
+
+def test_tag_prefixes_are_initials_made_unique() -> None:
+    from osprey.facility.panels.picture import tag_prefixes
+
+    assert tag_prefixes(["thermal_switch", "manifold"]) == {"thermal_switch": "TS", "manifold": "M"}
+    assert tag_prefixes(["terminal", "thermocouple", "manifold"]) == {
+        "terminal": "TE",
+        "thermocouple": "TH",
+        "manifold": "M",
+    }
+
+
+def test_many_parts_carry_tags_and_only_a_part_with_a_signal_is_named(tmp_path) -> None:
+    rows = [*_six_poles()]
+    rows += [_row(f"thermal switch {k}", "thermal_switch", 130, -60 + 20 * k) for k in range(1, 7)]
+    rows += [_row(f"manifold {k}", "manifold", -150, 40) for k in (1, 2)]  # one point, two parts
+    rows += [_row("gauge 1", "thermocouple", 0, 140, signal="current_readback")]
+    doc = _card(_graph(tmp_path, rows))
+    texts = _texts(doc)
+    for k in range(1, 7):
+        assert f"TS{k}" in texts and f"thermal switch {k}" not in texts
+    assert "M1,2" in texts  # parts at one point share one tag
+    assert "gauge 1" in texts  # named: it has a signal
+    leaders = [
+        n
+        for n in _by_type(doc, "line")
+        if n["props"]["lineColor"] == symbols.MUTED_TEXT
+        and len(n["props"]["points"]) == 2
+        and "tooltip" not in n["props"]
+        and n["geometry"]["x"] < layout.MARGIN + layout.CARD_LEFT  # the picture's column
+    ]
+    assert len(leaders) == 1  # the named part's only
+    assert "TS: 1, 2, 3, 4, 5, 6" in texts and "M: 1, 2" in texts  # the legend says the tags
 
 
 # -- check -------------------------------------------------------------------------
