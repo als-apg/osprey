@@ -31,6 +31,7 @@ from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.services.ariel_search.enhancement.qmd_export.exporter import resolve_mirror_path
 from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
 from osprey.utils.workspace import SPOOL_DIR_RELPATH
+from tests._builds import BuiltProject
 
 #: Every test here reads a real build of the hosting preset — seconds, not
 #: milliseconds, for the worker that builds it — because reach is a property of
@@ -99,7 +100,7 @@ def _qmd_export_mirror(config: dict) -> str | None:
 
 
 @pytest.fixture(scope="module")
-def built_stack(built_demo) -> Path:
+def built_stack(built_demo: BuiltProject) -> Path:
     """The hosting preset built, renders included: the run's shared, read-only
     build (``tests/_builds.py``). Nothing here writes to it."""
     return built_demo.repo

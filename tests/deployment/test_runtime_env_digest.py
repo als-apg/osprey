@@ -32,6 +32,7 @@ import hashlib
 import inspect
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -425,7 +426,7 @@ def test_every_call_shape_in_the_source_receives_the_digest(
     (tmp_path / ".env").write_text("LOCAL=2\n")
     config = {"project_name": "proj-a", "project_root": str(tmp_path)}
     args = [config] if positional == 1 else [config, {}]
-    values = {"ignore_orphans": True, "project": "proj-recorded"}
+    values: dict[str, Any] = {"ignore_orphans": True, "project": "proj-recorded"}
 
     env = runtime_env(*args, **{keyword: values[keyword] for keyword in keywords})
 

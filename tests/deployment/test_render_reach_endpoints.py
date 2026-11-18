@@ -33,6 +33,7 @@ from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.health.core.ariel import ariel
 from osprey.port_layout import resolve_port_base
 from osprey.registry.web import resolve_web_server_address
+from tests._builds import BuiltProject
 
 #: The T4 fixture reads a real ``osprey init`` + ``osprey build`` — seconds,
 #: not milliseconds, for the worker that builds it.
@@ -72,7 +73,7 @@ def _service_env(service: dict) -> dict[str, str | None]:
 
 
 @pytest.fixture(scope="module")
-def built_render_stack(built_demo) -> Path:
+def built_render_stack(built_demo: BuiltProject) -> Path:
     """The demo hosting preset built, renders included: the run's shared,
     read-only build (``tests/_builds.py``).
 
