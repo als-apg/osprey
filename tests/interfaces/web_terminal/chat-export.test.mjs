@@ -100,7 +100,7 @@ describe('copy: a reply is copied as its markdown source', () => {
       [
         { type: 'delta', kind: 'text', content: '## Status\n\n' },
         { type: 'delta', kind: 'text', content: 'The **pressure** is `nominal`.' },
-        { type: 'result', is_error: false, duration_ms: 1200 },
+        { type: 'result', ends_turn: true, is_error: false, duration_ms: 1200 },
       ],
       '## Status\n\nThe **pressure** is `nominal`.',
     ],
@@ -110,7 +110,7 @@ describe('copy: a reply is copied as its markdown source', () => {
         { type: 'delta', kind: 'text', content: 'Hel' },
         { type: 'delta', kind: 'text', content: 'lo' },
         { type: 'text', content: 'Hello, **final**.' },
-        { type: 'result', is_error: false },
+        { type: 'result', ends_turn: true, is_error: false },
       ],
       'Hello, **final**.',
     ],
@@ -127,7 +127,7 @@ describe('copy: a reply is copied as its markdown source', () => {
         },
         { type: 'tool_result', tool_use_id: 't1', is_error: false, preview: 'file body' },
         { type: 'text', content: 'Second.' },
-        { type: 'result', is_error: false },
+        { type: 'result', ends_turn: true, is_error: false },
       ],
       'First.\n\nSecond.',
     ],
@@ -167,7 +167,7 @@ describe('copy: a reply is copied as its markdown source', () => {
           },
           { type: 'tool_result', tool_use_id: 't1', is_error: false, preview: 'listing' },
           { type: 'text', content: 'Part two.' },
-          { type: 'result', is_error: false },
+          { type: 'result', ends_turn: true, is_error: false },
         ],
       },
     ]);
@@ -201,18 +201,18 @@ describe('copy: the control', () => {
     renderer.handleEvent({ type: 'delta', kind: 'text', content: 'still writing' });
     expect(copyControls()).toHaveLength(0);
 
-    renderer.handleEvent({ type: 'result', is_error: false });
+    renderer.handleEvent({ type: 'result', ends_turn: true, is_error: false });
     expect(copyControls()).toHaveLength(1);
   });
 
   test('gives each reply its own control, once', () => {
     drawTurn([
       { type: 'text', content: 'one' },
-      { type: 'result', is_error: false },
+      { type: 'result', ends_turn: true, is_error: false },
     ]);
     drawTurn([
       { type: 'text', content: 'two' },
-      { type: 'result', is_error: false },
+      { type: 'result', ends_turn: true, is_error: false },
     ]);
     expect(copyControls()).toHaveLength(2);
   });
@@ -221,7 +221,7 @@ describe('copy: the control', () => {
     drawTurn([
       { type: 'tool_use', tool_use_id: 't1', tool_name: 'Read', tool_name_raw: 'Read', input: {} },
       { type: 'tool_result', tool_use_id: 't1', is_error: false, preview: '' },
-      { type: 'result', is_error: false },
+      { type: 'result', ends_turn: true, is_error: false },
     ]);
     expect(copyControls()).toHaveLength(0);
   });
@@ -229,7 +229,7 @@ describe('copy: the control', () => {
   test('is a labelled button whose name says Copied briefly after a copy, then Copy again', async () => {
     drawTurn([
       { type: 'text', content: 'copy me' },
-      { type: 'result', is_error: false },
+      { type: 'result', ends_turn: true, is_error: false },
     ]);
 
     const copy = copyControls()[0];
@@ -252,7 +252,7 @@ describe('copy: the control', () => {
     clipboard.writeText.mockRejectedValueOnce(new Error('clipboard denied'));
     drawTurn([
       { type: 'text', content: 'no clipboard' },
-      { type: 'result', is_error: false },
+      { type: 'result', ends_turn: true, is_error: false },
     ]);
 
     const copy = copyControls()[0];
@@ -348,7 +348,7 @@ describe('conversationMarkdown', () => {
               input: {},
             },
             { type: 'text', content: 'Done.' },
-            { type: 'result', is_error: false },
+            { type: 'result', ends_turn: true, is_error: false },
           ],
         },
       ],

@@ -76,7 +76,10 @@ describe('the renderer publishes its lifecycle', () => {
       {
         role: 'assistant',
         content: '',
-        events: [{ type: 'text', content: 'Done.' }, { type: 'result' }],
+        events: [
+          { type: 'text', content: 'Done.' },
+          { type: 'result', ends_turn: true },
+        ],
       },
       { role: 'assistant', content: 'Plain history.' },
     ]);
@@ -100,7 +103,7 @@ describe('the renderer publishes its lifecycle', () => {
     expect(ends).toHaveLength(0);
 
     r.beginTurn();
-    r.handleEvent({ type: 'result', is_error: false });
+    r.handleEvent({ type: 'result', ends_turn: true, is_error: false });
     r.endTurn();
     expect(ends).toHaveLength(1);
   });
