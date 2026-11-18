@@ -3846,16 +3846,12 @@ def home(graph: PanelGraph) -> View:
     if _has(graph, index, _UNPLACED_ROLLUP):
         not_placed.append(Link(f"{NOT_PLACED} health", _UNPLACED_ROLLUP))
     not_placed += [Group(cls, "chips", tuple(loose[cls])) for cls in sorted(loose)]
+    places: list[Item] = [Group(_TOP_PLACES, "chips", tuple(tops))] if tops else []
+    sets: list[Item] = [Group(cls, "chips", tuple(by_class[cls])) for cls in sorted(by_class)]
+    if groups:
+        sets.append(Group(_OTHER_GROUPS, "chips", tuple(groups)))
     sections = _sections(
-        [
-            (_TOP_PLACES, [Group(_TOP_PLACES, "chips", tuple(tops))] if tops else []),
-            (
-                SETS_SECTION,
-                [Group(cls, "chips", tuple(by_class[cls])) for cls in sorted(by_class)]
-                + ([Group(_OTHER_GROUPS, "chips", tuple(groups))] if groups else []),
-            ),
-            (_NOT_PLACED_SECTION, not_placed),
-        ]
+        [(_TOP_PLACES, places), (SETS_SECTION, sets), (_NOT_PLACED_SECTION, not_placed)]
     )
     return View(HOME_TARGET, HOME, (), sections)
 
