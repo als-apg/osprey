@@ -228,6 +228,9 @@ class Thing:
     #: A device's attributes as ``(name, value)`` pairs, values as text (a list
     #: value gives one pair per item), in name order; empty for a place or a group.
     attributes: tuple[tuple[str, str], ...] = ()
+    #: A device's ``s`` along its model's beam path, as the build computed or a
+    #: source stated it; ``None`` without one.
+    s_m: float | None = None
 
 
 @dataclass(frozen=True)
@@ -440,6 +443,30 @@ def _value_key(value: object) -> str:
 ANY_CLASS = "*"
 
 
+def _number_or_none(value: Any) -> float | None:
+    """A JSON number as a float; anything else (a bool included) ``None``."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+#: The frame name of a model's beam path: positions in it are its devices' ``s``.
+MODEL_FRAME = "model {}"
+#: A model's settings ``solve`` word for a path the beam passes once (a line).
+LINE_SOLVE = "single_pass"
+
+
+def _single_pass(model: Mapping[str, Any]) -> bool:
+    """Whether a model's settings (any engine's block) state ``solve: single_pass``."""
+    settings = model.get("settings")
+    if not isinstance(settings, Mapping):
+        return False
+    return any(
+        isinstance(block, Mapping) and block.get("solve") == LINE_SOLVE
+        for block in settings.values()
+    )
+
+
 def _attribute_pairs(record: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     """A device record's ``attributes`` map as sorted ``(name, value)`` text pairs;
     a list value gives one pair per item, a map value none."""
@@ -471,6 +498,7 @@ class PanelGraph:
         content_hash: str | None = None,
     ) -> None:
         self._records = records
+        self._lengths: dict[str, float] | None = None
         self._tables = tables
         self._content_hash = content_hash
         self._under_names: dict[str, list[Thing]] | None = None
@@ -624,6 +652,7 @@ class PanelGraph:
                     model=_text(record.get("model")) if kind == "device" else None,
                     group_kind=(_text(record.get("kind")) or "family") if kind == "group" else None,
                     attributes=_attribute_pairs(record) if kind == "device" else (),
+                    s_m=_number_or_none(record.get("s")) if kind == "device" else None,
                 )
         return things
 
@@ -777,7 +806,7 @@ class PanelGraph:
     def _read_wholes(self) -> None:
         """Every device with no place of its own, put in the place of its nearest whole.
 
-        The walk follows outgoing ``part_of`` edges to devices, breadth first in
+        The walk follows outgoing accepted ``part_of`` edges to devices, breadth first in
         file order, and stops at the first whole that has a built place or a
         claim; a device it reaches twice is not walked again, so a loop ends.
         """
@@ -795,7 +824,12 @@ class PanelGraph:
                 for here in level:
                     for edge in self._edges.get(here, {}).get(PART_RELATION, ()):
                         whole = (edge.other_kind, edge.other)
-                        if not edge.outgoing or edge.other_kind != "device" or whole in seen:
+                        if (
+                            not edge.outgoing
+                            or edge.other_kind != "device"
+                            or edge.standing != "accepted"
+                            or whole in seen
+                        ):
                             continue
                         seen.add(whole)
                         places = self._own_places(whole)
@@ -991,6 +1025,17 @@ class PanelGraph:
         """
         return self._whole_of.get(("device", thing_id))
 
+    def place_of(self, thing_id: str, kind: ThingKind | None = None) -> str | None:
+        """The one place a thing stands in for its crumbs and strips: its built place,
+        else, for a part placed by its whole (:meth:`whole_of`), the whole's first
+        place; else ``None``."""
+        key = self._key(thing_id, kind)
+        place = self._things[key].place
+        if place is not None:
+            return place
+        whole = self._whole_of.get(key)
+        return whole[1][0] if whole is not None else None
+
     def placed(self, thing_id: str, kind: ThingKind | None = None) -> bool:
         """Whether the thing is in some place: built, claimed, or as part of a whole."""
         key = self._key(thing_id, kind)
@@ -1003,6 +1048,35 @@ class PanelGraph:
             for key, thing in self._things.items()
             if thing.kind == "device" and not self._own_places(key) and key not in self._whole_of
         ]
+
+    def beam_position(self, thing: Thing) -> tuple[str, float] | None:
+        """Where a device is along a beam path, as ``(frame, s)``: its ring-frame pose
+        (:attr:`Pose.is_ring_position`), else its record's ``s`` in its model's frame
+        (:data:`MODEL_FRAME`), else ``None``."""
+        pose = self.pose(thing.id)
+        if pose is not None and pose.is_ring_position and self.ring_frame is not None:
+            return self.ring_frame, float(pose.s_m)  # type: ignore[arg-type]
+        if thing.s_m is not None and thing.model is not None:
+            return MODEL_FRAME.format(thing.model), thing.s_m
+        return None
+
+    def frame_length(self, frame: str) -> float | None:
+        """The length a closed beam path (a ring) wraps at, for positions in *frame*;
+        ``None`` for a path the beam passes once (a model whose settings state
+        ``solve: single_pass``). The facility file states no ring length, so the
+        furthest position stated in the frame stands for it."""
+        if self._lengths is None:
+            lengths: dict[str, float] = {}
+            for thing in self._things.values():
+                if thing.kind == "device":
+                    found = self.beam_position(thing)
+                    if found is not None:
+                        lengths[found[0]] = max(lengths.get(found[0], 0.0), found[1])
+            for model in self._records.document.get("models") or ():
+                if isinstance(model, Mapping) and _single_pass(model):
+                    lengths.pop(MODEL_FRAME.format(model.get("name")), None)
+            self._lengths = lengths
+        return self._lengths.get(frame)
 
     def pose(self, thing_id: str) -> Pose | None:
         """The thing's ring-frame pose, else its first pose, else ``None``."""

@@ -2220,3 +2220,47 @@ def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
     need = layout.BLOCK_LABEL + layout.text_width(f"-0.000 {long_unit}", layout.BLOCK_TEXT_SIZE)
     assert width(long_unit) >= need  # the field holds the number and its unit whole
     assert width(None) == layout.BLOCK_LEAST  # the facility's unit, A, fits the least
+
+
+def test_a_member_card_shows_its_shared_supply_read_only_and_links_to_it(tmp_path) -> None:
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import Link, Target, ValueRow
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def supply(document) -> None:
+        document["devices"].append({"id": "XR:FAMILY-PS", "class": "FamilySupply"})
+        members = ["XR01:QF1", "XR02:QF1"]
+        for name, role in (
+            ("XR:FAMILY-PS:Setpoint", "setpoint"),
+            ("XR:FAMILY-PS:Reset", "setpoint"),
+        ):
+            document["channels"].append(
+                {"id": name, "on": {"device": "XR:FAMILY-PS"}, "endpoint_of": members, "role": role}
+            )
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "FamilySupply,set-point,*:Setpoint,device,entry,A,,,set point,stated,S,,\n"
+        + "FamilySupply,reset,*:Reset,device,action,,,1,Reset,stated,S,,\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", supply), tables)
+    view = device_card(graph, "XR01:QF1")
+    (section,) = [s for s in view.sections if s.title == "shared supply XR:FAMILY-PS"]
+    link, row = section.items
+    assert link == Link("XR:FAMILY-PS", Target("card", "device", "XR:FAMILY-PS"))
+    assert isinstance(row, ValueRow)
+    assert (row.label, row.channel, row.writable) == (
+        "set point (shared)",
+        "XR:FAMILY-PS:Setpoint",
+        False,
+    )
+    # the press stays on the supply's own card; no member writes the family's channel
+    doc = stub_render(view, graph)
+    assert not [
+        n
+        for n in nodes(doc)
+        if n["type"] in ("pv-text-input", "pv-button") and "FAMILY-PS" in json.dumps(n)
+    ]
+    texts = [n["props"].get("text") for n in nodes(doc)]
+    assert "set point (shared)" in texts

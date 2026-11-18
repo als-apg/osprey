@@ -1404,7 +1404,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    records), ``channels`` (every channel of a device with more than a card
    lists, grouped by role, then record type: the one plain list), ``set`` (the members of a group as a grid), ``calibration`` (one
    calibration kind over a set), ``place`` (a place's devices in beam order
-   with a band of key numbers), ``rack`` (a rack elevation, chassis at their
+   with a band of key numbers: positions are the ring-frame poses, else each
+   device's ``s`` along its model; one strip keeps to the beam path most of its
+   devices are on, the others wait in its tray, and a stretch across a ring's
+   start is drawn in one piece), ``rack`` (a rack elevation, chassis at their
    unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
    ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
    level) and ``checkout`` (every setpoint beside its readback).
@@ -1530,7 +1533,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    is named "contested, not in force" beside the value in force, alone it makes
    the row and its cell "contested" with no value, and a contested curve is not
    drawn. The calibration block is the
-   ``calibration-strip``. ``no_cards.csv`` (class, under, devices,
+   ``calibration-strip``. A device with no place of its own and an accepted
+   ``part_of`` to a placed whole stands where the whole is: in its crumbs, on
+   strips at the whole's position, and its card says "in <place> by its whole
+   <whole>". A device that is an endpoint of channels another device holds (a
+   family's shared supply) shows that supply's value roles read-only under
+   "shared supply <id>", with a link to the supply's card; the supply's presses
+   stay on its own card. ``no_cards.csv`` (class, under, devices,
    owner_relation, owner_direction, owner_to, and the optional when and
    attribute) names devices that get no card: ``class`` ``*`` matches any
    class, ``when`` is ``no-channel`` (the device has no channel),
