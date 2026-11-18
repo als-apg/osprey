@@ -30,7 +30,7 @@ import math
 import weakref
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
@@ -179,8 +179,10 @@ class _Index:
     unplaced_ruled: bool  # a device in no place has a rule-bearing channel
     unplaced_channels: bool  # a device in no place has a channel
     systems: Mapping[str, frozenset[str]]  # place -> systems with a rule channel in it
-    set_class: Mapping[str, str] = MappingProxyType({})  # set -> its members' one class
-    sets_of: Mapping[str, tuple[str, ...]] = MappingProxyType({})  # device -> its sets
+    # set -> its members' one class
+    set_class: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    # device -> its sets
+    sets_of: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
 
 
 _INDEXES: weakref.WeakKeyDictionary[PanelGraph, _Index] = weakref.WeakKeyDictionary()
