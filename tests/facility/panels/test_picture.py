@@ -20,7 +20,7 @@ from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_
 from tests.facility.panels._views import bound, nodes, stub_render
 
 PICTURES = "pictures.csv"
-HEADER = ",".join(c for c in COLUMNS[PICTURES] if c != "under")  # a file without it reads
+HEADER = ",".join(c for c in COLUMNS[PICTURES] if c not in ("under", "devices"))  # reads
 CITE = "XR-DRAWING,B,released,sheet 2"
 COLOUR = "#2f9e52"  # the fixture's quadrupole colour
 
@@ -824,3 +824,18 @@ def test_a_picture_wholly_at_default_proportions_says_not_to_scale(tmp_path) -> 
 def test_a_scaled_picture_of_stated_rows_says_nothing_of_schematic(tmp_path) -> None:
     texts = _texts(_card(_graph(tmp_path, _six_poles())))
     assert not [t for t in texts if "not to scale" in t]
+
+
+def test_a_row_s_devices_pattern_takes_or_leaves_out_devices_of_its_class(tmp_path) -> None:
+    def graph_with(devices: str):
+        tables = copy_tables(tmp_path / devices.replace("*", "s").replace("!", "not-"))
+        rows = [f"{row},{devices}" for row in _under_rows("")]
+        (tables / PICTURES).write_text("\n".join([UNDER_HEADER + ",devices", *rows]) + "\n")
+        return load_graph(write_fixture_facility(tmp_path / f"{len(devices)}.json"), tables)
+
+    only = graph_with("XR01:*")
+    assert only.pictures("Quadrupole", "XR01:QF1")
+    assert not only.pictures("Quadrupole", "XR02:QF1")
+    but = graph_with("!XR01:QF1")  # every device of the class but that one
+    assert not but.pictures("Quadrupole", "XR01:QF1")
+    assert but.pictures("Quadrupole", "XR02:QF1")

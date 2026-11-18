@@ -1283,9 +1283,12 @@ def test_home_holds_the_top_places_the_sets_and_what_is_in_no_place(panel_graph)
         ("Pump", ["XR01-VAC", "XR02-VAC"]),  # under their class, in name order
         ("Quadrupole", ["XR-QUAD"]),
     ]
-    rollup, loose = _section(view, NOT_PLACED).items
+    rollup, by_class = _section(view, NOT_PLACED).items
     assert rollup.target == Target("rollup", "place", NOT_PLACED, by="place")
-    assert [n.link.target for n in loose.nodes] == [card("XR09:LOOSE1")]
+    page = Target("home", "place", HOME, by="unplaced", system="Infrastructure")
+    assert [(n.label, n.link.target) for n in by_class.nodes] == [("Infrastructure (1)", page)]
+    (chips,) = _section(describe(panel_graph, page), NOT_PLACED).items  # the class's index
+    assert [n.link.target for n in chips.nodes] == [card("XR09:LOOSE1")]
 
 
 def test_a_device_card_links_back_to_its_sets(panel_graph):

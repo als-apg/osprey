@@ -759,3 +759,30 @@ def test_under_a_place_writes_the_calibration_views_of_sets_with_a_member_there(
     assert not [t for t in targets(panel_graph) if t.view == "set" and test(t)]
     rack = under(panel_graph, "XR/XR01/RK1")  # no magnet in the rack
     assert not [t for t in targets(panel_graph) if t.view == "calibration" and rack(t)]
+
+
+def test_a_device_whose_card_lists_counts_has_a_paged_roll_up_that_reads_each_rule_once(
+    tmp_path, monkeypatch
+):
+    import importlib
+
+    from osprey.facility.panels.describe import device_rollup
+    from osprey.facility.panels.view import Node
+
+    describe_module = importlib.import_module("osprey.facility.panels.describe")
+    monkeypatch.setattr(describe_module, "DEVICE_PAGE", 50)
+    graph = graph_with_wide(tmp_path / "wide", 120)  # over the card's 60: counts only
+    pages = [t for t in targets(graph) if t.view == "rollup" and t.kind == "device"]
+    assert [t.system for t in pages] == [None, "2", "3"]  # 120 rules, 50 a page
+    read = [
+        channel
+        for target in pages
+        for section in device_rollup(graph, "XR01:WIDE1", int(target.system or 1)).sections
+        for item in section.items
+        if isinstance(item, Node)
+        for channel in item.channels
+    ]
+    assert sorted(read) == sorted(f"XR01-WIDE1:Sig{i}-Sts" for i in range(120))  # once each
+    emit.write(graph, tmp_path / "out")
+    problems = emit.check(graph, tmp_path / "out")
+    assert not [p for p in problems if p.kind in ("unrolled", "over_budget", "missing")]

@@ -4421,9 +4421,10 @@ class _Page:
         return MARGIN + SET_ROW_HEAD + column * (self.cell_w + GAP)
 
     def grid_cell(self, x0: float, y: float, cell: GridCell) -> None:
-        """One member: the readback in its field, or the short name in a box, and one
-        light at the right end: the deviation light when the pair has one, else the
-        member's; the whole cell opens its card."""
+        """One member: the readback in its field, else (with no light) the value its
+        card's first key tile shows, else the short name in a box, and one light at
+        the right end: the deviation light when the pair has one, else the member's;
+        the whole cell opens its card."""
         w = self.cell_w
         if cell.calibration is not None:  # a calibration view: no light, static text
             found = cell.calibration
@@ -4454,6 +4455,13 @@ class _Page:
         if pair is not None and pair.readback is not None:
             # the viewer frames it; the number (and its unit, when the set's differ) in it
             self.field(x0, y, pair.readback, w=end - x0, within=self.cell_units)
+        elif cell.tile is not None:  # no light: the value its card shows first
+            tile = cell.tile
+            self.box(x0, y, end - x0, ROW, fill=FIELD_BACKGROUND)
+            self.shown_value(
+                x0 + GAP / 2, y, end - x0 - GAP, tile.channel, tile.shown_as, tile.words,
+                unit=tile.unit, scale=tile.scale, size=SMALL_SIZE,
+            )  # fmt: skip
         else:
             self.box(x0, y, end - x0, ROW, fill=FIELD_BACKGROUND)
             name = self.member_name(cell.member)
