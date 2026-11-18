@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 17, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 18, 2026"/>
   </head>
   
   
@@ -548,7 +548,8 @@ structure a bundle, and how to author, validate, and serve it.</p>
 as <strong>cross-linked Markdown files with YAML frontmatter</strong>, so the same files can
 be read by a person, tracked in version control, and navigated by an agent. It
 was introduced by Google; see the <a class="reference external" href="https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing">Google Cloud blog post</a>
-for the original description.</p>
+for the original description. OSPREY reads and writes version 0.3 of the
+<a class="reference external" href="https://github.com/open-knowledge-format/open-knowledge-format/blob/main/SPEC.md">specification</a>, and still reads bundles written for 0.1 and 0.2.</p>
 <p>OSPREY uses OKF for <strong>facility narrative knowledge</strong> — the descriptive,
 human-authored context that does not belong in the channel database (that is the
 <a class="reference internal" href="../use-channel-finder.html"><span class="doc">Channel Finder</span></a>) or the logbook (that is
@@ -569,10 +570,11 @@ machine-navigable: it lets indexes group documents and lets the agent tell
 to discover what exists and then read only the document it needs, instead of
 loading the whole bundle. Regenerate these indexes with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span></code> after adding or removing documents.</p>
-<p><strong>3. Cross-links.</strong> Documents reference each other with bundle-relative
-Markdown links, so the agent can follow references from one document to related
-ones:</p>
+<p><strong>3. Cross-links.</strong> Documents reference each other with Markdown links, so the
+agent can follow them. A target that starts with <code class="docutils literal notranslate"><span class="pre">/</span></code> is read from the bundle
+root, any other from the directory of the document it is written in:</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>See [<span class="nt">Personnel Safety System</span>](<span class="na">/subsystems/pss.md</span>) for the interlock hierarchy.
+See [<span class="nt">Vacuum System</span>](<span class="na">vacuum.md</span>), a document in the same directory.
 </pre></div>
 </div>
 <p><strong>Facility links.</strong> A document names a channel, a device or a place of the
@@ -666,7 +668,7 @@ description: DC power supplies for all storage-ring magnets.
 </table>
 </div>
 <p>Optional fields: <code class="docutils literal notranslate"><span class="pre">tags</span></code> (list of strings). Documents cross-reference
-each other with bundle-relative Markdown links, as shown in
+each other with Markdown links, as shown in
 <a class="reference internal" href="#the-core-ideas">The Core Ideas</a> above.</p>
 <p><strong>Pointing the server at the bundle.</strong> Add a <code class="docutils literal notranslate"><span class="pre">facility_knowledge</span></code> block
 to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
@@ -781,9 +783,11 @@ API:</p>
 <span class="n">regenerate_indexes</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;data/facility/knowledge&quot;</span><span class="p">))</span>
 </pre></div>
 </div>
-<p>The root <code class="docutils literal notranslate"><span class="pre">index.md</span></code> includes an <code class="docutils literal notranslate"><span class="pre">okf_version</span></code> frontmatter key;
-sub-directory indexes contain no frontmatter (they are consumed by the
-server, not the agent directly).  The command is idempotent — a second run
+<p>The root <code class="docutils literal notranslate"><span class="pre">index.md</span></code> holds the bundle’s metadata as frontmatter:
+<code class="docutils literal notranslate"><span class="pre">okf_version</span></code>, and any <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>, <code class="docutils literal notranslate"><span class="pre">license</span></code> or
+other key you add. Regeneration keeps that block as written, and writes
+<code class="docutils literal notranslate"><span class="pre">okf_version:</span> <span class="pre">&quot;0.3&quot;</span></code> only into a root index without one. Sub-directory
+indexes contain no frontmatter.  The command is idempotent — a second run
 produces bit-identical output — and never touches concept documents, only
 index files.</p>
 <p><strong>validate</strong> — validates every <code class="docutils literal notranslate"><span class="pre">*.md</span></code> file in the bundle and reports all
@@ -793,10 +797,13 @@ failures in one pass (collect-all, never aborts on the first error):</p>
 </pre></div>
 </div>
 <p>Concept documents are checked at the <em>authoring</em> level (<code class="docutils literal notranslate"><span class="pre">type</span></code>,
-<code class="docutils literal notranslate"><span class="pre">title</span></code>, and <code class="docutils literal notranslate"><span class="pre">description</span></code> must be present and non-empty).  Index files
-are checked for frontmatter compliance (OKF §6/§11) and must match what
-<code class="docutils literal notranslate"><span class="pre">regen-index</span></code> writes, so a page added, removed or retitled without
-regenerating fails validation.  The command exits 0 on a clean bundle, 1
+<code class="docutils literal notranslate"><span class="pre">title</span></code>, and <code class="docutils literal notranslate"><span class="pre">description</span></code> must be present and non-empty).  A Markdown
+file with no <code class="docutils literal notranslate"><span class="pre">type</span></code>, such as a <code class="docutils literal notranslate"><span class="pre">README.md</span></code>, is not a concept: it gets a
+warning and stays out of the indexes and search.  Files and directories
+whose name starts with <code class="docutils literal notranslate"><span class="pre">.</span></code> are not in the bundle.  Index files are checked
+for frontmatter compliance (OKF §8) and must match what <code class="docutils literal notranslate"><span class="pre">regen-index</span></code>
+writes, so a page added, removed or retitled without regenerating fails; a
+<code class="docutils literal notranslate"><span class="pre">log.md</span></code> must have no frontmatter.  The command exits 0 on a clean bundle, 1
 if any file fails.</p>
 <p><strong>seed-from-ttl</strong> — seeds one OKF stub document per device of the build’s
 graph view, <code class="docutils literal notranslate"><span class="pre">build/data/graph/facility.ttl</span></code> in the deployment repo
