@@ -3,7 +3,7 @@
 `test_render.py`'s and `test_auth_tls_seams.py`'s assertions are string matches
 on the Jinja output — cheap and fast, but they can't catch an nginx syntax error
 the strings happen to satisfy. This module closes that gap for real by actually
-invoking `nginx -t` inside `nginx:1.31-alpine` (the base image the deployed stack
+invoking `nginx -t` inside `nginx:1.31.9-alpine` (the base image the deployed stack
 uses) against each render shape the auth/TLS seams can produce:
 
 - the default render (`auth.method` unset -> "token", `tls.enabled` unset ->
@@ -244,7 +244,7 @@ def _run_nginx_t(
     command: tuple[str, ...] = ("nginx", "-t"),
     entrypoint: str | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run *command* (default ``nginx -t``) in ``nginx:1.31-alpine`` against the
+    """Run *command* (default ``nginx -t``) in ``nginx:1.31.9-alpine`` against the
     rendered fragment.
 
     When *templates_dir* is given, the base image's entrypoint is driven exactly

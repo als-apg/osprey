@@ -229,7 +229,7 @@ def ensure_image(reference: str, *, budget: float = IMAGE_PULL_BUDGET) -> None:
     whole pull rather than each socket read.
 
     Args:
-        reference: Image reference, e.g. ``nginx:1.31-alpine``.
+        reference: Image reference, e.g. ``nginx:1.31.9-alpine``.
         budget: Seconds the whole ``docker pull`` may take.
 
     Raises:

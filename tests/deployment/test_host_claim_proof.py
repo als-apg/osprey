@@ -34,7 +34,7 @@ pytestmark = [
 
 # Already pulled by this directory's other dockerbuild tests; `sleep` keeps the
 # container running with no ports and no config of its own.
-_IMAGE = "nginx:1.31-alpine"
+_IMAGE = "nginx:1.31.9-alpine"
 
 _THEIRS = "0123456789ab"
 
