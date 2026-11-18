@@ -52,6 +52,11 @@ from tests.facility._synthetic_trees import (
 
 PROJECT = "demo"
 
+#: Every build here skips the demo preset's ``pre_build`` hook, the child process
+#: that stages the canopy payload before the facility build: no stop line or
+#: exit code here depends on it.
+SKIP_LIFECYCLE = "--skip-lifecycle"
+
 Tree = dict[str, Any]
 Edit = Callable[[Tree], None]
 
@@ -3113,7 +3118,7 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
 def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -> None:
     repo = _repo(initialised, tmp_path, case)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 1, result.output
     # A stop naming a resolved path shows it under the repo, which is a fresh
@@ -3195,7 +3200,7 @@ def test_an_asking_profile_builds_with_approval_off(
     for edit in edits:
         edit(repo)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 0, result.output
 
@@ -3213,7 +3218,7 @@ def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
     _drop_approval_hook(repo)
     _disable_approval(repo)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 1, result.output
     assert result.stderr.splitlines()[-1] == CASES["profile_invalid__approval_hook_not_selected"][1]
@@ -3243,7 +3248,7 @@ def test_a_fault_polarity_is_one_of_its_options(
     _clear_facility_records(repo / "data" / "facility")
     write_tree(repo / "data" / "facility", tree)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     (value,) = (v["polarity"] if isinstance(v, dict) else v for v in faults.values())
     assert result.exit_code == 1, result.output
