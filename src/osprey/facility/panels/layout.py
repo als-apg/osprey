@@ -91,6 +91,7 @@ from osprey.facility.panels.view import (
     Link,
     Node,
     Operate,
+    PartFacts,
     Picture,
     Placement,
     Probe,
@@ -254,6 +255,7 @@ FRONT_EMPTY_WIDTH = 360  # a group with no connector stated: its body with the n
 LOOSE_COLUMNS = 4  # things on no stated port, in columns
 RING_COLUMN_LEAST, RING_COLUMN_MOST = 72, 140  # a ring-strip member's column
 LADDER_DOT = 14  # the live value on a ladder
+FOCUS_RING = 6  # round a part in focus on its owner's drawing
 LADDER_TICK = 18  # a set point's mark across the ladder's line
 CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
@@ -539,6 +541,8 @@ _CONTESTED = "contested"
 _NOTHING = "\u2014"  # what a connector with nothing stated on it shows
 _NO_CONNECTOR = "no connector stated for this unit"
 _LADDER_NOW = "now"
+_STATED = "STATED"
+_NOT_STATED_HEAD = "NOT STATED"
 _LADDER_NO_VALUE = "the value is not served: no dot"
 _LADDER_LEFT_OUT = "set points not served, left out: {}"
 _STRIP_TITLE = "IN BEAM ORDER → · schematic, not to scale"
@@ -2169,6 +2173,11 @@ class _Page:
                 number += 1
                 title = f"{number} · {section.title} ({first.total})"
                 self.framed(title, partial(self.channel_count, first))
+            elif any(isinstance(i, PartFacts) for i in section.items):
+                number += 1
+                self.framed(
+                    f"{number} · {section.title}", partial(self.part_drawing, section.items)
+                )
             elif isinstance(first, Picture | Probe):
                 self.section(section)  # a drawing heads itself, by its view
             elif isinstance(first, CardFoot):
@@ -2591,6 +2600,44 @@ class _Page:
                 self.small(self.x0, self.y, line, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
         self.y += ROW_GAP
+
+    def part_drawing(self, items: Sequence[object]) -> None:
+        """A part's owner drawn with the part in focus, in the left column; beside
+        it what is stated about the part (each opening the other thing) and, dashed,
+        what is not."""
+        top = self.y
+        for item in items:
+            if isinstance(item, Picture):
+                self.picture(item)
+        bottom = self.y
+        self.y = top
+        x = self.x0 + CARD_LEFT if any(isinstance(i, Picture) for i in items) else self.x0
+        width = self.x0 + STRIP_WIDTH - x
+        for item in items:
+            if not isinstance(item, PartFacts):
+                continue
+            self.small(x, self.y, _STATED, fg=MUTED_TEXT)
+            self.y += SMALL_LINE + ROW_GAP
+            for fact in item.stated:
+                label = fact.label if isinstance(fact, Link) else f"{fact.label}: {fact.text}"
+                right = self.text(x, self.y, _cut(label, width, TEXT_SIZE), w=min(width, text_width(label, TEXT_SIZE)))  # fmt: skip
+                if isinstance(fact, Link):
+                    self.nav(
+                        x, self.y, right - x, ROW, replace(fact, label=f"open {fact.target.id}")
+                    )
+                self.y += ROW
+            if not item.stated:
+                self.small(x, self.y, _NOT_STATED_TEXT, fg=MUTED_TEXT)
+                self.y += SMALL_LINE
+            self.y += GAP
+            if item.not_stated:
+                self.small(x, self.y, _NOT_STATED_HEAD, fg=MUTED_TEXT)
+                self.y += SMALL_LINE + ROW_GAP
+            for text in item.not_stated:
+                self.box(x, self.y, width, ROW, line=MUTED_TEXT, dashed=True)
+                self.text(x + GAP, self.y, _cut(text, width - 2 * GAP, SMALL_SIZE), size=SMALL_SIZE, w=width - 2 * GAP, fg=MUTED_TEXT)  # fmt: skip
+                self.y += ROW + ROW_GAP
+        self.y = max(self.y, bottom)
 
     def ring_strip(self, ring: RingStrip) -> None:
         """One column per member in its order, wrapping into rows: its name, then the
@@ -5044,6 +5091,15 @@ class _Page:
         for dot in body.dots:
             x, y = px(dot.at)
             self.part_dot(dot.row, x, y, size=2 * dot.radius * scale, hollow=not dot.placed)
+            if dot.row.part in picture.focus:  # the card's own part, on its owner
+                ring = 2 * dot.radius * scale + 2 * FOCUS_RING
+                props = {
+                    "lineColor": symbols.FOCUS,
+                    "lineWidth": 2,
+                    "fill": False,
+                    _TOOLTIP: dot.row.part,
+                }
+                self.s.widget("ellipse", x - ring / 2, y - ring / 2, ring, ring, props)
             if dot.placed and self.shows_number(dot.row):
                 self.part_value(dot.row, x, y, cx)
         self.y = top + height + GAP

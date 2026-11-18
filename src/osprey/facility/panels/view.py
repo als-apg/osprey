@@ -48,6 +48,7 @@ __all__ = [
     "LimitLadder",
     "Link",
     "Node",
+    "PartFacts",
     "Picture",
     "Probe",
     "RingMember",
@@ -353,12 +354,15 @@ class Picture:
             the channel its ``signal`` resolves to on the device.
         symbol: The class's strip symbol (the drawing settings' ``symbols``),
             whose colour the body is drawn in; ``None`` when it has none.
+        focus: The parts outlined in the focus colour: on a part's card, the
+            part itself on its owner's drawing.
     """
 
     device_class: str
     view: str
     parts: tuple[PicturePart, ...]
     symbol: str | None = None
+    focus: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -991,6 +995,19 @@ class LimitLadder:
     caption: str | None = None
 
 
+@dataclass(frozen=True)
+class PartFacts:
+    """Beside a part's drawing: what is stated about it, and what is not.
+
+    Attributes:
+        stated: Its relations, each a link to the other thing (or a fact naming it).
+        not_stated: Each fact the card needs that no source states.
+    """
+
+    stated: tuple[Link | Fact, ...]
+    not_stated: tuple[str, ...]
+
+
 Item = (
     ValueRow
     | Light
@@ -1020,6 +1037,7 @@ Item = (
     | Front
     | RingStrip
     | LimitLadder
+    | PartFacts
 )
 
 

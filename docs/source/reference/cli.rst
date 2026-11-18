@@ -1447,7 +1447,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    others as set points, evenly in their order (not to scale), each with its live
    value, and the live value as a dot in the gap between the set points it lies
    between; a set point not served is left out and named, and ``write`` counts
-   the ladders drawn whole. A device card is drawn:
+   the ladders drawn whole. A ``section`` row with a ``focus`` relation
+   (``part_of``) draws a part's card: the thing that relation names, drawn as its
+   class's picture with the part outlined in the focus colour (the picture rows
+   whose ``signal`` matches a channel of the part), and beside it what is stated
+   about the part (its relations, each opening the other thing) and, dashed, what
+   is not (its owner, its place on the drawing, a drawing at all, each hop of the
+   recipe's chains that found nothing). A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
    ``card`` whose ``level`` names its recipe, else its roles), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its

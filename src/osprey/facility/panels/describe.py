@@ -37,6 +37,7 @@ from types import MappingProxyType
 
 from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
 from osprey.facility.panels.model import (
+    PART_RELATION,
     PLACE_RELATION,
     CalibrationState,
     Channel,
@@ -94,6 +95,7 @@ from osprey.facility.panels.view import (
     Link,
     Node,
     Operate,
+    PartFacts,
     Picture,
     Placement,
     Probe,
@@ -853,7 +855,7 @@ def device_card(
         ]
         crumbs = _crumbs(graph, index, thing.place)
         foot = _card_foot(thing, _where(graph, index, thing, rack_classes))
-        sections = _drawn_card(graph, index, thing, extra, [("foot", [foot])])
+        sections = _drawn_card(graph, index, thing, extra, [("foot", [foot])], symbols)
         return View(
             Target("card", "device", thing.id), thing.id, crumbs, sections, alias=thing.short_name
         )
@@ -1999,6 +2001,74 @@ def front_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter
     return found
 
 
+_NO_OWNER = "its {} not stated"
+_NOT_ON_DRAWING = "where it sits on {}'s drawing"
+_NO_DRAWING = "a drawing of {}"
+
+
+def part_section(
+    graph: PanelGraph,
+    index: _Index,
+    thing: Thing,
+    hits: list[RoleHit],
+    recipe: str,
+    section: CardSection,
+    symbols: Mapping[str, str] = _EMPTY,
+) -> list[Item]:
+    """A part's section: its owner (the thing the section's ``focus`` relation
+    names) drawn with the part in focus (the owner's picture rows whose ``signal``
+    matches a channel of the part), then what is stated about the part (its
+    relations) and what is not (its owner, its place on the drawing, a drawing at
+    all, each hop of the recipe's chains that found nothing)."""
+    relation = section.focus or PART_RELATION
+    owners = sorted(
+        {e.other for e in _near(graph, thing.id, relation, "out") if e.other_kind == "device"}
+    )
+    missing: list[str] = []
+    items: list[Item] = []
+    if len(owners) != 1:
+        missing.append(_NO_OWNER.format(relation.replace("_", " ")))
+    else:
+        owner = graph.thing(owners[0], "device")
+        mine = [c.name for c in graph.channels(thing.id, "device")]
+        pictures = _pictures(graph, owner, symbols)
+        if not pictures:
+            missing.append(_NO_DRAWING.format(owner.id))
+        focused = False
+        for picture in pictures:
+            assert isinstance(picture, Picture)
+            focus = tuple(
+                part.part
+                for part in picture.parts
+                if part.signal and any(fnmatch.fnmatchcase(c, part.signal) for c in mine)
+            )
+            focused |= bool(focus)
+            items.append(dataclasses.replace(picture, focus=focus))
+        if pictures and not focused:
+            missing.append(_NOT_ON_DRAWING.format(owner.id))
+    stated: list[Link | Fact] = []
+    edges = graph.neighbours(thing.id, thing.kind)
+    for kind in sorted(edges):
+        if kind in _NO_BLOCK or kind == PLACE_RELATION:
+            continue
+        for edge in _one_per_thing(edges[kind]):
+            word = _relation_word(kind, edge.outgoing)
+            item = _edge_item(graph, index, word, edge)
+            label = f"{word}: {edge.other}"
+            stated.append(
+                dataclasses.replace(item, label=label)
+                if isinstance(item, Link)
+                else Fact(word, edge.other)
+            )
+    for row in graph.card_sections(recipe):
+        if row.kind == "chain" and row.members:
+            _chain, _used, state = recipe_chain(graph, index, thing, hits, recipe, row)
+            if state != HOP_FOUND:
+                missing.append(state)
+    items.append(PartFacts(tuple(stated), tuple(dict.fromkeys(missing))))
+    return items
+
+
 _THRESHOLD_PREFIX = "threshold-"
 
 
@@ -2302,6 +2372,7 @@ def _drawn_card(
     thing: Thing,
     extra: list[tuple[str, list[Item]]],
     after: list[tuple[str, list[Item]]],
+    symbols: Mapping[str, str] = _EMPTY,
 ) -> tuple[Section, ...]:
     """The sections of a device's drawn card: the title line, the key tiles, the
     relations chain, the drawings *extra* holds (probe, picture, calibration), the
@@ -2325,6 +2396,10 @@ def _drawn_card(
         if row.kind == "chain" and row.members:
             chain, _used, _state = recipe_chain(graph, index, thing, hits, name, row)
             drawings.append((row.title, [chain]))
+        elif row.kind == "section" and row.focus:
+            drawings.append(
+                (row.title, part_section(graph, index, thing, hits, name, row, symbols))
+            )
         elif row.kind == "ladder":
             drawings.append((row.title, [limit_ladder(graph, thing, hits, row)]))
         elif row.kind == "ring-strip":

@@ -1125,3 +1125,65 @@ def test_entries_of_one_role_are_each_named_by_their_channel(tmp_path):
     operate, _used, _left = _operate(graph, thing, hits, [])
     (group,) = operate.groups  # one word ("Set point") for two channels would say nothing
     assert [c.label for c in group.controls] == ["Current-SP", "Voltage-SP"]
+
+
+def _switch(tmp_path, signal: str | None = "*:TSW1-Sts"):
+    """A thermal switch XR01:QF1:TSW1, part of the quadrupole XR01:QF1, whose drawing
+    holds one switch row reading *signal*."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_facility
+
+    def part(document) -> None:
+        add_part(document, "XR01:QF1:TSW1", "XR01:QF1", "XR01:QF1:TSW1-Sts")
+        document["devices"][-1]["class"] = "Switch"
+        document["relations"].append(
+            {"id": "tsw-mps", "type": "interlocked_by", "subject": {"device": "XR01:QF1:TSW1"},
+             "object": {"device": "XR01:CH3"}}
+        )  # fmt: skip
+
+    tables = copy_tables(tmp_path / "panels")
+    lines = (tables / "pictures.csv").read_text().splitlines()
+    header = lines[0].split(",") + ["w_mm", "h_mm", "angle_deg", "signal", "under"]
+    rows = []
+    for line in lines[1:]:
+        cells = dict(zip(header, line.split(","), strict=False))
+        if cells.get("kind") == "thermal_switch":
+            cells["signal"] = signal or ""
+        rows.append(",".join(cells.get(h, "") for h in header))
+    (tables / "pictures.csv").write_text("\n".join([",".join(header), *rows]) + "\n")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\nSwitch,,,switch,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "switch,1,section,On the magnet,part_of,,,,,S\n"
+        "switch,2,chain,Interlock,,interlock,,,,S\n"
+    )
+    (tables / "chains.csv").write_text(
+        "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source\n"
+        "switch,interlock,1,0,interlocked_by,out,device,,,MPS,,S\n"
+        "switch,interlock,2,1,powered_by,out,device,,,MPS power,,S\n"
+    )
+    return load_graph(write_fixture_facility(tmp_path / "f.json", part), tables)
+
+
+def test_a_part_is_drawn_in_focus_on_its_owner_with_what_is_and_is_not_stated(tmp_path):
+    graph = _switch(tmp_path)
+    view = device_card(graph, "XR01:QF1:TSW1")
+    pictures = [i for s in view.sections for i in s.items if type(i).__name__ == "Picture"]
+    assert pictures and pictures[0].device_class == "Quadrupole"
+    assert pictures[0].focus == ("thermal switch 1",)
+    facts = _item(view, "PartFacts")
+    assert [f.label for f in facts.stated] == ["protected by: XR01:CH3", "part of: XR01:QF1"]
+    assert facts.not_stated == ("MPS power: not stated",)
+    doc = stub_render(view, graph)
+    assert [n for n in _by_type(doc, "ellipse") if n["props"].get("tooltip") == "thermal switch 1"]
+    texts = [n["props"]["text"] for n in _by_type(doc, "text-label")]
+    assert "NOT STATED" in texts and "MPS power: not stated" in texts
+
+
+def test_a_part_whose_place_on_the_drawing_is_not_stated_says_so(tmp_path):
+    graph = _switch(tmp_path, signal=None)
+    view = device_card(graph, "XR01:QF1:TSW1")
+    facts = _item(view, "PartFacts")
+    assert "where it sits on XR01:QF1's drawing" in facts.not_stated
