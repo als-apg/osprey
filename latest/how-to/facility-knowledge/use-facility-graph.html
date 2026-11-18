@@ -956,6 +956,20 @@ file reaches the graph with:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>osprey<span class="w"> </span>up
 </pre></div>
 </div>
+<p>The corpus is sent to the store in requests of a few megabytes each, cut
+between Turtle statements, so the heap the store needs
+(<code class="docutils literal notranslate"><span class="pre">services.graphdb.heap_max_size</span></code>) does not grow with the size of the corpus.
+A statement is never cut, and every statement that names a labelled blank node
+(<code class="docutils literal notranslate"><span class="pre">_:b0</span></code>) travels in one request, whatever its size: a corpus of your own that
+leans on labelled blank nodes is the one case where a larger heap may still be
+needed.</p>
+<p>A seed that fails does not stop the rest of the deployment from starting, and
+it does not pass for a finished one either. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reports the failure
+in its step output when it happens, starts everything else, and then ends with
+the failed step as its last lines and a non-zero exit status. The store is left
+without a seed marker, so the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds it again. (An attached
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, without <code class="docutils literal notranslate"><span class="pre">-d</span></code>, hands the terminal to the container logs and has
+no exit status of its own: there the step output is the report.)</p>
 </section>
 <section id="what-the-preset-seeds">
 <h2>What the Preset Seeds<a class="headerlink" href="#what-the-preset-seeds" title="Link to this heading">#</a></h2>
