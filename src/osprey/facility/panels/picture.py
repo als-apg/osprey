@@ -232,6 +232,10 @@ class Body:
         unit: mm per drawing unit.
         sized: The unit is stated (by a bore, a gap, a yoke or an outline) and every
             shape row states its size.
+        scaled_from: The kind of the row that states the unit (``bore``, ``gap``,
+            ``yoke``, ``outline``), or ``None``: the default proportions.
+        schematic: The kinds of shape rows (other than those) that state no size,
+            drawn at the default proportion, in file order.
     """
 
     shapes: tuple[Shape, ...]
@@ -242,6 +246,8 @@ class Body:
     beam: Point | None = None
     unit: float = 1.0
     sized: bool = True
+    scaled_from: str | None = None
+    schematic: tuple[str, ...] = ()
 
 
 # -- primitives --------------------------------------------------------------------
@@ -352,8 +358,15 @@ def _kind(row: PicturePart) -> str:
     return "sensor"
 
 
-def _unit(rows: Sequence[PicturePart], ring: Sequence[Point], two: bool) -> tuple[float, bool]:
-    """mm per drawing unit, and whether a row states it. Two poles: a sized gap's,
+#: The kinds of shape row that frame a drawing: one of them states its unit.
+_FRAMES = frozenset({"yoke", "bore", "gap"})
+
+
+def _unit(
+    rows: Sequence[PicturePart], ring: Sequence[Point], two: bool
+) -> tuple[float, str | None]:
+    """mm per drawing unit, and the kind of the row that states it (``None``: none
+    does, the default bore's). Two poles: a sized gap's,
     else a sized yoke's, else an outline's. More: a sized yoke's, else an
     outline's, else a sized bore's; the frame sets the unit, so the coils and the
     parts keep their proportion to the yoke however small the bore is, and the pole
@@ -362,19 +375,19 @@ def _unit(rows: Sequence[PicturePart], ring: Sequence[Point], two: bool) -> tupl
         for row in rows:
             if row.kind in ("bore", "gap") and row.sized:
                 w, h = _wh(row)
-                return (min(w, h) / (2 * BEND_GAP) if two else min(w, h) / 2 / BORE), True
+                return (min(w, h) / (2 * BEND_GAP) if two else min(w, h) / 2 / BORE), row.kind
     for row in rows:
         if row.kind == "yoke" and row.sized:
             w, h = _wh(row)
             if two:
-                return min(w / 2 / BEND_YOKE[0], h / 2 / BEND_YOKE[1]), True
-            return min(w, h) / 2 / YOKE, True
+                return min(w / 2 / BEND_YOKE[0], h / 2 / BEND_YOKE[1]), "yoke"
+            return min(w, h) / 2 / YOKE, "yoke"
     if ring:
         near = _nearest_side(ring)
         if two:
-            return near / (BEND_YOKE[1] if _convex(ring) else BEND_CAVITY[1]), True
-        return near / (YOKE if _convex(ring) else CAVITY), True
-    return DEFAULT_BORE_MM / (BEND_GAP if two else BORE), False
+            return near / (BEND_YOKE[1] if _convex(ring) else BEND_CAVITY[1]), "outline"
+        return near / (YOKE if _convex(ring) else CAVITY), "outline"
+    return DEFAULT_BORE_MM / (BEND_GAP if two else BORE), None
 
 
 # -- the body ----------------------------------------------------------------------
@@ -393,8 +406,9 @@ def body(
     count = len(poles) or len(coils)
     two = count == 2 or (count < 3 and any(r.kind == "gap" for r in rows))
     ring = [_xy(row) for row in outline]
-    unit, sized = _unit(rows, ring, two)
-    sized = sized and all(r.sized for r in rows if r.kind not in ("yoke", "bore", "gap"))
+    unit, scaled_from = _unit(rows, ring, two)
+    schematic = tuple(dict.fromkeys(r.kind for r in rows if r.kind not in _FRAMES and not r.sized))
+    sized = scaled_from is not None and not schematic
     draw = _two_poles if two else _radial
     shapes, marks, seats = draw(rows, outline, ring, unit, max(count, 3))
     steel = [pt for sh in shapes if sh.role == "yoke" for pt in sh.points]
@@ -415,6 +429,8 @@ def body(
         beam,
         unit,
         sized,
+        scaled_from,
+        schematic,
     )
 
 

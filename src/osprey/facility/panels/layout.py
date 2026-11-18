@@ -375,6 +375,8 @@ _UNLISTED = frozenset({"yoke", "pole", "bore", "gap"})
 _NOT_STATED = "outline not stated"
 _NOT_PLACED = "not placed"
 _SIZE_NOT_STATED = "size not stated: default proportions"
+_SCALED_FROM = "scaled from the {}"
+_SCHEMATIC = "{} at default proportions"
 _BEAM_AXIS = "beam axis"
 _ELLIPSIS = "\u2026"
 _FORMULA_PREFIX = "formula://"
@@ -3761,7 +3763,7 @@ class _Page:
             if dot.placed and self.shows_number(dot.row):
                 self.part_value(dot.row, x, y, cx)
         self.y = top + height + GAP
-        self.scale_bar(x0, scale, canvas, None if body.sized else _SIZE_NOT_STATED)
+        self.scale_bar(x0, scale, canvas, scale_note(body))
         self.picture_legend(picture)
 
     def bare_picture(
@@ -3988,7 +3990,9 @@ class _Page:
 
     def scale_bar(self, x: float, scale: float, canvas: float, note: str | None) -> None:
         """A bar of a round number of millimetres under a drawing at *scale* (px per
-        mm), its length written beside it; then *note*, muted."""
+        mm), its length written beside it; then *note*, muted, beside it when it fits
+        before the right edge, else wrapped on the lines under the bar."""
+        left = x
         most = canvas * SCALE_BAR_SHARE / scale
         mm = max((m for m in SCALE_BAR_MM if m <= most), default=None)
         y = self.y + SMALL_LINE / 2
@@ -3999,8 +4003,12 @@ class _Page:
             for end in (x, x + length):
                 self.line([(end, y - TICK / 2), (end, y + TICK / 2)], MUTED_TEXT, tooltip=tip)
             x = self.small(x + length + GAP, self.y, f"{mm:g} mm", fg=MUTED_TEXT) + GAP
-        if note:
+        if note and x + GAP + text_width(note, SMALL_SIZE) <= self.right:
             self.small(x + GAP, self.y, note, fg=MUTED_TEXT)
+        elif note:
+            for line in _wrap(note, self.right - left, SMALL_SIZE):
+                self.y += SMALL_LINE
+                self.small(left, self.y, line, fg=MUTED_TEXT)
         self.y += SMALL_LINE + GAP
 
     def picture_legend(self, picture: Picture) -> None:
@@ -4619,6 +4627,18 @@ def _chip(title: str, item: object) -> tuple[str, Link | None]:
 def caps_width(text: str, size: float) -> float:
     """:func:`text_width` of *text* written in capitals."""
     return text_width(text, size) * CAPS_WIDTH / CHAR_WIDTH
+
+
+def scale_note(body: drawing.Body) -> str | None:
+    """What the caption under a drawing's scale bar says: nothing when every shape
+    states its size; the default proportions when no row states one; else the kind
+    of row the drawing is scaled from, and the kinds drawn at the default proportion."""
+    if body.scaled_from is None:
+        return _SIZE_NOT_STATED
+    if not body.schematic:
+        return None
+    kinds = ", ".join(kind.replace("_", " ") for kind in body.schematic)
+    return f"{_SCALED_FROM.format(body.scaled_from)}; {_SCHEMATIC.format(kinds)}"
 
 
 def _wrap(

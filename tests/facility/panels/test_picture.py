@@ -428,9 +428,35 @@ def test_poles_with_an_angle_and_no_size_draw_from_the_bore_and_say_so(
     assert [c.number for c in drawn.coils] == [str(k + 1) for k in range(poles)]
     doc = _card(_graph(tmp_path / "g", rows))
     texts = _texts(doc)
-    assert any(t.startswith("size not stated") for t in texts)
+    frame = "gap" if poles == 2 else "bore"
+    assert f"scaled from the {frame}; pole, coil at default proportions" in texts
+    assert not any(t.startswith("size not stated") for t in texts)
     for k in range(poles):
         assert str(k + 1) in texts  # each coil's number at the coil
+
+
+@pytest.mark.parametrize(
+    ("frame", "caption"),
+    [
+        (
+            [_row("yoke", "yoke", "", "", w=420, h=420)],
+            "scaled from the yoke; pole, coil at default proportions",
+        ),  # fmt: skip
+        ([], "size not stated: default proportions"),
+    ],
+)
+def test_the_scale_caption_names_what_the_drawing_is_scaled_from(
+    tmp_path, frame: list[str], caption: str
+) -> None:
+    rows = [*frame, *(r for r in _unsized(4, 45) if ",bore," not in r)]
+    texts = _texts(_card(_graph(tmp_path, rows)))
+    assert caption in texts
+    assert sum(t.startswith(("scaled from", "size not stated")) for t in texts) == 1
+
+
+def test_a_drawing_whose_every_shape_is_sized_has_no_caption(tmp_path) -> None:
+    texts = _texts(_card(_graph(tmp_path, _six_poles())))
+    assert not [t for t in texts if t.startswith(("scaled from", "size not stated"))]
 
 
 def _overlap(p: tuple, q: tuple) -> bool:

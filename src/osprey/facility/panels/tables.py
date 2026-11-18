@@ -538,8 +538,11 @@ class PicturePart:
     :mod:`osprey.facility.panels.picture`: a broad pole from the yoke's cavity to a
     rounded tip short of the bore, the coil blocks along its flanks. The proportions
     are scaled to a stated bore (or gap), else to a stated yoke or outline, else to
-    :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM`. A class so drawn says
-    "size not stated" under its drawing; a yoke no row sizes has a dashed outline.
+    :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM`. The caption under the
+    drawing's scale bar names the row the drawing is scaled from and the kinds drawn
+    at the default proportion ("scaled from the yoke; pole, coil at default
+    proportions"), or says "size not stated" when no row states a size; a yoke no
+    row sizes has a dashed outline.
 
     ``signal`` (any row) names what the element shows live: a signal name
     stated on a channel, or a channel pattern with ``*``, ``?`` and ``[``
