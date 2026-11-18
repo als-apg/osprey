@@ -1,0 +1,1 @@
+Pin CANOPY to 827b8085. Its panel server answers the screen manifest of an unchanged library from stat calls alone, so a viewer tab that polls a large library no longer keeps a core busy reading every screen.
