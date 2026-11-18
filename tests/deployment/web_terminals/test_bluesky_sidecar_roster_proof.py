@@ -15,7 +15,8 @@ panel answered ``401 invalid credential``. The one test on that seam asserted
 on a re-render no verb performs, and shipped it green.
 
 This module is the proof that would have caught it on its own: a REAL
-``osprey init --preset demo`` + ``osprey build`` render, the
+``osprey init --preset demo`` + ``osprey build`` render (the run's shared
+``built_demo``, copied so this module can write to it), the
 deploy ``.env`` written by the SAME writers ``osprey up`` calls, the sidecar
 started by ``docker compose`` from the compose files the build wrote (the
 as-built list, resolved the way the start verbs resolve it), and four requests
@@ -83,13 +84,13 @@ from osprey.deployment.web_terminals.roster import (
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, ROSTER_SECRET_ENV_PREFIX
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from tests._builds import BuiltProject, copy_build
 from tests._container_support import (
     RuntimeContainer,
     docker_cli_unavailable_reason_once,
     require_container_runtime,
     runtime_command,
 )
-from tests.cli.test_tier_app_presets import _build_render_stack
 from tests.deployment.web_terminals._harness_image import build_harness_image
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
@@ -298,10 +299,15 @@ def _wait_for_health(base_url: str, *, container_name: str, timeout: float = 90.
 
 
 @pytest.fixture(scope="module")
-def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
-    """The sidecar of a real demo build, up on an ephemeral port."""
+def sidecar(tmp_path_factory, built_demo: BuiltProject) -> Iterator[Sidecar]:
+    """The sidecar of the run's real demo build, up on an ephemeral port.
+
+    It runs on a copy: the deploy ``.env`` is written into the repo and compose
+    creates the rendered bind sources under ``var/``, and ``built_demo`` is
+    shared read-only with every other reader of the run.
+    """
     tmp_path = tmp_path_factory.mktemp("bluesky-roster")
-    repo = _build_render_stack(tmp_path / "my-facility")
+    repo = copy_build(built_demo.repo, tmp_path)
     host_config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
     assert "bluesky_web" in host_config["deployed_services"]
 
