@@ -61,6 +61,9 @@ def _render(compose_file: Path, names: dict[str, str]) -> None:
             f"  {service}:",
             f"    image: {_IMAGE}",
             '    command: ["sleep", "600"]',
+            # init: sleep as PID 1 ignores SIGTERM, so every recreate and the
+            # final down would otherwise wait out the whole stop grace period.
+            "    init: true",
             f"    container_name: {container_name}",
         ]
     compose_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
