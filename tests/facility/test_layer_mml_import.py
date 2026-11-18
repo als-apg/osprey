@@ -192,7 +192,6 @@ def _built(mml_built: Callable[[str, str], BuiltModel], tree: str) -> dict[str, 
     return mml_built(tree, TREES[tree][0]).document
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_the_build_pairs_a_setpoint_with_its_monitor(
     spear3: Path, mml_built: Callable[[str, str], BuiltModel], parsed: Callable[..., Any]
 ) -> None:
@@ -209,7 +208,6 @@ def test_the_build_pairs_a_setpoint_with_its_monitor(
     assert "pair" in built[setpoint]["provenance"]["defaults"]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_the_rf_station_pairs_its_phase_control_and_leaves_its_voltage_control_unpaired(
     mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
@@ -225,7 +223,6 @@ def test_the_rf_station_pairs_its_phase_control_and_leaves_its_voltage_control_u
     assert built[rf["VoltageCtrl"]]["unit"] != built[rf["Voltage"]]["unit"]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_a_two_coil_corrector_pairs_each_coil_with_its_own_readback(
     mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
@@ -247,7 +244,6 @@ def _first_device(facility: Path, family: str) -> tuple[str, float]:
     return read_rows(facility)["StorageRing", family][row], ao[family]["Position"][0]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_a_device_carries_the_exports_position(
     spear3: Path, mml_built: Callable[[str, str], BuiltModel], parsed: Callable[..., Any]
 ) -> None:
@@ -261,7 +257,6 @@ def test_a_device_carries_the_exports_position(
     assert "s" not in built["provenance"]["defaults"]
 
 
-@pytest.mark.xdist_group("mml_built")
 @pytest.mark.parametrize(("tree", "count"), [("spear3", 509), ("nsls2", 817)])
 def test_every_wired_position_agrees_with_the_deck(
     tree: str, count: int, mml_built: Callable[[str, str], BuiltModel]
@@ -279,7 +274,6 @@ def test_every_wired_position_agrees_with_the_deck(
     assert {device: built[device]["s"] for device in stated} == stated
 
 
-@pytest.mark.xdist_group("mml_built")
 @pytest.mark.parametrize(("tree", "count"), [("spear3", 142), ("nsls2", 246)])
 def test_unwired_devices_gain_s(
     tree: str, count: int, mml_built: Callable[[str, str], BuiltModel]
