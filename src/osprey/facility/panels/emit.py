@@ -110,7 +110,12 @@ ID_MAX = (
 _FILE_SHAPE = re.compile(
     rf"(?:{'|'.join(VIEW_KINDS)})/[a-z0-9-]{{1,{ID_MAX}}}{re.escape(SCREEN_SUFFIX)}"
 )
-_TEMPORARY = re.compile(r"\.[a-z0-9-]+" + re.escape(SCREEN_SUFFIX) + r"\.tmp")
+#: A temporary file :func:`_atomic` leaves behind when a run is killed mid-write:
+#: ``.<name>.<random>.tmp`` (``atomic_replace``), or ``.<name>.tmp`` (earlier runs).
+_TEMPORARY = re.compile(r"\.[a-z0-9-]+" + re.escape(SCREEN_SUFFIX) + r"(?:\.[a-z0-9_]+)?\.tmp")
+_INDEX_TEMPORARY = re.compile(r"\.index\.json(?:\.[a-z0-9_]+)?\.tmp")
+#: Screens and the index are readable by all, writable by the owner.
+_FILE_MODE = 0o644
 #: The drawing settings file, beside the rule tables.
 DRAW_FILE = "draw.json"
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
@@ -463,15 +468,10 @@ def _generate(
 
 
 def _atomic(path: Path, data: bytes) -> None:
+    from osprey_connectors.safety_file import atomic_replace
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    try:
-        temporary.unlink(missing_ok=True)  # never write through a link left at this name
-        temporary.write_bytes(data)
-        os.replace(temporary, path)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
+    atomic_replace(path, data, mode=_FILE_MODE)
 
 
 def _guard(out: Path, relative: str, seen: set[str]) -> Path:
@@ -537,7 +537,7 @@ def _read_index(out: Path) -> dict[str, Any] | None:
 
 def _clean_temporaries(out: Path) -> None:
     """Remove the half-written files of an interrupted run (ours by name, nothing else)."""
-    stale = [out / f".{INDEX}.tmp"]
+    stale = [out / n for n in os.listdir(out) if _INDEX_TEMPORARY.fullmatch(n)]
     for view in VIEW_KINDS:
         directory = out / view
         if directory.is_symlink():

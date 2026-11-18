@@ -179,13 +179,18 @@ def test_a_complete_index_says_so(panel_graph, tmp_path):
 def test_leftover_temporary_files_of_ours_are_removed_and_others_kept(panel_graph, tmp_path):
     out = tmp_path / "out"
     write(panel_graph, out)
-    ours = out / "card" / ".card-xr01-qf1.screen.json.tmp"
-    ours.write_text("half")
-    (out / ".index.json.tmp").write_text("half")
+    ours = [
+        out / "card" / ".card-xr01-qf1.screen.json.tmp",
+        out / "card" / ".card-xr01-qf1.screen.json.k3_x9q2a.tmp",
+        out / ".index.json.tmp",
+        out / ".index.json.p0_zz81w.tmp",
+    ]
+    for path in ours:
+        path.write_text("half")
     theirs = out / "card" / ".mine.tmp"
     theirs.write_text("x")
     write(panel_graph, out)
-    assert not ours.exists() and not (out / ".index.json.tmp").exists()
+    assert not any(path.exists() for path in ours)
     assert theirs.read_text() == "x"
 
 
