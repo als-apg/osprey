@@ -48,7 +48,7 @@ import yaml
 
 from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey.facility.build import LATER_STAGES, build_facility, build_facility_with_warnings
-from osprey.facility.render import facility_bytes, render_facility_outputs
+from osprey.facility.render import WrittenViews, facility_bytes, render_facility_outputs
 from osprey.facility.validate import run_stages
 from osprey.facility.views import VIEWS
 from osprey.facility.views.facts import FACTS_FILE
@@ -145,7 +145,9 @@ def _render(
     mode: str,
     *,
     all_views: bool = False,
+    views_written: WrittenViews | None = None,
 ) -> Path:
+    """Render *document* in *mode*; *views_written* is one build's memo, as a build keeps it."""
     config = copy.deepcopy(dict(IN_PROCESS_RENDER_CONFIG))
     config["channel_finder"] = {"pipeline_mode": mode}
     if all_views:
@@ -153,7 +155,14 @@ def _render(
         config["services"] = {LANE_KEYS[0]: {}}
     render_dir = root / f"render-{mode}"
     render_dir.mkdir(parents=True)
-    render_facility_outputs(render_dir, document, config, facility_dir, omitted_reported=set())
+    render_facility_outputs(
+        render_dir,
+        document,
+        config,
+        facility_dir,
+        omitted_reported=set(),
+        views_written=views_written,
+    )
     return render_dir
 
 
@@ -423,7 +432,13 @@ def _unrelated(source: Path, document: dict[str, Any], root: Path) -> Path:
 def example_renders(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> dict[tuple[str, str], dict[str, bytes]]:
-    """Every file of every render of the shipped, unrelated and pre example, by variant and mode."""
+    """Every file of every render of the shipped, unrelated and pre example, by variant and mode.
+
+    Each variant is built once and its three renders share one memo of the views they write,
+    as one ``osprey build``'s renders do: a view whose config keys do not change with the mode
+    is written by the first render and copied by the next two. The memo is the variant's own,
+    because its key carries no document. Every DuckDB database is still imported.
+    """
     root = tmp_path_factory.mktemp("example")
     shipped_dir = root / "shipped" / "facility"
     shutil.copytree(packaged_facility_dir(), shipped_dir)
@@ -431,20 +446,24 @@ def example_renders(
     assert shipped["relations"] and shipped["documents"]
     unrelated_dir = _unrelated(shipped_dir, shipped, root / "unrelated" / "facility")
     pre_dir = example_without_appendix_a(root / "pre" / "facility")
-    variants = {}
-    for name, facility_dir in (
-        ("shipped", shipped_dir),
-        ("unrelated", unrelated_dir),
-        ("pre", pre_dir),
-    ):
+    variants = {"shipped": (shipped, shipped_dir)}
+    for name, facility_dir in (("unrelated", unrelated_dir), ("pre", pre_dir)):
         variants[name] = (build_facility(facility_dir, project_name="compat"), facility_dir)
     assert "relations" not in variants["unrelated"][0]
     assert "relations" not in variants["pre"][0]
 
     renders = {}
     for name, (document, facility_dir) in variants.items():
+        views_written: WrittenViews = {}
         for mode in MODES:
-            render_dir = _render(root / name / mode, document, facility_dir, mode, all_views=True)
+            render_dir = _render(
+                root / name / mode,
+                document,
+                facility_dir,
+                mode,
+                all_views=True,
+                views_written=views_written,
+            )
             renders[name, mode] = _every_file(render_dir)
     return renders
 
