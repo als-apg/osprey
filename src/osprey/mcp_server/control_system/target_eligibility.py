@@ -107,7 +107,7 @@ import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, SupportsIndex, SupportsInt
+from typing import Any
 
 from osprey.audit.posture import posture_session
 from osprey.deployment.honesty import (
@@ -319,22 +319,12 @@ def endpoint_is_live_standin(config: Any, endpoint: Endpoint | None) -> bool:
         honesty predicate in this stack fails: an endpoint is a real machine
         until the config proves otherwise.
     """
-    if endpoint is None or not isinstance(config, dict):
+    if endpoint is None or endpoint.port is None or not isinstance(config, dict):
+        # An endpoint that names no port names no stand-in either.
         return False
-    try:
-        port = _port_number(endpoint.port)
-    except (TypeError, ValueError):
-        # The endpoint's port is whatever config carried, and a value that names
-        # no port names no stand-in either.
-        return False
-    return bool(live_standin_active(config, endpoint_host=str(endpoint.host), endpoint_port=port))
-
-
-def _port_number(port: object) -> int:
-    """``int(port)`` for whatever ``int`` converts; ``TypeError`` for anything else."""
-    if isinstance(port, str | bytes | SupportsInt | SupportsIndex):
-        return int(port)
-    raise TypeError(f"{type(port).__name__!r} is not a port number")
+    return bool(
+        live_standin_active(config, endpoint_host=endpoint.host, endpoint_port=endpoint.port)
+    )
 
 
 def endpoint_is_virtual_accelerator(config: Any, endpoint: Endpoint | None) -> bool:
@@ -357,14 +347,10 @@ def endpoint_is_virtual_accelerator(config: Any, endpoint: Endpoint | None) -> b
     Returns:
         ``True`` only for an endpoint that is the deployment's own simulator.
     """
-    if endpoint is None or not isinstance(config, dict):
-        return False
-    try:
-        port = _port_number(endpoint.port)
-    except (TypeError, ValueError):
+    if endpoint is None or endpoint.port is None or not isinstance(config, dict):
         return False
     return bool(
-        virtual_accelerator_active(config, endpoint_host=str(endpoint.host), endpoint_port=port)
+        virtual_accelerator_active(config, endpoint_host=endpoint.host, endpoint_port=endpoint.port)
     )
 
 

@@ -170,17 +170,16 @@ async def build_connector(target: str) -> ControlSystem:
     """
     global _ca_target
     section = _section()
-    kind = resolve_target(ControlSystemSection.read(section), target)
+    read = ControlSystemSection.read(section)
+    kind = resolve_target(read, target)
     config = {**section, "type": kind}
-    channel_access = speaks_channel_access(ControlSystemSection.read(section), kind)
+    channel_access = speaks_channel_access(read, kind)
     if channel_access and _ca_target not in (None, target):
         raise ValueError(
             f"this backend's Channel Access serves {_ca_target}, and a process has one "
             f"Channel Access context: restart the application to serve {target}"
         )
-    if os.environ.get(NAME_SERVER_ENV) and target == baseline_target(
-        ControlSystemSection.read(section)
-    ):
+    if os.environ.get(NAME_SERVER_ENV) and target == baseline_target(read):
         # In its container: compose names the baseline's name server. The config's
         # gateways are the host's view, and connecting through them would replace it.
         # Any other target is reached through its own gateways.
