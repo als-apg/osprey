@@ -1441,7 +1441,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    operate). A row's optional ``roles`` column (``;``-separated) names the section
    roles its connectors carry; empty means every section role. A role binds to a
    connector only through a row that lists it, so two groups numbered alike
-   (outlets 1-18, phases 1-3) never take each other's channels; on a connector
+   (outlets 1-8, phases 1-3) never take each other's channels; on a connector
    with no number the listed roles bind the device's channel of that role whose
    name carries the connector's name. A ``{n}`` row with ``roles`` and no
    ``channel`` is numbered by the last number of the device's channels of its
@@ -1475,7 +1475,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    connector's far end or a ring-strip member that rests on a relation claim
    with ``basis: inferred`` says "inferred" beside it, the claim's ``rule`` on
    hover ("the rule is not stated" when it has none); when every member of a
-   ring-strip is inferred, its caption says it once ("all 43 inferred: <rule>")
+   ring-strip is inferred, its caption says it once ("all 12 inferred: <rule>")
    and no member does. A ``ladder`` section draws the section's first role against the
    others as set points, evenly in their order (not to scale), each with its live
    value, and the live value as a dot in the gap between the set points it lies
