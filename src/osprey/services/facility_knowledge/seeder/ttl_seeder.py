@@ -9,7 +9,7 @@ rdflib is a core dependency, so an absent one means a broken environment:
 callers that invoke :func:`seed_from_ttl` without it receive an
 :class:`ImportError` saying how to repair the installation.
 
-Stub document format (OKF §9)::
+Stub document format (OKF §4)::
 
     ---
     type: device_stub

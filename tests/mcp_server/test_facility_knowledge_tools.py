@@ -199,7 +199,7 @@ class TestReadConcept:
 
     @pytest.mark.asyncio
     async def test_broken_cross_links_still_load(self, fixture_bundle: Path):
-        """A concept with dangling cross-links must load (OKF §9 tolerance)."""
+        """A concept with dangling cross-links must load (OKF §6.1 tolerance)."""
         write_doc(
             fixture_bundle / "dangling.md",
             """\
