@@ -3,10 +3,12 @@
 ``STOP_SENTENCES`` lists each sentence of the error table once with its kind.
 Each case is a minimal tree that breaks exactly that rule. It replaces the
 ``data/facility`` tree of a demo repo, beside any profile edit the
-case makes, and runs through ``osprey build --skip-deps`` and through
-``osprey facility validate``; both must print the case's line byte for byte on
-stderr and exit 1. A render is checked by the build alone, so a case
-that breaks one runs through ``osprey build --skip-deps`` only.
+case makes, and runs through ``osprey facility validate``, which must print the
+case's line byte for byte on stderr and exit 1. ``osprey build --skip-deps``
+must print the same line; it runs every case whose stop is not the facility
+stages' alone, and one case of each other kind (``BUILD_IDS``). A render is
+checked by the build alone, so a case that breaks one runs through
+``osprey build --skip-deps`` only.
 """
 
 from __future__ import annotations
@@ -49,6 +51,11 @@ from tests.facility._synthetic_trees import (
 )
 
 PROJECT = "demo"
+
+#: Every build here skips the demo preset's ``pre_build`` hook, the child process
+#: that stages the canopy payload before the facility build: no stop line or
+#: exit code here depends on it.
+SKIP_LIFECYCLE = "--skip-lifecycle"
 
 Tree = dict[str, Any]
 Edit = Callable[[Tree], None]
@@ -3023,6 +3030,36 @@ def _kind_of(line: str) -> str:
     return line.split(": ", 2)[1]
 
 
+#: The cases whose stop the build reaches by more than the facility stages: a
+#: profile edit, a file in the profile's mirror, a stop only the build makes, or
+#: a stop while a view is written.
+BUILD_REACHES = frozenset(PROFILE_EDITS) | frozenset(MIRRORED) | BUILD_ONLY | VIEW_STAGE
+
+
+def _build_ids() -> list[str]:
+    """Every ``BUILD_REACHES`` case, and the first case in ``IDS`` of each other kind.
+
+    Every other case stops in the facility stages: the one ``run_stages`` call
+    the build makes is the call ``osprey facility validate`` makes, and
+    ``test_validate_prints_the_one_line`` holds that case's line byte for byte.
+    What the build adds over validate, the stop handed to stderr, is one path
+    for every kind, which the first case of each kind runs.
+    """
+    kinds: set[str] = set()
+    ids = []
+    for case in IDS:
+        kind = _kind_of(CASES[case][1])
+        if case in BUILD_REACHES or kind not in kinds:
+            ids.append(case)
+        if case not in BUILD_REACHES:
+            kinds.add(kind)
+    return ids
+
+
+#: The cases ``test_build_stops_on_the_line`` runs through ``osprey build``.
+BUILD_IDS = _build_ids()
+
+
 def _write(tmp_path: Path, case: str) -> Path:
     make, _line = CASES[case]
     tree = make()
@@ -3077,11 +3114,11 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("case", IDS)
+@pytest.mark.parametrize("case", BUILD_IDS)
 def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -> None:
     repo = _repo(initialised, tmp_path, case)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 1, result.output
     # A stop naming a resolved path shows it under the repo, which is a fresh
@@ -3144,15 +3181,16 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
     assert result.stderr == CASES[case][1] + "\n"
 
 
+# The demo profile building with its approval hook selected is ``built_demo``'s
+# build, which ``tests/_builds.py::build_demo`` holds to exit 0.
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "edits",
     [
-        pytest.param((), id="hook-selected"),
         pytest.param((_disable_approval,), id="approval-disabled"),
     ],
 )
-def test_an_asking_profile_builds_with_the_hook_or_approval_off(
+def test_an_asking_profile_builds_with_approval_off(
     initialised: Path, tmp_path: Path, edits: tuple[Callable[[Path], None], ...]
 ) -> None:
     repo = tmp_path / PROJECT
@@ -3162,7 +3200,7 @@ def test_an_asking_profile_builds_with_the_hook_or_approval_off(
     for edit in edits:
         edit(repo)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 0, result.output
 
@@ -3180,7 +3218,7 @@ def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
     _drop_approval_hook(repo)
     _disable_approval(repo)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 1, result.output
     assert result.stderr.splitlines()[-1] == CASES["profile_invalid__approval_hook_not_selected"][1]
@@ -3200,17 +3238,18 @@ def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
 def test_a_fault_polarity_is_one_of_its_options(
     initialised: Path, tmp_path: Path, faults: dict[str, Any], slot: str | None
 ) -> None:
+    tree = _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": faults}}))()
+    if slot is None:
+        # The polarity is a facility stage's check: the facility builds.
+        build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+        return
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
     _clear_facility_records(repo / "data" / "facility")
-    tree = _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": faults}}))()
     write_tree(repo / "data" / "facility", tree)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
-    if slot is None:
-        assert result.exit_code == 0, result.output
-        return
     (value,) = (v["polarity"] if isinstance(v, dict) else v for v in faults.values())
     assert result.exit_code == 1, result.output
     assert result.stderr == (
@@ -3301,7 +3340,7 @@ PERMUTED_FIXES: tuple[dict[str, Any], ...] = (
 
 
 @pytest.mark.slow
-def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
+def test_a_seeded_setpoint_whose_band_excludes_zero_validates(
     initialised: Path, tmp_path: Path
 ) -> None:
     repo = tmp_path / PROJECT
@@ -3312,11 +3351,10 @@ def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
     tree["seeds.yaml"] = {"Q2:SP": {"nominal": 1.5}}
     write_tree(repo / "data" / "facility", tree)
 
+    # Validate runs the build's facility stages and renders every view in memory.
     validated = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
-    built = run_build(repo)
 
     assert validated.exit_code == 0, validated.output
-    assert built.exit_code == 0, built.output
 
 
 def test_a_scenario_keyed_by_an_engine_variable_builds(tmp_path: Path) -> None:

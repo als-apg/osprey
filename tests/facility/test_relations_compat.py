@@ -28,10 +28,9 @@ device a claim projects a place for given that place as authored) and as ``pre``
 without the records Appendix A adds). Every render is configured so that the pyAML, Bluesky and
 benchmark views are written, and runs in every channel-finder mode. Shipped against unrelated:
 everything under ``data/`` except the graph view is identical, the facts included. Shipped against
-pre: the simulator, limits, pyAML, Bluesky, benchmark, in-context and hierarchical files are
-identical; the middle-layer index differs by the ``-`` and ``HALL`` systems and the ``VS03``
-family only (its DuckDB database is derived from the same index and is not compared); the facts
-only gain what Appendix A adds. Each view of ``views.VIEWS`` is compared or listed in
+pre: every file but the facts is identical, the middle-layer index and its DuckDB database
+(compared row by row) included, as the devices Appendix A adds hold no channel and ``SR/VS03`` is
+a section; the facts only gain what Appendix A adds. Each view of ``views.VIEWS`` is compared or listed in
 ``EXCLUDED_VIEWS`` with its reason; ``facility.json`` is excluded because it carries the claims
 and documents themselves, and the graph view because it writes them out as triples.
 """
@@ -49,9 +48,14 @@ import yaml
 
 from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey.facility.build import LATER_STAGES, build_facility, build_facility_with_warnings
-from osprey.facility.render import facility_bytes, render_facility_outputs
+from osprey.facility.render import WrittenViews, facility_bytes, render_facility_outputs
 from osprey.facility.validate import run_stages
 from osprey.facility.views import VIEWS
+from osprey.facility.views.channel_finder import (
+    HIERARCHICAL_FILE,
+    IN_CONTEXT_FILE,
+    MIDDLE_LAYER_FILE,
+)
 from osprey.facility.views.facts import FACTS_FILE
 from tests._preset_data import packaged_facility_dir
 from tests.facility._appendix_a import example_without_appendix_a
@@ -146,7 +150,9 @@ def _render(
     mode: str,
     *,
     all_views: bool = False,
+    views_written: WrittenViews | None = None,
 ) -> Path:
+    """Render *document* in *mode*; *views_written* is one build's memo, as a build keeps it."""
     config = copy.deepcopy(dict(IN_PROCESS_RENDER_CONFIG))
     config["channel_finder"] = {"pipeline_mode": mode}
     if all_views:
@@ -154,7 +160,14 @@ def _render(
         config["services"] = {LANE_KEYS[0]: {}}
     render_dir = root / f"render-{mode}"
     render_dir.mkdir(parents=True)
-    render_facility_outputs(render_dir, document, config, facility_dir, omitted_reported=set())
+    render_facility_outputs(
+        render_dir,
+        document,
+        config,
+        facility_dir,
+        omitted_reported=set(),
+        views_written=views_written,
+    )
     return render_dir
 
 
@@ -379,6 +392,13 @@ _ROOT_FILES = {
 
 _MIDDLE_LAYER = "data/channel_finder/middle_layer"
 
+#: The channel-finder index each pipeline mode writes, under ``data/channel_finder/``.
+_MODE_INDEX = {
+    "in_context": IN_CONTEXT_FILE,
+    "hierarchical": HIERARCHICAL_FILE,
+    "middle_layer": MIDDLE_LAYER_FILE,
+}
+
 
 def test_every_view_is_compared_or_excluded_with_a_reason() -> None:
     names = [view.name for view in VIEWS]
@@ -424,7 +444,13 @@ def _unrelated(source: Path, document: dict[str, Any], root: Path) -> Path:
 def example_renders(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> dict[tuple[str, str], dict[str, bytes]]:
-    """Every file of every render of the shipped, unrelated and pre example, by variant and mode."""
+    """Every file of every render of the shipped, unrelated and pre example, by variant and mode.
+
+    Each variant is built once and its three renders share one memo of the views they write,
+    as one ``osprey build``'s renders do: a view whose config keys do not change with the mode
+    is written by the first render and copied by the next two. The memo is the variant's own,
+    because its key carries no document. Every DuckDB database is still imported.
+    """
     root = tmp_path_factory.mktemp("example")
     shipped_dir = root / "shipped" / "facility"
     shutil.copytree(packaged_facility_dir(), shipped_dir)
@@ -432,20 +458,24 @@ def example_renders(
     assert shipped["relations"] and shipped["documents"]
     unrelated_dir = _unrelated(shipped_dir, shipped, root / "unrelated" / "facility")
     pre_dir = example_without_appendix_a(root / "pre" / "facility")
-    variants = {}
-    for name, facility_dir in (
-        ("shipped", shipped_dir),
-        ("unrelated", unrelated_dir),
-        ("pre", pre_dir),
-    ):
+    variants = {"shipped": (shipped, shipped_dir)}
+    for name, facility_dir in (("unrelated", unrelated_dir), ("pre", pre_dir)):
         variants[name] = (build_facility(facility_dir, project_name="compat"), facility_dir)
     assert "relations" not in variants["unrelated"][0]
     assert "relations" not in variants["pre"][0]
 
     renders = {}
     for name, (document, facility_dir) in variants.items():
+        views_written: WrittenViews = {}
         for mode in MODES:
-            render_dir = _render(root / name / mode, document, facility_dir, mode, all_views=True)
+            render_dir = _render(
+                root / name / mode,
+                document,
+                facility_dir,
+                mode,
+                all_views=True,
+                views_written=views_written,
+            )
             renders[name, mode] = _every_file(render_dir)
     return renders
 
@@ -461,6 +491,9 @@ def test_every_configured_view_is_written(
     files = _view_files(example_renders["shipped", mode])
     for prefix in ("simulator", "pyaml", "benchmarks", "channel_finder"):
         assert any(path.startswith(f"data/{prefix}/") for path in files), prefix
+    # The mode's own index, and no other mode's.
+    indexes = {f"data/channel_finder/{name}" for name in _MODE_INDEX.values()}
+    assert indexes & set(files) == {f"data/channel_finder/{_MODE_INDEX[mode]}"}
     for names in _ROOT_FILES.values():
         for name in names:
             assert f"data/{name}" in files, name

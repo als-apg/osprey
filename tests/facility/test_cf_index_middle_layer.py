@@ -16,6 +16,7 @@ written beside it.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,7 @@ import pytest
 from osprey.facility.records import FacilityRecords
 
 if TYPE_CHECKING:
+    from tests.facility._mml_built import BuiltModel
     from tests.facility.conftest import BuiltProject
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "cf_index_pre_line" / "middle_layer.json"
@@ -1298,16 +1300,13 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(
 
 
 def test_an_imported_field_keyed_by_its_signal_carries_the_vocabulary_sentence(
-    tmp_path: Path,
+    mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
     pytest.importorskip("at")
-    from osprey.facility.build import build_facility
     from osprey.facility.validate import signal_roles
-    from tests.facility._mml_built import WIDENED, import_tree, widen
 
-    facility = import_tree(tmp_path, "spear3")
-    widen(facility, WIDENED["spear3"])
-    doc = build_facility(facility, project_name="demo")
+    # The run's one spear3 build: its import, widened as named, built.
+    doc = mml_built("spear3", "spear3.storagering").document
     roles = signal_roles()
 
     document, _, _ = _document(doc)

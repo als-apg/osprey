@@ -17,10 +17,9 @@
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import itertools
-import json
+import os
 import random
 import subprocess
 import types
@@ -72,6 +71,14 @@ ALL_SETTINGS = [
 ]
 
 
+#: What ``BASE`` pinned for the demo graph and facility: ``EXPECTED_TRIPLES_LOADED`` in
+#: ``tests/integration/test_graphdb_store.py`` and the ``facility`` counts of
+#: ``tests/facility/golden/demo_census.json``, as they stand at that commit, which never
+#: changes; copied here so the comparison needs no git history.
+BASE_TRIPLES_LOADED = 43801
+BASE_FACILITY_COUNTS = {"devices": 1016, "groups": 79, "channels": 4731}
+
+
 def _at_base(path: str) -> str:
     return subprocess.run(
         ["git", "show", f"{BASE}:{path}"],
@@ -82,9 +89,29 @@ def _at_base(path: str) -> str:
     ).stdout
 
 
+def _base_is_here() -> bool:
+    """Whether this checkout holds ``BASE``: a shallow clone, or no git at all, does not."""
+    try:
+        found = subprocess.run(
+            ["git", "cat-file", "-e", f"{BASE}^{{commit}}"], cwd=REPO_ROOT, capture_output=True
+        )
+    except OSError:
+        return False
+    return found.returncode == 0
+
+
 @pytest.fixture(scope="module")
 def base_writer() -> types.ModuleType:
-    """The graph view module as it stood at ``BASE``."""
+    """The graph view module as it stood at ``BASE``.
+
+    A checkout without ``BASE`` skips its readers, except under CI, which clones the whole
+    history: there the missing commit fails as before.
+    """
+    if not os.environ.get("CI") and not _base_is_here():
+        pytest.skip(
+            f"commit {BASE} is not in this checkout (a shallow clone?); its graph writer is "
+            f"the byte reference: fetch it, e.g. `git fetch --unshallow`"
+        )
     module = types.ModuleType("base_graph")
     source = _at_base("src/osprey/facility/views/graph.py")
     exec(compile(source, "base_graph.py", "exec"), module.__dict__)
@@ -134,24 +161,10 @@ class TestNoRelationsIsTheBaseWriter:
     def test_the_example_without_claims_has_the_base_pins(
         self, pre_appendix_a: FacilityDocument
     ) -> None:
-        store_test = "tests/integration/test_graphdb_store.py"
-        census = "tests/facility/golden/demo_census.json"
-
-        def pinned(source: str) -> int:
-            for node in ast.parse(source).body:
-                if isinstance(node, ast.Assign) and any(
-                    isinstance(target, ast.Name) and target.id == "EXPECTED_TRIPLES_LOADED"
-                    for target in node.targets
-                ):
-                    return ast.literal_eval(node.value)
-            raise AssertionError("EXPECTED_TRIPLES_LOADED is not assigned")
-
         graph = _graph(graph_text(FacilityRecords(pre_appendix_a)))
-        assert len(graph) == pinned(_at_base(store_test))
-        base_facility = json.loads(_at_base(census))["facility"]
-        assert len(pre_appendix_a["devices"]) == base_facility["devices"]
-        assert len(pre_appendix_a["groups"]) == base_facility["groups"]
-        assert len(pre_appendix_a["channels"]) == base_facility["channels"]
+        assert len(graph) == BASE_TRIPLES_LOADED
+        for kind, count in BASE_FACILITY_COUNTS.items():
+            assert len(pre_appendix_a[kind]) == count, kind
 
 
 def _split_claims(variant: str, seed: int) -> dict[str, Any]:

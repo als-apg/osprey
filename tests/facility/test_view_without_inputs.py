@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,8 @@ import pytest
 from osprey.facility.build import build_facility
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.views.simulator import VARIABLES_SCHEMA
-from tests.facility._mml_built import BUILT, build_tree
+from tests.facility._mml_built import BUILT, BuiltModel
+from tests.facility._mml_built import TREES as MML_TREES
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
 pytestmark = [pytest.mark.slow]
@@ -51,12 +53,17 @@ TREES = {
 }
 
 
-def _built(name: str, root: Path) -> tuple[dict[str, Any], Path]:
+def _built(
+    name: str, root: Path, mml_built: Callable[[str, str], BuiltModel]
+) -> tuple[dict[str, Any], Path]:
     if name in TREES:
         facility_dir = root / "data" / "facility"
         shutil.copytree(TREES[name], facility_dir)
         return build_facility(facility_dir, project_name=name), facility_dir
-    return build_tree(name.removeprefix("mml-"), root)
+    # An MML tree is the run's one ``build_tree`` of it; the render only reads it.
+    tree = name.removeprefix("mml-")
+    model = mml_built(tree, MML_TREES[tree][0])
+    return model.document, model.facility
 
 
 def _view_files(root: Path, document: dict[str, Any], facility_dir: Path) -> list[Path]:
@@ -86,8 +93,10 @@ def test_the_digests_cover_every_facility_without_inputs() -> None:
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED))
-def test_a_facility_without_inputs_renders_the_pre_inputs_view(tmp_path: Path, name: str) -> None:
-    document, facility_dir = _built(name, tmp_path)
+def test_a_facility_without_inputs_renders_the_pre_inputs_view(
+    tmp_path: Path, name: str, mml_built: Callable[[str, str], BuiltModel]
+) -> None:
+    document, facility_dir = _built(name, tmp_path, mml_built)
     assert not any(model.get("inputs") for model in document["models"])
 
     files = _view_files(tmp_path, document, facility_dir)

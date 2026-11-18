@@ -56,6 +56,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import unicodedata
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -437,8 +438,12 @@ def _expand_run(run: str) -> str:
 
 @functools.cache
 def _raw_workflow() -> dict[str, Any]:
-    """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
-    loaded = yaml.safe_load(CI_YML.read_text())
+    """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``.
+
+    Parsed by libyaml where PyYAML has it: the same safe constructor over a
+    faster scanner, and this parse is paid at every worker's collection.
+    """
+    loaded = yaml.load(CI_YML.read_text(), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
     assert loaded is not None, f"{CI_YML} parsed to None"
     return _unshared(loaded)
 
@@ -2732,9 +2737,14 @@ def _script_pytest_lines(source: str) -> list[str]:
     return [line for line in source.splitlines() if f"{CHECK_UV_RUN} pytest " in line]
 
 
+@functools.cache
 def _tier_source(tier: str, base: str | None = None) -> str:
     """The commands *tier* runs over the whole tree, one shell line each; with
-    *base*, the checks that judge a range are armed against it."""
+    *base*, the checks that judge a range are armed against it. Resolved once
+    per process: resolving scans the test tree for wall-clock budgets. Cached for
+    the run, so a mutation test that patches what it reads (the wall-clock scan,
+    ``check_set``) calls ``_tier_source.__wrapped__(...)``, as
+    ``test_nothing_else_times_it__mutation_a_file_carries_both_markers`` does."""
     argv = [tier, "--base", base] if base else [tier]
     return "\n".join(_render(line).replace("\n", " ") for line in check_set.resolve(argv))
 
@@ -4054,17 +4064,42 @@ def _model_free_lanes_paths(wf: dict[str, Any]) -> list[str]:
     return [*_model_free_selected_paths(), *_record_lane_paths(wf)]
 
 
-def _collected_ids(args: list[str]) -> set[str]:
-    """The node ids pytest collects for ``args``, from the repo root.
+#: A child's pytest run with a plugin that writes, per collected test, whether it
+#: carries the ``model_free`` marker. ``iter_markers`` is what ``-m`` matches a
+#: bare marker name against, so the marked lines are what ``-m model_free``
+#: would select from the same collection.
+_MARKED_COLLECTION = """
+import sys
+import pytest
+
+class _Marks:
+    def pytest_collection_finish(self, session):
+        with open(sys.argv[1], "w", encoding="utf-8") as out:
+            for item in session.items:
+                marked = next(item.iter_markers("model_free"), None) is not None
+                out.write(("1" if marked else "0") + "\\t" + item.nodeid + "\\n")
+
+sys.exit(pytest.main(sys.argv[2:], plugins=[_Marks()]))
+"""
+
+
+def _collected_marks(args: list[str], scratch: Path) -> dict[str, bool]:
+    """Each node id pytest collects for ``args``, from the repo root, with
+    whether it carries the ``model_free`` marker; one collection.
 
     ``--collect-only`` is exempt from the e2e provider refusal, so no provider
-    has to be named.
+    has to be named. The child only collects test code, so it starts without
+    coverage's subprocess hand-off.
     """
+    from tests._coverage_handoff import without_coverage_handoff
+
+    listing = scratch / "collected-marks.tsv"
     result = subprocess.run(
         [
             sys.executable,
-            "-m",
-            "pytest",
+            "-c",
+            _MARKED_COLLECTION,
+            str(listing),
             "--collect-only",
             "-q",
             "-o",
@@ -4077,21 +4112,25 @@ def _collected_ids(args: list[str]) -> set[str]:
         capture_output=True,
         text=True,
         timeout=300,
+        env=without_coverage_handoff(),
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    return {line.strip() for line in result.stdout.splitlines() if "::" in line}
+    rows = [line.split("\t", 1) for line in listing.read_text(encoding="utf-8").splitlines()]
+    return {nodeid: flag == "1" for flag, nodeid in rows}
 
 
 def test_the_model_free_marker_equals_the_model_free_lane_selection(
-    workflow: dict[str, Any],
+    workflow: dict[str, Any], tmp_path: Path
 ) -> None:
     """A run that names no provider may select only ``model_free`` tests, and
     the lane is where those tests run. A test the lane runs without the marker
     would be refused in a run with no provider; a marked test the lane leaves
     out claims a lane that never runs it."""
     paths = _model_free_lanes_paths(workflow)
-    marked = _collected_ids([*paths, "-m", "model_free"])
-    selected = _collected_ids(paths)
+    collected = _collected_marks(paths, tmp_path)
+    assert collected, "the model-free lanes collect no test; this equality is vacuous"
+    marked = {nodeid for nodeid, is_marked in collected.items() if is_marked}
+    selected = set(collected)
     lanes = f"'{NO_MODEL_JOB}'/'{RECORD_E2E_JOB}'"
     assert marked == selected, (
         f"marked model_free but not run by {lanes}: {sorted(marked - selected)}; "
@@ -4856,6 +4895,12 @@ PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests",)
 BROWSER_MARKER = "browser"
 
 
+def _identifier_text(source: str) -> str:
+    """*source* as Python reads its identifiers (NFKC-normalized), so a name it
+    reads is a substring: the text a literal prefilter checks."""
+    return source if source.isascii() else unicodedata.normalize("NFKC", source)
+
+
 def _module_marks(source: str) -> set[str]:
     """The pytest marker names a module applies to every test it defines.
 
@@ -4864,8 +4909,13 @@ def _module_marks(source: str) -> set[str]:
     workflow-wiring check has any business doing. Both ``pytestmark = [...]``
     and the annotated spelling are read, and a bare ``pytestmark =
     pytest.mark.browser`` is one mark rather than none.
+
+    A module that never spells ``pytestmark`` is not parsed: the name is one
+    identifier token, read after NFKC normalization, so it applies no mark.
     """
     marks: set[str] = set()
+    if "pytestmark" not in _identifier_text(source):
+        return marks
     for node in ast.parse(source).body:
         if isinstance(node, ast.AnnAssign):
             targets, value = [node.target], node.value
@@ -4901,13 +4951,16 @@ def _browser_suites_on_disk_once() -> tuple[str, ...]:
     Discovery follows the marker, never the filename: the marker is the
     module's own declaration that it needs a browser, and a suite is free to
     be called anything. A filename convention accounts only for the modules
-    that follow it and passes over every other in silence.
+    that follow it and passes over every other in silence. A module that never
+    spells the marker's name cannot apply it, so it is not parsed.
     """
     return tuple(
         sorted(
             path.relative_to(REPO_ROOT).as_posix()
             for path, source in _test_tree_sources().items()
-            if "__pycache__" not in path.parts and BROWSER_MARKER in _module_marks(source)
+            if "__pycache__" not in path.parts
+            and BROWSER_MARKER in _identifier_text(source)
+            and BROWSER_MARKER in _module_marks(source)
         )
     )
 
@@ -4955,6 +5008,9 @@ def test_the_marker_discovery_reads_the_marker_not_the_name() -> None:
     assert BROWSER_MARKER in _module_marks("import pytest\n\npytestmark = pytest.mark.browser\n")
     assert BROWSER_MARKER not in _module_marks("import pytest\n\npytestmark = [pytest.mark.slow]\n")
     assert _module_marks("x = 1\n") == set()
+    assert BROWSER_MARKER in _module_marks(
+        "import pytest\n\n\uff50ytestmark = pytest.mark.browser\n"
+    ), "a name the prefilter skips must be one Python would not read as pytestmark"
 
 
 def test_every_browser_suite_is_collected_by_exactly_one_browser_step(
@@ -11449,8 +11505,16 @@ def _linkcheck_verdict_missing(commands: list[list[str]]) -> list[str]:
     ]
 
 
+@functools.cache
+def _full_tier_commands_once() -> tuple[tuple[str, ...], ...]:
+    """The full tier's commands, cached for the run: a mutation test that patches
+    what it reads calls ``_full_tier_commands_once.__wrapped__()``."""
+    return tuple(tuple(argv) for argv in check_set.resolve(["full"]))
+
+
 def _full_tier_commands() -> list[list[str]]:
-    return check_set.resolve(["full"])
+    """The full tier's commands, a fresh copy per call of one resolve per process."""
+    return [list(argv) for argv in _full_tier_commands_once()]
 
 
 def test_the_full_tier_blocks_on_a_broken_documentation_link() -> None:
@@ -14687,6 +14751,19 @@ def _is_setup(job: str, step: dict[str, Any]) -> bool:
     return step.get("name") in CALLER_SETUP_STEPS.get(job, ())
 
 
+@functools.cache
+def _refusal(call: tuple[str, ...]) -> str | None:
+    """Why ``check.py`` refuses *call* (``None`` = it resolves), probed once per
+    call per process: resolving scans the test tree for wall-clock budgets.
+    Cached for the run, so a mutation test that patches what it reads calls
+    ``_refusal.__wrapped__(...)``."""
+    try:
+        _resolved(list(call))
+    except (check_set.Refused, SystemExit) as refusal:
+        return str(refusal)
+    return None
+
+
 def _spelled_checks(wf: dict[str, Any]) -> list[str]:
     """What is wrong with the caller jobs' steps as callers, one line per defect."""
     problems = []
@@ -14703,9 +14780,8 @@ def _spelled_checks(wf: dict[str, Any]) -> list[str]:
             if call[:1] != ["run"]:
                 problems.append(f"{where} must call `{CHECK_SCRIPT} run ID`; got {call}")
                 continue
-            try:
-                _resolved(call)
-            except (check_set.Refused, SystemExit) as refusal:
+            refusal = _refusal(tuple(call))
+            if refusal is not None:
                 problems.append(f"{where} makes a call {CHECK_SCRIPT} refuses: {refusal}")
         spelled = _leaf_commands(step["run"])
         if spelled:

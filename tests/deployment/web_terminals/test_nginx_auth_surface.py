@@ -70,8 +70,13 @@ from osprey.services.auth_sidecar.identity_headers import (
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
 )
-from tests._container_support import docker_cli_unavailable_reason_once
+from tests._container_support import (
+    docker_cli_unavailable_reason_once,
+    ensure_image,
+    require_container_runtime,
+)
 from tests._renders import tier_render
+from tests.deployment.web_terminals._harness_image import NGINX_IMAGE
 from tests.deployment.web_terminals._nginx import (
     HISTORY_ORIGIN_MARKER,
     nginx_directives,
@@ -750,7 +755,7 @@ def test_the_open_render_holds_no_login_surface_anywhere() -> None:
 # --------------------------------------------------------------------------
 
 #: The base image the deployed stack runs, matching `test_nginx_validate.py`.
-_NGINX_IMAGE = "nginx:1.31-alpine"
+_NGINX_IMAGE = NGINX_IMAGE
 #: Where the compose overlay's entrypoint writes the per-user secret snippets
 #: each gated location `include`s. `nginx -t` reads the include, so the file has
 #: to exist — but nothing here cares about the envsubst chain that normally
@@ -791,8 +796,24 @@ def _nginx_t(conf: str, secret_snippets: dict[str, str]) -> subprocess.Completed
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 
 
+@pytest.fixture
+def nginx_image() -> None:
+    """Ask the runtime once, then pull the nginx image if it is absent, before the run.
+
+    Pulled here, under its own budget, rather than implicitly by ``docker run``
+    inside the test, where a slow registry would read as nginx refusing the
+    render.
+    """
+    require_container_runtime()
+    ensure_image(_NGINX_IMAGE)
+
+
+# xdist_group("docker"): a ``docker run`` of nginx, kept on the worker that starts
+# every other container, as in `test_nginx_validate.py`.
 @pytest.mark.dockerbuild
+@pytest.mark.xdist_group("docker")
 @pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or "")
+@pytest.mark.usefixtures("nginx_image")
 def test_real_nginx_reads_the_auth_on_render_without_a_single_warning() -> None:
     """The auth-on render starts CLEAN — not merely "exit 0".
 

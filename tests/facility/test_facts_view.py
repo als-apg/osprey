@@ -37,12 +37,11 @@ from osprey.facility.views.facts import (
     render_facts_page,
     zero_source_facts,
 )
-from tests._builds import init_machineless, run_build
 from tests.facility._pyaml_trees import measured_tree
 from tests.facility._synthetic_trees import BPM, QUAD, plain_tree, write_tree
 
 if TYPE_CHECKING:
-    from tests.facility.conftest import BuiltProject
+    from tests.facility.conftest import BuiltProject, MachinelessBuild
 
 pytestmark = [pytest.mark.slow]
 
@@ -131,13 +130,11 @@ def test_the_facts_are_the_facility_files(built_demo: BuiltProject) -> None:
 
 
 def test_only_a_file_with_no_channel_says_it_holds_none(
-    tmp_path: Path, built_demo: BuiltProject
+    built_machineless: MachinelessBuild, built_demo: BuiltProject
 ) -> None:
-    repo = init_machineless(tmp_path, "machineless")
-    result = run_build(repo)
-    assert result.exit_code == 0, result.output
+    assert built_machineless.exit_code == 0, built_machineless.output
 
-    page = (repo / "build" / PAGE).read_text(encoding="utf-8")
+    page = (built_machineless.repo / "build" / PAGE).read_text(encoding="utf-8")
     assert NO_CHANNELS in page
     assert "# machineless\n" in page
     built_page = (built_demo.repo / "build" / PAGE).read_text(encoding="utf-8")

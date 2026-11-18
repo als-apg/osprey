@@ -1681,6 +1681,9 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "run_verify_script", lambda *a, **k: None)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    # The post-up reachability probe answers, as in captured_web_runs: left real it
+    # dials this host's gateway port and takes another path when nothing listens.
+    monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
@@ -1736,6 +1739,9 @@ def test_web_services_start_does_not_build_a_service_running_an_overridden_image
     monkeypatch.setattr(provision, "run_verify_script", lambda *a, **k: None)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    # The post-up reachability probe answers, as in captured_web_runs: left real it
+    # dials this host's gateway port and takes another path when nothing listens.
+    monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )

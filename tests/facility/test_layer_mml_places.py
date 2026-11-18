@@ -29,6 +29,7 @@ from osprey.facility.layers.mml.mapping import (
 )
 from osprey.facility.layers.mml.places import Slot, place_devices
 from osprey.facility.validate import run_stages
+from tests.facility._mml_built import load_yaml, read_yaml
 
 pytestmark = pytest.mark.xdist_group("layer_mml_import")
 
@@ -314,7 +315,7 @@ def _nsls2(tmp_path: Path, places: dict[str, Any]) -> Path:
     facility = tmp_path / "data" / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
-    document = yaml.safe_load((FIXTURES / "nsls2" / MAPPING_FILE).read_text(encoding="utf-8"))
+    document = load_yaml(FIXTURES / "nsls2" / MAPPING_FILE)
     for raw, rules in places.items():
         document["models"][raw]["places"] = rules
     target.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
@@ -327,7 +328,8 @@ def _import(facility: Path, tree: str = "nsls2", stems: tuple[str, ...] = NSLS2_
 
 
 def _read(facility: Path, name: str) -> Any:
-    return yaml.safe_load((facility / LAYER_DIR / name).read_text(encoding="utf-8"))
+    """The layer's record file ``name``, parsed once; the caller only reads it."""
+    return read_yaml(facility / LAYER_DIR / name)
 
 
 NSLS2_PLACES = {

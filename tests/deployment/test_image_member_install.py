@@ -56,7 +56,13 @@ def _run_bodies(text: str) -> list[str]:
 
 
 def _record_pip(tmp_path: pathlib.Path) -> tuple[dict[str, str], pathlib.Path]:
-    """An env whose ``pip`` appends ``<SCM version>\\t<argv>`` per call and exits 0."""
+    """An env whose ``pip`` appends ``<SCM version>\\t<argv>`` per call and exits 0.
+
+    Its ``python`` exits 0 too: each install ends in ``python -m
+    osprey.deployment.pyaml_owner``, which would otherwise run against this
+    host's environment rather than the recipe's. That every image calls the
+    check, and what it decides, is ``tests/deployment/test_pyaml_one_owner.py``'s.
+    """
     log = tmp_path / "pip-calls.log"
     stub_bin = tmp_path / "bin"
     stub_bin.mkdir()
@@ -68,6 +74,9 @@ def _record_pip(tmp_path: pathlib.Path) -> tuple[dict[str, str], pathlib.Path]:
         "exit 0\n"
     )
     stub.chmod(0o755)
+    python = stub_bin / "python"
+    python.write_text("#!/bin/sh\nexit 0\n")
+    python.chmod(0o755)
     env = dict(os.environ, PATH=f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}")
     env.pop("SETUPTOOLS_SCM_PRETEND_VERSION", None)
     return env, log

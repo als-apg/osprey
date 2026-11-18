@@ -53,6 +53,20 @@ def rules() -> list[dict[str, Any]]:
     return rows
 
 
+@cache
+def stamped() -> str:
+    """``records/channels.yaml`` as the stamper writes it from the committed table."""
+    text: str = reseed_module().stamp()
+    return text
+
+
+@cache
+def stamped_channels() -> list[dict[str, Any]]:
+    """The channel records of :func:`stamped`; read only, so the one parse is shared."""
+    channels: list[dict[str, Any]] = read_yaml(stamped())
+    return channels
+
+
 def records(kind: str) -> dict[str, dict[str, Any]]:
     """The committed ``records/<kind>s.yaml`` keyed by id."""
     text = (TREE / f"records/{kind}s.yaml").read_text(encoding="utf-8")
@@ -125,7 +139,7 @@ def test_a_micrometre_rule_lands_in_each_channels_unit() -> None:
 
 
 def test_every_setpoint_carries_a_tolerance() -> None:
-    channels = read_yaml(reseed_module().stamp())
+    channels = stamped_channels()
     setpoints = [
         channel
         for channel in channels
@@ -144,7 +158,7 @@ def test_every_tolerance_holds_its_readbacks_envelope() -> None:
     from osprey_connectors.simulation.envelope import motion_envelope
 
     seeds = generated()
-    for channel in read_yaml(reseed_module().stamp()):
+    for channel in stamped_channels():
         if "tolerance" in channel:
             envelope = motion_envelope(seeds.get(channel["pair"]))
             assert channel["tolerance"]["absolute"] >= envelope, channel["id"]
@@ -158,9 +172,7 @@ def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenari
     assert result.errors == []
     scenarios = {scenario["name"]: scenario for scenario in result.sources.scenarios}
     assert scenarios
-    toleranced = [
-        channel for channel in read_yaml(reseed_module().stamp()) if "tolerance" in channel
-    ]
+    toleranced = [channel for channel in stamped_channels() if "tolerance" in channel]
     for name in sorted(scenarios):
         envelopes = active_envelopes(generated(), scenarios, [name])
         for channel in toleranced:
@@ -170,7 +182,7 @@ def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenari
 
 def test_the_committed_channels_are_the_stampers_output() -> None:
     committed = (TREE / "records/channels.yaml").read_text(encoding="utf-8")
-    assert reseed_module().stamp() == committed
+    assert stamped() == committed
     assert reseed_module().stamp(committed) == committed
 
 
