@@ -840,7 +840,9 @@ class ControlGroup:
     """Controls of one kind that belong together, and the line saying what they write.
 
     Attributes:
-        kind: ``action``, ``choice`` or ``entry``.
+        kind: ``action``, ``choice``, ``entry``, or ``withheld``: the presses of
+            a channel the card reaches only through an inferred join, shown read
+            only where they would have stood.
         title: What the group is (a role), or ``None``.
         controls: Its controls.
         writes: The muted line under it: the channels it writes and the values.
@@ -850,6 +852,7 @@ class ControlGroup:
     title: str | None
     controls: tuple[Control, ...]
     writes: str
+    rule: str | None = None  # a withheld group's join rule, on hover
 
 
 @dataclass(frozen=True)

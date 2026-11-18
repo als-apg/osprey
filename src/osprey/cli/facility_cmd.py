@@ -1448,7 +1448,8 @@ def panels_check(
     report(
         f"device cards, presses: {presses.stated} with a stated value, {presses.inferred} "
         f"with an inferred value (said so on the card), {presses.left_out} left out "
-        f"(no value stated) on {presses.left_out_cards} cards"
+        f"(no value stated) on {presses.left_out_cards} cards, {presses.withheld} "
+        f"withheld, join inferred"
     )
     bare_classes, bare = tile_less(graph, devices)
     report(f"default card without tiles: {bare_classes} classes, {bare} devices")

@@ -80,7 +80,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
     )
     assert ",".join(COLUMNS["fronts.csv"]) == (
         "recipe,face,group,order,connector,kind,count,channel,far_relation,far_direction,"
-        "far_port,label,source,roles"
+        "far_port,label,source,roles,apart"
     )
     assert OPTIONAL_FILES == frozenset(
         {
@@ -420,8 +420,8 @@ def test_a_front_row_with_one_of_far_relation_and_far_direction_is_refused(
     directory = copy_tables(tmp_path / "panels")
     (directory / "fronts.csv").write_text(
         _header("fronts.csv")
-        + "\nsupply,front,outputs,1,Out1,power,,,powered_by,in,,,S,"
-        + f"\nsupply,front,outputs,2,Out2,power,,,{far},,,S,\n"
+        + "\nsupply,front,outputs,1,Out1,power,,,powered_by,in,,,S,,"
+        + f"\nsupply,front,outputs,2,Out2,power,,,{far},,,S,,\n"
     )
     with pytest.raises(PanelTableError, match=r"fronts\.csv line 3\b.*both given or both empty"):
         read_tables(directory)
@@ -430,7 +430,7 @@ def test_a_front_row_with_one_of_far_relation_and_far_direction_is_refused(
 def test_a_front_row_with_neither_far_relation_nor_far_direction_is_read(tmp_path: Path) -> None:
     directory = copy_tables(tmp_path / "panels")
     (directory / "fronts.csv").write_text(
-        _header("fronts.csv") + "\nsupply,front,inputs,1,In1,io,,,,,,,S,\n"
+        _header("fronts.csv") + "\nsupply,front,inputs,1,In1,io,,,,,,,S,,\n"
     )
     (row,) = read_tables(directory).fronts
     assert (row.far_relation, row.far_direction) == (None, None)

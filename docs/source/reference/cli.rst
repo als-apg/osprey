@@ -1451,7 +1451,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    a group of readings is a table: no socket, cable or far end, the connectors'
    names as column heads, the lamps first in a "state" band, then a band per
    role. Clients the relation names on no stated port
-   are drawn apart by class; a range with nothing in it is left out. ``write``
+   are drawn apart by class, unless the row's optional ``apart`` column says
+   ``no``: then only the clients on a stated port are drawn; a range with nothing in it is left out. ``write``
    prints per recipe the connectors with something stated, contested or nothing,
    the readings apart, and the devices with every connector that is not a reading
    stated, some, none, or readings only. A ``ring-strip`` section draws a group
@@ -1537,8 +1538,14 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    word) or one marked inferred (a role's inferred press value, 1 for a command
    whose states do not name 1), and an inferred value is said so wherever the
    card names it ("(value inferred, not stated in the database)"); a press with
-   no value is left out, and ``check`` counts the presses stated, inferred and
-   left out. Apply stays off the canvas and out of the page (so the keyboard
+   no value is left out. A writable channel of another thing that the card
+   reaches only through a relation claim with ``basis: inferred`` (a walked
+   relation such as ``read_out_by``, or ``part_of``) is never offered as an
+   action, a choice or an entry: it is shown read only where it would have
+   stood, under "join inferred, command not offered" with the claim's rule on
+   hover; the device's own channels are not affected. ``check`` counts the
+   presses stated, inferred, left out, and withheld because their join is
+   inferred. Apply stays off the canvas and out of the page (so the keyboard
    cannot reach it either), with "type a value first" in its place, until the
    field holds a number, so no press writes a value nobody typed. A light takes a
    colour only where its meaning is stated (a state word, or a number's

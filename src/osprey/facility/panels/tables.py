@@ -264,6 +264,7 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "label",
             "source",
             "roles",
+            "apart",
         ],
         CARD_RECIPES: [
             "class",
@@ -361,7 +362,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
         METRICS: frozenset({"precision"}),
         CARD_RECIPES: frozenset({"devices"}),
         STRIP_SYMBOLS: frozenset({"devices"}),
-        FRONTS: frozenset({"roles"}),
+        FRONTS: frozenset({"roles", "apart"}),
     }
 )
 
@@ -534,7 +535,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CARD_SECTIONS: {"kind": SECTION_KINDS},
         CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
         STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
-        FRONTS: {"kind": CONNECTOR_KINDS, "far_direction": FAR_DIRECTIONS},
+        FRONTS: {"kind": CONNECTOR_KINDS, "far_direction": FAR_DIRECTIONS, "apart": ("no",)},
         NO_CARDS: {"owner_direction": DIRECTIONS},
     }
 )
@@ -1012,7 +1013,9 @@ class FrontRow:
     ``;``-separated) are the section roles the row's connectors carry: empty, every
     section role; a role binds to a connector only through a row that lists it.
     A ``{n}`` row with no ``channel`` and with ``roles`` is numbered by the
-    device's channels of its first role."""
+    device's channels of its first role. ``apart`` (optional) ``no``: only the
+    clients on a stated port are drawn, never the group of those on no stated
+    port; empty, they are drawn apart by class."""
 
     recipe: str
     face: str
@@ -1028,6 +1031,7 @@ class FrontRow:
     label: str | None
     source: str | None
     roles: str | None = None
+    apart: str | None = None
 
 
 @dataclass(frozen=True)

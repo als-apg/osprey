@@ -51,7 +51,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -135,12 +135,26 @@ class RoleHit:
         owner: The device the channel is on: the device itself, a part of it, or
             the device a walked relation names.
         port: The walked relation's object port, or ``None``.
+        join: For a channel of another thing reached through a relation claim
+            with basis ``inferred`` (a walked relation or ``part_of``): that
+            claim's rule, ``""`` when it states none; ``None`` for a stated join
+            and for the device's own channels.
     """
 
     role: ChannelRole
     channel: str
     owner: str
     port: str | None = None
+    join: str | None = None
+
+
+def _join(edges: Iterable[Edge]) -> str | None:
+    """The rule of the first inferred claim among *edges* (``""`` when it states
+    none); ``None`` when every one is stated."""
+    for edge in edges:
+        if edge.basis == "inferred":
+            return edge.rule or ""
+    return None
 
 
 def substitute(pattern: str, port: str | None) -> str | None:
@@ -1380,11 +1394,10 @@ class PanelGraph:
         if not rows:
             return []
         edges = self.neighbours(device_id, "device")
-        parts = [
-            e.other
-            for e in edges.get(PART_RELATION, ())
-            if not e.outgoing and e.other_kind == "device"
+        part_edges = [
+            e for e in edges.get(PART_RELATION, ()) if not e.outgoing and e.other_kind == "device"
         ]
+        parts = [e.other for e in part_edges]
         own = [c.name for c in self.channels(device_id, "device")]
         found: list[RoleHit] = []
         for role in rows:
@@ -1394,15 +1407,18 @@ class PanelGraph:
                 ]
             elif role.scope == "parts":
                 found += [
-                    RoleHit(role, c.name, part)
+                    RoleHit(
+                        role, c.name, part, None, _join(e for e in part_edges if e.other == part)
+                    )
                     for part in dict.fromkeys(parts)
                     for c in self.channels(part, "device")
                     if fnmatch.fnmatchcase(c.name, role.signal)
                 ]
             else:
+                walked = [e for e in edges.get(role.scope, ()) if e.outgoing]
                 hits = {
                     (c.name, e.other, e.other_port)
-                    for e in edges.get(role.scope, ())
+                    for e in walked
                     if e.outgoing and e.other_kind == "device"
                     for pattern in [substitute(role.signal, e.other_port)]
                     if pattern is not None
@@ -1411,7 +1427,8 @@ class PanelGraph:
                 }
                 if len({h[0] for h in hits}) == 1:
                     name, owner, port = min(hits, key=lambda h: (h[1], h[2] or ""))
-                    found.append(RoleHit(role, name, owner, port))
+                    on = (e for e in walked if e.other == owner and e.other_port == port)
+                    found.append(RoleHit(role, name, owner, port, _join(on)))
         return found
 
     def state_label(self, channel: str, value: object) -> str | None:

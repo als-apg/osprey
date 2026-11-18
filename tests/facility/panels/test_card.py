@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 
 from osprey.facility.panels import layout
 from osprey.facility.panels.describe import device_card
@@ -1850,3 +1851,92 @@ def test_a_front_s_values_under_its_sockets_are_one_band_labelled_with_role_and_
     cells = [n for n in nodes(doc) if "current: XR01-PS1:Out" in n["props"].get("tooltip", "")]
     assert len(cells) == 3 and {c["geometry"]["y"] for c in cells} == {cells[0]["geometry"]["y"]}
     assert label["geometry"]["x"] < min(c["geometry"]["x"] for c in cells)
+
+
+def test_a_front_row_apart_no_draws_only_clients_on_a_stated_port(tmp_path):
+    _fronted(tmp_path, _ports(("xr01-qf1-power", "1")))  # its tables; then this row
+    (tmp_path / "panels" / "fronts.csv").write_text(
+        FRONTS_HEADER.rstrip("\n")
+        + ",roles,apart\n"
+        + "supply,front,outputs,1,Out{n},power,,,powered_by,in,{n},,S,,no\n"
+    )
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import write_fixture_facility
+
+    graph = load_graph(
+        write_fixture_facility(tmp_path / "g.json", _ports(("xr01-qf1-power", "1"))),
+        tmp_path / "panels",
+    )
+    front = _front_of(device_card(graph, "XR01:PS1"))
+    (group,) = front.groups
+    assert [e.thing for c in group.connectors for e in c.sides[0]] == ["XR01:QF1"]
+    assert front.loose == ()  # XR01:QD1 is on no stated port: not drawn apart
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    assert not [n for n in _by_type(doc, "text-label") if "on no stated port" in n["props"]["text"]]
+
+
+def _joined(tmp_path, inferred: bool):
+    """Two pumps each read out by a chassis point, one join stated and the other
+    inferred when *inferred*; the pump's open command is the point's channel."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def change(document) -> None:
+        for n in (1, 2):
+            document["channels"].append(
+                {"id": f"XR01-CH2:P{n}-Open", "on": {"device": "XR01:CH2"}, "role": "setpoint"}
+            )
+        document["relations"].append(
+            {
+                "id": "xr01-ip2-readout",
+                "type": "read_out_by",
+                "subject": {"device": "XR01:IP2"},
+                "object": {"device": "XR01:CH2", "port": "P2"},
+                "standing": "accepted",
+            }
+        )
+        for claim in document["relations"]:
+            if claim["id"] == "xr01-ip1-readout":
+                claim["object"]["port"] = "P1"
+            if claim["id"] == "xr01-ip2-readout" and inferred:
+                claim["basis"] = "inferred"
+                claim["rule"] = "joined by the point's number"
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,open,*:{port}-Open,read_out_by,action,,,1,Open,stated,S,1,l\n"
+    )
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), tables)
+
+
+def _writers(doc: dict) -> set[str]:
+    """Every channel a widget of the screen can write."""
+    kinds = ("pv-button", "pv-text-input", "pv-slider", "pv-combo")
+    return {
+        str(n["props"].get("pv") or n["props"].get("pvName") or "")
+        for n in nodes(doc)
+        if n["type"] in kinds
+    }
+
+
+def test_a_command_reached_through_an_inferred_join_is_never_offered(tmp_path):
+    from osprey.facility.panels.describe import JOIN_WITHHELD, press_counts
+
+    graph = _joined(tmp_path, inferred=True)
+    stated = stub_render(device_card(graph, "XR01:IP1"), graph)
+    assert any("XR01-CH2:P1-Open" in w for w in _writers(stated))  # its button
+    withheld = stub_render(device_card(graph, "XR01:IP2"), graph)
+    assert not any("XR01-CH2:P2-Open" in w for w in _writers(withheld))  # no writer at all
+    (line,) = [n for n in _by_type(withheld, "text-label") if n["props"]["text"] == JOIN_WITHHELD]
+    assert [
+        n for n in nodes(withheld) if n["props"].get("tooltip") == "joined by the point's number"
+    ]
+    assert "XR01-CH2:P2-Open" in json.dumps(withheld)  # shown read only where it stood
+    counts = press_counts(graph, ["XR01:IP1", "XR01:IP2"])
+    assert (counts.stated, counts.withheld) == (1, 1)
+
+
+def test_the_same_join_stated_offers_the_command(tmp_path):
+    graph = _joined(tmp_path, inferred=False)
+    doc = stub_render(device_card(graph, "XR01:IP2"), graph)
+    assert any("XR01-CH2:P2-Open" in w for w in _writers(doc))

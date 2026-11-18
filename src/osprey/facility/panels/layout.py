@@ -43,6 +43,7 @@ from osprey.facility.panels.describe import (
     NO_POSITION,
     PROBE_SECTION,
     RELATION_TITLES,
+    WITHHELD,
     action_word,
     press_words,
 )
@@ -307,6 +308,7 @@ CONTROL_LEGEND: tuple[tuple[str, str], ...] = (
     ("ENTRY", "type, check, Apply"),
     ("READ ONLY", "nothing to press"),
 )
+_READ_ONLY_TAG = "READ ONLY"
 _NOT_SERVED = "not served yet"
 #: The drawn card's closing sections, drawn as muted lines.
 _FACT_SECTIONS = frozenset({"where", "sources"})
@@ -3390,12 +3392,30 @@ class _Page:
         """One group in a column from *x0*, *width* wide: its tag and title, its
         controls (an action with a status beside it shows the live word), the line
         of what it writes."""
-        x = self.control_tag(x0, self.y, group.kind.upper())
+        withheld = group.kind == WITHHELD
+        x = self.control_tag(x0, self.y, _READ_ONLY_TAG if withheld else group.kind.upper())
         if group.title:
             self.small(
                 x + GAP, self.y, _cut(group.title, x0 + width - x - GAP, SMALL_SIZE), fg=MUTED_TEXT
             )
         self.y += CONTROL_TAG_HEIGHT + ROW_GAP + 2
+        if withheld:  # where the presses would stand: each channel's value, read only
+            for control in group.controls:
+                tx = self.small(x0, self.y + (ROW - SMALL_LINE) / 2, control.label, fg=MUTED_TEXT)
+                room = max(x0 + width - tx - GAP, GRID_VALUE / 2)
+                self.shown_value(
+                    tx + GAP, self.y, room, control.channel, "word",
+                    self.graph_words(control.channel), size=BLOCK_TEXT_SIZE,
+                )  # fmt: skip
+                self.y += ROW + ROW_GAP
+            self.small(x0, self.y, group.writes, fg=MUTED_TEXT)
+            self.s.widget(
+                "rectangle", x0, self.y, width, SMALL_LINE,
+                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0,
+                 _TOOLTIP: group.rule or ""},
+            )  # fmt: skip
+            self.y += SMALL_LINE + GAP
+            return
         if group.kind == "entry":
             for control in group.controls:
                 self.entry(control)

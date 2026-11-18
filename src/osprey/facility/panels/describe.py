@@ -1299,6 +1299,8 @@ def _operate(
             channel_key = hit.channel if hit.role.shown_as == "choice" else ""
             keyed.setdefault((hit.role.shown_as, hit.role.role, channel_key), []).append(hit)
         for (kind, role, _channel), found in keyed.items():
+            joined = [h for h in found if h.join is not None]  # never pressed: read only
+            found = [h for h in found if h.join is None]
             items = []
             for hit in found:
                 press = _press(graph, hit) if kind != "entry" else None
@@ -1328,6 +1330,21 @@ def _operate(
                         kind, _role_title(role), tuple(items), _writes(kind, items, thing.id)
                     )
                 )
+            if joined:
+                shown = {h.channel: h for h in joined}  # one read-only value per channel
+                rule = "; ".join(dict.fromkeys(h.join or RULE_NOT_STATED for h in joined))
+                groups.append(
+                    ControlGroup(
+                        WITHHELD,
+                        _role_title(role),
+                        tuple(
+                            Control(h.role.label or _role_title(role), c) for c, h in shown.items()
+                        ),
+                        JOIN_WITHHELD,
+                        rule,
+                    )
+                )
+                used.update(shown)
         return (Operate(tuple(groups)) if groups else None), used, unstated
     actions: list[Control] = []
     entries: list[Control] = []
@@ -1370,6 +1387,12 @@ def _operate(
     return (Operate(tuple(groups)) if groups else None), used, unstated
 
 
+#: A group of presses withheld: the card reaches their channel only through an
+#: inferred join, so they are shown read only with this line.
+WITHHELD = "withheld"
+JOIN_WITHHELD = "join inferred, command not offered"
+
+
 def _one_segment(graph: PanelGraph, control: Control) -> tuple[str, list[Control]]:
     """A choice role with one stated segment: a choice of every state its channel's
     words state, when they state two or more; else an action that writes its value,
@@ -1392,25 +1415,30 @@ class PressCount:
     inferred: int = 0
     left_out: int = 0  # no value stated or inferred: not offered
     left_out_cards: int = 0
+    withheld: int = 0  # reached through an inferred join: shown read only
 
 
 def press_counts(graph: PanelGraph, devices: Iterable[str]) -> PressCount:
     """How many presses the cards of *devices* offer with a stated value, with an
-    inferred one, and leave out because no source states what they write (and on
-    how many devices)."""
-    stated = inferred = count = cards = 0
+    inferred one, leave out because no source states what they write (and on how
+    many devices), and withhold because their channel is reached only through an
+    inferred join."""
+    stated = inferred = count = cards = withheld = 0
     for device in devices:
         thing = graph.thing(device, "device")
         hits = graph.roles(device)
         channels = _listed(graph, device, graph.channels(device, thing.kind))
         operate, _used, left = _operate(graph, thing, hits, channels)
         for group in operate.groups if operate is not None else ():
+            if group.kind == WITHHELD:
+                withheld += len(group.controls)
+                continue
             for control in group.controls if group.kind != "entry" else ():
                 inferred += control.inferred
                 stated += not control.inferred
         count += len(left)
         cards += bool(left)
-    return PressCount(stated, inferred, count, cards)
+    return PressCount(stated, inferred, count, cards, withheld)
 
 
 def tile_less(graph: PanelGraph, devices: Iterable[str]) -> tuple[int, int]:
@@ -2011,7 +2039,13 @@ def card_front(
         for row in rows:
             numbers = front_numbers(graph, thing.id, row)
             numbered_by_role = bool(row.roles) and not row.channel
-            if "{n}" in row.connector and row.far_direction == "in" and not numbered_by_role:
+            apart = row.apart != "no"  # "no": clients on no stated port are not drawn
+            if (
+                "{n}" in row.connector
+                and row.far_direction == "in"
+                and not numbered_by_role
+                and apart
+            ):
                 # clients of a range; a range numbered by a role has no clients apart
                 loose_rows.append(row)
                 client_groups.add((face, group))
