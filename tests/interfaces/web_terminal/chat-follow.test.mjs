@@ -65,7 +65,7 @@ const finished = (/** @type {string} */ prompt, /** @type {string} */ answer) =>
     content: answer,
     events: [
       { type: 'text', content: answer },
-      { type: 'result', is_error: false, duration_ms: 1000 },
+      { type: 'result', ends_turn: true, is_error: false, duration_ms: 1000 },
     ],
   },
 ];
@@ -94,7 +94,7 @@ test('a transcript read that a new turn overtook leaves the log to that turn, wh
   expect(entries()).toEqual(['read the orbit', 'Reading.', 'and the tunes?', 'Nominal.']);
   expect(busy()).toBe(true);
 
-  follower.frame({ type: 'result', is_error: false, duration_ms: 500, seq: 8 });
+  follower.frame({ type: 'result', ends_turn: true, is_error: false, duration_ms: 500, seq: 8 });
   expect(reads).toHaveLength(2);
   reads[1].resolve([
     ...finished('read the orbit', 'It is flat.'),
@@ -152,7 +152,7 @@ test('a reconnect whose transcript read fails keeps drawing the turn, and reads 
   follower.frame({ type: 'text', content: 'It is flat.', seq: 5 });
   expect(entries()).toEqual(['read the orbit', 'Reading.', 'It is flat.']);
 
-  follower.frame({ type: 'result', is_error: false, duration_ms: 900, seq: 6 });
+  follower.frame({ type: 'result', ends_turn: true, is_error: false, duration_ms: 900, seq: 6 });
   expect(reads).toHaveLength(2);
 });
 

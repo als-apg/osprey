@@ -164,7 +164,7 @@ describe('what the screen reader is told', () => {
     r.handleEvent({ type: 'text', content: 'The beam is stable.' });
     expect(await spoken()).toEqual([]);
 
-    r.handleEvent({ type: 'result' });
+    r.handleEvent({ type: 'result', ends_turn: true });
     expect(await spoken()).toEqual(['Agent replied: The beam is stable.']);
 
     r.endTurn();
@@ -175,12 +175,12 @@ describe('what the screen reader is told', () => {
     r.beginTurn();
     r.handleEvent({ type: 'text', content: 'Checking the orbit.' });
     r.handleEvent(call('t1'));
-    r.handleEvent({ type: 'result', is_error: false });
+    r.handleEvent({ type: 'result', ends_turn: true, is_error: false });
     expect(await spoken()).toEqual(['Agent replied: Checking the orbit.']);
 
     r.beginTurn();
     r.handleEvent({ type: 'text', content: 'The orbit is flat.' });
-    r.handleEvent({ type: 'result' });
+    r.handleEvent({ type: 'result', ends_turn: true });
     expect(await spoken()).toEqual(['Agent replied: The orbit is flat.']);
   });
 
@@ -197,7 +197,7 @@ describe('what the screen reader is told', () => {
   test('a terminal error is spoken, and the reply of the turn it ends is not', async () => {
     r.beginTurn();
     r.handleEvent({ type: 'text', content: 'Partial answer.' });
-    r.handleEvent({ type: 'error', message: 'API error: rate limited' });
+    r.handleEvent({ type: 'error', ends_turn: true, message: 'API error: rate limited' });
     expect(await spoken()).toEqual(['Error: API error: rate limited']);
   });
 
@@ -211,8 +211,18 @@ describe('what the screen reader is told', () => {
     expect(await spoken()).toEqual(['Error: Partial message']);
 
     r.handleEvent({ type: 'text', content: 'Recovered.' });
-    r.handleEvent({ type: 'result' });
+    r.handleEvent({ type: 'result', ends_turn: true });
     expect(await spoken()).toEqual(['Agent replied: Recovered.']);
+  });
+
+  test('an error the server does not mark as ending the turn leaves the reply to be spoken', async () => {
+    r.beginTurn();
+    r.handleEvent({ type: 'text', content: 'Still here.' });
+    r.handleEvent({ type: 'error', message: 'A hiccup.' });
+    expect(await spoken()).toEqual(['Error: A hiccup.']);
+
+    r.handleEvent({ type: 'result', ends_turn: true });
+    expect(await spoken()).toEqual(['Agent replied: Still here.']);
   });
 
   test('a tool approval is spoken by the tool it asks about, once', async () => {
@@ -228,7 +238,7 @@ describe('what the screen reader is told', () => {
   test.each([
     ['a question', question('q-1'), 'Question from the agent'],
     ['a plan awaiting approval', plan('plan-1'), 'Approval needed: plan'],
-    ['an error with no message', { type: 'error' }, 'Error: An error occurred.'],
+    ['an error with no message', { type: 'error', ends_turn: true }, 'Error: An error occurred.'],
   ])('%s is spoken as what it is', async (_name, event, said) => {
     r.beginTurn();
     r.handleEvent(event);
@@ -285,9 +295,9 @@ describe('what the screen reader is told', () => {
           call('t0'),
           ask('t0', 'old-1'),
           question('old-q'),
-          { type: 'error', message: 'old failure' },
+          { type: 'error', ends_turn: true, message: 'old failure' },
           { type: 'text', content: 'Old answer.' },
-          { type: 'result' },
+          { type: 'result', ends_turn: true },
         ],
       },
       { role: 'assistant', content: 'Plain history.' },
@@ -296,7 +306,7 @@ describe('what the screen reader is told', () => {
 
     // Live events after the replay still speak, so the silence is the replay's.
     r.beginTurn();
-    r.handleEvent({ type: 'error', message: 'live failure' });
+    r.handleEvent({ type: 'error', ends_turn: true, message: 'live failure' });
     expect(await spoken()).toEqual(['Error: live failure']);
   });
 
@@ -394,7 +404,7 @@ describe('roles and labels', () => {
     [
       'the error block carries no alert role, so the error is spoken once',
       '.op-error-block',
-      { type: 'error', message: 'boom' },
+      { type: 'error', ends_turn: true, message: 'boom' },
     ],
     [
       'the loader is not a live status, so each step of its label stays silent',

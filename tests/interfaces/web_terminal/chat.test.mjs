@@ -990,7 +990,7 @@ describe('following a turn on the live feed', () => {
       content: answer,
       events: [
         { type: 'text', content: answer },
-        { type: 'result', is_error: false, duration_ms: 2000 },
+        { type: 'result', ends_turn: true, is_error: false, duration_ms: 2000 },
       ],
     },
   ];
@@ -1048,7 +1048,7 @@ describe('following a turn on the live feed', () => {
       ...finished('read the orbit', 'It is flat.'),
       ...finished('and the tunes?', 'Tunes are nominal.'),
     ]);
-    feed({ type: 'result', is_error: false, duration_ms: 1000, seq: 11 });
+    feed({ type: 'result', ends_turn: true, is_error: false, duration_ms: 1000, seq: 11 });
     await settle();
 
     expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
@@ -1075,7 +1075,7 @@ describe('following a turn on the live feed', () => {
     expect(logEntries()).toEqual(['read the orbit', 'Reading.', 'It is flat.']);
 
     transport.fetchHistory.mockResolvedValue(finished('read the orbit', 'Reading. It is flat.'));
-    feed({ type: 'result', is_error: false, duration_ms: 3000, seq: 6 });
+    feed({ type: 'result', ends_turn: true, is_error: false, duration_ms: 3000, seq: 6 });
     await settle();
 
     expect(busy()).toBe(false);

@@ -36,7 +36,8 @@ const MCP_SERVERS_ENDPOINT = '/api/mcp-servers';
 /**
  * A single decoded server event. Every event carries a `type`; the remaining
  * fields depend on it (e.g. `text` carries `content`, `result` carries cost and
- * turn metadata, `error` carries `error_type` + `message`).
+ * turn metadata, `error` carries `error_type` + `message`). A frame that ends
+ * the turn carries `ends_turn: true`; no other frame carries the field.
  * @typedef {{ type: string, [key: string]: any }} ChatEvent
  */
 

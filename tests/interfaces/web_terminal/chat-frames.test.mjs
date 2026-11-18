@@ -16,17 +16,14 @@ import {
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-frames.js';
 
 describe('endsTurn', () => {
-  test('a result ends the turn', () => {
-    expect(endsTurn({ type: 'result' })).toBe(true);
+  test('a frame the server marks as ending the turn ends it', () => {
+    expect(endsTurn({ type: 'result', ends_turn: true })).toBe(true);
+    expect(endsTurn({ type: 'error', error_type: 'ProcessError', ends_turn: true })).toBe(true);
   });
 
-  test('a terminal error ends the turn', () => {
-    expect(endsTurn({ type: 'error', error_type: 'ProcessError', message: 'gone' })).toBe(true);
-    expect(endsTurn({ type: 'error', message: 'no type' })).toBe(true);
-  });
-
-  test('an error the agent reports inside a message does not', () => {
-    expect(endsTurn({ type: 'error', error_type: 'AssistantMessageError' })).toBe(false);
+  test('a frame without the mark does not, whatever its type', () => {
+    expect(endsTurn({ type: 'result' })).toBe(false);
+    expect(endsTurn({ type: 'error', error_type: 'ProcessError' })).toBe(false);
   });
 
   test.each(['text', 'delta', 'tool_use', 'context', 'turn_start', 'hello'])(

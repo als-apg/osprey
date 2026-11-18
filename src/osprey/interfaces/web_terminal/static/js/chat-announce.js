@@ -15,6 +15,7 @@
 
 import { elem } from './chat-dom.js';
 import { onChat } from './chat-events.js';
+import { endsTurn } from './chat-frames.js';
 
 /** How much of a reply is spoken: the lead, cut at a word near this length. */
 const LEAD_CHARS = 200;
@@ -159,9 +160,9 @@ export function initChatAnnounce({ container }) {
       } else if (event.type === 'permission_resolved' && event.expired) {
         expiredOnce(event);
       } else if (event.type === 'error') {
-        // A terminal error ends the turn before this frame is published; its
+        // A frame that ends the turn is published before the turn-end; its
         // message is the news, so the turn's reply is not spoken after it.
-        if (event.error_type !== 'AssistantMessageError') pending = null;
+        if (endsTurn(/** @type {import('./chat-client.js').ChatEvent} */ (event))) pending = null;
         say(`Error: ${event.message ?? 'An error occurred.'}`);
       }
     }),
