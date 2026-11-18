@@ -22,7 +22,8 @@ position) is a dot on that coil's block, two on one coil side by side; one with
 neither is not placed, a hollow ring in a row of its kind beside the drawing. A water part (a kind
 :data:`WATER_WORDS` names) or a terminal block is a small block in a column
 beside the yoke (right of it, or left when its row places it left), a word
-above; a dashed block when its row states no position.
+above; with no position, a dashed block in a row of its kind with the other parts
+not placed, on no side.
 
 The format draws polygons, axis-aligned ellipses and axis-aligned rectangles
 only: a rounded tip and a rounded block at an angle are polygons whose curves
@@ -107,6 +108,7 @@ UNPLACED = (-284.0, 222.0)
 UNPLACED_ACROSS = 20.0
 UNPLACED_DOWN = 26.0
 UNPLACED_WORD = 4.0
+UNPLACED_BLOCK_GAP = 6.0
 
 # two poles: a rectangular yoke and its cavity (half sizes), the pole's sides, the
 # gap's half height at the middle of the face, the coil blocks' sides and heights,
@@ -642,20 +644,30 @@ def _parts(
             else:
                 unplaced.setdefault(row.kind, []).append(row)
             continue
-        placed = row.positioned
-        side = -1.0 if placed and _xy(row)[0] < 0 else 1.0
-        if kind == "terminal" and not placed:
-            side = -1.0
-        sides.setdefault(side, {}).setdefault(kind, []).append((row, placed))
+        if not row.positioned:  # no side stated: with the other parts not placed
+            unplaced.setdefault(row.kind, []).append(row)
+            continue
+        side = -1.0 if _xy(row)[0] < 0 else 1.0
+        sides.setdefault(side, {}).setdefault(kind, []).append((row, True))
     x0 = min(UNPLACED[0] * unit, -reach[0] + (UNPLACED[0] + YOKE) * unit)
     y0 = max(UNPLACED[1] * unit, reach[1] + (UNPLACED[1] - YOKE) * unit)
-    for r, (kind, members) in enumerate(unplaced.items()):
-        y = y0 - r * UNPLACED_DOWN * unit
-        for i, row in enumerate(members):
-            dots.append(Dot(row, (x0 + i * UNPLACED_ACROSS * unit, y), SENSOR * unit, False))
-        x = x0 + ((len(members) - 1) * UNPLACED_ACROSS + SENSOR + UNPLACED_WORD) * unit
-        words.append(Word(kind.replace("_", " "), (x, y), left=True))
     blocks: list[Block] = []
+    for r, (kind, members) in enumerate(unplaced.items()):
+        y = y0 + (len(unplaced) - 1 - r) * UNPLACED_DOWN * unit  # the last row lowest
+        role = _kind(members[0])
+        if role == "sensor":
+            for i, row in enumerate(members):
+                dots.append(Dot(row, (x0 + i * UNPLACED_ACROSS * unit, y), SENSOR * unit, False))
+            x = x0 + ((len(members) - 1) * UNPLACED_ACROSS + SENSOR + UNPLACED_WORD) * unit
+        else:  # a block each, dashed, in a row: no column, so no side
+            step = WATER_BLOCK[0] + UNPLACED_BLOCK_GAP
+            left = x0 - SENSOR * unit + WATER_BLOCK[0] / 2 * unit
+            for i, row in enumerate(members):
+                label = (f"TB{i + 1}" if len(members) > 1 else "TB") if role == "terminal" else None
+                at = (left + i * step * unit, y)
+                blocks.append(Block(row, at, _scaled(WATER_BLOCK, unit), role, False, label))
+            x = left + ((len(members) - 1) * step + WATER_BLOCK[0] / 2 + UNPLACED_WORD) * unit
+        words.append(Word(kind.replace("_", " "), (x, y), left=True))
     for side, kinds in sides.items():
         x = side * max(SIDE_COLUMN * unit, reach[0] + (SIDE_COLUMN - YOKE) * unit)
         water = kinds.get("water", [])
