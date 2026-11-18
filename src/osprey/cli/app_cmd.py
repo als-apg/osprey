@@ -430,7 +430,7 @@ def _ready_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
         index = checked.directory / "panel" / "index.html"
         if not index.is_file():
             continue
-        problem = route_problem(index.read_text(encoding="utf-8"), index, app_panel=True)
+        problem = route_problem(index.read_text(encoding="utf-8"), index, panel=True)
         if problem is not None:
             found.append(
                 Violation(
