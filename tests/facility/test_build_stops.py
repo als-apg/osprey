@@ -3,10 +3,12 @@
 ``STOP_SENTENCES`` lists each sentence of the error table once with its kind.
 Each case is a minimal tree that breaks exactly that rule. It replaces the
 ``data/facility`` tree of a demo repo, beside any profile edit the
-case makes, and runs through ``osprey build --skip-deps`` and through
-``osprey facility validate``; both must print the case's line byte for byte on
-stderr and exit 1. A render is checked by the build alone, so a case
-that breaks one runs through ``osprey build --skip-deps`` only.
+case makes, and runs through ``osprey facility validate``, which must print the
+case's line byte for byte on stderr and exit 1. ``osprey build --skip-deps``
+must print the same line; it runs every case whose stop is not the facility
+stages' alone, and one case of each other kind (``BUILD_IDS``). A render is
+checked by the build alone, so a case that breaks one runs through
+``osprey build --skip-deps`` only.
 """
 
 from __future__ import annotations
@@ -3023,6 +3025,36 @@ def _kind_of(line: str) -> str:
     return line.split(": ", 2)[1]
 
 
+#: The cases whose stop the build reaches by more than the facility stages: a
+#: profile edit, a file in the profile's mirror, a stop only the build makes, or
+#: a stop while a view is written.
+BUILD_REACHES = frozenset(PROFILE_EDITS) | frozenset(MIRRORED) | BUILD_ONLY | VIEW_STAGE
+
+
+def _build_ids() -> list[str]:
+    """Every ``BUILD_REACHES`` case, and the first case in ``IDS`` of each other kind.
+
+    Every other case stops in the facility stages: the one ``run_stages`` call
+    the build makes is the call ``osprey facility validate`` makes, and
+    ``test_validate_prints_the_one_line`` holds that case's line byte for byte.
+    What the build adds over validate, the stop handed to stderr, is one path
+    for every kind, which the first case of each kind runs.
+    """
+    kinds: set[str] = set()
+    ids = []
+    for case in IDS:
+        kind = _kind_of(CASES[case][1])
+        if case in BUILD_REACHES or kind not in kinds:
+            ids.append(case)
+        if case not in BUILD_REACHES:
+            kinds.add(kind)
+    return ids
+
+
+#: The cases ``test_build_stops_on_the_line`` runs through ``osprey build``.
+BUILD_IDS = _build_ids()
+
+
 def _write(tmp_path: Path, case: str) -> Path:
     make, _line = CASES[case]
     tree = make()
@@ -3077,7 +3109,7 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("case", IDS)
+@pytest.mark.parametrize("case", BUILD_IDS)
 def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -> None:
     repo = _repo(initialised, tmp_path, case)
 
