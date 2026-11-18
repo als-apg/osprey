@@ -202,7 +202,7 @@ def test_the_line_place_spans_the_deck_from_its_start_marker(
 
 
 def test_the_losing_kick_loses_the_particle_on_the_deck(monkeypatch: pytest.MonkeyPatch) -> None:
-    at = pytest.importorskip("at")
+    import at
     import numpy as np
 
     monkeypatch.syspath_prepend(str(GENERATOR.parent))

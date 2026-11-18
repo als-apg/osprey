@@ -178,7 +178,8 @@ def test_the_demo_serves_its_deck_models_then_texture(
 
 
 def test_the_deck_is_a_byte_copy_that_pyat_loads(built_demo: BuiltProject) -> None:
-    at = pytest.importorskip("at")
+    import at
+
     copy = built_demo.build_dir / DECK
     source = built_demo.facility_dir / "decks" / "SR.json"
 
