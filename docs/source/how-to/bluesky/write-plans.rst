@@ -100,7 +100,10 @@ Two ways to add a plan
      BLUESKY's Plans view turns this schema into a form, so a well-described
      parameter becomes a well-labeled field. Each parameter that holds
      channel names also says what the plan does with them. See *A plan says
-     what it touches* below.
+     what it touches* below. A default made by a factory shows in the form
+     like a written one; it is evaluated when the catalog is read and again
+     when the run starts. A plan whose default breaks the parameter's own
+     limits is refused when it loads.
    - **The plan function**: builds the actual Bluesky plan from the
      parameters and the resolved devices.
 
