@@ -432,7 +432,7 @@ def _yoke(
     stated = yoke is not None and yoke.sized
     a, b = _xy(yoke) if yoke is not None else (0.0, 0.0)
     if two:
-        w, h = _wh(yoke) if stated else (2 * BEND_YOKE[0] * unit, 2 * BEND_YOKE[1] * unit)
+        w, h = _wh(yoke) if yoke is not None and stated else (2 * BEND_YOKE[0] * unit, 2 * BEND_YOKE[1] * unit)  # fmt: skip
         cw, ch = w * BEND_CAVITY[0] / BEND_YOKE[0], h * BEND_CAVITY[1] / BEND_YOKE[1]
         outer = _rounded(a - w / 2, a + w / 2, b - h / 2, b + h / 2, BEND_YOKE_CORNER * unit)
         inner = _rounded(a - cw / 2, a + cw / 2, b - ch / 2, b + ch / 2, BEND_YOKE_CORNER * unit)
@@ -440,7 +440,7 @@ def _yoke(
             Shape(yoke, "polygon", tuple(outer), "yoke", name, dashed=not stated),
             Shape(yoke, "polygon", tuple(inner), "window", name),
         ], ch / 2
-    w, h = _wh(yoke) if stated else (2 * YOKE * unit, 2 * YOKE * unit)
+    w, h = _wh(yoke) if yoke is not None and stated else (2 * YOKE * unit, 2 * YOKE * unit)
     cw, ch = w * CAVITY / YOKE, h * CAVITY / YOKE
     return [
         Shape(yoke, "ellipse", _box(a, b, w, h), "yoke", name, dashed=not stated),
@@ -504,11 +504,12 @@ def _radial(
             u1, u2 = mid - h / 2, mid + h / 2
         v1 = half + COIL_CLEARANCE * unit
         for sign in (1, -1):
-            points = [(u, sign * v) for u, v in _rounded(u1, u2, v1, v1 + t, COIL_CORNER * unit)]
-            shapes.append(Shape(row, "polygon", _turned(turn, points), "coil", row.part))
+            box = [(u, sign * v) for u, v in _rounded(u1, u2, v1, v1 + t, COIL_CORNER * unit)]
+            shapes.append(Shape(row, "polygon", _turned(turn, box), "coil", row.part))
         block[angle] = (u1, u2, v1 + t)
         across = v1 + t / 2
-        seats.append((angle, *_turned(turn, [(u1, across), (u2, across)])))
+        near, far = _turned(turn, [(u1, across), (u2, across)])
+        seats.append((angle, near, far))
         number = member_number("coil", row.part, len(marks) + 1)
         at = cavity + (NUMBER_AT - CAVITY) * unit
         marks.append(CoilMark(row, number, (at * math.cos(turn), at * math.sin(turn))))
@@ -529,8 +530,8 @@ def _radial(
         v1 = edge + (WINDING_CLEARANCE - COIL_CLEARANCE) * unit + stack[i] * WINDING_STEP * unit
         role = "winding" if stack[i] == 0 else "winding2"
         for sign in (1, -1):
-            points = [(u, sign * v) for u, v in _rounded(u1, u2, v1, v1 + t, WINDING_CORNER * unit)]
-            shapes.append(Shape(row, "polygon", _turned(turn, points), role, row.part))
+            band = [(u, sign * v) for u, v in _rounded(u1, u2, v1, v1 + t, WINDING_CORNER * unit)]
+            shapes.append(Shape(row, "polygon", _turned(turn, band), role, row.part))
     for row in (r for r in rows if r.kind == "bore"):
         a, b = _xy(row)
         w, h = _wh(row) if row.sized else (2 * BORE * unit, 2 * BORE * unit)
@@ -549,8 +550,9 @@ def _two_poles(
 ) -> tuple[list[Shape], list[CoilMark], list[Seat]]:
     """A magnet of two poles, drawn for the first pole's angle (in quarter turns)."""
     poles = [r for r in rows if r.kind == "pole"]
-    first = (poles or [r for r in rows if r.kind == "coil"] or [None])[0]
-    quarter = round(((first.angle_deg if first and first.angle_deg is not None else 90.0) - 90) / 90)  # fmt: skip
+    first = next(iter(poles or [r for r in rows if r.kind == "coil"]), None)
+    angle = first.angle_deg if first is not None and first.angle_deg is not None else 90.0
+    quarter = round((angle - 90) / 90)
     turn = math.radians(90 * quarter)
     shapes, cavity = _yoke(rows, outline, ring, unit, two=True)  # a stated outline: as stated
     gap = next((r for r in rows if r.kind in ("gap", "bore")), None)

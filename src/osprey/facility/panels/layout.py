@@ -3826,8 +3826,10 @@ class _Page:
             if not isinstance(rule, str) and rule.arms:
                 warm = {"normal": symbols.COPPER_EDGE, "warn": symbols.ALARM_MINOR}
                 warm["bad"] = symbols.ALARM_MAJOR
-                colours = {st: warm.get(st, symbols.COPPER_EDGE) for st in symbols.STATES}
-                widths = {
+                colours: dict[str, Any] = {
+                    st: warm.get(st, symbols.COPPER_EDGE) for st in symbols.STATES
+                }
+                widths: dict[str, Any] = {
                     st: COIL_WARM_WIDTH if st in ("warn", "bad") else BODY_LINE
                     for st in symbols.STATES
                 }

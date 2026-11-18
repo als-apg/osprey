@@ -1431,9 +1431,13 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``static_rollup``, ``long_formula`` (an expression over the viewer's
    length limit) or ``over_budget`` (more rules or channels than one screen
    may bind). A link outside the written set, a card or checkout over its
-   budget, and a probe row whose signal no channel states are notes, and fail
-   only with ``--strict``. A clean set prints
-   ``The written screens match the model.``
+   budget, a probe row whose signal no channel states, and a ``pictures.csv``
+   row whose signal binds no channel (``unbound_picture``) or channels of two
+   devices (``ambiguous_picture``) are notes, and fail only with ``--strict``.
+   Before the problems it prints the device classes by how ``pictures.csv``
+   draws them (with a drawing, with parts only, with none) and, per class, the
+   parts not placed (no position and no angle): information, never a problem.
+   A clean set prints ``The written screens match the model.``
 
    Where a screen needs a widget the Screen-IR format lacks (a five-state
    light, a hatched fill, a scrolling table, clickable text, a condition on an
