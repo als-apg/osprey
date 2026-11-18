@@ -275,6 +275,15 @@ _NOT_STATED_TEXT = "not stated"
 _MEANING_NOT_STATED = "meaning not stated"
 _GRID_NOTE = "hover a row for the full channel name"
 _APPLY = "Apply"
+_TYPE_FIRST = "type a value first"
+#: An entry's Apply button's press value until a number is entered, and its rule's
+#: default: text, never a number, so no state of the button writes a number nobody
+#: typed. The button is off the canvas in that state (see APPLY_AWAY).
+NOTHING_ENTERED = "nothing entered"
+#: The rule condition that holds only for a finite number: text fails the product
+#: (the viewer's evaluator refuses text in arithmetic and gives no output), an
+#: infinity gives not-a-number, which equals nothing.
+_ENTERED = "{0} * 0 == 0"
 _NOW = "now"
 _VALUE_NOT_STATED = "value not stated"
 MIN_TILE_WIDTH = 150  # the band takes the fewest rows whose tiles are this wide
@@ -371,6 +380,12 @@ PROBE_READOUT_WIDTH = 96
 WAVEFORM_WIDTH = 520
 WAVEFORM_HEIGHT = 140
 COMMAND_VALUE = 1  # what pressing a command's button writes
+#: Where an entry's Apply button waits while nothing is entered: off the canvas, so
+#: there is nothing to click. The viewer's visible rules cannot hold it hidden: a
+#: rule has no output until its local first reports, and visible composes by AND
+#: with a base that must be true for the button ever to show. A geometry rule moves
+#: it in once the local holds a finite number.
+APPLY_AWAY = -10_000
 # What one screen may bind. The formula engine allows 1,000 subscriptions per
 # client (``max_subscriptions_per_client``, canopy/formula_engine/config.py at
 # 166989aa), and the viewer subscribes once per rule with a condition; a
@@ -2606,7 +2621,14 @@ class _Page:
     def entry(self, control: Control) -> None:
         """Type, check, Apply: the name, the live value (now), a field that writes a
         local value on Enter (new), and Apply, which writes the new value to the
-        channel."""
+        channel.
+
+        The local starts as empty text: nothing entered. Until it holds a finite
+        number the Apply button is off the canvas, with "type a value first" in its
+        place, and its press value is text, not a number; a geometry rule brings it
+        in and a formula gives it the typed number, both from that local only. The
+        viewer cannot clear the local after a write, so the typed value stays in the
+        field beside the live one."""
         x = self.x0
         self.text(x, self.y, control.label, size=BLOCK_TEXT_SIZE, w=2 * BLOCK_LABEL, h=ROW)
         x += 2 * BLOCK_LABEL + GAP
@@ -2617,7 +2639,7 @@ class _Page:
         local = (
             "loc://"
             + re.sub(r"[^A-Za-z0-9]+", "_", f"{self.s.doc_id}_{control.channel}")
-            + "<VDouble>(0)"
+            + '<VString>("")'
         )
         self.box(x - 1, self.y - 1, VALUE_WIDTH + 2, ROW + 2, line=MUTED_TEXT, fill=TRANSPARENT)
         props = {
@@ -2630,28 +2652,40 @@ class _Page:
         }
         self.s.widget("pv-text-input", x, self.y, VALUE_WIDTH, ROW, props)
         x += VALUE_WIDTH + GAP
+        width = 2 * BLOCK_GAP
+        self.text(x, self.y, _TYPE_FIRST, size=SMALL_SIZE, w=width, h=ROW, fg=MUTED_TEXT)
         name = f"draft-{len(self.s.formulas)}"
         self.s.formulas.append(
             {"name": name, "kind": "scalar", "expression": "{v} + 0", "bindings": {"v": local}}
         )
-        self.s._rules += 1
-        rule = {
-            "id": f"r-{self.s._rules:04d}",
-            "name": f"{control.channel} apply value",
-            "targetProperty": "pressValue",
-            "default": 0,
-            "formula": _FORMULA_PREFIX + name,
-        }
+        self.s._rules += 2
+        rules = [
+            {
+                "id": f"r-{self.s._rules - 1:04d}",
+                "name": f"{control.channel} apply shown once a number is entered",
+                "targetProperty": "x",
+                "pvs": [{"name": local, "trigger": True}],
+                "conditions": [{"expression": _ENTERED, "value": x}],
+                "default": APPLY_AWAY,
+            },
+            {
+                "id": f"r-{self.s._rules:04d}",
+                "name": f"{control.channel} apply value",
+                "targetProperty": "pressValue",
+                "default": NOTHING_ENTERED,
+                "formula": _FORMULA_PREFIX + name,
+            },
+        ]
         button = {
             "pv": control.channel,
             "label": _APPLY,
-            "pressValue": 0,
+            "pressValue": NOTHING_ENTERED,
             "fontSize": BLOCK_TEXT_SIZE,
             "backgroundColor": symbols.CONTROL_ACTION,
             "foregroundColor": symbols.CONTROL_ACTION_TEXT,
             _TOOLTIP: f"writes the new value to {control.channel}",
         }
-        self.s.widget("pv-button", x, self.y, 2 * BLOCK_GAP, ROW, button, rules=[rule])
+        self.s.widget("pv-button", APPLY_AWAY, self.y, width, ROW, button, rules=rules)
         self.y += ROW + ROW_GAP
 
     def channel_grid(self, grid: ChannelGrid) -> None:

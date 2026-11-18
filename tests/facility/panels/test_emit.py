@@ -446,9 +446,71 @@ def test_every_channel_a_written_screen_binds_is_a_channel_of_the_facility(panel
             bound.update((node.get("bindings") or {}).values())  # a screen formula's
     assert bound
     locals_ = {name for name in bound if name.startswith("loc://")}  # a typed value before Apply
-    assert all(name.endswith("<VDouble>(0)") for name in locals_)
+    assert all(name.endswith('<VString>("")') for name in locals_)
     for name in bound - locals_:
         panel_graph.channel(name)
+
+
+def _numeric(value) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _shown(expression: str, local) -> bool | None:
+    """The viewer's reading of the Apply gate for a local value: ``None`` where it
+    gives no output (its evaluator refuses text in arithmetic), else the truth."""
+    assert expression == "{0} * 0 == 0"
+    if isinstance(local, str):
+        return None
+    return local * 0 == 0  # an infinity gives not-a-number, equal to nothing
+
+
+def test_no_written_button_can_write_a_value_no_one_stated_or_typed(panel_graph, tmp_path):
+    """Every button of every written screen: a press with a stated number and no rule
+    that changes it, or an entry's Apply that is off the canvas, with text as its
+    press value and its rule's default, until its local holds a finite number."""
+    from osprey.facility.panels import layout
+
+    out = tmp_path / "out"
+    write(panel_graph, out)
+    applies = 0
+    for path in out.glob("*/*.json"):
+        doc = json.loads(path.read_text())
+        formulas = {"formula://" + f["name"]: f for f in doc.get("formulas", ())}
+        for node in _walk(doc):
+            if node.get("type") != "pv-button":
+                continue
+            props, rules = node["props"], node.get("rules") or []
+            presses = [r for r in rules if r["targetProperty"] == "pressValue"]
+            if not presses:
+                assert _numeric(props["pressValue"]), (path.name, props)
+                assert all(r["targetProperty"] not in {"x", "pv"} for r in rules)
+                continue
+            applies += 1
+            assert props["pressValue"] == layout.NOTHING_ENTERED
+            assert not _numeric(props["pressValue"])
+            assert all(not _numeric(r["default"]) for r in presses)
+            assert node["geometry"]["x"] + node["geometry"]["width"] <= 0  # nothing to click
+            assert {r["targetProperty"] for r in rules} == {"x", "pressValue"}
+            (moves,) = [r for r in rules if r["targetProperty"] == "x"]
+            assert moves["default"] + node["geometry"]["width"] <= 0
+            (local,) = {pv["name"] for pv in moves["pvs"]}
+            assert local.endswith('<VString>("")')  # starts as nothing entered
+            for rule in presses:
+                assert set(formulas[rule["formula"]]["bindings"].values()) == {local}
+            (condition,) = moves["conditions"]
+            assert [_shown(condition["expression"], v) for v in ("", "abc", 2.5, -0.0, float("inf"))] == [
+                None, None, True, True, False,
+            ]  # fmt: skip
+            assert condition["value"] >= 0  # its place on the card, where the hint is
+    assert applies
 
 
 def test_oversize_is_a_problem_only_with_a_limit(panel_graph, tmp_path):

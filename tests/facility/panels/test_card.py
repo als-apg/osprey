@@ -108,21 +108,44 @@ def test_the_relations_are_blocks_with_arrows_the_device_in_focus(panel_graph) -
     assert _text(doc, "Network: not stated")
 
 
+def _apply_buttons(doc: dict) -> list[dict]:
+    return [n for n in _by_type(doc, "pv-button") if n["props"]["label"] == "Apply"]
+
+
 def test_a_setpoint_is_typed_checked_and_applied(panel_graph) -> None:
     doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
     (field,) = _by_type(doc, "pv-text-input")
     local = field["props"]["pv"]
-    assert local.startswith("loc://") and local.endswith("<VDouble>(0)")
-    (apply,) = [n for n in _by_type(doc, "pv-button") if n["props"]["label"] == "Apply"]
+    assert local.startswith("loc://") and local.endswith('<VString>("")')  # nothing entered
+    (apply,) = _apply_buttons(doc)
     assert apply["props"]["pv"] == "XR01-QF1:Current-SP"
-    (rule,) = apply["rules"]
-    assert rule["targetProperty"] == "pressValue"
-    (formula,) = [f for f in doc["formulas"] if "formula://" + f["name"] == rule["formula"]]
+    where, value = apply["rules"]
+    assert value["targetProperty"] == "pressValue"
+    (formula,) = [f for f in doc["formulas"] if "formula://" + f["name"] == value["formula"]]
     assert formula["bindings"] == {"v": local}
+    # in place of the button until a number is entered
+    hint = _text(doc, "type a value first")
+    assert hint["geometry"]["x"] == where["conditions"][0]["value"]
+    assert hint["geometry"]["x"] > field["geometry"]["x"]
     now = [n for n in _by_type(doc, "pv-label") if n["props"]["pv"] == "XR01-QF1:Current-SP"]
     assert now and now[0]["geometry"]["x"] < field["geometry"]["x"]  # the live value first
     for kind in ("ACTION", "CHOICE", "ENTRY", "READ ONLY"):  # the legend
         assert [n for n in _by_type(doc, "text-label") if n["props"]["text"] == kind]
+
+
+def test_a_press_whose_value_no_source_states_is_left_out_and_counted(tmp_path) -> None:
+    from osprey.facility.panels.describe import unstated_presses
+
+    roles = (  # "Bypass" is no state word of the channel: what it writes is not stated
+        "PowerSupply,on-command,*:On-Cmd,device,action,,,,Bypass,stated,S,1,l\n"
+        "PowerSupply,on,*:On-Sts,device,word,,,,,stated,S,1,l\n"
+    )
+    graph = _roles_graph(tmp_path, roles, "XR01-PS1:On-Cmd,1,On,S,1,l\n")
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    assert _by_type(doc, "pv-button") == []
+    grid = [n for n in _by_type(doc, "rectangle") if n["props"].get("tooltip") == "XR01-PS1:On-Cmd"]
+    assert grid  # read only, in the grid
+    assert unstated_presses(graph, ["XR01:PS1", "XR01:QF1"]) == (1, 1)
 
 
 def test_a_command_with_no_role_is_an_action_named_by_its_word(panel_graph) -> None:

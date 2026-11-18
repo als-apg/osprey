@@ -1085,14 +1085,19 @@ def _press_text(value: float | None) -> str:
 
 def _operate(
     graph: PanelGraph, thing: Thing, hits: list[RoleHit], channels: list[Channel]
-) -> tuple[Operate | None, set[str]]:
+) -> tuple[Operate | None, set[str], list[str]]:
     """The operate block: the control roles of the device grouped by role (a choice
     by role and channel), each group with the line of what it writes. With no
     control role, from the writable channels: a two- or more-state output with
-    stated words is a choice of them, one with none or a command an action that
-    writes 1, any other an entry."""
+    stated words is a choice of them, one with a single stated word an action that
+    writes that word's value, a command an action that writes 1, any other output
+    with no stated word nothing, any other channel an entry.
+
+    A press is offered only with a value a source states; the third item is the
+    channels of the presses left out for want of one (they stay in the grid)."""
     groups: list[ControlGroup] = []
     used: set[str] = set()
+    unstated: list[str] = []
     controls = [h for h in hits if h.role.shown_as in CONTROLS]
     status = {h.role.role: h.channel for h in hits if h.role.shown_as not in CONTROLS}
     if controls:
@@ -1104,32 +1109,43 @@ def _operate(
             items = []
             for hit in found:
                 press = _press(graph, hit) if kind != "entry" else None
+                if kind != "entry" and press is None:
+                    unstated.append(hit.channel)
+                    continue
                 shade = _status(graph, hit, status) if kind == "choice" else None
                 label = hit.role.label or _role_title(role)
                 items.append(Control(label, hit.channel, press, shade or hit.channel))
                 used.add(hit.channel)
-            groups.append(
-                ControlGroup(kind, _role_title(role), tuple(items), _writes(kind, items, thing.id))
-            )
-        return Operate(tuple(groups)), used
+            if items:
+                groups.append(
+                    ControlGroup(
+                        kind, _role_title(role), tuple(items), _writes(kind, items, thing.id)
+                    )
+                )
+        return (Operate(tuple(groups)) if groups else None), used, unstated
     actions: list[Control] = []
     entries: list[Control] = []
     for channel in (c for c in channels if c.writable):
         words = graph.state_words(channel.name)
         row = graph.record_type(channel.name)
         enumerated = row is not None and row.record_type in ENUMERATED_OUTPUTS
-        if enumerated and len(words) > 1:  # a choice of its stated states
-            segments = [
-                Control(w, channel.name, _as_number(v), channel.name) for v, w in words.items()
-            ]
+        stated = [
+            Control(w, channel.name, number, channel.name)
+            for v, w in words.items()
+            if (number := _as_number(v)) is not None
+        ]
+        if enumerated and len(stated) > 1:  # a choice of its stated states
             title = action_word(channel.name)
             groups.append(
-                ControlGroup(
-                    "choice", title, tuple(segments), _writes("choice", segments, thing.id)
-                )
+                ControlGroup("choice", title, tuple(stated), _writes("choice", stated, thing.id))
             )
-        elif enumerated or channel.drawn_as == "command":
+        elif enumerated and len(stated) == 1:  # one stated state: an action writing it
+            actions.append(stated[0])
+        elif channel.drawn_as == "command":
             actions.append(Control(_action_word(channel.name, graph), channel.name, _DEFAULT_PRESS))
+        elif enumerated:  # an output with no stated word: no value to write is stated
+            unstated.append(channel.name)
+            continue
         else:
             entries.append(Control(_short_channel(channel.name, thing.id), channel.name))
         used.add(channel.name)
@@ -1141,7 +1157,20 @@ def _operate(
         groups.append(
             ControlGroup("entry", None, tuple(entries), _writes("entry", entries, thing.id))
         )
-    return (Operate(tuple(groups)) if groups else None), used
+    return (Operate(tuple(groups)) if groups else None), used, unstated
+
+
+def unstated_presses(graph: PanelGraph, devices: Iterable[str]) -> tuple[int, int]:
+    """How many presses the cards of *devices* leave out because no source states
+    what they write, and on how many devices."""
+    count = cards = 0
+    for device in devices:
+        thing = graph.thing(device, "device")
+        hits = graph.roles(device)
+        _operate_, _used, left = _operate(graph, thing, hits, graph.channels(device, thing.kind))
+        count += len(left)
+        cards += bool(left)
+    return count, cards
 
 
 def _status(graph: PanelGraph, hit: RoleHit, status: Mapping[str, str]) -> str | None:
@@ -1548,7 +1577,7 @@ def _drawn_card(
     if not graph.card_sections(name):  # no recipe rows: the built-in relations chain
         chain, in_chain = _default_chain(graph, index, thing, hits)
         drawings.append((CARD_SECTIONS["relations"], [chain]))
-    operate, in_operate = _operate(graph, thing, hits, channels)
+    operate, in_operate, _unstated = _operate(graph, thing, hits, channels)
     drawn = {t.channel for t in tiles if t.channel} | in_chain | in_operate
     drawn |= _drawn_in(graph, thing, [item for _title, items in extra for item in items])
     columns = (

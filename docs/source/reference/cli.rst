@@ -1427,7 +1427,11 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    a chain of blocks, its drawings, an operate block (its control roles, else its
    writable channels: a choice of stated states, an action, or a typed value
    applied with Apply), every other channel in a grid, where it is and its
-   sources. A class with no recipe row is drawn with the default recipe (the
+   sources. A button writes only a value a source states (a role's press value
+   or the value of its state word; 1 for a command); a press whose value is not
+   stated is left out, and ``check`` counts those. Apply stays off the canvas,
+   with "type a value first" in its place, until the field holds a number, so
+   no click writes a value nobody typed. A class with no recipe row is drawn with the default recipe (the
    sections stated for the recipe ``default``, else a chain of its place, power,
    network and controller); ``write`` prints how many device cards each recipe
    drew, per chain, how many were drawn whole and the hop most often missing, and

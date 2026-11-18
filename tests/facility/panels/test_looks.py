@@ -92,10 +92,16 @@ def test_no_two_text_boxes_on_a_screen_overlap(panel_graph) -> None:
 
 
 def test_no_widget_is_outside_the_page(panel_graph) -> None:
+    """Except an entry's Apply button while nothing is entered: it waits off the
+    canvas, and its rule brings it onto the page (see test_emit)."""
     for name, doc in _docs(panel_graph):
         size = doc["metadata"]["size"]
         for n in _nodes(doc):
             left, top, right, bottom = _box(n)
+            if left == layout.APPLY_AWAY:
+                (moves,) = [r for r in n["rules"] if r["targetProperty"] == "x"]
+                left = moves["conditions"][0]["value"]
+                right = left + n["geometry"]["width"]
             assert left >= 0 and top >= 0, (name, n["type"], n["geometry"])
             assert right <= size["width"] + 0.5 and bottom <= size["height"] + 0.5, (name, n)
 
