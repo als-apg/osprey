@@ -2620,7 +2620,7 @@ class _Page:
             placed.append((x0, y0, x0 + w, y0 + h))
             return y0
 
-        drawn: list[tuple[Any, float, float, list[dict[str, Any]]]] = []
+        drawn: list[tuple[Any, float, float, list[float]]] = []
         for member in strip.members:
             x = at(member.s_m)
             y = 0.0
@@ -4336,7 +4336,7 @@ class _Page:
                         w = min(text_width(short, SMALL_SIZE), SET_ROW_HEAD - GAP)
                         self.text(MARGIN, self.y, _cut(short, w, SMALL_SIZE), size=SMALL_SIZE, w=w)
                         self.nav(MARGIN, self.y, w, ROW, row.label)
-                    tall = ROW
+                    tall: float = ROW
                     for column, cell in enumerate(cells):
                         tall = max(tall, self.grid_cell(self.set_x(column), self.y, cell))
                         self.drawn += 1
@@ -4390,7 +4390,7 @@ class _Page:
         per = max(1, int((STRIP_WIDTH + GAP) // (self.cell_w + GAP)))
         room = max(0, SET_MEMBERS - self.drawn)
         cells = row.cells[:room]
-        tall = ROW
+        tall: float = ROW
         for k, cell in enumerate(cells):
             if k and not k % per:
                 self.y += tall + ROW_GAP
