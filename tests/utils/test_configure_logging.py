@@ -248,7 +248,6 @@ class TestGetLoggerPurity:
         root.setLevel(logging.CRITICAL)
 
         get_logger("purity_check")
-        get_logger(name="purity_check_explicit", color="blue")
 
         assert root.level == logging.CRITICAL
 

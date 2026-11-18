@@ -21,7 +21,7 @@ from .export import export_registry_to_json as _export_registry_to_json
 from .initializers import INITIALIZER_DISPATCH
 from .loader import build_merged_configuration
 
-logger = get_logger(name="registry", color="sky_blue2")
+logger = get_logger("registry")
 
 
 class RegistryManager:
