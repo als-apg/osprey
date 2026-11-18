@@ -1475,11 +1475,14 @@ def facility_tz(monkeypatch) -> ZoneInfo:
 def facility_berlin(monkeypatch) -> ZoneInfo:
     """Pin the facility zone a time without an offset is read in.
 
-    Patched on the config module, because ``localize_facility`` resolves the
-    zone there.
+    Installed as the process config, which every ``facility_timezone()`` call
+    reads, however its caller imported it.
     """
+    from osprey_connectors import config
+    from osprey_connectors.testing import config_of
+
     zone = ZoneInfo("Europe/Berlin")
-    monkeypatch.setattr("osprey_connectors.config.facility_timezone", lambda: zone)
+    monkeypatch.setattr(config, "_installed", config_of({"system": {"timezone": zone.key}}))
     return zone
 
 
