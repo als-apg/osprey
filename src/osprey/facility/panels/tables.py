@@ -509,8 +509,6 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
             "order",
             "connector",
             "kind",
-            "far_relation",
-            "far_direction",
         ),
     }
 )
@@ -1007,7 +1005,8 @@ class FrontRow:
     the socket things that exist (``far_direction`` ``socket``), else by the ports
     the relation states. ``channel`` is the connector's state channel. What is on it
     is found by ``far_relation`` in ``far_direction`` on the port ``far_port`` (empty:
-    any port); ``label`` is its word under the socket. ``roles`` (optional,
+    any port; no relation: nothing is looked for on it); ``label`` is its word
+    under the socket. ``roles`` (optional,
     ``;``-separated) are the section roles the row's connectors carry: empty, every
     section role; a role binds to a connector only through a row that lists it.
     A ``{n}`` row with no ``channel`` and with ``roles`` is numbered by the
@@ -1021,8 +1020,8 @@ class FrontRow:
     kind: str
     count: float | None
     channel: str | None
-    far_relation: str
-    far_direction: str
+    far_relation: str | None
+    far_direction: str | None
     far_port: str | None
     label: str | None
     source: str | None

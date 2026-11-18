@@ -1208,7 +1208,7 @@ def _two_groups(tmp_path, phases: bool, roles_column: bool = True):
     if roles_column:
         rows = (
             "supply,front,outlets,1,Out{n},socket,,*:Out{n}-Sts,powered_by,in,{n},,S,state\n"
-            "supply,front,phases,2,Ph{n},socket,,,powered_by,in,{n},,S,current\n"
+            "supply,front,phases,2,Ph{n},power,,,,,,,S,current\n"  # nothing on it is looked for
         )
         (tables / "fronts.csv").write_text(FRONTS_ROLES_HEADER + rows)
     else:

@@ -1823,9 +1823,13 @@ def _numbered(pattern: str) -> re.Pattern[str]:
     return re.compile(glob(head) + r"(\d+)" + glob(tail))
 
 
-def _near(graph: PanelGraph, thing_id: str, relation: str, direction: str) -> list[Edge]:
+def _near(
+    graph: PanelGraph, thing_id: str, relation: str | None, direction: str | None
+) -> list[Edge]:
     """The claims of *relation* in *direction* at a thing, superseded ones left out;
-    ``out``: the thing is the subject, ``in``: the object."""
+    ``out``: the thing is the subject, ``in``: the object; none for no relation."""
+    if not relation:
+        return []
     try:
         edges = graph.neighbours(thing_id, "device").get(relation, ())
     except KeyError:
