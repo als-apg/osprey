@@ -808,7 +808,10 @@ def nginx_image() -> None:
     ensure_image(_NGINX_IMAGE)
 
 
+# xdist_group("docker"): a ``docker run`` of nginx, kept on the worker that starts
+# every other container, as in `test_nginx_validate.py`.
 @pytest.mark.dockerbuild
+@pytest.mark.xdist_group("docker")
 @pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or "")
 @pytest.mark.usefixtures("nginx_image")
 def test_real_nginx_reads_the_auth_on_render_without_a_single_warning() -> None:
