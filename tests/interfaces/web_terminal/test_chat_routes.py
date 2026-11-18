@@ -49,6 +49,9 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_ENV,
     OperatorRegistry,
     OperatorSession,
+    TurnSilenceTimeout,
+    is_terminal_event,
+    mark_turn_end,
 )
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes.chat import _strip_for_chat
@@ -164,12 +167,12 @@ _STRIP_CASES = [
             "num_turns": 3,
             "seq": 9,
         },
-        {"type": "result", "is_error": False, "duration_ms": 4567, "seq": 9},
+        {"type": "result", "is_error": False, "duration_ms": 4567, "seq": 9, "ends_turn": True},
     ),
     (
         "result_drops_the_conversation_id",
         {"type": "result", "is_error": False, "session_id": "sess-child", "seq": 4},
-        {"type": "result", "is_error": False, "seq": 4},
+        {"type": "result", "is_error": False, "seq": 4, "ends_turn": True},
     ),
     (
         "result_error_keeps_is_error_true",
@@ -181,7 +184,7 @@ _STRIP_CASES = [
             "num_turns": 1,
             "seq": 2,
         },
-        {"type": "result", "is_error": True, "duration_ms": 10, "seq": 2},
+        {"type": "result", "is_error": True, "duration_ms": 10, "seq": 2, "ends_turn": True},
     ),
     (
         "system_init_keeps_the_model_drops_the_conversation_id",
@@ -217,7 +220,7 @@ _STRIP_CASES = [
         {"type": "system", "subtype": "background_wait"},
     ),
     (
-        "error_passes_through",
+        "error_passes_through_marked_as_the_turn_end",
         {
             "type": "error",
             "message": "boom",
@@ -227,6 +230,7 @@ _STRIP_CASES = [
             "type": "error",
             "message": "boom",
             "error_type": "ClaudeSDKError",
+            "ends_turn": True,
         },
     ),
     (
@@ -487,7 +491,13 @@ class TestChatStreamRoute:
         assert frames[0] == {"type": "session_reset"}
         assert {"type": "text", "content": "hi"} in frames
         # The result keeps its outcome, duration and frame number; cost never reaches the client.
-        assert {"type": "result", "is_error": False, "duration_ms": 900, "seq": 4} in frames
+        assert {
+            "type": "result",
+            "is_error": False,
+            "duration_ms": 900,
+            "seq": 4,
+            "ends_turn": True,
+        } in frames
         assert all("total_cost_usd" not in f and "num_turns" not in f for f in frames)
         # Terminal exit releases the guard and does not quiesce.
         assert session.release_calls >= 1
@@ -559,6 +569,27 @@ class TestChatStreamRoute:
             assert errors[-1]["message"] == "closed"
             await registry.cleanup_all()
 
+    @pytest.mark.parametrize(
+        "raised",
+        [TurnSilenceTimeout("silent"), RuntimeError("boom")],
+        ids=["silence-timeout", "exception"],
+    )
+    def test_the_route_made_error_frames_end_the_turn(self, raised):
+        """The frames the route makes itself, not the session, end the turn on the wire."""
+
+        class _RaisingSession(_FakeChatSession):
+            async def run_turn(self, *_args, **_kwargs):
+                raise raised
+                yield  # an async generator that raises on its first step
+
+        session = _RaisingSession([])
+        client = TestClient(_make_chat_app(_FakeRegistry(session=session)))
+
+        frames = _data_frames(client.post("/api/chat", json={"prompt": "x", "chat_id": "c1"}).text)
+
+        assert frames[-1]["type"] == "error"
+        assert frames[-1]["ends_turn"] is True
+
 
 class TestChatBufferedRoute:
     """Buffered branch (`stream=false`): reduced payload + guard discipline."""
@@ -594,7 +625,13 @@ class TestChatBufferedRoute:
         # session_reset prepended; the result keeps its outcome, duration and frame number.
         events = payload["events"]
         assert events[0] == {"type": "session_reset"}
-        assert {"type": "result", "is_error": False, "duration_ms": 300, "seq": 3} in events
+        assert {
+            "type": "result",
+            "is_error": False,
+            "duration_ms": 300,
+            "seq": 3,
+            "ends_turn": True,
+        } in events
         # Cost and turn counts never reach the chat client.
         for event in payload["events"]:
             assert "total_cost_usd" not in event and "num_turns" not in event
@@ -851,6 +888,7 @@ class TestChatEventsRoute:
 
         assert [f["type"] for f in frames] == ["hello", "error"]
         assert frames[1]["error_type"] == "AgentExited"
+        assert frames[1]["ends_turn"] is True
 
     def test_the_hello_names_the_model_that_answers(self):
         """A tab that opens on a chat is told its model at once, before any frame."""
@@ -1601,7 +1639,9 @@ class TestChatStripOnTheWire:
         assert all("content" not in f for f in tool_result)
         # A result keeps its outcome, duration and frame number.
         assert [f["duration_ms"] for f in result] == [42]
-        assert all(set(f) == {"type", "is_error", "duration_ms", "seq"} for f in result)
+        assert all(
+            set(f) == {"type", "is_error", "duration_ms", "seq", "ends_turn"} for f in result
+        )
         # Cost and turn counts never reach the wire on any frame.
         for f in frames:
             assert "total_cost_usd" not in f
@@ -1634,10 +1674,30 @@ class TestChatStripOnTheWire:
             "secret chain of thought"
         ]
         result = [e for e in events if e.get("type") == "result"]
-        assert result and all(set(e) == {"type", "is_error", "duration_ms", "seq"} for e in result)
+        assert result and all(
+            set(e) == {"type", "is_error", "duration_ms", "seq", "ends_turn"} for e in result
+        )
         for e in events:
             assert "total_cost_usd" not in e
             assert "num_turns" not in e
+
+    def test_every_wire_frame_marks_exactly_the_turn_end(self):
+        """Both transport paths mark the frame that ends the turn, and no other."""
+        with _seam(_rich_responder()):
+            client = TestClient(_make_chat_app(OperatorRegistry()))
+            sse = _data_frames(client.post("/api/chat", json={"prompt": "x", "chat_id": "c"}).text)
+        with _seam(_rich_responder()):
+            client = TestClient(_make_chat_app(OperatorRegistry()))
+            buffered = client.post(
+                "/api/chat", params={"stream": "false"}, json={"prompt": "x", "chat_id": "c"}
+            ).json()["events"]
+
+        for frames in (sse, buffered):
+            assert frames
+            for f in frames:
+                assert f.get("ends_turn", False) is is_terminal_event(f)
+            result = [f for f in frames if f.get("type") == "result"]
+            assert result and all(f["ends_turn"] is True for f in result)
 
 
 # ---------------------------------------------------------------------------
@@ -1665,6 +1725,30 @@ class TestIsTerminal:
             chat_module.is_terminal_event({"type": "error", "error_type": "AssistantMessageError"})
             is False
         )
+
+    @pytest.mark.parametrize(
+        "frame",
+        [
+            {"type": "result"},
+            {"type": "error", "error_type": "Boom"},
+            {"type": "error", "message": "no type"},
+            {"type": "error", "error_type": "AssistantMessageError"},
+            {"type": "text", "content": "hi"},
+            {"type": "system", "subtype": "background_wait"},
+        ],
+        ids=["result", "error", "error-untyped", "assistant-error", "text", "background-wait"],
+    )
+    def test_mark_turn_end_marks_only_the_frames_that_end_a_turn(self, frame):
+        before = dict(frame)
+
+        marked = mark_turn_end(frame)
+
+        assert frame == before
+        if is_terminal_event(frame):
+            assert marked == {**frame, "ends_turn": True}
+        else:
+            assert "ends_turn" not in marked
+            assert marked == frame
 
 
 class TestSseFormatting:

@@ -852,12 +852,31 @@ def is_terminal_event(event: dict[str, Any]) -> bool:
     """Return True if *event* ends a turn's event stream.
 
     Terminal = a ``result`` event, or an ``error`` other than the in-stream
-    ``AssistantMessageError`` (which the SDK follows with more events).
+    ``AssistantMessageError`` (which the SDK follows with more events). The
+    chat wire carries this answer as ``ends_turn`` (see :func:`mark_turn_end`).
     """
     etype = event.get("type")
     if etype == "result":
         return True
     return etype == "error" and event.get("error_type") != "AssistantMessageError"
+
+
+def mark_turn_end(frame: dict[str, Any]) -> dict[str, Any]:
+    """Return *frame* marked ``ends_turn: true`` when it ends the turn.
+
+    The mark is how a client learns that a frame ends the running turn; the
+    rule is :func:`is_terminal_event`. A frame that does not end one carries
+    no mark and is returned as is. The input is never mutated.
+
+    Args:
+        frame: A chat frame as it goes on the wire.
+
+    Returns:
+        A marked copy of *frame* when it ends the turn, else *frame* itself.
+    """
+    if is_terminal_event(frame):
+        return {**frame, "ends_turn": True}
+    return frame
 
 
 class OperatorSession:

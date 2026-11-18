@@ -52,6 +52,7 @@ from osprey.interfaces.web_terminal.operator_session import (
     build_operator_child_env,
     default_chat_model,
     is_terminal_event,
+    mark_turn_end,
 )
 from osprey.interfaces.web_terminal.routes.chat_attachments import mark_sent
 from osprey.interfaces.web_terminal.session_handoff import (
@@ -199,9 +200,17 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
     - every other type (``text``, ``thinking``, ``error``, ``session_reset``,
       the ``watchdog_*`` change notices, …) passes through unchanged.
 
+    A frame that ends the turn leaves marked ``ends_turn: true``
+    (:func:`mark_turn_end`); no other frame carries the field.
+
     The input event is never mutated; a new dict is returned whenever a change
     applies (and the same object may be returned for pass-through types).
     """
+    return mark_turn_end(_bounded(event))
+
+
+def _bounded(event: dict[str, Any]) -> dict[str, Any]:
+    """Return *event* with its payloads bounded as :func:`_strip_for_chat` describes."""
     etype = event.get("type")
 
     if etype in ("tool_use", "permission_request") and "input" in event:
