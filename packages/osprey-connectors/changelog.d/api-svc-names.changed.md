@@ -10,6 +10,6 @@ The MongoDB archive store's plumbing has its own module,
 `osprey_connectors.archive_store`. Import `field_name`, `address_overrides`,
 `mongo_client_kwargs` and `CA_FILE_ERRORS` from there instead of from
 `osprey_connectors.archiver`, and `DATE_FIELD` and `EXPIRE_FIELD` instead of
-from `osprey_connectors.simulation.archive`. It also holds `HOST_OVERRIDE_ENV`,
-`PORT_OVERRIDE_ENV` and the store's own field names, `RESERVED_FIELDS`. The
-stored field names and the environment variables are unchanged.
+from `osprey_connectors.simulation.archive`. It also lists the store's own
+field names, `RESERVED_FIELDS`. The stored field names and the environment
+variables are unchanged.

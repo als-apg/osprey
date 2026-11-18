@@ -43,8 +43,6 @@ __all__ = [
     "CA_FILE_ERRORS",
     "DATE_FIELD",
     "EXPIRE_FIELD",
-    "HOST_OVERRIDE_ENV",
-    "PORT_OVERRIDE_ENV",
     "RESERVED_FIELDS",
     "address_overrides",
     "field_name",
@@ -135,8 +133,8 @@ def _address_of(field: str) -> str:
 #: Read by two consumers — the MongoDB archiver connector and the archiver-recorder service —
 #: through :func:`address_overrides`, so both agree on what an empty value means
 #: and on how the port is typed.
-HOST_OVERRIDE_ENV = "OSPREY_ARCHIVER_MONGODB_HOST"
-PORT_OVERRIDE_ENV = "OSPREY_ARCHIVER_MONGODB_PORT"
+_HOST_OVERRIDE_ENV = "OSPREY_ARCHIVER_MONGODB_HOST"
+_PORT_OVERRIDE_ENV = "OSPREY_ARCHIVER_MONGODB_PORT"
 
 
 def address_overrides() -> tuple[str | None, int | None]:
@@ -155,15 +153,17 @@ def address_overrides() -> tuple[str | None, int | None]:
             would send a container to an address nothing serves, and the reason
             would be a typo nobody is looking at.
     """
-    host = os.environ.get(HOST_OVERRIDE_ENV, "").strip() or None
+    host = os.environ.get(_HOST_OVERRIDE_ENV, "").strip() or None
 
-    raw_port = os.environ.get(PORT_OVERRIDE_ENV, "").strip()
+    raw_port = os.environ.get(_PORT_OVERRIDE_ENV, "").strip()
     if not raw_port:
         return host, None
     try:
         return host, int(raw_port)
     except ValueError as exc:
-        raise ValueError(f"{PORT_OVERRIDE_ENV} must be an integer port (got {raw_port!r})") from exc
+        raise ValueError(
+            f"{_PORT_OVERRIDE_ENV} must be an integer port (got {raw_port!r})"
+        ) from exc
 
 
 # ContractAny: the values pymongo.MongoClient takes as ``**kwargs: Any``, past

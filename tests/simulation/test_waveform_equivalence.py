@@ -220,10 +220,10 @@ def store(mongodb_container):
 @pytest.fixture
 def connector_config(mongodb_container, store, monkeypatch):
     """The connector config of the store, password by environment name."""
-    from osprey_connectors.archive_store import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archive_store import _HOST_OVERRIDE_ENV, _PORT_OVERRIDE_ENV
 
-    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
     password_env = "WAVEFORM_EQUIVALENCE_MONGO_PASSWORD"
     monkeypatch.setenv(password_env, mongodb_container["password"])
     collection, _ = store

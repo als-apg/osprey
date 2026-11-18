@@ -1161,12 +1161,12 @@ async def _connected_reader(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """The agent's archive, reading the collection ``settings`` names."""
-    from osprey_connectors.archive_store import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
+    from osprey_connectors.archive_store import _HOST_OVERRIDE_ENV, _PORT_OVERRIDE_ENV
     from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
     from osprey_connectors.service_answers import BackendSpec
 
-    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
     monkeypatch.setenv("RECORDER_SHAPE_PASSWORD", password)
     return MongoDBArchiverConnector(
         BackendSpec(

@@ -268,7 +268,7 @@ class MongoDBArchiverConnector(ChannelArchive):
         else:
             # Where the store is. The configured value is the host-side truth; a
             # containerized consumer is handed the in-network address through the
-            # environment and that wins (see HOST_OVERRIDE_ENV). Resolved before the
+            # environment and that wins (see _HOST_OVERRIDE_ENV). Resolved before the
             # required-ness check so an environment-only address is a legitimate
             # one, and the error below still fires when neither source names a host.
             override_host, override_port = address_overrides()

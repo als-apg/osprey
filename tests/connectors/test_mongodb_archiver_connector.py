@@ -14,8 +14,8 @@ import pytest
 
 from osprey.port_layout import default_port
 from osprey_connectors.archive_store import (
-    HOST_OVERRIDE_ENV,
-    PORT_OVERRIDE_ENV,
+    _HOST_OVERRIDE_ENV,
+    _PORT_OVERRIDE_ENV,
     address_overrides,
     field_name,
 )
@@ -70,8 +70,8 @@ def static_mongo_config(monkeypatch):
     that sets them cannot supply the host a test has deleted.
     """
     monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-    monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-    monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
     return {
         "host": "mongodb.example.invalid",
         "port": 27017,
@@ -875,8 +875,8 @@ class TestClientKwargsWithoutDocker:
     @pytest.mark.asyncio
     async def test_a_bundled_block_builds_the_six_keyword_client(self, monkeypatch):
         monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         with patch("pymongo.MongoClient") as mock_client_cls:
             assert isinstance(await _archive(bundled_block()).probe(), str)
@@ -886,8 +886,8 @@ class TestClientKwargsWithoutDocker:
     @pytest.mark.asyncio
     async def test_a_ca_bundle_becomes_tls_ca_file(self, monkeypatch):
         monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
         block = {**bundled_block(), "tls": {"ca_bundle": "/etc/ssl/certs/site-ca.pem"}}
 
         with patch("pymongo.MongoClient") as mock_client_cls:
@@ -901,8 +901,8 @@ class TestClientKwargsWithoutDocker:
     @pytest.mark.asyncio
     async def test_no_ca_bundle_passes_no_tls_key(self, monkeypatch):
         monkeypatch.setenv("MONGO_ROOT_PASSWORD", "pw")
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         with patch("pymongo.MongoClient") as mock_client_cls:
             assert isinstance(await _archive({**bundled_block(), "tls": {}}).probe(), str)
@@ -921,8 +921,8 @@ class TestUrlWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_a_url_is_passed_verbatim_as_host(self, monkeypatch):
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         with patch("pymongo.MongoClient") as mock_client_cls:
             assert isinstance(await _archive(self._config(self.URL)).probe(), str)
@@ -934,8 +934,8 @@ class TestUrlWithoutDocker:
 
     @pytest.mark.asyncio
     async def test_a_url_ignores_the_address_overrides(self, monkeypatch):
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "27017")
 
         with patch("pymongo.MongoClient") as mock_client_cls:
             assert isinstance(await _archive(self._config(self.URL, host="localhost")).probe(), str)
@@ -1475,37 +1475,37 @@ class TestInNetworkAddressOverride:
         return config
 
     def test_no_environment_means_no_override(self, monkeypatch):
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         assert address_overrides() == (None, None)
 
     def test_the_environment_is_read_as_host_and_typed_port(self, monkeypatch):
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "27017")
 
         assert address_overrides() == ("archiver-mongodb", 27017)
 
     def test_whitespace_is_unset_not_an_address_of_nothing(self, monkeypatch):
         """A compose file that renders an empty value must not point the reader
         at the empty string — it must leave the configured value alone."""
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "   ")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "  ")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "   ")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "  ")
 
         assert address_overrides() == (None, None)
 
     def test_the_halves_are_independent(self, monkeypatch):
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         assert address_overrides() == ("archiver-mongodb", None)
 
     def test_a_port_that_is_not_a_port_is_refused_not_ignored(self, monkeypatch):
         """Falling back to the host-side port would send a container to an
         address nothing serves, for a reason nobody is looking at."""
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017a")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "27017a")
 
-        with pytest.raises(ValueError, match=PORT_OVERRIDE_ENV):
+        with pytest.raises(ValueError, match=_PORT_OVERRIDE_ENV):
             address_overrides()
 
     @pytest.mark.asyncio
@@ -1513,8 +1513,8 @@ class TestInNetworkAddressOverride:
         """The end this exists for: the worker's `archiver_read` reaches the
         store by its network alias while config.yml still says localhost."""
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(_PORT_OVERRIDE_ENV, "27017")
 
         connector = _archive(self._config(host="localhost", port=27117))
         with patch("pymongo.MongoClient") as mock_client_cls:
@@ -1528,8 +1528,8 @@ class TestInNetworkAddressOverride:
     async def test_the_connector_keeps_its_config_when_no_override_is_set(self, monkeypatch):
         """The host-side path, which is every agent running outside a container."""
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-        monkeypatch.delenv(HOST_OVERRIDE_ENV, raising=False)
-        monkeypatch.delenv(PORT_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_HOST_OVERRIDE_ENV, raising=False)
+        monkeypatch.delenv(_PORT_OVERRIDE_ENV, raising=False)
 
         connector = _archive(self._config(host="facility-mongo.example.org", port=27117))
         with patch("pymongo.MongoClient") as mock_client_cls:
@@ -1544,7 +1544,7 @@ class TestInNetworkAddressOverride:
         """The required-ness check is about having an address, not about where
         it came from."""
         monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
+        monkeypatch.setenv(_HOST_OVERRIDE_ENV, "archiver-mongodb")
         config = self._config()
         del config["host"]
 
