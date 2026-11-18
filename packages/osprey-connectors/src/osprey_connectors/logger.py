@@ -354,7 +354,9 @@ def _warn_settings_unavailable(problem: Exception) -> None:
     is not reported.
     """
     global _settings_warning_given
-    names_a_config = os.environ.get("OSPREY_CONFIG") or os.environ.get("CONFIG_FILE")
+    # OSPREY_CONFIG alone: the config this package reads is the one it names
+    # (``CONFIG_FILE`` is not read; see osprey_connectors.config.locate_config).
+    names_a_config = os.environ.get("OSPREY_CONFIG")
     if _settings_warning_given or (isinstance(problem, FileNotFoundError) and not names_a_config):
         return
     _settings_warning_given = True

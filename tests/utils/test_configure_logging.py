@@ -211,6 +211,16 @@ class TestLoggingSettingsFollowTheConfig:
         assert collected.records == []
         assert _rich_handlers()[0].rich_tracebacks is True
 
+    def test_config_file_names_no_config(self, tmp_path, monkeypatch, collected):
+        """Only OSPREY_CONFIG names the config the package reads: CONFIG_FILE is
+        not read, so a CONFIG_FILE naming a missing file is a directory with none."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "missing.yml"))
+
+        configure_logging()
+
+        assert collected.records == []
+
 
 class TestAdditiveSemantics:
     def test_foreign_handlers_survive(self):
