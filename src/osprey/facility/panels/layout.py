@@ -257,7 +257,7 @@ FRONT_BODY_PAD = 10  # the panel body round its connectors
 FRONT_CABLE = 14  # the cable from the body to what is on the connector
 FAR_BOX_HEIGHT = 34  # a far end's box: two small lines
 FRONT_EMPTY_WIDTH = 360  # a group with no connector stated: its body with the note
-FRONT_LABEL_GUTTER = 120  # the row labels left of a front's values and presses
+FRONT_LABEL_GUTTER = 170  # the row labels left of a front's values and presses
 LOOSE_COLUMNS = 4  # things on no stated port, in columns
 RING_COLUMN_LEAST, RING_COLUMN_MOST = 72, 140  # a ring-strip member's column
 LADDER_DOT = 14  # the live value on a ladder
@@ -2938,7 +2938,7 @@ class _Page:
         line: list[tuple[FrontGroup, list[Connector]]] = []
         x = 0.0
         for group in front.groups:
-            if line and _reading(group) != _reading(line[0][0]):  # a reading: lines apart
+            if line and (_reading(group) or _reading(line[0][0])):  # a reading: its own line
                 self.front_line(line, pitch, gutter)
                 line, x = [], 0.0
             if not group.connectors:
@@ -3020,8 +3020,11 @@ class _Page:
                 continue
             for connector in connectors:
                 if reading:
+                    head = connector.label
+                    if text_width(head, SMALL_SIZE) > pitch - GAP:  # its own word, as on a body
+                        head = head.rsplit(" ", 1)[-1]
                     self.text(
-                        x, body_top, _cut(connector.label, pitch - GAP, SMALL_SIZE),
+                        x, body_top, _cut(head, pitch - GAP, SMALL_SIZE),
                         size=SMALL_SIZE, w=pitch, h=SMALL_LINE, align="center",
                     )  # fmt: skip
                 else:
@@ -3050,14 +3053,18 @@ class _Page:
                         self.graph_words(connector.lamp), size=SMALL_SIZE, h=ROW,
                     )  # fmt: skip
             self.y += ROW + ROW_GAP
-        bands: dict[str, list[tuple[float, BlockRow]]] = {}
-        for x, connector in columns:
-            for row in connector.rows:
-                bands.setdefault(row.label, []).append((x, row))
-        for label, cells in bands.items():
+        for cells in _bands(columns):
+            label = _band_label([row.label for _x, row in cells])
             unit = next((row.unit for _x, row in cells if row.unit), None)
             title = f"{label} ({unit})" if unit else label
             self.small(self.x0, self.y + mid, _cut(title, label_w, SMALL_SIZE), fg=MUTED_TEXT)
+            names = sorted({row.label for _x, row in cells})
+            if len(names) > 1 or _cut(title, label_w, SMALL_SIZE) != title:  # whole, on hover
+                self.s.widget(
+                    "rectangle", self.x0, self.y, label_w, ROW,
+                    {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0,
+                     _TOOLTIP: "; ".join(names) if len(names) > 1 else title},
+                )  # fmt: skip
             for x, row in cells:
                 bx = x + GAP / 2
                 self.shown_value(
@@ -6512,6 +6519,43 @@ def _standing_word(item: object) -> str | None:
     if getattr(item, "basis", None) == "inferred":
         return "inferred"
     return None
+
+
+def _bands(columns: Sequence[tuple[float, Connector]]) -> list[list[tuple[float, BlockRow]]]:
+    """The value bands under a line of connectors: by place in each connector's
+    rows when every connector with rows has as many and the labels at each place
+    end in the same words (each connector's roles in the same order), else by the
+    rows' label."""
+    counts = {len(c.rows) for _x, c in columns if c.rows}
+    if len(counts) == 1:
+        (n,) = counts
+        placed = [[(x, c.rows[k]) for x, c in columns if c.rows] for k in range(n)]
+        if all(_alike([row.label for _x, row in cells]) for cells in placed):
+            return placed
+    by_label: dict[str, list[tuple[float, BlockRow]]] = {}
+    for x, connector in columns:
+        for row in connector.rows:
+            by_label.setdefault(row.label, []).append((x, row))
+    return list(by_label.values())
+
+
+def _alike(labels: Sequence[str]) -> bool:
+    """Whether *labels* end in the same word."""
+    return len({label.rsplit(" ", 1)[-1] for label in labels}) == 1
+
+
+def _band_label(labels: Sequence[str]) -> str:
+    """A band's label: the words its rows' labels end in alike ("voltage" for
+    "phase voltage" and "circuit voltage"); with none alike, the labels joined."""
+    split = [label.split() for label in dict.fromkeys(labels)]
+    common: list[str] = []
+    for words in zip(*(reversed(w) for w in split), strict=False):
+        if len(set(words)) != 1:
+            break
+        common.insert(0, words[0])
+    if common or len(split) == 1:
+        return " ".join(common) or labels[0]
+    return " / ".join(" ".join(w) for w in split)
 
 
 def _reading(group: FrontGroup) -> bool:

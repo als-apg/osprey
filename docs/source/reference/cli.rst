@@ -1434,7 +1434,9 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    socket thing, ``socket``), a dashed "—" where nothing is stated and every thing,
    dashed and "contested", where a side has two; its state lamp; under the line,
    in bands each labelled at the left (the role's title and unit, "press" for
-   the buttons), the section's
+   the buttons; where every connector has as many rows and the labels at each
+   place end alike, one band per place, labelled with the words they share),
+   the section's
    roles of that connector and its presses (drawn there, not again under
    operate). A row's optional ``roles`` column (``;``-separated) names the section
    roles its connectors carry; empty means every section role. A role binds to a
@@ -1448,7 +1450,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    where neither its lamp nor any listed role binds, and a group all of whose
    connectors are left out is dropped. ``far_relation`` and ``far_direction``
    are given together or both left empty; a row with neither is a reading, and
-   a group of readings is a table: no socket, cable or far end, the connectors'
+   a group of readings is a table on a line of its own: no socket, cable or far end, the connectors'
    names as column heads, the lamps first in a "state" band, then a band per
    role. Clients the relation names on no stated port
    are drawn apart by class, unless the row's optional ``apart`` column says

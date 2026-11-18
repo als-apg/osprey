@@ -1940,3 +1940,27 @@ def test_the_same_join_stated_offers_the_command(tmp_path):
     graph = _joined(tmp_path, inferred=False)
     doc = stub_render(device_card(graph, "XR01:IP2"), graph)
     assert any("XR01-CH2:P2-Open" in w for w in _writers(doc))
+
+
+def test_a_band_of_rows_alike_in_place_is_labelled_with_the_words_they_end_in():
+    from osprey.facility.panels.layout import _band_label, _bands
+    from osprey.facility.panels.view import BlockRow, Connector
+
+    def rows(*labels):
+        return tuple(BlockRow(label, f"X:{label}", shown_as="value") for label in labels)
+
+    columns = [
+        (0.0, Connector("L1", "power", rows=rows("phase voltage", "phase current"))),
+        (1.0, Connector("C1", "power", rows=rows("circuit voltage", "circuit current"))),
+    ]
+    first, second = _bands(columns)
+    assert [r.label for _x, r in first] == ["phase voltage", "circuit voltage"]
+    assert _band_label([r.label for _x, r in first]) == "voltage"
+    assert _band_label([r.label for _x, r in second]) == "current"
+    assert _band_label(["state"]) == "state"
+    assert _band_label(["open", "shut"]) == "open / shut"
+    unlike = [
+        (0.0, Connector("L1", "power", rows=rows("phase voltage", "phase frequency"))),
+        (1.0, Connector("C1", "power", rows=rows("circuit voltage", "circuit breaker"))),
+    ]
+    assert len(_bands(unlike)) == 4  # a place whose labels differ: by label, not by place
