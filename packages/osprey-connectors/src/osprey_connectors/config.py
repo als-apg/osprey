@@ -561,11 +561,13 @@ class LoadedConfig(FrozenModel):
         value = self.get(key)
         return default if value is None else config_flag(value, key=key)
 
-    def raw_tree(self) -> dict[str, object]:
+    # The trees are the YAML parse's, handed out as such: every framework reader
+    # reads the shape its own keys have.
+    def raw_tree(self) -> dict[str, ContractAny]:
         """The whole resolved tree, as a copy: for framework code that reads its own keys."""
         return copy.deepcopy(self._tree)
 
-    def unexpanded_tree(self) -> dict[str, object]:
+    def unexpanded_tree(self) -> dict[str, ContractAny]:
         """The whole tree as written, ``${VAR}`` placeholders kept, as a copy.
 
         For deployment code that writes the config out again and must not bake

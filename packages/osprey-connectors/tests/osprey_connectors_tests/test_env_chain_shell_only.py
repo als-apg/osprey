@@ -315,3 +315,23 @@ def test_load_project_dotenv_skips_and_does_not_record_shell_only(chain, monkeyp
     assert os.environ["OSPREY_ORDINARY"] == "shared"
     recorded = dotenv_shell_overrides()
     assert recorded == {"OSPREY_BOTH": "shell"}
+
+
+def test_the_shell_override_record_reads_the_chain_as_it_was_written(tmp_path, monkeypatch):
+    """The record and the write come from one parse.
+
+    python-dotenv drops an unquoted inline comment, so the value the chain
+    writes is the bare value; a shell export of that same value shadowed
+    nothing. Judged against a second parser that keeps the comment, the export
+    would be recorded as a divergent shell value and handed to compose.
+    """
+    (tmp_path / ".env").write_text("OSPREY_INLINE=bare  # the deployment default\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(ENV_CHAIN_APPLIED_ENV, raising=False)
+    monkeypatch.setattr(dotenv, "_shell_overrides", {})
+    monkeypatch.setenv("OSPREY_INLINE", "bare")
+
+    load_project_dotenv()
+
+    assert os.environ["OSPREY_INLINE"] == "bare"
+    assert dotenv_shell_overrides() == {}
