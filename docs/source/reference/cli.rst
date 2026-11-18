@@ -505,11 +505,16 @@ Stop this deployment, keeping all data. It renders nothing; destroying data is
 
 If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
 compose files from ``profile.yml`` — those describe what would be started now,
-not what is running. Instead it stops the containers this repository labelled as
-its own, which is the recovery path for a ``build/`` deleted while the stack was
-up. Containers are labelled when they are *created*, so a stack started before
-this labelling existed cannot be found that way; run ``osprey build`` to restore
-``build/`` and ``down`` works normally again.
+not what is running. Instead it stops the services the last start recorded, in
+the compose project it recorded, and leaves any container another checkout
+created. That is the recovery path for a ``build/`` deleted while the stack was
+up.
+
+A deployment whose record names no services, or a repository with no record, is
+stopped by the label this repository put on its containers. Containers are
+labelled when they are *created*, so a stack started before this labelling
+existed cannot be found that way; run ``osprey build`` to restore ``build/`` and
+``down`` works normally again.
 
 osprey restart
 --------------

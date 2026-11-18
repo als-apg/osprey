@@ -749,13 +749,15 @@ def down_verb(repo: Path | None) -> None:
     It renders nothing. If build/ is gone or was never rendered, down does not
     re-derive the compose files from profile.yml to stop with -- those files
     describe what would be started now, not what is running. Instead it stops the
-    containers this repo labelled as its own, which is the recovery path for a
-    build/ deleted while the stack was up.
+    services the last start recorded, in the compose project it recorded, and
+    leaves any container another checkout created. That is the recovery path for
+    a build/ deleted while the stack was up.
 
-    That fallback has one honest limit. Containers are labelled when they are
-    CREATED, so a stack started before this version of OSPREY carries no label
-    and cannot be found this way. Run `osprey build` to restore build/, and down
-    works normally again.
+    A deployment whose record names no services, or a repo with no record, is
+    stopped by the label this repo put on its containers instead. Containers are
+    labelled when they are CREATED, so a stack started before this version of
+    OSPREY carries no label and cannot be found this way. Run `osprey build` to
+    restore build/, and down works normally again.
 
     Examples:
 
