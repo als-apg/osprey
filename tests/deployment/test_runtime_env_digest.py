@@ -381,28 +381,53 @@ def test_the_named_call_sites_still_route_through_runtime_env() -> None:
     assert _REQUIRED_CALL_SITES <= found
 
 
-@pytest.mark.parametrize("positional", [1, 2])
-@pytest.mark.parametrize("ignore_orphans", [False, True])
+#: Every ``(positional count, keywords)`` shape a ``runtime_env`` call in the
+#: package uses. Stated by hand so that a shape appearing or disappearing fails
+#: :func:`test_the_call_shapes_in_the_source_are_the_stated_ones` instead of
+#: going unexercised (new) or leaving a case with nothing to stand for (gone).
+_CALL_SHAPES = {
+    (1, ()),
+    (1, ("ignore_orphans",)),
+    (2, ()),
+    (2, ("ignore_orphans",)),
+    (2, ("project",)),
+    (2, ("ignore_orphans", "project")),
+}
+
+
+def test_the_call_shapes_in_the_source_are_the_stated_ones() -> None:
+    """The parametrization below covers exactly the shapes the package uses.
+
+    A new shape must be added to ``_CALL_SHAPES`` (and so be exercised); a shape
+    no call site uses any more must be removed, rather than linger as a case.
+    """
+    shapes = {(count, keywords) for _, _, count, keywords in _runtime_env_call_sites()}
+
+    assert shapes == _CALL_SHAPES
+
+
+@pytest.mark.parametrize(
+    ("positional", "keywords"),
+    sorted(_CALL_SHAPES),
+    ids=lambda value: str(value) if isinstance(value, int) else "+".join(value) or "none",
+)
 def test_every_call_shape_in_the_source_receives_the_digest(
-    tmp_path: Path, positional: int, ignore_orphans: bool
+    tmp_path: Path, positional: int, keywords: tuple[str, ...]
 ) -> None:
     """Exercise each argument shape the package actually uses.
 
-    The shapes differ in whether the caller supplies its own ``base_env`` and
-    whether it asks for orphan suppression, and the digest must survive all of
-    them -- an implementation that only injected the key when it built the env
-    from ``os.environ`` would leave every explicit-``base_env`` call site out.
+    The shapes differ in whether the caller supplies its own ``base_env``,
+    whether it asks for orphan suppression and whether it pins a recorded
+    project, and the digest must survive all of them -- an implementation that
+    only injected the key when it built the env from ``os.environ`` would leave
+    every explicit-``base_env`` call site out.
     """
-    shapes = {(count, keywords) for _, _, count, keywords in _runtime_env_call_sites()}
-    expected_keywords = ("ignore_orphans",) if ignore_orphans else ()
-    if (positional, expected_keywords) not in shapes:
-        pytest.skip(f"no call site passes {positional} positional args with {expected_keywords}")
-
     (tmp_path / ".env").write_text("LOCAL=2\n")
     config = {"project_name": "proj-a", "project_root": str(tmp_path)}
     args = [config] if positional == 1 else [config, {}]
+    values = {"ignore_orphans": True, "project": "proj-recorded"}
 
-    env = runtime_env(*args, ignore_orphans=ignore_orphans)
+    env = runtime_env(*args, **{keyword: values[keyword] for keyword in keywords})
 
     assert env[ENV_DIGEST_VAR] == hashlib.sha256(b"LOCAL=2\n").hexdigest()
 
