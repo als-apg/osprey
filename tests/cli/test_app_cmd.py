@@ -281,14 +281,24 @@ INLINE_MARK = (
 )
 
 
+#: The theme boot script every panel page loads first.
+BOOT_SCRIPT = '<script src="/design-system/js/theme-boot.js"></script>\n'
+#: The shared web-font sheet every panel page links.
+FONT_LINK = '<link rel="stylesheet" href="/static/fonts/fonts.css">\n'
+
+
 def _page(
     *sheets: str,
     body: str = '<main class="osprey-card knob"></main>',
     html: str = PENDING,
     head: str = INLINE_MARK,
+    fonts: bool = True,
 ) -> str:
     links = "".join(f'<link rel="stylesheet" href="/design-system/css/{s}">\n' for s in sheets)
-    return f"{html}\n<head>\n{links}{head}</head>\n<body>{body}</body>\n</html>\n"
+    font = FONT_LINK if fonts else ""
+    return (
+        f"{html}\n<head>\n{BOOT_SCRIPT}{links}{font}{head}</head>\n<body>{body}</body>\n</html>\n"
+    )
 
 
 STYLED_PAGE = _page("tokens.css", "base.css", "primitives.css")
@@ -318,10 +328,23 @@ def test_a_panel_missing_a_design_system_sheet_fails_naming_it(
 
     assert result.exit_code == 1
     assert (
-        "apps/knob/panel/index.html: does not load /design-system/css/primitives.css"
+        "apps/knob/panel/index.html: entry HTML must link /design-system/css/primitives.css"
         in result.output
     )
-    assert result.output.count("[design_system_css]") == 1
+    assert result.output.count("[missing_design_system_link]") == 1
+
+
+def test_an_app_panel_without_the_font_sheet_is_refused(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    _panel(lifecycle_repo, _page("tokens.css", "base.css", "primitives.css", fonts=False))
+
+    result = _check(runner, lifecycle_repo)
+
+    assert result.exit_code == 1
+    [line] = [line for line in result.output.splitlines() if "[missing_font_link]" in line]
+    assert line.endswith("[missing_font_link]")
+    assert "apps/knob/panel/index.html" in line
 
 
 def test_a_class_with_no_rule_fails_naming_it_and_its_file(
