@@ -1705,22 +1705,31 @@ def _channel_count(
 
 
 def channel_list(graph: PanelGraph, device_id: str) -> View:
-    """A device's ``channels`` view: every channel, grouped by the role it plays, then
-    by record type, then the driver-internal records last; each row its name, value
-    and unit. The one view that is a plain list by design.
+    """A device's ``channels`` view: every channel its card is about (its own, and
+    those of the devices its roles reach, as the card's grid takes them), grouped
+    by the role it plays, then by record type, then the driver-internal records
+    last; each row its name, value and unit. The one view that is a plain list by
+    design.
 
     Raises:
         KeyError: No such device.
     """
     thing = graph.thing(device_id, "device")
     index = _index(graph)
+    hits = graph.roles(device_id)
     role_of: dict[str, str] = {}
-    for hit in graph.roles(device_id):
-        if hit.owner == device_id:
-            role_of.setdefault(hit.channel, hit.role.role)
+    for hit in hits:
+        role_of.setdefault(hit.channel, hit.role.role)
+    own = graph.channels(device_id, "device")
+    names = {c.name for c in own}
+    reached = [
+        graph.channel(name)
+        for _short, name in _card_channels(graph, thing, hits, _listed(graph, device_id, own))
+        if name not in names
+    ]
     groups: dict[str, list[Item]] = {}
     last: list[Item] = []
-    for channel in graph.channels(device_id, "device"):
+    for channel in (*own, *reached):
         role = role_of.get(channel.name)
         if role == INTERNAL_ROLE:
             last.append(_value_row(graph, channel))

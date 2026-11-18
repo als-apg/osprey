@@ -376,6 +376,10 @@ def test_a_walked_role_takes_the_channel_of_its_port_and_a_contested_one_none(tm
         "XR01-IP1:State-Sts",
         "XR01-CH2:IP2:P",
     ]
+    from osprey.facility.panels.describe import channel_list
+
+    listed = {i.channel for s in channel_list(graph, "XR01:IP1").sections for i in s.items}
+    assert listed == {c for _s, c in grid.rows}  # the full list holds what the grid does
 
 
 def test_a_recipe_names_the_card_fills_its_sentence_and_sets_the_grid_columns(tmp_path):
