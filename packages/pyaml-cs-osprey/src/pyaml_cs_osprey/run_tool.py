@@ -223,7 +223,7 @@ def run_tool(
     callback's result through.
 
     Args:
-        tool_method: A bound pyAML tool method, e.g. ``sr.live.trm.measure``.
+        tool_method: A bound pyAML tool method, e.g. ``sr.live.tool.trm.measure``.
         *args: Positional arguments for the method.
         callback: Passed to the method as ``callback=`` when given (wrapped, so
             its results are observed and a Ctrl-C stops the tool).

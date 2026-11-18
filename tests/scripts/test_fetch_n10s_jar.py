@@ -18,7 +18,7 @@ _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "fetch_n10s_j
 _URL = "https://example.invalid/releases/neosemantics-5.20.0.jar"
 
 
-def _run(tmp_path: Path, *, curl_rc: int) -> tuple[int, str]:
+def _run(tmp_path: Path, *, curl_rc: int) -> tuple[int, str, str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fakes = {
@@ -38,17 +38,21 @@ def _run(tmp_path: Path, *, curl_rc: int) -> tuple[int, str]:
         "GITHUB_ENV": str(github_env),
     }
     done = subprocess.run(["bash", str(_SCRIPT)], env=env, capture_output=True, check=False)
-    return done.returncode, github_env.read_text()
+    return done.returncode, github_env.read_text(), done.stderr.decode()
 
 
 def test_the_jar_path_reaches_the_later_steps(tmp_path: Path) -> None:
-    code, exported = _run(tmp_path, curl_rc=0)
+    code, exported, _ = _run(tmp_path, curl_rc=0)
     assert code == 0
     assert exported == f"OSPREY_TEST_N10S_JAR={tmp_path / 'neosemantics-5.20.0.jar'}\n"
 
 
 @pytest.mark.parametrize("curl_rc", [22, 28])
 def test_a_failed_download_reds_the_step(tmp_path: Path, curl_rc: int) -> None:
-    code, exported = _run(tmp_path, curl_rc=curl_rc)
+    code, exported, stderr = _run(tmp_path, curl_rc=curl_rc)
     assert code == curl_rc
     assert exported == "", "a failed fetch must not hand a path to the fixture"
+    # The red step says it was the download, from where, and what to do.
+    assert stderr.startswith("::error title=n10s jar download failed::"), stderr
+    assert f"curl exit {curl_rc} fetching {_URL}" in stderr, stderr
+    assert "Re-run the job" in stderr, stderr

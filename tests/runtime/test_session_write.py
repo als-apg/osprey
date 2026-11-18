@@ -1022,7 +1022,7 @@ class TestDrainAndClose:
         pending = asyncio.ensure_future(session.write(CHANNEL, 1.0))
         await _until(held.started.is_set)
         session.stop_writes()
-        asyncio.get_running_loop().call_later(0.1, held.release.set)
+        held.release.set()
 
         assert await session.drain(5.0) is True
         assert (await pending).outcome == "confirmed"

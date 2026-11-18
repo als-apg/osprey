@@ -346,13 +346,26 @@ def _predicted_filename(entry_filename: str, delivered_mime: str) -> str:
 
 
 def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
-    """Render-free descriptors of the artifacts a run produced, oldest first.
+    """Render-free descriptors of the artifacts a run made for the person, oldest first.
 
     Feeds BOTH the run-status ``artifacts`` list and the list route, so they can
     never disagree. Reads only the store index (via the strict ``run_filter``
     created-by tag) and predicts delivery — it never invokes a converter, so it
     is cheap regardless of artifact count. Returns ``[]`` for an unknown/empty
     ``run_id`` or a run that produced no artifacts.
+
+    The list holds the entries whose writer stated, at save time, that they
+    were made for the person who asked (:attr:`ArtifactEntry.deliver
+    <osprey.stores.artifact_store.ArtifactEntry.deliver>`): a plot, a figure or
+    ``save_artifact()`` file of a script run, a ``create_document`` PDF, a file
+    the agent registered or exported. That stated fact alone decides, because
+    every consumer of this list republishes what it names (a chat bridge posts
+    each one into the conversation). Everything else the run wrote — a script
+    run's preview, notebook and result record, a tool's data record, a
+    document's source, the filed answer text — stays in the store and is
+    reachable by id through the created-by byte route. The agent sends such an
+    entry by registering its file (``artifact_register``), which stores a copy
+    that says so.
 
     Each descriptor is ``{artifact_id, filename, source_mime, delivered_mime,
     convertible}``. ``source_mime`` is retained so a consumer always knows the
@@ -371,6 +384,9 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
         # produced — they are surfaced separately (see describe_run_input_artifacts)
         # so a consumer never mistakes an ingested image for agent output.
         if e.origin == "input":
+            continue
+        # Only what its writer stated is for the person.
+        if not e.deliver:
             continue
         delivered_mime, convertible = predict_delivery(e.mime_type)
         out.append(

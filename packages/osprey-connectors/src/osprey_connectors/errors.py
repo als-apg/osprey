@@ -27,7 +27,7 @@ with its channel, so a public failure needs no registry entry of its own.
 """
 
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -50,6 +50,7 @@ __all__ = [
     "ConfigurationError",
     "ConnectorInternalError",
     "ConnectorUnavailableError",
+    "RecoveryRecord",
     "RefusalReason",
     "RegistryError",
     "raw_client_write_message",
@@ -87,13 +88,13 @@ class ChannelLimitsViolationError(ChannelError):
     def __init__(
         self,
         channel_address: str,
-        value: Any,
+        value: object,
         violation_type: str,
         violation_reason: str,
         min_value: float | None = None,
         max_value: float | None = None,
         max_step: float | None = None,
-        current_value: Any | None = None,
+        current_value: object = None,
     ):
         self.channel_address = channel_address
         self.attempted_value = value
@@ -332,17 +333,15 @@ class ChannelWriteFailedError(ChannelError):
     carries is coerced on construction, as ``ChannelWriteResult`` coerces its own.
     """
 
-    _VALID_REASONS = ("FAILED", "MISMATCH", "UNCONFIRMED")
-
     def __init__(
         self,
         channel_address: str,
         reason: str,
         message: str | None = None,
         *,
-        outcome: "WriteOutcome | None" = None,
-        value_written: Any = None,
-        observed_value: Any = None,
+        outcome: "WriteOutcome | str | None" = None,
+        value_written: object = None,
+        observed_value: object = None,
     ):
         if outcome is not None:
             from osprey_connectors.control_system import WriteOutcome
@@ -443,6 +442,18 @@ class ChannelUnreachableError(ChannelError):
         super().__init__(channel_address, message or f"{channel_address} did not answer")
 
 
+class RecoveryRecord(TypedDict):
+    """One thing a supervisor did about a failure, as a failure's ``recovery`` carries it.
+
+    ``action`` is the word naming the step
+    (:class:`~osprey_connectors.recovery.RecoveryAction`), ``text`` the sentence
+    an operator reads.
+    """
+
+    action: str
+    text: str
+
+
 class ConnectorUnavailableError(ConnectionError):
     """The connector itself is gone: its transport, context or process is lost.
 
@@ -453,8 +464,8 @@ class ConnectorUnavailableError(ConnectionError):
     nothing else; it is empty until a supervisor has acted.
     """
 
-    def __init__(self, message: str, recovery: "Sequence[Mapping[str, str]]" = ()):
-        self.recovery: tuple[Mapping[str, str], ...] = tuple(recovery)
+    def __init__(self, message: str, recovery: "Sequence[RecoveryRecord]" = ()):
+        self.recovery: tuple[RecoveryRecord, ...] = tuple(recovery)
         super().__init__(message)
 
 

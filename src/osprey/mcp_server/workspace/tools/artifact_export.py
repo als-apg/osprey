@@ -136,6 +136,7 @@ async def artifact_export(
             mime_type=target_mime,
             tool_source="artifact_export",
             metadata={"source_artifact_id": artifact_id},
+            deliver=True,
         )
 
         url = gallery_url()

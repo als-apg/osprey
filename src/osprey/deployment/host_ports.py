@@ -59,7 +59,11 @@ from osprey.deployment.compose_generator import (
     repo_identity,
     resolve_repo_root,
 )
-from osprey.deployment.container_ownership import claims_row
+from osprey.deployment.container_ownership import (
+    COMPOSE_PROJECT_LABEL,
+    COMPOSE_SERVICE_LABEL,
+    claims_row,
+)
 from osprey.deployment.graphdb_service import (
     CONTAINER_BOLT_PORT,
     CONTAINER_HTTP_PORT,
@@ -207,10 +211,6 @@ _SLOT_CONTAINER_PORTS = {
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
 _WORKER_SERVICE_PREFIX = "dispatch-worker"
 
-# Label compose stamps with the project a container belongs to. Two checkouts of
-# one deployment share it, which is why :data:`REPO_ID_LABEL` is read as well.
-_COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
-
 # Config values the host-mode templates fall back on that are NOT ports. The
 # two port fallbacks the templates also carry (the dispatcher's own port and the
 # worker base) are looked up in the layout at the base this config resolved, so
@@ -251,6 +251,10 @@ class HostPortBinding:
     :param remedy: The config key that moves this port, when the deriving code
         knows it better than :func:`_remedy_for_service` can work it out from
         the service name. ``None`` leaves the resolution to that function
+    :param scheme: The scheme an address of this port is shown with, when the
+        deriving code knows the protocol better than the service name does
+        (the dispatcher's bus port speaks ZeroMQ, not its HTTP). ``None``
+        leaves the choice to the endpoint summary
     """
 
     service: str
@@ -260,6 +264,7 @@ class HostPortBinding:
     compose_file: str
     host_network: bool = False
     remedy: str | None = None
+    scheme: str | None = None
 
 
 @dataclass
@@ -315,6 +320,13 @@ class _PsRecord:
     project: str
     host_ports: set = field(default_factory=set)
     repo_id: str = ""
+    #: The ``com.docker.compose.service`` label: the key under ``services:``,
+    #: which is what a binding names even where the container name spells it
+    #: differently (``app_runtime`` runs as ``<project>-app-runtime``).
+    service: str = ""
+    #: Whether the container shares the host's network stack, so any port it
+    #: listens on is a host port that no mapping in ``ps`` accounts for.
+    host_network: bool = False
 
 
 def _resolve_base(config):
@@ -625,6 +637,7 @@ def derive_host_network_bindings(config):
     base = _resolve_base(config)
 
     dispatcher = _service_block(config, "event_dispatcher")
+    on_bus = dispatcher.get("transport") == "bus"
     if _on_host_network(dispatcher):
         port = _int_or_default(dispatcher.get("port"), default_port("dispatcher", base=base))
         bindings.append(
@@ -637,9 +650,33 @@ def derive_host_network_bindings(config):
                 host_network=True,
             )
         )
+        if on_bus:
+            # The dispatch bus, the dispatcher's second host socket. Reported
+            # under the dispatcher's own service name, which is how a redeploy
+            # recognises its still-running container, so the remedy is named
+            # here: the name alone cannot tell this port from the HTTP one.
+            bus_slot = default_port("dispatch_bus", base=base)
+            bus_port = _int_or_default(dispatcher.get("bus_port"), bus_slot)
+            bindings.append(
+                HostPortBinding(
+                    service="event-dispatcher",
+                    host_ip=str(dispatcher.get("bind") or _HOST_NETWORK_BIND),
+                    host_port=bus_port,
+                    container_port=bus_port,
+                    compose_file=_DERIVED_SOURCE,
+                    host_network=True,
+                    remedy=(
+                        PORT_BASE_CONFIG_KEY
+                        if bus_port == bus_slot
+                        else "services.event_dispatcher.bus_port"
+                    ),
+                    scheme="tcp",
+                )
+            )
 
     worker = _service_block(config, "dispatch_worker")
-    if _on_host_network(worker):
+    # A worker on the bus connects to the dispatcher and binds nothing.
+    if _on_host_network(worker) and not on_bus:
         worker_base = _int_or_default(
             worker.get("worker_port_base"), default_port("worker", 1, base=base)
         )
@@ -982,8 +1019,9 @@ def _record_from_ps_obj(obj):
         name = str(names or "").split(",")[0].strip()
 
     labels = _labels_mapping(obj.get("Labels"))
-    project = str(labels.get(_COMPOSE_PROJECT_LABEL, "") or "")
+    project = str(labels.get(COMPOSE_PROJECT_LABEL, "") or "")
     repo_id = str(labels.get(REPO_ID_LABEL, "") or "")
+    service = str(labels.get(COMPOSE_SERVICE_LABEL, "") or "")
 
     host_ports = set()
     ports = obj.get("Ports")
@@ -999,7 +1037,26 @@ def _record_from_ps_obj(obj):
             elif isinstance(item, str):
                 host_ports |= _host_ports_from_ports_string(item)
 
-    return _PsRecord(name=name, project=project, host_ports=host_ports, repo_id=repo_id)
+    # Docker joins the network names with commas; podman lists them. A row
+    # that names no network at all and maps no port is read as host-network
+    # too: a container on any bridge network is always on a named one.
+    networks = obj.get("Networks")
+    if isinstance(networks, str):
+        network_names = {part.strip() for part in networks.split(",") if part.strip()}
+    elif isinstance(networks, list):
+        network_names = {str(part) for part in networks}
+    else:
+        network_names = set()
+    host_network = "host" in network_names or (not network_names and not host_ports)
+
+    return _PsRecord(
+        name=name,
+        project=project,
+        host_ports=host_ports,
+        repo_id=repo_id,
+        service=service,
+        host_network=host_network,
+    )
 
 
 def _parse_ps_json(stdout):
@@ -1101,15 +1158,22 @@ def _holder_is_ours(record, project_name, repo_id):
     )
 
 
+def _service_key(service):
+    """A service name with ``_`` and ``-`` made equal: config keys and compose keys differ there."""
+    return service.replace("_", "-")
+
+
 def _runs_service(records, project_name, repo_id, service):
-    """Whether THIS deployment already has a container running for ``service``.
+    """Whether THIS deployment has a host-network container running ``service``.
 
     A host-network container publishes no port mapping, so the runtime's ``ps``
     output cannot attribute its listener by port the way a published one is
-    attributed. Its container name can: the templates name it
-    ``<project>-<service>``. Without this, an idempotent redeploy of a
+    attributed. Its compose service label can, and for a container without one
+    its name can: the templates name it ``<project>-<service>``, with
+    underscores turned to hyphens. Without this, an idempotent redeploy of a
     host-network service would report its own still-running container as the
-    conflict.
+    conflict. Only a host-network container counts: one on a compose network
+    cannot hold a host port without a mapping that ``ps`` would show.
 
     The name is only half the answer, because two checkouts of one repo produce
     the same container name as well as the same project name, so ownership is
@@ -1122,12 +1186,17 @@ def _runs_service(records, project_name, repo_id, service):
         service: Compose service name to look for.
 
     Returns:
-        ``True`` when one of this deployment's own containers runs the service.
+        ``True`` when one of this deployment's own host-network containers runs
+        the service.
     """
+    wanted = _service_key(service)
     for record in records:
-        if not _holder_is_ours(record, project_name, repo_id):
+        if not record.host_network or not _holder_is_ours(record, project_name, repo_id):
             continue
-        if record.name == service or record.name.endswith(f"-{service}"):
+        if record.service:
+            if _service_key(record.service) == wanted:
+                return True
+        elif record.name == wanted or record.name.endswith(f"-{wanted}"):
             return True
     return False
 
@@ -1320,12 +1389,15 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
         holder = holders.get(binding.host_port)
         if holder is not None and _holder_is_ours(holder, project_name, identity):
             continue  # our own container from a prior deploy — not a conflict
-        if (
-            holder is None
-            and binding.host_network
-            and _runs_service(records, project_name, identity, binding.service)
-        ):
-            continue  # our own host-network container, which maps no port
+        if holder is None and _runs_service(records, project_name, identity, binding.service):
+            # Our own host-network container, which maps no port: either this
+            # binding's service redeployed as it was, or one leaving the host
+            # network to publish the port it listened on there, which `up`
+            # recreates either way. Which port that container holds is not in
+            # `ps`, so a service that leaves the host network AND moves its port
+            # in one deploy is excused on the new port too: an unrelated
+            # listener there surfaces at `up` as "address already in use".
+            continue
         if holder is None and _held_by_own_host_record(binding, config):
             continue  # this deployment's host-local record, which the stack takes over
         description = _describe_holder(holder) if holder is not None else "an unknown host process"

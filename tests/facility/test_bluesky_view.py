@@ -249,6 +249,45 @@ def test_a_scenario_beyond_tolerance_warns(
     assert "scenario calm" not in err
 
 
+def _restless(scenario: dict[str, Any]) -> dict[str, Any]:
+    """:func:`_toleranced` with ``A:RB``'s own noise beyond the tolerance, at place ``P``."""
+    doc = _toleranced([{"name": "quiet", **scenario}])
+    doc["places"] = [{"id": "P"}]
+    readback = doc["channels"][1]
+    readback["simulation"]["noise"] = {"absolute": 0.01}
+    readback["on"] = {"place": "P"}
+    return doc
+
+
+@pytest.mark.parametrize(
+    ("still", "warned"),
+    [
+        pytest.param("all", False, id="all"),
+        pytest.param([{"place": "P"}], False, id="selection-naming-the-readback"),
+        pytest.param(["A:RB"], False, id="the-readback"),
+        pytest.param(["B:RB"], True, id="another-channel"),
+        pytest.param(None, True, id="no-still"),
+    ],
+)
+def test_a_scenario_that_stills_the_readback_does_not_warn(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    still: str | list[Any] | None,
+    warned: bool,
+) -> None:
+    scenario = {} if still is None else {"still": still}
+    write_bluesky_view(
+        tmp_path,
+        _rendered(_restless(scenario), {"bluesky": {}}, "virtual_accelerator", set()),
+    )
+
+    line = (
+        "scenario quiet moves A:RB up to 0.06 A, beyond A:SP's tolerance 0.05 A; its moves time "
+        "out while it is active"
+    )
+    assert (line in capsys.readouterr().err) is warned
+
+
 # --- the file ----------------------------------------------------------------------
 
 

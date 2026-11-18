@@ -24,6 +24,7 @@ wordings of the same refusal.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -74,6 +75,25 @@ def _reject_unknown_layer_keys(profile_file: Path) -> None:
     raw = _read_profile_document(profile_file)
     if isinstance(raw, dict):
         reject_unknown_kind_keys(raw, kind, layer_file_label(profile_file))
+
+
+def _inner_call_key_warnings(build_profile: Any, repo_root: Path) -> list[str]:
+    """One sentence per enabled feature whose own model call has no API key.
+
+    Read from :mod:`osprey.models.inner_calls`, over the keys a build of this
+    profile would render and the ``.env`` the deployment keeps its secrets in.
+    Advisory: a missing key never fails the check.
+    """
+    from osprey.models.inner_calls import missing_key_warnings
+    from osprey_connectors.workspace import BUILD_DIR_NAME
+
+    from .build_cmd import profile_model_call_view
+    from .build_environment import credential_environ
+
+    return missing_key_warnings(
+        profile_model_call_view(build_profile, repo_root),
+        environ=credential_environ(repo_root / BUILD_DIR_NAME, profile_dir=repo_root),
+    )
 
 
 def check_profile_file(profile_file: Path) -> None:
@@ -207,6 +227,9 @@ def check_profile_file(profile_file: Path) -> None:
         ),
         # The same UTC reminder `osprey build` prints.
         *system_timezone_reminders(build_profile.config),
+        # The features that call a model themselves and have no API key: the
+        # same sentences `osprey build` and `osprey web` print.
+        *_inner_call_key_warnings(build_profile, root_dir),
     ):
         note(f"⚠ {warning}")
 

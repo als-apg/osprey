@@ -35,13 +35,13 @@ from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
     TextEmbeddingModule,
 )
 from tests import _litellm_callbacks
-from tests._container_support import (
-    is_docker_available,
-    require_container_runtime,
-    start_or_skip,
-    stop_quietly,
+from tests._session_database import (  # noqa: F401 - skip_or_fail and database_required are re-exported
+    CONNECT_TIMEOUT_S,
+    database_required,
+    dev_server_url,
+    own_database,
+    skip_or_fail,
 )
-from tests._session_database import CONNECT_TIMEOUT_S, answers, dev_server_url, own_database
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 if TYPE_CHECKING:
@@ -284,22 +284,6 @@ def _reset_ariel_service_singleton():
 # ============================================================================
 
 
-def database_required() -> bool:
-    """Whether ``ARIEL_TEST_REQUIRE_DB=1`` asks for a missing database to fail.
-
-    A gate that runs an integration file sets it, so the gate cannot pass with
-    every database test skipped.
-    """
-    return os.environ.get("ARIEL_TEST_REQUIRE_DB") == "1"
-
-
-def skip_or_fail(reason: str) -> None:
-    """Skip for want of a database -- or fail, when one is required."""
-    if database_required():
-        pytest.fail(f"{reason} (ARIEL_TEST_REQUIRE_DB=1)")
-    pytest.skip(reason)
-
-
 @pytest.fixture(scope="session")
 def database_url(request: pytest.FixtureRequest) -> str:
     """Get database connection URL for tests.
@@ -307,21 +291,24 @@ def database_url(request: pytest.FixtureRequest) -> str:
     Tries in order:
     1. The server ARIEL_TEST_DATABASE_URL names
     2. A running docker-compose dev database server (port 5432, then 5433)
-    3. Testcontainers (spins up fresh container)
+    3. The session's own container (``pgvector_container_url``), started only
+       when neither of the first two answers
 
-    The session owns the database it writes to. The first two exits reach a
-    server the session did not start, so the session works in a database of its
-    own on that server (``own_database``), created here and dropped at session
-    end; the third owns the whole container. Under xdist each worker is a
-    session of its own, with its own database, as it has its own container.
+    Whichever server it is, the session works in a database of its own on it
+    (``own_database``), created here and dropped at session end: the first two
+    are servers the session did not start, and the third is shared with the
+    other suites of the session that ask for it (the qmd/ARIEL lane under
+    ``tests/integration``). Under xdist each worker is a session of its own,
+    with its own database.
 
     Deliberately a plain (non-generator) fixture: teardown -- the own database's
-    drop, or the container's stop -- is registered with ``request.addfinalizer``,
-    which runs at session teardown exactly as a ``finally`` would, and skips
-    raised before any resource exists need no generator path.
+    drop -- is registered with ``request.addfinalizer``, which runs at session
+    teardown exactly as a ``finally`` would, and skips raised before any
+    resource exists need no generator path.
 
     Args:
-        request: Fixture request, used to register container teardown.
+        request: Fixture request, used to register teardown and to ask for the
+            container only when it is needed.
 
     Returns:
         PostgreSQL connection URL
@@ -341,46 +328,8 @@ def database_url(request: pytest.FixtureRequest) -> str:
     if server_url is not None:
         return own_database(request, server_url, "ariel_test")
 
-    # 3. Fall back to testcontainers
-    if not is_docker_available():
-        skip_or_fail(
-            "No database available - either start docker-compose "
-            "(docker compose -f docker/ariel-dev.yml up -d) or install Docker"
-        )
-
-    logger.info("Starting testcontainers PostgreSQL (dev database not running)")
-    try:
-        from testcontainers.postgres import PostgresContainer
-    except ImportError:
-        skip_or_fail("testcontainers[postgres] not installed")
-
-    require_container_runtime()
-    # Use pgvector image for vector search support
-    try:
-        container = start_or_skip(
-            lambda: PostgresContainer(
-                image="pgvector/pgvector:pg16",
-                username="ariel",
-                password="ariel",
-                dbname="ariel_test",
-            ),
-            label="postgres",
-        )
-    except pytest.skip.Exception as skipped:
-        if database_required():
-            pytest.fail(f"{skipped.msg} (ARIEL_TEST_REQUIRE_DB=1)")
-        raise
-
-    request.addfinalizer(lambda: stop_quietly(container))
-
-    url = container.get_connection_url()
-    # Convert psycopg2 format to psycopg (v3) format
-    if url.startswith("postgresql+psycopg2://"):
-        url = url.replace("postgresql+psycopg2://", "postgresql://")
-
-    require_container_runtime(lambda: answers(url), "postgres", container=container)
-    logger.info(f"Testcontainer started: {url.split('@')[-1]}")
-    return url
+    # 3. Fall back to the session's own container, which other suites share
+    return own_database(request, request.getfixturevalue("pgvector_container_url"), "ariel_test")
 
 
 @pytest.fixture(scope="session")

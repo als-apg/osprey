@@ -15,6 +15,12 @@ time, so the listing never waits on the model. Each result is recorded in the
 session meta as ``done`` or ``failed`` and announced with one ``session_named``
 frame. A failure is not retried again during the same hub start; a failure
 recorded by an earlier start is retried once.
+
+The naming call is OSPREY's own, so it needs the provider's API key; a personal
+Claude login covers the agent only. :func:`session_namer_for` reads
+:mod:`osprey.models.inner_calls` once at hub start and builds no namer when that
+key is missing: one log line, no call, and the rows keep their first-prompt
+titles.
 """
 
 from __future__ import annotations
@@ -310,3 +316,43 @@ class SessionNamer:
             if stuck:
                 logger.warning("Session naming shutdown left %d task(s) unfinished", len(stuck))
         self.pending.clear()
+
+
+def _missing_key(config_path: Path) -> str | None:
+    """The warning for session naming's missing API key, or ``None`` when it has one.
+
+    Read from the one list of features that make their own model call
+    (:func:`osprey.models.inner_calls.inner_model_calls`), over the render the
+    hub serves. ``None`` too when that render cannot be read: the naming call
+    then reports its own failure. Blocking.
+    """
+    from osprey.interfaces.web_terminal.config_view import rendered_config
+    from osprey.models.inner_calls import SESSION_NAMING, inner_model_calls
+
+    config = rendered_config(config_path)
+    if not isinstance(config, Mapping):
+        return None
+    for call in inner_model_calls(config):
+        if call.feature == SESSION_NAMING.name and not call.key_present:
+            return call.warning
+    return None
+
+
+def session_namer_for(app: Any, config_path: Path | None) -> SessionNamer | None:
+    """The hub's namer, or ``None`` when there is nothing to ask a name of.
+
+    ``None`` without a project config (no provider), and when the provider's API
+    key is missing. The second is logged here, once per hub start, instead of
+    failing and warning on every new session. Blocking; called at hub start.
+
+    Args:
+        app: The hub app.
+        config_path: The render's ``config.yml``, or ``None`` when none resolved.
+    """
+    if config_path is None:
+        return None
+    missing = _missing_key(config_path)
+    if missing is not None:
+        logger.warning("Session naming is off: %s", missing)
+        return None
+    return SessionNamer(app, project_dir=config_path.parent)

@@ -867,6 +867,8 @@ def render_web_terminals(
     ariel_mirror_gid: int | None = None,
     archiver_credential_renders: dict[str, tuple[str, ...]] | None = None,
     archiver_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
+    pv_directory_credential_renders: dict[str, tuple[str, ...]] | None = None,
+    pv_directory_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_renders: set[str] | None = None,
     stop_grace_renders: dict[str, int] | None = None,
     terminal_secrets: dict[str, str] | None = None,
@@ -1024,6 +1026,18 @@ def render_web_terminals(
             Each file is bind-mounted read-only at the same path into the
             user's container, so the key names one file on the host and in the
             container. ``None`` emits no mount.
+        pv_directory_credential_renders: ``{render_name: (env_var_name, ...)}``
+            for the renders whose PV directory services authenticate, resolved
+            from disk by
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_pv_directory_credentials`.
+            Same placement and reason as ``archiver_credential_renders``: the
+            directory, the alarm log, the alarm feed and the put log each read
+            the variable their own block names under ``auth:``. ``None`` emits
+            no line.
+        pv_directory_ca_bundle_renders: ``{render_name: (ca_path, ...)}`` for
+            the renders whose PV directory blocks name a host CA file under
+            ``tls.ca_bundle``, mounted as ``archiver_ca_bundle_renders`` mounts
+            the archiver's. ``None`` emits no mount.
         phoebus_handle_renders: Render names whose project runs a Phoebus
             MCP server and does not set ``phoebus.require_handle: false`` (see
             :func:`osprey.deployment.web_terminals.roster.renders_needing_phoebus_handles`).
@@ -1402,7 +1416,24 @@ def render_web_terminals(
                 # The host CA files this user's archiver block names under
                 # `tls.ca_bundle` (see the `archiver_ca_bundle_renders` arg),
                 # each mounted read-only at the same path, or () for none.
-                "ca_bundle_mounts": (archiver_ca_bundle_renders or {}).get(entry["render"], ()),
+                # and the ones its PV directory blocks name (see the
+                # `pv_directory_ca_bundle_renders` arg); one mount per file.
+                "ca_bundle_mounts": tuple(
+                    dict.fromkeys(
+                        (
+                            *(archiver_ca_bundle_renders or {}).get(entry["render"], ()),
+                            *(pv_directory_ca_bundle_renders or {}).get(entry["render"], ()),
+                        )
+                    )
+                ),
+                # The NAMES of the variables this user's PV directory services
+                # authenticate with (see the `pv_directory_credential_renders`
+                # arg), without any the archiver lines above already carry.
+                "pv_directory_credential_envs": tuple(
+                    name
+                    for name in (pv_directory_credential_renders or {}).get(entry["render"], ())
+                    if name not in (archiver_credential_renders or {}).get(entry["render"], ())
+                ),
                 # Where the deployment's knowledge bundle mounts inside THIS
                 # user's container, or None when the user is not entitled or the
                 # deployment configures no bundle. One key rather than a
@@ -1747,6 +1778,7 @@ def render_web_terminals(
 
     from osprey.interfaces.common_middleware import URL_MOUNT_ROOT
 
+    theme_blocks = _landing_theme_blocks(root)
     nginx_ctx = {
         "nginx_port": nginx_port,
         "services": services,
@@ -1760,6 +1792,9 @@ def render_web_terminals(
         # the root inside a PCRE; the locations take it literally.
         "url_mount_root": URL_MOUNT_ROOT,
         "url_mount_root_pattern": re.escape(URL_MOUNT_ROOT),
+        # The terminal-starting page nginx answers with wears the landing
+        # page's palette.
+        "theme_blocks": theme_blocks,
         **auth_tls_ctx,
         **_history_origin_context(root),
         **_history_location_context(root, external_origin),
@@ -1788,7 +1823,7 @@ def render_web_terminals(
         "groups": _build_groups(
             landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
         ),
-        "theme_blocks": _landing_theme_blocks(root),
+        "theme_blocks": theme_blocks,
         "favicon": favicon_data_uri(),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),

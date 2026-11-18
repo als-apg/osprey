@@ -11,7 +11,8 @@ by importing it.
 
 import os
 import ssl
-from typing import Any
+
+from osprey_connectors._contract_types import ContractAny
 
 __all__ = [
     "CA_FILE_ERRORS",
@@ -71,6 +72,8 @@ def address_overrides() -> tuple[str | None, int | None]:
         raise ValueError(f"{PORT_OVERRIDE_ENV} must be an integer port (got {raw_port!r})") from exc
 
 
+# ContractAny: the values pymongo.MongoClient takes as ``**kwargs: Any``, past
+# host and port; every caller unpacks the result straight into it.
 def mongo_client_kwargs(
     *,
     url: str | None,
@@ -81,7 +84,7 @@ def mongo_client_kwargs(
     auth_source: str | None,
     ca_bundle: str | None,
     timeout_s: float,
-) -> dict[str, Any]:
+) -> dict[str, ContractAny]:
     """The keyword arguments for ``pymongo.MongoClient``.
 
     Every MongoDB client OSPREY opens takes its arguments from here: the agent's
@@ -108,7 +111,9 @@ def mongo_client_kwargs(
         ca_bundle: A CA file to trust; setting it turns TLS on.
         timeout_s: Seconds to wait for a server.
     """
-    kwargs: dict[str, Any] = {"host": url} if url is not None else {"host": host, "port": port}
+    kwargs: dict[str, ContractAny] = (
+        {"host": url} if url is not None else {"host": host, "port": port}
+    )
     if username is not None:
         kwargs["username"] = username
         kwargs["password"] = password

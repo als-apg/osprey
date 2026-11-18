@@ -24,11 +24,16 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+from typing_extensions import override
 
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import ScenarioRecord
 
 __all__ = [
     "ACTIVE_SCENARIOS_FILENAME",
@@ -199,6 +204,7 @@ class Overlap:
     second: str
     motion: bool = False
 
+    @override
     def __str__(self) -> str:
         if self.motion:
             return (
@@ -211,7 +217,7 @@ class Overlap:
         )
 
 
-def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
+def scenario_targets(scenario: ScenarioRecord) -> set[str]:
     """The targets a scenario writes: addresses, engine variables and coupled channels.
 
     Args:
@@ -231,7 +237,8 @@ def scenario_targets(scenario: Mapping[str, Any]) -> set[str]:
     for fault in (scenario.get("faults") or {}).values():
         targets.update(fault.get("writes") or {})
     targets.update(str(address) for address in scenario.get("channel_faults") or {})
-    moved = {str(address) for slot in ("couple", "noise") for address in scenario.get(slot) or {}}
+    moved = {str(address) for address in scenario.get("couple") or {}}
+    moved.update(str(address) for address in scenario.get("noise") or {})
     targets.update(moved)
     targets.update(_SETS_MOTION + address for address in moved)
     targets.update(_STILLS + str(address) for address in scenario.get("still") or ())
@@ -327,7 +334,7 @@ def composed_set(
     return list(names), []
 
 
-def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, Any]:
+def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, str | int]:
     """The log record a process writes when it serves without a scenario.
 
     Args:
@@ -341,7 +348,7 @@ def overlap_record(overlap: Overlap, *, instance: str, pid: int) -> dict[str, An
     return {"instance": instance, "pid": pid, "event": OVERLAP_EVENT, "target": overlap.target}
 
 
-def format_overlap_record(model: str, record: Mapping[str, Any]) -> str:
+def format_overlap_record(model: str, record: Mapping[str, object]) -> str:
     """One printable line for an overlap record read back from a model's log.
 
     The line names where it came from, so a reader never takes it for the

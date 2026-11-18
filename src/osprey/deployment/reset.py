@@ -775,6 +775,19 @@ class ResetPlan:
                 "is rebuilt from them on every `osprey build` and `osprey up`. Delete a login "
                 "and the next `osprey up` creates it again with a new secret."
             )
+        from osprey.deployment.dispatch_bus_keys import FILE_PREFIX as BUS_KEY_PREFIX
+
+        bus_files = sorted(
+            path.name
+            for path in self.repo_root.glob(f"{BUS_KEY_PREFIX}*")
+            if path.is_file() and not path.name.endswith(".tmp")
+        )
+        kept.extend(f"    {filename}  one container's dispatch bus key." for filename in bus_files)
+        if bus_files:
+            kept.append(
+                "      Kept by every start; delete one and the next `osprey up` mints that "
+                "container a new key."
+            )
         # Kept by every reset, --purge-audit included: what a session leases
         # and locks is live state, not this deployment's data to discard. The
         # archive is kept whole by a plain reset; a purge takes only the

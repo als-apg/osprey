@@ -38,10 +38,11 @@ from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.presets import preset_refusal
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+from osprey.profiles.web_panels import BUILD_PANELS, BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.services.watchdog.config import watchdog_errors
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from .build_profile_archiver import (
     VAArchiverConfig,
@@ -59,6 +60,7 @@ from .build_profile_presets import (
 from .build_profile_schema import (
     DEFAULT_LISTS_MODE,
     SECOND_LANE_PORT_STRIDE,
+    VALID_DISPATCH_TRANSPORTS,
     AppEntry,
     BlueskyConfig,
     BlueskyWebConfig,
@@ -137,17 +139,27 @@ spells it is refused by :func:`provider_catalog_key_errors`."""
 _MISSING = object()
 """Sentinel for "this profile says nothing about that key"."""
 
+_LOGGER = get_logger("build")
+
+_WARNED_PV_DIRECTORY: set[str] = set()
+"""The ``pv_directory`` warnings already printed: a build validates its profile
+once per render pass, and one fact about the build is one line."""
+
 _HOST_NETWORK_MODE = "host"
 """The member of ``VALID_NETWORK_MODES`` whose services share the host's own
 network namespace, and so bind host ports directly instead of publishing them
 through compose. Two rules below turn on it: the dispatch workers spend host
 ports only in this mode, and only in this mode can they overrun the layout."""
 
-_UNSEEDED_SLOTS = frozenset({"worker", "bluesky_second_lane", "va_standin", "facility"})
+_UNSEEDED_SLOTS = frozenset(
+    {"worker", "dispatch_bus", "bluesky_second_lane", "va_standin", "facility"}
+)
 """Layout slots :meth:`BuildProfile._layout_seed` deliberately leaves out.
 
 ``worker`` is walked from the dispatch block instead, under the host-network
-predicate that decides whether the band is published at all. ``va_standin`` is
+predicate that decides whether the band is published at all, and
+``dispatch_bus`` is claimed from the same block, under that predicate and the
+bus transport. ``va_standin`` is
 the very port the ledger's consumer is testing — seeding it would make
 ``live_standin: true``, which resolves to exactly that slot, collide with
 itself. ``bluesky_second_lane`` is opt-in and derived, and is claimed from the
@@ -823,17 +835,29 @@ class BuildProfile:
         to the selection. A manifest that does not load contributes none; its
         refusal is :meth:`_validate_apps`'.
         """
+        return frozenset(self.shown_app_panels(profile_dir))
+
+    def shown_app_panels(self, profile_dir: Path) -> dict[str, tuple[str, str]]:
+        """The panels of the applications this render's card shows.
+
+        Args:
+            profile_dir: The profile root the applications are loaded from.
+
+        Returns:
+            ``panel id -> (application name, panel label)``. A manifest that
+            does not load contributes none; its refusal is :meth:`_validate_apps`'.
+        """
         shown = [name for name in self.apps if self.app_shown(name)]
         if not shown:
-            return frozenset()
+            return {}
         from osprey.apps.errors import AppManifestError
         from osprey.apps.loader import load as load_apps
 
         try:
             manifests = load_apps(profile_dir, shown)
         except AppManifestError:
-            return frozenset()
-        return frozenset(m.panel.id for m in manifests if m.panel is not None)
+            return {}
+        return {m.panel.id: (m.name, m.panel.label) for m in manifests if m.panel is not None}
 
     def _validate_environment(self) -> list[str]:
         """Return validation errors for the ``environment:`` block (empty when clean).
@@ -1363,7 +1387,11 @@ class BuildProfile:
             # Walked only when that range is itself valid: an invalid one is
             # already reported by the dispatch stanza, and walking it anyway
             # would bury that one fault under thousands of entries.
-            if (
+            if d.network == _HOST_NETWORK_MODE and d.transport == "bus":
+                # On the bus the workers bind nothing and the dispatcher binds
+                # the bus port beside its own.
+                claimed["dispatch.bus_port"] = d.bus_port
+            elif (
                 d.network == _HOST_NETWORK_MODE
                 and d.worker_count >= 1
                 and d.worker_port_stride >= 1
@@ -1679,7 +1707,9 @@ class BuildProfile:
             fits (or when this profile's rules are decided elsewhere).
         """
         d = self.dispatch
-        if d is None or d.network != _HOST_NETWORK_MODE:
+        if d is None or d.network != _HOST_NETWORK_MODE or d.transport == "bus":
+            # A worker on the bus listens on no port, so it has no window to
+            # overrun.
             return []
         if d.worker_count < 1 or d.worker_port_stride < 1:
             return []  # already refused by name, above.
@@ -1804,6 +1834,41 @@ class BuildProfile:
             )
         )
         return errors
+
+    def _pv_directory_errors(self) -> list[str]:
+        """The ``pv_directory`` section's refusal, read from this profile's overlay.
+
+        The overlay is not a rendered config: the section is rebuilt from the
+        dotted or nested ``config:`` keys, and the simulator port is filled from
+        the ``virtual_accelerator:`` block, where ``simulator.has_simulator`` reads it.
+        What a valid section cannot serve is printed once per process.
+        """
+        from osprey.services.pv_directory.resolve import SectionError, resolve_section
+
+        config = _expand_dotted(self.config)
+        if config.get("pv_directory") is None:
+            return []
+        if self.virtual_accelerator is not None:
+            services = config.get("services")
+            services = services if isinstance(services, dict) else {}
+            simulator = services.get("virtual_accelerator")
+            simulator = simulator if isinstance(simulator, dict) else {}
+            config["services"] = {
+                **services,
+                "virtual_accelerator": {**simulator, "port": self.virtual_accelerator.port},
+            }
+        try:
+            resolved = resolve_section(config)
+        except SectionError as exc:
+            return [str(exc)]
+        if resolved is not None:
+            from . import output
+
+            for warning in resolved.warnings:
+                if warning not in _WARNED_PV_DIRECTORY:
+                    _WARNED_PV_DIRECTORY.add(warning)
+                    output.warn_fact(_LOGGER, warning)
+        return []
 
     def _artifact_server_errors(self, profile_dir: Path) -> list[str]:
         """The ``artifact_server`` block's errors: unknown keys, then extension types.
@@ -2149,6 +2214,10 @@ class BuildProfile:
         for panel in self.web_panels:
             if panel in BUILTIN_PANELS:
                 continue
+            # A panel the build writes into the render as a page
+            # (``write_build_panels``) needs no url: the terminal serves it.
+            if panel in BUILD_PANELS:
+                continue
             url_key = f"web.panels.{panel}.url"
             if panel_leaf_spellings(self.config, panel, "url"):
                 continue
@@ -2176,7 +2245,7 @@ class BuildProfile:
             )
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
-                f"({sorted(BUILTIN_PANELS)}) and {missing}"
+                f"({sorted(BUILTIN_PANELS | set(BUILD_PANELS))}) and {missing}"
             )
 
         # An authored `web.panels.<id>.enabled` that contradicts the selection:
@@ -2236,6 +2305,19 @@ class BuildProfile:
                 errors.append(
                     f"dispatch.dispatcher_port must be in 1..65535 (got {d.dispatcher_port})"
                 )
+            if d.transport not in VALID_DISPATCH_TRANSPORTS:
+                errors.append(
+                    f"dispatch.transport must be one of {', '.join(VALID_DISPATCH_TRANSPORTS)} "
+                    f"(got {d.transport!r})"
+                )
+            elif d.transport == "bus":
+                if not (1 <= d.bus_port <= 65535):
+                    errors.append(f"dispatch.bus_port must be in 1..65535 (got {d.bus_port})")
+                elif d.bus_port == d.dispatcher_port:
+                    errors.append(
+                        f"dispatch.bus_port and dispatch.dispatcher_port are both {d.bus_port}: "
+                        "the bus is a socket of its own beside the dispatcher's HTTP port"
+                    )
             if not (1 <= d.worker_port_base <= 65535):
                 errors.append(
                     f"dispatch.worker_port_base must be in 1..65535 (got {d.worker_port_base})"
@@ -2448,6 +2530,8 @@ class BuildProfile:
         errors.extend(agent_record_errors(self.agent_record, self.config))
 
         errors.extend(self._watchdog_errors(profile_dir))
+
+        errors.extend(self._pv_directory_errors())
 
         # The honesty rule's build-time site: a simulated machine may not be
         # paired with an archiver that invents its history. Checked against the

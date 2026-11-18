@@ -64,6 +64,26 @@ and ``value`` columns:
 each bin is reduced; the archiver section of
 :doc:`/reference/contracts/connectors` says what each mode returns.
 
+Read the channel directory
+--------------------------
+
+A ChannelFinder directory is built from a ``BackendSpec`` by
+``create_service``, which reads the kind from the spec; ``settings`` is the
+connection block. Building it sends nothing:
+
+.. literalinclude:: examples/read_directory.py
+   :language: python
+   :caption: read_directory.py
+
+Against a directory listing those three BPM channels, it prints:
+
+.. literalinclude:: examples/read_directory.out
+   :language: text
+
+Every answer is a value, never an exception: a search returns a page whose
+``outcome`` says how it ended, and ``describe`` returns the record,
+``Outcome.NOT_LISTED``, or ``Unavailable`` with the reason.
+
 What needs a deployment
 -----------------------
 

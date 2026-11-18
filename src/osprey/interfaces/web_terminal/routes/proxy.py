@@ -467,7 +467,9 @@ def _acting_messages(body: bytes, acting_tools: Collection[str]) -> list[dict] |
     return None
 
 
-async def _held_session_refusal(request: Request, *, agent: bool, what: str) -> str | None:
+async def _held_session_refusal(
+    request: Request | WebSocket, *, agent: bool, what: str, brief: bool = False
+) -> str | None:
     """The refusal a held session earns this acting request; ``None`` lets it through.
 
     An agent's request names its session (:data:`SESSION_HEADER`), and under a
@@ -478,9 +480,11 @@ async def _held_session_refusal(request: Request, *, agent: bool, what: str) -> 
     read.
 
     Args:
-        request: The proxied request.
+        request: The proxied request or websocket.
         agent: Whether the terminal's gate admitted the request on the panel token.
         what: The act the refusal names (``call``, ``write``).
+        brief: The held refusal as its phrase and code alone, without the
+            sentence naming the act: what a websocket close reason has room for.
     """
     root = session_hold_root_of(request.app)
     if root is None:
@@ -494,8 +498,35 @@ async def _held_session_refusal(request: Request, *, agent: bool, what: str) -> 
         keys = live_session_keys(request.app)
     for key in keys:
         if await asyncio.to_thread(is_held, key, root=root):
-            return refusal_text("session_held", detail=f"The {what} is refused while held.")
+            detail = None if brief else f"The {what} is refused while held."
+            return refusal_text("session_held", detail=detail)
     return None
+
+
+async def _held_application_write_refusal(
+    scope: Request | WebSocket, panel_id: str, *, brief: bool = False
+) -> str | None:
+    """The refusal a held session earns a write to ``panel_id``; ``None`` lets it through.
+
+    The one rule for both hops to an application panel. An application's
+    container serves every session and reads no hold, so this proxy is where a
+    held session's write is refused: the agent's, naming its session on the
+    panel token, and the operator's from the application's own page. The caller
+    decides what a write is: a write method over HTTP, a frame the browser
+    sends over a websocket. ``None`` for a panel that is no application's.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        brief: As :func:`_held_session_refusal` takes it.
+    """
+    application = panel_registry_of(scope.app).applications.get(panel_id)
+    if application is None or not application.session_writes:
+        return None
+    state = scope.scope.get("state") or {}
+    return await _held_session_refusal(
+        scope, agent=state.get(PANEL_ADMISSION_STATE_KEY) is True, what="write", brief=brief
+    )
 
 
 async def _refuse_held_call(
@@ -2226,16 +2257,10 @@ async def _forward_to_panel(
             status_code=403,
         )
 
-    # An application's container serves every session and reads no hold, so a
-    # held session's write to an application panel is refused here: the
-    # agent's, naming its session on the panel token, and the operator's from
-    # the application's own page.
-    application = panel_registry_of(request.app).applications.get(panel_id)
-    if application is not None and application.session_writes and is_write_method(method):
-        state = request.scope.get("state") or {}
-        held = await _held_session_refusal(
-            request, agent=state.get(PANEL_ADMISSION_STATE_KEY) is True, what="write"
-        )
+    # A held session's write to an application panel is refused here, as a
+    # frame the browser sends is on the websocket hop.
+    if is_write_method(method):
+        held = await _held_application_write_refusal(request, panel_id)
         if held is not None:
             logger.warning("Refused a write to application panel %s while held", panel_id)
             return Response(content=held, status_code=403)
@@ -2660,6 +2685,15 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     with that pick — so the upstream connects first and the browser is
     accepted second. A browser whose non-empty offer is answered with nothing
     treats the handshake as failed.
+
+    A session hold is read per frame, not at the handshake. The upgrade is a
+    ``GET`` and is admitted as one, and what the application sends the browser
+    keeps flowing, as a held session's reads do over HTTP. Every frame the
+    browser sends an application panel is a write: the relay cannot tell a
+    subscription from a setpoint, so under a hold the frame is not forwarded
+    and the socket is closed ``4003`` with the refusal the HTTP hop answers
+    (:func:`_held_application_write_refusal`). Asking at each frame is what
+    makes a hold that begins after the socket opened take effect.
     """
     backend_url = _resolve_panel_url(websocket, panel_id)
     if not backend_url or panel_withheld(websocket, panel_id):
@@ -2729,6 +2763,8 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     )
 
     client_gone = False
+    # The refusal a held session earned a frame, once one has ended the relay.
+    held: str | None = None
     try:
         async with connector as upstream:
             # Answer the browser with the upstream's pick — ``None`` when the
@@ -2746,6 +2782,7 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
                 # receive() (not receive_text()) — binary-protocol panels
                 # (e.g. the noVNC/RFB phoebus stream) send bytes frames,
                 # which receive_text() rejects, killing the relay.
+                nonlocal held
                 try:
                     while True:
                         msg = await websocket.receive()
@@ -2754,8 +2791,17 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
                         data = msg.get("bytes")
                         if data is None:
                             data = msg.get("text")
-                        if data is not None:
-                            await upstream.send(data)
+                        if data is None:
+                            continue
+                        held = await _held_application_write_refusal(
+                            websocket, panel_id, brief=True
+                        )
+                        if held is not None:
+                            logger.warning(
+                                "Refused a frame to application panel %s while held", panel_id
+                            )
+                            break
+                        await upstream.send(data)
                 except WebSocketDisconnect:
                     pass
 
@@ -2792,6 +2838,11 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
                     # refuse the handshake with a 403. A browser that offered a
                     # subprotocol still fails its own handshake, as before.
                     await websocket.accept()
-                await websocket.close()
+                if held is not None:
+                    # A close reason is capped at 123 bytes on the wire.
+                    reason = held.encode()[:123].decode(errors="ignore")
+                    await websocket.close(code=4003, reason=reason)
+                else:
+                    await websocket.close()
             except Exception:
                 pass

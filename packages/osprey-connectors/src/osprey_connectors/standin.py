@@ -76,7 +76,6 @@ reading one here would let an inert line vouch for a machine.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 from osprey_connectors._config_read import LOOPBACK_HOSTNAME, coerce_port, is_loopback, nested_value
 
@@ -93,7 +92,7 @@ __all__ = [
 ]
 
 
-def live_standin_port(config: Mapping[str, Any]) -> int | None:
+def live_standin_port(config: Mapping[str, object]) -> int | None:
     """The Channel Access port the deployment's stand-in serves, if it built one.
 
     Args:
@@ -111,7 +110,7 @@ def live_standin_port(config: Mapping[str, Any]) -> int | None:
 
 
 def live_standin_active(
-    config: Mapping[str, Any], *, endpoint_host: str, endpoint_port: int | None
+    config: Mapping[str, object], *, endpoint_host: str, endpoint_port: int | None
 ) -> bool:
     """Whether *endpoint* is this deployment's stand-in rather than a real machine.
 

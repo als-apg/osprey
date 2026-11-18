@@ -45,6 +45,12 @@ no break while the import ahead of it resolves, nor is the import ahead of it
 while the fallback does. A handler that holds no site -- ``B = None``,
 ``sys.exit(0)`` -- is no alternative: the import it swallows must resolve.
 
+``--release`` asks what a published framework promises: every import works on
+these connectors, not merely that the framework runs. The ``try`` body must
+then resolve; a stand-in does not answer for it, because the feature the body
+imported is switched off wherever the stand-in is what loads. A fallback kept
+for older connectors behind a body that resolves is still no break.
+
 Usage::
 
     python -I scan_framework_imports.py <framework package dir>...
@@ -329,7 +335,11 @@ def _collect(root: Path) -> tuple[list[Site], list[str], list[FallbackGroup]]:
 
 
 def _settled_by_fallback(
-    sites: list[Site], groups: list[FallbackGroup], errors: dict[Site, str | None]
+    sites: list[Site],
+    groups: list[FallbackGroup],
+    errors: dict[Site, str | None],
+    *,
+    body_must_resolve: bool = False,
 ) -> set[Site]:
     """The sites of every group one of whose alternatives resolves whole.
 
@@ -337,6 +347,9 @@ def _settled_by_fallback(
     alternative, and a group left with fewer than two settles nothing. Inner
     groups settle first, so a nested fallback that resolves counts as resolved
     in the alternative around it.
+
+    With ``body_must_resolve`` only the ``try`` body, the first span, settles
+    its group: a handler that resolves does not answer for a body that fails.
     """
     by_file: dict[str, list[Site]] = defaultdict(list)
     for site in sites:
@@ -347,12 +360,14 @@ def _settled_by_fallback(
             [site for site in by_file[group.file] if first <= site.line <= last]
             for first, last in group.alternatives
         ]
+        body = alternatives[0] if alternatives else []
         alternatives = [alternative for alternative in alternatives if alternative]
         if len(alternatives) < 2:
             continue
+        deciding = [body] if body_must_resolve else alternatives
         if any(
-            all(errors[site] is None or site in settled for site in alternative)
-            for alternative in alternatives
+            alternative and all(errors[site] is None or site in settled for site in alternative)
+            for alternative in deciding
         ):
             settled.update(site for alternative in alternatives for site in alternative)
     return settled
@@ -442,8 +457,13 @@ class Resolver:
         return self.name_error(site.module, site.name)
 
 
-def scan(root: Path) -> tuple[list[Site], list[Unresolved], list[str]]:
+def scan(root: Path, *, release: bool = False) -> tuple[list[Site], list[Unresolved], list[str]]:
     """Scan ``root`` against the importable connectors.
+
+    Args:
+        root: The framework package directory, or one file.
+        release: Hold every ``try`` body to resolving; a stand-in in its
+            handler does not answer for it.
 
     Returns:
         Every site, the unresolved ones a fallback does not settle, and every
@@ -452,7 +472,7 @@ def scan(root: Path) -> tuple[list[Site], list[Unresolved], list[str]]:
     sites, unparsable, groups = _collect(root)
     resolver = Resolver()
     errors = {site: resolver.site_error(site) for site in sites}
-    settled = _settled_by_fallback(sites, groups, errors)
+    settled = _settled_by_fallback(sites, groups, errors, body_must_resolve=release)
     unresolved = [
         Unresolved(site, error)
         for site in sites
@@ -496,6 +516,12 @@ def _parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
         help="directory holding the osprey_connectors package to resolve against "
         "(default: the active environment's)",
     )
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="a stand-in in an except-ImportError handler does not answer for the import "
+        "ahead of it: what a published framework promises of these connectors",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     if bool(args.root) == bool(args.package):
         parser.error("name the trees to scan, or --package, not both")
@@ -520,7 +546,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     version = getattr(connectors, "__version__", "unknown")
     status = 0
     for root in roots:
-        sites, unresolved, unparsable = scan(root)
+        sites, unresolved, unparsable = scan(root, release=args.release)
         for problem in unresolved:
             print(problem)
         for problem in unparsable:

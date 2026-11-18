@@ -126,10 +126,29 @@ GRAPH_MODE = "graph"
 #: spelling of each name, so a registry edit still has to be made deliberately
 #: in two places.
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
-_EXPECTED_AGENT_TOOLS = [
-    *(f"mcp__channel-finder__{tool}" for tool in CHANNEL_FINDER_TOOLS_BY_PIPELINE[GRAPH_MODE]),
-    _SUBMIT_RESPONSE,
+_PARADIGM_AGENT_TOOLS = [
+    f"mcp__channel-finder__{tool}" for tool in CHANNEL_FINDER_TOOLS_BY_PIPELINE[GRAPH_MODE]
 ]
+
+
+def _expected_agent_tools(render: Path) -> list[str]:
+    """The paradigm's tools, the ``pv-directory`` tools the render's config
+    serves to the same subagent, then ``submit_response`` — in the order the
+    agent template writes them, so the comparison is exact.
+
+    The pv-directory server is part of the channel-finder login whenever the
+    config has a ``pv_directory`` section (the ``demo`` template has one);
+    ``_pv_directory_tools`` is the render's own answer to which of its tools
+    that section enables, so a tool withheld by the config is withheld here too.
+    """
+    from osprey.cli.templates.claude_code import _pv_directory_context, _pv_directory_tools
+
+    config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8")) or {}
+    directory = [
+        f"mcp__pv-directory__{tool}" for tool in _pv_directory_tools(_pv_directory_context(config))
+    ]
+    return [*_PARADIGM_AGENT_TOOLS, *directory, _SUBMIT_RESPONSE]
+
 
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
@@ -262,7 +281,8 @@ def test_render_targets_the_graph_channel_finder_server(graph_paradigm_repo: Pat
 def test_render_arms_the_subagent_with_the_paradigm_vocabulary(
     graph_paradigm_repo: Path,
 ) -> None:
-    """Exactly the paradigm's tools, and nothing from the standalone server.
+    """Exactly the paradigm's tools, the directory tools its config serves, and
+    nothing from the standalone server.
 
     ``mcp__graph__*`` belongs to the facility-knowledge-graph subagent. Its
     appearance here would mean the channel-finder subagent had a second,
@@ -271,7 +291,7 @@ def test_render_arms_the_subagent_with_the_paradigm_vocabulary(
     """
     render = render_dir(graph_paradigm_repo)
 
-    assert _agent_frontmatter_tools(render) == _EXPECTED_AGENT_TOOLS
+    assert _agent_frontmatter_tools(render) == _expected_agent_tools(render)
 
     granted = json.loads((render / ".claude" / "settings.json").read_text(encoding="utf-8"))[
         "permissions"

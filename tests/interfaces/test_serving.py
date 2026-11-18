@@ -1,7 +1,7 @@
 """Contract test for :mod:`osprey.interfaces._serving`.
 
-Pins ``listening_socket`` as the one place an OSPREY server binds and listens,
-and ``authorize_browser_context`` to mint an *ephemeral* (unpersisted)
+Pins ``listening_socket`` and its AF_UNIX twin as the one place an OSPREY server
+binds and listens, and ``authorize_browser_context`` to mint an *ephemeral* (unpersisted)
 session: the module's whole reason for existing is authorizing a browser
 against a server this same process just spun up, so a session that leaked
 into a persisted store would go on outliving the throwaway server it was
@@ -11,14 +11,20 @@ minted for.
 from __future__ import annotations
 
 import ast
+import shutil
 import socket
+import tempfile
 from pathlib import Path
 
 import pytest
 
 import osprey
 from osprey.interfaces import _serving
-from osprey.interfaces._serving import authorize_browser_context, listening_socket
+from osprey.interfaces._serving import (
+    authorize_browser_context,
+    listening_socket,
+    unix_listening_socket,
+)
 from osprey.interfaces.common_middleware import session_cookie_name
 from osprey.interfaces.web_auth import _digest, get_web_credentials
 
@@ -64,6 +70,19 @@ def test_a_held_port_is_refused():
             listening_socket("127.0.0.1", held.getsockname()[1])
 
 
+def test_a_unix_socket_listens_at_its_path():
+    # Not tmp_path: an AF_UNIX path is capped near 100 bytes.
+    directory = Path(tempfile.mkdtemp())
+    path = directory / "s.sock"
+    with unix_listening_socket(str(path)) as held:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.connect(str(path))
+        with pytest.raises(OSError):
+            unix_listening_socket(str(path))
+    assert held.fileno() == -1
+    shutil.rmtree(directory)
+
+
 class _ListenCallers(ast.NodeVisitor):
     """The innermost function around each ``.listen(...)`` call in one module."""
 
@@ -100,4 +119,7 @@ def _listen_callers(root: Path) -> set[str]:
 def test_only_the_helper_listens():
     root = Path(osprey.__file__).parent
     helper = Path(_serving.__file__).relative_to(root).as_posix()
-    assert _listen_callers(root) == {f"{helper}:listening_socket"}
+    assert _listen_callers(root) == {
+        f"{helper}:listening_socket",
+        f"{helper}:unix_listening_socket",
+    }

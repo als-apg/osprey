@@ -813,22 +813,6 @@ async def test_ensure_environment_for_execute_passes_when_the_worker_is_up(
     await fast_backend(FakeManager(status=status_doc())).ensure_environment_for_execute()
 
 
-async def test_close_environment_is_refused_while_the_queue_is_active() -> None:
-    manager = FakeManager(status=status_doc(manager_state="executing_queue"))
-    with pytest.raises(QueueRequestRejectedError) as excinfo:
-        await QueueBackend(manager).close_environment()
-
-    assert "Stop the queue first" in str(excinfo.value)
-    assert "environment_close" not in manager.method_names()
-
-
-async def test_close_environment_closes_when_the_queue_is_idle() -> None:
-    manager = FakeManager(status=status_doc())
-    await QueueBackend(manager).close_environment()
-
-    assert "environment_close" in manager.method_names()
-
-
 # --------------------------------------------------------------------- helpers
 
 
@@ -998,17 +982,6 @@ async def test_external_backend_follows_an_environment_the_facility_opened(
 
     assert await fast_backend(manager, external_worker=True).ensure_environment() is True
     assert "environment_open" not in manager.method_names()
-
-
-async def test_external_backend_refuses_to_close_the_environment(connector, fast_backend) -> None:
-    """Every close path — the session uploader's reload cycle included — lands here."""
-    connector("epics")
-    manager = FakeManager(status=status_doc())
-    backend = fast_backend(manager, external_worker=True)
-
-    with pytest.raises(QueueRequestRejectedError, match="externally-run"):
-        await backend.close_environment()
-    assert "environment_close" not in manager.method_names()
 
 
 async def test_external_execute_guard_names_the_facility_side(connector, fast_backend) -> None:

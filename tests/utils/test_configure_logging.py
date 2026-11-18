@@ -104,6 +104,183 @@ class TestHandlerInstallation:
         assert len(_rich_handlers()) == 1
 
 
+def _render_root(root, *, rich_tracebacks: bool):
+    """A directory whose render is ``build/config.yml``, as a deployed terminal's is."""
+    (root / "build").mkdir(parents=True)
+    config = root / "build" / "config.yml"
+    config.write_text(f"logging:\n  rich_tracebacks: {str(rich_tracebacks).lower()}\n")
+    return config
+
+
+def _render_logging(root, body: str):
+    """A render under ``root`` whose ``logging:`` section is ``body`` (indented lines)."""
+    (root / "build").mkdir(parents=True)
+    config = root / "build" / "config.yml"
+    config.write_text("logging:\n" + body)
+    return config
+
+
+class _Collected(logging.Handler):
+    """Keeps every record it is handed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+class TestLoggingSettingsFollowTheConfig:
+    """The handler reads the config this process resolves, and says so when it cannot."""
+
+    @pytest.fixture(autouse=True)
+    def _no_ambient_config(self, monkeypatch):
+        for name in ("OSPREY_CONFIG", "CONFIG_FILE"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setattr(
+            osprey_connectors.logger, "_settings_warning_given", False, raising=False
+        )
+
+    @pytest.fixture
+    def collected(self):
+        handler = _Collected()
+        logging.getLogger().addHandler(handler)
+        return handler
+
+    def test_a_render_root_with_build_config_is_honoured(self, tmp_path, monkeypatch):
+        _render_root(tmp_path, rich_tracebacks=False)
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        assert _rich_handlers()[0].rich_tracebacks is False
+
+    def test_a_later_call_applies_the_config_the_process_has_since_resolved(
+        self, tmp_path, monkeypatch
+    ):
+        """An entry point configures logging before it knows its deployment; once
+        it has published the render, a second call applies that render's settings
+        to the handler already installed."""
+        config = _render_root(tmp_path / "repo", rich_tracebacks=False)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        configure_logging()
+        (handler,) = _rich_handlers()
+        assert handler.rich_tracebacks is True
+
+        monkeypatch.setenv("OSPREY_CONFIG", str(config))
+        configure_logging()
+
+        assert _rich_handlers() == [handler]
+        assert handler.rich_tracebacks is False
+
+    def test_a_handler_someone_else_installed_keeps_its_settings(self, tmp_path, monkeypatch):
+        _render_root(tmp_path, rich_tracebacks=False)
+        monkeypatch.chdir(tmp_path)
+        foreign = RichHandler(rich_tracebacks=True)
+        logging.getLogger().addHandler(foreign)
+
+        configure_logging()
+
+        assert foreign.rich_tracebacks is True
+
+    def test_settings_that_cannot_be_read_are_warned_about_once(self, monkeypatch, collected):
+        def boom(*args, **kwargs):
+            raise RuntimeError("config unavailable")
+
+        monkeypatch.setattr("osprey_connectors.logger.get_config_value", boom)
+
+        configure_logging()
+        configure_logging()
+
+        warnings = [r for r in collected.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "RuntimeError: config unavailable" in warnings[0].getMessage()
+        assert _rich_handlers()[0].rich_tracebacks is True
+
+    def test_switches_spelled_off_as_text_read_as_off(self, tmp_path, monkeypatch):
+        """A quoted ``"false"`` or a ``${VAR:-false}`` reaches the reader as text;
+        ``bool("false")`` would turn traceback locals ON."""
+        monkeypatch.delenv("OSPREY_TEST_UNSET_SHOW_PATHS", raising=False)
+        _render_logging(
+            tmp_path,
+            '  rich_tracebacks: "false"\n'
+            '  show_traceback_locals: "false"\n'
+            '  show_full_paths: "${OSPREY_TEST_UNSET_SHOW_PATHS:-false}"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        (handler,) = _rich_handlers()
+        assert handler.rich_tracebacks is False
+        assert handler.tracebacks_show_locals is False
+        assert handler._log_render.show_path is False
+
+    def test_switches_spelled_on_as_text_read_as_on(self, tmp_path, monkeypatch):
+        _render_logging(
+            tmp_path,
+            '  rich_tracebacks: "yes"\n  show_traceback_locals: "true"\n  show_full_paths: "on"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        (handler,) = _rich_handlers()
+        assert handler.rich_tracebacks is True
+        assert handler.tracebacks_show_locals is True
+        assert handler._log_render.show_path is True
+
+    def test_a_switch_spelling_neither_on_nor_off_falls_back_to_the_safe_defaults(
+        self, tmp_path, monkeypatch, collected
+    ):
+        """Start-up does not fail over a logging key: the handler renders by the
+        defaults, locals hidden and short paths, and the operator is told which key."""
+        _render_logging(tmp_path, '  show_traceback_locals: "maybe"\n  show_full_paths: "true"\n')
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        (handler,) = _rich_handlers()
+        assert handler.tracebacks_show_locals is False
+        assert handler._log_render.show_path is False
+        warnings = [r for r in collected.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "logging.show_traceback_locals" in warnings[0].getMessage()
+
+    def test_absent_switches_keep_their_defaults(self, tmp_path, monkeypatch):
+        _render_logging(tmp_path, "  level: INFO\n")
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        (handler,) = _rich_handlers()
+        assert handler.rich_tracebacks is True
+        assert handler.tracebacks_show_locals is False
+        assert handler._log_render.show_path is False
+
+    def test_a_named_config_that_does_not_exist_is_warned_about(
+        self, tmp_path, monkeypatch, collected
+    ):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+
+        configure_logging()
+
+        assert [r.levelno for r in collected.records] == [logging.WARNING]
+
+    def test_a_directory_with_no_config_is_not_a_warning(self, tmp_path, monkeypatch, collected):
+        """A command run outside any deployment has no settings to miss."""
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        assert collected.records == []
+        assert _rich_handlers()[0].rich_tracebacks is True
+
+
 class TestAdditiveSemantics:
     def test_foreign_handlers_survive(self):
         root = logging.getLogger()

@@ -30,7 +30,6 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
 
 from osprey_connectors.simulation.view import READBACK, SETPOINT
 
@@ -54,12 +53,12 @@ _FLOAT = "float"
 _UNDEFINED = "udf"
 
 
-def _snapshot(value_type: str, snapshot: Any) -> Any:
+def _snapshot(value_type: str, snapshot: object) -> object:
     del value_type
     return snapshot
 
 
-def _not_a_number(value_type: str, snapshot: Any) -> Any:
+def _not_a_number(value_type: str, snapshot: object) -> object:
     return math.nan if value_type == _FLOAT else snapshot
 
 
@@ -79,7 +78,7 @@ class ChannelFault:
 
     roles: frozenset[str]
     write: bool
-    read: Callable[[str, Any], Any] | None
+    read: Callable[[str, object], object] | None
     severity: str | None
 
 

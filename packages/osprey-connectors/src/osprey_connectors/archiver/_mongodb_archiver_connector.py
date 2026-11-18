@@ -8,17 +8,21 @@ collection named by ``waveform_collection``, one document per (channel, instant)
 of the same shape, and every read covers both.
 """
 
+from __future__ import annotations
+
 import asyncio
 import os
 import urllib.parse
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, TypeGuard
 
 import pandas as pd
+from typing_extensions import override
 
-from osprey_connectors.archiver._base import ArchiverConnector, ArchiverMetadata
-from osprey_connectors.archiver._field_names import field_name
+from osprey_connectors._contract_types import ContractAny
+from osprey_connectors.archiver._base import ArchiveExtent, ArchiverConnector, ArchiverMetadata
+from osprey_connectors.archiver._field_names import _RESERVED_FIELDS, _address_of, field_name
 from osprey_connectors.archiver._mongo_client import (
     CA_FILE_ERRORS,
     address_overrides,
@@ -26,6 +30,7 @@ from osprey_connectors.archiver._mongo_client import (
 )
 from osprey_connectors.archiver._timerange import (
     Processing,
+    SampleSeries,
     aggregate_series,
     long_frame,
     resolve_processing,
@@ -35,6 +40,13 @@ from osprey_connectors.connection import read_connection_settings
 from osprey_connectors.errors import ConnectorUnavailableError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation.archive import waveform_collection
+
+if TYPE_CHECKING:
+    from pymongo import MongoClient
+    from pymongo.collection import Collection
+
+#: A stored document as pymongo decodes it: each field holds any BSON value.
+_Document = dict[str, object]
 
 logger = get_logger("mongodb_archiver_connector")
 
@@ -81,6 +93,11 @@ _VERIFY_OFF_OPTIONS = frozenset(
 )
 
 _ROUTE_LOGGED = False
+
+
+def _is_mapping(value: object) -> TypeGuard[Mapping[object, object]]:
+    """Whether a config value is a mapping, keys and values unvalidated."""
+    return isinstance(value, Mapping)
 
 
 def check_mongo_url(url: str, *, key: str) -> None:
@@ -173,23 +190,23 @@ class MongoDBArchiverConnector(ArchiverConnector):
         >>> )
     """
 
-    # pymongo exception classes, bound by connect(). Declared here so every
-    # method can reference them on a connector that never completed a connect()
-    # — including the stub connectors tests wire up by hand.
-    _MongoClient = None
-    _ConnectionFailure = None
-    _ConfigurationError = None
+    # pymongo's connection-failure class, bound by connect(). Declared here so
+    # every method can reference it on a connector that never completed a
+    # connect() — including the stub connectors tests wire up by hand.
+    _ConnectionFailure: type[Exception] | None = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._connected = False
-        self._client = None
-        self._collection = None
+        self._client: MongoClient[_Document] | None = None
+        self._collection: Collection[_Document] | None = None
         # The waveform sibling of ``_collection``; None on a connector wired to
         # a single collection, which then reads scalars only.
-        self._waveforms = None
+        self._waveforms: Collection[_Document] | None = None
         self._timeout: float = 60
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    # The config block is the archiver extension contract; this backend reads its keys unchecked.
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Initialize MongoDB connection.
 
@@ -228,17 +245,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
             from pymongo import MongoClient
             from pymongo.errors import ConfigurationError, ConnectionFailure
 
-            # Store classes in self for lazy import pattern:
-            # 1. Allows module import even if pymongo isn't installed (fails only when connect() is called)
-            # 2. Makes classes available in exception handlers (import scope is local to this method)
-            # 3. Enables reuse in other methods if needed
-            self._MongoClient = MongoClient
+            # Imported here, not at module scope, so the module imports without
+            # pymongo; the failure class is kept for get_data's handler, which
+            # runs outside this method.
             self._ConnectionFailure = ConnectionFailure
-            self._ConfigurationError = ConfigurationError
         except ImportError as e:
             raise ImportError(PYMONGO_INSTALL_HINT) from e
 
-        raw_url = config.get("url")
+        raw_url: object = config.get("url")
         if raw_url is not None and not isinstance(raw_url, str):
             raise ValueError(f"`{_WHERE}.url` must be a string")
         url = raw_url if raw_url and raw_url.strip() else None
@@ -269,7 +283,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             raise ValueError("collection is required for MongoDB archiver")
 
         auth = config.get("auth")
-        auth_block = auth if isinstance(auth, Mapping) else {}
+        auth_block: Mapping[object, object] = auth if _is_mapping(auth) else {}
         if url is None:
             # No literal fallback, and deliberately not one. For a store this
             # deployment publishes, the host port is its ``mongo`` layout slot —
@@ -338,7 +352,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         _log_route_once(url is not None, store)
 
         try:
-            client = self._MongoClient(
+            client: MongoClient[_Document] = MongoClient(
                 **mongo_client_kwargs(
                     url=url,
                     host=host,
@@ -353,7 +367,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             self._client = client
 
             # Test connection
-            def test_connection():
+            def test_connection() -> None:
                 client.admin.command("ping")
 
             await asyncio.to_thread(test_connection)
@@ -367,12 +381,12 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 f"MongoDB Archiver connector initialized: {store}/{db_name}.{collection_name}"
             )
 
-        except self._ConnectionFailure as e:
+        except ConnectionFailure as e:
             raise ConnectorUnavailableError(
                 f"Cannot connect to MongoDB at {store}. "
                 f"Please check connectivity and authentication. {DEPLOY_HINT}"
             ) from e
-        except self._ConfigurationError as e:
+        except ConfigurationError as e:
             raise ConnectorUnavailableError(f"MongoDB configuration error: {e}") from e
         except (TimeoutError, OSError) as e:
             # pymongo loads the CA file while it builds the client, before any ping.
@@ -387,13 +401,14 @@ class MongoDBArchiverConnector(ArchiverConnector):
             logger.error(f"Unexpected error connecting to MongoDB: {e}", exc_info=True)
             raise ConnectorUnavailableError(f"MongoDB connection failed: {e}. {DEPLOY_HINT}") from e
 
+    @override
     async def disconnect(self) -> None:
         """Cleanup MongoDB connection."""
         client = self._client
         if client:
             try:
 
-                def close_connection():
+                def close_connection() -> None:
                     client.close()
 
                 await asyncio.to_thread(close_connection)
@@ -428,13 +443,20 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if not self._connected or self._collection is None:
             raise RuntimeError("MongoDB archiver not connected")
 
-    def _stores(self) -> tuple[Any, ...]:
-        """Every collection a read covers: the snapshots, then the waveform sibling."""
-        if self._waveforms is None:
-            return (self._collection,)
-        return (self._collection, self._waveforms)
+    def _stores(self) -> tuple[Collection[_Document], ...]:
+        """Every collection a read covers: the snapshots, then the waveform sibling.
 
-    def _refuse_aggregated_waveforms(self, fields: Mapping[str, str], resolved: Processing):
+        Raises:
+            RuntimeError: If the connector holds no collection.
+        """
+        collection = self._collection
+        if collection is None:
+            raise RuntimeError("MongoDB archiver not connected")
+        if self._waveforms is None:
+            return (collection,)
+        return (collection, self._waveforms)
+
+    def _refuse_aggregated_waveforms(self, fields: Mapping[str, str], resolved: Processing) -> None:
         """Refuse a non-raw mode on any requested channel the waveform store holds.
 
         Asked of the whole store, not of the window: a waveform channel stays one
@@ -452,6 +474,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                     f"{channel!r}: only processing='raw' is defined for waveforms"
                 )
 
+    @override
     async def get_data(
         self,
         channels: list[str],
@@ -501,7 +524,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         resolved = resolve_processing(processing, precision_ms, start_utc)
 
-        def fetch_data():
+        def fetch_data() -> pd.DataFrame:
             """Synchronous data fetch function."""
             fields = {channel: field_name(channel) for channel in channels}
             # Match any document carrying at least one requested channel: ANDing
@@ -518,8 +541,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
             # Group documents into one series per requested channel. A channel absent
             # from a given document contributes no sample for that channel.
-            timestamps: dict[str, list] = {channel: [] for channel in channels}
-            values: dict[str, list] = {channel: [] for channel in channels}
+            timestamps: dict[str, list[datetime]] = {channel: [] for channel in channels}
+            values: dict[str, list[object]] = {channel: [] for channel in channels}
             traced: set[str] = set()
             found = 0
             for store in self._stores():
@@ -527,13 +550,15 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 for doc in store.find(query, projection).sort("date", 1):
                     found += 1
                     doc_date = doc.get("date")
-                    if doc_date is None:
-                        logger.warning("Document missing 'date' field, skipping")
+                    if not isinstance(doc_date, datetime):
+                        logger.warning("Document missing a datetime 'date' field, skipping")
                         continue
                     for channel, field in fields.items():
                         if field in doc:
                             value = doc[field]
                             if is_waveform_store:
+                                if not isinstance(value, list):
+                                    raise TypeError(f"no trace stored for waveform {channel!r}")
                                 traced.add(channel)
                                 value = [float(x) for x in value]
                             timestamps[channel].append(doc_date)
@@ -542,7 +567,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             if not found:
                 logger.debug(f"No documents found in date range {start_date} to {end_date}")
 
-            series: dict[str, pd.Series] = {}
+            series: dict[str, SampleSeries] = {}
             for channel in channels:
                 s = pd.Series(
                     values[channel],
@@ -586,6 +611,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             logger.error(f"Unexpected error retrieving data: {e}", exc_info=True)
             raise ValueError(f"Error retrieving data from MongoDB: {e}") from e
 
+    @override
     async def get_metadata(self, channel: str) -> ArchiverMetadata:
         """
         Get archiving metadata for a channel.
@@ -602,38 +628,47 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         Returns:
             ArchiverMetadata; ``is_archived`` is False and both bounds are None
-            when the channel has no stored samples or the store cannot be queried.
-            The bounds span the snapshot collection and its waveform sibling, so
-            a waveform-only channel is found.
+            when the channel has no stored samples, and ``None`` with the reason
+            in ``description`` when the store cannot be queried. The bounds span
+            the snapshot collection and its waveform sibling, so a waveform-only
+            channel is found.
 
         Raises:
             RuntimeError: If archiver not connected
         """
         self._require_connected()
 
-        def stored_extent():
-            """Timestamps of the oldest and newest documents carrying this channel."""
+        def stored_extent() -> tuple[datetime | None, datetime | None]:
+            """Timestamps of the oldest and newest documents carrying this channel.
+
+            A ``date`` that is not a datetime counts as none, as ``get_data`` skips it.
+            """
             # Sorting on 'date' rides the mandatory {date: 1} index, so this is
             # two index-ordered lookups rather than a collection scan.
             query = {field_name(channel): {"$exists": True}}
             projection = {"date": 1}
-            firsts, lasts = [], []
+            firsts: list[datetime] = []
+            lasts: list[datetime] = []
             for store in self._stores():
                 oldest = store.find_one(query, projection, sort=[("date", 1)])
                 if oldest is None:
                     continue
                 newest = store.find_one(query, projection, sort=[("date", -1)])
-                if oldest.get("date") is not None:
-                    firsts.append(oldest["date"])
-                if (newest or {}).get("date") is not None:
-                    lasts.append(newest["date"])
+                if isinstance(oldest_at := oldest.get("date"), datetime):
+                    firsts.append(oldest_at)
+                if isinstance(newest_at := (newest or {}).get("date"), datetime):
+                    lasts.append(newest_at)
             return min(firsts, default=None), max(lasts, default=None)
 
         try:
             first, last = await asyncio.to_thread(stored_extent)
         except Exception as e:
             logger.warning(f"Error checking channel metadata: {e}")
-            first = last = None
+            return ArchiverMetadata(
+                channel=channel,
+                is_archived=None,
+                description=f"the MongoDB archive could not be read: {type(e).__name__}",
+            )
 
         return ArchiverMetadata(
             channel=channel,
@@ -643,14 +678,15 @@ class MongoDBArchiverConnector(ArchiverConnector):
             description=f"MongoDB archived channel: {channel}",
         )
 
-    async def check_availability(self, channels: list[str]) -> dict[str, bool]:
+    @override
+    async def check_availability(self, channels: list[str]) -> dict[str, bool | None]:
         """
         Check which channels are archived in the MongoDB collection or its
         waveform sibling.
 
-        A read that fails part-way reports every channel as not archived rather
-        than raising: availability is a question the store could not answer, not
-        a fault to surface to the caller.
+        A read that fails part-way reports every channel as unknown (``None``)
+        rather than raising: availability is a question the store could not
+        answer, not a fault to surface to the caller.
 
         Args:
             channels: Channel addresses to check
@@ -674,10 +710,58 @@ class MongoDBArchiverConnector(ArchiverConnector):
             return availability
 
         try:
-            availability = await asyncio.to_thread(check_channels)
+            return dict(await asyncio.to_thread(check_channels))
         except Exception as e:
             logger.warning(f"Error checking channel availability: {e}")
-            # Return all False on error
-            availability = dict.fromkeys(channels, False)
+            return dict[str, bool | None].fromkeys(channels, None)
 
-        return availability
+    @override
+    async def store_extent(self) -> ArchiveExtent:
+        """The channels the store records now, and its oldest and newest sample.
+
+        ``channels`` is every channel field of the newest documents of the
+        snapshot collection and of its waveform sibling (a waveform document
+        holds one channel, so every document at the sibling's newest instant is
+        read). ``oldest`` and ``newest`` span both collections. Four or more
+        index-ordered reads on ``date``; never a collection scan.
+
+        Returns:
+            The extent; every part ``None`` and a ``reason`` when the store
+            cannot be read.
+
+        Raises:
+            RuntimeError: If archiver not connected
+        """
+        self._require_connected()
+
+        def read_extent() -> ArchiveExtent:
+            channels: set[str] = set()
+            oldest: list[datetime] = []
+            newest: list[datetime] = []
+            for store in self._stores():
+                first = store.find_one({}, {"date": 1}, sort=[("date", 1)])
+                last = store.find_one({}, {"date": 1}, sort=[("date", -1)])
+                if first is None or last is None:
+                    continue
+                if not isinstance(last_at := last.get("date"), datetime):
+                    continue
+                if isinstance(first_at := first.get("date"), datetime):
+                    oldest.append(first_at)
+                newest.append(last_at)
+                for document in store.find({"date": last_at}):
+                    channels.update(
+                        _address_of(field) for field in document if field not in _RESERVED_FIELDS
+                    )
+            return ArchiveExtent(
+                channels=frozenset(channels),
+                oldest=min(oldest, default=None),
+                newest=max(newest, default=None),
+            )
+
+        try:
+            return await asyncio.to_thread(read_extent)
+        except Exception as e:
+            logger.warning(f"Error reading the archive's extent: {e}")
+            return ArchiveExtent(
+                reason=f"the MongoDB archive could not be read: {type(e).__name__}"
+            )

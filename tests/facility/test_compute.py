@@ -19,6 +19,7 @@ from osprey.facility.build import (
 )
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.validate import StageReport, run_stages, validate
+from osprey.facility.views.simulator import ioc_health_addresses
 
 QUAD = "Quadrupole"
 BPM = "BeamPositionMonitor"
@@ -625,6 +626,30 @@ class TestModelConflicts:
         files = _tree()
         files["records/channels.yaml"].append({"id": "p:SIM:SR:STATUS"})
         assert _stops(tmp_path, files) == [("model-conflict", "channel", "p:SIM:SR:STATUS")]
+
+    @pytest.mark.parametrize("model", ["SR", "texture"])
+    @pytest.mark.parametrize("signal", ["HEARTBEAT", "UPTIME", "ENGINEER"])
+    def test_a_channel_on_an_ioc_health_address(self, tmp_path, model, signal):
+        address = f"p:SIM:{model}:{signal}"
+        files = _tree()
+        files["records/channels.yaml"].append({"id": address})
+        assert _stops(tmp_path, files) == [("model-conflict", "channel", address)]
+
+    def test_every_ioc_health_address_is_guarded(self, tmp_path):
+        files = _tree()
+        files["records/channels.yaml"].extend(
+            {"id": address} for address in ioc_health_addresses("p", "SR")
+        )
+        stopped = _stops(tmp_path, files)
+        assert {code for code, _, _ in stopped} == {"model-conflict"}
+        assert sorted(address for _, _, address in stopped) == sorted(
+            ioc_health_addresses("p", "SR")
+        )
+
+    def test_a_channel_on_another_signal_of_a_model_builds(self, tmp_path):
+        files = _tree()
+        files["records/channels.yaml"].append({"id": "p:SIM:SR:OTHER"})
+        assert "p:SIM:SR:OTHER" in {c["id"] for c in _ok(tmp_path, files)["channels"]}
 
     def test_texture_is_listed_last(self, tmp_path):
         document = _ok(tmp_path, _tree())

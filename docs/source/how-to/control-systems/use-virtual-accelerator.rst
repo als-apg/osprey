@@ -79,8 +79,10 @@ which the compose file mounts at ``/data/simulator/``.
 
 The container serves the ``channels`` of the view's ``addresses.json``, which
 holds every channel address the facility declares. It also serves one
-``<code>:SIM:<model>:STATUS`` channel for each served physics model. Its ready
-line in ``docker logs`` prints the count.
+``<code>:SIM:<model>:STATUS`` channel for each served physics model, and the
+read-only ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER`` IOC
+health channels for every served model. Its ready line in ``docker logs``
+prints the count.
 
 Nothing is invented, and no other channel list feeds the set:
 

@@ -268,7 +268,7 @@ def _get_caller_info(skip_frames: int = 2) -> dict[str, Any]:
         # Try to make filename relative to project root for readability
         try:
             project_root = get_config_value("project_root", None)
-            if project_root:
+            if project_root and isinstance(project_root, str | Path):
                 caller_info["filename"] = str(Path(caller_frame.filename).relative_to(project_root))
         except (ValueError, TypeError):
             # Keep absolute path if we can't make it relative
@@ -441,6 +441,14 @@ def log_api_call(
     """
     try:
         development_config = get_config_value("development", {})
+        if not isinstance(development_config, dict):
+            # An empty ``development:`` reads as None: nothing asked to record.
+            if development_config is not None:
+                logger.warning(
+                    "Not recording API calls: development must be a mapping, got "
+                    f"{type(development_config).__name__}"
+                )
+            return
         api_calls_config = development_config.get("api_calls", {})
 
         if not api_calls_config.get("save_all", False) or record_writer.record_off():

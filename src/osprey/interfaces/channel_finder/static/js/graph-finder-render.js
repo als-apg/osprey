@@ -681,6 +681,7 @@ export const FINDER_IDS = Object.freeze({
   card: 'graph-finder-card',
   cardSplit: 'graph-finder-card-split',
   table: 'graph-finder-table',
+  bridge: 'graph-finder-bridge',
 });
 
 /**
@@ -688,7 +689,8 @@ export const FINDER_IDS = Object.freeze({
  * closed until panel-sidebar.js opens it) and its handle, then the main
  * column: the results with the active filters above them, and under them
  * the device inspector behind its own horizontal handle, so an open device
- * reads as one wide row while the results keep scrolling above it. The
+ * reads as one wide row while the results keep scrolling above it. Under the
+ * results sits the line to All PVs (curated-bridge.js), empty without it. The
  * search field, the result count and the sidebar toggle are the panel
  * toolbar's (index.html), which outlives this skeleton.
  * @returns {string} Markup for the panes and the regions inside them.
@@ -705,6 +707,7 @@ export function skeletonHtml() {
           <div class="active-filters" id="${FINDER_IDS.chips}"></div>
           <div id="${FINDER_IDS.caution}"></div>
           <div class="finder-table" id="${FINDER_IDS.table}"></div>
+          <div id="${FINDER_IDS.bridge}"></div>
         </div>
         <div class="osprey-splitter" id="${FINDER_IDS.cardSplit}" role="separator" aria-orientation="horizontal"
              aria-label="Resize the device inspector" tabindex="0" hidden></div>

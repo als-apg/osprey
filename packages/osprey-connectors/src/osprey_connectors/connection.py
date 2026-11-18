@@ -40,7 +40,9 @@ import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
+
+from typing_extensions import override
 
 __all__ = [
     "ConnectionSettings",
@@ -131,11 +133,6 @@ class ConnectionSettings:
     login: Login | None = None
     ca_bundle: Path | None = None
 
-    @property
-    def credential_env_names(self) -> tuple[str, ...]:
-        """The environment variables the login's secret is read from; ``()`` without one."""
-        return self.login.env_names if self.login else ()
-
     def timeout_or(self, default: float) -> float:
         """The configured bound, or ``default`` when the block sets none."""
         return self.timeout_s if self.timeout_s is not None else default
@@ -192,7 +189,7 @@ class ConnectionSettings:
 
 
 def read_connection_settings(
-    block: Mapping[str, Any] | None,
+    block: Mapping[str, object] | None,
     *,
     where: str,
     logins: frozenset[LoginKind] = _ALL_LOGINS,
@@ -244,8 +241,8 @@ def read_connection_settings(
 
 
 def read_credential_env_names(
-    block: Mapping[str, Any] | None, *, where: str
-) -> tuple[tuple[str, Any], ...]:
+    block: Mapping[str, object] | None, *, where: str
+) -> tuple[tuple[str, object], ...]:
     """The credential variables a block names under ``auth:``, with the key naming each.
 
     Returns ``(dotted key, name as written)`` pairs, ``auth.token_env`` before
@@ -277,7 +274,7 @@ def read_credential_env_names(
     return tuple((f"auth.{key}", auth[key]) for key in ("token_env", "password_env") if key in auth)
 
 
-def read_ca_bundle(block: Mapping[str, Any] | None, *, where: str) -> Path | None:
+def read_ca_bundle(block: Mapping[str, object] | None, *, where: str) -> Path | None:
     """The CA file a block names under ``tls.ca_bundle``, as the connector will open it.
 
     The path follows the rules :func:`read_connection_settings` applies: it must
@@ -302,7 +299,7 @@ def read_ca_bundle(block: Mapping[str, Any] | None, *, where: str) -> Path | Non
     return _read_tls(block.get("tls"), where, True, "")
 
 
-def _read_url(value: Any, where: str) -> str | None:
+def _read_url(value: object, where: str) -> str | None:
     # A blank url reads as unset, so the consumer's own "url is required" applies.
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
@@ -317,7 +314,7 @@ def _read_url(value: Any, where: str) -> str | None:
     return value
 
 
-def _read_timeout(value: Any, where: str) -> float | None:
+def _read_timeout(value: object, where: str) -> float | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
@@ -326,7 +323,7 @@ def _read_timeout(value: Any, where: str) -> float | None:
 
 
 def _read_auth(
-    value: Any,
+    value: object,
     where: str,
     logins: frozenset[LoginKind],
     unsupported_because: str,
@@ -378,7 +375,7 @@ def _read_auth(
     return Login(kind="password", username=username, password_env=value["password_env"])
 
 
-def _read_tls(value: Any, where: str, tls: bool, unsupported_because: str) -> Path | None:
+def _read_tls(value: object, where: str, tls: bool, unsupported_because: str) -> Path | None:
     if value is None:
         return None
     key = f"`{where}.tls`"
@@ -428,6 +425,7 @@ class _OriginAuthorization(urllib.request.BaseHandler):
         self._origin = _origin(url)
         self._value = value
 
+    @override
     def __repr__(self) -> str:
         scheme, host, port = self._origin
         return f"<_OriginAuthorization {scheme}://{host}:{port}>"

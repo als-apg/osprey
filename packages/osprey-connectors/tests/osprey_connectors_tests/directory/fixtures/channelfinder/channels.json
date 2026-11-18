@@ -1,0 +1,34 @@
+[
+  {
+    "name": "DEMO:RF1:CAV:Temp-I",
+    "owner": "recceiver",
+    "properties": [
+      {"name": "iocName", "owner": "cfstore", "value": "rf1-cav", "channels": []},
+      {"name": "hostName", "owner": "cfstore", "value": "ioc-rf1.demo.lab", "channels": []},
+      {"name": "iocid", "owner": "cfstore", "value": "10.0.4.21:41812", "channels": []},
+      {"name": "iocIP", "owner": "cfstore", "value": "10.0.4.21", "channels": []},
+      {"name": "pvStatus", "owner": "cfstore", "value": "Active", "channels": []},
+      {"name": "time", "owner": "cfstore", "value": "2026-10-30 08:12:44.501223", "channels": []},
+      {"name": "recceiverID", "owner": "cfstore", "value": "recsync-1.demo.lab", "channels": []},
+      {"name": "recordType", "owner": "cfstore", "value": "ai", "channels": []},
+      {"name": "recordDesc", "owner": "cfstore", "value": "Cavity 1 cooling water temperature", "channels": []},
+      {"name": "caPort", "owner": "cfstore", "value": "5064", "channels": []},
+      {"name": "Engineer", "owner": "cfstore", "value": "rf-group", "channels": []}
+    ],
+    "tags": []
+  },
+  {
+    "name": "DEMO:RF2:CAV:Temp-I",
+    "owner": "recceiver",
+    "properties": [
+      {"name": "iocName", "owner": "cfstore", "value": "rf2-cav", "channels": []},
+      {"name": "hostName", "owner": "cfstore", "value": "ioc-rf2.demo.lab", "channels": []},
+      {"name": "pvStatus", "owner": "cfstore", "value": "Inactive", "channels": []},
+      {"name": "time", "owner": "cfstore", "value": "2026-10-29 03:12:01.000410", "channels": []},
+      {"name": "recordType", "owner": "cfstore", "value": "ai", "channels": []},
+      {"name": "recordDesc", "owner": "cfstore", "value": "Cavity 2 cooling water temperature", "channels": []},
+      {"name": "alias", "owner": "cfstore", "value": "DEMO:RF2:Temp", "channels": []}
+    ],
+    "tags": [{"name": "archived", "owner": "cfstore", "channels": []}]
+  }
+]

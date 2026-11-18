@@ -572,9 +572,10 @@ class PanelGraph:
         for claim in records.document.get("relations") or ():
             if not isinstance(claim, Mapping) or claim.get("standing") == "superseded":
                 continue
-            ends = [claim.get("subject"), claim.get("object")]
-            if not all(isinstance(end, Mapping) for end in ends):
+            subject, obj = claim.get("subject"), claim.get("object")
+            if not (isinstance(subject, Mapping) and isinstance(obj, Mapping)):
                 continue
+            ends: list[Mapping[str, Any]] = [subject, obj]
             keys = [end_identity(end) for end in ends]
             if any(key is None or key not in self._things for key in keys):
                 continue

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 # SDK import — keep module importable even when SDK is absent.
 try:
-    from claude_agent_sdk import ClaudeSDKClient, ClaudeSDKError
+    from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, ClaudeSDKError, SystemMessage
 
     HAS_SDK = True
 except ImportError:
@@ -131,8 +131,14 @@ class AgentSession:
         self._max_budget_usd = max_budget_usd
         self.mcp_servers: list[Any] = mcp_servers if mcp_servers is not None else []
         self.turns: list[TurnResult] = []
+        self._model: str | None = None
         self._cumulative_cost: float = 0.0
         self._process: Any = self._transport_process()
+
+    @property
+    def model(self) -> str | None:
+        """The model the agent answers with, as the CLI reports it; ``None`` before it has."""
+        return self._model
 
     @property
     def total_cost_usd(self) -> float:
@@ -204,6 +210,7 @@ class AgentSession:
         pending: dict[str, ToolTrace] = {}
         try:
             async for message in self._client.receive_response():
+                self._note_model(message)
                 for event in translate_message(message):
                     _record_event(event, text_blocks, tool_traces, pending)
                     if isinstance(event, SystemEvent):
@@ -213,6 +220,27 @@ class AgentSession:
                     yield event
         except ClaudeSDKError as exc:
             raise from_sdk_error(exc) from exc
+
+    def _note_model(self, message: object) -> None:
+        """Keep the model *message* reports, for :attr:`model`.
+
+        An ``init`` message names the model the response runs on. A main-agent
+        message names it too, and is read only while no model is known, so a
+        child whose ``init`` names none is still known by its first answer.
+        """
+        if not HAS_SDK:
+            return
+        if isinstance(message, SystemMessage) and message.subtype == "init":
+            model = message.data.get("model")
+            if isinstance(model, str) and model:
+                self._model = model
+        elif (
+            isinstance(message, AssistantMessage)
+            and self._model is None
+            and message.parent_tool_use_id is None
+            and message.model
+        ):
+            self._model = message.model
 
     def _record_turn(
         self,

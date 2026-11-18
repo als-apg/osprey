@@ -18,10 +18,10 @@ import copy
 import pytest
 
 from osprey_connectors.archive_targets import (
-    _APPLIANCE_TARGETS,
     _NO_TARGETS,
     _STORE_ARCHIVERS,
     _STORE_TARGETS,
+    APPLIANCE_TARGETS,
     archive_targets,
     archive_withheld,
 )
@@ -80,13 +80,13 @@ class TestTheTargetSets:
     """The three answers, spelled once and never overlapping."""
 
     def test_the_appliance_serves_the_real_machine_and_its_rehearsal(self) -> None:
-        assert _APPLIANCE_TARGETS == {TARGET_LIVE, TARGET_STANDIN}
+        assert APPLIANCE_TARGETS == {TARGET_LIVE, TARGET_STANDIN}
 
     def test_the_store_serves_the_virtual_accelerator(self) -> None:
         assert _STORE_TARGETS == {TARGET_VA}
 
     def test_no_target_is_served_by_both(self) -> None:
-        assert not _APPLIANCE_TARGETS & _STORE_TARGETS
+        assert not APPLIANCE_TARGETS & _STORE_TARGETS
         assert _NO_TARGETS == frozenset()
 
 
@@ -96,16 +96,16 @@ class TestTheAppliance:
     @SPELLINGS
     def test_on_the_facilitys_own_deployment(self, legacy: bool) -> None:
         archiver = block(EPICS_ARCHIVER, {"url": APPLIANCE_URL}, legacy=legacy)
-        assert archive_targets(facility_config(archiver)) == _APPLIANCE_TARGETS
+        assert archive_targets(facility_config(archiver)) == APPLIANCE_TARGETS
 
     @SPELLINGS
     def test_on_any_deployment_whatever_it_stood_up(self, legacy: bool) -> None:
         """An appliance is never the simulation's; the control system does not matter."""
         archiver = block(EPICS_ARCHIVER, {"url": APPLIANCE_URL}, legacy=legacy)
-        assert archive_targets(standin_config(archiver)) == _APPLIANCE_TARGETS
-        assert archive_targets(va_config(archiver)) == _APPLIANCE_TARGETS
+        assert archive_targets(standin_config(archiver)) == APPLIANCE_TARGETS
+        assert archive_targets(va_config(archiver)) == APPLIANCE_TARGETS
         assert archive_targets(facility_config(archiver, control_type="mock")) == (
-            _APPLIANCE_TARGETS
+            APPLIANCE_TARGETS
         )
 
     def test_the_stand_in_is_shown_the_real_machines_past(self) -> None:
@@ -140,8 +140,8 @@ class TestTheFacilitysOtherArchives:
         """Their connectors find the server without a setting (the client
         library's ``myquery_server``, the name service), so the block names one."""
         archiver = block(archiver_type, {}, legacy=legacy)
-        assert archive_targets(facility_config(archiver)) == _APPLIANCE_TARGETS
-        assert archive_targets(standin_config(archiver)) == _APPLIANCE_TARGETS
+        assert archive_targets(facility_config(archiver)) == APPLIANCE_TARGETS
+        assert archive_targets(standin_config(archiver)) == APPLIANCE_TARGETS
 
     @pytest.mark.parametrize("archiver_type", [MYA_ARCHIVER, DOOCS_ARCHIVER])
     def test_beside_a_simulator_they_are_withheld_from_it(self, archiver_type: str) -> None:
@@ -154,11 +154,11 @@ class TestTheFacilitysOtherArchives:
 
     def test_mya_with_its_own_server_setting(self) -> None:
         archiver = block(MYA_ARCHIVER, {"myquery_server": "epicsweb.example.org"})
-        assert archive_targets(va_config(archiver)) == _APPLIANCE_TARGETS
+        assert archive_targets(va_config(archiver)) == APPLIANCE_TARGETS
 
     def test_an_unknown_type_naming_a_url(self) -> None:
         archiver = block("sql_archiver", {"url": APPLIANCE_URL})
-        assert archive_targets(va_config(archiver)) == _APPLIANCE_TARGETS
+        assert archive_targets(va_config(archiver)) == APPLIANCE_TARGETS
 
     def test_an_unknown_type_naming_no_url(self) -> None:
         assert archive_targets(va_config(block("sql_archiver", {}))) == _NO_TARGETS

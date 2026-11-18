@@ -20,12 +20,19 @@ import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from starlette.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    Response,
+    StreamingResponse,
+)
 
 from osprey.dispatch.agent_time import agent_json
 from osprey.dispatch.clock_schedule import next_fire
@@ -42,7 +49,9 @@ from osprey.dispatch.trigger_config import (
 from osprey.dispatch.worker_client import (
     WorkerAuthRejectedError,
     WorkerRecordUnavailableError,
+    WorkerRejectedRequestError,
     WorkerRequestError,
+    WorkerUnreachableError,
     cancel_worker_run,
     dispatch_to_worker,
     fetch_worker_runs,
@@ -50,6 +59,10 @@ from osprey.dispatch.worker_client import (
 )
 from osprey.utils.bearer import credential_bytes
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
+
+if TYPE_CHECKING:
+    from osprey.dispatch.bus.broker import WorkerBus
+    from osprey.dispatch.bus.client import BusWorkerClient
 
 logger = logging.getLogger("osprey.dispatch.server")
 
@@ -65,6 +78,10 @@ _CAPABILITIES: list[str] = ["input_files", "prior_answers"]
 # Stable for the process lifetime and different across restarts, mirroring the
 # worker's boot_nonce so a poller can detect a dispatcher restart.
 _BOOT_NONCE: float = time.time()
+
+#: The worker calls over the bus, when this dispatcher serves one (``DISPATCH_BUS_BIND``
+#: is set); ``None`` keeps them on HTTP to ``dispatch_target``. Set by ``create_server``.
+_bus_client: BusWorkerClient | None = None
 
 # Sentinel: distinguishes "no input_files threaded yet" (first call) from an
 # explicit ``None`` payload once popped, so retries reuse the already-popped batch.
@@ -178,18 +195,20 @@ async def _dispatch_with_policy(
         prompt = f"{prompt}\n\nEvent payload (JSON):\n{agent_json(payload)}"
 
     try:
-        result = await dispatch_to_worker(
-            url=dispatch_target,
-            prompt=prompt,
-            allowed_tools=allowed_tools,
-            token=dispatch_token,
-            surface_prompt=surface_prompt,
-            surface_tools=surface_tools,
-            input_files=input_files,
-            max_turns=max_turns,
-            owner=owner,
-            prior_answer_runs=prior_answer_runs,
-        )
+        request: dict[str, Any] = {
+            "prompt": prompt,
+            "allowed_tools": allowed_tools,
+            "surface_prompt": surface_prompt,
+            "surface_tools": surface_tools,
+            "input_files": input_files,
+            "max_turns": max_turns,
+            "owner": owner,
+            "prior_answer_runs": prior_answer_runs,
+        }
+        if _bus_client is not None:
+            result = await _bus_client.dispatch(**request)
+        else:
+            result = await dispatch_to_worker(url=dispatch_target, token=dispatch_token, **request)
         await registry.record_event(trigger.name, payload, "dispatched", owner=owner)
         return result
 
@@ -376,6 +395,11 @@ async def _dispatch_lifespan(_):  # FastMCP passes the app instance
     trigger_list = getattr(mcp, "_trigger_list", [])
     source_reg = getattr(mcp, "_source_registry", None)
     fire_callback = getattr(mcp, "_fire_callback", None)
+    bus: WorkerBus | None = getattr(mcp, "_worker_bus", None)
+    # The bus first, so a trigger the sources fire at once finds it bound. A
+    # fire before any worker has joined waits for one rather than failing.
+    if bus is not None:
+        await bus.start()
     # Register triggers into the registry now that a loop exists.
     if registry is not None:
         for trigger in trigger_list:
@@ -388,6 +412,8 @@ async def _dispatch_lifespan(_):  # FastMCP passes the app instance
     finally:
         if source_reg is not None:
             await source_reg.stop_all()
+        if bus is not None:
+            await bus.stop()
 
 
 mcp = FastMCP(
@@ -414,15 +440,16 @@ async def health(_request: Request) -> JSONResponse:
     pool_status = _pool.get_pool_status() if _pool else {}
     trigger_count = len(_registry._triggers) if _registry else 0
 
-    return JSONResponse(
-        {
-            "status": "ok",
-            "trigger_count": trigger_count,
-            "pool": pool_status,
-            "capabilities": _CAPABILITIES,
-            "boot_nonce": _BOOT_NONCE,
-        }
-    )
+    body: dict[str, Any] = {
+        "status": "ok",
+        "trigger_count": trigger_count,
+        "pool": pool_status,
+        "capabilities": _CAPABILITIES,
+        "boot_nonce": _BOOT_NONCE,
+    }
+    if _bus_client is not None:
+        body["workers"] = _bus_client.health()["workers"]
+    return JSONResponse(body)
 
 
 @mcp.custom_route("/dispatch/{dispatch_id}", methods=["GET"])
@@ -542,6 +569,125 @@ def _default_worker_port() -> int:
     return default_port("worker", 1, base=resolve_port_base(load_osprey_config()))
 
 
+def _fetch_runs(dispatch_target: str, dispatch_token: str):
+    """The workers' recent runs, over the bus when this dispatcher serves one."""
+    if _bus_client is not None:
+        return _bus_client.runs()
+    return fetch_worker_runs(dispatch_target, dispatch_token)
+
+
+def _configure_worker_bus(dispatch_token: str) -> None:
+    """Build the worker bus when ``DISPATCH_BUS_BIND`` is set, else keep the workers on HTTP.
+
+    The bus is bound in the lifespan, on the serving loop. Bad key material
+    raises here, at factory time, so a misconfigured dispatcher never serves.
+    """
+    global _bus_client
+    from osprey.dispatch.bus.settings import server_settings
+
+    settings = server_settings()
+    if settings is None:
+        _bus_client = None
+        mcp._worker_bus = None  # type: ignore[attr-defined]
+        return
+    from osprey.dispatch.bus.broker import WorkerBus
+    from osprey.dispatch.bus.client import BusWorkerClient
+
+    bus = WorkerBus(settings.bind, keys=settings.keys)
+    _bus_client = BusWorkerClient(bus, worker_wait_sec=settings.worker_wait_sec)
+    mcp._worker_bus = bus  # type: ignore[attr-defined]
+    _register_worker_facade(_bus_client, dispatch_token)
+
+
+def _check_worker_token(request: Request, token: str) -> JSONResponse | None:
+    """The worker's own bearer guard, for the facade that stands in for it.
+
+    The bridges present ``DISPATCH_WORKER_TOKEN`` to the worker today; the facade
+    takes the same credential, so moving a bridge onto it is a URL change only.
+    """
+    if not token:
+        _report_token_unset("worker facade route")
+        return JSONResponse({"detail": "Server misconfigured"}, status_code=503)
+    if hmac.compare_digest(
+        credential_bytes(request.headers.get("Authorization", "")),
+        credential_bytes(f"Bearer {token}"),
+    ):
+        return None
+    return JSONResponse({"detail": "Invalid bearer token"}, status_code=401)
+
+
+def _facade_failure(exc: WorkerRequestError) -> JSONResponse:
+    """The answer a facade route gives for a worker call that failed."""
+    if isinstance(exc, WorkerRejectedRequestError):
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    if isinstance(exc, WorkerUnreachableError):
+        return JSONResponse({"detail": "worker unreachable"}, status_code=502)
+    return JSONResponse({"detail": "worker unavailable"}, status_code=503)
+
+
+def _attachment(filename: str | None) -> dict[str, str]:
+    """A Content-Disposition header for ``filename``, quoted as Starlette's FileResponse does."""
+    if not filename:
+        return {}
+    quoted = quote(filename)
+    if quoted != filename:
+        return {"Content-Disposition": f"attachment; filename*=utf-8''{quoted}"}
+    return {"Content-Disposition": f'attachment; filename="{filename}"'}
+
+
+def _register_worker_facade(client: BusWorkerClient, token: str) -> None:
+    """Serve, under ``/worker``, the worker routes the chat bridges call.
+
+    A worker on the bus has no address of its own, so a bridge points its
+    ``WORKER_URL`` at ``<dispatcher>/worker`` and every path it asks for keeps its
+    shape: ``/health``, ``/dispatch/{run_id}`` and the two artifact routes. Each
+    answers what the worker that owns the run answers.
+    """
+
+    @mcp.custom_route("/worker/health", methods=["GET"])
+    async def worker_health(_request: Request) -> JSONResponse:
+        """The live workers' health; 503 while none is connected. Ungated, like a worker's."""
+        body = client.health()
+        return JSONResponse(body, status_code=200 if body["status"] == "ok" else 503)
+
+    @mcp.custom_route("/worker/dispatch/{run_id}", methods=["GET"])
+    async def worker_run_status(request: Request) -> JSONResponse:
+        unauth = _check_worker_token(request, token)
+        if unauth is not None:
+            return unauth
+        try:
+            return JSONResponse(await client.status(request.path_params["run_id"]))
+        except WorkerRequestError as exc:
+            return _facade_failure(exc)
+
+    @mcp.custom_route("/worker/dispatch/{run_id}/artifacts", methods=["GET"])
+    async def worker_run_artifacts(request: Request) -> JSONResponse:
+        unauth = _check_worker_token(request, token)
+        if unauth is not None:
+            return unauth
+        try:
+            return JSONResponse(await client.artifacts(request.path_params["run_id"]))
+        except WorkerRequestError as exc:
+            return _facade_failure(exc)
+
+    @mcp.custom_route("/worker/dispatch/{run_id}/artifacts/{artifact_id}", methods=["GET"])
+    async def worker_run_artifact(request: Request) -> Response:
+        unauth = _check_worker_token(request, token)
+        if unauth is not None:
+            return unauth
+        try:
+            meta, data = await client.artifact(
+                request.path_params["run_id"], request.path_params["artifact_id"]
+            )
+        except WorkerRequestError as exc:
+            return _facade_failure(exc)
+        return Response(
+            data,
+            media_type=meta.get("mime") or "application/octet-stream",
+            headers=_attachment(meta.get("filename")),
+        )
+
+
 def create_server() -> FastMCP:
     """Initialize the event dispatcher server (factory time, fully synchronous).
 
@@ -557,6 +703,10 @@ def create_server() -> FastMCP:
     # token rotation is only picked up for outbound calls on restart (inbound auth
     # via _check_auth re-reads the env per request).
     dispatch_token = os.environ.get("DISPATCH_WORKER_TOKEN", "")
+
+    # On the bus, workers connect to this dispatcher instead of being dialed at
+    # ``dispatch_target``, and the bridges read runs through the /worker facade.
+    _configure_worker_bus(dispatch_token)
 
     # Load triggers config
     try:
@@ -691,7 +841,7 @@ def create_server() -> FastMCP:
         if unauth is not None:
             return unauth
         try:
-            runs = await fetch_worker_runs(dispatch_target, dispatch_token)
+            runs = await _fetch_runs(dispatch_target, dispatch_token)
         except WorkerRecordUnavailableError as exc:
             # The worker answered but its run history, the agent record, did
             # not: say so rather than calling the worker unreachable.
@@ -739,10 +889,12 @@ def create_server() -> FastMCP:
         if unauth is not None:
             return unauth
         run_id = request.path_params["run_id"]
-        return StreamingResponse(
-            proxy_worker_stream(dispatch_target, dispatch_token, run_id),
-            media_type="text/event-stream",
+        stream = (
+            _bus_client.stream(run_id)
+            if _bus_client is not None
+            else proxy_worker_stream(dispatch_target, dispatch_token, run_id)
         )
+        return StreamingResponse(stream, media_type="text/event-stream")
 
     @mcp.custom_route("/dashboard/state", methods=["GET"])
     async def dashboard_state(request: Request) -> JSONResponse:
@@ -788,7 +940,7 @@ def create_server() -> FastMCP:
         runs: list[dict[str, Any]] = []
         worker_error: str | None = None
         try:
-            runs = await fetch_worker_runs(dispatch_target, dispatch_token)
+            runs = await _fetch_runs(dispatch_target, dispatch_token)
         except WorkerRequestError as exc:
             # Don't mask a down worker as an empty-but-healthy run list; carry a
             # marker so the dashboard can show a degraded state.
@@ -925,7 +1077,11 @@ def create_server() -> FastMCP:
         owner = _request_owner(request)
         run_id = request.path_params["run_id"]
         try:
-            result = await cancel_worker_run(dispatch_target, dispatch_token, run_id)
+            result = await (
+                _bus_client.cancel(run_id)
+                if _bus_client is not None
+                else cancel_worker_run(dispatch_target, dispatch_token, run_id)
+            )
         except WorkerAuthRejectedError:
             return JSONResponse({"detail": "worker auth failed"}, status_code=502)
         except WorkerRequestError as exc:

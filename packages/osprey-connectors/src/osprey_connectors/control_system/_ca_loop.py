@@ -39,9 +39,10 @@ import os
 import sys
 import threading
 from collections.abc import Callable, Coroutine
-from typing import Any, TypeVar
+from typing import Never, Protocol, TypeVar, TypeVarTuple
 
 T = TypeVar("T")
+Ts = TypeVarTuple("Ts")
 
 # Named for the public namespace, not this private module, so a logging config
 # keyed on the name keeps matching whatever the module is called.
@@ -50,7 +51,7 @@ logger = logging.getLogger("osprey_connectors.control_system.ca_loop")
 #: Runs at interpreter shutdown before any ``atexit`` hook; private, but the
 #: stdlib's own ``concurrent.futures`` relies on it for the same reason.
 #: CPython has had it since 3.9.
-_register_before_atexit: Callable[[Callable[[], None]], Any] = getattr(
+_register_before_atexit: Callable[[Callable[[], None]], object] = getattr(
     threading, "_register_atexit", atexit.register
 )
 
@@ -63,6 +64,46 @@ CA_ENV_KEYS = (
     "EPICS_CA_NAME_SERVERS",
     "EPICS_CA_AUTO_ADDR_LIST",
 )
+
+
+class CaContextState(Protocol):
+    """aioca's ``_catools._Context``: the process's CA context, as aioca tracks it."""
+
+    _ca_context: object
+    _should_destroy: bool
+
+    def purge_channel_caches(self) -> None: ...
+
+
+class Cadef(Protocol):
+    """The ``cadef`` libca bindings aioca's ``_catools`` module carries."""
+
+    cs_conn: int
+
+    def ca_detach_context(self) -> None: ...
+
+    def ca_state(self, channel: object, /) -> object: ...
+
+    def ca_write_access(self, channel: object, /) -> object: ...
+
+
+class CaTools(Protocol):
+    """The surface of aioca's private ``_catools`` module this package reaches into."""
+
+    _Context: CaContextState
+    cadef: Cadef
+
+    def get_channel(self, pv: str, /) -> object: ...
+
+
+def _loaded_catools() -> CaTools | None:
+    """aioca's ``_catools`` module if aioca has been imported, else ``None``."""
+    return sys.modules.get("aioca._catools")
+
+
+#: A coroutine of any kind: whatever it yields, and whatever it can be sent, it is
+#: awaited for its result alone.
+_Coro = Coroutine[object, Never, T]
 
 
 def current_ca_env() -> dict[str, str | None]:
@@ -78,7 +119,7 @@ def _drop_ca_context() -> None:
     thread still attached to it is moved to the new one by aioca itself the
     next time it opens a channel cache.
     """
-    catools = sys.modules.get("aioca._catools")
+    catools = _loaded_catools()
     if catools is None:
         return
     context = catools._Context
@@ -198,7 +239,7 @@ class CaLoop:
         """True when the calling thread is this loop's own thread."""
         return threading.current_thread() is self._thread
 
-    def _refuse_in_a_forked_child(self, coro: Coroutine[Any, Any, Any] | None = None) -> None:
+    def _refuse_in_a_forked_child(self, coro: _Coro[object] | None = None) -> None:
         """Raise in a process forked from the one that started the loop.
 
         A child inherits the loop but not its thread, so work queued to it
@@ -212,21 +253,21 @@ class CaLoop:
                 "cannot be used here; start the child with 'spawn' or 'forkserver'."
             )
 
-    def submit(self, coro: Coroutine[Any, Any, T]) -> concurrent.futures.Future[T]:
+    def submit(self, coro: _Coro[T]) -> concurrent.futures.Future[T]:
         """Schedule ``coro`` on the loop, from any thread; return its future."""
         self._refuse_in_a_forked_child(coro)
         self._mark_used()
         return asyncio.run_coroutine_threadsafe(coro, self._loop)
 
-    async def run(self, coro: Coroutine[Any, Any, T]) -> T:
+    async def run(self, coro: _Coro[T]) -> T:
         """Await ``coro`` on the CA loop from whichever loop the caller is on."""
         if self.on_loop_thread():
             self._mark_used()
             return await coro
         return await asyncio.wrap_future(self.submit(coro))
 
-    def run_sync(self, coro: Coroutine[Any, Any, T], timeout: float | None = None) -> T:
-        """Run ``coro`` on the CA loop and block the calling thread for its result.
+    def run_sync(self, coro: _Coro[T], timeout: float) -> T:
+        """Run ``coro`` on the CA loop; block the calling thread up to ``timeout`` s for its result.
 
         Blocking the loop's own thread on work queued to that same loop would
         never return, so that is refused outright rather than left to hang.
@@ -236,7 +277,7 @@ class CaLoop:
             raise RuntimeError("blocking on the Channel Access loop from its own thread")
         return self.submit(coro).result(timeout)
 
-    def call_soon(self, callback: Callable[..., Any], *args: Any) -> None:
+    def call_soon(self, callback: Callable[[*Ts], object], *args: *Ts) -> None:
         """Run a plain callback on the loop thread, from any thread."""
         self._refuse_in_a_forked_child()
         self._loop.call_soon_threadsafe(callback, *args)
@@ -267,7 +308,7 @@ def _shut_down() -> None:
     """Stop the process's CA loop; leave the CA context for the exit to reclaim."""
     if _ca_loop is not None:
         _ca_loop.stop()
-    catools = sys.modules.get("aioca._catools")
+    catools = _loaded_catools()
     if catools is not None:
         catools._Context._should_destroy = False
 

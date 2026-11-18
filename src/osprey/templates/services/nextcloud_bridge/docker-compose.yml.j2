@@ -74,6 +74,10 @@
 {#- The instance the dispatcher routes to. Multi-worker routing is not
     implemented, so this bridge observes worker 1's runs and no others'. #}
 {%- set routed_worker = 1 %}
+{#- On the dispatch bus the workers have no address of their own: the
+    dispatcher answers for them under `/worker`, at the address this bridge
+    already reaches it by. #}
+{%- set dispatch_on_bus = ((services.event_dispatcher | default({}, true)).transport | default('http', true)) == 'bus' and 'event_dispatcher' in (deployed_services | default([])) %}
 {%- set routed_worker_port = (worker_port_base | int) + (routed_worker - 1) * (worker_port_stride | int) %}
 
 services:
@@ -197,7 +201,12 @@ services:
       DISPATCHER_URL: ${DISPATCHER_URL:?set DISPATCHER_URL when the dispatcher is not co-deployed}
 {% endif %}
 {% if 'dispatch_worker' in deployed_services %}
-{%- if bridge_on_host %}
+{%- if dispatch_on_bus %}
+      # The workers are on the dispatch bus and listen on no port, so run
+      # status and artifacts are read from the dispatcher's /worker facade,
+      # which asks the worker that owns the run.
+      WORKER_URL: http://{{ 'localhost' if bridge_on_host else 'event-dispatcher' }}:{{ dispatcher_port }}/worker
+{%- elif bridge_on_host %}
       # The bridge polls run status and fetches artifacts from the WORKER
       # directly (not through the dispatcher), so it needs the worker's address
       # too — here the host's, for the reason given at DISPATCHER_URL above.

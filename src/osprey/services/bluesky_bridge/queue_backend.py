@@ -1496,31 +1496,6 @@ class QueueBackend:
         """
         return await self._call("environment_open")
 
-    async def close_environment(self) -> dict[str, Any]:
-        """Tear down the RE worker.
-
-        Refused while the queue is active: closing the environment mid-plan
-        would abort work the operator is watching. Stop the queue first.
-
-        Refused outright on an external worker: environment ownership belongs
-        to whoever runs the manager, and every caller — the session uploader's
-        reload cycle included — is refused here rather than each carrying its
-        own copy of the rule.
-        """
-        if self._external_worker:
-            raise QueueRequestRejectedError(
-                "Refusing to close the worker environment: this bridge fronts an "
-                "externally-run RE Manager, whose environment is owned and cycled "
-                "on the facility side."
-            )
-        status = await self.status(reload=True)
-        if is_queue_active(status):
-            raise QueueRequestRejectedError(
-                "Cannot close the worker environment while the queue is active "
-                f"(manager state {status.get('manager_state')!r}). Stop the queue first."
-            )
-        return await self._call("environment_close")
-
     async def ensure_environment(self) -> bool:
         """Make sure the worker environment is open, opening it if it is not.
 

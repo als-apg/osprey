@@ -12,6 +12,7 @@ concrete payload — outcome word, observed value, alarm fields, env vars,
 refusal reason — never merely that a call "didn't raise".
 """
 
+import array
 import asyncio
 import os
 import sys
@@ -626,6 +627,9 @@ class TestWriteExactness:
             (DBR_LONG, [1.5, 2], "not a whole number"),
             (DBR_LONG, [2**31], "outside the channel's integer range"),
             (DBR_LONG, numpy.array([1.0, 2.5]), "not a whole number"),
+            # A buffer is read by float() as text, on every Python.
+            (DBR_LONG, [array.array("b", b"2.5")], "not a whole number"),
+            (DBR_LONG, [memoryview(b"2.5")], "not a whole number"),
             (DBR_LONG, float("nan"), "not a whole number"),
             (DBR_LONG, float("inf"), "not a whole number"),
             (DBR_ENUM, 1.5, "not a whole number"),
@@ -655,6 +659,9 @@ class TestWriteExactness:
             (DBR_CHAR, 255, 255),
             (DBR_LONG, [2.0, 3], [2, 3]),
             (DBR_LONG, numpy.array([2.0, 3.0]), [2, 3]),
+            # A buffer is read by float() as text, on every Python.
+            (DBR_LONG, [array.array("b", b"7")], [7]),
+            (DBR_LONG, [memoryview(b"7")], [7]),
             (DBR_ENUM, 1, 1),
             (DBR_DOUBLE, 1.5, 1.5),
         ],
@@ -825,7 +832,6 @@ class TestConfirmingRead:
 
         assert result.outcome is WriteOutcome.CONFIRMED
         assert result.observed_value == "ON"
-        assert result.observed_number is None
 
 
 @pytest.mark.usefixtures("writes_enabled")

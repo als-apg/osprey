@@ -34,12 +34,15 @@ Usage:
 """
 
 import logging
-from typing import Any
+import os
+from collections.abc import Mapping
+from types import TracebackType
+from typing import NamedTuple, TypeAlias
 
 from rich.console import Console
 from rich.logging import RichHandler
 
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import config_flag, get_config_value
 
 __all__ = [
     "ComponentLogger",
@@ -47,6 +50,18 @@ __all__ = [
     "get_logger",
     "set_handler_console",
 ]
+
+#: What :meth:`logging.Logger.log` takes as ``exc_info``.
+_ExcInfo: TypeAlias = (
+    bool
+    | BaseException
+    | tuple[type[BaseException], BaseException, TracebackType | None]
+    | tuple[None, None, None]
+    | None
+)
+
+#: Keywords of the retired event system that callers may still pass; dropped.
+_EVENT_KWARGS = frozenset({"error", "error_type", "recoverable", "stack_trace", "warning"})
 
 
 class ComponentLogger:
@@ -76,7 +91,7 @@ class ComponentLogger:
         base_logger: logging.Logger,
         component_name: str,
         color: str = "white",
-        state: Any = None,
+        state: object = None,
     ):
         """
         Initialize component logger.
@@ -92,7 +107,18 @@ class ComponentLogger:
         self.color = color
         self._state = state
 
-    def _log(self, level: int, message: str, *args, intent: str, **kwargs) -> None:
+    def _log(
+        self,
+        level: int,
+        message: str,
+        *args: object,
+        intent: str,
+        exc_info: _ExcInfo,
+        stack_info: bool,
+        stacklevel: int,
+        extra: Mapping[str, object] | None,
+        other: Mapping[str, object],
+    ) -> None:
         """Core logging method that delegates to the stdlib logger.
 
         Args:
@@ -104,67 +130,304 @@ class ComponentLogger:
                 handlers can tell intents apart without guessing from the level
                 (``info`` and ``key_info`` both log at INFO). Metadata only —
                 it changes no level and nothing about rendering.
-            **kwargs: Forwarded to :meth:`logging.Logger.log`. A caller-supplied
-                ``extra`` mapping is merged, not replaced; its dict is left
-                unmutated.
+            exc_info: Forwarded to :meth:`logging.Logger.log`.
+            stack_info: Forwarded to :meth:`logging.Logger.log`.
+            stacklevel: Forwarded to :meth:`logging.Logger.log`.
+            extra: Forwarded to :meth:`logging.Logger.log`, merged, not
+                replaced; the caller's dict is left unmutated.
+            other: Every other keyword the caller passed. The retired
+                event-system keywords are dropped; any other is refused, as
+                :meth:`logging.Logger.log` refuses it: only when the level is
+                enabled.
         """
-        # Strip event-system kwargs that callers may still pass
-        kwargs.pop("error", None)
-        kwargs.pop("error_type", None)
-        kwargs.pop("recoverable", None)
-        kwargs.pop("stack_trace", None)
-        kwargs.pop("warning", None)
-        caller_extra = kwargs.pop("extra", None)
-        extra = {**(caller_extra or {}), "osprey_intent": intent}
-        self.base_logger.log(level, message, *args, extra=extra, **kwargs)
+        unknown = sorted(set(other) - _EVENT_KWARGS)
+        if unknown and self.base_logger.isEnabledFor(level):
+            raise TypeError(f"{intent}() got an unexpected keyword argument {unknown[0]!r}")
+        merged = {**(extra or {}), "osprey_intent": intent}
+        self.base_logger.log(
+            level,
+            message,
+            *args,
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=merged,
+        )
 
-    def status(self, message: str, *args, **kwargs) -> None:
+    def status(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Status update — high-level progress messages."""
-        self._log(logging.INFO, message, *args, intent="status", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="status",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def key_info(self, message: str, *args, **kwargs) -> None:
+    def key_info(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Important operational information."""
-        self._log(logging.INFO, message, *args, intent="key_info", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="key_info",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def info(self, message: str, *args, **kwargs) -> None:
+    def info(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Normal operational messages."""
-        self._log(logging.INFO, message, *args, intent="info", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="info",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def debug(self, message: str, *args, **kwargs) -> None:
+    def debug(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Debug-level messages."""
-        self._log(logging.DEBUG, message, *args, intent="debug", **kwargs)
+        self._log(
+            logging.DEBUG,
+            message,
+            *args,
+            intent="debug",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def warning(self, message: str, *args, **kwargs) -> None:
+    def warning(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Warning messages."""
-        self._log(logging.WARNING, message, *args, intent="warning", **kwargs)
+        self._log(
+            logging.WARNING,
+            message,
+            *args,
+            intent="warning",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def error(self, message: str, *args, exc_info: bool = False, **kwargs) -> None:
+    def error(
+        self,
+        message: str,
+        *args: object,
+        exc_info: bool = False,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Error messages."""
-        self._log(logging.ERROR, message, *args, intent="error", exc_info=exc_info, **kwargs)
+        self._log(
+            logging.ERROR,
+            message,
+            *args,
+            intent="error",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def success(self, message: str, *args, **kwargs) -> None:
+    def success(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Success messages."""
-        self._log(logging.INFO, message, *args, intent="success", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="success",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def timing(self, message: str, *args, **kwargs) -> None:
+    def timing(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Timing information."""
-        self._log(logging.INFO, message, *args, intent="timing", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="timing",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def approval(self, message: str, *args, **kwargs) -> None:
+    def approval(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Approval messages."""
-        self._log(logging.INFO, message, *args, intent="approval", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="approval",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def resume(self, message: str, *args, **kwargs) -> None:
+    def resume(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Resume messages."""
-        self._log(logging.INFO, message, *args, intent="resume", **kwargs)
+        self._log(
+            logging.INFO,
+            message,
+            *args,
+            intent="resume",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def critical(self, message: str, *args, **kwargs) -> None:
+    def critical(
+        self,
+        message: str,
+        *args: object,
+        exc_info: _ExcInfo = None,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Critical error messages."""
-        self._log(logging.CRITICAL, message, *args, intent="critical", **kwargs)
+        self._log(
+            logging.CRITICAL,
+            message,
+            *args,
+            intent="critical",
+            exc_info=exc_info,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
-    def exception(self, message: str, *args, **kwargs) -> None:
+    def exception(
+        self,
+        message: str,
+        *args: object,
+        stack_info: bool = False,
+        stacklevel: int = 1,
+        extra: Mapping[str, object] | None = None,
+        **other: object,
+    ) -> None:
         """Exception with traceback."""
-        self._log(logging.ERROR, message, *args, intent="exception", exc_info=True, **kwargs)
+        self._log(
+            logging.ERROR,
+            message,
+            *args,
+            intent="exception",
+            exc_info=True,
+            stack_info=stack_info,
+            stacklevel=stacklevel,
+            extra=extra,
+            other=other,
+        )
 
     # Delegate stdlib Logger interface so callers can treat ComponentLogger as a Logger.
     @property
@@ -194,7 +457,94 @@ _QUIET_THIRD_PARTY_LOGGERS: tuple[str, ...] = (
 )
 
 
-def _build_rich_handler(console: Console | None = None) -> RichHandler:
+class _HandlerSettings(NamedTuple):
+    """The ``logging.*`` settings the Osprey ``RichHandler`` renders by."""
+
+    rich_tracebacks: bool
+    show_traceback_locals: bool
+    show_full_paths: bool
+
+
+#: What a handler renders by when the configuration cannot say. Locals stay
+#: hidden so a traceback never exposes sensitive data.
+_DEFAULT_HANDLER_SETTINGS = _HandlerSettings(
+    rich_tracebacks=True, show_traceback_locals=False, show_full_paths=False
+)
+
+#: The handler :func:`configure_logging` installed, which is the only one a
+#: later call re-applies settings to.
+_installed_handler: RichHandler | None = None
+
+#: Whether this process has already said that it could not read the settings.
+_settings_warning_given = False
+
+
+def _read_handler_settings() -> tuple[_HandlerSettings, Exception | None]:
+    """Read the handler's settings from the configuration this process resolves.
+
+    Each switch is read through :func:`config_flag`, so a ``"false"`` that
+    reached the config as text (quoted, or a resolved ``${VAR:-false}``) is off.
+    A switch spelling neither on nor off is a problem like an unavailable
+    configuration: every setting falls back to the defaults, which hide locals
+    and shorten paths, rather than failing the process's start-up over a
+    logging key.
+
+    Returns:
+        The settings, and what kept them from being read: the defaults and the
+        exception when the configuration is unavailable, else ``None``.
+    """
+
+    def switch(name: str, default: bool) -> bool:
+        key = f"logging.{name}"
+        return config_flag(get_config_value(key, default), key=key)
+
+    try:
+        return (
+            _HandlerSettings(
+                rich_tracebacks=switch("rich_tracebacks", True),
+                show_traceback_locals=switch("show_traceback_locals", False),
+                show_full_paths=switch("show_full_paths", False),
+            ),
+            None,
+        )
+    except Exception as exc:
+        return _DEFAULT_HANDLER_SETTINGS, exc
+
+
+def _apply_handler_settings(handler: RichHandler, settings: _HandlerSettings) -> None:
+    """Make ``handler`` render by ``settings`` from its next record on."""
+    handler.rich_tracebacks = settings.rich_tracebacks
+    handler.tracebacks_show_locals = settings.show_traceback_locals
+    # Rich keeps the path column on its renderer and offers no public setter.
+    handler._log_render.show_path = settings.show_full_paths
+
+
+def _warn_settings_unavailable(problem: Exception) -> None:
+    """Say, once per process, that the handler renders by the defaults.
+
+    A process that names no config and stands in a directory without one — a
+    command run outside any deployment — has no settings to miss, so that case
+    is not reported.
+    """
+    global _settings_warning_given
+    names_a_config = os.environ.get("OSPREY_CONFIG") or os.environ.get("CONFIG_FILE")
+    if _settings_warning_given or (isinstance(problem, FileNotFoundError) and not names_a_config):
+        return
+    _settings_warning_given = True
+    summary = str(problem).strip().splitlines()[0] if str(problem).strip() else ""
+    logging.getLogger(__name__).warning(
+        "The logging.* settings could not be read from the configuration (%s: %s); "
+        "log output uses the defaults: Rich tracebacks on, locals hidden, short paths.",
+        type(problem).__name__,
+        summary,
+        # The exception's text is not ours: brackets in it are not markup.
+        extra={"markup": False},
+    )
+
+
+def _build_rich_handler(
+    console: Console | None = None, settings: _HandlerSettings | None = None
+) -> RichHandler:
     """Build the Osprey ``RichHandler``, writing to **stderr**.
 
     stdout is reserved for program output — MCP stdio JSON-RPC frames and
@@ -206,18 +556,11 @@ def _build_rich_handler(console: Console | None = None) -> RichHandler:
             the fixed-width stderr console this module has always built, so
             their output is unchanged. The CLI passes the terminal-sized
             stderr console it already owns.
+        settings: What the handler renders by. ``None`` reads them from the
+            configuration, falling back to the defaults when it is unavailable.
     """
-    try:
-        # Security-conscious defaults: hide locals to prevent sensitive data exposure
-        rich_tracebacks = get_config_value("logging.rich_tracebacks", True)
-        show_traceback_locals = get_config_value("logging.show_traceback_locals", False)
-        show_full_paths = get_config_value("logging.show_full_paths", False)
-    except Exception:
-        # Config system unavailable; use secure defaults. Cannot log here:
-        # the logging infrastructure is mid-configuration.
-        rich_tracebacks = True
-        show_traceback_locals = False
-        show_full_paths = False
+    if settings is None:
+        settings, _ = _read_handler_settings()
 
     if console is None:
         # force_terminal keeps colors in containers and CI, where stderr is a pipe.
@@ -230,12 +573,12 @@ def _build_rich_handler(console: Console | None = None) -> RichHandler:
 
     return RichHandler(
         console=console,
-        rich_tracebacks=rich_tracebacks,
+        rich_tracebacks=settings.rich_tracebacks,
         markup=True,
-        show_path=show_full_paths,
+        show_path=settings.show_full_paths,
         show_time=True,
         show_level=True,
-        tracebacks_show_locals=show_traceback_locals,
+        tracebacks_show_locals=settings.show_traceback_locals,
     )
 
 
@@ -282,16 +625,31 @@ def configure_logging(level: int = logging.INFO) -> None:
     never removes or clears handlers it did not install. Handlers owned by
     someone else — ``caplog``'s capture handler, a host application's own
     handlers — survive. Calling it repeatedly is a no-op beyond re-applying the
-    level.
+    level and the ``logging.*`` settings.
+
+    Those settings are read from the configuration on every call and applied to
+    the handler this function installed. An entry point that configures logging
+    before it knows which deployment it serves calls again once it does, and
+    the handler then renders by that deployment's settings. Settings that
+    cannot be read fall back to the defaults, with one warning per process.
 
     Args:
         level: Root logger level.
     """
+    global _installed_handler
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
 
+    settings, problem = _read_handler_settings()
     if not any(isinstance(handler, RichHandler) for handler in root_logger.handlers):
-        root_logger.addHandler(_build_rich_handler())
+        _installed_handler = _build_rich_handler(settings=settings)
+        root_logger.addHandler(_installed_handler)
+    elif _installed_handler in root_logger.handlers:
+        # Only the handler installed here: a RichHandler someone else put on
+        # the root logger is theirs.
+        _apply_handler_settings(_installed_handler, settings)
+    if problem is not None:
+        _warn_settings_unavailable(problem)
 
     for lib in _QUIET_THIRD_PARTY_LOGGERS:
         logging.getLogger(lib).setLevel(logging.WARNING)
@@ -301,7 +659,7 @@ def get_logger(
     component_name: str | None = None,
     level: int = logging.INFO,
     *,
-    state: Any = None,
+    state: object = None,
     name: str | None = None,
     color: str | None = None,
 ) -> ComponentLogger:

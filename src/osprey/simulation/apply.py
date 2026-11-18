@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, SupportsFloat, SupportsIndex, TypeVar
 
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
@@ -240,6 +240,11 @@ def apply_scenarios(
     if seed_logbook:
         ariel_config = config.get("ariel")
         if ariel_config:
+            if not isinstance(ariel_config, dict):
+                raise ValueError(
+                    f"'ariel' in {_config_file(project_dir)} must be a mapping, "
+                    f"got {type(ariel_config).__name__}"
+                )
             logbook = _view_logbook(scenarios, active, view.path / SCENARIOS_DIR)
             with seed_payload(logbook, t0) as (entries, pictures):
                 seeded, purged = _run_coro(
@@ -293,7 +298,7 @@ _WRITE_CHUNK = 1000
 _SPIKE_WINDOW_SIGMAS = 4.0
 
 
-def view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
+def view_scenarios(project_dir: Path) -> dict[str, Any] | None:
     """The scenarios the simulator view lists, by name; ``None`` without a view.
 
     Raises:
@@ -306,8 +311,12 @@ def view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]] | None:
     return None if view is None else _scenarios(view)
 
 
-def _scenarios(view: SimulatorView) -> dict[str, dict[str, Any]]:
+def _scenarios(view: SimulatorView) -> dict[str, Any]:
     """The scenarios ``view`` lists, by name, as plain dicts."""
+    # Each value is the view's scenario record thawed, which the connectors'
+    # scenario readers take. This module may not name that record: the
+    # released connectors floor it also runs against has no records module.
+    # So the value stays as ``_plain`` returns it.
     return {str(scenario["name"]): _plain(scenario) for scenario in view.scenarios()}
 
 
@@ -320,7 +329,7 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def require_view_scenarios(project_dir: Path) -> dict[str, dict[str, Any]]:
+def require_view_scenarios(project_dir: Path) -> dict[str, Any]:
     """The scenarios the simulator view lists, by name.
 
     Raises:
@@ -967,7 +976,9 @@ def archiver_collection(store: dict):
         client.close()
 
 
-def active_archiver_events(project_dir: Path, names: Sequence[str]) -> dict[str, list[dict]]:
+def active_archiver_events(
+    project_dir: Path, names: Sequence[str]
+) -> Mapping[str, Sequence[Mapping[str, object]]]:
     """The composed archiver event scripts of an active set, by channel.
 
     Read from the ``archiver`` blocks of the simulator view's scenarios rather
@@ -999,7 +1010,7 @@ def active_archiver_events(project_dir: Path, names: Sequence[str]) -> dict[str,
     return scenario_events(scenarios, resolved)
 
 
-def _refuse_window_fraction(event: Mapping[str, Any]) -> None:
+def _refuse_window_fraction(event: Mapping[str, object]) -> None:
     """Refuse an event positioned by window fraction, by name."""
     if "at" in event:
         raise ValueError(
@@ -1011,7 +1022,7 @@ def _refuse_window_fraction(event: Mapping[str, Any]) -> None:
         )
 
 
-def _require_events(events: Sequence[dict]) -> None:
+def _require_events(events: Sequence[Mapping[str, object]]) -> None:
     """Refuse an empty script rather than answer with an inverted window."""
     if not events:
         raise ValueError(
@@ -1022,12 +1033,12 @@ def _require_events(events: Sequence[dict]) -> None:
 
 
 def event_window(
-    events: Sequence[dict],
+    events: Sequence[Mapping[str, object]],
     anchor: float,
     horizon_start: float,
     *,
     tz: ZoneInfo | None = None,
-    topoff: Mapping[str, Any] | None = None,
+    topoff: Mapping[str, object] | None = None,
 ) -> tuple[float, float]:
     """The absolute span one channel's events can affect, in epoch seconds.
 
@@ -1083,12 +1094,12 @@ def event_window(
 
 
 def event_subwindows(
-    events: Sequence[dict],
+    events: Sequence[Mapping[str, object]],
     anchor: float,
     horizon_start: float,
     *,
     tz: ZoneInfo | None = None,
-    topoff: Mapping[str, Any] | None = None,
+    topoff: Mapping[str, object] | None = None,
 ) -> list[tuple[float, float]]:
     """The stretches one channel's events are actually *evidence* over.
 
@@ -1140,11 +1151,11 @@ def event_subwindows(
 
 
 def _occurrence_span(
-    event: Mapping[str, Any],
+    event: Mapping[str, object],
     at: float,
     anchor: float,
     tz: ZoneInfo | None,
-    topoff: Mapping[str, Any] | None,
+    topoff: Mapping[str, object] | None,
 ) -> tuple[float, float]:
     """The stretch one occurrence of an event at ``at`` changes, in epoch seconds.
 
@@ -1158,10 +1169,12 @@ def _occurrence_span(
 
     shape = event["shape"]
     if shape == "spike":
-        half = float(event["width"]) * _SPIKE_WINDOW_SIGMAS
+        half = _event_number(event["width"]) * _SPIKE_WINDOW_SIGMAS
         return at - half, at + half
     if shape == "burst":
-        slowest = max(float(event["decay_s"]), float(event.get("tail_decay_s", 0.0)))
+        slowest = max(
+            _event_number(event["decay_s"]), _event_number(event.get("tail_decay_s", 0.0))
+        )
         return at, at + BURST_WINDOW_TAUS * slowest
     if shape == "loss":
         bound = loss_refill_bound(event, topoff)
@@ -1170,8 +1183,25 @@ def _occurrence_span(
     return at, anchor if until is None else until
 
 
+def _event_number(value: object) -> float:
+    """``float(value)`` of an archiver event's number, read from an object-valued event.
+
+    ``osprey build`` checks that every number an event states is an ``int`` or a
+    ``float`` (:func:`osprey.facility.scenarios.check_scenario_events`).
+
+    Raises:
+        TypeError: ``value`` is not a string, a bytes object or a real number,
+            worded as ``float`` words it.
+    """
+    if isinstance(value, str | bytes | bytearray | SupportsFloat | SupportsIndex):
+        return float(value)
+    raise TypeError(
+        f"float() argument must be a string or a real number, not {type(value).__name__!r}"
+    )
+
+
 def _event_instants(
-    event: Mapping[str, Any], anchor: float, horizon_start: float, tz: ZoneInfo | None
+    event: Mapping[str, object], anchor: float, horizon_start: float, tz: ZoneInfo | None
 ) -> list[float]:
     """Every instant one event fires at, inside ``[horizon_start, anchor]``."""
     if "at_time" in event:
@@ -1183,20 +1213,20 @@ def _event_instants(
     return [_anchored_instant(event, anchor, tz)]
 
 
-def _anchored_instant(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None) -> float:
+def _anchored_instant(event: Mapping[str, object], anchor: float, tz: ZoneInfo | None) -> float:
     """An ``at_offset`` or ``at_when`` event's instant, in the facility zone by default."""
     from osprey_connectors.simulation.series import anchored_instant
 
-    return anchored_instant(dict(event), anchor, tz if tz is not None else get_facility_timezone())
+    return anchored_instant(event, anchor, tz if tz is not None else get_facility_timezone())
 
 
-def _step_end(event: Mapping[str, Any], anchor: float, tz: ZoneInfo | None) -> float | None:
+def _step_end(event: Mapping[str, object], anchor: float, tz: ZoneInfo | None) -> float | None:
     """A bounded ``step``'s end instant, or ``None`` for an event that persists to the anchor."""
     if event["shape"] != "step":
         return None
     from osprey_connectors.simulation.series import step_end
 
-    return step_end(dict(event), anchor, tz if tz is not None else get_facility_timezone())
+    return step_end(event, anchor, tz if tz is not None else get_facility_timezone())
 
 
 def _merge_intervals(windows: Sequence[tuple[float, float]]) -> list[tuple[float, float]]:

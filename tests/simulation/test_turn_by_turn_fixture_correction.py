@@ -56,6 +56,16 @@ FIRST_TURN = SAMPLES - TURNS
 KICKED = "SR:MAG:HCM:05:CURRENT:SP"
 KICK_A = 100.0
 
+#: The correctors the orbit answer is asked for: two of each plane, in an
+#: order that is neither the request's default (ring order within each plane)
+#: nor ring order overall, so a reversal or re-sort of the columns shows.
+ORBIT_ASKED = (
+    KICKED,
+    "SR:MAG:HCM:01:CURRENT:SP",
+    "SR:MAG:VCM:72:CURRENT:SP",
+    "SR:MAG:VCM:03:CURRENT:SP",
+)
+
 #: Singular values below this fraction of the largest are left out of the step.
 RCOND = 1e-2
 
@@ -91,9 +101,9 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     return {"view": view, "render": render, "root": root}
 
 
-def _response(render: Path, kind: str) -> dict[str, Any]:
+def _response(render: Path, kind: str, correctors: list[str] | None = None) -> dict[str, Any]:
     """The response a tool or SDK call gets: the request's child script, run in a child."""
-    request = model_request.resolve_model_request(RING, None, render_root=render, kind=kind)
+    request = model_request.resolve_model_request(RING, correctors, render_root=render, kind=kind)
     done = subprocess.run(
         [sys.executable, "-c", model_request.child_script(request)],
         capture_output=True,
@@ -112,8 +122,23 @@ def trajectory(built: dict[str, Path]) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
+def orbit_correctors(built: dict[str, Path]) -> tuple[str, ...]:
+    """Every corrector an orbit request steps, horizontal then vertical: its columns."""
+    request = model_request.resolve_model_request(
+        RING, None, render_root=built["render"], kind="orbit"
+    )
+    return request.correctors
+
+
+@pytest.fixture(scope="module")
 def orbit(built: dict[str, Path]) -> dict[str, Any]:
-    return _response(built["render"], "orbit")
+    """The engine's orbit answer, from a child, for :data:`ORBIT_ASKED`.
+
+    Its rows do not depend on the correctors asked for, and each column is
+    solved and placed on its own, so two correctors of each plane, asked out
+    of ring order, show the orbit columns' order and placement as all do.
+    """
+    return _response(built["render"], "orbit", list(ORBIT_ASKED))
 
 
 class _Clock:
@@ -171,11 +196,19 @@ def _rms(values: np.ndarray) -> float:
 # ---------------------------------------------------------------------------
 
 
-def test_the_trajectory_matrix_has_the_orbit_matrix_columns(trajectory, orbit):
-    assert trajectory["columns"] == orbit["columns"]
+def test_the_trajectory_matrix_has_the_orbit_matrix_columns(trajectory, orbit, orbit_correctors):
+    """Both kinds answer a request with its correctors as columns, in the order asked.
+
+    The trajectory matrix has every corrector an orbit request steps; the
+    engine's orbit answer for the correctors asked has, of the trajectory's
+    columns, exactly those, in the order asked.
+    """
+    assert trajectory["columns"] == list(orbit_correctors)
+    assert orbit["columns"] == [column for column in ORBIT_ASKED if column in trajectory["columns"]]
     assert not trajectory["missing"]
+    assert not orbit["missing"]
     matrix = np.asarray(trajectory["matrix"], dtype=float)
-    assert matrix.shape == (len(trajectory["rows"]), len(orbit["columns"]))
+    assert matrix.shape == (len(trajectory["rows"]), len(orbit_correctors))
     assert np.all(np.isfinite(matrix))
     assert KICKED in trajectory["columns"]
 
@@ -231,6 +264,7 @@ def test_the_orbit_rows_and_columns_are_placed_from_the_decks_first_element(buil
         binding.address: str(binding.element) for binding in request.view.model(RING).bindings
     }
     rows, columns = model_request.line_positions(orbit)
+    assert orbit["columns"] == list(ORBIT_ASKED)
     assert rows == [names.index(element[row]) for row in orbit["rows"]]
     assert columns == [names.index(element[column]) for column in orbit["columns"]]
 

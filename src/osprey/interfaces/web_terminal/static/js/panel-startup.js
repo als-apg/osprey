@@ -13,16 +13,25 @@ import { applyLoginNudge } from './login-nudge.js';
 import { applyTourConfig } from './tour.js';
 import { setFacts } from './first-contact.js';
 import { markPageReady } from '/design-system/js/page-ready.js';
+import { revealShell, settledWithin } from './shell-reveal.js';
 
 /**
- * Apply the server's facts to the drawer, tour, nudge and first contact, and
- * set the page-ready mark (page-ready.js). Call it once, after the rail is
- * rendered, every sidebar control is wired, the panel event stream is open
- * and the dock grid is drawn (app.js builds the dock synchronously, before
- * initPanelManager's first await returns).
+ * Apply the server's facts to the drawer, tour, nudge and first contact, then
+ * reveal the page and set the page-ready mark (page-ready.js). Call it once,
+ * after the rail is rendered, every sidebar control is wired, the panel event
+ * stream is open and the dock grid is drawn (app.js builds the dock
+ * synchronously, before initPanelManager's first await returns).
+ *
+ * The reveal waits for `arranged`, within shell-reveal.js's budget: what the
+ * operator first sees is the arrangement they will work in, not the default
+ * one a moment before it is replaced. The mark follows the reveal, so "can be
+ * driven" always means the loading veil is gone.
  * @param {any} panelConfig - the /api/panels payload, or null when the fetch failed
+ * @param {Array<Promise<unknown>>} [arranged] - what moves tiles at start-up:
+ *   the stored layout, the landing panel
+ * @returns {Promise<void>} settles once the page is revealed and marked
  */
-export function finishStartup(panelConfig) {
+export function finishStartup(panelConfig, arranged = []) {
   // The settings drawer's Config tab, withdrawn where the deployment gated its
   // server surface off (web.config_panel.enabled); when an unreadable config
   // file closed the panel, a drawer notice names that file.
@@ -50,5 +59,8 @@ export function finishStartup(panelConfig) {
   // does not say this; anything that drives the hub (a browser test, a docs
   // recording) waits for this mark. index.html declares it pending, so the
   // shared start-up leaves it to this line.
-  markPageReady();
+  return settledWithin(arranged).then(() => {
+    revealShell();
+    markPageReady();
+  });
 }

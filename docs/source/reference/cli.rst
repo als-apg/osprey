@@ -339,6 +339,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    osprey profile presets
    osprey profile artifacts
    osprey profile card
+   osprey profile panels
 
 ``osprey profile validate TARGET``
    Check a profile without building anything. ``TARGET`` is a directory holding
@@ -364,6 +365,19 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
    the login files beside it; nothing is built, started or probed.
    ``--json`` prints the rows as one JSON array of ``{group, label, value}``
    objects on stdout and every warning on stderr.
+
+``osprey profile panels [--json] [--html FILE] [--repo DIRECTORY]``
+   Print which login shows which panel: one row per panel, one column for the
+   deployment's own profile and for every file under ``tiers/``. A cell is
+   ``DEFAULT`` (the tab the login opens on), ``tab``, ``menu`` (selected but
+   hidden, so reachable from the panel menu only) or ``-``. It reads each
+   login's resolved profile, the way the build does; nothing is built.
+   ``--json`` prints the table as one document in which every cell names the
+   file whose line selects the panel and the file whose line hides it.
+   ``--html FILE`` writes the table as one self-contained page, where
+   selecting a cell says which file decides it. A login that selects the
+   ``roster`` panel reads the same page inside the web terminal, as of the
+   last build.
 
 .. code-block:: bash
 
@@ -1329,11 +1343,15 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``model`` (the model whose deck ``s`` is measured in), in any order. A file
    whose first row names no ``address`` column holds one address per line.
    ``s`` and ``model`` are the position of the row's device: for each device a
-   row states ``s`` for, the import writes ``{id, s}``, plus ``model`` when
+   row names, the import writes ``id``, ``s`` where stated and ``model`` when
    stated, to ``data/facility/imported/list/devices.yaml``, and no other
    device field, so the device merges with one another source declares, or is
-   created holding only its position. ``osprey build`` places it by the span
-   of its model containing ``s``. A row that names both a device and a place,
+   created holding only its id and position. A list naming no device leaves
+   no ``devices.yaml``. ``osprey build`` places a device with an ``s`` by the
+   span of its model containing it. When ``records/devices.yaml`` or another
+   layer declares devices and a listed device is in none of them, one stderr
+   line names it: ``import list: declared by this list only: <ids>``.
+   A row that names both a device and a place,
    states a role other than ``setpoint``, ``readback`` or ``none``, has no
    address or repeats one, states ``s`` or ``model`` with no device, or
    states an ``s`` that is not a finite number, a row with more cells than
@@ -1362,6 +1380,67 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``facility: source-invalid:`` line per problem; the import writes nothing
    and exits 1. A profile that does not resolve prints a one-line failure and
    exits 1. A profile that states ``machine:`` imports into that machine root.
+
+``osprey facility panels``
+   Group for the operator screens drawn from the built facility. Both verbs
+   read the facility file ``build/facility.json`` (``--facility FILE`` names
+   another; neither verb builds) and the rule tables in ``panels/`` beside the
+   facility tree (``--tables DIRECTORY`` names another), and draw with the
+   settings in ``draw.json`` beside the tables (``--draw FILE`` names another;
+   with neither, the empty settings, and one line says so). The screens are
+   Canopy Screen-IR documents, one file per screen, in seven view kinds:
+   ``card`` (one device, its signals, picture, relations and calibration
+   records), ``set`` (the members of a group as a grid), ``calibration`` (one
+   calibration kind over a set), ``place`` (a place's devices in beam order
+   with a band of key numbers), ``rack`` (a rack elevation, chassis at their
+   unit), ``rollup`` (the health of a place and everything in it, level by
+   level) and ``checkout`` (every setpoint beside its readback).
+
+   The rule tables are CSV files, each held to its header: ``positions.csv``
+   (where a thing sits), ``record_types.csv`` (each channel's record type and
+   how a screen draws it), ``pairs.csv`` (the readback a setpoint is shown
+   beside) and ``panels/health.csv`` (the state a channel's value means: ``normal``,
+   ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
+   sources give two states is ``disagree``) must be there;
+   ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
+   ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv`` and
+   ``calibration_curves.csv`` may be absent. A table that breaks its schema
+   prints the file and line and exits 1. Health is computed by the viewer from
+   rules written into the screen; nothing is read from the control system
+   while screens are written.
+
+``osprey facility panels write --out DIRECTORY [--kind KIND]... [--under PLACE_ID] [--top N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
+   Write the screens under ``--out`` as ``<kind>/<screen id>.screen.json``
+   with an ``index.json`` that lists them. Equal inputs give equal bytes: no
+   file holds a time, an absolute path or a host name, and each screen's
+   description ends with the facility's hash and the panels format number.
+   Files an earlier run listed and that are no screen any more are deleted;
+   nothing else is touched, and a non-empty ``--out`` without an
+   ``index.json`` is refused. ``--kind`` (repeatable) and ``--under`` write
+   only the screens that match; links to the others are still written. The
+   command prints the screen count and size per view kind and the ``--top``
+   largest screens (default 10).
+
+``osprey facility panels check --out DIRECTORY [--strict] [--max-bytes N] [--limit N] [--tables DIRECTORY] [--facility FILE] [--draw FILE] [--repo DIRECTORY]``
+   Regenerate every screen and compare it with the files under ``--out``;
+   nothing is written. It prints the count of each problem kind and the first
+   ``--limit`` of each (default 20), and exits 1 on any failing problem:
+   ``stale``, ``missing``, ``orphan``, ``dangling_link``, ``unknown_channel``,
+   ``stamp``, ``invalid``, ``incomplete``, ``oversize`` (over
+   ``--max-bytes``), ``unrolled`` (a rule channel no roll-up reads),
+   ``static_rollup``, ``long_formula`` (an expression over the viewer's
+   length limit) or ``over_budget`` (more rules or channels than one screen
+   may bind). A link outside the written set, a card or checkout over its
+   budget, and a probe row whose signal no channel states are notes, and fail
+   only with ``--strict``. A clean set prints
+   ``The written screens match the model.``
+
+   Where a screen needs a widget the Screen-IR format lacks (a five-state
+   light, a hatched fill, a scrolling table, clickable text, a condition on an
+   enum label, a viewer- or server-side aggregate state, a rule longer than
+   the expression limit), the nearest widget is drawn and the node's
+   ``meta.comment`` names the need as ``format-request: <name>``;
+   ``osprey.facility.panels.layout.FORMAT_REQUESTS`` lists them.
 
 .. _cli-osprey-sim:
 

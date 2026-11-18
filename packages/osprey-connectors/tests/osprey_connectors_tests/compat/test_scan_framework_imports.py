@@ -46,7 +46,9 @@ def _write(root: Path, files: dict[str, str]) -> None:
         path.write_text(textwrap.dedent(text), encoding="utf-8")
 
 
-def _scan(tmp_path: Path, framework: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def _scan(
+    tmp_path: Path, framework: dict[str, str], *flags: str
+) -> subprocess.CompletedProcess[str]:
     connectors = tmp_path / "connectors"
     _write(connectors, CONNECTORS)
     _write(tmp_path / "fw", {f"osprey/{name}": text for name, text in framework.items()})
@@ -58,6 +60,7 @@ def _scan(tmp_path: Path, framework: dict[str, str]) -> subprocess.CompletedProc
             str(tmp_path / "fw" / "osprey"),
             "--connectors-path",
             str(connectors),
+            *flags,
         ],
         capture_output=True,
         text=True,
@@ -312,6 +315,45 @@ def test_an_import_its_fallback_stands_in_for_is_not_reported(tmp_path: Path) ->
                     from osprey_connectors.types import EPICS
             """,
         },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_a_release_scan_reports_an_import_only_its_stand_in_resolves(tmp_path: Path) -> None:
+    # The shape of the PV directory shim at a floor that lacks the module: the
+    # framework runs, and what the import was for is switched off.
+    result = _scan(
+        tmp_path,
+        {
+            "__init__.py": """\
+                try:
+                    from osprey_connectors.new_types import EPICS
+                except ImportError:
+                    from osprey_connectors.types import EPICS
+            """,
+        },
+        "--release",
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert _reported(result) == ["osprey/__init__.py:2: osprey_connectors.new_types:EPICS"]
+
+
+def test_a_release_scan_spares_a_fallback_kept_for_older_connectors(tmp_path: Path) -> None:
+    result = _scan(
+        tmp_path,
+        {
+            "__init__.py": """\
+                try:
+                    from osprey_connectors.types import EPICS
+                except ImportError:
+                    try:
+                        from osprey_connectors.old_types import EPICS
+                    except ImportError:
+                        raise SystemExit(0)
+            """,
+        },
+        "--release",
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == ""

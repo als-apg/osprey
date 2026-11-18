@@ -510,6 +510,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Reveal in sidebar',
       'Close tile',
@@ -519,6 +520,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Reveal in sidebar',
       '—',
@@ -572,6 +574,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Pin to rail',
       'Close tile',
@@ -596,9 +599,27 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Close tile',
     ]);
+  });
+
+  test('Open in new session sits right after Open in new window on a docked service tile and an artifact tile; no other tile menu has it', () => {
+    const NEW_SESSION = 'Open in new session';
+    for (const id of ['ariel', 'artifact:a1']) {
+      const labels = rows(policy.buildTileMenuItems(id));
+      expect(labels[labels.indexOf('Open in new window') + 1]).toBe(NEW_SESSION);
+    }
+    /** @param {any[]} items */
+    const has = (items) => items.some((i) => i.label === NEW_SESSION);
+    paneWindow.isDetached.mockReturnValue(true);
+    expect(has(policy.buildTileMenuItems('ariel', { mode: 'detached' }))).toBe(false);
+    paneWindow.isDetached.mockReturnValue(false);
+    expect(has(policy.buildTileMenuItems('ariel', { mode: 'fallback' }))).toBe(false);
+    expect(has(policy.buildTerminalMenuItems())).toBe(false);
+    expect(has(policy.buildTerminalMenuItems({ mode: 'detached' }))).toBe(false);
+    expect(has(policy.buildTerminalMenuItems({ mode: 'fallback' }))).toBe(false);
   });
 
   test("the panel's own rows head the menu as This panel, and Help shows with a docs page", () => {
@@ -612,6 +633,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Help',
       'Reveal in sidebar',
@@ -807,6 +829,7 @@ describe('a service tile ⋯', () => {
       'Maximize',
       'Zoom',
       'Open in new window',
+      'Open in new session',
       'Reload',
       'Reveal in sidebar',
       'Close tile',
@@ -1096,6 +1119,7 @@ describe('a service rail entry, by state', () => {
       'Focus tile',
       'Open in a new tile',
       'Open in new window',
+      'Open in new session',
       'Move to',
       '—',
       'Remove from rail',
@@ -1105,15 +1129,49 @@ describe('a service rail entry, by state', () => {
   test('in its window: Show window · Reattach', () => {
     paneWindow.isDetached.mockReturnValue(true);
     const items = policy.buildServiceMenuItems('svc');
-    expect(labels(items)).toEqual(['Show window', 'Reattach', 'Move to', '—', 'Remove from rail']);
+    expect(labels(items)).toEqual([
+      'Show window',
+      'Reattach',
+      'Open in new session',
+      'Move to',
+      '—',
+      'Remove from rail',
+    ]);
     items[0].run();
     expect(paneWindow.focusWindow).toHaveBeenCalledExactlyOnceWith('svc');
+  });
+
+  test('Open in new session follows the open rows in every state, and runs for the row’s own panel', () => {
+    for (const state of ['closed', 'docked', 'detached']) {
+      paneWindow.isDetached.mockReturnValue(state === 'detached');
+      init({ active: state === 'docked' ? 'svc' : null });
+      const items = policy.buildServiceMenuItems('svc');
+      const at = items.findIndex((/** @type {any} */ i) => i.label === 'Open in new session');
+      expect(at, state).toBeGreaterThan(0);
+      expect(items[at - 1].label, state).toMatch(/^(Open in new window|Reattach)$/);
+      expect(items[at + 1].label, state).toBe('Move to');
+    }
+    paneWindow.isDetached.mockReturnValue(false);
+    init();
+    const row = policy
+      .buildServiceMenuItems('svc')
+      .find((/** @type {any} */ i) => i.label === 'Open in new session');
+    row.run();
+    expect(sessionModel.switchTo).toHaveBeenCalledExactlyOnceWith({ new: true });
+  });
+
+  test('a failed row and the Agent row’s menu carry no Open in new session', () => {
+    entryBtn.closest('li')?.classList.add('failed');
+    entryBtn.classList.add('failed');
+    expect(labels(policy.buildServiceMenuItems('svc'))).not.toContain('Open in new session');
+    expect(labels(policy.buildTerminalMenuItems())).not.toContain('Open in new session');
   });
 
   test('tile closed: Open · Open in new window', () => {
     expect(labels(policy.buildServiceMenuItems('svc'))).toEqual([
       'Open',
       'Open in new window',
+      'Open in new session',
       'Move to',
       '—',
       'Remove from rail',
@@ -1143,6 +1201,7 @@ describe('a service rail entry, by state', () => {
       '—',
       'Open',
       'Open in new window',
+      'Open in new session',
       'Move to',
       '—',
       'Remove from rail',

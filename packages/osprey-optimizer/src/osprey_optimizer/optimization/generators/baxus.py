@@ -347,7 +347,9 @@ class BAxUSGenerator(ExpectedImprovementGenerator, StateOwner):
 
         if len(self._finite_data()) < self.n_initial_sobol:
             z = torch.tensor(self._draw_sobol_point())
-            return self._process_candidates(z).to_dict("records")  # type: ignore[no-any-return]
+            records = self._process_candidates(z).to_dict("records")
+            # vocs variable names are the frame's columns, so every key is a str
+            return [{str(name): value for name, value in record.items()} for record in records]
 
         # fold newly observed results in before training, so an expansion
         # rebuilds the model in the new target space
@@ -365,7 +367,8 @@ class BAxUSGenerator(ExpectedImprovementGenerator, StateOwner):
         fixed-feature handling are keyed to vocs-space columns.
         """
         x_raw = self._lift_to_vocs(candidates.detach().cpu().numpy())
-        return convert_numpy_to_inputs(self.vocs, x_raw, include_constants=False)
+        inputs: pd.DataFrame = convert_numpy_to_inputs(self.vocs, x_raw, include_constants=False)
+        return inputs
 
     def _get_torch_bounds(self) -> torch.Tensor:
         """The full embedded target space, ``[-1, 1]^target_dim``.
@@ -381,7 +384,8 @@ class BAxUSGenerator(ExpectedImprovementGenerator, StateOwner):
         # an expansion clears the model, and a freshly restored run has none
         if self.model is None:
             self.train_model()
-        return super().get_optimum()
+        optimum: pd.DataFrame = super().get_optimum()
+        return optimum
 
     def visualize_model(self, **kwargs: Any) -> None:
         """Not supported: the model lives in the embedded target space."""

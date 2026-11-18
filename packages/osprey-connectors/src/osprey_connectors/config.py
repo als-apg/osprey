@@ -25,7 +25,7 @@ import re
 from collections.abc import Mapping, MutableMapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, overload
 
 import yaml
 
@@ -33,6 +33,7 @@ import yaml
 # ``workspace`` and ``yaml_loader`` import nothing from osprey itself, so
 # there is no cycle.
 from osprey_connectors import yaml_loader
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
@@ -76,7 +77,9 @@ __all__ = [
 logger = logging.getLogger("CONFIG")
 
 
-def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -> Any:
+# The data comes back in the shape it went in, a YAML parse's untyped tree as a
+# rule, and every caller reads the shape its own config has.
+def resolve_env_vars(data: object, *, environ: "Mapping[str, str] | None" = None) -> ContractAny:
     """Recursively resolve environment variables in configuration data.
 
     Supports both simple and bash-style default value syntax:
@@ -101,56 +104,66 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
             ``os.environ`` + ``.env`` overlay without mutating global state
             (e.g. the Claude Code provider loader). Defaults to ``os.environ``.
     """
-    lookup = os.environ if environ is None else environ
-    raw_server_envs: dict[str, dict] = {}
+    return _resolved(data, os.environ if environ is None else environ)
+
+
+def _resolved(data: object, lookup: "Mapping[str, str]") -> object:
+    """:func:`resolve_env_vars` against *lookup*: a dict, a list, a string, or *data* itself."""
     if isinstance(data, dict):
-        cc = data.get("claude_code")
-        servers = cc.get("servers") if isinstance(cc, dict) else None
-        if isinstance(servers, dict):
-            for name, spec in servers.items():
-                if isinstance(spec, dict) and isinstance(spec.get("env"), dict):
-                    raw_server_envs[name] = copy.deepcopy(spec["env"])
-
-    if isinstance(data, dict):
-        resolved: Any = {
-            key: resolve_env_vars(value, environ=lookup) for key, value in data.items()
-        }
-    elif isinstance(data, list):
-        return [resolve_env_vars(item, environ=lookup) for item in data]
-    elif isinstance(data, str):
-
-        def replace_env_var(match):
-            if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
-                var_name = match.group(1)
-                default_value = match.group(2) if match.group(2) is not None else None
-            else:  # $VAR_NAME (simple form)
-                var_name = match.group(3)
-                default_value = None
-
-            env_value = lookup.get(var_name)
-            # Match bash :- semantics: empty string triggers default too
-            if env_value is None or (not env_value and default_value is not None):
-                if default_value is not None:
-                    return default_value
-                # DEBUG, not INFO: this resolver is generic over the whole
-                # config tree and knows nothing about which of the values it
-                # walks actually matter to the caller. Reported at INFO it
-                # rendered every build as a wall of misses for providers the
-                # project never uses, while saying nothing about the keys
-                # that *did* resolve. User-facing credential reporting lives
-                # in osprey.cli.build_environment.report_provider_credentials,
-                # which knows the selected provider.
-                if not os.environ.get("OSPREY_QUIET"):
-                    logger.debug(
-                        f"Environment variable '{var_name}' not found, keeping placeholder verbatim"
-                    )
-                return match.group(0)
-            return env_value
-
-        pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
-        return re.sub(pattern, replace_env_var, data)
-    else:
+        return _resolved_dict(data, lookup)
+    if isinstance(data, list):
+        return [_resolved(item, lookup) for item in data]
+    if not isinstance(data, str):
         return data
+
+    def replace_env_var(match: re.Match[str]) -> str:
+        if match.group(1):  # ${VAR_NAME:-default} or ${VAR_NAME}
+            var_name = match.group(1)
+            default_value = match.group(2) if match.group(2) is not None else None
+        else:  # $VAR_NAME (simple form)
+            var_name = match.group(3)
+            default_value = None
+
+        env_value = lookup.get(var_name)
+        # Match bash :- semantics: empty string triggers default too
+        if env_value is None or (not env_value and default_value is not None):
+            if default_value is not None:
+                return default_value
+            # DEBUG, not INFO: this resolver is generic over the whole
+            # config tree and knows nothing about which of the values it
+            # walks actually matter to the caller. Reported at INFO it
+            # rendered every build as a wall of misses for providers the
+            # project never uses, while saying nothing about the keys
+            # that *did* resolve. User-facing credential reporting lives
+            # in osprey.cli.build_environment.report_provider_credentials,
+            # which knows the selected provider.
+            if not os.environ.get("OSPREY_QUIET"):
+                logger.debug(
+                    f"Environment variable '{var_name}' not found, keeping placeholder verbatim"
+                )
+            return match.group(0)
+        return env_value
+
+    pattern = r"\$\{([^}:]+)(?::-(.*?))?\}|\$([A-Za-z_][A-Za-z0-9_]*)"
+    return re.sub(pattern, replace_env_var, data)
+
+
+def _resolved_dict(data: dict[str, object], lookup: "Mapping[str, str]") -> dict[str, object]:
+    """A dict's values resolved by :func:`_resolved`, with the MCP server env blocks kept raw.
+
+    The keys come back as they went in; typed ``str``, as a config's are, because
+    only the ``claude_code`` key is ever looked up.
+    """
+    raw_server_envs: dict[object, object] = {}
+    cc = data.get("claude_code")
+    servers = cc.get("servers") if isinstance(cc, dict) else None
+    if isinstance(servers, dict):
+        for name, spec in servers.items():
+            env = spec.get("env") if isinstance(spec, dict) else None
+            if isinstance(env, dict):
+                raw_server_envs[name] = copy.deepcopy(env)
+
+    resolved = {key: _resolved(value, lookup) for key, value in data.items()}
 
     # Restore preserved MCP server env blocks (only meaningful at the top of a
     # config dict; sub-recursions never hit this path because they have no
@@ -203,7 +216,7 @@ def is_unresolved_placeholder(value: object) -> bool:
 _PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
 
 
-def unresolved_placeholders(value: Any) -> list[str]:
+def unresolved_placeholders(value: object) -> list[str]:
     """Every placeholder left in *value*, depth-first.
 
     Where :func:`is_unresolved_placeholder` asks whether a value is exactly one
@@ -299,7 +312,7 @@ _RUNTIME_WRITE_PATH_KEYS = (SIMULATION_STATE_DIR_CONFIG_KEY,)
 
 
 def _runtime_write_paths_under_data(
-    config: "Mapping[str, Any]", project_root: Path
+    config: "Mapping[str, object]", project_root: Path
 ) -> list[tuple[str, str]]:
     """Find configured runtime-write paths that resolve inside ``<root>/data/``.
 
@@ -544,10 +557,11 @@ def load_project_dotenv() -> None:
     values are recorded (:func:`dotenv_shell_overrides`) so the deploy path can
     still see — and warn about — an export that disagrees with the store, and
     hand compose an environment with the shell's precedence intact. The record
-    is taken once per key against the *merged* chain, before any file is
-    loaded: the value a key ends up with is the local file's, so that is the
-    value the shell's export is judged against, and a key both files set is
-    recorded once rather than twice.
+    is taken once per key against the value the chain *applied*, as
+    :func:`apply_env_chain` parsed it (an inline ``# comment`` stripped, a
+    ``${VAR}`` interpolated): the value a key ends up with is the local file's,
+    so that is the value the shell's export is judged against, and a key both
+    files set is recorded once rather than twice.
 
     ``override=True`` and the breadth of the copy are exactly why this must be
     called deliberately. Call it from process entry points only; never at
@@ -566,7 +580,7 @@ def load_project_dotenv() -> None:
 
     repo_root = Path.cwd()
     try:
-        from osprey_connectors.dotenv import chain_files, merge_chain
+        from osprey_connectors.dotenv import chain_files
 
         paths = chain_files(repo_root)
         if not paths:
@@ -578,17 +592,15 @@ def load_project_dotenv() -> None:
         # call sees no difference and must not erase the genuine shell values
         # the first one recorded. First-seen wins; only the pre-load value is
         # the shell's own. A shell-only name is never replaced, so it is never
-        # recorded.
-        pinned = merge_chain(repo_root)
-        for name, value in pinned.items():
-            if (
-                not _is_shell_only_env_var(name)
-                and name in os.environ
-                and os.environ[name] != value
-                and name not in _dotenv_shell_overrides
-            ):
-                _dotenv_shell_overrides[name] = os.environ[name]
-        apply_env_chain(os.environ, paths)
+        # recorded. The record compares against what was applied, so it reads
+        # the files with the parser that applies them.
+        shell = dict(os.environ)
+        try:
+            apply_env_chain(os.environ, paths)
+        finally:
+            for name, value in shell.items():
+                if os.environ.get(name, value) != value and name not in _dotenv_shell_overrides:
+                    _dotenv_shell_overrides[name] = value
         logger.debug("Loaded the env chain from %s", ", ".join(str(path) for path in paths))
     except OSError as e:
         # e.g. a 0600 .env owned by another uid mounted into a non-root
@@ -604,30 +616,6 @@ class ConfigBuilder:
 
     Singleton access: use :func:`get_config_builder` or :func:`_get_config`.
     """
-
-    # Sentinel to distinguish "no default given" from "default is None".
-    _REQUIRED = object()
-
-    def _require_config(self, path: str, default: Any = _REQUIRED) -> Any:
-        """Get config value, raising ValueError if required (no default) and missing.
-
-        When *default* is provided, uses it with a warning. When *default* is
-        omitted (_REQUIRED sentinel), raises on missing/None values.
-        """
-        value = self.get(path)
-
-        if value is None:
-            if default is self._REQUIRED:
-                # No default provided - this is a required configuration
-                raise ValueError(
-                    f"Missing required configuration: '{path}'. For profile-built "
-                    f"projects, set it under `config:` in profile.yml and run "
-                    f"`osprey build`; otherwise add it to your config file."
-                )
-            # Default provided - use it but warn for visibility
-            logger.warning(f"Using default value for '{path}' = {default}. ")
-            return default
-        return value
 
     def __init__(self, config_path: str | Path | None = None, *, load_env: bool = True):
         """
@@ -709,7 +697,9 @@ class ConfigBuilder:
         """
         configured_root = self.raw_config.get("project_root")
         project_root = (
-            Path(configured_root) if configured_root else repo_root_for_config(self.config_path)
+            _as_path(configured_root, "project_root")
+            if configured_root
+            else repo_root_for_config(self.config_path)
         ).expanduser()
 
         for key, value in _runtime_write_paths_under_data(self.raw_config, project_root):
@@ -725,11 +715,11 @@ class ConfigBuilder:
                 _RUNTIME_STATE_DIR,
             )
 
-    def _load_yaml_file(self, file_path: Path) -> dict[str, Any]:
+    def _load_yaml_file(self, file_path: Path) -> dict[str, object]:
         """Load and validate a YAML configuration file."""
         try:
             with open(file_path) as f:
-                config = yaml_loader.safe_load(f)
+                config: object = yaml_loader.safe_load(f)
 
             if config is None:
                 logger.warning(f"Configuration file is empty: {file_path}")
@@ -747,14 +737,14 @@ class ConfigBuilder:
             logger.error(error_msg)
             raise yaml.YAMLError(error_msg) from e
 
-    def _resolve_env_vars(self, data: Any) -> Any:
+    def _resolve_env_vars(self, data: dict[str, object]) -> dict[str, object]:
         """Recursively resolve environment variables in configuration data.
 
-        Delegates to the module-level :func:`resolve_env_vars` function.
+        Resolves as the module-level :func:`resolve_env_vars` function does.
         """
-        return resolve_env_vars(data)
+        return _resolved_dict(data, os.environ)
 
-    def _load_config(self) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _load_config(self) -> tuple[dict[str, object], dict[str, object]]:
         """Load configuration from single file.
 
         Returns:
@@ -773,7 +763,7 @@ class ConfigBuilder:
         logger.info(f"Loaded configuration from {self.config_path}")
         return expanded_config, unexpanded_config
 
-    def get_unexpanded_config(self) -> dict[str, Any]:
+    def get_unexpanded_config(self) -> dict[str, object]:
         """Get configuration with environment variable placeholders preserved.
 
         Returns the configuration as loaded from YAML, without expanding
@@ -793,7 +783,7 @@ class ConfigBuilder:
     #: ``modes`` (Jupyter-era kernel/gateway descriptions with no reader).
     _RETIRED_EXECUTION_KEYS = ("python_env_path", "modes")
 
-    def _get_execution_config(self) -> dict[str, Any]:
+    def _get_execution_config(self) -> dict[str, object]:
         """Get execution configuration with sensible defaults.
 
         Retired keys (:attr:`_RETIRED_EXECUTION_KEYS`) are dropped here if an
@@ -830,7 +820,7 @@ class ConfigBuilder:
 
         return {"execution_method": _EXECUTION_METHOD_SUBPROCESS}
 
-    def _get_python_executor_config(self) -> dict[str, Any]:
+    def _get_python_executor_config(self) -> dict[str, object]:
         """Get python executor configuration with sensible defaults.
 
         Returns python_executor configuration from config.yml if present, otherwise
@@ -851,7 +841,7 @@ class ConfigBuilder:
             "execution_timeout_seconds": _DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         }
 
-    def _build_configurable(self) -> dict[str, Any]:
+    def _build_configurable(self) -> dict[str, object]:
         """Build the configurable dictionary with pre-computed nested structures."""
         return {
             "model_configs": self._build_model_configs(),
@@ -866,36 +856,46 @@ class ConfigBuilder:
             "facility_timezone": self.get("system.timezone", "UTC"),
         }
 
-    def _build_model_configs(self) -> dict[str, Any]:
+    def _build_model_configs(self) -> dict[str, object]:
         """Get model configs from flat structure."""
         return self._section("models")
 
-    def _build_provider_configs(self) -> dict[str, Any]:
+    def _build_provider_configs(self) -> dict[str, object]:
         """Build provider configs."""
         return self._section("api.providers")
 
-    def _build_service_configs(self) -> dict[str, Any]:
+    def _build_service_configs(self) -> dict[str, object]:
         """Get service configs from flat structure."""
         return self._section("services")
 
-    def _section(self, path: str) -> dict[str, Any]:
+    def _section(self, path: str) -> dict[str, object]:
         """Read the section at ``path`` as a mapping; empty reads as ``{}``."""
         return mapping_or_empty(self.get(path), path, self.config_path)
 
-    def get(self, path: str, default: Any = None) -> Any:
+    def get(self, path: str, default: object = None) -> object:
         """Get configuration value using dot notation path."""
-        keys = path.split(".")
-        value = self.raw_config
+        value: object = self.raw_config
+        for key in path.split("."):
+            # A missing key, or a segment that is not a mapping (a list, a
+            # scalar, ``None``), reads as absent.
+            if not isinstance(value, Mapping) or key not in value:
+                return default
+            value = value[key]
+        return value
 
-        try:
-            for key in keys:
-                value = value[key]
-            return value
-        except (KeyError, TypeError):
-            return default
+
+def _as_path(value: object, key: str) -> Path:
+    """*value*, a configured path, as a :class:`~pathlib.Path`.
+
+    Raises:
+        TypeError: *value* is not a string or path-like, as ``Path(value)`` raises.
+    """
+    if isinstance(value, str | os.PathLike):
+        return Path(value)
+    raise TypeError(f"'{key}' must be a path, got {type(value).__name__}")
 
 
-def mapping_or_empty(value: Any, path: str, source: object) -> dict[str, Any]:
+def mapping_or_empty(value: object, path: str, source: object) -> dict[str, object]:
     """Return a config section as a mapping: ``None`` reads as ``{}``, a non-mapping is refused."""
     if value is None:
         return {}
@@ -904,7 +904,11 @@ def mapping_or_empty(value: Any, path: str, source: object) -> dict[str, Any]:
     raise ValueError(f"'{path}' in {source} must be a mapping, got {type(value).__name__}")
 
 
-def load_project_config(config_path: str | Path, *, wrap_errors: bool = False) -> dict[str, Any]:
+# The values are the YAML parse's, which every consumer reads by the shape its
+# own config has.
+def load_project_config(
+    config_path: str | Path, *, wrap_errors: bool = False
+) -> dict[str, ContractAny]:
     """Load a built project's ``config.yml`` the way the deploy path loads it.
 
     The single entry point every project-facing command and deployment step
@@ -944,7 +948,7 @@ def load_project_config(config_path: str | Path, *, wrap_errors: bool = False) -
 
     try:
         with quiet_logger(["registry", "CONFIG"]):
-            config: dict[str, Any] = ConfigBuilder(str(config_path)).raw_config
+            config: dict[str, ContractAny] = ConfigBuilder(str(config_path)).raw_config
     except Exception as e:
         if not wrap_errors:
             raise
@@ -972,8 +976,16 @@ def _no_default_config_message(resolved: Path) -> str:
 
 
 _default_config: ConfigBuilder | None = None
-_default_configurable: dict[str, Any] | None = None
+_default_configurable: dict[str, object] | None = None
 _config_cache: dict[str, ConfigBuilder] = {}
+
+#: Whether the default singleton was chosen by ``CONFIG_FILE`` or a
+#: :func:`config_anchored_at` scope, neither of which
+#: :func:`osprey_connectors.workspace.resolve_config_path` consults.
+#: :func:`osprey_connectors.workspace.load_osprey_config` then reads the file it
+#: resolves without making it the default, so the lookups that follow keep
+#: answering from the file the process was pointed at.
+_default_pinned = False
 
 
 def _get_config(config_path: str | None = None, set_as_default: bool = False) -> ConfigBuilder:
@@ -1003,12 +1015,13 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
         >>> # Explicit path that becomes the default
         >>> config = _get_config("/path/to/config.yml", set_as_default=True)
     """
-    global _default_config, _default_configurable
+    global _default_config, _default_configurable, _default_pinned
 
     if config_path is None:
         if _default_config is None:
             config_file = os.environ.get("CONFIG_FILE")
             _default_config = ConfigBuilder(config_file) if config_file else ConfigBuilder()
+            _default_pinned = bool(config_file)
 
             _default_configurable = _default_config.configurable.copy()
 
@@ -1031,6 +1044,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
     if set_as_default:
         _default_config = _config_cache[resolved_path]
         _default_configurable = _default_config.configurable.copy()
+        _default_pinned = False
         logger.debug(f"Set explicit config as default: {resolved_path}")
 
     return _config_cache[resolved_path]
@@ -1038,7 +1052,7 @@ def _get_config(config_path: str | None = None, set_as_default: bool = False) ->
 
 def get_configurable(
     config_path: str | None = None, set_as_default: bool = False
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Get configurable dict with automatic context detection.
 
     This function supports both framework execution contexts and standalone execution,
@@ -1143,6 +1157,11 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
     verb pointed at one deployment with ``--repo`` cannot leave the next lookup
     in this process answering for it.
 
+    Held for the whole scope: a
+    :func:`~osprey_connectors.workspace.load_osprey_config` inside it (every
+    agent-data-root lookup makes one) reads the file ``OSPREY_CONFIG`` or the
+    working directory names without making it the default.
+
     Never raises. A config that will not load leaves the previous default in
     place and warns: this makes lookups honest, and an anchor that aborted its
     caller would turn a degraded lookup into a failed deploy.
@@ -1152,12 +1171,13 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
             ``<repo>/build/config.yml`` (see
             :func:`osprey_connectors.workspace.rendered_config_path`).
     """
-    global _default_config, _default_configurable
+    global _default_config, _default_configurable, _default_pinned
 
-    previous = (_default_config, _default_configurable)
+    previous = (_default_config, _default_configurable, _default_pinned)
     try:
         try:
             _get_config(str(config_path), set_as_default=True)
+            _default_pinned = True
         except Exception as exc:  # an unusable anchor must not fail the caller
             logger.warning(
                 f"Could not anchor configuration at {config_path} "
@@ -1166,10 +1186,10 @@ def config_anchored_at(config_path: str | Path) -> "Iterator[None]":
             )
         yield
     finally:
-        _default_config, _default_configurable = previous
+        _default_config, _default_configurable, _default_pinned = previous
 
 
-def load_config(config_path: str | None = None) -> dict[str, Any]:
+def load_config(config_path: str | None = None) -> dict[str, object]:
     """Load raw configuration dictionary from YAML file.
 
     Convenience function that returns the raw configuration dictionary
@@ -1218,15 +1238,19 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     main_file_paths = config.get("file_paths", {})
     agent_data_root = agent_data_base_dir(config.raw_config)
 
+    if not isinstance(main_file_paths, Mapping):
+        # Refused rather than probed: on a list or a str, ``in`` and indexing
+        # either raised TypeError or matched by accident.
+        raise TypeError(f"'file_paths' must be a mapping, got {type(main_file_paths).__name__}")
     if sub_dir in main_file_paths:
-        sub_dir_path = main_file_paths[sub_dir]
+        sub_dir_path = _as_path(main_file_paths[sub_dir], f"file_paths.{sub_dir}")
         logger.debug(f"Found {sub_dir} in file_paths: {sub_dir_path}")
     else:
-        sub_dir_path = sub_dir
+        sub_dir_path = Path(sub_dir)
         logger.debug(f"Using fallback path for {sub_dir}: {sub_dir_path}")
 
     if project_root:
-        project_root_path = Path(project_root)
+        project_root_path = _as_path(project_root, "project_root")
 
         if host_path:
             logger.debug(f"Forcing host path resolution for: {sub_dir}")
@@ -1261,7 +1285,7 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
     return str(path)
 
 
-def get_config_value(path: str, default: Any = None, config_path: str | None = None) -> Any:
+def get_config_value(path: str, default: object = None, config_path: str | None = None) -> object:
     """
     Get a specific configuration value by dot-separated path.
 
@@ -1275,7 +1299,9 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
         config_path: Optional explicit path to configuration file
 
     Returns:
-        The configuration value at the specified path, or default if not found
+        The configuration value at the specified path, or default if not found.
+        It is typed ``object`` because the YAML decides its shape: a caller
+        checks for the shape it needs before using it.
 
     Raises:
         ValueError: If path is empty or None
@@ -1293,7 +1319,7 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
     configurable = get_configurable(config_path)
 
     keys = path.split(".")
-    value = configurable
+    value: object = configurable
 
     for key in keys:
         if isinstance(value, dict) and key in value:
@@ -1333,7 +1359,11 @@ def get_facility_timezone() -> "ZoneInfo":
     from zoneinfo import ZoneInfo
 
     try:
-        tz_name = get_config_value("facility_timezone", "UTC")
+        tz_name: object = get_config_value("facility_timezone", "UTC")
+        if not isinstance(tz_name, str):
+            # The TypeError ZoneInfo raises for a key that is not a string, named;
+            # it degrades to UTC below like every other failure.
+            raise TypeError(f"facility_timezone must be a string, got {type(tz_name).__name__}")
         zone = ZoneInfo(tz_name)
     except Exception as exc:  # any failure must degrade to UTC, not raise
         if not _tz_fallback_warned:
@@ -1400,7 +1430,7 @@ def _warn_on_tz_drift(tz_name: str) -> None:
     )
 
 
-def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:
+def get_full_configuration(config_path: str | None = None) -> dict[str, object]:
     """
     Get the complete configuration dictionary.
 

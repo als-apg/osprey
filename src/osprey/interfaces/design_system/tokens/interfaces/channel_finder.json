@@ -1,10 +1,53 @@
 {
-  "$description": "Channel-finder-only extension token: PV-name monospace font (cf-font-pv, Syne Mono). Source: channel_finder/static/css/channel-finder.css line 52. Font-family has no color, so the dark/light values are identical — still declared under both groups to satisfy theme completeness. Not color-bearing at all, so the high-contrast family opts out via $extensions.inherits.",
-  "$extensions": { "inherits": { "desy-dark": "dark", "desy-light": "light", "high-contrast-dark": "dark", "high-contrast-light": "light", "retro-dark": "dark", "retro-light": "light" } },
+  "$description": "Channel-finder-only extension tokens. cf-font-pv: the PV-name monospace font (Syne Mono), identical in every group; font-family has no colour. cf-severity-invalid: the colour of the INVALID and UNDEFINED alarm severities (severity.css); the themes carry error, warning and success only, and the mark's shape keeps the severities apart where colours meet. The high-contrast groups are AUTHORED on the mono ramp, between status.error and status.warning, because that family is monochrome; desy and retro inherit the main groups.",
+  "$extensions": {
+    "inherits": {
+      "desy-dark": "dark",
+      "desy-light": "light",
+      "retro-dark": "dark",
+      "retro-light": "light"
+    }
+  },
   "dark": {
-    "cf-font-pv": { "$value": "'Syne Mono', 'JetBrains Mono', monospace", "$type": "fontFamily" }
+    "cf-font-pv": {
+      "$value": "'Syne Mono', 'JetBrains Mono', monospace",
+      "$type": "fontFamily"
+    },
+    "cf-severity-invalid": {
+      "$value": "{color.violet.250}",
+      "$type": "color"
+    }
   },
   "light": {
-    "cf-font-pv": { "$value": "'Syne Mono', 'JetBrains Mono', monospace", "$type": "fontFamily" }
+    "cf-font-pv": {
+      "$value": "'Syne Mono', 'JetBrains Mono', monospace",
+      "$type": "fontFamily"
+    },
+    "cf-severity-invalid": {
+      "$value": "{color.violet.500}",
+      "$type": "color"
+    }
+  },
+  "high-contrast-dark": {
+    "cf-font-pv": {
+      "$value": "'Syne Mono', 'JetBrains Mono', monospace",
+      "$type": "fontFamily"
+    },
+    "cf-severity-invalid": {
+      "$value": "{color.mono.150}",
+      "$type": "color",
+      "$description": "Between status.error (mono.0) and status.warning (mono.200)."
+    }
+  },
+  "high-contrast-light": {
+    "cf-font-pv": {
+      "$value": "'Syne Mono', 'JetBrains Mono', monospace",
+      "$type": "fontFamily"
+    },
+    "cf-severity-invalid": {
+      "$value": "{color.mono.900}",
+      "$type": "color",
+      "$description": "Between status.error (mono.1000) and status.warning (mono.800)."
+    }
   }
 }

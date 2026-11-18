@@ -36,14 +36,10 @@
        module script loads. Empty prefix (single-origin/dev) is a no-op
        identity map. See app.py's compute_url_prefix(). -->
   <script>window.__OSPREY_PREFIX__ = "{{ url_prefix }}";</script>
-  <script type="importmap">
-  {
-    "imports": {
-      "/design-system/": "{{ url_prefix }}/design-system/",
-      "/static/": "{{ url_prefix }}/static/"
-    }
-  }
-  </script>
+  <script type="importmap">{{ import_map() }}</script>
+  <!-- The whole module graph, named up front so the browser fetches every
+       import level in parallel instead of one level per round trip. -->
+  {{ module_preloads('/static/js/session.js', '/static/js/activity-strip.js') }}
 
   <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
   <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
@@ -60,9 +56,9 @@
         href="{{ prefixed(vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css')) }}"
         data-href-dark="{{ prefixed(vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css')) }}"
         data-href-light="{{ prefixed(vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css')) }}">
-  <script src="{{ prefixed(vendor_url('highlight.js', '/static/vendor/highlight.min.js')) }}"></script>
-  <script src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
-  <script src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('highlight.js', '/static/vendor/highlight.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
 
   <link rel="stylesheet" href="{{ prefixed('/static/css/session.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">

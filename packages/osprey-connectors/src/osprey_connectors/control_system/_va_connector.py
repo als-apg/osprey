@@ -7,8 +7,9 @@ running a containerized PyAT-backed soft-IOC as their control system.
 
 """
 
-from typing import Any
+from typing_extensions import override
 
+from osprey_connectors._contract_types import ContractAny
 from osprey_connectors.control_system._epics_connector import EPICSConnector
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import DEFAULT_VA_PORT
@@ -16,7 +17,7 @@ from osprey_connectors.types import DEFAULT_VA_PORT
 logger = get_logger("va_connector")
 
 
-def resolve_va_gateway_port(config_path: str | None = None) -> Any:
+def resolve_va_gateway_port(config_path: str | None = None) -> object:
     """Resolve the Channel Access port of the Virtual Accelerator to talk to.
 
     Reads ``services.virtual_accelerator.port`` — the same key the VA compose
@@ -41,7 +42,9 @@ def resolve_va_gateway_port(config_path: str | None = None) -> Any:
         return DEFAULT_VA_PORT
 
 
-def fill_gateway_ports(config: dict[str, Any], config_path: str | None = None) -> dict[str, Any]:
+def fill_gateway_ports(
+    config: dict[str, object], config_path: str | None = None
+) -> dict[str, object]:
     """Default-fill every gateway's ``port`` from the deployed VA's port.
 
     Precedence:
@@ -124,7 +127,8 @@ class VirtualAcceleratorConnector(EPICSConnector):
         >>> value = await connector.read_channel('BEAM:CURRENT')
     """
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    @override
+    async def connect(self, config: dict[str, ContractAny]) -> None:
         """
         Configure the EPICS environment against the deployed Virtual Accelerator.
 

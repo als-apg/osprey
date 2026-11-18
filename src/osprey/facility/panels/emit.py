@@ -304,7 +304,10 @@ THEME_FILE = Path(__file__).parents[2] / "templates/apps/demo/data/canopy/theme/
 def _theme_roles() -> Mapping[str, Mapping[str, str]]:
     """The shipped theme's roles (name to its light and dark colour); none when absent."""
     try:
-        return json.loads(THEME_FILE.read_text(encoding="utf-8")).get("roles", {})
+        roles: Mapping[str, Mapping[str, str]] = json.loads(
+            THEME_FILE.read_text(encoding="utf-8")
+        ).get("roles", {})
+        return roles
     except (OSError, ValueError):
         return {}
 

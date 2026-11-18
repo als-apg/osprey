@@ -18,7 +18,18 @@ from __future__ import annotations
 import math
 import numbers
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    SupportsFloat,
+    SupportsIndex,
+    TypeAlias,
+    TypeGuard,
+    overload,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey_connectors.simulation.records import ChannelRecord
 
 _VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
 #: The value types whose channels carry labels.
@@ -30,11 +41,15 @@ DEFAULT_BOOL_OPTIONS = ("FALSE", "TRUE")
 #: The value type of a channel that carries a flat ``list[float]`` trace.
 _WAVEFORM = "waveform"
 
+#: A channel value in its stored representation.
+StoredValue: TypeAlias = float | int | str | list[float]
+
 __all__ = [
     "DEFAULT_BOOL_OPTIONS",
     "DEFAULT_VALUE_TYPE",
     "GATED_TYPES",
     "LABELLED_TYPES",
+    "StoredValue",
     "channel_labels",
     "coerce",
     "is_waveform",
@@ -47,16 +62,35 @@ def is_waveform(value_type: str | None) -> bool:
     return value_type == _WAVEFORM
 
 
-def _refuse(value: Any, value_type: str, reason: str) -> ValueError:
+def _refuse(value: object, value_type: str, reason: str) -> ValueError:
     return ValueError(f"value {value!r} is not a valid {value_type}: {reason}")
 
 
-def _is_number(value: Any) -> bool:
+def _is_number(value: object) -> TypeGuard[numbers.Real]:
     return isinstance(value, numbers.Real) and not isinstance(value, bool)
 
 
-def _is_integer(value: Any) -> bool:
+def _is_integer(value: object) -> TypeGuard[numbers.Integral]:
     return isinstance(value, numbers.Integral) and not isinstance(value, bool)
+
+
+def _real(value: object) -> float:
+    """``float(value)`` of a value the type checker cannot prove ``float`` takes.
+
+    A held or served value is typed by its channel, which the type checker
+    does not see, so a reader that knows the channel holds a number converts
+    it here.
+
+    Raises:
+        TypeError: ``value`` is not a string, a bytes object or a real
+            number, worded as ``float`` words it.
+        ValueError: ``value`` is a string that spells no number.
+    """
+    if isinstance(value, str | bytes | bytearray | SupportsFloat | SupportsIndex):
+        return float(value)
+    raise TypeError(
+        f"float() argument must be a string or a real number, not {type(value).__name__!r}"
+    )
 
 
 def _labels(value_type: str, options: Sequence[str] | None) -> list[str]:
@@ -67,7 +101,7 @@ def _labels(value_type: str, options: Sequence[str] | None) -> list[str]:
     return [str(label) for label in options]
 
 
-def channel_labels(channel: Mapping[str, Any]) -> list[str]:
+def channel_labels(channel: ChannelRecord | Mapping[str, Sequence[str] | None]) -> list[str]:
     """The labels of a bool or enum channel record.
 
     Args:
@@ -85,7 +119,7 @@ def _size(shape: Sequence[int] | None) -> int:
     return math.prod(shape)
 
 
-def _flatten(value: Any, out: list[Any]) -> None:
+def _flatten(value: object, out: list[object]) -> None:
     if isinstance(value, (list, tuple)):
         for item in value:
             _flatten(item, out)
@@ -93,7 +127,7 @@ def _flatten(value: Any, out: list[Any]) -> None:
         out.append(value)
 
 
-def _coerce_label(value: Any, value_type: str, labels: list[str]) -> str:
+def _coerce_label(value: object, value_type: str, labels: list[str]) -> str:
     if isinstance(value, str):
         if value in labels:
             return value
@@ -107,12 +141,47 @@ def _coerce_label(value: Any, value_type: str, labels: list[str]) -> str:
     raise _refuse(value, value_type, f"index outside 0..{len(labels) - 1}")
 
 
+@overload
 def coerce(
-    value: Any,
+    value: object,
+    value_type: Literal["float"],
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> float: ...
+@overload
+def coerce(
+    value: object,
+    value_type: Literal["int"],
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> int: ...
+@overload
+def coerce(
+    value: object,
+    value_type: Literal["bool", "enum", "string"],
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> str: ...
+@overload
+def coerce(
+    value: object,
+    value_type: Literal["waveform"],
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> list[float]: ...
+@overload
+def coerce(
+    value: object,
     value_type: str | None,
     options: Sequence[str] | None = None,
     shape: Sequence[int] | None = None,
-) -> Any:
+) -> StoredValue: ...
+def coerce(
+    value: object,
+    value_type: str | None,
+    options: Sequence[str] | None = None,
+    shape: Sequence[int] | None = None,
+) -> StoredValue:
     """Coerce ``value`` to the stored representation of ``value_type``.
 
     Args:
@@ -138,7 +207,9 @@ def coerce(
         if _is_integer(value):
             return int(value)
         if _is_number(value) and math.isfinite(value) and float(value).is_integer():
-            return int(value)
+            # ``int`` truncates a real number as ``math.trunc`` does; the
+            # typeshed ``Real`` declares only ``__trunc__``.
+            return int(math.trunc(value))
         raise _refuse(value, value_type, "expected an int or an integral float")
     if value_type in LABELLED_TYPES:
         return _coerce_label(value, value_type, _labels(value_type, options))
@@ -150,15 +221,18 @@ def coerce(
         size = _size(shape)
         if not isinstance(value, (list, tuple)):
             raise _refuse(value, value_type, "expected a numeric list")
-        flat: list[Any] = []
+        flat: list[object] = []
         _flatten(value, flat)
-        if not all(_is_number(item) and math.isfinite(item) for item in flat):
-            raise _refuse(value, value_type, "expected finite numbers only")
+        reals: list[numbers.Real] = []
+        for item in flat:
+            if not (_is_number(item) and math.isfinite(item)):
+                raise _refuse(value, value_type, "expected finite numbers only")
+            reals.append(item)
         if len(flat) != size:
             raise _refuse(
                 value, value_type, f"expected {size} values for shape {list(shape or ())}"
             )
-        return [float(item) for item in flat]
+        return [float(item) for item in reals]
     raise ValueError(f"unknown value_type {value_type!r} (expected one of {list(_VALUE_TYPES)})")
 
 
@@ -166,7 +240,7 @@ def zero(
     value_type: str | None,
     options: Sequence[str] | None,
     shape: Sequence[int] | None,
-) -> Any:
+) -> StoredValue:
     """Return the zero value of ``value_type`` in its stored representation.
 
     Args:
