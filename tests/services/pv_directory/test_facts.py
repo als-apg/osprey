@@ -30,6 +30,7 @@ from osprey_connectors import control_context
 from osprey_connectors.alarm_log import AlarmHistoryRow
 from osprey_connectors.alarm_state import (
     AlarmConfigRecord,
+    AlarmSeverity,
     AlarmStateRecord,
     AlarmStateRow,
     AlarmStates,
@@ -42,8 +43,8 @@ from osprey_connectors.directory import (
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.put_log import PutRow
 from osprey_connectors.service_answers import (
-    HistoryPage,
-    Outcome,
+    LogPage,
+    NotListed,
     Source,
     Unavailable,
 )
@@ -143,18 +144,12 @@ class FakeDirectory(FakeBackend):
 
     async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return DirectoryPage(
-                outcome=Outcome.UNAVAILABLE,
-                searched="",
-                request="",
-                source=self.source,
-                reason=self.fail,
-            )
+            return Unavailable(cause="unreachable", reason=self.fail)
         hits = self._hits(query)
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="",
             request="GET /fake",
             source=self.source,
@@ -165,13 +160,13 @@ class FakeDirectory(FakeBackend):
 
     async def count(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return Unavailable(reason=self.fail)
+            return Unavailable(cause="unreachable", reason=self.fail)
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
-            return Unavailable(reason=self.fail)
-        return self.records.get(address, Outcome.NOT_LISTED)
+            return Unavailable(cause="unreachable", reason=self.fail)
+        return self.records.get(address, NotListed(address=address))
 
 
 class FakeAlarmState(FakeBackend):
@@ -191,7 +186,7 @@ class FakeAlarmState(FakeBackend):
         pass
 
     async def state_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return self.state
+        return NotListed(address=address) if self.state is None else self.state
 
     async def config_for(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         return self.config
@@ -202,10 +197,10 @@ class FakeAlarmLog(FakeBackend):
     config: Any = None
     delay = 0.0
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
+    async def history(self, address: str, **_: Any) -> Any:  # noqa: ARG002 - a fake
         await asyncio.sleep(self.delay)
-        return self.page or HistoryPage(
-            outcome=Outcome.FOUND,
+        return self.page or LogPage(
+            outcome="found",
             source=self.source,
             rows=[
                 AlarmHistoryRow(
@@ -223,9 +218,9 @@ class FakeAlarmLog(FakeBackend):
 class FakePutLog(FakeBackend):
     page: Any = None
 
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
-        return self.page or HistoryPage(
-            outcome=Outcome.FOUND,
+    async def history(self, address: str, **_: Any) -> Any:
+        return self.page or LogPage(
+            outcome="found",
             source=self.source,
             rows=[
                 PutRow(recorded_stamp="t2", address=address, old="1", new="2", user="operator two")
@@ -467,19 +462,27 @@ async def test_a_slow_history_misses_its_own_deadline_only(tmp_path: Path) -> No
     assert sections["put_history"]["outcome"] == "found"
 
 
-async def test_an_unavailable_history_page_keeps_its_reason(tmp_path: Path) -> None:
+async def test_an_unavailable_history_is_served_as_a_timed_out_one_is(tmp_path: Path) -> None:
     section = {**FACILITY, "put_log": PUT_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
-    FakePutLog.page = HistoryPage(
-        outcome=Outcome.UNAVAILABLE,
-        source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
-        reason="malformed response",
-    )
+    FakePutLog.page = Unavailable(cause="bad_reply", reason="malformed response")
 
     history = _sections(await page.pv_facts("SR:BPM1"))["put_history"]
 
-    assert history["outcome"] == "unavailable"
-    assert history["reason"] == "malformed response"
+    # No ``truncated`` or ``retention_known``: the backend gave no page to say them.
+    assert history == {
+        "section": "put_history",
+        "outcome": "unavailable",
+        "source": {
+            "target": "live",
+            "service": "caputlog",
+            "label": "caputlog",
+            "rehearsal": False,
+        },
+        "caveats": [],
+        "rows": [],
+        "reason": "malformed response",
+    }
 
 
 async def test_sections_with_no_source_on_the_target(tmp_path: Path, record: _Record) -> None:
@@ -520,8 +523,8 @@ async def test_a_backend_that_cannot_be_built_says_why(
 
 
 async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path: Path) -> None:
-    FakeAlarmState.state = Unavailable(reason="alarm feed still loading")
-    FakeAlarmState.config = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.state = Unavailable(cause="not_ready", reason="alarm feed still loading")
+    FakeAlarmState.config = Unavailable(cause="not_ready", reason="alarm feed still loading")
     FakeAlarmLog.config = AlarmConfigRecord(in_tree="no")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
@@ -539,7 +542,7 @@ async def test_a_feed_still_loading_is_unavailable_and_never_falls_back(tmp_path
 
 
 async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Path) -> None:
-    FakeAlarmState.config = Unavailable(reason="no message from the feed yet")
+    FakeAlarmState.config = Unavailable(cause="unreachable", reason="no message from the feed yet")
     FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes", path="/SR/BPM1")
     section = {**FACILITY, "alarm_state": KAFKA, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
@@ -553,7 +556,7 @@ async def test_a_silent_feed_falls_back_to_the_logged_configuration(tmp_path: Pa
 
 
 async def test_the_logger_alone_answers_the_configuration(tmp_path: Path) -> None:
-    FakeAlarmLog.config = Unavailable(reason="second step failed")
+    FakeAlarmLog.config = Unavailable(cause="unreachable", reason="second step failed")
     section = {**FACILITY, "alarm_log": ALARM_LOG}
     page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
 
@@ -607,7 +610,9 @@ async def test_alarm_state_on_va_from_the_replay(
 
 
 def _row(channel: str, severity: str | None, time: str, **state: Any) -> Any:
-    record = AlarmStateRecord(severity=severity, event_at=datetime.fromisoformat(time), **state)
+    """A feed's row of *channel*, its recorded *severity* word read as the fold reads it."""
+    member, _acknowledged = AlarmSeverity.of_recorded(severity)
+    record = AlarmStateRecord(severity=member, event_at=datetime.fromisoformat(time), **state)
     return AlarmStateRow(address=channel, path=f"/SR/{channel}", state=record)
 
 
@@ -639,20 +644,19 @@ async def test_active_alarms_serve_the_counts_over_every_channel_and_the_active_
     assert answer["outcome"] == "found"
     assert answer["source"]["service"] == "phoebus_alarm_server"
     assert answer["counts"] == {
-        "DISCONNECTED": 1,
         "INVALID": 1,
         "MAJOR": 1,
         "MINOR": 2,
         "OK": 1,
-        "UNDEFINED": 1,
+        "UNDEFINED": 2,
     }
     assert answer["total"] == 8
     assert answer["stale"] is False
     assert answer["last_contact"] == "2026-11-11T08:00:00.000Z"
     assert answer["truncated"] is False
     assert [row["pv"] for row in answer["rows"]] == [
-        "SR:UNKNOWN",
         "SR:UNDEFINED",
+        "SR:UNKNOWN",
         "SR:INVALID",
         "SR:MAJOR",
         "SR:MINOR:NEW",
@@ -691,7 +695,7 @@ async def test_active_alarms_say_whether_the_feed_is_live_or_a_replay(
     assert answer["feed"] == feed
 
 
-async def test_an_unknown_severity_leads_the_active_rows_as_the_fold_ranks_it(
+async def test_an_unknown_severity_is_served_as_undefined_and_leads_major(
     tmp_path: Path,
 ) -> None:
     FakeAlarmState.listed = _listed(
@@ -702,7 +706,10 @@ async def test_an_unknown_severity_leads_the_active_rows_as_the_fold_ranks_it(
 
     answer = await page.active_alarms()
 
-    assert [row["pv"] for row in answer["rows"]] == ["SR:UNKNOWN", "SR:MAJOR"]
+    assert [(row["pv"], row["severity"]) for row in answer["rows"]] == [
+        ("SR:UNKNOWN", "UNDEFINED"),
+        ("SR:MAJOR", "MAJOR"),
+    ]
 
 
 async def test_active_alarms_filter_by_severity_and_a_limit_keeps_the_counts(
@@ -717,7 +724,7 @@ async def test_active_alarms_filter_by_severity_and_a_limit_keeps_the_counts(
 
     assert [row["pv"] for row in minor["rows"]] == ["SR:MINOR:NEW", "SR:MINOR:OLD"]
     assert minor["counts"]["MAJOR"] == 1
-    assert [row["pv"] for row in cut["rows"]] == ["SR:UNKNOWN", "SR:UNDEFINED"]
+    assert [row["pv"] for row in cut["rows"]] == ["SR:UNDEFINED", "SR:UNKNOWN"]
     assert cut["truncated"] is True
     assert cut["counts"] == minor["counts"]
     assert counts_only["rows"] == []
@@ -726,7 +733,7 @@ async def test_active_alarms_filter_by_severity_and_a_limit_keeps_the_counts(
 
 
 async def test_active_alarms_of_a_feed_that_cannot_answer_keep_its_reason(tmp_path: Path) -> None:
-    FakeAlarmState.listed = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.listed = Unavailable(cause="not_ready", reason="alarm feed still loading")
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
 
     answer = await page.active_alarms()
@@ -796,7 +803,7 @@ async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_pat
 
 
 async def test_the_logged_configuration_carries_the_logger_caveats(tmp_path: Path) -> None:
-    FakeAlarmState.config = Unavailable(reason="no message from the feed yet")
+    FakeAlarmState.config = Unavailable(cause="unreachable", reason="no message from the feed yet")
     FakeAlarmLog.config = AlarmConfigRecord(in_tree="yes")
     section = {
         **FACILITY,
@@ -849,10 +856,10 @@ async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
     tmp_path: Path, outcome: str
 ) -> None:
     if outcome == "no_match":
-        FakePutLog.page = HistoryPage(
-            outcome=Outcome.NO_MATCH,
+        FakePutLog.page = LogPage(
+            outcome="no_match",
             source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
-            reason="no logged puts",
+            note="no logged puts",
         )
     section = {
         **FACILITY,
@@ -868,14 +875,27 @@ async def test_an_answered_history_carries_the_caveats_of_its_configured_source(
     assert puts["caveats"] == ["puts through the gateway only"]
     assert puts["outcome"] == outcome
     if outcome == "no_match":
+        # The page's note is served as its ``reason``, after the fields it always had.
         assert puts["reason"] == "no logged puts"
+        assert list(puts) == [
+            "section",
+            "outcome",
+            "source",
+            "caveats",
+            "rows",
+            "truncated",
+            "retention_known",
+            "reason",
+        ]
+    else:
+        assert "reason" not in puts
     history = await page.history("put_log", "SR:BPM1")
     assert history["caveats"] == ["puts through the gateway only"]
 
 
 async def test_an_answered_history_names_its_configured_source(tmp_path: Path) -> None:
-    FakePutLog.page = HistoryPage(
-        outcome=Outcome.FOUND,
+    FakePutLog.page = LogPage(
+        outcome="found",
         source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
     )
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "put_log": PUT_LOG}), tmp_path)
@@ -919,8 +939,8 @@ async def test_an_unlisted_pv_with_logged_puts_is_not_listed(tmp_path: Path) -> 
 
 
 async def test_an_unlisted_pv_nothing_else_found_is_unknown(tmp_path: Path) -> None:
-    FakePutLog.page = HistoryPage(
-        outcome=Outcome.FOUND,
+    FakePutLog.page = LogPage(
+        outcome="found",
         source=Source(kind="put_log", target="live", service="caputlog", rehearsal=False),
     )
     section = {**FACILITY, "alarm_state": KAFKA, "put_log": PUT_LOG}
@@ -1216,7 +1236,7 @@ async def test_a_feed_still_loading_leaves_the_ioc_alarms_unavailable_never_zero
     tmp_path: Path,
 ) -> None:
     FakeDirectory.records = _records(_record("SR:BPM1"))
-    FakeAlarmState.listed = Unavailable(reason="alarm feed still loading")
+    FakeAlarmState.listed = Unavailable(cause="not_ready", reason="alarm feed still loading")
     page = _facts(_config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": KAFKA}), tmp_path)
 
     alarms = (await page.ioc_facts("ioc-a"))["alarms"]

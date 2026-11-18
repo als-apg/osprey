@@ -39,7 +39,7 @@ from osprey_connectors.alarm_state import (
 )
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
 from osprey_connectors.put_log import PutRow
-from osprey_connectors.service_answers import HistoryPage, Outcome, Source
+from osprey_connectors.service_answers import LogPage, NotListed, Source
 from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -114,7 +114,7 @@ class FakeDirectory(FakeBackend):
         start = query.page * query.page_size
         rows = hits[start : start + query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched="",
             request="GET /fake",
             source=self.source,
@@ -127,13 +127,13 @@ class FakeDirectory(FakeBackend):
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
-        return self.records.get(address, Outcome.NOT_LISTED)
+        return self.records.get(address, NotListed(address=address))
 
 
 class FakeHistory(FakeBackend):
-    async def history(self, address: str, since: Any, limit: int, *, timeout_s: float) -> Any:  # noqa: ARG002
-        return HistoryPage(
-            outcome=Outcome.FOUND,
+    async def history(self, address: str, **_: Any) -> Any:
+        return LogPage(
+            outcome="found",
             source=self.source,
             rows=[PutRow(recorded_stamp="t", address=address, old="1", new="2")],
         )

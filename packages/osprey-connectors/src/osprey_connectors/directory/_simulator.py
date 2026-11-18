@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable, Mapping
-from typing import Literal
 
 from typing_extensions import override
 
@@ -28,7 +27,7 @@ from osprey_connectors.directory._contract import (
     DirectoryRecord,
     DirectoryRow,
 )
-from osprey_connectors.service_answers import Outcome, Unavailable
+from osprey_connectors.service_answers import NotListed, Unavailable
 from osprey_connectors.simulation.records import ChannelRecord
 from osprey_connectors.simulation.view import (
     ENGINEER,
@@ -203,36 +202,36 @@ class SimulatorDirectory(ChannelDirectory):
         if self._records_read is not None:
             return self._records_read
         if self.project_dir is None:
-            return Unavailable(reason="no project directory to find the simulator view under")
+            return Unavailable(
+                cause="misconfigured",
+                reason="no project directory to find the simulator view under",
+            )
         try:
             self._records_read = _read_records(SimulatorView.of_project(self.project_dir))
         except NoSimulatorViewError as absent:
-            return Unavailable(reason=str(absent))
+            return Unavailable(cause="misconfigured", reason=str(absent))
         except (LookupError, OSError, TypeError, ValueError, AttributeError) as failure:
-            return Unavailable(reason=f"the simulator view cannot be read: {failure}")
+            return Unavailable(
+                cause="failed", reason=f"the simulator view cannot be read: {failure}"
+            )
         return self._records_read
 
     @override
-    async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:
-        searched = _searched(query)
-        request = f"{_REQUEST_PREFIX} · {searched}"
+    async def search(
+        self, query: DirectoryQuery, *, timeout_s: float
+    ) -> DirectoryPage | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
-            return DirectoryPage(
-                outcome=Outcome.UNAVAILABLE,
-                searched=searched,
-                request=request,
-                source=self.source,
-                reason=records.reason,
-            )
+            return records
+        searched = _searched(query)
         hits = _matching(records.values(), query)
         size = max(query.page_size, 0)
         start = max(query.page, 0) * size
         rows = [record.row for record in hits[start : start + size]]
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched=searched,
-            request=request,
+            request=f"{_REQUEST_PREFIX} · {searched}",
             source=self.source,
             total=len(hits),
             rows=tuple(rows),
@@ -252,12 +251,12 @@ class SimulatorDirectory(ChannelDirectory):
         address: str,
         *,
         timeout_s: float,
-    ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
+    ) -> DirectoryRecord | NotListed | Unavailable:
         records = self._records()
         if isinstance(records, Unavailable):
             return records
         record = records.get(address)
-        return Outcome.NOT_LISTED if record is None else record
+        return NotListed(address=address) if record is None else record
 
     @override
     async def property_names(self, *, timeout_s: float) -> list[str] | Unavailable:

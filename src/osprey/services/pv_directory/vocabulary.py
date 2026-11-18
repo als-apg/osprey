@@ -7,13 +7,23 @@ an alarm configuration and the reason a raising service gives are made here.
 
 from __future__ import annotations
 
+from typing import Literal
+
 __all__ = [
     "CONFIG_LABELS",
     "DIRECTORY_LABEL",
     "LOGBOOK_SERVICE",
+    "ServedOutcome",
     "service_failed",
     "source_label",
 ]
+
+#: How a served answer ended, as the pages and the tools read its ``outcome``: the
+#: connectors' page outcomes (``found``, ``no_match``), and the framework's own
+#: words for an exact lookup that finds nothing (``not_listed``), a channel the
+#: directory lists as inactive (``inactive``), a PV no section knows (``unknown``)
+#: and a source that gave no answer (``unavailable``).
+ServedOutcome = Literal["found", "no_match", "not_listed", "inactive", "unknown", "unavailable"]
 
 #: The service type of the logbook source.
 LOGBOOK_SERVICE = "ariel"

@@ -20,7 +20,7 @@ from osprey_connectors.alarm_state import (
 from osprey_connectors.alarm_state._fold import FeedSnapshot, fold_message
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
 from osprey_connectors.alarm_state._replay import ReplayAlarmState
-from osprey_connectors.service_answers import BackendSpec, Unavailable
+from osprey_connectors.service_answers import BackendSpec, NotListed, Unavailable
 
 from .test_kafka_backend import FakeConsumer, Record
 
@@ -29,8 +29,8 @@ OLD_FEED = FIXTURES / "old-feed.ndjson"
 STOPPED_FEED = FIXTURES / "stopped-feed.ndjson"
 PV = "DEMO:RF1:CAV:Temp-I"
 ACKED_PV = "DEMO:VAC1:GAUGE:Pres-I"
-LOADING = Unavailable(reason="alarm feed still loading")
-EMPTY = Unavailable(reason="no message from the feed yet")
+LOADING = Unavailable(cause="not_ready", reason="alarm feed still loading")
+EMPTY = Unavailable(cause="unreachable", reason="no message from the feed yet")
 LOAD_MOMENT = datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC)
 
 MESSAGES = [
@@ -151,7 +151,9 @@ async def test_reads_answer_the_folded_record():
     config = await backend.config_for(PV, timeout_s=1.0)
     assert isinstance(config, AlarmConfigRecord)
     assert config.in_tree == "yes"
-    assert await backend.state_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0) is None
+    assert await backend.state_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0) == NotListed(
+        address="DEMO:NOT:IN:THE:TREE"
+    )
     assert (await backend.config_for("DEMO:NOT:IN:THE:TREE", timeout_s=1.0)).in_tree == "no"
 
 

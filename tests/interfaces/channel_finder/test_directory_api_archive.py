@@ -25,7 +25,7 @@ import osprey.channel_roster as channel_roster
 from osprey.services.pv_directory import service
 from osprey_connectors import control_context
 from osprey_connectors.directory import DirectoryPage, DirectoryRow
-from osprey_connectors.service_answers import Outcome, Source
+from osprey_connectors.service_answers import Source
 from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -73,7 +73,7 @@ class FakeDirectory:
     async def search(self, query: Any, *, timeout_s: float) -> Any:  # noqa: ARG002 - a fake
         rows = list(self.rows)[query.page * query.page_size :][: query.page_size]
         return DirectoryPage(
-            outcome=Outcome.FOUND,
+            outcome="found",
             searched="",
             request="GET /fake",
             source=self.source,

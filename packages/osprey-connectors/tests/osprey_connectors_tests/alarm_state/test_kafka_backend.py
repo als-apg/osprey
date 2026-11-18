@@ -13,14 +13,14 @@ import pytest
 
 from osprey_connectors.alarm_state import AlarmStateRecord, _phoebus_kafka
 from osprey_connectors.alarm_state._phoebus_kafka import PhoebusAlarmState
-from osprey_connectors.service_answers import BackendSpec, Unavailable
+from osprey_connectors.service_answers import BackendSpec, NotListed, Unavailable
 
 PV = "DEMO:RF1:CAV:Temp-I"
 STATE_KEY = f"state:/Demo/RF/{PV}".encode()
 CONFIG_KEY = f"config:/Demo/RF/{PV}".encode()
 PARTITION = "topic-0"
-LOADING = Unavailable(reason="alarm feed still loading")
-EMPTY = Unavailable(reason="no message from the feed yet")
+LOADING = Unavailable(cause="not_ready", reason="alarm feed still loading")
+EMPTY = Unavailable(cause="unreachable", reason="no message from the feed yet")
 Record = namedtuple("Record", "key value")
 
 
@@ -142,7 +142,7 @@ async def test_reads_answer_from_the_fold_after_catch_up():
     assert state.stale is False
     config = await backend.config_for(PV, timeout_s=1.0)
     assert config.in_tree == "yes"
-    assert await _answer(backend, "OTHER:PV") is None
+    assert await _answer(backend, "OTHER:PV") == NotListed(address="OTHER:PV")
     assert (await backend.config_for("OTHER:PV", timeout_s=1.0)).in_tree == "no"
     assert "2 messages" in await backend.probe(timeout_s=1.0)
     assert consumer.seeked is True
@@ -470,7 +470,8 @@ async def test_a_missing_client_answers_the_install_reason_on_every_read(monkeyp
         await backend.probe(timeout_s=1.0),
     ):
         assert answer == Unavailable(
-            reason="Kafka client not installed (install osprey-connectors[alarm-state])"
+            cause="misconfigured",
+            reason="Kafka client not installed (install osprey-connectors[alarm-state])",
         )
     assert backend._task is None
     await backend.aclose()

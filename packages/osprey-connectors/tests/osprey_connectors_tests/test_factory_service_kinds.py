@@ -117,7 +117,7 @@ def test_the_table_is_exactly_the_written_out_builtins():
 
 
 def test_the_registry_has_one_entry_per_kind():
-    assert set(ConnectorFactory._service_backends) == set(KINDS)
+    assert set(ConnectorFactory._service_backends) == {*KINDS, "archive"}
 
 
 @pytest.mark.parametrize("kind", KINDS)

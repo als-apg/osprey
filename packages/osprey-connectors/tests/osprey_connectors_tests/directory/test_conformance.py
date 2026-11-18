@@ -45,7 +45,7 @@ from osprey_connectors.directory import (
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import BackendSpec as Spec
-from osprey_connectors.service_answers import HistoryPage, Outcome, Unavailable
+from osprey_connectors.service_answers import LogPage, NotListed, Unavailable
 from osprey_connectors.service_targets import service_targets
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests.directory.test_simulator_directory import _write_view
@@ -93,7 +93,7 @@ class MemoryDirectory(ChannelDirectory):
     async def search(self, query: DirectoryQuery, *, timeout_s: float) -> DirectoryPage:  # noqa: ARG002
         hits = self._hits(query)
         return DirectoryPage(
-            outcome=Outcome.FOUND if hits else Outcome.NO_MATCH,
+            outcome="found" if hits else "no_match",
             searched=query.words or "every PV",
             request="memory",
             source=self.source,
@@ -105,7 +105,9 @@ class MemoryDirectory(ChannelDirectory):
         return len(self._hits(query))
 
     async def describe(self, address: str, *, timeout_s: float) -> Any:  # noqa: ARG002
-        return _MEMORY_RECORD if address == _MEMORY_RECORD.row.address else Outcome.NOT_LISTED
+        if address == _MEMORY_RECORD.row.address:
+            return _MEMORY_RECORD
+        return NotListed(address=address)
 
     async def property_names(self, *, timeout_s: float) -> list[str]:  # noqa: ARG002
         return sorted(_MEMORY_RECORD.properties)
@@ -166,7 +168,7 @@ class RecordingTransport:
         pairs = list(params.items() if isinstance(params, dict) else params or [])
         self.sent.append(Sent(method, path, pairs, json_body, timeout_s))
         if timeout_s <= 0:
-            return Unavailable(reason=f"no answer within {timeout_s:g} s")
+            return Unavailable(cause="timeout", reason=f"no answer within {timeout_s:g} s")
         return self._answer(method, path, params)
 
 
@@ -264,7 +266,7 @@ def _http_answers(recorded: Answer, empty: Answer) -> dict[str, Answer]:
     return {
         "recorded": recorded,
         "empty": empty,
-        "unavailable": _always(Unavailable(reason=NO_ANSWER)),
+        "unavailable": _always(Unavailable(cause="timeout", reason=NO_ANSWER)),
         **{mode: _always(value) for mode, value in _MALFORMED.items()},
     }
 
@@ -472,8 +474,8 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
         ]
     if case.kind in ("alarm_log", "put_log"):
         answers = [
-            ("history", await backend.history(pv, None, 10, timeout_s=deadline)),
-            ("history", await backend.history(pv, since, 1, timeout_s=deadline)),
+            ("history", await backend.history(pv, limit=10, timeout_s=deadline)),
+            ("history", await backend.history(pv, start_at=since, limit=1, timeout_s=deadline)),
         ]
         if case.kind == "alarm_log":
             answers.append(("config_for", await backend.config_for(pv, timeout_s=deadline)))
@@ -494,21 +496,21 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
 
 
 _RETURNS: dict[str, tuple[type, ...]] = {
-    "search": (DirectoryPage,),
+    "search": (DirectoryPage, Unavailable),
     "count": (int, Unavailable),
-    "describe": (DirectoryRecord, Outcome, Unavailable),
+    "describe": (DirectoryRecord, NotListed, Unavailable),
     "property_names": (list, Unavailable),
     "property_values": (list, Unavailable),
     "probe": (str, Unavailable),
-    "history": (HistoryPage,),
+    "history": (LogPage, Unavailable),
     "config_for": (AlarmConfigRecord, Unavailable),
-    "state_for": (AlarmStateRecord, Unavailable, type(None)),
+    "state_for": (AlarmStateRecord, NotListed, Unavailable),
     "states": (AlarmStates, Unavailable),
 }
 
 
-def _pages(answers: list[tuple[str, Any]]) -> list[DirectoryPage | HistoryPage]:
-    return [answer for _, answer in answers if isinstance(answer, DirectoryPage | HistoryPage)]
+def _pages(answers: list[tuple[str, Any]]) -> list[DirectoryPage | LogPage]:
+    return [answer for _, answer in answers if isinstance(answer, DirectoryPage | LogPage)]
 
 
 # --- the contract -----------------------------------------------------------------
@@ -525,12 +527,10 @@ async def test_every_method_answers_its_declared_type_and_never_raises(
     for method, answer in answers:
         assert isinstance(answer, _RETURNS[method]), (method, answer)
         assert not isinstance(answer, bool), method
-        if isinstance(answer, Outcome):
-            assert answer is Outcome.NOT_LISTED
         if isinstance(answer, Unavailable):
             assert answer.reason
     for page in _pages(answers):
-        assert page.outcome is not Outcome.NOT_LISTED
+        assert page.outcome in ("found", "no_match")
     built.assert_read_only()
 
 
@@ -572,18 +572,18 @@ async def test_an_exact_name_not_held_is_not_listed_and_a_search_without_rows_is
         DirectoryQuery(address_pattern=f"={ABSENT_PV}"), timeout_s=DEADLINE
     )
 
-    assert described is Outcome.NOT_LISTED
-    assert (page.outcome, page.rows) == (Outcome.NO_MATCH, ())
-    assert (by_name.outcome, by_name.rows) == (Outcome.NO_MATCH, ())
+    assert described == NotListed(address=ABSENT_PV)
+    assert (page.outcome, page.rows) == ("no_match", ())
+    assert (by_name.outcome, by_name.rows) == ("no_match", ())
 
 
 @pytest.mark.parametrize("case", HISTORY_CASES, ids=_ids(HISTORY_CASES))
 async def test_a_history_without_rows_is_no_match_never_not_listed(case, tmp_path, monkeypatch):
     built = await _build(case, "empty", tmp_path, monkeypatch)
 
-    page = await built.backend.history(case.pv, None, 10, timeout_s=DEADLINE)
+    page = await built.backend.history(case.pv, limit=10, timeout_s=DEADLINE)
 
-    assert (page.outcome, list(page.rows)) == (Outcome.NO_MATCH, [])
+    assert (page.outcome, list(page.rows)) == ("no_match", [])
 
 
 @pytest.mark.parametrize(
@@ -595,15 +595,14 @@ async def test_a_page_that_arrives_while_the_count_times_out_is_a_partial_page(
     channels = _fixture("channels.json")
     built = await _build(case, "recorded", tmp_path, monkeypatch)
     built.transport._answer = _by_path(
-        {CF_CHANNELS: channels, CF_COUNT: Unavailable(reason=NO_ANSWER)}, []
+        {CF_CHANNELS: channels, CF_COUNT: Unavailable(cause="timeout", reason=NO_ANSWER)}, []
     )
 
     page = await built.backend.search(DirectoryQuery(words="cooling"), timeout_s=DEADLINE)
 
-    assert page.outcome is Outcome.FOUND
+    assert page.outcome == "found"
     assert [row.address for row in page.rows] == [channel["name"] for channel in channels]
-    assert page.total is None
-    assert page.partial == ({"part": "count", "reason": NO_ANSWER},)
+    assert page.total == Unavailable(cause="timeout", reason=NO_ANSWER)
 
 
 @pytest.mark.parametrize("case", HTTP_CASES, ids=_ids(HTTP_CASES))
@@ -627,8 +626,9 @@ async def test_a_spent_deadline_answers_without_raising(case, tmp_path, monkeypa
     if case.http:
         # A service backend has nothing to answer from but the service.
         for method, answer in answers:
-            assert (answer.reason or "").startswith("no answer within"), (method, answer)
-        assert all(page.outcome is Outcome.UNAVAILABLE for page in _pages(answers))
+            assert isinstance(answer, Unavailable), (method, answer)
+            assert answer.cause == "timeout", (method, answer)
+            assert answer.reason.startswith("no answer within"), (method, answer)
 
 
 @pytest.mark.parametrize("case", ALARM_STATE_CASES, ids=_ids(ALARM_STATE_CASES))
@@ -808,11 +808,7 @@ async def test_a_login_page_reads_as_the_access_proxy_on_every_method(case, redi
     answers = await _exercise(backend, case)
 
     for method, answer in answers:
-        if isinstance(answer, DirectoryPage | HistoryPage):
-            assert answer.outcome is Outcome.UNAVAILABLE, method
-            assert answer.reason == LOGIN_PAGE_REASON, method
-        else:
-            assert answer == Unavailable(reason=LOGIN_PAGE_REASON), method
+        assert answer == Unavailable(cause="refused", reason=LOGIN_PAGE_REASON), method
     assert login_proxy.received
     assert all(_is_read_or_search(method, path, None) for method, path in login_proxy.received)
     assert "/sso/login" not in {path for _, path in login_proxy.received}

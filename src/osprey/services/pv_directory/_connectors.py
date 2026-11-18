@@ -30,7 +30,6 @@ try:
         AlarmStateRecord,
         AlarmStateRow,
         AlarmStates,
-        severity_rank,
     )
     from osprey_connectors.deployment.archive_targets import APPLIANCE_TARGETS
     from osprey_connectors.deployment.simulator import has_simulator
@@ -44,8 +43,7 @@ try:
     from osprey_connectors.put_log import PutLog, PutRow
     from osprey_connectors.service_answers import (
         BackendSpec,
-        HistoryPage,
-        Outcome,
+        NotListed,
         Source,
         Unavailable,
     )
@@ -69,7 +67,6 @@ except ImportError:
     AlarmStateRecord = None  # type: ignore[assignment,misc]
     AlarmStateRow = None  # type: ignore[assignment,misc]
     AlarmStates = None  # type: ignore[assignment,misc]
-    severity_rank = None  # type: ignore[assignment]
     BackendSpec = None  # type: ignore[assignment,misc]
     ChannelDirectory = None  # type: ignore[assignment,misc]
     ENGINEER = None  # type: ignore[assignment,misc]
@@ -78,8 +75,7 @@ except ImportError:
     DirectoryQuery = None  # type: ignore[assignment,misc]
     DirectoryRecord = None  # type: ignore[assignment,misc]
     DirectoryRow = None  # type: ignore[assignment,misc]
-    HistoryPage = None  # type: ignore[assignment,misc]
-    Outcome = None  # type: ignore[assignment,misc]
+    NotListed = None  # type: ignore[assignment,misc]
     PutLog = None  # type: ignore[assignment,misc]
     PutRow = None  # type: ignore[assignment,misc]
     SERVED_SIGNAL_PROPERTY = None  # type: ignore[assignment]
@@ -109,8 +105,7 @@ __all__ = [
     "DirectoryQuery",
     "DirectoryRecord",
     "DirectoryRow",
-    "HistoryPage",
-    "Outcome",
+    "NotListed",
     "PutLog",
     "PutRow",
     "Source",
@@ -124,7 +119,6 @@ __all__ = [
     "logbook_source",
     "served_instant",
     "service_targets",
-    "severity_rank",
     "unavailable_payload",
 ]
 
@@ -157,6 +151,9 @@ SERVED_INSTANT_FIELD = {
 
 #: The field a record keeps an unplaced stamp in; it is served as the record's instant.
 _RECORDED_STAMP = "recorded_stamp"
+
+#: What the alarm logger appends to an acknowledged severity, served as it recorded it.
+_ACK_SUFFIX = "_ACK"
 
 #: The records whose fields are served under :data:`SERVED_FIELD`.
 _SERVED_RECORDS = tuple(record for record in (PutRow, AlarmStateRow) if record is not None)
@@ -193,7 +190,16 @@ def _model_payload(result: BaseModel) -> dict[str, Any]:
         for name in type(result).model_fields:
             if name in SERVED_INSTANT_FIELD and payload[SERVED_INSTANT_FIELD[name]] is None:
                 payload[SERVED_INSTANT_FIELD[name]] = stamp
+    if AlarmHistoryRow is not None and isinstance(result, AlarmHistoryRow):
+        _serve_recorded_severity(payload)
     return payload
+
+
+def _serve_recorded_severity(payload: dict[str, Any]) -> None:
+    """A logged alarm's severity as the logger recorded it: ``MAJOR_ACK``, not ``acknowledged``."""
+    acknowledged = payload.pop("acknowledged")
+    if acknowledged and payload["severity"] is not None:
+        payload["severity"] = f"{payload['severity']}{_ACK_SUFFIX}"
 
 
 def unavailable_payload(reason: str, *, target: str) -> dict[str, Any]:
@@ -217,7 +223,8 @@ def as_payload(result: Any) -> Any:
     by :func:`~osprey.services.pv_directory.vocabulary.source_label`; a directory
     row names its fields by :data:`SERVED_ROW_FIELD`, a put row and an alarm-state row
     by :data:`SERVED_FIELD`, and every record its instants by
-    :data:`SERVED_INSTANT_FIELD`. Other records (pydantic models, and dataclasses)
+    :data:`SERVED_INSTANT_FIELD`; a logged alarm serves its severity as the logger
+    recorded it, an acknowledged one with its ``_ACK``. Other records (pydantic models, and dataclasses)
     become mappings field by field, enum members their values, a ``datetime`` its
     :func:`served_instant` text, mappings and sequences their JSON forms; anything
     else is returned as it is.
