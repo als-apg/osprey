@@ -10,6 +10,7 @@ import textwrap
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
+import pandas as pd
 import pytest
 
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
@@ -24,6 +25,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ConnectorUnavailableError,
 )
+from osprey_connectors.service_answers import BackendSpec, Unavailable
 from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config, served_tree
@@ -723,6 +725,21 @@ def _archived_tree(tmp_path, *readings):
     return served_tree(tmp_path, readings=readings, channels=dict.fromkeys(readings, _MOVING))
 
 
+def _archive(settings) -> MockArchiverConnector:
+    """The mock archive built from *settings*, as ``create_service`` builds it."""
+    return MockArchiverConnector(
+        BackendSpec(
+            kind="archive", type="mock_archiver", target="va", settings=settings, rehearsal=False
+        )
+    )
+
+
+def _frame(answer) -> pd.DataFrame:
+    """*answer* as the frame it must be, never an ``Unavailable``."""
+    assert isinstance(answer, pd.DataFrame), answer
+    return answer
+
+
 class TestMockArchiverConnector:
     """Test MockArchiverConnector functionality."""
 
@@ -735,162 +752,176 @@ class TestMockArchiverConnector:
         from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 
         view = _archived_tree(tmp_path, "BEAM:CURRENT")
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(view))
+        connector = _archive(in_process_config(view))
+        await connector.coverage(["BEAM:CURRENT"])
         previous = connector._archive
+        assert previous is not None
         state_file = simulation_state_dir(view) / ACTIVE_SCENARIOS_FILENAME
         state_file.parent.mkdir(parents=True, exist_ok=True)
         state_file.write_text("nominal\n", encoding="utf-8")
 
-        await connector.check_availability(["BEAM:CURRENT"])
+        await connector.coverage(["BEAM:CURRENT"])
 
         assert connector._archive is not None
         assert connector._archive is not previous
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_disconnect_drops_the_composite(self, tmp_path):
-        """Disconnecting stops serving the composite."""
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+    async def test_aclose_drops_the_composite(self, tmp_path):
+        """Closing drops the composite; the next call builds it again."""
+        connector = _archive(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        await connector.coverage(["BEAM:CURRENT"])
+        assert connector._archive is not None
 
-        await connector.disconnect()
+        await connector.aclose()
 
         assert connector._archive is None
+        coverage = await connector.coverage(["BEAM:CURRENT"])
+        assert not isinstance(coverage, Unavailable)
+        assert coverage["BEAM:CURRENT"].is_archived is True
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_connect_disconnect(self, tmp_path):
-        """Test archiver connection and disconnection."""
-        connector = MockArchiverConnector()
-        config = in_process_config(served_tree(tmp_path), sample_rate_hz=1.0)
+    async def test_building_opens_nothing(self, tmp_path):
+        """The view is opened and the composite built on the first call, not at build."""
+        connector = _archive(in_process_config(served_tree(tmp_path), sample_rate_hz=1.0))
+        assert connector._archive is None
+        assert connector._view is None
 
-        await connector.connect(config)
-        assert connector._connected is True
-
-        await connector.disconnect()
-        assert connector._connected is False
+        assert isinstance(await connector.probe(), str)
+        assert connector._archive is not None
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_connect_without_a_built_view_is_refused(self, tmp_path, monkeypatch):
-        """No view named and none beside a loaded config: connect says to build."""
+    async def test_without_a_built_view_every_call_says_to_build(self, tmp_path, monkeypatch):
+        """No view named and none beside a loaded config: each call answers the build hint."""
         monkeypatch.chdir(tmp_path)
-        connector = MockArchiverConnector()
+        connector = _archive({})
+        start = datetime(2024, 1, 1, tzinfo=UTC)
 
-        with pytest.raises(RuntimeError) as refusal:
-            await connector.connect({})
+        answers = [
+            await connector.history(["A"], start_at=start, end_at=start + timedelta(hours=1)),
+            await connector.coverage(["A"]),
+            await connector.probe(),
+        ]
 
-        assert str(refusal.value) == NO_VIEW_MESSAGE
+        assert answers == [Unavailable(cause="misconfigured", reason=NO_VIEW_MESSAGE)] * 3
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("sample_rate_hz", [0, -1.0])
-    async def test_connect_rejects_non_positive_sample_rate(self, sample_rate_hz):
-        """A zero or negative rate would divide by zero later; connect refuses it."""
-        connector = MockArchiverConnector()
-
+    def test_building_rejects_non_positive_sample_rate(self, sample_rate_hz):
+        """A zero or negative rate would divide by zero later; building refuses it."""
         with pytest.raises(ValueError, match="sample_rate_hz must be > 0"):
-            await connector.connect({"sample_rate_hz": sample_rate_hz})
+            _archive({"sample_rate_hz": sample_rate_hz})
 
     @pytest.mark.asyncio
-    async def test_get_data_serves_the_view_and_refuses_any_other_name(self, tmp_path):
-        """The view's channels are served; a name outside it is refused, by name."""
+    async def test_history_serves_the_view_and_no_rows_for_any_other_name(self, tmp_path):
+        """The view's channels are served; a name outside it was never recorded: no rows."""
         channels = ["FAKE:PV:1", "RANDOM:PV:2", "ANY:NAME:3"]
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(_archived_tree(tmp_path, *channels)))
+        connector = _archive(in_process_config(_archived_tree(tmp_path, *channels)))
 
         start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         end_date = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
 
-        df = await connector.get_data(channels, start_at=start_date, end_at=end_date)
+        df = _frame(await connector.history(channels, start_at=start_date, end_at=end_date))
 
-        assert df is not None
         assert len(df) > 0
         assert set(df["address"]) == set(channels)
 
-        with pytest.raises(ChannelNotFoundError) as refusal:
-            await connector.get_data(["NOT:SERVED"], start_at=start_date, end_at=end_date)
-        assert str(refusal.value) == "NOT:SERVED is not a channel of this facility"
+        outside = _frame(
+            await connector.history([*channels, "NOT:SERVED"], start_at=start_date, end_at=end_date)
+        )
+        assert "NOT:SERVED" not in set(outside["address"])
+        pd.testing.assert_frame_equal(outside, df)
 
-        await connector.disconnect()
+        empty = _frame(
+            await connector.history(["NOT:SERVED"], start_at=start_date, end_at=end_date)
+        )
+        assert empty.empty
+        assert list(empty.columns) == ["timestamp", "address", "value"]
+
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_get_data_returns_dataframe(self, tmp_path):
-        """Test that get_data returns the canonical long-format DataFrame."""
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+    async def test_history_returns_dataframe(self, tmp_path):
+        """Test that history returns the canonical long-format DataFrame."""
+        connector = _archive(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         end_date = datetime(2024, 1, 1, 0, 10, 0, tzinfo=UTC)
 
-        df = await connector.get_data(
-            ["BEAM:CURRENT"], start_at=start_date, end_at=end_date, precision_ms=1000
+        df = _frame(
+            await connector.history(
+                ["BEAM:CURRENT"], start_at=start_date, end_at=end_date, precision_ms=1000
+            )
         )
 
-        import pandas as pd
-
-        assert isinstance(df, pd.DataFrame)
         assert list(df.columns) == ["timestamp", "address", "value"]
         assert df["timestamp"].dtype == "datetime64[ns, UTC]"
         assert df["value"].dtype == "float64"
         assert (df["address"] == "BEAM:CURRENT").all()
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_get_metadata(self, tmp_path):
-        """Test getting archiver metadata."""
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+    async def test_coverage_of_a_served_channel(self, tmp_path):
+        """A served channel is archived, with UTC bounds and the configured period."""
+        connector = _archive(
+            in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT"), sample_rate_hz=4.0)
+        )
 
-        metadata = await connector.get_metadata("BEAM:CURRENT")
+        coverage = await connector.coverage(["BEAM:CURRENT"])
+        assert not isinstance(coverage, Unavailable)
+        metadata = coverage["BEAM:CURRENT"]
         assert metadata.address == "BEAM:CURRENT"
         assert metadata.is_archived is True
+        assert metadata.unknown_reason is None
+        assert metadata.sampling_period_s == 0.25
         assert metadata.first_sample_at is not None
         # Both bounds are UTC instants, whatever the facility zone.
         assert metadata.first_sample_at.utcoffset() == timedelta(0)
         assert metadata.last_sample_at is not None
         assert metadata.last_sample_at.utcoffset() == timedelta(0)
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
-    async def test_check_availability_is_membership(self, tmp_path):
-        """A channel is available exactly when the simulator view holds it."""
+    async def test_coverage_is_membership(self, tmp_path):
+        """A channel is archived exactly when the simulator view holds it."""
         channels = ["PV:1", "PV:2", "PV:3"]
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(_archived_tree(tmp_path, *channels)))
+        connector = _archive(in_process_config(_archived_tree(tmp_path, *channels)))
 
-        availability = await connector.check_availability([*channels, "PV:4"])
+        coverage = await connector.coverage([*channels, "PV:4"])
+        assert not isinstance(coverage, Unavailable)
 
-        assert len(availability) == len(channels) + 1
+        assert len(coverage) == len(channels) + 1
         for pv in channels:
-            assert availability[pv] is True
-        assert availability["PV:4"] is False
+            assert coverage[pv].is_archived is True
+        assert coverage["PV:4"].is_archived is False
+        assert coverage["PV:4"].first_sample_at is None
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_generated_time_series_has_variation(self, tmp_path):
         """Test that generated time series have realistic variation."""
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        connector = _archive(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         start_date = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         end_date = datetime(2024, 1, 1, 1, 0, 0, tzinfo=UTC)
 
-        df = await connector.get_data(["BEAM:CURRENT"], start_at=start_date, end_at=end_date)
+        df = _frame(await connector.history(["BEAM:CURRENT"], start_at=start_date, end_at=end_date))
 
         # Check that values vary (not all the same)
         values = df.loc[df["address"] == "BEAM:CURRENT", "value"].to_numpy()
         assert len(set(values)) > 1
         assert values.std() > 0
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_multi_pv_returns_independent_rows_per_channel(self, tmp_path):
         """Each channel contributes its own rows to the long frame."""
-        connector = MockArchiverConnector()
-        await connector.connect(
+        connector = _archive(
             in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT", "MAGNET:VOLTAGE"))
         )
 
@@ -898,11 +929,13 @@ class TestMockArchiverConnector:
         end_date = datetime(2024, 1, 1, 0, 1, 0, tzinfo=UTC)
         channels = ["BEAM:CURRENT", "MAGNET:VOLTAGE"]
 
-        df = await connector.get_data(
-            channels,
-            start_at=start_date,
-            end_at=end_date,
-            precision_ms=1000,
+        df = _frame(
+            await connector.history(
+                channels,
+                start_at=start_date,
+                end_at=end_date,
+                precision_ms=1000,
+            )
         )
 
         assert list(df.columns) == ["timestamp", "address", "value"]
@@ -910,7 +943,7 @@ class TestMockArchiverConnector:
         assert set(df["address"]) == set(channels)
         assert (df["address"].value_counts() >= 1).all()
 
-        await connector.disconnect()
+        await connector.aclose()
 
 
 class TestMockArchiverProcessing:
@@ -923,10 +956,9 @@ class TestMockArchiverProcessing:
     @pytest.mark.asyncio
     async def test_processing_mean_aggregates_multiple_raw_samples(self, tmp_path):
         """A bin much wider than the data's spacing must average, not pass through."""
-        connector = MockArchiverConnector()
         # Samples are a pure function of channel and timestamp, so the two
-        # independent get_data() calls are comparable.
-        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        # independent history() calls are comparable.
+        connector = _archive(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         # Both calls generate the same 10 points (the generator's forced
         # minimum) over this 10s window; the 60s mean bin forces every sample
@@ -935,42 +967,47 @@ class TestMockArchiverProcessing:
         end_date = datetime(2024, 1, 1, 0, 0, 10, tzinfo=UTC)
         pv = "BEAM:CURRENT"
 
-        raw_df = await connector.get_data(
-            [pv],
-            start_at=start_date,
-            end_at=end_date,
-            precision_ms=1_000,
-            processing="raw",
+        raw_df = _frame(
+            await connector.history(
+                [pv],
+                start_at=start_date,
+                end_at=end_date,
+                precision_ms=1_000,
+                processing="raw",
+            )
         )
-        mean_df = await connector.get_data(
-            [pv],
-            start_at=start_date,
-            end_at=end_date,
-            precision_ms=60_000,
-            processing="mean",
+        mean_df = _frame(
+            await connector.history(
+                [pv],
+                start_at=start_date,
+                end_at=end_date,
+                precision_ms=60_000,
+                processing="mean",
+            )
         )
 
         assert len(raw_df) > 1
         assert len(mean_df) == 1
         assert mean_df["value"].iloc[0] == pytest.approx(raw_df["value"].mean())
 
-        await connector.disconnect()
+        await connector.aclose()
 
     @pytest.mark.asyncio
     async def test_processing_mean_bounded_when_point_cap_binds(self, tmp_path):
         """A window wide enough to hit the 10,000-point cap must not blow up on resample."""
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
+        connector = _archive(in_process_config(_archived_tree(tmp_path, "BEAM:CURRENT")))
 
         start_date = datetime(2024, 1, 1, tzinfo=UTC)
         end_date = start_date + timedelta(days=7)
 
-        df = await connector.get_data(
-            ["BEAM:CURRENT"],
-            start_at=start_date,
-            end_at=end_date,
-            precision_ms=1000,
-            processing="mean",
+        df = _frame(
+            await connector.history(
+                ["BEAM:CURRENT"],
+                start_at=start_date,
+                end_at=end_date,
+                precision_ms=1000,
+                processing="mean",
+            )
         )
 
         # Regression: resampling at 1000ms against ~60s-spaced data inflated
@@ -978,7 +1015,7 @@ class TestMockArchiverProcessing:
         assert len(df) <= 10_001
         assert not df["value"].isna().any()
 
-        await connector.disconnect()
+        await connector.aclose()
 
 
 class TestMockArchiverReproducibility:
@@ -999,11 +1036,10 @@ class TestMockArchiverReproducibility:
         return _archived_tree(tmp_path, *self._CHANNELS)
 
     async def _values(self, view, pv: str) -> list[float]:
-        connector = MockArchiverConnector()
-        await connector.connect(in_process_config(view))
+        connector = _archive(in_process_config(view))
         start, end = self._WINDOW
-        df = await connector.get_data([pv], start_at=start, end_at=end)
-        await connector.disconnect()
+        df = _frame(await connector.history([pv], start_at=start, end_at=end))
+        await connector.aclose()
         return df["value"].tolist()
 
     @pytest.mark.asyncio
@@ -1030,16 +1066,19 @@ class TestMockArchiverReproducibility:
             from osprey_connectors.archiver._mock_archiver_connector import (
                 MockArchiverConnector,
             )
+            from osprey_connectors.service_answers import BackendSpec
 
             async def main():
-                c = MockArchiverConnector()
-                await c.connect({"simulator_view": sys.argv[1]})
-                df = await c.get_data(
+                c = MockArchiverConnector(BackendSpec(
+                    kind="archive", type="mock_archiver", target="va",
+                    settings={"simulator_view": sys.argv[1]}, rehearsal=False,
+                ))
+                df = await c.history(
                     ["SR:UNKNOWN:PRESSURE"],
                     start_at=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
                     end_at=datetime(2024, 1, 15, 10, 5, 0, tzinfo=UTC),
                 )
-                await c.disconnect()
+                await c.aclose()
                 print(json.dumps(df["value"].tolist()))
 
             asyncio.run(main())

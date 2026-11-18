@@ -13,7 +13,6 @@ import fnmatch
 import json
 from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -31,7 +30,6 @@ from osprey_connectors.directory import (
     DirectoryRecord,
     DirectoryRow,
 )
-from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import (
     LogPage,
     NotListed,
@@ -236,23 +234,29 @@ async def test_a_found_channel_carries_its_origin_and_panel_link(tmp_path: Path)
 async def test_a_channel_carries_the_archive_section_when_the_deployment_has_an_archive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from osprey_connectors.archiver import ArchiveCoverage
+
     class Appliance:
-        async def get_metadata(self, channel: str) -> Any:
-            return SimpleNamespace(
-                is_archived=None,
-                first_sample_at=None,
-                last_sample_at=None,
-                sampling_period=None,
-                description=f"cannot say for {channel}",
+        def __init__(self, spec: Any) -> None:
+            self.source = Source(
+                kind=spec.kind, target=spec.target, service=spec.type, rehearsal=spec.rehearsal
             )
 
-        async def disconnect(self) -> None:
+        async def coverage(self, addresses: Any, **_kwargs: Any) -> Any:
+            return {
+                address: ArchiveCoverage(
+                    address=address, is_archived=None, unknown_reason=f"cannot say for {address}"
+                )
+                for address in addresses
+            }
+
+        async def aclose(self) -> None:
             pass
 
-    async def create(config: Any) -> Appliance:  # noqa: ARG001 - the factory's signature
-        return Appliance()
+    async def create(spec: Any, **_kwargs: Any) -> Appliance:
+        return Appliance(spec)
 
-    monkeypatch.setattr(ConnectorFactory, "create_archiver_connector", create)
+    patch_create_service(monkeypatch, "archive", create)
     FakeDirectory.records = _records(_record("SR:BPM1"))
     appliance = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
     _install(tmp_path, LIVE_BUILD, FACILITY, "SR:BPM1", archiver=appliance)

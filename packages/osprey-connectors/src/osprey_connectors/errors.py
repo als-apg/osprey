@@ -29,6 +29,7 @@ a ``ValueError``. The hierarchy, with each builtin second base::
     ├── ClientLibraryRefusedError             (RuntimeError)
     ├── ConfigurationError                    (ValueError) a config value, by its key
     ├── NaiveDatetimeError                    (ValueError) an instant with no zone
+    ├── ArchiveQueryError                     (ValueError) an archive query argument
     ├── StateUnavailableError                 (RuntimeError) no state directory
     ├── StateLockedError                      (RuntimeError) a state lock stayed held
     ├── AlreadyApprovedError                  (FileExistsError)
@@ -102,6 +103,7 @@ __all__ = [
     "NOT_A_CHANNEL",
     "RAW_CLIENT_WRITE_MARKER",
     "AlreadyApprovedError",
+    "ArchiveQueryError",
     "ChannelError",
     "ChannelLimitsViolationError",
     "ChannelNotFoundError",
@@ -634,6 +636,23 @@ class NaiveDatetimeError(ConnectorsError, ValueError):
             f"{parameter} must be a timezone-aware datetime, got the naive {value.isoformat()}; "
             "attach the zone it was read in (tzinfo=...)"
         )
+
+
+class ArchiveQueryError(ConnectorsError, ValueError):
+    """An archive query the archive cannot answer as asked: the caller's argument.
+
+    ``parameter`` names the argument (``processing``, ``precision_ms``,
+    ``end_at``, ``addresses``) and ``address`` the channel it was refused for,
+    or ``None`` when the refusal is about the whole query. The one failure an
+    archive raises besides a refused instant: a service that gives no answer
+    answers :class:`~osprey_connectors.service_answers.Unavailable` instead. A
+    ``ValueError``, as a bad argument is.
+    """
+
+    def __init__(self, message: str, *, parameter: str, address: str | None = None) -> None:
+        self.parameter = parameter
+        self.address = address
+        super().__init__(message)
 
 
 def require_aware(value: object, *, name: str) -> datetime:

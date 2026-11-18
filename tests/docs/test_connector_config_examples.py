@@ -35,6 +35,7 @@ import yaml
 from osprey_connectors.archiver_selection import archiver_settings_errors
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.limits_posture import incomplete_limits_blocks
+from osprey_connectors.service_targets import service_targets
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "docs/source/how-to/control-systems/examples"
@@ -170,12 +171,14 @@ def test_the_factory_builds_the_control_system_connector(path):
             assert context.settings == block, label
 
 
-def test_the_archiver_appliance_settings_connect():
-    """The one archiver whose ``connect()`` reads its settings without the server."""
+def test_the_archiver_appliance_settings_build():
+    """The one archive whose constructor reads its settings without the server."""
 
-    async def connect(section: Mapping[str, Any]) -> None:
-        archiver = await ConnectorFactory.create_archiver_connector(dict(section))
-        await archiver.disconnect()
+    async def build(config: Mapping[str, Any]) -> None:
+        spec = service_targets(config).archive["live"]
+        assert spec is not None
+        archive = await ConnectorFactory.create_service(spec)
+        await archive.aclose()
 
     document = _documents(EXAMPLES / "archiver-epics.yml")["as shown"]
-    asyncio.run(connect(document["archiver"]))
+    asyncio.run(build(document))

@@ -288,17 +288,22 @@ def _mongodb_archiver_connector(
     from osprey_connectors.archiver._mongodb_archiver_connector import (
         MongoDBArchiverConnector,
     )
+    from osprey_connectors.service_answers import BackendSpec
 
-    connector = MongoDBArchiverConnector()
+    settings = {
+        "host": "localhost",
+        "name": "osprey_archiver",
+        "collection": "pv_history",
+        "username": "osprey",
+    }
     with pytest.raises(ValueError) as excinfo:
-        asyncio.run(
-            connector.connect(
-                {
-                    "host": "localhost",
-                    "name": "osprey_archiver",
-                    "collection": "pv_history",
-                    "username": "osprey",
-                }
+        MongoDBArchiverConnector(
+            BackendSpec(
+                kind="archive",
+                type="mongodb_archiver",
+                target="va",
+                settings=settings,
+                rehearsal=False,
             )
         )
 

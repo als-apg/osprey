@@ -7,7 +7,9 @@ from osprey_connectors.archiver_selection import (
     archiver_settings_key,
     resolve_archiver_settings,
 )
+from osprey_connectors.connector_types import TARGET_LIVE
 from osprey_connectors.factory import ConnectorFactory
+from osprey_connectors.service_targets import service_targets
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._mock_dynamic_connector import RecordingArchiver
 
@@ -26,20 +28,28 @@ def clean_factory():
         yield
 
 
+async def _built(section: dict) -> None:
+    """Build the live archive a config with this ``archiver:`` *section* names."""
+    spec = service_targets({"archiver": section}).archive[TARGET_LIVE]
+    assert spec is not None
+    await ConnectorFactory.create_service(spec)
+
+
 @pytest.mark.asyncio
-async def test_a_dotted_path_archiver_is_connected_with_its_settings_block():
-    await ConnectorFactory.create_archiver_connector(
-        {"type": RECORDING, "settings": {"server": "history.example.org"}}
-    )
-    assert RecordingArchiver.settings == {"server": "history.example.org"}
+async def test_a_dotted_path_archiver_is_built_with_its_settings_block():
+    # A url makes the facility's archive serve the live machine.
+    await _built({"type": RECORDING, "settings": {"url": "https://history.example.org"}})
+    assert RecordingArchiver.settings == {"url": "https://history.example.org"}
 
 
 @pytest.mark.asyncio
 async def test_a_block_keyed_by_the_dotted_path_is_not_read():
-    await ConnectorFactory.create_archiver_connector(
-        {"type": RECORDING, RECORDING: {"server": "history.example.org"}}
+    # Unread, the block names no address, so no target is served at all.
+    table = service_targets(
+        {"archiver": {"type": RECORDING, RECORDING: {"url": "https://history.example.org"}}}
     )
-    assert RecordingArchiver.settings == {}
+    assert table.archive[TARGET_LIVE] is None
+    assert RecordingArchiver.settings is None
 
 
 def test_a_builtin_reads_the_settings_block():

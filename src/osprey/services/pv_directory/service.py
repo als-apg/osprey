@@ -19,9 +19,9 @@ feed holds none; a feed that does not answer marks no row and is listed in
 ``archived``: whether the store records the PV now, ``None`` when the archiver
 cannot say (the page's ``archived_reason`` says why).
 
-Backends, the archiver connector, the alarm snapshot and the cached sets belong
-to one (target, generation): when either moves, they are dropped, the snapshot
-closed, the connector disconnected, and the next call builds afresh.
+Backends, the archive, the alarm snapshot and the cached sets belong to one
+(target, generation): when either moves, they are dropped, the snapshot and
+the archive closed, and the next call builds afresh.
 """
 
 from __future__ import annotations
@@ -42,20 +42,17 @@ from osprey.services.pv_directory._connectors import (
     SERVED_QUERY_FIELD,
     DirectoryQuery,
     NotListed,
-    Source,
     Unavailable,
     as_payload,
     service_targets,
     unavailable_payload,
 )
 from osprey.services.pv_directory.alarm_snapshot import AlarmSnapshot
-from osprey.services.pv_directory.archive import Extent, read_extent
+from osprey.services.pv_directory.archive import history_targets
 from osprey.services.pv_directory.demo import resolve_replay_file
 from osprey.services.pv_directory.origin import Origin, mark
 from osprey.services.pv_directory.vocabulary import service_failed
 from osprey_connectors import control_context
-from osprey_connectors.archiver_selection import resolve_archiver_type
-from osprey_connectors.deployment.archive_targets import archive_targets
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.model import evolve
 from osprey_connectors.targets import baseline_target
@@ -84,11 +81,11 @@ _ALARM_VALUES = ("UNDEFINED", "INVALID", "MAJOR", "MINOR", "none")
 _ALARM_FIELDS = ("severity", "status", "latched", "acknowledged", "time")
 #: The archive filter's values: the store records the PV, does not, or cannot say.
 _ARCHIVED_VALUES = ("yes", "no", "unknown")
-#: The cache key of a failed archiver build's reason.
+#: The cache key of a failed archive build's reason.
 _ARCHIVE_FAILED = ("archive", "failed")
 #: The cache key of the store's extent; the in-flight key of its read.
 _ARCHIVE_EXTENT = ("archive",)
-#: The in-flight key of the archiver connector's build.
+#: The in-flight key of the archive's build.
 _ARCHIVE_BUILD = ("archive", "build")
 #: What an archive read answers when the target moved while it ran.
 _MOVED_REASON = "the target moved"
@@ -323,30 +320,26 @@ class DirectoryService:
             return {"pv_directory": unavailable_payload(FLOOR_REASON, target=target)}
         wanted = _KINDS if kinds is None else tuple(kinds)
         table = service_targets(self._config)
-        asked = [
-            kind
-            for kind in _KINDS
-            if kind in wanted and any(table[_TARGETS_ROW.get(kind, kind)].values())
-        ]
+        asked = [kind for kind in _KINDS if kind in wanted and any(_row(table, kind).values())]
         answers = await asyncio.gather(*(self._probe(kind, target) for kind in asked))
         return dict(zip(asked, answers, strict=True))
 
     async def archive(self, *, fresh: bool = False) -> tuple[Any, Any, str | None]:
-        """``(connector, source, None)`` for the current target's archive, else ``(None, None, reason)``.
+        """``(archive, source, None)`` for the current target's archive, else ``(None, None, reason)``.
 
-        The archiver connector is built once per (target, generation), read
-        only through ``get_metadata`` and ``store_extent``, and disconnected
-        when the target moves. ``NO_SOURCE_REASON`` when the deployment's
-        archive does not serve the target. A failed build answers its reason
-        for as long as a fetched set is cached, so a store that is down costs
-        one wait, not one per search; *fresh* tries again at once.
+        The archive is built once per (target, generation), read only through
+        ``coverage`` and ``extent``, and closed when the target moves.
+        ``NO_SOURCE_REASON`` when the deployment's archive holds no history of
+        the target. A failed build answers its reason for as long as a fetched
+        set is cached; *fresh* tries again at once.
         """
         await self._sync()
         return await self._archive_connector(fresh=fresh)
 
-    async def archive_extent(self, *, fresh: bool = False) -> Extent | None:
+    async def archive_extent(self, *, fresh: bool = False) -> Any:
         """What the current target's archive holds, ``None`` when the target has none.
 
+        An ``ArchiveExtent``, or ``Unavailable`` when the archive cannot say.
         The answer, known or not, is cached like a fetched result set; *fresh*
         reads the store again.
         """
@@ -386,7 +379,7 @@ class DirectoryService:
         if snapshot is not None:
             await snapshot.aclose()
         if archive is not None:
-            await _disconnect(archive[0])
+            await _close(archive[0])
 
     async def _resolve(self, kind: str) -> tuple[Any, Any, str | None]:
         """``(backend, source, None)``, or ``(None, None, reason)`` when there is none."""
@@ -405,7 +398,7 @@ class DirectoryService:
 
     async def _build(self, kind: str, target: str) -> tuple[Any, Any, str | None]:
         table = service_targets(self._config)
-        spec: Any = table[_TARGETS_ROW.get(kind, kind)][target]
+        spec: Any = _row(table, kind)[target]
         if spec is None:
             return None, None, NO_SOURCE_REASON
         if kind == "alarm_state" and spec.settings.get("replay_file"):
@@ -447,11 +440,11 @@ class DirectoryService:
     # -- the archive -----------------------------------------------------
 
     def _has_archive(self) -> bool:
-        """Whether the deployment's archive serves the current target."""
+        """Whether the deployment's archive holds the current target's history."""
         if not DIRECTORY_CONNECTORS_AVAILABLE:
             return False
         target = self._at[0] if self._at else self._position()[0]
-        return target in archive_targets(self._config)
+        return target in history_targets(self._config)
 
     async def _archive_connector(self, *, fresh: bool = False) -> tuple[Any, Any, str | None]:
         if not DIRECTORY_CONNECTORS_AVAILABLE:
@@ -499,54 +492,45 @@ class DirectoryService:
             raise
 
     async def _build_archive(self, at: tuple[str, int] | None) -> tuple[Any, Any, str | None]:
-        section = self._config.get("archiver")
         target = at[0] if at else self._position()[0]
-        deadline = self._timeout()
+        spec: Any = _row(service_targets(self._config), "archive")[target]
         try:
-            connector = await asyncio.wait_for(
-                ConnectorFactory.create_archiver_connector(dict(section or {})), deadline
-            )
-        except TimeoutError:
-            reason = f"the archive did not answer within {deadline:g} s"
-            self._store(at, _ARCHIVE_FAILED, reason)
-            return None, None, reason
+            archive = await ConnectorFactory.create_service(spec, project_dir=self._project_dir)
         except Exception as failure:
-            logger.warning("cannot reach the archive", exc_info=True)
+            # The settings the archive's type refuses, read when it is built.
+            logger.warning("cannot build the archive", exc_info=True)
             reason = f"cannot reach the archive: {type(failure).__name__}"
             self._store(at, _ARCHIVE_FAILED, reason)
             return None, None, reason
         if self._at != at:
-            await _disconnect(connector)
+            await _close(archive)
             return None, None, _MOVED_REASON
-        source = Source(
-            kind="archive",
-            target=target,  # type: ignore[arg-type]
-            service=resolve_archiver_type(section),
-            rehearsal=target == "standin",
-        )
-        self._archive = (connector, source, None)
+        self._archive = (archive, archive.source, None)
         return self._archive
 
-    async def _extent(self, deadline: float, *, fresh: bool = False) -> Extent | None:
+    async def _extent(self, deadline: float, *, fresh: bool = False) -> Any:
+        """The store's extent, ``Unavailable`` when unknown, ``None`` with no archive."""
         if not self._has_archive():
             return None
         at = self._at
         if not fresh:
             cached = self._cached(at, _ARCHIVE_EXTENT)
-            if isinstance(cached, Extent):
+            if cached is not None:
                 return cached
         return await self._once(
             at,
             _ARCHIVE_EXTENT,
             lambda: self._read_extent(at, deadline),
-            Extent(reason=_MOVED_REASON),
+            Unavailable(cause="not_ready", reason=_MOVED_REASON),
         )
 
-    async def _read_extent(self, at: tuple[str, int] | None, deadline: float) -> Extent:
+    async def _read_extent(self, at: tuple[str, int] | None, deadline: float) -> Any:
         """Read the store's extent and cache the answer, known or not, like a fetched set."""
-        connector, _source, reason = await self._archive_connector()
+        archive, _source, reason = await self._archive_connector()
         extent = (
-            Extent(reason=reason) if connector is None else await read_extent(connector, deadline)
+            Unavailable(cause="failed", reason=reason or NO_SOURCE_REASON)
+            if archive is None
+            else await self._bounded(archive.extent(timeout_s=deadline), deadline)
         )
         self._store(at, _ARCHIVE_EXTENT, extent)
         return extent
@@ -554,14 +538,11 @@ class DirectoryService:
     async def _archive_index(self, deadline: float) -> Any:
         """The channels the store records: a set, ``Unavailable`` when unknown, ``None`` with no archive."""
         extent = await self._extent(deadline)
-        if extent is None:
-            return None
-        if extent.channels is None:
-            return Unavailable(
-                cause="unsupported",
-                reason=extent.reason or "the archive does not say what it holds",
-            )
-        return extent.channels
+        if extent is None or isinstance(extent, Unavailable):
+            return extent
+        if extent.addresses is None:
+            return Unavailable(cause="unsupported", reason="the archive does not say what it holds")
+        return extent.addresses
 
     # -- searching -------------------------------------------------------
 
@@ -723,6 +704,12 @@ class DirectoryService:
             self._sets.popitem(last=False)
 
 
+def _row(table: Any, kind: str) -> Mapping[str, Any]:
+    """The row of ``service_targets``' table a section *kind* reads, keyed by target."""
+    row: Mapping[str, Any] = table.row(_TARGETS_ROW.get(kind, kind))
+    return row
+
+
 def _no_source_page(reason: str, target: str) -> dict[str, Any]:
     """The whole ``DirectoryPage`` a search answers with no source on *target*."""
     return {
@@ -771,12 +758,12 @@ async def _none() -> None:
     return None
 
 
-async def _disconnect(connector: Any) -> None:
-    """Disconnect an archiver connector; a failure is logged, never raised."""
+async def _close(archive: Any) -> None:
+    """Close an archive; a failure is logged, never raised."""
     try:
-        await connector.disconnect()
+        await archive.aclose()
     except Exception:
-        logger.warning("the archive connector did not disconnect cleanly", exc_info=True)
+        logger.warning("the archive did not close cleanly", exc_info=True)
 
 
 def _alarm_value(index: Mapping[str, Any], name: str) -> str:

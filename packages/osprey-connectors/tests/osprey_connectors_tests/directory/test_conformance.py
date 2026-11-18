@@ -825,7 +825,7 @@ async def test_the_configured_description_property_reaches_the_channelfinder_req
             "description_property": "pvDescription",
         }
     }
-    spec = service_targets(config)["directory"]["live"]
+    spec = service_targets(config).directory["live"]
     transport = RecordingTransport(_HTTP_ANSWERS["channelfinder"]["recorded"])
 
     backend = await ConnectorFactory.create_service(spec, transport=transport)

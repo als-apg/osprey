@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 #: A live stand-in beside the simulator is never what this service samples.
 #: The stand-in rehearses the facility's real machine, so the past it is shown
 #: is the real machine's — the archiver appliance, when the deployment names
-#: one (:mod:`osprey_connectors.deployment.archive_targets`). The compose entry addresses
+#: one (:mod:`osprey_connectors.service_targets`). The compose entry addresses
 #: the ``virtual-accelerator`` service and nothing else.
 RECORDED_TARGET = TARGET_VA
 

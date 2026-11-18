@@ -2,27 +2,30 @@
 
 Verifies the deployment's archiver is both *reachable* and *live*: it queries a
 short trailing window for a derived or stated canary channel through the suite's
-shared archiver connector (obtained from the
+shared archive (obtained from the
 :class:`~osprey.health.runtime.HealthRuntime` on the probe context via
-``ctx.runtime.get_archiver(...)``) and grades the age of the newest archived
+``ctx.runtime.get_archive(spec)``) and grades the age of the newest archived
 sample against a threshold. This generalizes the single most valuable check on a
 facility dashboard: the archiver *UI being up* is not the same as the archiver
 *archiving* — a wedged ingester leaves the web front-end reachable while data
 silently stops flowing, and only the age of the newest sample distinguishes the
 two.
 
-The archiver config block (``type`` plus the per-type sub-block) is resolved
-with the same precedence as :mod:`~osprey.health.probes.provider_canary`: an
-explicit per-run ``ctx.config`` (the web surface) is authoritative when present,
-else the global config singleton (CLI/standalone). A declared
-``archiver_freshness`` check with **no** ``archiver:`` block configured is a real
-misconfiguration and grades ``error`` — not a silent pass.
+The config is resolved with the same precedence as
+:mod:`~osprey.health.probes.provider_canary`: an explicit per-run ``ctx.config``
+(the web surface) is authoritative when present, else the global config
+singleton (CLI/standalone). The archive probed is the first target's of the
+deployment's archive row (:func:`~osprey_connectors.service_targets.service_targets`):
+a health run has no session, so it probes the one archive the deployment has,
+whichever target holds it. A declared ``archiver_freshness`` check with **no**
+``archiver:`` block configured is a real misconfiguration and grades ``error``
+— not a silent pass.
 
 Grading:
 
 * no ``archiver:`` block configured → ``error`` (misconfiguration);
-* the connector is unreachable, or the query raises → ``error`` whose ``details``
-  carries ``str(exc)``;
+* a block that serves no target, an archive whose settings are refused, or an
+  archive that gives no answer → ``error`` whose ``details`` carries the reason;
 * a sample is found and its age is ``<= max_age_s`` → ``ok``, message
   ``"Fresh (newest sample 42 s old)"`` and ``value`` the sample reading;
 * a sample is found but older than ``max_age_s`` → ``warning`` reporting the
@@ -35,12 +38,12 @@ The staleness verdict is deliberately fixed at ``warning``: a facility tunes the
 *timeout* severity through the generic ``timeout_status`` check key (handled by
 the runner), and this probe invents no staleness-specific severity param.
 
-``timeout_s`` bounds the ``get_data`` call directly; the runner's outer
-``wait_for`` allows a small margin so the connector's own timeout fires first.
+``timeout_s`` bounds the ``history`` call directly; the runner's outer
+``wait_for`` allows a small margin so the archive's own timeout fires first.
 The trailing window is derived from ``max_age_s`` to be comfortably wider than
 the threshold, so a moderately stale sample's true age is still observable rather
 than collapsing to an empty-window warning. The age comparison is done entirely
-in UTC, which ``get_data``'s ``datetime64[ns, UTC]`` timestamp column guarantees.
+in UTC, which ``history``'s ``datetime64[ns, UTC]`` timestamp column guarantees.
 """
 
 from __future__ import annotations
@@ -51,6 +54,8 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from osprey.health.models import CheckResult, Status
+from osprey_connectors.service_answers import Unavailable
+from osprey_connectors.service_targets import service_targets
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -72,11 +77,10 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             * ``category`` (str): result category (default
               ``"archiver_freshness"``).
             * ``timeout_s`` (float): archiver query timeout in seconds (default
-              ``10.0``), passed to ``get_data``.
-        ctx: Shared per-run context. ``ctx.runtime.get_archiver(block)`` yields
-            the suite's single lazily-constructed archiver connector; the
-            ``archiver:`` config *block* is read from ``ctx.config`` when present,
-            else the global config singleton.
+              ``10.0``), passed to ``history``.
+        ctx: Shared per-run context. ``ctx.runtime.get_archive(spec)`` yields
+            the suite's single lazily-constructed archive; the config is read
+            from ``ctx.config`` when present, else the global config singleton.
 
     Returns:
         A :class:`~osprey.health.models.CheckResult` with ``latency_ms`` set on
@@ -97,8 +101,9 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             "archiver_freshness check requires a 'channel' parameter",
         )
 
-    archiver_block = _archiver_block(ctx.config)
-    if not archiver_block:
+    config = _config(ctx.config)
+    archiver_block = config.get("archiver")
+    if not isinstance(archiver_block, Mapping) or not archiver_block:
         return CheckResult(
             name,
             category,
@@ -113,24 +118,40 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     now = datetime.now(UTC)
     start = now - timedelta(seconds=window_s)
 
-    t0 = perf_counter()
-    try:
-        connector = await ctx.runtime.get_archiver(dict(archiver_block))
-        frame = await connector.get_data(
-            [channel],
-            start_at=start,
-            end_at=now,
-            timeout_s=timeout_s,
-        )
-    except Exception as exc:  # any archiver failure becomes an error result
-        latency_ms = (perf_counter() - t0) * 1000.0
+    # The first target's archive: a health run has no session to pick one.
+    archive_spec = next(
+        (s for s in service_targets(config).archive.values() if s is not None), None
+    )
+    if archive_spec is None:
         return CheckResult(
             name,
             category,
             Status.ERROR,
             f"archiver unreachable querying {channel}",
-            latency_ms=latency_ms,
+            details="this deployment's archiver block serves no control target",
+        )
+
+    t0 = perf_counter()
+    try:
+        archive = await ctx.runtime.get_archive(archive_spec)
+    except Exception as exc:  # a block the archive refuses is an error result
+        return CheckResult(
+            name,
+            category,
+            Status.ERROR,
+            f"archiver unreachable querying {channel}",
+            latency_ms=(perf_counter() - t0) * 1000.0,
             details=str(exc),
+        )
+    frame = await archive.history([channel], start_at=start, end_at=now, timeout_s=timeout_s)
+    if isinstance(frame, Unavailable):
+        return CheckResult(
+            name,
+            category,
+            Status.ERROR,
+            f"archiver unreachable querying {channel}",
+            latency_ms=(perf_counter() - t0) * 1000.0,
+            details=frame.reason,
         )
 
     latency_ms = (perf_counter() - t0) * 1000.0
@@ -167,26 +188,26 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
     )
 
 
-def _archiver_block(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
-    """Return the ``archiver`` config block, or ``{}`` when unavailable.
+def _config(config: Mapping[str, Any] | None) -> Mapping[str, Any]:
+    """Return the full config the archive is resolved from, or ``{}`` when unavailable.
 
     Resolution precedence mirrors :mod:`~osprey.health.probes.provider_canary`:
     an explicit per-run *config* (from ``ctx.config``, e.g. the web surface) is
     authoritative when present — the global singleton is never consulted in that
-    case — otherwise the block falls back to the global singleton via
-    :func:`~osprey_connectors.config.get_config_value`. Any failure to load config is
-    swallowed to an empty block, which the caller grades as a misconfiguration.
+    case — otherwise the config falls back to the global singleton via
+    :func:`~osprey_connectors.config.load_config`. The whole config, not the
+    ``archiver:`` block: which target the archive serves turns on whether the
+    deployment built a simulator. Any failure to load config is swallowed to an
+    empty config, which the caller grades as a misconfiguration.
     """
     if config is not None:
-        block = config.get("archiver")
-        return block if isinstance(block, Mapping) else {}
+        return config
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import load_config
 
-        block = get_config_value("archiver", {})
-    except Exception:  # config unavailability degrades to no block
+        return load_config()
+    except Exception:  # config unavailability degrades to no config
         return {}
-    return block if isinstance(block, Mapping) else {}
 
 
 def _newest_sample(frame: pd.DataFrame, channel: str) -> tuple[datetime, object] | None:

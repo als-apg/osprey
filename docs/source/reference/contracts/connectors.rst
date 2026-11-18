@@ -688,27 +688,41 @@ key it read.
 Archiver Connectors
 -------------------
 
-An archiver connector answers the same questions about the past that a
-control-system connector answers about the present.
+An archive answers the same questions about the past that a control-system
+connector answers about the present. It is the fifth service kind, ``archive``,
+built like the others from a ``BackendSpec`` by ``create_service``.
 
 .. versionchanged:: Unreleased
 
-   ``get_data`` returns long-format data (below) instead of a shared-index wide
-   ``DataFrame``. Out-of-tree connectors written against the old contract must be updated.
+   The archive is :class:`~osprey_connectors.archiver.ChannelArchive`, a service
+   backend: ``Backend(spec, *, project_dir=None, **seams)`` reads its settings
+   from ``spec.settings`` and does no I/O, and there is no connect step.
+   ``get_data`` is ``history``; ``get_metadata`` and ``check_availability`` are
+   one ``coverage`` call; ``store_extent`` is ``extent``; ``disconnect`` is
+   ``aclose``. A service that gives no answer is answered with ``Unavailable``
+   rather than raised. Out-of-tree archivers written against the old contract
+   must be updated.
 
-Subclass :class:`~osprey_connectors.archiver.ArchiverConnector` and implement
-``connect``, ``disconnect``, ``get_data``, ``get_metadata``, ``check_availability``.
-``get_metadata``'s ``is_archived`` and the values ``check_availability`` answers
-are ``None`` when the archiver cannot say; ``check_availability`` raises
-``RuntimeError`` while the archiver is not connected. ``store_extent()`` is optional: it
+Subclass :class:`~osprey_connectors.archiver.ChannelArchive` and implement
+``history`` and ``coverage``. Read your settings in ``__init__`` and raise there
+for a block you refuse; open whatever client you need on the first call. Every
+method answers its value or ``Unavailable`` (its ``cause`` says why: unreachable,
+timeout, a bad reply, refused, misconfigured) and raises only for the caller's
+own arguments: :class:`~osprey_connectors.errors.ArchiveQueryError` (a
+``ValueError``, with ``parameter`` and ``address``) and a naive instant.
+``coverage`` answers one ``ArchiveCoverage`` per address: ``is_archived`` is
+``None`` when the archive cannot say, and ``unknown_reason`` then says why;
+``first_sample_at`` and ``last_sample_at`` are the instants of the channel's
+oldest and newest sample, and ``sampling_period_s`` its sample spacing, where
+the archive states them. A channel the archive never recorded is
+``is_archived=False``, never an exception. ``extent()`` is optional: it
 answers an ``ArchiveExtent`` (the channels the store records now, and the
 instants of its oldest and newest sample, ``oldest_at`` and ``newest_at``); the
-default answers every part unknown, with a reason. ``ArchiverMetadata``'s
-``first_sample_at`` and ``last_sample_at`` are the instants of one channel's
-oldest and newest sample. Every one of these instants is a timezone-aware
-``datetime`` in UTC.
+default answers ``Unavailable`` with cause ``unsupported``. ``probe()`` is
+optional too. Every one of these instants is a timezone-aware ``datetime`` in
+UTC.
 
-``get_data`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
+``history`` is the entire contract. It returns a **long-format** ``pandas.DataFrame``
 with exactly three columns, sorted by ``address`` then ``timestamp``:
 
 .. list-table::
@@ -731,7 +745,8 @@ with exactly three columns, sorted by ``address`` then ``timestamp``:
      - ``float64`` when every requested channel's samples are numeric; pandas'
        natural mixed dtype (typically ``object``) once any channel is non-numeric.
 
-An empty result is an empty frame with these same three columns.
+An empty result is an empty frame with these same three columns. A channel
+the archive does not record has no rows.
 
 **Nothing is manufactured.** Each channel contributes only its own real
 samples -- never forward-filled, never reindexed onto a shared grid, never
@@ -740,7 +755,7 @@ contributes no rows; it never appears as an all-NaN column. If a custom
 connector finds itself building a shared ``DatetimeIndex`` and reindexing
 per-channel series onto it, that is the bug.
 
-**Per-channel aggregation.** ``get_data`` takes ``processing: ProcessingMode =
+**Per-channel aggregation.** ``history`` takes ``processing: ProcessingMode =
 "raw"`` -- one of ``raw``, ``mean``, ``min``, ``max``, ``median``, ``std``,
 ``count`` (``osprey_connectors.archiver.ProcessingMode``) -- applied
 independently to each channel's own samples:
@@ -751,19 +766,19 @@ independently to each channel's own samples:
 - Every other mode aggregates the real samples in each bin. A bin with no
   samples is dropped, not emitted as ``NaN``.
 - ``precision_ms <= 0`` means full resolution, valid only with
-  ``processing="raw"`` -- anything else must raise ``ValueError``.
+  ``processing="raw"`` -- anything else must raise ``ArchiveQueryError``.
 - Aggregating a non-numeric channel with anything but ``raw`` must raise
-  ``ValueError`` naming the channel -- never coerce, drop, or emit ``NaN``.
-- A bin width your backend cannot express must raise ``ValueError``, never
-  round to one it can (the Archiver Appliance connector rejects a positive
-  ``precision_ms`` that is not a multiple of 1000).
+  ``ArchiveQueryError`` naming the channel -- never coerce, drop, or emit ``NaN``.
+- A bin width your backend cannot express must raise ``ArchiveQueryError``,
+  never round to one it can (the Archiver Appliance connector rejects a
+  positive ``precision_ms`` that is not a multiple of 1000).
 - Bins are anchored on ``start_at``: one request cuts one lattice, the same
   for every channel in it and every processing mode. A backend that bins on a
   grid of its own is the documented exception -- the Archiver Appliance's
   operators are epoch-anchored, and the window merely clips them.
 
 **The dtype rule for** ``value``\ **.** Enum/status channels carry string
-values, and ``get_data`` never coerces them: a channel's own dtype flows
+values, and ``history`` never coerces them: a channel's own dtype flows
 through, and only mixing non-numeric with numeric channels in one query promotes
 the shared ``value`` column. Forcing ``value`` to ``float64`` "for consistency"
 silently corrupts every enum/status channel. (This is deliberately not the live-read
@@ -771,7 +786,7 @@ contract, where an enum reads as its index with the label in ``enum_label`` --
 an archiver reports what its backend recorded, and these backends recorded the
 string.)
 
-``get_data(addresses, *, start_at, end_at, ...)`` takes the window's ends by
+``history(addresses, *, start_at, end_at, ...)`` takes the window's ends by
 keyword, each a timezone-aware ``datetime``. A naive bound names no instant and
 is refused with ``osprey_connectors.errors.NaiveDatetimeError`` (a
 ``ValueError``) before anything is asked of the backend; an aware one is

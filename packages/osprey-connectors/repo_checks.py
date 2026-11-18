@@ -34,9 +34,11 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.alarm_state.AlarmState": (
         "an out-of-tree alarm-state backend subclasses it"
     ),
-    "osprey_connectors.archiver.ArchiveExtent": ("an archiver's store_extent answers in this type"),
-    "osprey_connectors.archiver.ArchiverMetadata": (
-        "an archiver's get_metadata answers in this type"
+    "osprey_connectors.archiver.ArchiveCoverage": (
+        "an out-of-tree archive's coverage answers in this type"
+    ),
+    "osprey_connectors.archiver.ArchiveExtent": (
+        "an out-of-tree archive's extent answers in this type"
     ),
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
@@ -138,6 +140,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.service_answers.UnavailableCause": (
         "an out-of-tree backend names why it gave no answer in this type"
+    ),
+    "osprey_connectors.service_targets.ServiceTable": (
+        "service_targets answers every kind's source on every target in this type"
     ),
     "osprey_connectors.settle.ChannelReading": (
         "a ChannelReader's read_channel answers in this type"

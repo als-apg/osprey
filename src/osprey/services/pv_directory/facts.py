@@ -49,13 +49,13 @@ from osprey.services.pv_directory._connectors import (
 from osprey.services.pv_directory.archive import (
     deployed_configuration,
     freshness_bound_s,
+    history_targets,
     own_store,
     served_targets,
 )
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
 from osprey.services.pv_directory.vocabulary import CONFIG_LABELS, ServedOutcome, service_failed
-from osprey_connectors.deployment.archive_targets import archive_targets
 
 __all__ = ["ACTIVE_ALARMS_MAX_ROWS", "Facts", "panel_link"]
 
@@ -153,7 +153,7 @@ class Facts:
             "alarm_history": lambda pv, within: self._history("alarm_log", pv, within),
             "put_history": lambda pv, within: self._history("put_log", pv, within),
         }
-        archive = ["archive"] if archive_targets(self._config) else []
+        archive = ["archive"] if history_targets(self._config) else []
         keys = ("directory", *archive, *configured)
         answers = await asyncio.gather(*(_guarded(readers[key](name, deadline)) for key in keys))
         target = _target_of(answers[0]) or await self._target()
@@ -225,19 +225,20 @@ class Facts:
 
     async def _archive(self, name: str, deadline: float) -> Any:
         """What the target's archive says of the PV; ``archived`` is ``None`` when it cannot say."""
-        connector, source, reason = await self._service.archive()
-        if connector is None:
+        archive, source, reason = await self._service.archive()
+        if archive is None:
             return _NoSource(reason or NO_SOURCE_REASON, record=None)
         served = {"source": as_payload(source), "caveats": []}
-        answer = await _ask(_archive_metadata(connector, name), deadline)
+        answer = await _ask(archive.coverage([name], timeout_s=deadline), deadline)
         if _is_unavailable(answer):
             return {**served, "outcome": "unavailable", "record": None, "reason": answer.reason}
+        coverage = answer[name]
         record = {
-            "archived": answer.is_archived,
-            "first_sample": _iso(answer.first_sample_at),
-            "last_sample": _iso(answer.last_sample_at),
-            "sampling_period_s": answer.sampling_period,
-            "description": answer.description,
+            "archived": coverage.is_archived,
+            "first_sample": _iso(coverage.first_sample_at),
+            "last_sample": _iso(coverage.last_sample_at),
+            "sampling_period_s": coverage.sampling_period_s,
+            "description": coverage.unknown_reason,
         }
         return {**served, "outcome": "found", "record": record}
 
@@ -262,21 +263,22 @@ class Facts:
         if connector is None:
             payload = unavailable_payload(reason or NO_SOURCE_REASON, target=target)
             return {**payload, **fixed}
-        extent = await self._service.archive_extent(fresh=True)
+        answer = await self._service.archive_extent(fresh=True)
+        extent = None if answer is None or _is_unavailable(answer) else answer
         whole, stored = await asyncio.gather(
             self._service.search(page_size=1),
             self._service.search(archived=["yes"], page_size=1)
-            if extent is not None and extent.channels is not None
+            if extent is not None and extent.addresses is not None
             else _absent(),
         )
-        unknown = (extent.reason if extent is not None else None) or NO_SOURCE_REASON
+        unknown = (answer.reason if _is_unavailable(answer) else None) or NO_SOURCE_REASON
         counts = _archive_counts(whole, stored, unknown)
         return {
             "outcome": "found",
             "source": as_payload(source),
             **counts,
-            "newest_sample": _iso(extent.newest if extent is not None else None),
-            "oldest_sample": _iso(extent.oldest if extent is not None else None),
+            "newest_sample": _iso(extent.newest_at if extent is not None else None),
+            "oldest_sample": _iso(extent.oldest_at if extent is not None else None),
             "freshness_bound_s": (
                 freshness_bound_s(self._config) if own_store(self._config, target) else None
             ),
@@ -609,13 +611,6 @@ class Facts:
         return float(value)
 
 
-class _Reason:
-    """A reason with the shape of the connectors' ``Unavailable``."""
-
-    def __init__(self, reason: str) -> None:
-        self.reason = reason
-
-
 async def _ask(call: Awaitable[Any], deadline: float) -> Any:
     """*call*'s answer, or ``Unavailable`` when it misses *deadline* or raises.
 
@@ -632,15 +627,6 @@ async def _ask(call: Awaitable[Any], deadline: float) -> Any:
         return Unavailable(cause="failed", reason=service_failed(failure))
 
 
-async def _archive_metadata(connector: Any, name: str) -> Any:
-    """The archive's metadata for *name*; a raised read answers its class, never its text."""
-    try:
-        return await connector.get_metadata(name)
-    except Exception as failure:
-        logger.warning("the archive's metadata could not be read", exc_info=True)
-        return _Reason(service_failed(failure))
-
-
 async def _absent() -> None:
     """The answer of a read the deployment did not configure."""
 
@@ -655,10 +641,8 @@ async def _guarded(call: Awaitable[Any]) -> Any:
 
 
 def _is_unavailable(answer: Any) -> bool:
-    """Whether *answer* is a reason, not a record: the connectors' ``Unavailable`` or ours."""
-    return isinstance(answer, _Reason) or (
-        Unavailable is not None and isinstance(answer, Unavailable)
-    )
+    """Whether *answer* is the connectors' ``Unavailable``, a reason, not a record."""
+    return Unavailable is not None and isinstance(answer, Unavailable)
 
 
 def _section(backend: Any, outcome: ServedOutcome, **fields: Any) -> dict[str, Any]:

@@ -3,8 +3,8 @@
 Two families sit behind one abstraction: control-system connectors speak
 ``address`` everywhere, while the archiver contract used to speak
 ``pv_list``/``pv_name`` — an EPICS word that a DOOCS or MongoDB backend has no
-use for. The archiver now speaks ``address`` too: in its parameters, its
-metadata record and the column of the frame it returns. The same leak reached
+use for. The archive now speaks ``address`` too: in its parameters, its
+coverage record and the column of the frame it returns. The same leak reached
 the public reason codes (``CAPUT_FAILED`` named a Channel Access primitive that
 a DOOCS write never runs) and the simulation helpers. The write reason codes are now the ``WriteOutcome`` words themselves,
 which describe what became of the write rather than how it was sent.
@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 import pandas as pd
 import pytest
 
-from osprey_connectors.archiver import ArchiverConnector, ArchiverMetadata
+from osprey_connectors.archiver import ArchiveCoverage, ChannelArchive
 from osprey_connectors.archiver._doocs_archiver_connector import DOOCSArchiverConnector
 from osprey_connectors.archiver._epics_archiver_connector import EPICSArchiverConnector
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
@@ -33,7 +33,7 @@ from osprey_connectors.errors import ChannelWriteFailedError
 
 #: Every implementation of the archiver contract, plus the contract itself.
 ARCHIVERS = [
-    ArchiverConnector,
+    ChannelArchive,
     EPICSArchiverConnector,
     MockArchiverConnector,
     MongoDBArchiverConnector,
@@ -50,9 +50,8 @@ def _params(cls, method: str) -> list[str]:
 @pytest.mark.parametrize(
     ("method", "expected"),
     [
-        ("get_data", "addresses"),
-        ("get_metadata", "address"),
-        ("check_availability", "addresses"),
+        ("history", "addresses"),
+        ("coverage", "addresses"),
     ],
 )
 def test_archiver_contract_speaks_addresses(cls, method, expected):
@@ -64,16 +63,16 @@ def test_archiver_contract_speaks_addresses(cls, method, expected):
     )
 
 
-def test_archiver_metadata_identifies_a_channel_by_address():
-    """ArchiverMetadata names what it describes the same way get_data does."""
-    fields = ArchiverMetadata.model_fields
+def test_archive_coverage_identifies_a_channel_by_address():
+    """ArchiveCoverage names what it describes the same way history does."""
+    fields = ArchiveCoverage.model_fields
     assert "address" in fields
-    assert not [f for f in fields if f.startswith("pv")], f"ArchiverMetadata fields: {list(fields)}"
+    assert not [f for f in fields if f.startswith("pv")], f"ArchiveCoverage fields: {list(fields)}"
 
 
 @pytest.mark.parametrize("empty", [False, True], ids=["samples", "empty"])
 def test_archiver_frame_names_its_rows_by_address(empty):
-    """The frame get_data returns names each row's channel the way its parameters do."""
+    """The frame history returns names each row's channel the way its parameters do."""
     index = pd.DatetimeIndex([] if empty else [datetime(2026, 1, 1, tzinfo=UTC)], tz=UTC)
     frame = long_frame({"A:RB": pd.Series([] if empty else [1.0], index=index, dtype=float)})
     assert LONG_COLUMNS == ("timestamp", "address", "value")
