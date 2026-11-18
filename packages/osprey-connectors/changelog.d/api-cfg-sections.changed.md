@@ -29,3 +29,6 @@ at all: a bad `timeout_s`, a `fresh_reads` that spells neither true nor false,
 string is read as its number) or whose `use_name_server` spells neither true nor
 false. `derive_endpoints` refuses those gateways the same way, and
 `Endpoint.host` is a `str` and `Endpoint.port` an `int | None`.
+`write_authorization.Login` is now `osprey_connectors.model.Login`, and a
+connection block's `auth.username` with space around it is refused rather than
+sent as written.
