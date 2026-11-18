@@ -257,6 +257,7 @@ class Edge:
             (``A5``); ``None`` otherwise.
         attributes: The claim's attributes, read-only.
         source: The document the claim cites, or ``None``.
+        rule: For an inferred claim, the rule it was inferred by, when stated.
     """
 
     kind: str
@@ -272,6 +273,7 @@ class Edge:
     attributes: Mapping[str, Any] = field(default_factory=dict, hash=False)
     source: Citation | None = None
     unit_text: str | None = None
+    rule: str | None = None
 
 
 def _text(value: Any) -> str | None:
@@ -696,6 +698,7 @@ class PanelGraph:
                     attributes=MappingProxyType(dict(attributes)),
                     source=source,
                     unit_text=unit_text,
+                    rule=_text(claim.get("rule")),
                 )
                 self._edges.setdefault(here, {}).setdefault(edge.kind, []).append(edge)
 

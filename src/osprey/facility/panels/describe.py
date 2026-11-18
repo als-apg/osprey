@@ -1762,8 +1762,11 @@ def recipe_chain(
             link = item if isinstance(item, Link) else None
             standing = _CONTESTED_WORD if why == HOP_CONTESTED else None
             made.append(
-                ChainBlock(f"{step.title}  {edge.other}", link, tuple(rows), standing=standing)
-            )
+                ChainBlock(
+                    f"{step.title}  {edge.other}", link, tuple(rows), standing=standing,
+                    inferred=inferred_rule([edge]),
+                )
+            )  # fmt: skip
         port = _port_word(step, edges[0]) or _relation_word(step.relation, step.direction == "out")
         blocks.append(dataclasses.replace(made[0], stack=tuple(made[1:]), arrow_in=port))
     shown_roles = {r for s in steps for r in (s.roles or "").split(";") if r}
@@ -1886,12 +1889,26 @@ def front_numbers(graph: PanelGraph, device: str, row: FrontRow) -> list[str]:
     return [str(k) for k in sorted(found)]
 
 
-def _far_end(graph: PanelGraph, index: _Index, thing_id: str, port: str | None) -> FarEnd:
+#: The hover text of an inferred relation that states no rule.
+RULE_NOT_STATED = "inferred; the rule is not stated"
+
+
+def inferred_rule(edges: Iterable[Edge]) -> str | None:
+    """For relations any of which rests on an inferred claim: the rule(s) it was
+    inferred by (:data:`RULE_NOT_STATED` when none is stated); ``None`` when every
+    one is stated. One rule for every hop, connector and member."""
+    rules = [e.rule or RULE_NOT_STATED for e in edges if e.basis == "inferred"]
+    return "; ".join(dict.fromkeys(rules)) if rules else None
+
+
+def _far_end(
+    graph: PanelGraph, index: _Index, thing_id: str, port: str | None, inferred: str | None = None
+) -> FarEnd:
     try:
         item = _ref(graph, index, graph.thing(thing_id, "device"))
     except KeyError:
         item = None
-    return FarEnd(thing_id, item if isinstance(item, Link) else None, port)
+    return FarEnd(thing_id, item if isinstance(item, Link) else None, port, inferred)
 
 
 def front_sides(
@@ -1904,24 +1921,33 @@ def front_sides(
         socket = _socket(graph, device, row.connector.replace("{n}", n))
         if socket is None:
             return ((),)
-        return tuple(
-            tuple(
-                _far_end(graph, index, other, port)
-                for other, port in sorted(
-                    {
-                        e.other: e.other_port for e in _near(graph, socket, row.far_relation, d)
-                    }.items()
+        sides = []
+        for d in ("out", "in"):
+            near = _near(graph, socket, row.far_relation, d)
+            ends = {e.other: e.other_port for e in near}
+            sides.append(
+                tuple(
+                    _far_end(
+                        graph, index, other, port,
+                        inferred_rule(e for e in near if e.other == other),
+                    )
+                    for other, port in sorted(ends.items())
                 )
-            )
-            for d in ("out", "in")
-        )
+            )  # fmt: skip
+        return tuple(sides)
     port = (row.far_port or "").replace("{n}", n)
-    ends = {
-        e.other: e.other_port
+    near = [
+        e
         for e in _near(graph, device, row.far_relation, row.far_direction)
         if not port or e.port == port
-    }
-    return (tuple(_far_end(graph, index, o, p) for o, p in sorted(ends.items())),)
+    ]
+    ends = {e.other: e.other_port for e in near}
+    return (
+        tuple(
+            _far_end(graph, index, o, p, inferred_rule(e for e in near if e.other == o))
+            for o, p in sorted(ends.items())
+        ),
+    )
 
 
 def front_state(sides: tuple[tuple[FarEnd, ...], ...]) -> str:
@@ -2349,6 +2375,11 @@ def ring_strip(
     members = ring_group(graph, thing, recipe, section.members or "")
     if not members:
         return None
+    relation, _, direction = (section.members or "").partition(" ")
+    resting: dict[str, str | None] = {}
+    if section.members != _SAME_PLACE:  # members a relation names: on what basis
+        near = _near(graph, thing.id, relation, direction or "out")
+        resting = {m.id: inferred_rule(e for e in near if e.other == m.id) for m in members}
     roles = [r for r in (section.roles or "").split(";") if r]
     where = {m.id: _ring_s(graph.pose(m.id)) for m in members}
     if all(s_m is not None for s_m in where.values()):
@@ -2375,8 +2406,13 @@ def ring_strip(
         label = member.short_name or member.id.rsplit(":", 1)[-1]
         out.append(
             RingMember(
-                member.id, label, item if isinstance(item, Link) else None, tuple(rows), focus
-            )
+                member.id,
+                label,
+                item if isinstance(item, Link) else None,
+                tuple(rows),
+                focus,
+                resting.get(member.id),
+            )  # fmt: skip
         )
     labels = [m.label for m in out]
     if len(set(labels)) < len(labels):  # one short name for two members: each its id

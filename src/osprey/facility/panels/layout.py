@@ -568,6 +568,7 @@ _NO_DATA = "no data yet"
 _NEEDS_SERVER = "needs a server-side aggregate"
 _A_MEMBER_MISSING = "one of {} has no value"
 _NO_OK_STATED = "no ok state stated"
+_INFERRED_WORD = "inferred"
 _MANY_VALUES = "{} channels state it: the row names no one"
 _DASH = "—"
 NO_VALUE = _DASH  # an annotation's text until its formula delivers, and while disconnected
@@ -2789,6 +2790,8 @@ class _Page:
         cw = max(RING_COLUMN_LEAST, min(RING_COLUMN_MOST, room / max(n, 1)))
         per = max(1, int(room // cw))
         height = SMALL_LINE + ROW + 2 * GAP
+        if any(m.inferred for m in ring.members):
+            height += SMALL_LINE  # room for the word under the value
         start = 0
         for place, k in runs:  # a row of columns per place, its name heading it
             if place:
@@ -2882,8 +2885,11 @@ class _Page:
                     x + GAP / 2, vy, w - GAP, row.channel, row.shown_as, row.words,
                     unit=row.unit, scale=row.scale, size=SMALL_SIZE, h=ROW,
                 )  # fmt: skip
+            if member.inferred:  # under its value, its rule on hover
+                self.inferred_word(x + GAP / 2, vy + ROW, member.inferred)
+            why = f" · {_INFERRED_WORD}: {member.inferred}" if member.inferred else ""
             if member.link is not None:
-                self.nav(x, y, w, height, replace(member.link, label=f"open {member.thing}"))
+                self.nav(x, y, w, height, replace(member.link, label=f"open {member.thing}{why}"))
         self.y += -(-len(members) // per) * (height + GAP)
 
     def card_front(self, front: Front) -> None:
@@ -3028,6 +3034,16 @@ class _Page:
             y += ROW + ROW_GAP
         return y
 
+    def inferred_word(self, x: float, y: float, rule: str) -> float:
+        """The word "inferred", muted, its rule on hover; returns its right edge."""
+        w = text_width(_INFERRED_WORD, SMALL_SIZE)
+        self.small(x, y, _INFERRED_WORD, fg=MUTED_TEXT)
+        self.s.widget(
+            "rectangle", x, y, w, SMALL_LINE,
+            {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: rule},
+        )  # fmt: skip
+        return x + w
+
     def far_box(self, x: float, y: float, w: float, end: FarEnd, contested: bool) -> None:
         """What is on a connector: its id in two lines (the part before its last
         ``:``, then the rest; with its own port, the id and the port), opening its
@@ -3039,14 +3055,17 @@ class _Page:
         head, _, tail = end.thing.rpartition(":")
         first, second = (end.thing, f"port {end.port}") if end.port else (head, tail or end.thing)
         half = FAR_BOX_HEIGHT / 2
+        if end.inferred:  # the word on the box, its rule on hover
+            first = f"{first} · {_INFERRED_WORD}"
         self.text(x, y + 1, _cut(first, w, SMALL_SIZE), size=SMALL_SIZE, w=w, h=half, fg=MUTED_TEXT, align="center")  # fmt: skip
         self.text(x, y + half - 1, _cut(second, w, SMALL_SIZE), size=SMALL_SIZE, w=w, h=half, align="center")  # fmt: skip
+        why = f" · {_INFERRED_WORD}: {end.inferred}" if end.inferred else ""
         if end.link is not None:
-            self.nav(x, y, w, FAR_BOX_HEIGHT, replace(end.link, label=f"open {end.thing}"))
+            self.nav(x, y, w, FAR_BOX_HEIGHT, replace(end.link, label=f"open {end.thing}{why}"))
         else:
             self.s.widget(
                 "rectangle", x, y, w, FAR_BOX_HEIGHT,
-                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: end.thing},
+                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: end.thing + why},
             )  # fmt: skip
 
     def front_loose(self, front: Front) -> None:
@@ -3224,6 +3243,9 @@ class _Page:
         bottom = box_top + height
         if block.standing == _CONTESTED:
             self.small(x + GAP, bottom + ROW_GAP, _CONTESTED, fg=MUTED_TEXT)
+            bottom += SMALL_LINE + ROW_GAP
+        if block.inferred:
+            self.inferred_word(x + GAP, bottom + ROW_GAP, block.inferred)
             bottom += SMALL_LINE + ROW_GAP
         line_h = BLOCK_ROW - ROW_GAP
         if not block.rows:

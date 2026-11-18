@@ -1454,7 +1454,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    for a bar. When every member has a place, the members run by place, a row
    each under the place's name, the places in ring order; over the strip,
    "giving <first role> now: n of m" counts the lamps ok now with one formula
-   over the same lamps' rules. A ``ladder`` section draws the section's first role against the
+   over the same lamps' rules. A chain hop, a front connector's far end or a
+   ring-strip member that rests on a relation claim with ``basis: inferred``
+   says "inferred" beside it, the claim's ``rule`` on hover ("the rule is not
+   stated" when it has none). A ``ladder`` section draws the section's first role against the
    others as set points, evenly in their order (not to scale), each with its live
    value, and the live value as a dot in the gap between the set points it lies
    between; a set point not served is left out and named, and ``write`` counts

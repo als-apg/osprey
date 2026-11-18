@@ -1427,6 +1427,59 @@ def test_a_ring_strip_of_a_relation_takes_the_devices_it_names(tmp_path):
     assert ring.members[0].rows == ()  # plays no role: an empty ring
 
 
+def _inferred(*claims: str, rule: str | None = "joined by the document's name"):
+    """Mark *claims* inferred, with *rule* (none when ``None``)."""
+
+    def change(document) -> None:
+        for claim in document["relations"]:
+            if claim["id"] in claims:
+                claim["basis"] = "inferred"
+                if rule is not None:
+                    claim["rule"] = rule
+
+    return change
+
+
+def _both(*changes):
+    def change(document) -> None:
+        for one in changes:
+            one(document)
+
+    return change
+
+
+def test_an_inferred_relation_says_so_on_a_hop_a_connector_and_a_member(tmp_path):
+    from osprey.facility.panels.describe import RULE_NOT_STATED, inferred_rule
+
+    # a hop
+    graph = _chained(tmp_path / "a", _both(_ported, _inferred("xr01-ip1-readout")))
+    view = device_card(graph, "XR01:IP1")
+    _device, readout, *_rest = _chain_of(view).blocks
+    assert readout.inferred == "joined by the document's name"
+    doc = stub_render(view, graph)
+    assert _text(doc, "inferred")
+    assert [n for n in nodes(doc) if n["props"].get("tooltip") == "joined by the document's name"]
+    # a connector
+    graph = _fronted(
+        tmp_path / "b",
+        _both(_ports(("xr01-qf1-power", "1")), _inferred("xr01-qf1-power", rule=None)),
+    )
+    (end,) = _front_of(device_card(graph, "XR01:PS1")).groups[0].connectors[0].sides[0]
+    assert end.inferred == RULE_NOT_STATED
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    assert [n for n in nodes(doc) if "inferred" in n["props"].get("text", "")]
+    # a member
+    graph = _sectioned(
+        tmp_path / "c",
+        "pump,1,ring-strip,Read out by,,read_out_by out,,,,S\n",
+        change=_inferred("xr01-ip1-readout"),
+    )
+    (member,) = _item(device_card(graph, "XR01:IP1"), "RingStrip").members
+    assert member.inferred == "joined by the document's name"
+    # a stated one says nothing
+    assert inferred_rule(graph.neighbours("XR01:QF1", "device").get("powered_by", ())) is None
+
+
 def test_number_order_compares_numbers_as_numbers() -> None:
     from osprey.facility.panels.describe import _number_key
 

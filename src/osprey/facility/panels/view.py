@@ -739,6 +739,8 @@ class ChainBlock:
         stack: More blocks under it in its column: the other things one hop
             reaches (all of them, or the answers of a contested hop).
         arrow_in: The word on the arrow into it (its hop's port), or ``None``.
+        inferred: For a hop on an inferred relation, the rule it rests on (shown
+            on hover beside the word "inferred"); ``None`` for a stated one.
     """
 
     title: str
@@ -750,6 +752,7 @@ class ChainBlock:
     standing: str | None = None
     stack: tuple[ChainBlock, ...] = ()
     arrow_in: str | None = None
+    inferred: str | None = None
 
 
 @dataclass(frozen=True)
@@ -894,11 +897,13 @@ class FarEnd:
         thing: Its id.
         link: Its card, or ``None`` when it has none.
         port: Its own port on the cable, when stated.
+        inferred: For an end on an inferred relation, the rule it rests on.
     """
 
     thing: str
     link: Link | None = None
     port: str | None = None
+    inferred: str | None = None
 
 
 @dataclass(frozen=True)
@@ -970,6 +975,7 @@ class RingMember:
         link: Its card, or ``None`` for the card's own device.
         rows: The section's roles it plays, each a value or a lamp.
         focus: Whether it is the card's own device.
+        inferred: For a member on an inferred relation, the rule it rests on.
     """
 
     thing: str
@@ -977,6 +983,7 @@ class RingMember:
     link: Link | None
     rows: tuple[BlockRow, ...]
     focus: bool = False
+    inferred: str | None = None
 
 
 @dataclass(frozen=True)
