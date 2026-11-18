@@ -28,10 +28,9 @@ device a claim projects a place for given that place as authored) and as ``pre``
 without the records Appendix A adds). Every render is configured so that the pyAML, Bluesky and
 benchmark views are written, and runs in every channel-finder mode. Shipped against unrelated:
 everything under ``data/`` except the graph view is identical, the facts included. Shipped against
-pre: the simulator, limits, pyAML, Bluesky, benchmark, in-context and hierarchical files are
-identical; the middle-layer index differs by the ``-`` and ``HALL`` systems and the ``VS03``
-family only (its DuckDB database is derived from the same index and is not compared); the facts
-only gain what Appendix A adds. Each view of ``views.VIEWS`` is compared or listed in
+pre: every file but the facts is identical, the middle-layer index and its DuckDB database
+(compared row by row) included, as the devices Appendix A adds hold no channel and ``SR/VS03`` is
+a section; the facts only gain what Appendix A adds. Each view of ``views.VIEWS`` is compared or listed in
 ``EXCLUDED_VIEWS`` with its reason; ``facility.json`` is excluded because it carries the claims
 and documents themselves, and the graph view because it writes them out as triples.
 """
