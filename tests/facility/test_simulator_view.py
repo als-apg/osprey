@@ -77,12 +77,31 @@ PYAML = (
 )
 
 
+def _render_simulator(
+    render_dir: Path, facility: dict[str, Any], config: Mapping[str, Any], facility_dir: Path
+) -> list[Path]:
+    """``render_facility_outputs`` with the simulator view alone in the view table.
+
+    Every case of this module reads the simulator view only, and the render
+    writes the facility file and resolves the served models before any view,
+    so the other views are left out. The table is narrowed for the one call:
+    ``built_demo`` may be built in this module, and its render needs them all.
+    """
+    from osprey.facility import views
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            views, "VIEWS", tuple(view for view in views.VIEWS if view.name == "simulator")
+        )
+        return render_facility_outputs(render_dir, facility, config, facility_dir)
+
+
 def _render(
     tmp_path: Path, built: BuiltProject, config: dict[str, Any], name: str = "render"
 ) -> Path:
     render_dir = tmp_path / name
     render_dir.mkdir()
-    render_facility_outputs(render_dir, built.facility, config, built.facility_dir)
+    _render_simulator(render_dir, built.facility, config, built.facility_dir)
     return render_dir
 
 
@@ -264,8 +283,10 @@ def test_an_omitted_view_is_named_on_stderr_alone(
         write=lambda _root, _inputs: pytest.fail("an omitted view is never written"),
     )
     monkeypatch.setattr(views, "VIEWS", (*views.VIEWS, stub))
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
 
-    render_dir = _render(tmp_path, built_demo, {})
+    render_facility_outputs(render_dir, built_demo.facility, {}, built_demo.facility_dir)
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -476,7 +497,7 @@ def test_a_deck_keeps_its_suffix(tmp_path: Path, built_demo: BuiltProject) -> No
     sr["deck"] = "decks/SR.mat"
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, facility_dir)
+    _render_simulator(render_dir, facility, {}, facility_dir)
 
     served = render_dir / "data" / "simulator" / "decks"
     assert sorted(path.name for path in served.iterdir()) == [
@@ -674,7 +695,7 @@ def test_a_render_leaves_out_the_copy_of_a_file_no_entry_attaches_any_more(
     render_dir = tmp_path / "render"
     render_dir.mkdir()
 
-    written = render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+    written = _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
     copies = [
         path.relative_to(render_dir).as_posix()
@@ -696,7 +717,7 @@ def test_a_file_two_entries_attach_is_copied_and_listed_once(
     render_dir = tmp_path / "render"
     render_dir.mkdir()
 
-    written = render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+    written = _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
     copied = render_dir / "data/simulator/scenarios/nominal/plots/orbit_rms.json"
     assert written.count(copied) == 1
@@ -761,7 +782,7 @@ def test_a_bad_attachment_in_any_scenario_stops_before_any_file_is_copied(
     render_dir.mkdir()
 
     with pytest.raises(ValueError, match="plots/absent.json"):
-        render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+        _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
     assert not (render_dir / "data/simulator/scenarios").exists()
 
@@ -783,7 +804,7 @@ def test_an_attachment_naming_a_missing_file_is_refused(
     render_dir.mkdir()
 
     with pytest.raises(ValueError, match="plots/absent.json"):
-        render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+        _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
 
 def test_a_fault_on_an_unserved_model_is_inactive(tmp_path: Path, built_demo: BuiltProject) -> None:
@@ -807,7 +828,7 @@ def test_a_scenario_stating_none_of_the_optional_slots_carries_none_of_them(
     facility["scenarios"] = [{"name": "bare", "overrides": {UNLISTED_SETPOINT: 1.0}}]
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+    _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
     (entry,) = [e for e in _view(render_dir, SCENARIOS)["scenarios"] if e["name"] == "bare"]
     assert entry == {"name": "bare", "overrides": {UNLISTED_SETPOINT: 1.0}}
@@ -824,7 +845,7 @@ def _rendered_scenarios(
     facility["scenarios"] = scenarios
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, config or {}, built.facility_dir)
+    _render_simulator(render_dir, facility, config or {}, built.facility_dir)
     return _view(render_dir, SCENARIOS)["scenarios"]
 
 
@@ -1013,7 +1034,7 @@ def _render_channels(
             record.update(edit[str(record["id"])])
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, built.facility_dir)
+    _render_simulator(render_dir, facility, {}, built.facility_dir)
     return _view(render_dir, VARIABLES)
 
 
@@ -1047,10 +1068,14 @@ def test_a_setpoint_stating_a_null_pair_pairs_with_itself(
     assert _channel(variables, UNLISTED_SETPOINT)["pair"] == UNLISTED_SETPOINT
 
 
-def _with_channel(built: BuiltProject, address: str) -> dict[str, Any]:
+def _with_channels(built: BuiltProject, *addresses: str) -> dict[str, Any]:
     facility = copy.deepcopy(built.facility)
-    facility["channels"].append({"id": address})
+    facility["channels"].extend({"id": address} for address in addresses)
     return facility
+
+
+#: Addresses an archive once refused as field names: a dot, a leading ``$``, a ``%``.
+ODD_ADDRESSES = ("BPM1.X", "$LAB:TEMP", "LAB%TEMP")
 
 
 @pytest.mark.parametrize(
@@ -1061,15 +1086,19 @@ def _with_channel(built: BuiltProject, address: str) -> dict[str, Any]:
     ],
     ids=["deployed", "projected"],
 )
-@pytest.mark.parametrize("address", ["BPM1.X", "$LAB:TEMP", "LAB%TEMP"])
 def test_a_configured_recorder_serves_any_address(
-    tmp_path: Path, built_demo: BuiltProject, config: dict[str, Any], address: str
+    tmp_path: Path, built_demo: BuiltProject, config: dict[str, Any]
 ) -> None:
-    facility = _with_channel(built_demo, address)
+    """Every view renders the odd addresses, and the simulator lists each one.
+
+    The render keeps every view, so no view's stop on such an address goes unseen.
+    """
+    facility = _with_channels(built_demo, *ODD_ADDRESSES)
 
     render_facility_outputs(tmp_path, facility, config, built_demo.facility_dir)
 
-    assert address in _view(tmp_path, ADDRESSES)["channels"]
+    channels = _view(tmp_path, ADDRESSES)["channels"]
+    assert [address for address in ODD_ADDRESSES if address in channels] == list(ODD_ADDRESSES)
 
 
 def _with_inputs(built: BuiltProject, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -1100,7 +1129,7 @@ def _render_facility(
 ) -> Path:
     render_dir = tmp_path / name
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, built.facility_dir)
+    _render_simulator(render_dir, facility, {}, built.facility_dir)
     return render_dir
 
 
