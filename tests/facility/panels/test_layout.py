@@ -1308,7 +1308,7 @@ def test_a_rack_unit_draws_one_light_over_its_channels_and_its_parts(tmp_path):
     from tests.facility.panels._fixture import add_part
 
     second = "XR01-CARD2:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,card.db:2\n"
-    graph = graph_with_part(tmp_path, lambda d: add_part(d, "XR01:CARD2", "XR01:CH1", second[:20]))
+    graph_with_part(tmp_path, lambda d: add_part(d, "XR01:CARD2", "XR01:CH1", second[:20]))
     with (tmp_path / "panels" / "health.csv").open("a") as rows:
         rows.write(second)
     graph = load_graph(tmp_path / "facility.json", tmp_path / "panels")

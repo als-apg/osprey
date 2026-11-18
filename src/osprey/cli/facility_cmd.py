@@ -1190,7 +1190,7 @@ def _panel_graph(
     raise click.exceptions.Exit(1)
 
 
-def _panel_draw(ctx: click.Context, tables: Path, draw_file: Path | None):
+def _panel_draw(tables: Path, draw_file: Path | None):
     """The drawing settings: ``--draw``, else ``draw.json`` beside the rule tables, else none."""
     from osprey.facility.panels import emit
 
@@ -1202,7 +1202,7 @@ def _panel_draw(ctx: click.Context, tables: Path, draw_file: Path | None):
         return emit.load_draw(path)
     except emit.EmitError as error:
         fail("The drawing settings cannot be used.", str(error))
-        ctx.exit(1)
+        raise click.exceptions.Exit(1) from error
 
 
 def _megabytes(size: int) -> str:
@@ -1287,7 +1287,7 @@ def panels_write(
     from osprey.facility.panels import emit
 
     graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
-    draw = _panel_draw(ctx, tables_dir, draw_file)
+    draw = _panel_draw(tables_dir, draw_file)
     keep = [lambda target: target.view in kinds] if kinds else []
     if place is not None:
         try:
@@ -1376,7 +1376,7 @@ def panels_check(
     from osprey.facility.panels import emit
 
     graph, tables_dir = _panel_graph(ctx, repo, facility_file, tables)
-    draw = _panel_draw(ctx, tables_dir, draw_file)
+    draw = _panel_draw(tables_dir, draw_file)
     problems = emit.check(graph, out, max_bytes=max_bytes, draw=draw)
     for standing, classes in emit.picture_classes(graph).items():
         report(f"pictures, {standing}: {emit.named_classes(classes)}")

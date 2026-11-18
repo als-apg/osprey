@@ -768,7 +768,6 @@ def device_card(
 
 # -- calibration -----------------------------------------------------------------
 
-_NO_VALUE = "no value yet"
 _WANTED = "{} wanted"
 _FIRST = "first value"
 _REPLACES = "replaces {}"
