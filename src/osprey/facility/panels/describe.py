@@ -1284,7 +1284,8 @@ def _operate(
     control role, from the writable channels: a two- or more-state output with
     stated words is a choice of them, one with a single stated word an action that
     writes that word's value, a command an action that writes 1, any other output
-    with no stated word nothing, any other channel an entry.
+    with no stated word nothing, a text record nothing (Apply writes only a number;
+    it stays in the channels view), any other channel an entry.
 
     A press is offered only with a value a source states; the third item is the
     channels of the presses left out for want of one (they stay in the grid)."""
@@ -1348,7 +1349,8 @@ def _operate(
         return (Operate(tuple(groups)) if groups else None), used, unstated
     actions: list[Control] = []
     entries: list[Control] = []
-    for channel in (c for c in channels if c.writable):
+    for channel in (c for c in channels if c.writable and c.drawn_as != "text"):
+        # a text record is never an entry: Apply writes only a number
         words = graph.state_words(channel.name)
         row = graph.record_type(channel.name)
         enumerated = row is not None and row.record_type in ENUMERATED_OUTPUTS
@@ -2505,10 +2507,17 @@ def ring_strip(
             ]
             start += k
     caption = section.caption
-    if out and all(m.inferred for m in out):  # said once, not under every member
-        rules = "; ".join(dict.fromkeys(m.inferred or "" for m in out))
-        caption = "; ".join(c for c in (caption, _ALL_INFERRED.format(len(out), rules)) if c)
-        out = [dataclasses.replace(m, inferred=None) for m in out]
+    inferred = [m for m in out if m.inferred]
+    if inferred and 2 * len(inferred) > len(out):  # said once, not under every member
+        rules = "; ".join(dict.fromkeys(m.inferred or "" for m in inferred))
+        said = (
+            _ALL_INFERRED.format(len(out), rules)
+            if len(inferred) == len(out)
+            else _MOSTLY_INFERRED.format(rules)
+        )
+        caption = "; ".join(c for c in (caption, said) if c)
+        marked = len(inferred) < len(out)
+        out = [dataclasses.replace(m, inferred=None, stated=marked and not m.inferred) for m in out]
     if ordered == RING_BY_NUMBER and not (caption or "").lower().startswith("in number order"):
         caption = "; ".join(c for c in (_RING_NUMBER_NOTE, caption) if c)
     lamps = any(r.shown_as == "lamp" for m in out for r in m.rows)
@@ -2518,6 +2527,7 @@ def ring_strip(
 
 _RING_NUMBER_NOTE = "in number order: positions not stated"
 _ALL_INFERRED = "all {} inferred: {}"
+_MOSTLY_INFERRED = "inferred unless marked stated: {}"
 
 
 def _short_labels(members: list[Thing]) -> dict[str, str]:

@@ -979,6 +979,8 @@ class RingMember:
         rows: The section's roles it plays, each a value or a lamp.
         focus: Whether it is the card's own device.
         inferred: For a member on an inferred relation, the rule it rests on.
+        stated: Marked "stated": in a section most of whose members are inferred
+            (its caption says so), the member that rests on a stated relation.
     """
 
     thing: str
@@ -987,6 +989,7 @@ class RingMember:
     rows: tuple[BlockRow, ...]
     focus: bool = False
     inferred: str | None = None
+    stated: bool = False
 
 
 @dataclass(frozen=True)

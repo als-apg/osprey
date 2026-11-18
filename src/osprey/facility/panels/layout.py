@@ -557,6 +557,8 @@ _CONTESTED = "contested"
 _NOTHING = "\u2014"  # what a connector with nothing stated on it shows
 _NO_CONNECTOR = "no connector stated for this unit"
 _STATE_BAND = "state"
+_STATED_WORD = "stated"
+_CONTINUED = "{} (continued)"
 _PRESS_BAND = "press"
 _LADDER_NOW = "now"
 _STATED = "STATED"
@@ -2797,7 +2799,7 @@ class _Page:
         cw = max(RING_COLUMN_LEAST, min(RING_COLUMN_MOST, room / max(n, 1)))
         per = max(1, int(room // cw))
         height = SMALL_LINE + ROW + 2 * GAP
-        if any(m.inferred for m in ring.members):
+        if any(m.inferred or m.stated for m in ring.members):
             height += SMALL_LINE  # room for the word under the value
         start = 0
         for place, k in runs:  # a row of columns per place, its name heading it
@@ -2916,6 +2918,8 @@ class _Page:
                 )  # fmt: skip
             if member.inferred:  # under its value, its rule on hover
                 self.inferred_word(x + GAP / 2, vy + ROW, member.inferred)
+            elif member.stated:  # the few stated among inferred ones
+                self.small(x + GAP / 2, vy + ROW, _STATED_WORD, fg=MUTED_TEXT)
             why = f" · {_INFERRED_WORD}: {member.inferred}" if member.inferred else ""
             if member.link is not None:
                 self.nav(x, y, w, height, replace(member.link, label=f"open {member.thing}{why}"))
@@ -2958,7 +2962,8 @@ class _Page:
                         line.pop()
                     self.front_line(line, pitch, gutter)
                     part = []
-                    line, x = [(group, part)], 0.0
+                    rest = replace(group, title=_CONTINUED.format(group.title))
+                    line, x = [(rest, part)], 0.0
                 part.append(connector)
                 x += pitch
         if line:
@@ -3004,7 +3009,10 @@ class _Page:
             x += FRONT_GROUP_GAP if k else 0
             width = pitch * len(connectors) if connectors else FRONT_EMPTY_WIDTH
             title = group.title if group.face in ("", "front") else f"{group.face} · {group.title}"
-            self.text(x, top, _cut(title, width, SMALL_SIZE), size=SMALL_SIZE, w=width, h=SMALL_LINE, fg=MUTED_TEXT)  # fmt: skip
+            room = (
+                width if k < len(line) - 1 else self.x0 + STRIP_WIDTH - x
+            )  # the last: to the edge
+            self.text(x, top, _cut(title, room, SMALL_SIZE), size=SMALL_SIZE, w=room, h=SMALL_LINE, fg=MUTED_TEXT)  # fmt: skip
             if reading:
                 rule_y = under - ROW_GAP / 2
                 self.line([(x, rule_y), (x + width, rule_y)], BOX_BORDER)

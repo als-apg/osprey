@@ -1513,6 +1513,44 @@ def test_in_a_mixed_ring_strip_only_the_inferred_member_says_so(tmp_path):
     assert "inferred" not in (ring.caption or "")
 
 
+def test_when_most_members_are_inferred_only_the_stated_one_is_marked(tmp_path):
+    def more(document) -> None:
+        for other, claim in (("XR01:CH1", "readout-1"), ("XR01:CH3", "readout-3")):
+            document["relations"].append(
+                {
+                    "id": claim,
+                    "type": "read_out_by",
+                    "subject": {"device": "XR01:IP1"},
+                    "object": {"device": other},
+                    "standing": "accepted",
+                }
+            )
+
+    graph = _sectioned(
+        tmp_path,
+        "pump,1,ring-strip,Read out by,,read_out_by out,,,,S\n",
+        change=_both(more, _inferred("xr01-ip1-readout", "readout-3")),
+    )
+    ring = _item(device_card(graph, "XR01:IP1"), "RingStrip")
+    assert {m.thing: (m.inferred, m.stated) for m in ring.members} == {
+        "XR01:CH1": (None, True),
+        "XR01:CH2": (None, False),
+        "XR01:CH3": (None, False),
+    }
+    assert ring.caption.endswith("inferred unless marked stated: joined by the document's name")
+    doc = stub_render(device_card(graph, "XR01:IP1"), graph)
+    assert _text(doc, "stated")
+
+
+def test_a_group_wrapping_onto_a_second_line_names_it_continued(tmp_path):
+    graph = _fronted(
+        tmp_path, None, "supply,front,outputs,1,Out{n},power,40,,powered_by,in,{n},Out {n},S\n"
+    )
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    titles = [n["props"]["text"] for n in _by_type(doc, "text-label")]
+    assert "outputs" in titles and "outputs (continued)" in titles
+
+
 def test_inside_a_place_a_member_shows_its_short_name_and_two_alike_keep_what_differs():
     from types import SimpleNamespace
 
@@ -1964,3 +2002,26 @@ def test_a_band_of_rows_alike_in_place_is_labelled_with_the_words_they_end_in():
         (1.0, Connector("C1", "power", rows=rows("circuit voltage", "circuit breaker"))),
     ]
     assert len(_bands(unlike)) == 4  # a place whose labels differ: by label, not by place
+
+
+def test_a_text_set_record_is_never_an_entry_on_a_card(tmp_path):
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.describe import channel_list
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def named(document) -> None:
+        document["channels"].append(
+            {"id": "XR01-QF1:Name-SP", "on": {"device": "XR01:QF1"}, "role": "setpoint"}
+        )
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "record_types.csv").open("a") as rows:
+        rows.write(
+            "XR01-QF1:Name-SP,stringout,text,stated,xr-ioc,0a1b2c3,magnetApp/Db/magnet.db:30\n"
+        )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", named), tables)
+    doc = stub_render(device_card(graph, "XR01:QF1"), graph)
+    inputs = [n for n in nodes(doc) if n["type"] in ("pv-text-input", "pv-button")]
+    assert any(n["props"].get("pv") == "XR01-QF1:Current-SP" for n in nodes(doc))  # still there
+    assert not [n for n in inputs if "Name-SP" in str(n["props"].get("pv", ""))]
+    assert "XR01-QF1:Name-SP" in json.dumps(stub_render(channel_list(graph, "XR01:QF1"), graph))

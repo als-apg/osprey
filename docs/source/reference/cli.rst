@@ -1450,7 +1450,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    where neither its lamp nor any listed role binds, and a group all of whose
    connectors are left out is dropped. ``far_relation`` and ``far_direction``
    are given together or both left empty; a row with neither is a reading, and
-   a group of readings is a table on a line of its own: no socket, cable or far end, the connectors'
+   a group whose connectors wrap onto a second line names it "<group>
+   (continued)"; a group of readings is a table on a line of its own: no socket, cable or far end, the connectors'
    names as column heads, the lamps first in a "state" band, then a band per
    role. Clients the relation names on no stated port
    are drawn apart by class, unless the row's optional ``apart`` column says
@@ -1476,7 +1477,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    with ``basis: inferred`` says "inferred" beside it, the claim's ``rule`` on
    hover ("the rule is not stated" when it has none); when every member of a
    ring-strip is inferred, its caption says it once ("all 12 inferred: <rule>")
-   and no member does. A ``ladder`` section draws the section's first role against the
+   and no member does; when most are, the caption says "inferred unless marked
+   stated: <rule>" and only the others are marked "stated". A ``ladder`` section draws the section's first role against the
    others as set points, evenly in their order (not to scale), each with its live
    value, and the live value as a dot in the gap between the set points it lies
    between; a set point not served is left out and named, and ``write`` counts
@@ -1518,7 +1520,8 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    a value its rows give two states, so a value every row calls normal is
    normal), an operate block (its control roles, else its
    writable channels: a choice of stated states, an action, or a typed value
-   applied with Apply, a line beside Apply saying what it will write from the
+   applied with Apply, never a text record (``drawn_as: text``: Apply writes
+   only a number, so it stays in the channels view), a line beside Apply saying what it will write from the
    same formula as its press value; more than six entries of one role are a grid
    of three columns under the role's title, their line naming no channel (each
    on hover), and an entry of a front's role on a connector is set under the
