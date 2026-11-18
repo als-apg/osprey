@@ -86,6 +86,7 @@ from osprey.deployment.web_terminals.env_production import (
     users_env_required_problem,
 )
 from osprey.deployment.web_terminals.lint import lint_web_terminals
+from osprey.deployment.web_terminals.naming import WEB_SERVICE_PREFIX
 from osprey.deployment.web_terminals.postup_hooks import (
     enable_linger,
     run_verify_script,
@@ -771,6 +772,10 @@ def _warn_if_env_auth_not_gitignored(repo_root: Path) -> None:
 #: and the rendered artifact cannot drift apart.
 AUTH_SERVICE_NAME = "auth"
 
+#: The reverse proxy's compose service key, as rendered by
+#: ``docker-compose.web.yml.j2``; read wherever the proxy is addressed by name.
+NGINX_SERVICE_NAME = "nginx"
+
 #: Build-context directory (relative to the project root) the bundled sidecar
 #: Dockerfile is materialized into. Under ``build/`` with every other service's
 #: context, so it is regenerable and already gitignored.
@@ -1124,6 +1129,28 @@ def _audit_identities(config: dict) -> list[str]:
     if _auth_tls_context(web_terminals)["sidecar_active"]:
         identities.append(AUTH_SIDECAR_AUDIT_IDENTITY)
     return identities
+
+
+def web_stack_service_names(config: dict) -> list[str]:
+    """The service keys ``docker-compose.web.yml`` renders for this config.
+
+    Derived from the same two sources the compose overlay renders its services
+    from, as :func:`_audit_identities` derives its identities: the reverse
+    proxy always, the auth sidecar when the auth method runs one, and one
+    terminal per roster user. Resolved with ``strict=False`` for the reason
+    :func:`_roster_identities` states, so it never refuses.
+
+    :param config: The deployment configuration
+    :type config: dict
+    :return: Service keys: the proxy, the sidecar if any, then the roster's terminals
+    :rtype: list[str]
+    """
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    names = [NGINX_SERVICE_NAME]
+    if _auth_tls_context(web_terminals)["sidecar_active"]:
+        names.append(AUTH_SERVICE_NAME)
+    names.extend(WEB_SERVICE_PREFIX + name for name in _roster_identities(config))
+    return names
 
 
 def _resolved_repo_root(config: dict, repo_root: Path | str | None) -> Path:
@@ -1838,7 +1865,7 @@ def deploy_up_web_terminals(
     # one verb that rebinds the mounts. Reload remains correct only where the
     # render rewrites the files IN PLACE (same inode) — the roster verbs, via
     # write_web_terminal_artifacts — and that call site keeps it.
-    _force_recreate_services(web_cmd, run_env, ["nginx"], repo_root=repo_root)
+    _force_recreate_services(web_cmd, run_env, [NGINX_SERVICE_NAME], repo_root=repo_root)
 
     # -----------------------------------------------------------------------
     # POST-UP HOOK — web-terminal reconcile complete (`compose up -d`
