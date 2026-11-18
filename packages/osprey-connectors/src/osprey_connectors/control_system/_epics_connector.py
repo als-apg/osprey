@@ -1117,9 +1117,9 @@ class EPICSConnector(ControlSystemConnector):
             # takes it: a readonly run's verdict reads no config, so it would
             # leave the real machine unnamed.
             try:
-                from osprey_connectors.config import get_config_value
+                from osprey_connectors.config import current_config
 
-                section = ControlSystemSection.read(get_config_value("control_system", {}))
+                section = current_config().control_system
             except (FileNotFoundError, RuntimeError):
                 section = ControlSystemSection()
             target = self._control_target

@@ -495,11 +495,11 @@ def _writes_enabled_input() -> bool:
     payload for the same reason the connector reads it there. A config that
     cannot be read allows nothing.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
     from osprey_connectors.write_tier import tier_allows
 
     try:
-        section = ControlSystemSection.read(get_config_value("control_system", {}))
+        section = current_config().control_system
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
     return tier_allows(section)

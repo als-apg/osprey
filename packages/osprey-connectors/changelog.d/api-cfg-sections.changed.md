@@ -32,3 +32,11 @@ false. `derive_endpoints` refuses those gateways the same way, and
 `write_authorization.Login` is now `osprey_connectors.model.Login`, and a
 connection block's `auth.username` with space around it is refused rather than
 sent as written.
+The loaded config carries the section, read once when it is loaded:
+`current_config().control_system`. The write-path readers (the reference
+monitor, the EPICS read-only refusal, `LimitsValidator.from_config` and
+`from_config_most_restrictive`, the connector host's write report, and the
+factory with no section given) read it there rather than through
+`get_config_value("control_system")`, so a test that faked the section by
+patching `get_config_value` now installs a config instead
+(`install_config(testing.config_of({...}))` or `using_config(...)`).

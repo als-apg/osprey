@@ -363,11 +363,13 @@ class ConnectorFactory:
         # caller's answer, not an empty section: the unset-type fallback below is
         # for a config that was read and names no type.
         if config is None:
-            from osprey_connectors.config import get_config_value
+            from osprey_connectors.config import current_config
 
-            config = ControlSystemSection.read(
-                _mapping_section(get_config_value("control_system", {}), "control_system")
-            )
+            loaded = current_config()
+            # The section was read at load, which refuses nothing; a section that
+            # is not a mapping is refused here, where it always was.
+            _mapping_section(loaded.get("control_system", {}), "control_system")
+            config = loaded.control_system
 
         # Fail closed: an under-specified config must never bring up a live
         # control system. A blank value is treated as absent for the same

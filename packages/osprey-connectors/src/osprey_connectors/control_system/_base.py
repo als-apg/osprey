@@ -893,9 +893,9 @@ def _monitor_section() -> ControlSystemSection:
     if is_readonly_run():
         return ControlSystemSection()
     try:
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        return ControlSystemSection.read(get_config_value("control_system", {}))
+        return current_config().control_system
     except (FileNotFoundError, RuntimeError):
         return ControlSystemSection()
 
