@@ -1538,11 +1538,23 @@ def test_over_the_budget_values_are_dropped_not_symbols_and_the_strip_says_so(
 def test_five_chain_blocks_fit_one_row_and_a_sixth_wraps() -> None:
     rows = layout._Page.chain_rows
     three = rows([layout.BLOCK_LEAST] * 3)
-    assert three == [([layout.BLOCK_LEAST] * 3, layout.BLOCK_GAP)]  # room: as drawn
+    assert three == [([layout.BLOCK_LEAST] * 3, [layout.BLOCK_GAP] * 2)]  # room: as drawn
     (five,) = rows([layout.BLOCK_MOST] * 5)
-    widths, gap = five
-    assert len(widths) == 5 and gap == layout.BLOCK_GAP_LEAST
-    assert sum(widths) + 4 * gap <= layout.STRIP_WIDTH
+    widths, gaps = five
+    assert len(widths) == 5 and gaps == [layout.BLOCK_GAP_LEAST] * 4
+    assert sum(widths) + sum(gaps) <= layout.STRIP_WIDTH
     assert min(widths) >= layout.BLOCK_NARROWEST
     six = rows([layout.BLOCK_LEAST] * 6)
     assert [len(w) for w, _gap in six] == [5, 1]
+    # a narrowed row gives each arrow the run its word needs
+    (wide,) = rows([layout.BLOCK_MOST] * 5, [layout.BLOCK_GAP, 0, 0, 0])
+    assert wide[1][0] == layout.BLOCK_GAP and sum(wide[0]) + sum(wide[1]) <= layout.STRIP_WIDTH
+
+
+def test_an_arrow_word_and_a_block_title_are_never_cut() -> None:
+    lines, short = layout.arrow_lines("controlled by")
+    assert " ".join(lines) == "controlled by" and not short
+    lines, short = layout.arrow_lines("A0502:PLC1:PCTRL1_CH1")
+    assert lines == ["PCTRL1_CH1"] and short  # the whole word on hover
+    for line in layout.arrow_lines("an arrow word too long for any one line")[0]:
+        assert layout.text_width(line, layout.SMALL_SIZE) <= layout.ARROW_RUN_MOST - layout.GAP

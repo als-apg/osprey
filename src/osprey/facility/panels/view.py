@@ -797,12 +797,15 @@ class Control:
         press_value: What a press writes; ``None`` for an entry, or a press whose
             value no source states (drawn, not pressable).
         status: The channel whose value shades a choice's segment, or ``None``.
+        inferred: The press value is inferred, not stated by the channel's own
+            database; its words say so wherever they name it.
     """
 
     label: str
     channel: str
     press_value: float | None = None
     status: str | None = None
+    inferred: bool = False
 
 
 @dataclass(frozen=True)

@@ -44,6 +44,7 @@ from osprey.facility.panels.describe import (
     PROBE_SECTION,
     RELATION_TITLES,
     action_word,
+    press_words,
 )
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
@@ -233,6 +234,8 @@ BLOCKS_PER_ROW = 5
 #: blocks in proportion down to this width; only then does the chain wrap.
 BLOCK_GAP_LEAST = 48
 BLOCK_NARROWEST = 168
+TITLE_LINES = 2  # a chain block's title, an arrow's word: at most this many lines
+ARROW_RUN_MOST = 112  # the longest arrow between two blocks, for a long word
 CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
 CONTROL_TAG_HEIGHT = 18
@@ -2315,7 +2318,7 @@ class _Page:
             return
         if shown_as == "lamp":
             top = y + (h - LIGHT_SIZE) / 2
-            if self.graph.rule(channel) and words:  # no stated meaning: the neutral light
+            if meaning_stated(self.graph, channel):  # else the neutral light
                 x = self.light(x, top, [describe_light(self.graph, channel)])
             else:
                 x = self.no_rule(x, top)
@@ -2490,56 +2493,65 @@ class _Page:
         its word to the next. Up to :data:`BLOCKS_PER_ROW` share a row, narrowed to
         fit the width (:meth:`chain_rows`); one row is centred, more rows start under
         the first block, the arrow running on from the last block of a row down to
-        the first of the next."""
-        rows = self.chain_rows([self.block_width(b) for b in chain.blocks])
+        the first of the next. Nothing is cut: an arrow's word takes the run it needs
+        (two lines, above and under the arrow, or its last name segment with the whole
+        word on hover, :func:`arrow_lines`), and a title that does not fit its block
+        takes two lines, the row's titles all as high as its highest."""
+        words = [arrow_lines(b.arrow) if b.arrow else ([], False) for b in chain.blocks]
+        needs = [_arrow_need(lines) for lines, _short in words[:-1]]
+        rows = self.chain_rows([self.block_width(b) for b in chain.blocks], needs)
         left: tuple[float, float, float, str | None] | None = None  # a row's last block
         n = 0
-        for widths, gap in rows:
-            total = sum(widths) + gap * (len(widths) - 1)
+        for widths, gaps in rows:
+            total = sum(widths) + sum(gaps)
             x = self.x0 + (max(0.0, (STRIP_WIDTH - total) / 2) if len(rows) == 1 else 0)
             top = self.y
+            band = max(
+                _title_lines(b.title, w)
+                for b, w in zip(chain.blocks[n : n + len(widths)], widths, strict=True)
+            ) * BLOCK_TITLE  # fmt: skip
+            ya = top + band + BLOCK_TOP
             if left is not None:  # the arrow on from the row above
                 lx, ly, lw, word = left
-                mid, ya = top - ROW_GAP, top + BLOCK_TITLE + BLOCK_TOP
+                mid = top - ROW_GAP
+                into = min(gaps[0] if gaps else BLOCK_GAP_LEAST, x - self.x0 + BLOCK_GAP_LEAST)
                 path = [
                     (lx + lw / 2, ly),
                     (lx + lw / 2, mid),
-                    (x - min(gap, x) / 2, mid),  # in the margin, left of the block
-                    (x - min(gap, x) / 2, ya),
+                    (x - min(into, x) / 2, mid),  # in the margin, left of the block
+                    (x - min(into, x) / 2, ya),
                     (x - ARROW_INSET, ya),
                 ]
                 self.line(path, PAGE_TEXT, BLOCK_LINE, arrow=True)
                 if word:
-                    self.small(
-                        lx + lw / 2 + GAP,
-                        ly + GAP / 2,
-                        _cut(word, STRIP_WIDTH / 2, SMALL_SIZE),
-                        fg=MUTED_TEXT,
-                    )
+                    self.small(lx + lw / 2 + GAP, ly + GAP / 2, word, fg=MUTED_TEXT)
             bottom = top
             for k, w in enumerate(widths):
                 block = chain.blocks[n]
+                lines, short = words[n]
                 n += 1
-                end = self.chain_block(x, top, w, block)
+                end = self.chain_block(x, top, w, block, band)
                 for other in block.stack:  # the other things the hop reaches, under it
                     end = self.chain_block(x, end + GAP, w, other)
                 bottom = max(bottom, end)
                 if k != len(widths) - 1:
-                    ya = top + BLOCK_TITLE + BLOCK_TOP
+                    gap = gaps[k]
                     start, stop = x + w + ARROW_INSET / 2, x + w + gap - ARROW_INSET
                     self.line([(start, ya), (stop, ya)], PAGE_TEXT, BLOCK_LINE, arrow=True)
-                    if block.arrow:
-                        word = _cut(block.arrow, gap - GAP, SMALL_SIZE)
-                        ww = text_width(word, SMALL_SIZE)
-                        self.small(
-                            x + w + (gap - ww) / 2,
-                            ya - SMALL_LINE - ARROW_INSET,
-                            word,
-                            fg=MUTED_TEXT,
-                        )
+                    for i, line in enumerate(lines):  # one over the arrow, one under it
+                        ww = text_width(line, SMALL_SIZE)
+                        ly = ya - SMALL_LINE - ARROW_INSET if i == 0 else ya + ARROW_INSET
+                        self.small(x + w + (gap - ww) / 2, ly, line, fg=MUTED_TEXT)
+                    if short and block.arrow:  # the whole word on hover
+                        self.s.widget(
+                            "rectangle", x + w, ya - SMALL_LINE - ARROW_INSET, gap,
+                            len(lines) * SMALL_LINE + 2 * ARROW_INSET,
+                            {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0,
+                             _TOOLTIP: block.arrow},
+                        )  # fmt: skip
                 else:
                     left = (x, end, w, block.arrow)
-                x += w + gap
+                x += w + (gaps[k] if k < len(gaps) else 0)
             self.y = bottom + GAP + (2 * ROW_GAP if n < len(chain.blocks) else 0)
         if chain.foot:
             for line in _wrap(chain.foot, STRIP_WIDTH, SMALL_SIZE):
@@ -2548,29 +2560,37 @@ class _Page:
         self.y += ROW_GAP
 
     @staticmethod
-    def chain_rows(widths: list[float]) -> list[tuple[list[float], float]]:
-        """The rows of a chain: each its blocks' widths and its arrows' run. A row
-        takes up to :data:`BLOCKS_PER_ROW` blocks at their own widths and
-        :data:`BLOCK_GAP`; a row too wide takes :data:`BLOCK_GAP_LEAST` and narrows
-        its blocks in proportion, none below :data:`BLOCK_NARROWEST`; a row that
+    def chain_rows(
+        widths: list[float], needs: list[float] | None = None
+    ) -> list[tuple[list[float], list[float]]]:
+        """The rows of a chain: each its blocks' widths and the run of each arrow
+        between them. A row takes up to :data:`BLOCKS_PER_ROW` blocks at their own
+        widths and :data:`BLOCK_GAP`; a row too wide gives each arrow the run its
+        word needs (*needs*, by arrow; :data:`BLOCK_GAP_LEAST` at least) and narrows
+        its blocks in proportion, none below :data:`BLOCK_NARROWEST` (a word longer
+        than :data:`BLOCK_GAP` lengthens its arrow in any row); a row that
         still does not fit gives its last block to the next row."""
-        rows: list[tuple[list[float], float]] = []
-        rest = list(widths)
-        while rest:
-            take = min(BLOCKS_PER_ROW, len(rest))
+        need = list(needs or [])
+        need += [BLOCK_GAP_LEAST] * (len(widths) - len(need))
+        rows: list[tuple[list[float], list[float]]] = []
+        at = 0
+        while at < len(widths):
+            take = min(BLOCKS_PER_ROW, len(widths) - at)
             while True:
-                row = rest[:take]
-                if sum(row) + BLOCK_GAP * (take - 1) <= STRIP_WIDTH:
-                    rows.append((row, BLOCK_GAP))
+                row = widths[at : at + take]
+                full = [max(BLOCK_GAP, g) for g in need[at : at + take - 1]]
+                if sum(row) + sum(full) <= STRIP_WIDTH:
+                    rows.append((row, full))
                     break
-                room = STRIP_WIDTH - BLOCK_GAP_LEAST * (take - 1)
+                least = [max(BLOCK_GAP_LEAST, g) for g in need[at : at + take - 1]]
+                room = STRIP_WIDTH - sum(least)
                 factor = room / sum(row)
                 narrowed = [max(BLOCK_NARROWEST, w * factor) for w in row]
                 if sum(narrowed) <= room or take == 1:
-                    rows.append((narrowed, BLOCK_GAP_LEAST))
+                    rows.append((narrowed, least))
                     break
                 take -= 1
-            rest = rest[take:]
+            at += take
         return rows
 
     def block_width(self, block: ChainBlock) -> float:
@@ -2583,17 +2603,23 @@ class _Page:
                 need = max(need, BLOCK_LABEL + text + WORD_GAP)
         return max(BLOCK_LEAST, min(BLOCK_MOST, need))
 
-    def chain_block(self, x: float, top: float, w: float, block: ChainBlock) -> float:
+    def chain_block(
+        self, x: float, top: float, w: float, block: ChainBlock, band: float | None = None
+    ) -> float:
         """One block: its title (in the focus colour for the card's own device, a link
         to the thing's card otherwise), its box, its lines; a hop nothing states is a
         dashed box, a contested one a dashed box in the minor colour. Returns its
         bottom."""
         colour = symbols.FOCUS if block.focus else (MUTED_TEXT if block.dashed else PAGE_TEXT)
-        title = _cut(block.title, w, BLOCK_TEXT_SIZE)
-        self.text(x, top, title, size=BLOCK_TEXT_SIZE, w=w, h=BLOCK_TITLE, fg=colour)
+        titles = _wrap(block.title, w, BLOCK_TEXT_SIZE, TITLE_LINES)
+        if band is None:
+            band = len(titles) * BLOCK_TITLE
+        for i, title in enumerate(titles):
+            ty = top + band - (len(titles) - i) * BLOCK_TITLE  # the last line on the box
+            self.text(x, ty, title, size=BLOCK_TEXT_SIZE, w=w, h=BLOCK_TITLE, fg=colour)
         if block.link is not None:
-            self.nav(x, top, w, BLOCK_TITLE, replace(block.link, label=f"open {block.link.label}"))
-        box_top = top + BLOCK_TITLE + ROW_GAP
+            self.nav(x, top, w, band, replace(block.link, label=f"open {block.link.label}"))
+        box_top = top + band + ROW_GAP
         height = BLOCK_TOP + BLOCK_ROW * max(len(block.rows), 1) - BLOCK_ROW_TOP
         if block.dashed or block.standing == _CONTESTED:
             line = symbols.ALARM_MINOR if block.standing == _CONTESTED else MUTED_TEXT
@@ -2724,7 +2750,7 @@ class _Page:
             "label": control.label,
             "pressValue": int(value) if float(value).is_integer() else value,
             "fontSize": BLOCK_TEXT_SIZE,
-            _TOOLTIP: f"writes {control.channel} = {value:g}",
+            _TOOLTIP: f"writes {control.channel} = {press_words(control)}",
         }
         rules = None
         if choice:
@@ -2762,8 +2788,10 @@ class _Page:
 
         The local starts as empty text: nothing entered. Until it holds a finite
         number the Apply button is off the canvas, with "type a value first" in its
-        place, and its press value is text, not a number; a geometry rule brings it
-        in and a formula gives it the typed number, both from that local only. The
+        place, invisible (the viewer leaves it out of the page, so the keyboard
+        cannot reach it either) and its press value is text, not a number; a
+        geometry rule brings it in, a rule makes it visible and a formula gives it
+        the typed number, all from that local only. The
         viewer cannot clear the local after a write, so the typed value stays in the
         field beside the live one."""
         x = self.x0
@@ -2795,10 +2823,11 @@ class _Page:
         self.s.formulas.append(
             {"name": name, "kind": "scalar", "expression": "{v} + 0", "bindings": {"v": local}}
         )
-        self.s._rules += 2
+        first = self.s._rules + 1
+        self.s._rules += len(("x", "invisible", "pressValue"))
         rules = [
             {
-                "id": f"r-{self.s._rules - 1:04d}",
+                "id": f"r-{first:04d}",
                 "name": f"{control.channel} apply shown once a number is entered",
                 "targetProperty": "x",
                 "pvs": [{"name": local, "trigger": True}],
@@ -2806,21 +2835,31 @@ class _Page:
                 "default": APPLY_AWAY,
             },
             {
-                "id": f"r-{self.s._rules:04d}",
+                "id": f"r-{first + 1:04d}",
+                "name": f"{control.channel} apply in the page once a number is entered",
+                "targetProperty": "invisible",
+                "pvs": [{"name": local, "trigger": True}],
+                "conditions": [{"expression": _ENTERED, "value": False}],
+                "default": True,
+            },
+            {
+                "id": f"r-{first + 2:04d}",
                 "name": f"{control.channel} apply value",
                 "targetProperty": "pressValue",
                 "default": NOTHING_ENTERED,
                 "formula": _FORMULA_PREFIX + name,
             },
         ]
+        target = control.channel  # the one name the button writes and its words name
         button = {
-            "pv": control.channel,
+            "pv": target,
             "label": _APPLY,
             "pressValue": NOTHING_ENTERED,
+            "invisible": True,  # not in the page, so not in its tab order, until a number
             "fontSize": BLOCK_TEXT_SIZE,
             "backgroundColor": symbols.CONTROL_ACTION,
             "foregroundColor": symbols.CONTROL_ACTION_TEXT,
-            _TOOLTIP: f"writes the new value to {control.channel}",
+            _TOOLTIP: f"writes the new value to {target}",
         }
         self.s.widget("pv-button", APPLY_AWAY, self.y, width, ROW, button, rules=rules)
         self.y += ROW + ROW_GAP
@@ -2842,7 +2881,9 @@ class _Page:
             name_x = x
             lit = [describe_light(self.graph, channel)] if self.graph.rule(channel) else []
             rule = ladder(self.graph, lit) if lit else None
-            if isinstance(rule, Ladder) and self.budget.take([light_cost(rule)]):
+            if lit and not meaning_stated(self.graph, channel):  # a rule, no stated meaning
+                name_x = self.no_rule(x, y + (ROW - LIGHT_SIZE) / 2) + GAP
+            elif isinstance(rule, Ladder) and self.budget.take([light_cost(rule)]):
                 name_x = self.light(x, y + (ROW - LIGHT_SIZE) / 2, lit, rule=rule) + GAP
 
             name_w = vx - GAP - name_x
@@ -5508,6 +5549,49 @@ def _column_head(groups: Sequence[tuple[str, Sequence[GridRow]]], column: int) -
     if len(names) == 1 and None not in names:
         return str(next(iter(names)))
     return f"#{column + 1}"
+
+
+def arrow_lines(word: str) -> tuple[list[str], bool]:
+    """An arrow's word in the run of :data:`ARROW_RUN_MOST`: whole on one line, else
+    broken at spaces over two (over and under the arrow), else its last name segment
+    (after the last ``:``); and whether it was shortened (then the whole word is on
+    hover)."""
+    room = ARROW_RUN_MOST - GAP
+    if text_width(word, SMALL_SIZE) <= room:
+        return [word], False
+    lines = _wrap(word, room, SMALL_SIZE, TITLE_LINES)
+    if " ".join(lines) == " ".join(word.split()):
+        return lines, False
+    last = word.rsplit(":", 1)[-1].strip() or word
+    if text_width(last, SMALL_SIZE) <= room:
+        return [last], True
+    return _wrap(last, room, SMALL_SIZE, TITLE_LINES), True
+
+
+def _arrow_need(lines: list[str]) -> float:
+    """The run an arrow needs for its word's lines."""
+    widest = max((text_width(line, SMALL_SIZE) for line in lines), default=0.0)
+    return min(ARROW_RUN_MOST, max(BLOCK_GAP_LEAST, widest + GAP))
+
+
+def _title_lines(title: str, width: float) -> int:
+    return len(_wrap(title, width, BLOCK_TEXT_SIZE, TITLE_LINES))
+
+
+def meaning_stated(graph: PanelGraph, channel: str) -> bool:
+    """Whether a light for *channel* may take a colour: a health rule holds for it
+    and what its values mean is stated (state words for a state, the rule's own
+    thresholds for a number). Every light of a card (a tile, a chain block, the
+    grid) asks this one question; with no, the light is the neutral outline."""
+    if not graph.rule(channel):
+        return False
+    if graph.state_words(channel):
+        return True
+    try:
+        drawn_as = graph.channel(channel).drawn_as
+    except KeyError:
+        return False
+    return drawn_as in ("value", "setpoint")
 
 
 def _cut(text: str, width: float, size: float) -> str:

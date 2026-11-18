@@ -1438,11 +1438,22 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``internal`` (a driver's own record) is never offered and never listed on a
    card, only counted. A relation the chain names is drawn once per thing it
    reaches after the ``to`` filter (the place for ``located_in``, a device for
-   the rest); two things make the hop contested, both named. A button writes only a value a source states (a role's press value
-   or the value of its state word; 1 for a command); a press whose value is not
-   stated is left out, and ``check`` counts those. Apply stays off the canvas,
-   with "type a value first" in its place, until the field holds a number, so
-   no click writes a value nobody typed. ``check`` also counts the default-recipe
+   the rest); only two distinct things after the filter make the hop contested,
+   both named (a claim's own standing does not); a hop after a step that reached
+   several things walks from each and unites what they reach. A button writes
+   only a value a source states (a role's press value or the value of its state
+   word) or one marked inferred (a role's inferred press value, 1 for a command
+   whose states do not name 1), and an inferred value is said so wherever the
+   card names it ("(value inferred, not stated in the database)"); a press with
+   no value is left out, and ``check`` counts the presses stated, inferred and
+   left out. Apply stays off the canvas and out of the page (so the keyboard
+   cannot reach it either), with "type a value first" in its place, until the
+   field holds a number, so no press writes a value nobody typed. A light takes a
+   colour only where its meaning is stated (a state word, or a number's
+   thresholds); else it is the neutral outline, on a tile, in a chain block and in
+   the grid alike. An arrow's word and a block's title are never cut: the arrow
+   takes the run its word needs, a word may take two lines or its last name
+   segment with the whole word on hover, and a title two lines. ``check`` also counts the default-recipe
    cards with no key tile (no card metric and no role that shows a value). A class with no recipe row is drawn with the default recipe (the
    sections stated for the recipe ``default``, else a chain of its place, power,
    network and controller); ``write`` prints how many device cards each recipe

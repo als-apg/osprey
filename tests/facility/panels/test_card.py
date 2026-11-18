@@ -117,8 +117,14 @@ def test_a_setpoint_is_typed_checked_and_applied(panel_graph) -> None:
     assert local.startswith("loc://") and local.endswith('<VString>("")')  # nothing entered
     (apply,) = _apply_buttons(doc)
     assert apply["props"]["pv"] == "XR01-QF1:Current-SP"
-    where, value = apply["rules"]
+    where, hidden, value = apply["rules"]
     assert value["targetProperty"] == "pressValue"
+    assert (hidden["targetProperty"], hidden["default"], apply["props"]["invisible"]) == (
+        "invisible",
+        True,
+        True,
+    )  # out of the page, and so of the keyboard's reach, until a number is entered
+    assert apply["props"]["tooltip"] == "writes the new value to XR01-QF1:Current-SP"
     (formula,) = [f for f in doc["formulas"] if "formula://" + f["name"] == value["formula"]]
     assert formula["bindings"] == {"v": local}
     # in place of the button until a number is entered
@@ -132,7 +138,7 @@ def test_a_setpoint_is_typed_checked_and_applied(panel_graph) -> None:
 
 
 def test_a_press_whose_value_no_source_states_is_left_out_and_counted(tmp_path) -> None:
-    from osprey.facility.panels.describe import unstated_presses
+    from osprey.facility.panels.describe import PressCount, press_counts
 
     roles = (  # "Bypass" is no state word of the channel: what it writes is not stated
         "PowerSupply,on-command,*:On-Cmd,device,action,,,,Bypass,stated,S,1,l\n"
@@ -143,7 +149,26 @@ def test_a_press_whose_value_no_source_states_is_left_out_and_counted(tmp_path) 
     assert _by_type(doc, "pv-button") == []
     grid = [n for n in _by_type(doc, "rectangle") if n["props"].get("tooltip") == "XR01-PS1:On-Cmd"]
     assert grid  # read only, in the grid
-    assert unstated_presses(graph, ["XR01:PS1", "XR01:QF1"]) == (1, 1)
+    counted = press_counts(graph, ["XR01:PS1", "XR01:QF1"])
+    assert (counted.left_out, counted.left_out_cards) == (1, 1)
+    assert isinstance(counted, PressCount)
+
+
+def test_an_inferred_press_value_is_said_so_wherever_its_value_is_named(tmp_path) -> None:
+    from osprey.facility.panels.describe import INFERRED_NOTE, press_counts
+
+    roles = (  # the database runs a sequence on any write: 1 is inferred
+        "PowerSupply,reset,*:On-Cmd,device,action,,,1,Reset,inferred,S,1,l\n"
+        "PowerSupply,on,*:On-Sts,device,word,,,,,stated,S,1,l\n"
+    )
+    graph = _roles_graph(tmp_path, roles, "XR01-PS1:On-Cmd,1,On,S,1,l\n")
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    (button,) = _by_type(doc, "pv-button")
+    assert button["props"]["pressValue"] == 1
+    assert button["props"]["tooltip"] == f"writes XR01-PS1:On-Cmd = 1 {INFERRED_NOTE}"
+    assert _text(doc, f"writes XR01-PS1:On-Cmd = 1 {INFERRED_NOTE}; once per press")
+    counted = press_counts(graph, ["XR01:PS1"])
+    assert (counted.stated, counted.inferred) == (0, 1)
 
 
 def test_a_command_with_no_role_is_an_action_named_by_its_word(panel_graph) -> None:
@@ -151,7 +176,11 @@ def test_a_command_with_no_role_is_an_action_named_by_its_word(panel_graph) -> N
     (button,) = _by_type(doc, "pv-button")
     assert (button["props"]["label"], button["props"]["pressValue"]) == ("On", 1)
     assert button["props"]["backgroundColor"]["$role"] == "Control_Action"
-    assert _text(doc, "each writes its channel = 1 once (XR01-PS1:On-Cmd)")
+    # no state of the channel names 1: the value is inferred, and the card says so
+    assert _text(
+        doc,
+        "writes XR01-PS1:On-Cmd = 1 (value inferred, not stated in the database); once per press",
+    )
 
 
 def test_every_channel_not_drawn_above_is_in_the_grid_with_its_full_name_on_hover(
@@ -161,8 +190,11 @@ def test_every_channel_not_drawn_above_is_in_the_grid_with_its_full_name_on_hove
     for channel in ("XR01-IP1:Pressure-RB", "XR01-IP1:State-Sts"):
         assert [n for n in _by_type(doc, "rectangle") if n["props"].get("tooltip") == channel]
         assert [n for n in nodes(doc) if n["type"] != "polygon" and channel in _reads(doc, n)]
-    lights = [n for n in _by_type(doc, "polygon") if n.get("rules")]
-    assert lights  # the state channel's rule lights it in the grid
+    # the state channel has a health rule but no stated word for its values: its
+    # light is the neutral outline, as on a tile or in a chain block (one rule)
+    assert not layout.meaning_stated(panel_graph, "XR01-IP1:State-Sts")
+    assert not [n for n in _by_type(doc, "polygon") if n.get("rules")]
+    assert [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "no rule"]
 
 
 def test_tiles_and_controls_come_from_the_channel_roles(tmp_path) -> None:
@@ -534,6 +566,45 @@ def test_a_hop_with_two_answers_stacks_them_contested(tmp_path):
     ]
     doc = stub_render(device_card(graph, "XR01:IP1"), graph)
     assert len([n for n in _by_type(doc, "text-label") if n["props"]["text"] == "contested"]) == 2
+
+
+def test_a_claim_contested_over_something_else_is_still_one_target(tmp_path):
+    def contested_claim(document) -> None:
+        _ported(document)
+        for claim in document["relations"]:
+            if claim["id"] == "xr01-ip1-readout":
+                claim["standing"] = "contested"  # contested over another thing, not here
+
+    graph = _chained(tmp_path, contested_claim)
+    _device, readout, *_rest = _chain_of(device_card(graph, "XR01:IP1")).blocks
+    assert readout.standing is None and not readout.stack
+    assert readout.title == "Read-out  XR01:CH2"
+
+
+def test_a_hop_from_a_many_step_walks_from_each_and_unites_the_targets(tmp_path):
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.describe import chain_states
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\nPowerSupply,,,supply,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "supply,1,chain,Loads,,loads,,,,S\n"
+    )
+    (tables / "chains.csv").write_text(
+        "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source\n"
+        "supply,loads,1,0,powered_by,in,Quadrupole,1,feeds,Magnet,,S\n"
+        "supply,loads,2,1,powered_by,out,device,,,Fed by,,S\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    _device, magnets, fed = _chain_of(device_card(graph, "XR01:PS1")).blocks
+    assert len((magnets, *magnets.stack)) == 2
+    # both magnets name the one supply: one distinct target, found, not contested
+    assert fed.title == "Fed by  XR01:PS1" and fed.standing is None and not fed.stack
+    assert chain_states(graph, ["XR01:PS1"])["supply/loads"] == {"found": 1}
 
 
 def test_a_hop_to_many_draws_every_thing_it_reaches_in_one_column(tmp_path):

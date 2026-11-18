@@ -1200,7 +1200,8 @@ def _operate(
                     continue
                 shade = _status(graph, hit, status) if kind == "choice" else None
                 label = hit.role.label or _role_title(role)
-                items.append(Control(label, hit.channel, press, shade or hit.channel))
+                inferred = hit.role.press_value is not None and hit.role.basis == "inferred"
+                items.append(Control(label, hit.channel, press, shade or hit.channel, inferred))
                 used.add(hit.channel)
             if kind == "choice" and len(items) == 1:  # one segment is no choice
                 kind, items = _one_segment(graph, items[0])
@@ -1230,7 +1231,10 @@ def _operate(
         elif enumerated and len(stated) == 1:  # one stated state: an action writing it
             actions.append(stated[0])
         elif channel.drawn_as == "command":
-            actions.append(Control(_action_word(channel.name, graph), channel.name, _DEFAULT_PRESS))
+            # 1 is inferred unless the channel's own states name it
+            stated_one = graph.state_label(channel.name, _DEFAULT_PRESS) is not None
+            word = _action_word(channel.name, graph)
+            actions.append(Control(word, channel.name, _DEFAULT_PRESS, inferred=not stated_one))
         elif enumerated:  # an output with no stated word: no value to write is stated
             unstated.append(channel.name)
             continue
@@ -1262,18 +1266,33 @@ def _one_segment(graph: PanelGraph, control: Control) -> tuple[str, list[Control
     return "action", [control]
 
 
-def unstated_presses(graph: PanelGraph, devices: Iterable[str]) -> tuple[int, int]:
-    """How many presses the cards of *devices* leave out because no source states
-    what they write, and on how many devices."""
-    count = cards = 0
+@dataclass(frozen=True)
+class PressCount:
+    """The presses the cards of some devices offer, by how their value is known."""
+
+    stated: int = 0
+    inferred: int = 0
+    left_out: int = 0  # no value stated or inferred: not offered
+    left_out_cards: int = 0
+
+
+def press_counts(graph: PanelGraph, devices: Iterable[str]) -> PressCount:
+    """How many presses the cards of *devices* offer with a stated value, with an
+    inferred one, and leave out because no source states what they write (and on
+    how many devices)."""
+    stated = inferred = count = cards = 0
     for device in devices:
         thing = graph.thing(device, "device")
         hits = graph.roles(device)
         channels = _listed(graph, device, graph.channels(device, thing.kind))
-        _operate_, _used, left = _operate(graph, thing, hits, channels)
+        operate, _used, left = _operate(graph, thing, hits, channels)
+        for group in operate.groups if operate is not None else ():
+            for control in group.controls if group.kind != "entry" else ():
+                inferred += control.inferred
+                stated += not control.inferred
         count += len(left)
         cards += bool(left)
-    return count, cards
+    return PressCount(stated, inferred, count, cards)
 
 
 def tile_less(graph: PanelGraph, devices: Iterable[str]) -> tuple[int, int]:
@@ -1326,11 +1345,29 @@ def action_word(channel: str) -> str:
     return " ".join([first[:1].upper() + first[1:], *words[1:]])
 
 
+#: What a press's words add when its value is inferred: never written silently.
+INFERRED_NOTE = "(value inferred, not stated in the database)"
+
+
+def press_words(control: Control) -> str:
+    """``<value>``, with :data:`INFERRED_NOTE` after an inferred one."""
+    value = _press_text(control.press_value)
+    return f"{value} {INFERRED_NOTE}" if control.inferred else value
+
+
 def _writes(kind: str, controls: list[Control], device: str) -> str:
-    """The muted line under a group: what it writes, and when."""
+    """The muted line under a group: what it writes, and when; an inferred value
+    says so beside it."""
     names = ", ".join(dict.fromkeys(_short_channel(c.channel, device) for c in controls))
     if kind == "entry":
         return f"type a value, check it beside the live one, Apply writes it ({names})"
+    if any(c.inferred for c in controls):
+        each = "; ".join(
+            f"{_short_channel(c.channel, device)} = {press_words(c)}" for c in controls
+        )
+        return f"writes {each}; " + (
+            "stays until changed" if kind == "choice" else "once per press"
+        )
     presses = ", ".join(f"{c.label} = {_press_text(c.press_value)}" for c in controls)
     if kind == "choice":
         return f"writes {names}: {presses}; stays until changed"
@@ -1349,8 +1386,21 @@ HOP_FOUND, HOP_NOT_STATED, HOP_CONTESTED, HOP_NO_START = (
     "found",
     "not stated",
     "contested",
-    "its start is not one thing",
+    "its start is not stated",
 )
+
+
+def hop_from(graph: PanelGraph, starts: list[tuple[str, ThingKind]], step: ChainStep) -> list[Edge]:
+    """A hop walked from each thing its start step reached, the targets united, one
+    claim per target (in target order). The caller judges the count: one target is
+    found, several are contested unless the hop is ``many``, none is not stated. A
+    claim's own standing does not make a hop contested; only two distinct targets
+    after the hop's ``to`` filter do."""
+    found: dict[tuple[str, str], Edge] = {}
+    for thing_id, kind in starts:
+        for edge in graph.hop(thing_id, kind, step):
+            found.setdefault((edge.other, edge.other_kind), edge)
+    return [found[key] for key in sorted(found)]
 
 
 def _port_word(step: ChainStep, edge: Edge) -> str | None:
@@ -1542,8 +1592,9 @@ def recipe_chain(
     """A recipe's chain for a device: the device's block (in focus, its value roles
     no hop shows), then one block per hop in step order, each the thing the hop
     reaches with its roles, the arrow into it carrying its port; a hop that reaches
-    nothing is a dashed "not stated" block, one that reaches two things (or a
-    contested claim) stacks them dashed, ``many`` stacks every thing it reaches.
+    nothing is a dashed "not stated" block, one that reaches two distinct things
+    stacks them dashed as contested, ``many`` stacks every thing it reaches. A hop
+    whose start reached several things walks from each (:func:`hop_from`).
     Returns the chain, the channels it shows and how it came out (:data:`HOP_FOUND`
     when every hop found its things, else the first hop's title and why)."""
     steps = graph.chain(recipe, section.members or "")
@@ -1556,18 +1607,15 @@ def recipe_chain(
         start = int(step.from_step) if step.from_step is not None else n - 1
         froms = reached.get(start) or []
         roles = [r for r in (step.roles or "").split(";") if r]
-        if len(froms) != 1:
+        edges = hop_from(graph, froms, step)
+        if not froms:
             why = HOP_NO_START
-            edges: list[Edge] = []
+        elif not edges:
+            why = HOP_NOT_STATED
+        elif step.many not in MANY_WORDS and len(edges) > 1:
+            why = HOP_CONTESTED
         else:
-            edges = graph.hop(froms[0][0], froms[0][1], step)
-            many = step.many in MANY_WORDS
-            if not edges:
-                why = HOP_NOT_STATED
-            elif not many and len(edges) > 1:  # a claim several layers state counts once
-                why = HOP_CONTESTED
-            else:
-                why = HOP_FOUND
+            why = HOP_FOUND
         if why != HOP_FOUND and state == HOP_FOUND:
             state = f"{step.title}: {why}"
         reached[n] = [(e.other, e.other_kind) for e in edges]

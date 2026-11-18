@@ -58,7 +58,7 @@ def test_check_after_write_exits_0(facility_file, tmp_path):
     assert "pictures, parts only: 1 class (Quadrupole)" in result.output
     assert "pictures, none: " in result.output
     assert "pictures, parts not placed: none" in result.output  # information, not a problem
-    assert "device cards, presses left out (no value stated): 0 on 0 cards" in result.output
+    assert "0 left out (no value stated) on 0 cards" in result.output
     assert "default card without tiles: " in result.output  # no roles: no tile is guessed
 
 

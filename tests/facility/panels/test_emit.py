@@ -498,10 +498,31 @@ def test_no_written_button_can_write_a_value_no_one_stated_or_typed(panel_graph,
             assert not _numeric(props["pressValue"])
             assert all(not _numeric(r["default"]) for r in presses)
             assert node["geometry"]["x"] + node["geometry"]["width"] <= 0  # nothing to click
-            assert {r["targetProperty"] for r in rules} == {"x", "pressValue"}
+            assert {r["targetProperty"] for r in rules} == {"x", "invisible", "pressValue"}
             (moves,) = [r for r in rules if r["targetProperty"] == "x"]
             assert moves["default"] + node["geometry"]["width"] <= 0
+            # not in the page (the viewer renders nothing), so Tab cannot reach it
+            (hides,) = [r for r in rules if r["targetProperty"] == "invisible"]
+            assert props["invisible"] is True and hides["default"] is True
+            assert [c["value"] for c in hides["conditions"]] == [False]
+            assert hides["conditions"][0]["expression"] == moves["conditions"][0]["expression"]
             (local,) = {pv["name"] for pv in moves["pvs"]}
+            assert {pv["name"] for pv in hides["pvs"]} == {local}
+            # its words name exactly the channel it writes
+            assert props["tooltip"] == f"writes the new value to {props['pv']}"
+            lines = [
+                n["props"]["text"] for n in _walk(doc) if n.get("type") == "text-label"
+                and "Apply writes it (" in str(n.get("props", {}).get("text", ""))
+            ]  # fmt: skip
+            named = {
+                name for line in lines
+                for name in line.split("Apply writes it (", 1)[1].rstrip(")").split(", ")
+            }  # fmt: skip
+            assert any(props["pv"] == name or props["pv"].endswith(":" + name) for name in named), (
+                path.name,
+                props["pv"],
+                named,
+            )
             assert local.endswith('<VString>("")')  # starts as nothing entered
             for rule in presses:
                 assert set(formulas[rule["formula"]]["bindings"].values()) == {local}
