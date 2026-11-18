@@ -270,7 +270,7 @@ def _built_project(repo: Path) -> str:
     )
 
 
-def test_a_start_records_the_runtime_and_project_it_drove(lifecycle_repo, started):
+def test_a_start_records_the_runtime_project_and_services_it_drove(lifecycle_repo, started):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
 
@@ -278,7 +278,45 @@ def test_a_start_records_the_runtime_and_project_it_drove(lifecycle_repo, starte
 
     assert result.exit_code == 0, result.output
     assert read_deployment_record(lifecycle_repo) == DeploymentRecord(
-        up_argv(started)[0], _built_project(lifecycle_repo)
+        up_argv(started)[0],
+        _built_project(lifecycle_repo),
+        compose_services=("event-dispatcher",),
+    )
+
+
+@pytest.mark.usefixtures("started")
+def test_a_second_start_records_the_services_it_drives_not_the_previous_ones(lifecycle_repo):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    write_deployment_record(
+        lifecycle_repo,
+        DeploymentRecord("docker", _built_project(lifecycle_repo), compose_services=("gone",)),
+    )
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    record = read_deployment_record(lifecycle_repo)
+    assert record is not None
+    assert record.compose_services == ("event-dispatcher",)
+
+
+@pytest.mark.usefixtures("started")
+def test_the_recorded_services_are_the_ones_the_start_check_reads(lifecycle_repo):
+    from osprey_connectors.config import load_project_config
+
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    config = load_project_config(str(container_lifecycle.as_built_config_path(lifecycle_repo)))
+    compose_files = container_lifecycle.as_built_compose_files(config, lifecycle_repo)
+    record = read_deployment_record(lifecycle_repo)
+    assert record is not None
+    assert set(record.compose_services or ()) == set(
+        container_lifecycle._started_services(config, compose_files, lifecycle_repo)
     )
 
 
@@ -317,7 +355,7 @@ def test_a_start_refused_by_a_later_preflight_has_recorded_what_it_would_drive(
 
     assert result.exit_code != 0
     assert read_deployment_record(lifecycle_repo) == DeploymentRecord(
-        "docker", _built_project(lifecycle_repo)
+        "docker", _built_project(lifecycle_repo), compose_services=("event-dispatcher",)
     )
 
 
@@ -944,6 +982,37 @@ def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, monkeypatch, ca
     assert run_up(lifecycle_repo, "-d").exit_code == 0
     # Log seam: container_lifecycle's reachability warning, still logger.warning.
     assert "web-terminal stack runs on the host network" in caplog.text
+
+
+@pytest.mark.usefixtures("started")
+def test_a_web_terminal_start_records_the_web_stacks_services(lifecycle_repo, monkeypatch):
+    import yaml
+
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    (lifecycle_repo / ".env.users").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
+    render_build(
+        lifecycle_repo,
+        config=yaml.safe_dump(
+            {
+                "project_name": "als-exemplar",
+                "build_dir": "./build",
+                "deployed_services": [],
+                "claude_code": {"provider": "anthropic"},
+                "registry": {"url": "registry.example.org/demo"},
+                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+            }
+        ),
+        with_compose=False,
+    )
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    record = read_deployment_record(lifecycle_repo)
+    assert record is not None
+    assert {"nginx", "web-alice"} <= set(record.compose_services or ())
 
 
 # ---------------------------------------------------------------------------
