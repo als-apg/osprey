@@ -1387,9 +1387,17 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    another; neither verb builds) and the rule tables in ``panels/`` beside the
    facility tree (``--tables DIRECTORY`` names another), and draw with the
    settings in ``draw.json`` beside the tables (``--draw FILE`` names another;
-   with neither, the empty settings, and one line says so). The screens are
+   with neither, the empty settings, and one line says so). Its optional
+   ``write_under`` lists place ids a write keeps to: the home, those places and
+   the places within them, the devices placed there, each device in no place one
+   relation joins to one of those, and each group with one of those devices as a
+   member; links to the other screens are still written and ``index.json`` lists
+   them under ``outside``. ``check`` reads the same key: a screen outside it may
+   be absent, and only the health rules of what it keeps must be read. The
+   screens are
    Canopy Screen-IR documents, one file per screen, in nine view kinds:
-   ``home`` (the one screen above all others: the top places, every set under
+   ``home`` (the one screen above all others: the top places, those that hold
+   a device of a model first as the machines and the others below, every set under
    its class and every group with no set view, and what is in no place, by
    class, each class opening a page of its devices, so every screen is reached
    from it), ``card`` (one device, its signals, picture, relations and calibration
@@ -1523,11 +1531,19 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the row and its cell "contested" with no value, and a contested curve is not
    drawn. The calibration block is the
    ``calibration-strip``. ``no_cards.csv`` (class, under, devices,
-   owner_relation, owner_direction, owner_to) names devices that get no card:
-   the first row that takes a device wins; the device is drawn on its owner's
-   card (the thing the stated relation names), a link to it opens that card, and
-   ``index.json`` lists it under ``drawn_on`` with the owner's screen. A device
-   whose owner is not stated gets no entry; ``check`` counts both. A device card is drawn:
+   owner_relation, owner_direction, owner_to, and the optional when and
+   attribute) names devices that get no card: ``class`` ``*`` matches any
+   class, ``when`` is ``no-channel`` (the device has no channel),
+   ``no-recipe`` (no card recipe holds it) or both joined by ``;``, and
+   ``attribute`` is ``name=value``, a value the device's ``attributes`` map
+   states (a list value matches each of its items). Every condition a row
+   states must hold, and the first row that takes a device wins; the device is
+   drawn on its owner's card (the thing the stated relation names), a link to
+   it opens that card, and ``index.json`` lists it under ``drawn_on`` with the
+   owner's screen. A row with no owner relation, or a device whose owner is not
+   found, gets no screen and no entry: a related card names it as a block or a
+   row that opens nothing. ``check`` counts both, and how many devices each row
+   takes. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
    ``card`` whose ``level`` names its recipe, else its roles; a tile's measure is
    ``value`` or ``word`` of the role's first channel, or over every channel of

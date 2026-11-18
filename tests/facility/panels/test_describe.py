@@ -1291,6 +1291,19 @@ def test_home_holds_the_top_places_the_sets_and_what_is_in_no_place(panel_graph)
     assert [n.link.target for n in chips.nodes] == [card("XR09:LOOSE1")]
 
 
+def test_home_puts_the_machines_first_and_the_other_places_below(tmp_path):
+    def change(document: dict[str, Any]) -> None:
+        document["places"].append({"id": "YARD"})
+        for device in document["devices"]:
+            if device["id"] == "XR01:QF1":
+                device["model"] = "XR"
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", change), PANELS_DIR)
+    machines, others = _section(home(graph), "places").items
+    assert (machines.title, [n.label for n in machines.nodes]) == ("machines", ["XR"])
+    assert (others.title, [n.label for n in others.nodes]) == ("other places", ["YARD"])
+
+
 def test_a_device_card_links_back_to_its_sets(panel_graph):
     (foot,) = _section(device_card(panel_graph, "XR01:QF1"), "foot").items
     assert foot.sets == (Link("XR-QUAD", Target("set", "group", "XR-QUAD")),)

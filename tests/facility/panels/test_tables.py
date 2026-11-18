@@ -76,7 +76,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
         "class,under,devices,recipe,description,channels_cols,source"
     )
     assert ",".join(COLUMNS["no_cards.csv"]) == (
-        "class,under,devices,owner_relation,owner_direction,owner_to,reason,source"
+        "class,under,devices,owner_relation,owner_direction,owner_to,reason,source,when,attribute"
     )
     assert ",".join(COLUMNS["fronts.csv"]) == (
         "recipe,face,group,order,connector,kind,count,channel,far_relation,far_direction,"

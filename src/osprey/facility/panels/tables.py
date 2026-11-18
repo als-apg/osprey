@@ -83,6 +83,7 @@ __all__ = [
     "ChainStep",
     "FrontRow",
     "NoCard",
+    "NO_CARD_CONDITIONS",
     "StripSymbol",
     "Metric",
     "CalibrationKind",
@@ -249,6 +250,8 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "owner_to",
             "reason",
             "source",
+            "when",
+            "attribute",
         ],
         FRONTS: [
             "recipe",
@@ -364,6 +367,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
         CARD_RECIPES: frozenset({"devices"}),
         STRIP_SYMBOLS: frozenset({"devices"}),
         FRONTS: frozenset({"roles", "apart"}),
+        NO_CARDS: frozenset({"when", "attribute"}),
     }
 )
 
@@ -503,7 +507,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CARD_SECTIONS: ("recipe", "order", "kind", "title"),
         CHAINS: ("recipe", "chain", "step", "relation", "direction", "title"),
         STRIP_SYMBOLS: ("class", "symbol", "lane"),
-        NO_CARDS: ("class", "owner_relation", "owner_direction"),
+        NO_CARDS: ("class",),
         FRONTS: (
             "recipe",
             "face",
@@ -582,7 +586,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CHAINS: ("recipe", "chain", "step"),
         STRIP_SYMBOLS: ("class", "devices"),
         FRONTS: ("recipe", "face", "group", "connector"),
-        NO_CARDS: ("class", "under", "devices"),
+        NO_CARDS: ("class", "under", "devices", "when", "attribute"),
     }
 )
 
@@ -983,21 +987,60 @@ def _strip_symbol(**columns: Any) -> StripSymbol:
     return StripSymbol(cls=columns.pop("class"), **columns)
 
 
+#: The conditions a ``no_cards.csv`` row's ``when`` names, joined by ``;``: the
+#: device has no channel; the device's class has no card recipe for it (it would
+#: get the default card).
+NO_CARD_CONDITIONS: tuple[str, ...] = ("no-channel", "no-recipe")
+
+
 @dataclass(frozen=True)
 class NoCard:
-    """One row of ``no_cards.csv``: the devices of ``cls`` under the place ``under``
-    whose id matches ``devices`` get no card; each is drawn inside its owner, the
-    thing ``owner_relation`` names in ``owner_direction`` that ``owner_to`` takes
-    (as a chain hop's ``to``). The first row that takes a device wins."""
+    """One row of ``no_cards.csv``: the devices of ``cls`` (``*``: of any class) under
+    the place ``under``, whose id matches ``devices``, that meet every condition of
+    ``when`` and carry the attribute ``attribute`` (a name and a value), get no card.
+    Each is drawn inside its owner, the thing ``owner_relation`` names in
+    ``owner_direction`` that ``owner_to`` takes (as a chain hop's ``to``); with no
+    owner relation it has no screen and no index entry, and a related card draws it
+    as a block or a row that opens nothing. Every condition a row states must hold;
+    the first row that takes a device wins."""
 
     cls: str
     under: str | None
     devices: str | None
-    owner_relation: str
-    owner_direction: str
+    owner_relation: str | None
+    owner_direction: str | None
     owner_to: str | None
     reason: str | None
     source: str | None
+    when: tuple[str, ...] | None = None
+    attribute: tuple[str, str] | None = None
+
+
+def _conditions(text: str) -> tuple[str, ...] | None:
+    """``no-channel``, ``no-recipe`` or both joined by ``;``; ``None`` when not."""
+    words = tuple(word.strip() for word in text.split(";"))
+    if not all(word in NO_CARD_CONDITIONS for word in words) or len(set(words)) != len(words):
+        return None
+    return words
+
+
+def _name_value(text: str) -> tuple[str, str] | None:
+    """``name=value`` as a pair (the value may be empty); ``None`` when there is no
+    ``=`` or no name."""
+    name, sep, value = text.partition("=")
+    if not sep or not name.strip():
+        return None
+    return name.strip(), value.strip()
+
+
+def _check_no_card(row: NoCard, line: int) -> None:
+    """An owner is named by a relation and a direction together, or not at all."""
+    if (row.owner_relation is None) != (row.owner_direction is None):
+        raise PanelTableError(
+            NO_CARDS, line, "owner_relation and owner_direction are given together or not at all"
+        )
+    if row.owner_to is not None and row.owner_relation is None:
+        raise PanelTableError(NO_CARDS, line, "owner_to needs owner_relation")
 
 
 def _no_card(**columns: Any) -> NoCard:
@@ -1308,6 +1351,10 @@ _PARSED: Mapping[str, Mapping[str, tuple[Callable[[str], Any], str]]] = MappingP
     {
         CALIBRATION_KINDS: {"tolerance": (_tolerance_term, "rel:<fraction> or abs:<number>")},
         METRICS: {"precision": (_decimals, f"a whole number of decimals 0 to {MOST_DECIMALS}")},
+        NO_CARDS: {
+            "when": (_conditions, f"{' or '.join(NO_CARD_CONDITIONS)}, joined by ;"),
+            "attribute": (_name_value, "name=value"),
+        },
     }
 )
 
@@ -1382,6 +1429,8 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             _check_metric(rows[-1], line, seen_metric)
         if name == FRONTS:
             _check_front_row(rows[-1], line)
+        if name == NO_CARDS:
+            _check_no_card(rows[-1], line)
         if name == PROBE_PICTURES:
             _check_probe_row(rows[-1], line, seen_probe)
         if name == PICTURES:

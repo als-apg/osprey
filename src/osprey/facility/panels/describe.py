@@ -410,7 +410,9 @@ def _unplaced_carded(graph: PanelGraph, carded: frozenset[str]) -> dict[str, lis
 def _owner(graph: PanelGraph, device: str, row: NoCard) -> tuple[str, ThingKind] | None:
     """The thing a ``no_cards.csv`` row's relation names at *device* (its ``owner_to``
     taking it, as a chain hop's ``to``): one thing, else ``None`` (none, or several:
-    no owner is stated)."""
+    no owner is stated, as when the row names no owner relation)."""
+    if row.owner_relation is None or row.owner_direction is None:
+        return None
     to = row.owner_to or None
     step = ChainStep(
         DEFAULT_RECIPE, "owner", 1, 0, row.owner_relation, row.owner_direction, to, None, None,
@@ -454,6 +456,13 @@ def drawn_on(graph: PanelGraph) -> list[tuple[str, Target]]:
         for thing, owner in sorted(index.owners.items())
         if owner is not None
     ]
+
+
+def no_card_takes(graph: PanelGraph) -> list[tuple[NoCard, int]]:
+    """Each ``no_cards.csv`` row, in file order, with how many devices it takes (a
+    device is taken by the first row that matches it)."""
+    taken = Counter(graph.no_card(device) for device in _index(graph).owners)
+    return [(row, taken[row]) for row in graph.no_card_rows()]
 
 
 def no_card_counts(graph: PanelGraph) -> tuple[int, int]:
@@ -3986,6 +3995,8 @@ def health_rollup(
 _TOP_PLACES = "places"
 _NOT_PLACED_SECTION = "not placed"
 _OTHER_GROUPS = "other groups"
+_MACHINES = "machines"
+_OTHER_PLACES = "other places"
 _BY_CLASS = "by class"
 
 
@@ -3994,7 +4005,8 @@ def home(graph: PanelGraph) -> View:
 
     Sections, each left out when empty: ``places``, one chip per top place (a
     place in no other), opening its place view, else its roll-up by place, else
-    its card; ``sets``, one chip per set view, under its class, then
+    its card, the machines first (a top place that holds a device of a model)
+    and the other places below them; ``sets``, one chip per set view, under its class, then
     ``other groups``: each group with no set view (its members of several
     classes, or no device), opening its card; ``not placed``, the roll-up of what is in no
     place when there is one, then one chip per class of the devices in no place
@@ -4003,7 +4015,9 @@ def home(graph: PanelGraph) -> View:
     reached that way or from no screen at all.
     """
     index = _index(graph)
+    machines = _machine_places(graph)
     tops: list[Node] = []
+    others: list[Node] = []
     for thing in graph.things():
         if thing.kind != "place" or thing.place is not None:
             continue
@@ -4013,7 +4027,7 @@ def home(graph: PanelGraph) -> View:
             if _has(graph, index, target):
                 link = Link(thing.id, target)
                 break
-        tops.append(_node(thing.id, link, ()))
+        (tops if thing.id in machines or not machines else others).append(_node(thing.id, link, ()))
     by_class: dict[str, list[Node]] = {}
     for group in sorted(index.sets):
         cls = index.set_class[group]
@@ -4031,7 +4045,11 @@ def home(graph: PanelGraph) -> View:
     ]
     if classes:  # one index per class: every card of a device in no place is reached
         not_placed.append(Group(_BY_CLASS, "chips", tuple(classes)))
-    places: list[Item] = [Group(_TOP_PLACES, "chips", tuple(tops))] if tops else []
+    places: list[Item] = []
+    if tops:
+        places.append(Group(_MACHINES if machines else _TOP_PLACES, "chips", tuple(tops)))
+    if others:
+        places.append(Group(_OTHER_PLACES, "chips", tuple(others)))
     sets: list[Item] = [Group(cls, "chips", tuple(by_class[cls])) for cls in sorted(by_class)]
     if groups:
         sets.append(Group(_OTHER_GROUPS, "chips", tuple(groups)))
@@ -4039,6 +4057,19 @@ def home(graph: PanelGraph) -> View:
         [(_TOP_PLACES, places), (SETS_SECTION, sets), (_NOT_PLACED_SECTION, not_placed)]
     )
     return View(HOME_TARGET, HOME, (), sections)
+
+
+def _machine_places(graph: PanelGraph) -> frozenset[str]:
+    """The top places that hold a device of a model (the facility's machines)."""
+    found: set[str] = set()
+    for thing in graph.things():
+        if thing.kind != "device" or thing.model is None or thing.place is None:
+            continue
+        top = thing.place
+        while (parent := graph.thing(top, "place").place) is not None:
+            top = parent
+        found.add(top)
+    return frozenset(found)
 
 
 def _unplaced_page(cls: str) -> Target:
