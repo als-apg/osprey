@@ -11,22 +11,24 @@ each tree's build, one model at a time: the facility file, the model's record,
 its deck and its wiring as the simulator reads it. Under xdist the first worker
 to ask for a tree imports or builds it, holding a lock, in a directory every
 worker reads, and the others read its record (``tests._builds._built_once``),
-so readers need no common xdist group. Tests read both and never write to
-them; one that changes an import works on a copy.
+so readers need no common xdist group. Both are read-only, as ``built_demo``
+is: a test copies before writing, and never changes a record it was handed.
+Each tree has its own pair of session fixtures (``TREE_FIXTURES``), made from
+``SUPPORTED`` and ``WIDENED``; ``tests/facility/conftest.py`` takes them all.
 
 The YAML a test reads from an import parses with the loader the facility
-build reads it with (:func:`load_yaml`); :func:`read_yaml` serves a file
-parsed once to every reader that only reads it.
+build reads it with (:func:`load_yaml`). :func:`read_yaml` parses a file of a
+shared import or build once per run, and any other file afresh.
 """
 
 from __future__ import annotations
 
 import contextlib
+import functools
 import io
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -66,20 +68,25 @@ def load_yaml(path: Path) -> Any:
     return safe_load(path.read_text(encoding="utf-8"))
 
 
-@lru_cache(maxsize=32)
-def _parsed(path: Path, _mtime_ns: int, _size: int) -> Any:
-    return load_yaml(path)
+#: The ``data/facility`` directories of the run's shared imports and builds. They
+#: are read-only (a test copies before writing), so their files never change.
+_SHARED: set[Path] = set()
 
 
 def read_yaml(path: Path) -> Any:
-    """``path`` parsed once for every reader of the same bytes.
+    """``path`` parsed as :func:`load_yaml` parses it, for a caller that only reads it.
 
-    The parse is shared, so a caller only reads it; one that changes what it
-    read takes :func:`load_yaml`. A file written again since its last parse is
-    parsed afresh: the parse is kept by the file's modification time and size.
+    A file of a shared import or build is parsed once per run; any other file,
+    such as one in a test's own tree, is parsed afresh on every call.
     """
-    stat = path.stat()
-    return _parsed(path, stat.st_mtime_ns, stat.st_size)
+    if any(path.is_relative_to(root) for root in _SHARED):
+        return _parse_shared(path)
+    return load_yaml(path)
+
+
+@functools.cache
+def _parse_shared(path: Path) -> Any:
+    return load_yaml(path)
 
 
 def mapped_facility(root: Path, tree: str) -> Path:
@@ -225,12 +232,14 @@ def _import_fixture(tree: str) -> Any:
     """The session fixture holding ``tree``'s one import of the run."""
 
     def imported(tmp_path_factory: pytest.TempPathFactory) -> MmlImport:
+        """The tree's one import of the run. Read-only: copy before writing."""
         record: MmlImport = _built_once(
             tmp_path_factory,
             f"mml-import-{tree}",
             f"mml-import-{tree}.pickle",
             lambda parent: import_record(tree, parent),
         )
+        _SHARED.add(record.facility)
         return record
 
     return pytest.fixture(scope="session", name=f"mml_import_{tree}")(imported)
@@ -247,6 +256,8 @@ def _build_fixture(tree: str) -> Any:
     def built(
         tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest
     ) -> tuple[dict[str, Any], Path]:
+        """The tree's one build of the run. Read-only: copy before writing."""
+
         def make(parent: Path) -> tuple[dict[str, Any], Path]:
             from osprey.facility.build import build_facility
 
@@ -258,18 +269,21 @@ def _build_fixture(tree: str) -> Any:
         made: tuple[dict[str, Any], Path] = _built_once(
             tmp_path_factory, f"mml-build-{tree}", f"mml-build-{tree}.pickle", make
         )
+        _SHARED.add(made[1])
         return made
 
     return pytest.fixture(scope="session", name=f"mml_build_{tree}")(built)
 
 
-# Under xdist each record is the run's one: the fixtures are named per tree, so
-# every tree has its own lock and a worker waits on no tree it does not read.
-mml_import_nsls2 = _import_fixture("nsls2")
-mml_import_spear3 = _import_fixture("spear3")
-mml_import_synthetic = _import_fixture("synthetic")
-mml_build_nsls2 = _build_fixture("nsls2")
-mml_build_spear3 = _build_fixture("spear3")
+#: The per-tree session fixtures, by name: the import of every tree ``SUPPORTED``
+#: imports, and the build of every tree ``WIDENED`` names. Under xdist each is
+#: the run's one record, with its own lock, so a worker waits on no tree it does
+#: not read.
+TREE_FIXTURES: dict[str, Any] = {
+    **{f"mml_import_{tree}": _import_fixture(tree) for tree in names("imports")},
+    **{f"mml_build_{tree}": _build_fixture(tree) for tree in WIDENED},
+}
+globals().update(TREE_FIXTURES)
 
 
 @pytest.fixture(scope="session")
@@ -277,10 +291,13 @@ def mml_imported(request: pytest.FixtureRequest) -> Callable[[str], MmlImport]:
     """Each fixture tree imported once per run, served whole.
 
     Returns a callable ``tree -> MmlImport``; a tree is imported on its first
-    request. Tests read the import and never write to it.
+    request. Read-only: a test copies before writing (:meth:`MmlImport.copy`)
+    and never changes a parse it was handed.
     """
 
     def imported(tree: str) -> MmlImport:
+        if f"mml_import_{tree}" not in TREE_FIXTURES:
+            raise KeyError(f"{tree!r} is no tree SUPPORTED imports (tests/fixtures/mml/_trees.py)")
         record: MmlImport = request.getfixturevalue(f"mml_import_{tree}")
         return record
 
@@ -293,11 +310,13 @@ def mml_built(request: pytest.FixtureRequest) -> Callable[[str, str], BuiltModel
 
     Returns a callable ``(tree, stem) -> BuiltModel``. A tree is imported and
     built on its first request; every model of it is read from that one build.
-    Tests read the build and never write to it.
+    Read-only: a test copies before writing and never changes the document.
     """
     from osprey.facility.views.simulator import simulator_wiring
 
     def model(tree: str, stem: str) -> BuiltModel:
+        if f"mml_build_{tree}" not in TREE_FIXTURES:
+            raise KeyError(f"{tree!r}: name the bands its build widens in WIDENED, {__file__}")
         document, facility = request.getfixturevalue(f"mml_build_{tree}")
         name = model_name(document, stem)
         (record,) = [entry for entry in document["models"] if entry["name"] == name]
@@ -311,3 +330,7 @@ def mml_built(request: pytest.FixtureRequest) -> Callable[[str, str], BuiltModel
         )
 
     return model
+
+
+#: What ``tests/facility/conftest.py`` takes with its star import: every session fixture here.
+__all__ = ["mml_built", "mml_imported", *TREE_FIXTURES]
