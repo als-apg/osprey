@@ -211,6 +211,8 @@ def _profile_edits() -> dict[str, Any]:
     with it: ``services: {}`` is the spelling because a single service cannot be
     nulled. The preset's bundled application goes the same way, under ``apps: {}``:
     it would deploy beside this world.
+    The preset's server fleet goes as well, ``channel_directory.fleet`` nulled:
+    its injector would add the ``server_fleet`` service, and nothing here reads it.
 
     ``virtual_accelerator.live_standin: null`` switches the preset's live
     stand-in off — the delete-the-line escape the profile documents, spelled as
@@ -248,6 +250,7 @@ def _profile_edits() -> dict[str, Any]:
             "deployed_services": [],
             "ariel": None,
             "claude_code.servers.bluesky.enabled": False,
+            "channel_directory.fleet": None,
         },
         "channel_finder_mode": "hierarchical",
         "va_archiver": {
