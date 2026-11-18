@@ -4154,7 +4154,7 @@ keys:
   modules.web_terminals.nginx_image:
     rendered: false
     evidence: 'upstream_image\("nginx", resolve_base_registry\(root\)\)'
-    default: nginx:1.31-alpine
+    default: nginx:1.31.9-alpine
   modules.web_terminals.tls:
     rendered: false
     evidence: 'tls = as_dict\(web_terminals\.get\("tls"\)\)'

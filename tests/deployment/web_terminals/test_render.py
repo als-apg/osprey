@@ -293,7 +293,7 @@ def test_nginx_image_defaults_when_config_omits_it() -> None:
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
     # Assert
-    assert compose["services"]["nginx"]["image"] == "nginx:1.31-alpine"
+    assert compose["services"]["nginx"]["image"] == "nginx:1.31.9-alpine"
 
 
 def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
@@ -301,7 +301,7 @@ def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
     only from a private mirror point it at their own registry."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
-    custom = "registry.example.com:5050/mirrors/nginx:1.31-alpine"
+    custom = "registry.example.com:5050/mirrors/nginx:1.31.9-alpine"
     config["modules"]["web_terminals"]["nginx_image"] = custom
 
     # Act
@@ -323,7 +323,7 @@ def test_the_default_nginx_image_comes_from_the_base_registry(
     compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
 
     assert compose["services"]["nginx"]["image"] == (
-        "mirror.example.org/dockerhub/library/nginx:1.31-alpine"
+        "mirror.example.org/dockerhub/library/nginx:1.31.9-alpine"
     )
 
 
