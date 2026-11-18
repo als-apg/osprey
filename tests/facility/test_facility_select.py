@@ -46,10 +46,14 @@ def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Simulato
 
 @pytest.mark.parametrize("tree", [HELLO_WORLD, EXAMPLE], ids=lambda tree: tree.name)
 def test_each_shipped_facility_answers_the_e2e_lanes_channel_questions(
-    tmp_path: Path, tree: Path
+    tmp_path: Path, tree: Path, request: pytest.FixtureRequest
 ) -> None:
-    render_facility_outputs(tmp_path, build_facility(tree, project_name=tree.name), {}, tree)
-    view = SimulatorView.of_render(tmp_path)
+    if tree == EXAMPLE:
+        # The module's render of the example is this very build and render.
+        view, _ = request.getfixturevalue("example")
+    else:
+        render_facility_outputs(tmp_path, build_facility(tree, project_name=tree.name), {}, tree)
+        view = SimulatorView.of_render(tmp_path)
 
     reading = seeded_readback(view)
     assert reading in view.channels()
