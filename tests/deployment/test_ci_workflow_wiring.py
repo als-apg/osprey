@@ -2732,9 +2732,14 @@ def _script_pytest_lines(source: str) -> list[str]:
     return [line for line in source.splitlines() if f"{CHECK_UV_RUN} pytest " in line]
 
 
+@functools.cache
 def _tier_source(tier: str, base: str | None = None) -> str:
     """The commands *tier* runs over the whole tree, one shell line each; with
-    *base*, the checks that judge a range are armed against it."""
+    *base*, the checks that judge a range are armed against it. Resolved once
+    per process: resolving scans the test tree for wall-clock budgets. Cached for
+    the run, so a mutation test that patches what it reads (the wall-clock scan,
+    ``check_set``) calls ``_tier_source.__wrapped__(...)``, as
+    ``test_nothing_else_times_it__mutation_a_file_carries_both_markers`` does."""
     argv = [tier, "--base", base] if base else [tier]
     return "\n".join(_render(line).replace("\n", " ") for line in check_set.resolve(argv))
 
@@ -11449,8 +11454,16 @@ def _linkcheck_verdict_missing(commands: list[list[str]]) -> list[str]:
     ]
 
 
+@functools.cache
+def _full_tier_commands_once() -> tuple[tuple[str, ...], ...]:
+    """The full tier's commands, cached for the run: a mutation test that patches
+    what it reads calls ``_full_tier_commands_once.__wrapped__()``."""
+    return tuple(tuple(argv) for argv in check_set.resolve(["full"]))
+
+
 def _full_tier_commands() -> list[list[str]]:
-    return check_set.resolve(["full"])
+    """The full tier's commands, a fresh copy per call of one resolve per process."""
+    return [list(argv) for argv in _full_tier_commands_once()]
 
 
 def test_the_full_tier_blocks_on_a_broken_documentation_link() -> None:
@@ -14687,6 +14700,19 @@ def _is_setup(job: str, step: dict[str, Any]) -> bool:
     return step.get("name") in CALLER_SETUP_STEPS.get(job, ())
 
 
+@functools.cache
+def _refusal(call: tuple[str, ...]) -> str | None:
+    """Why ``check.py`` refuses *call* (``None`` = it resolves), probed once per
+    call per process: resolving scans the test tree for wall-clock budgets.
+    Cached for the run, so a mutation test that patches what it reads calls
+    ``_refusal.__wrapped__(...)``."""
+    try:
+        _resolved(list(call))
+    except (check_set.Refused, SystemExit) as refusal:
+        return str(refusal)
+    return None
+
+
 def _spelled_checks(wf: dict[str, Any]) -> list[str]:
     """What is wrong with the caller jobs' steps as callers, one line per defect."""
     problems = []
@@ -14703,9 +14729,8 @@ def _spelled_checks(wf: dict[str, Any]) -> list[str]:
             if call[:1] != ["run"]:
                 problems.append(f"{where} must call `{CHECK_SCRIPT} run ID`; got {call}")
                 continue
-            try:
-                _resolved(call)
-            except (check_set.Refused, SystemExit) as refusal:
+            refusal = _refusal(tuple(call))
+            if refusal is not None:
                 problems.append(f"{where} makes a call {CHECK_SCRIPT} refuses: {refusal}")
         spelled = _leaf_commands(step["run"])
         if spelled:
