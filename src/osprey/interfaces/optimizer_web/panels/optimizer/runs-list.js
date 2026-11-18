@@ -10,15 +10,21 @@
  * service has answered for its job (it keeps an ended job for an hour); the
  * list never guesses one.
  *
+ * A stored run's start is the service host's wall clock as its directory
+ * name writes it, and shows as written; the time an open job was made is an
+ * instant, shown on the facility clock. Today and yesterday are the
+ * facility's.
+ *
  * @module runs-list
  */
 
+import { facilityDayKey, facilityDayStart } from '/design-system/js/facility-time.js';
 import { icon } from '/design-system/js/icons.js';
 import { h } from './hyperscript.js';
 import { TERMINAL_STATUSES } from './approval-model.js';
 import { jobFigures } from './run-model.js';
 import { currentScreen, presentScreen, runJob } from './store.js';
-import { SCREEN_STATUS, endedDot, endingOf } from './words.js';
+import { SCREEN_STATUS, endedDot, endingOf, instantText } from './words.js';
 
 /**
  * @typedef {import('./store.js').State} State
@@ -59,8 +65,9 @@ function screenChip(id) {
 }
 
 /**
- * A stored run's start, from its directory name (`YYYY-MM-DD_HH-MM-SS`, in the
- * service's local time, perhaps with a suffix); null for another shape.
+ * A stored run's start, from its directory name (`YYYY-MM-DD_HH-MM-SS`, the
+ * wall clock of the service host, perhaps with a suffix); null for another
+ * shape. The text is read as written, never converted to another zone.
  *
  * @param {string|null|undefined} timestamp
  * @returns {{ day: string, clock: string }|null}
@@ -70,44 +77,26 @@ export function runTime(timestamp) {
   return m ? { day: m[1], clock: `${m[2]}:${m[3]}` } : null;
 }
 
-/**
- * @param {Date} date
- * @returns {string}  `YYYY-MM-DD` in local time
- */
-function isoDay(date) {
-  const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
+/** The month of a date as written, as a day heading names it. */
+const MONTHS = Object.freeze('Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' '));
 
 /**
- * The local clock time (`HH:MM`) of an ISO time; null for none.
+ * The day heading of a stored run: Today or Yesterday on the facility's
+ * calendar, else the date as written (with its year when that is not the
+ * facility's year now).
  *
- * @param {string|null|undefined} iso
- * @returns {string|null}
- */
-function clockOf(iso) {
-  const date = iso ? new Date(iso) : null;
-  if (!date || Number.isNaN(date.getTime())) return null;
-  const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-/**
- * The day heading of a run: Today, Yesterday, or the date.
- *
- * @param {string} day  `YYYY-MM-DD`
+ * @param {string} day  `YYYY-MM-DD`, as `runTime` reads it
  * @param {number} now  ms
  * @returns {string}
  */
 export function dayLabel(day, now) {
-  const today = new Date(now);
-  if (day === isoDay(today)) return 'Today';
-  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
-  if (day === isoDay(yesterday)) return 'Yesterday';
+  const today = facilityDayKey(now);
+  if (day === today) return 'Today';
+  if (day === facilityDayKey(facilityDayStart(now) - 1)) return 'Yesterday';
   const [y, m, d] = day.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  const label = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  return y === today.getFullYear() ? label : `${label} ${y}`;
+  const month = MONTHS[m - 1];
+  if (!month) return day;
+  return String(y) === today.slice(0, 4) ? `${d} ${month}` : `${d} ${month} ${y}`;
 }
 
 /**
@@ -287,7 +276,7 @@ export function runsModel(state, now) {
       chip: null,
       dot: null,
       aside: null,
-      time: clockOf(j.created_at),
+      time: instantText(j.created_at, now) || null,
       selected: selection.kind === 'job' && selection.jobId === j.job_id,
       selection: /** @type {Selection} */ ({ kind: 'job', jobId: j.job_id }),
     }));

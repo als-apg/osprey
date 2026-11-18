@@ -1,9 +1,7 @@
 /**
- * Tests for the objective chart (objective-chart.js) and the table of the
- * evaluations (evaluations-table.js): what the chart draws for its input,
- * that a field it does not get is not drawn, its text alternative, that a
- * new evaluation moves the drawing in place, and the table's order and best
- * row.
+ * Tests for the objective chart (objective-chart.js): what the chart draws
+ * for its input, that a field it does not get is not drawn, its text
+ * alternative, and that a new evaluation moves the drawing in place.
  */
 
 import { describe, test, expect } from 'vitest';
@@ -14,10 +12,6 @@ import {
   mountObjectiveChart,
   niceTicks,
 } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/objective-chart.js';
-import {
-  evaluationsTable,
-  updateEvaluationsTable,
-} from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/evaluations-table.js';
 import { jobFigures } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/run-model.js';
 import { runningJob, storedConfig } from './_fixtures.mjs';
 
@@ -205,58 +199,5 @@ describe('the drawing', () => {
     expect(svg.querySelectorAll('.opt-ch-pt')).toHaveLength(0);
     expect(svg.querySelector('.opt-ch-empty')).not.toBeNull();
     chart.destroy();
-  });
-});
-
-describe('the evaluations table', () => {
-  const spec = (/** @type {Record<string, unknown>} */ extra = {}) => ({
-    records: records(),
-    objective: 'charge',
-    direction: 'MAXIMIZE',
-    variables: ['phase_a', 'sol_b'],
-    bestIndex: 1,
-    ...extra,
-  });
-
-  test('lists the evaluations newest first and marks the best', () => {
-    const wrap = evaluationsTable(spec());
-    const rows = Array.from(wrap.querySelectorAll('tbody tr'));
-    expect(rows.map((r) => r.getAttribute('data-index'))).toEqual(['2', '1', '0']);
-    expect(wrap.querySelector('tr.is-best')?.getAttribute('data-index')).toBe('1');
-    expect(wrap.querySelectorAll('thead th')).toHaveLength(5);
-  });
-
-  test('without a direction it has no best-so-far column', () => {
-    const wrap = evaluationsTable(spec({ direction: null }));
-    expect(wrap.querySelectorAll('thead th')).toHaveLength(4);
-  });
-
-  test('an update redraws the rows only when the records changed', () => {
-    const wrap = evaluationsTable(spec());
-    const body = wrap.querySelector('tbody');
-    updateEvaluationsTable(wrap, spec());
-    expect(wrap.querySelector('tbody')).toBe(body);
-    updateEvaluationsTable(wrap, spec({ records: [...records(), { charge: 3 }] }));
-    expect(wrap.querySelectorAll('tbody tr')).toHaveLength(4);
-  });
-
-  test('the best-so-far column follows the bests it is given', () => {
-    const config = storedConfig({
-      objective_direction: 'MAXIMIZE',
-      constraints: { loss: { type: 'LESS_THAN', value: 1 } },
-    });
-    const f = jobFigures(runningJob({ data: constrained() }), config);
-    const wrap = evaluationsTable(
-      spec({ records: constrained(), bests: f.bests, bestIndex: f.bestIndex })
-    );
-    // The best-so-far cell of each row, by record index.
-    const cells = Object.fromEntries(
-      Array.from(wrap.querySelectorAll('tbody tr')).map((r) => [
-        r.getAttribute('data-index'),
-        r.children[2].textContent,
-      ])
-    );
-    expect(cells).toEqual({ 0: '1', 1: '1', 2: '2' });
-    expect(wrap.querySelector('tr.is-best')?.getAttribute('data-index')).toBe('2');
   });
 });

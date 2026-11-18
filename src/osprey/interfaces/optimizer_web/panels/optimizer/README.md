@@ -4,7 +4,7 @@ This folder holds the OPTIMIZER panel. The panel is plain ES modules. It has no 
 
 ## Layout
 
-The panel has a toolbar and three zones:
+The panel has a toolbar and these areas:
 
 - The toolbar names the control target and the environment of the screen. It holds the status chip, the history toggle and one primary action slot.
 - The runs list (left, 260 px) shows the job of now, the other open jobs and the stored runs.
@@ -23,9 +23,9 @@ Up to 1040 px, the runs list is an overlay and the inspector is a drawer. An edg
 | `run-model.js` | Pure run figures: evaluations done and planned, the best feasible evaluation so far, the value before the run, the change, the time left. |
 | `sync.js` | The reads: the poll tick, an active job beside a newer draft, the runs list, the machine connection, the catalogue (environments and model files). Reads become store events. |
 | `actions.js` | What the operator can do, and the reads a view asks for. Every write goes to `relay/...`. |
-| `words.js` | The words for what the service names: methods, end actions, what a stop leaves, when a run may write, how a job ended, the status of each screen, directions, and a change. See [Shared words](#shared-words). |
+| `words.js` | The words for what the service names: methods, end actions, what a stop leaves, when a run may write, how a job ended, the status of each screen, directions, a change, and an instant on the facility clock. See [Shared words](#shared-words). |
 | `shell.js` | The toolbar, the status chip and its popover, the zones, the drawer. Pure helpers: `chipFor`, `chipDetails`, `inspectorFrame`, `TARGETS`. |
-| `runs-list.js` | The runs list. Pure helpers: `runsModel`, `pastRuns` (the stored runs, newest first, filtered; the history table uses it too), `runTime`, `dayLabel`, `objectiveLabel`, `environmentLabel`. |
+| `runs-list.js` | The runs list. Pure helpers: `runsModel`, `pastRuns` (the stored runs, newest first, filtered; the history table uses it too), `runTime` (the start of a stored run, read as written), `dayLabel` (Today and Yesterday on the facility calendar), `objectiveLabel`, `environmentLabel`. |
 | `view-host.js` | The view contract (types) and the host that mounts one view at a time. |
 | `knob-bar.js` | The knob bar and the knob name. Use them in every view that shows a knob. |
 | `facts-strip.js` | The facts strip (a band of caption and value pairs). |
@@ -135,6 +135,7 @@ Rules:
 | `SCREEN_STATUS` | For each screen of a job: the chip tone, the label of the toolbar chip and the short word of the runs list. |
 | `directionWords(direction)`, `directionWord(direction)` | A direction: its name, the value it looks for ("highest") and which value is better. |
 | `signed(value)`, `percent(pct)`, `changeText(figures)` | A signed number, a signed percentage, and the change of the best against the value before the run. |
+| `instantText(value, now)` | An instant (`created_at`, `expires_at_ns`) on the facility clock, through `/design-system/js/facility-time.js`: the time of day when the instant is on the facility's today, else the date and the time of day. |
 
 Add a word here when two views say the same thing. Test what the words do (which value has which tone, which count is in a label), not the exact text.
 
@@ -174,6 +175,7 @@ Rules for a view:
 - Compare a key of what you show. Do not rebuild a control under the cursor on each poll.
 - Keep Pause and Cancel in the run header, never in the primary slot.
 - Leave out an element whose value is null. Do not show a placeholder value.
+- Show an instant with `instantText` of `words.js`. Do not format a `Date` yourself: the facility clock applies, not the clock of the viewer. The `timestamp` of a stored run is text on the clock of the service host. Show it as written (`runTime`), and do not convert it.
 
 To add or replace a view, write the module and set its entries in `VIEWS` in `panel.js`. The table has one group of lines per view module.
 
@@ -240,7 +242,7 @@ A view shows only what the service supplies. This list tells what each element c
 | Where a pause takes effect | Not supplied | The status is `paused` at once, but the runner checks for a pause only before the first evaluation, before each guided step and before the final write: not between the first tries. `pauseWords()` of `run-page-model.js` says what a pause does at the point the run is at. |
 | A run that has just started | Status `running`, no `write_authorization`, no `data` | Start moves the job to `running` at once. Until the run asks for its write authorization, the panel shows it as waiting (`waiting-approval`): nothing has been written. |
 | Step in an evaluation (writing, settling, reading) | Not supplied | Show "Evaluation N of M". |
-| Run start time | Stored run: `ResultInfo.timestamp` (local time of the service host) | Present job: `created_at` is the time the draft was made, not the start. |
+| Run start time | Stored run: `ResultInfo.timestamp` (local time of the service host) | The panel shows it as written and does not convert it. Present job: `created_at` is the time the draft was made, not the start. It is an instant, and it shows on the facility clock. |
 | Who approves, request id, refusal reason | `write_authorization.owner`, `.id`, `.reason`, read by `authorizationNote()` | |
 | Writes used | Not supplied | Do not show. |
 | Writes asked and allowed, where approved, valid until, channels and ranges | `write_authorization` (`steps`, `approver`, `expires_at_ns`, `channels`, `completion`), read by `authorizationScope()` of `approval-model.js` (`APPROVAL_SURFACES` names the surfaces) | The approval surface and the expiry exist only once the state is `granted`. |
@@ -261,7 +263,7 @@ npx vitest run tests/interfaces/optimizer_web --maxWorkers=8
 npx eslint src/osprey/interfaces/optimizer_web/panels/optimizer tests/interfaces/optimizer_web
 npx prettier --check "src/osprey/interfaces/optimizer_web/panels/optimizer/**/*.{js,css}" "tests/interfaces/optimizer_web/**/*.mjs"
 npm run -s typecheck
-uv run pytest tests/interfaces/optimizer_web -q -n 4
+uv run pytest tests/interfaces/optimizer_web -q
 ```
 
 Prettier formats the `.js`, `.mjs` and `.css` files only. Do not format `index.html` with Prettier. The Python tests cover the sidecar (`app.py`, the read proxy and the relay).

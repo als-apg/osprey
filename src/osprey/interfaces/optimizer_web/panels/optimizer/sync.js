@@ -116,11 +116,13 @@ export function createSync({ api, store, now = Date.now }) {
       return;
     }
     if (!full.ok) return;
+    // A failed config read is not kept: the next tick reads it again.
     if (activeConfig?.id !== id) {
       const cfg = await api.get(`jobs/${seg(id)}/config`);
-      activeConfig = { id, config: cfg.ok ? cfg.data : null };
+      activeConfig = cfg.ok ? { id, config: cfg.data } : null;
     }
-    const config = activeConfig?.config ?? null;
+    const kept = store.state.activeJob?.job_id === id ? store.state.activeConfig : null;
+    const config = activeConfig?.config ?? kept;
     dispatch({ type: 'poll/active', job: full.data, config, at: now() });
   }
 

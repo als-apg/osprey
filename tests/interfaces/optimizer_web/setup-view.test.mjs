@@ -1,21 +1,23 @@
 /**
- * Tests for the set-up screens (setup-view.js, setup-form.js, knob-picker.js):
- * what a save sends is the config draft-model.js builds from the same edits;
- * a refused save shows its reasons beside the fields they name; no control
- * target is picked by default; a draft is saved also while a run is under
- * way; a set-up of a stored draft seeds only from that draft and holds Save
- * when it changes on the service; a replaced view does nothing more; the edits
- * survive another screen; the knob picker stays usable with fifty knobs.
+ * Tests for the set-up screens (setup-view.js): what a save sends is the
+ * config draft-model.js builds from the same edits; a refused save shows its
+ * reasons beside the fields and knobs they name; no control target is picked
+ * by default; a draft is saved also while a run is under way; a set-up of a
+ * stored draft seeds only from that draft and holds Save when it could not be
+ * read or changes on the service; a replaced view does nothing more; the edits
+ * survive another screen; the stage follows the values read and the picker.
+ *
+ * The fields, the knob picker and the notices on their own are tested in
+ * setup-form.test.mjs, knob-picker.test.mjs and setup-notices.test.mjs.
  *
  * Stored drafts are built as the service sends them: `objective_direction`
  * is always filled in, with the objective's own direction when nobody chose one.
  */
 
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, expect } from 'vitest';
 
 import { envDetails, storedConfig } from './_fixtures.mjs';
 import { choose, flush, mountWith, type } from './_views.mjs';
-import { errorIssues } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/api-client.js';
 import {
   buildConfig,
   formFromConfig,
@@ -94,7 +96,6 @@ describe('saving a set-up', () => {
     expect(t.inspector.querySelector('[data-field="target"] .opt-field-issue')?.textContent).toBe(
       'Pick a control target.'
     );
-    expect(t.inspector.querySelector('[role="alert"]')).not.toBeNull();
   });
 
   test('what Save sends is the config draft-model.js builds from the same edits', async () => {
@@ -299,19 +300,13 @@ describe('a set-up of a stored draft', () => {
     });
   });
 
-  test('a value no picker offers is shown as the value a save sends', () => {
+  test('a knob the stored draft tunes that its environment no longer has is named in a notice', () => {
     const config = storedConfig({
       objective_direction: 'MAXIMIZE',
-      model_file: '/results/models/m.joblib',
-      preset: 'sols',
       variables: ['phase_a', 'gone_c'],
     });
-    // The models list and the presets do not hold them; the environment has no gone_c.
+    // The environment has no gone_c.
     const t = mountWith(mountSetupView, editing(config));
-    const value = (/** @type {string} */ id) =>
-      /** @type {HTMLSelectElement} */ (t.inspector.querySelector(`#${id}`)).value;
-    expect(value('opt-su-model')).toBe('/results/models/m.joblib');
-    expect(value('opt-su-preset')).toBe('sols');
     const notice = t.inspector.querySelector('[data-notice="missing-knobs"]');
     expect(notice?.textContent).toContain('gone_c');
   });
@@ -395,7 +390,7 @@ describe('the stage of a set-up', () => {
   });
 });
 
-describe('the knob picker', () => {
+describe('the knob picker in a set-up', () => {
   /** An environment of 49 knobs. */
   function bigEnv() {
     const env = envDetails();
@@ -413,123 +408,28 @@ describe('the knob picker', () => {
     return { ...env, variables };
   }
 
-  test('with 49 knobs: clear, filter, add one, edit its window', () => {
+  test('the stage follows the picker: one knob added after a clear, then its window typed', () => {
     const t = mountWith(mountSetupView, [
       ...openNew('', [
         { type: 'env/loaded', name: 'injector', details: bigEnv(), presets: {}, error: null },
       ]),
     ]);
     const picker = /** @type {HTMLElement} */ (t.inspector.querySelector('.opt-picker'));
-    expect(picker.querySelectorAll('.opt-pick.is-in')).toHaveLength(49);
+    expect(t.stage.querySelectorAll('.opt-knob-row[data-knob]')).toHaveLength(49);
     click(picker, 'opt-su-knob-clear');
-    expect(picker.querySelectorAll('.opt-pick.is-in')).toHaveLength(0);
-
-    const filter = /** @type {HTMLInputElement} */ (picker.querySelector('#opt-su-knob-filter'));
-    type(filter, 'k4');
-    const offered = [...picker.querySelectorAll('.opt-pick-more .opt-pick')].map((p) =>
-      p.getAttribute('data-knob')
-    );
-    expect(offered).toEqual(['k40', 'k41', 'k42', 'k43', 'k44', 'k45', 'k46', 'k47', 'k48']);
-
     const add = /** @type {HTMLInputElement} */ (
       picker.querySelector('.opt-pick[data-knob="k42"] input')
     );
     add.checked = true;
     add.dispatchEvent(new Event('change'));
-    expect(
-      [...picker.querySelectorAll('.opt-pick.is-in')].map((p) => p.getAttribute('data-knob'))
-    ).toEqual(['k42']);
-    // The filter is kept across the redraw.
-    expect(
-      /** @type {HTMLInputElement} */ (picker.querySelector('#opt-su-knob-filter')).value
-    ).toBe('k4');
     expect(t.stage.querySelectorAll('.opt-knob-row[data-knob]')).toHaveLength(1);
 
     click(picker, 'opt-su-knob-42-window');
     const opts = /** @type {HTMLElement} */ (picker.querySelector('#opt-su-knob-42-opts'));
-    expect(opts.hidden).toBe(false);
     type(opts.querySelector('#opt-su-knob-42-min'), '2');
     type(opts.querySelector('#opt-su-knob-42-max'), '4');
     expect(t.stage.querySelector('[data-knob="k42"] .opt-knob-vals')?.textContent).toContain(
       '2 to 4'
     );
-  });
-});
-
-describe('a service refusal with several items', () => {
-  test('each item of a 422 list shows at the field it names', async () => {
-    const issues = errorIssues(422, {
-      detail: [
-        { loc: ['body', 'n_iterations'], msg: 'Input should be greater than 0' },
-        { loc: ['body', 'objective_name'], msg: 'Field required' },
-      ],
-    });
-    const t = mountWith(mountSetupView, openNew('va'));
-    await flush();
-    t.apply({ type: 'setup/refused', issues });
-    const at = (/** @type {string} */ key) =>
-      Array.from(t.inspector.querySelectorAll(`[data-field="${key}"] .opt-field-issue`)).map(
-        (n) => n.textContent
-      );
-    expect(at('iterations')).toEqual(['n_iterations: Input should be greater than 0']);
-    expect(at('objective')).toEqual(['objective_name: Field required']);
-  });
-});
-
-describe('a list or an environment that could not be read', () => {
-  test('a failed list of environments shows at the picker, and its control reads it again', () => {
-    const loadCatalog = vi.fn(async () => {});
-    const t = mountWith(
-      mountSetupView,
-      [
-        { type: 'poll/job', job: null, at: 0 },
-        { type: 'environments', list: null, error: 'the service is down' },
-        { type: 'models', list: [], error: null },
-        { type: 'setup/open', jobId: null, environment: '', target: '' },
-      ],
-      { loadCatalog }
-    );
-    const notice = t.inspector.querySelector('[data-unread="opt-su-env-reread"]');
-    expect(notice?.textContent).toContain('the service is down');
-    click(t.inspector, 'opt-su-env-reread');
-    expect(loadCatalog).toHaveBeenCalledTimes(1);
-    // The next read answers: the picker offers the list, the notice goes.
-    t.apply({ type: 'environments', list: [{ name: 'injector' }], error: null });
-    expect(t.inspector.querySelector('[data-unread]')).toBeNull();
-    expect(t.inspector.querySelector('#opt-su-env option[value="injector"]')).not.toBeNull();
-  });
-
-  test('a failed list of model files shows at the model file picker', async () => {
-    const loadCatalog = vi.fn(async () => {});
-    const t = mountWith(
-      mountSetupView,
-      openNew('va', [{ type: 'models', list: null, error: 'no models' }]),
-      { loadCatalog }
-    );
-    await flush();
-    expect(t.inspector.querySelector('[data-unread="opt-su-model-reread"]')?.textContent).toContain(
-      'no models'
-    );
-    click(t.inspector, 'opt-su-model-reread');
-    expect(loadCatalog).toHaveBeenCalledTimes(1);
-  });
-
-  test('an environment that could not be read is read again on request', () => {
-    const t = mountWith(mountSetupView, [
-      ...openNew().slice(0, -1),
-      { type: 'env/loaded', name: 'injector', details: null, presets: {}, error: 'timed out' },
-    ]);
-    // Not read again by itself on each update.
-    t.apply({ type: 'setup/where', environment: 'injector', target: 'va' });
-    expect(t.actions.loadEnvironment).not.toHaveBeenCalled();
-    expect(t.inspector.querySelector('[data-notice="environment"]')?.textContent).toContain(
-      'timed out'
-    );
-    click(t.inspector, 'opt-su-env-details-reread');
-    expect(t.actions.loadEnvironment).toHaveBeenCalledWith('injector');
-    // The stage offers the same.
-    const again = /** @type {HTMLElement} */ (t.stage.querySelector('.osprey-state button'));
-    again.click();
-    expect(t.actions.loadEnvironment).toHaveBeenCalledTimes(2);
   });
 });

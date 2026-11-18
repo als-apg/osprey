@@ -2,13 +2,15 @@
 /**
  * The panel's words for what the service names, in one place: the methods,
  * the end actions, what a stop leaves on the machine, when a run may write,
- * the status of a job, the direction of an objective, and a change. Every
- * view takes these words from here, so one thing reads the same on every
- * screen. Pure: no DOM, no state.
+ * the status of a job, the direction of an objective, a change, and an
+ * instant. Every view takes these words from here, so one thing reads the
+ * same on every screen. No state; an instant reads the facility zone stamped
+ * on the page (facility-time.js), the rest touches no DOM.
  *
  * @module words
  */
 
+import { facilityDayKey, formatFacilityTime } from '/design-system/js/facility-time.js';
 import { fmt } from './hyperscript.js';
 
 /**
@@ -238,4 +240,25 @@ export function percent(pct) {
 export function changeText(f) {
   if (f.change === null || f.before === null) return null;
   return f.changePct !== null ? percent(f.changePct) : signed(f.change);
+}
+
+/** @type {import('/design-system/js/facility-time.js').FacilityTimeOptions} */
+const CLOCK = Object.freeze({ hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+
+/** @type {import('/design-system/js/facility-time.js').FacilityTimeOptions} */
+const DATED = Object.freeze({ day: 'numeric', month: 'short', ...CLOCK });
+
+/**
+ * An instant on the facility clock, in the viewer's locale: its time of day
+ * when it falls on the facility's today, else its date and time of day.
+ * Empty for no instant or an unreadable one.
+ *
+ * @param {Date|string|number|null|undefined} value  a Date, an ISO time or epoch ms
+ * @param {Date|number} now  the instant "today" is read from
+ * @returns {string}
+ */
+export function instantText(value, now) {
+  const day = facilityDayKey(value);
+  if (!day) return '';
+  return formatFacilityTime(value, day === facilityDayKey(now) ? CLOCK : DATED);
 }

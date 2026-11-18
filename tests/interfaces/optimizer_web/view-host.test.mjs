@@ -1,13 +1,11 @@
 /**
- * Tests for the view contract (view-host.js) and the empty screen
- * (empty-view.js): one view at a time, kept across its own screens, emptied
- * zones on a switch, a failing view contained; and what the empty screen
- * shows before, after and without a read of the service.
+ * Tests for the view contract (view-host.js): one view at a time, kept
+ * across its own screens, emptied zones on a switch, a failing view
+ * contained and mounted again.
  */
 
 import { describe, test, expect, vi } from 'vitest';
 
-import { mountEmptyView } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/empty-view.js';
 import { inspectorFrame } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/shell.js';
 import {
   deriveScreen,
@@ -131,42 +129,54 @@ describe('the view host', () => {
     expect(stage.querySelector('ok-view')).not.toBeNull();
     error.mockRestore();
   });
-});
 
-describe('the empty screen', () => {
-  test('before the first read it says it is reading, and offers no conclusion', () => {
-    const { ctx, stage } = context();
-    const view = mountEmptyView(ctx);
-    const { state, screen } = at([]);
-    view.update(state, screen);
-    expect(stage.textContent).toContain('Reading the optimizer');
-    expect(stage.textContent).not.toContain('No draft');
+  test('the old view unmounts before the new one mounts on empty zones; unmount is optional', () => {
+    const { ctx, stage, inspector } = context();
+    /** @type {string[]} */
+    const log = [];
+    const views = /** @type {any} */ ({
+      empty: (/** @type {ViewContext} */ c) => {
+        log.push('mount empty');
+        c.stage.append(document.createElement('empty-view'));
+        c.inspector.append(document.createElement('p'));
+        return { update: () => {}, unmount: () => log.push('unmount empty') };
+      },
+      history: () => {
+        log.push(`mount history on ${stage.childElementCount + inspector.childElementCount}`);
+        return { update: () => {} };
+      },
+      result: () => {
+        log.push('mount result');
+        return { update: () => {} };
+      },
+    });
+    const host = createViewHost({ views, ctx });
+    const empty = at([{ type: 'poll/job', job: null, at: 0 }]);
+    host.update(empty.state, empty.screen);
+    const history = at([{ type: 'select', selection: { kind: 'history' } }]);
+    host.update(history.state, history.screen);
+    const result = at([{ type: 'select', selection: { kind: 'run', runId: 'x/y' } }]);
+    host.update(result.state, result.screen);
+    expect(log).toEqual(['mount empty', 'unmount empty', 'mount history on 0', 'mount result']);
   });
 
-  test('with nothing to show it offers a new run, in the stage and as the primary action', () => {
-    const { ctx, stage, inspector, setPrimary } = context();
-    const view = mountEmptyView(ctx);
-    const { state, screen } = at([{ type: 'poll/job', job: null, at: 0 }]);
-    view.update(state, screen);
-    expect(stage.querySelector('.osprey-state-message')?.textContent).toBe('No draft and no run');
-    /** @type {HTMLElement} */ (stage.querySelector('button')).click();
-    expect(ctx.actions.newRun).toHaveBeenCalledTimes(1);
-    expect(setPrimary).toHaveBeenCalledWith(expect.objectContaining({ label: 'New run' }));
-    expect(inspector.querySelectorAll('.opt-how li')).toHaveLength(5);
-    const drawn = stage.firstElementChild?.firstElementChild;
-    view.update(state, screen);
-    expect(stage.firstElementChild?.firstElementChild).toBe(drawn);
-  });
-
-  test('an unreachable service says so and offers a retry', () => {
-    const { ctx, stage } = context();
-    const view = mountEmptyView(ctx);
-    const { state, screen } = at([{ type: 'poll/failed', error: 'optimizer service unreachable' }]);
-    view.update(state, screen);
-    expect(stage.querySelector('.osprey-state-detail')?.textContent).toBe(
-      'optimizer service unreachable'
-    );
-    /** @type {HTMLElement} */ (stage.querySelector('button')).click();
-    expect(ctx.actions.refresh).toHaveBeenCalledTimes(1);
+  test('a view that throws while it mounts is contained and leaves no primary action', () => {
+    const { ctx, stage, setPrimary } = context();
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let mounts = 0;
+    const views = /** @type {any} */ ({
+      empty: () => {
+        mounts += 1;
+        throw new Error('cannot mount');
+      },
+    });
+    const host = createViewHost({ views, ctx });
+    const empty = at([{ type: 'poll/job', job: null, at: 0 }]);
+    host.update(empty.state, empty.screen);
+    expect(stage.querySelector('.osprey-state-detail')?.textContent).toBe('cannot mount');
+    expect(setPrimary).toHaveBeenLastCalledWith(null);
+    host.update(empty.state, empty.screen);
+    expect(mounts).toBe(2);
+    error.mockRestore();
   });
 });

@@ -17,7 +17,14 @@
 import { authorizationScope, initialSamples } from './approval-model.js';
 import { fmt } from './hyperscript.js';
 import { finite } from './run-model.js';
-import { STOP_WORDS, changeText, directionWords, endWords, methodLabel } from './words.js';
+import {
+  STOP_WORDS,
+  changeText,
+  directionWords,
+  endWords,
+  instantText,
+  methodLabel,
+} from './words.js';
 
 /**
  * @typedef {import('./store.js').State} State
@@ -309,19 +316,6 @@ const AUTH_STATES = Object.freeze(
 );
 
 /**
- * A time as the operator reads it: the clock today, else the day and clock.
- *
- * @param {number} ms
- * @param {number} now
- */
-function clockText(ms, now) {
-  const at = new Date(ms);
-  const time = at.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  if (at.toDateString() === new Date(now).toDateString()) return time;
-  return `${at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${time}`;
-}
-
-/**
  * The rows of the write approval: its state, whose it is, where it was
  * approved, the writes it allows, until when, and its id. Empty without a
  * write authorization.
@@ -351,7 +345,7 @@ export function approvalRows(scope, { sessionOwner = null, now = Date.now(), rea
     scope.state === 'granted' ? 'Writes allowed' : 'Writes asked',
     scope.steps === null ? null : `${scope.steps}${final}`
   );
-  add('Valid until', scope.expiresAt === null ? null : clockText(scope.expiresAt, now));
+  add('Valid until', scope.expiresAt === null ? null : instantText(scope.expiresAt, now));
   add(scope.state === 'granted' ? 'Authorization' : 'Request', scope.id);
   return rows;
 }

@@ -1,13 +1,14 @@
 /**
- * Integration tests for the OPTIMIZER panel (panel.js) against its real
- * index.html markup, its real views and a stubbed sidecar: the panel follows
+ * Integration tests for the OPTIMIZER panel (panel.js), its wiring: the real
+ * index.html markup, the real views and a stubbed sidecar. The panel follows
  * `jobs/current` to an agent's draft, Start sends the revision of the config
  * response that drew the review (never one fetched at click time), a changed
  * draft must be acknowledged again, a session with no account keeps Start
  * enabled, a refusal is shown and not sent again, Pause, Resume and the
- * two-step Cancel reach the relay for the job shown, readbacks refresh
- * without touching Start, a run started elsewhere is adopted, an active run
- * stays "now" beside a newer draft, and every write goes through `relay/`.
+ * two-step Cancel reach the relay for the job shown, a readback refresh
+ * redraws the review and keeps its Start, a run started elsewhere is adopted,
+ * an active run stays "now" beside a newer draft, and every write goes
+ * through `relay/`. What the reads fetch, and when, is tested in sync.test.mjs.
  */
 
 import { readFileSync } from 'node:fs';
@@ -18,10 +19,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { envDetails, storedConfig } from './_fixtures.mjs';
 import { createApi } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/api-client.js';
 import { createPanel } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/panel.js';
-import {
-  BEFORE_A_WRITE,
-  STOP_WORDS,
-} from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/words.js';
+import { STOP_WORDS } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/words.js';
 
 const INDEX = `${cwd()}/src/osprey/interfaces/optimizer_web/panels/optimizer/index.html`;
 
@@ -218,8 +216,7 @@ async function bootPanel({ now, stub = sidecar(), waitStart = true } = {}) {
 }
 
 test("follows jobs/current to the agent's draft and names its target and environment", async () => {
-  const { state } = await bootPanel();
-  expect(state().approval.revision).toBe('rev-1');
+  await bootPanel();
   expect(field('method')?.textContent).toContain('upper_confidence_bound');
   expect($('#target-slot')?.textContent).toBe('Simulator');
   expect($('#env-text')?.textContent).toBe('Injector');
@@ -286,12 +283,9 @@ test('a 409 draft-changed tells the operator, holds Start and sends nothing agai
 test('no current job: the empty screen, no Start and no run', async () => {
   const stub = sidecar();
   stub.world.current = null;
-  const { calls } = await bootPanel({ stub, waitStart: false });
-  await vi.waitFor(() => expect(screenId()).toBe('empty'));
-  // When a run may write is said as on the draft's stage: a grant by the
-  // owner's switch, not only an approval by a person.
-  await vi.waitFor(() => expect($('#stage')?.textContent).toContain(BEFORE_A_WRITE));
-  expect(calls.some((c) => c.url === '/jobs/current')).toBe(true);
+  const { state } = await bootPanel({ stub, waitStart: false });
+  await vi.waitFor(() => expect(state().service.ok).toBe(true));
+  expect(screenId()).toBe('empty');
   expect($('#start-btn')).toBeNull();
   expect($('.opt-rp-head')).toBeNull();
   expect(button('#new-run-primary')?.disabled).toBe(false);
@@ -701,7 +695,6 @@ describe('a run active beside a newer draft', () => {
     const { calls } = await bootBeside();
     expect(screenId()).toBe('running');
     expect($('#target-slot')?.textContent).toBe('Rehearsal');
-    expect(calls.some((c) => c.url === '/jobs/r9?detail=full')).toBe(true);
     button('[data-control="cancel"]')?.click();
     await vi.waitFor(() => expect(button('.opt-confirm [data-confirm="cancel"]')).not.toBeNull());
     button('.opt-confirm [data-confirm="cancel"]')?.click();
@@ -752,127 +745,24 @@ test('every write goes through relay/', async () => {
   expect(writes.every((c) => c.url.startsWith('/relay/'))).toBe(true);
 });
 
-describe("the review's readbacks while a draft waits", () => {
+test("a readback refresh redraws the review's values and keeps its Start button", async () => {
+  let t = 0;
+  const { world, panel, start } = await bootPanel({ now: () => t });
   /** The value "now" the review shows for a knob, as a number string. */
   const readback = (/** @type {string} */ name) =>
     $(`#stage .opt-knob-row[data-knob="${name}"] [data-now]`)
       ?.textContent?.replace(/^now /, '')
       .split(' ')[0];
-  const VARIABLES = '/environments/injector/variables';
-  const readsOf = (/** @type {{ url: string }[]} */ calls) =>
-    calls.filter((c) => c.url.startsWith(VARIABLES)).length;
-
-  test('are re-read on the poll, at most every 5 s', async () => {
-    let t = 0;
-    const { world, panel, calls } = await bootPanel({ now: () => t });
-    await vi.waitFor(() => expect(readback('phase_a')).toBe('1'));
-    world.readings = {
-      phase_a: { value: 4.7, connected: true },
-      sol_b: { value: 1.7, connected: true },
-    };
-    const before = readsOf(calls);
-    t = 1000;
-    await panel.poller.now();
-    expect(readsOf(calls)).toBe(before);
-    expect(readback('phase_a')).toBe('1');
-    t = 6000;
-    await panel.poller.now();
-    await vi.waitFor(() => expect(readback('phase_a')).toBe('4.7'));
-    expect(readback('sol_b')).toBe('1.7');
-  });
-
-  test('a read still in flight holds the next one back', async () => {
-    let t = 0;
-    const { world, panel, calls } = await bootPanel({ now: () => t });
-    await vi.waitFor(() => expect(readback('phase_a')).toBe('1'));
-    const held = gate();
-    world.held[VARIABLES] = held.promise;
-    const before = readsOf(calls);
-    t = 6000;
-    await panel.poller.now();
-    expect(readsOf(calls)).toBe(before + 1);
-    // A slow machine read: later ticks skip rather than pile reads up.
-    t = 12000;
-    await panel.poller.now();
-    t = 18000;
-    await panel.poller.now();
-    expect(readsOf(calls)).toBe(before + 1);
-    world.readings = { phase_a: { value: 5, connected: true } };
-    held.open();
-    await vi.waitFor(() => expect(readback('phase_a')).toBe('5'));
-  });
-
-  test('nothing is re-read while a Start is pending', async () => {
-    let t = 0;
-    const { world, panel, calls, start, state } = await bootPanel({ now: () => t });
-    const held = gate();
-    world.held['/relay/jobs/j1/start'] = held.promise;
-    start()?.click();
-    await vi.waitFor(() => expect(state().starting).toBe(true));
-    const before = readsOf(calls);
-    t = 6000;
-    await panel.poller.now();
-    expect(readsOf(calls)).toBe(before);
-    held.open();
-    await vi.waitFor(() => expect(state().starting).toBe(false));
-  });
-
-  test("a late reply for the review's previous environment is dropped", async () => {
-    let t = 0;
-    const { world, panel, calls, state } = await bootPanel({ now: () => t });
-    await vi.waitFor(() => expect(readback('phase_a')).toBe('1'));
-    const held = gate();
-    world.held[VARIABLES] = held.promise;
-    const before = readsOf(calls);
-    t = 6000;
-    await panel.poller.now();
-    expect(readsOf(calls)).toBe(before + 1);
-    delete world.held[VARIABLES]; // only the refresh already sent is held
-    // The draft moves to another variable set: a new environment key.
-    world.jobs.j1.revision = 'rev-2';
-    world.jobs.j1.config = storedConfig({ variables: ['phase_a'] });
-    world.readings = { phase_a: { value: 2, connected: true } };
-    await panel.poller.now();
-    await vi.waitFor(() => expect(readback('phase_a')).toBe('2'));
-    const key = state().approvalEnv.key;
-    expect(key).toBe('injector|va|phase_a');
-    // The old read answers last, with a reading the review must not show.
-    world.readings = { phase_a: { value: 99, connected: true } };
-    held.open();
-    await settle();
-    expect(readback('phase_a')).toBe('2');
-    expect(state().approvalEnv.key).toBe(key);
-    expect(state().approvalEnv.readbacks.phase_a).not.toBe(99);
-  });
-
-  test('a refresh leaves the review state, the revision and Start as they were', async () => {
-    let t = 0;
-    const { world, panel, start, state } = await bootPanel({ now: () => t });
-    world.jobs.j1.revision = 'rev-2';
-    await panel.poller.now();
-    await vi.waitFor(() => expect(start()?.disabled).toBe(true));
-    expect(state().approval).toMatchObject({ revision: 'rev-2', needsReview: true });
-
-    // Still unreviewed after a refresh: new readings are no reason to skip a review.
-    world.readings = { phase_a: { value: 2, connected: true } };
-    t = 6000;
-    await panel.poller.now();
-    await vi.waitFor(() => expect(readback('phase_a')).toBe('2'));
-    expect(state().approval).toMatchObject({ revision: 'rev-2', needsReview: true });
-    expect(start()?.disabled).toBe(true);
-
-    // Reviewed, then refreshed: it stays reviewed, and Start is the same button.
-    button('#reviewed-check')?.click();
-    t = 7000;
-    await panel.poller.now(); // the poll that adopts the reviewed state; no read is due
-    const startButton = start();
-    expect(startButton?.disabled).toBe(false);
-    world.readings = { phase_a: { value: 3, connected: true } };
-    t = 12000;
-    await panel.poller.now();
-    await vi.waitFor(() => expect(readback('phase_a')).toBe('3'));
-    expect(state().approval).toMatchObject({ revision: 'rev-2', needsReview: false });
-    expect(start()).toBe(startButton);
-    expect(startButton?.disabled).toBe(false);
-  });
+  await vi.waitFor(() => expect(readback('phase_a')).toBe('1'));
+  const startButton = start();
+  world.readings = {
+    phase_a: { value: 4.7, connected: true },
+    sol_b: { value: 1.7, connected: true },
+  };
+  t = 6000;
+  await panel.poller.now();
+  await vi.waitFor(() => expect(readback('phase_a')).toBe('4.7'));
+  expect(readback('sol_b')).toBe('1.7');
+  expect(start()).toBe(startButton);
+  expect(startButton?.disabled).toBe(false);
 });

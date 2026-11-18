@@ -1,8 +1,12 @@
 /**
- * Tests for the outcome view (outcome-view.js): what the completed, failed
- * and cancelled screens and a past run show for a given state, and which
- * action a click calls. "Run again" opens a set-up and starts nothing; there
- * is no Restore and no run control; the service's reason for a stop is shown.
+ * Tests for the outcome view (outcome-view.js): what the band of the
+ * completed, failed and cancelled screens and of a past run says for a given
+ * state, which actions it offers and which action a click calls, the switch
+ * between the chart area's views, the reads it asks for and what it redraws.
+ * "Run again" opens a set-up and starts nothing; there is no Restore and no
+ * run control; the service's reason for a stop is shown. The inspector's
+ * parts are tested in outcome-inspector.test.mjs, the Knobs view in
+ * outcome-knobs.test.mjs.
  */
 
 import { describe, test, expect, vi } from 'vitest';
@@ -112,49 +116,34 @@ const changeRows = (root) =>
     return [d.knob, Number(d.from), Number(d.to)];
   });
 
-/** @param {HTMLElement} root  every number drawn in the knob traces */
-const traceCoordinates = (root) =>
-  Array.from(root.querySelectorAll('.opt-out-spark *')).flatMap((n) =>
-    ['x1', 'x2', 'y1', 'y2', 'd'].map((a) => n.getAttribute(a)).filter((v) => v !== null)
-  );
-
 describe('a completed run', () => {
-  test('says the best point was applied when its end action applies it, and shows each change', () => {
+  test('says the best point was applied when its end action applies it', () => {
     const c = context();
     const { screen } = show(c, endedRun('completed'));
     expect(screen.id).toBe('completed');
     expect(banner(c.stage).textContent).toMatch(/best point \(evaluation 2\) was applied/);
-    const changes = c.inspector.querySelector('[data-section="changes"]');
-    expect(changes?.textContent).toContain('What changed on the machine');
-    expect(changeRows(c.inspector)).toEqual([
-      ['phase_a', 0, 9],
-      ['sol_b', 3, 2],
-    ]);
   });
 
   test('with the end action "hold" it does not say the best point was applied', () => {
     const c = context();
     show(c, endedRun('completed', { config: { on_complete: 'hold' } }));
     expect(banner(c.stage).textContent).not.toMatch(/applied/);
-    expect(c.inspector.textContent).not.toMatch(/best point.*was applied/);
   });
 
-  test('a readonly run says nothing was written and lists no change', () => {
+  test('a readonly run says nothing was written', () => {
     const c = context();
     show(c, endedRun('completed', { config: { execution_mode: 'readonly' } }));
     expect(banner(c.stage).textContent).toMatch(/Nothing was written/);
-    expect(c.inspector.querySelector('[data-section="changes"]')).toBeNull();
   });
 
-  test('a run with no value before it shows no change from before', () => {
+  test('a run with no value before it shows no start and no change in its facts', () => {
     const c = context();
     show(c, endedRun('completed', { job: { snapshots: {} } }));
-    expect(c.inspector.querySelector('[data-section="changes"]')).toBeNull();
     expect(c.stage.querySelector('[data-fact="before"]')).toBeNull();
     expect(c.stage.querySelector('[data-fact="change"]')).toBeNull();
   });
 
-  test('the knobs of the current job are drawn in the windows the run used', () => {
+  test('the knobs view is given the windows the job used (variable_bounds)', () => {
     const c = context();
     // The service clamps and snaps the stored windows; variable_bounds are the ones it used.
     const variable_bounds = { phase_a: [-9, 9], sol_b: [2, 4] };
@@ -166,20 +155,6 @@ describe('a completed run', () => {
     const safe = envDetails().variables.phase_a;
     expect(win.style.left).toBe(`${position(-9, safe.min_value, safe.max_value)?.toFixed(2)}%`);
   });
-
-  test('a knob with no window and no value read draws no broken coordinates', () => {
-    const c = context();
-    show(
-      c,
-      endedRun('completed', {
-        job: { snapshots: { initial: { ...INITIAL, extra: 1 } } },
-        config: { variables: ['phase_a', 'sol_b', 'extra'] },
-      })
-    );
-    /** @type {HTMLElement} */ (c.stage.querySelector('[data-view="knobs"]')).click();
-    expect(c.stage.querySelectorAll('.opt-out-trace')).toHaveLength(3);
-    expect(traceCoordinates(c.stage).filter((v) => v.includes('NaN'))).toEqual([]);
-  });
 });
 
 describe('a cancelled run', () => {
@@ -190,14 +165,6 @@ describe('a cancelled run', () => {
     expect(text).toContain(STOP_WORDS.after);
     expect(text).toMatch(/was not applied/);
     expect(text).not.toMatch(/was applied/);
-    // The last evaluation recorded is shown as such, not as the machine's state.
-    const changes = c.inspector.querySelector('[data-section="changes"]');
-    expect(changes?.textContent).toContain('At the last evaluation recorded');
-    expect(changes?.textContent).not.toContain('What changed on the machine');
-    // The knobs mark no point as the one on the machine.
-    /** @type {HTMLElement} */ (c.stage.querySelector('[data-view="knobs"]')).click();
-    expect(c.stage.querySelectorAll('.opt-out-knob[data-knob]')).toHaveLength(2);
-    expect(c.stage.querySelector('[data-mark="current"]')).toBeNull();
   });
 
   test('a run cancelled before its writes were approved says nothing was written', () => {
@@ -209,7 +176,7 @@ describe('a cancelled run', () => {
 });
 
 describe('a failed run', () => {
-  test('shows the service reason in the stage, as an alert, and in the inspector', () => {
+  test('shows the service reason in the stage, as an alert', () => {
     const c = context();
     const job = {
       error_message: 'A write was outside the approved range',
@@ -220,11 +187,6 @@ describe('a failed run', () => {
     expect(b.getAttribute('role')).toBe('alert');
     expect(b.textContent).toContain('A write was outside the approved range');
     expect(b.textContent).toContain('auth_expired');
-    const reasons = Array.from(c.inspector.querySelectorAll('[data-part="reason"]')).map(
-      (n) => n.textContent
-    );
-    expect(reasons[0]).toBe('A write was outside the approved range');
-    expect(reasons[1]).toMatch(/auth_expired/);
   });
 });
 
@@ -252,9 +214,6 @@ describe('the actions of an outcome', () => {
       label: 'Run again',
       disabled: true,
     });
-    const foot = /** @type {HTMLButtonElement} */ (c.inspector.querySelector('#run-again-btn'));
-    expect(foot.disabled).toBe(true);
-    expect(foot.title).toMatch(/not read/);
     // No end action is claimed without the config.
     expect(banner(c.stage).textContent).not.toMatch(/applied/);
   });
@@ -269,8 +228,6 @@ describe('the actions of an outcome', () => {
       (n) => /** @type {HTMLElement} */ (n).dataset.knob
     );
     expect(knobs).toEqual(['phase_a', 'sol_b']);
-    // The best point was applied: each knob marks it as the value on the machine.
-    expect(c.stage.querySelectorAll('[data-mark="current"]')).toHaveLength(2);
     switchTo('evaluations');
     expect(c.stage.querySelectorAll('tbody tr')).toHaveLength(3);
     switchTo('objective');
@@ -318,7 +275,6 @@ describe('a job picked in the runs list', () => {
     ]);
     expect(banner(c.stage).textContent).toMatch(/This job is created/);
     expect(c.setPrimary.mock.calls.at(-1)?.[0]).toMatchObject({ disabled: true });
-    expect(c.inspector.querySelector('[data-part="machine"]')).toBeNull();
   });
 });
 
@@ -395,7 +351,6 @@ describe('a stored run', () => {
     const text = banner(c.stage).textContent || '';
     expect(text).toMatch(/not known/);
     expect(text).not.toMatch(/was applied|machine holds|written back/);
-    expect(c.inspector.querySelector('[data-section="changes"]')).toBeNull();
     expect(c.stage.querySelector('svg')).not.toBeNull();
   });
 

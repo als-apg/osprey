@@ -1,10 +1,13 @@
 /**
  * Unit tests for the runs list (runs-list.js): the rows it shows for a given
- * state, and the selection a click sends.
+ * state, the selection a click sends, and its times: a stored run's start as
+ * the service host wrote it, an open job's on the facility clock, and today
+ * and yesterday on the facility's calendar.
  */
 
-import { describe, test, expect, vi } from 'vitest';
+import { afterEach, describe, test, expect, vi } from 'vitest';
 
+import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 import { envDetails, runningJob, storedConfig } from './_fixtures.mjs';
 import {
   createRunsList,
@@ -63,6 +66,83 @@ describe('runTime and dayLabel', () => {
     expect(dayLabel('2026-11-16', NOW)).toBe('Yesterday');
     expect(dayLabel('2026-11-14', NOW)).toBe('14 Nov');
     expect(dayLabel('2025-11-14', NOW)).toBe('14 Nov 2025');
+  });
+});
+
+describe('the times of the runs list on the facility clock', () => {
+  afterEach(() => stampFacilityZone(null));
+
+  test("today and yesterday are the facility's days", () => {
+    // 15:30 UTC on 19 Sep is 00:30 on the 20th in Tokyo and 11:30 on the 19th in New York:
+    // at least one of the two is not the day of the zone the tests run in.
+    const now = Date.parse('2026-09-19T15:30:00Z');
+    stampFacilityZone('Asia/Tokyo');
+    expect(['2026-09-20', '2026-09-19', '2026-09-18'].map((d) => dayLabel(d, now))).toEqual([
+      'Today',
+      'Yesterday',
+      '18 Sep',
+    ]);
+    stampFacilityZone('America/New_York');
+    expect(['2026-09-20', '2026-09-19', '2026-09-18'].map((d) => dayLabel(d, now))).toEqual([
+      '20 Sep',
+      'Today',
+      'Yesterday',
+    ]);
+  });
+
+  test("a date carries its year when it is not the facility's year now", () => {
+    // 15:30 UTC on 31 Dec 2026 is already 1 Jan 2027 in Tokyo.
+    const now = Date.parse('2026-12-31T15:30:00Z');
+    stampFacilityZone('Asia/Tokyo');
+    expect(dayLabel('2026-12-31', now)).toBe('Yesterday');
+    expect(dayLabel('2026-12-30', now)).toBe('30 Dec 2026');
+    stampFacilityZone('America/New_York');
+    expect(dayLabel('2026-12-30', now)).toBe('Yesterday');
+    expect(dayLabel('2026-12-28', now)).toBe('28 Dec');
+  });
+
+  test('a stored run shows its start as the service host wrote it, under the day heading of that date', () => {
+    stampFacilityZone('Asia/Tokyo');
+    // 00:30 on 20 Sep in Tokyo.
+    const now = Date.parse('2026-09-19T15:30:00Z');
+    const state = run([
+      ...LISTS.slice(0, 3),
+      { type: 'results', list: [stored('2026-09-19_23-40-00')], error: null },
+    ]);
+    const model = runsModel(state, now);
+    expect(model.past.map((g) => [g.label, g.rows.map((r) => r.time)])).toEqual([
+      ['Yesterday', ['23:40']],
+    ]);
+  });
+
+  test('an open job shows when it was made on the facility clock, with its date when that is not today', () => {
+    stampFacilityZone(FACILITY_ZONE);
+    // Both instants fall on one calendar day in every candidate facility zone.
+    const now = Date.parse('2026-09-19T21:30:00Z');
+    /** @param {Intl.DateTimeFormatOptions} options @param {string} iso */
+    const facility = (options, iso) =>
+      new Intl.DateTimeFormat(undefined, { ...options, timeZone: FACILITY_ZONE }).format(
+        new Date(iso)
+      );
+    /** @type {Intl.DateTimeFormatOptions} */
+    const clock = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+    const state = run([
+      ...LISTS,
+      {
+        type: 'jobs',
+        list: [
+          { job_id: 'j5', status: 'running', created_at: '2026-09-19T21:05:00+00:00' },
+          { job_id: 'j6', status: 'created', created_at: '2026-09-17T21:05:00+00:00' },
+          { job_id: 'j7', status: 'created', created_at: null },
+        ],
+        error: null,
+      },
+    ]);
+    expect(runsModel(state, now).open.map((r) => r.time)).toEqual([
+      facility(clock, '2026-09-19T21:05:00Z'),
+      facility({ day: 'numeric', month: 'short', ...clock }, '2026-09-17T21:05:00Z'),
+      null,
+    ]);
   });
 });
 

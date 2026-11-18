@@ -1,12 +1,14 @@
 /**
  * Tests for the panel's shared words (words.js): every method and end action
  * the service knows has a name of its own, an ended job has one word and one
- * tone on every surface, a direction reads the same everywhere, and a change
- * carries its sign and keeps its size.
+ * tone on every surface, a direction reads the same everywhere, a change
+ * carries its sign and keeps its size, and an instant reads on the facility
+ * clock with its date when it is not of the facility's today.
  */
 
-import { describe, test, expect } from 'vitest';
+import { afterEach, beforeEach, describe, test, expect } from 'vitest';
 
+import { FACILITY_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 import { ALGORITHMS } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/approval-model.js';
 import { ON_COMPLETE_OPTIONS } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/draft-model.js';
 import {
@@ -22,6 +24,7 @@ import {
   endedDot,
   endedWord,
   endingOf,
+  instantText,
   methodLabel,
   percent,
   signed,
@@ -149,5 +152,64 @@ describe('a change', () => {
     expect(changeText({ change: 2, changePct: null, before: 0 })).toBe(signed(2));
     expect(changeText({ change: null, changePct: null, before: 5 })).toBeNull();
     expect(changeText({ change: 2, changePct: null, before: null })).toBeNull();
+  });
+});
+
+describe('an instant', () => {
+  beforeEach(() => stampFacilityZone(FACILITY_ZONE));
+  afterEach(() => stampFacilityZone(null));
+
+  /**
+   * *iso* in *zone* with *options*, straight from Intl.
+   * @param {string} zone @param {Intl.DateTimeFormatOptions} options @param {string} iso
+   */
+  const inZone = (zone, options, iso) =>
+    new Intl.DateTimeFormat(undefined, { ...options, timeZone: zone }).format(new Date(iso));
+  /** @type {Intl.DateTimeFormatOptions} */
+  const CLOCK = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+  /** @type {Intl.DateTimeFormatOptions} */
+  const DATED = { day: 'numeric', month: 'short', ...CLOCK };
+
+  test("an instant of the facility's today shows the facility clock alone", () => {
+    // Both instants fall on one calendar day in every candidate facility zone.
+    const now = Date.parse('2026-09-19T21:30:00Z');
+    expect(instantText('2026-09-19T21:05:00Z', now)).toBe(
+      inZone(FACILITY_ZONE, CLOCK, '2026-09-19T21:05:00Z')
+    );
+    // Epoch milliseconds read the same as the ISO time.
+    expect(instantText(Date.parse('2026-09-19T21:05:00Z'), now)).toBe(
+      instantText('2026-09-19T21:05:00Z', now)
+    );
+  });
+
+  test('an instant of another facility day carries its date', () => {
+    const now = Date.parse('2026-09-19T21:30:00Z');
+    expect(instantText('2026-09-18T21:05:00Z', now)).toBe(
+      inZone(FACILITY_ZONE, DATED, '2026-09-18T21:05:00Z')
+    );
+    expect(instantText('2026-09-21T21:05:00Z', now)).toBe(
+      inZone(FACILITY_ZONE, DATED, '2026-09-21T21:05:00Z')
+    );
+  });
+
+  test('"today" is the facility calendar\'s day', () => {
+    stampFacilityZone('Asia/Tokyo');
+    // 00:30 on the 20th in Tokyo.
+    const now = Date.parse('2026-09-19T15:30:00Z');
+    // 00:10 on the 20th: today.
+    expect(instantText('2026-09-19T15:10:00Z', now)).toBe(
+      inZone('Asia/Tokyo', CLOCK, '2026-09-19T15:10:00Z')
+    );
+    // 23:30 on the 19th, the same UTC day as now: dated.
+    expect(instantText('2026-09-19T14:30:00Z', now)).toBe(
+      inZone('Asia/Tokyo', DATED, '2026-09-19T14:30:00Z')
+    );
+  });
+
+  test('no instant, or one that cannot be read, gives no text', () => {
+    const now = Date.parse('2026-09-19T21:30:00Z');
+    expect(instantText(null, now)).toBe('');
+    expect(instantText('', now)).toBe('');
+    expect(instantText('soon', now)).toBe('');
   });
 });
