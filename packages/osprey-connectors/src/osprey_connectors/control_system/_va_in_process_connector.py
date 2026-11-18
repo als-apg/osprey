@@ -137,9 +137,12 @@ NOT_CONNECTED = "the in-process simulator is not connected"
 
 def _loaded_config_path() -> str | None:
     """The config this process's unqualified lookups read, loading it when none is."""
-    from osprey_connectors.config import current_config
+    from osprey_connectors.config import active_config, current_config
     from osprey_connectors.errors import ConfigLoadError, ConfigurationError
 
+    loaded = active_config()
+    if loaded is not None:
+        return str(loaded.path)
     try:
         return str(current_config().path)
     except (ConfigLoadError, ConfigurationError):

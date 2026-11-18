@@ -158,8 +158,10 @@ services:
       # project_root = this /app/<project> root). A flat config.yml here would be
       # a path the agent's own MCP servers never read. The standalone service
       # images are the opposite case and stay flat: nothing inside them renders
-      # anything against a project root.
+      # anything against a project root. The connectors package reads
+      # OSPREY_CONFIG alone, so it names the same file.
       CONFIG_FILE: /app/golden-project/build/config.yml
+      OSPREY_CONFIG: /app/golden-project/build/config.yml
       TZ: UTC
 
     # Bind-mount sources are relative to the pinned compose project directory,

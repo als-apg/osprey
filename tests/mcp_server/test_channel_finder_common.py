@@ -134,7 +134,7 @@ def test_an_unloadable_config_warns_and_returns_empty(tmp_path, monkeypatch, cap
     assert any(str(config) in m and "could not be loaded" in m for m in messages)
 
 
-def test_the_primed_builder_is_reused(tmp_path, monkeypatch):
+def test_the_primed_config_is_reused(tmp_path, monkeypatch):
     import osprey_connectors.config as _cfg
     from osprey.mcp_server.startup import prime_config_builder
 
@@ -146,4 +146,4 @@ def test_the_primed_builder_is_reused(tmp_path, monkeypatch):
     raw = load_cf_config(_logger())
 
     assert _cfg._installed is primed
-    assert raw is primed.raw_config
+    assert raw == primed.raw_tree()

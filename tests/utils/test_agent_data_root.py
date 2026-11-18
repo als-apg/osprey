@@ -61,7 +61,7 @@ def _write_config(project: Path, body: str) -> Path:
 
 
 def _exports_config(project: Path, monkeypatch) -> Path:
-    """Write the shipped declarations and make them the active ``CONFIG_FILE``.
+    """Write the shipped declarations and make them the active ``OSPREY_CONFIG``.
 
     Kept a helper rather than a fixture: the other tests here write deliberately
     different bodies, and one caller needs the path back to pass as ``config_path``.
@@ -72,7 +72,7 @@ def _exports_config(project: Path, monkeypatch) -> Path:
         f'agent_data:\n  base_dir: "{TEMPLATE_BASE_DIR}"\n'
         f"file_paths:\n  registry_exports_dir: {TEMPLATE_EXPORTS_DIR}\n",
     )
-    monkeypatch.setenv("CONFIG_FILE", str(cfg))
+    monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
     return cfg
 
 
@@ -118,7 +118,7 @@ class TestGetAgentDir:
             f'agent_data:\n  base_dir: "{TEMPLATE_BASE_DIR}"\n'
             "file_paths:\n  api_calls_dir: api_calls\n",
         )
-        monkeypatch.setenv("CONFIG_FILE", str(cfg))
+        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
         assert Path(get_agent_dir("api_calls_dir")) == project / "_agent_data" / "api_calls"
 
     def test_custom_base_dir_relocates_every_subdirectory(self, project: Path, monkeypatch) -> None:
@@ -128,7 +128,7 @@ class TestGetAgentDir:
             'agent_data:\n  base_dir: "./scratch-data"\n'
             "file_paths:\n  api_calls_dir: api_calls\n",
         )
-        monkeypatch.setenv("CONFIG_FILE", str(cfg))
+        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
         assert Path(get_agent_dir("api_calls_dir")) == project / "scratch-data" / "api_calls"
 
     def test_retired_file_paths_key_does_not_move_the_root(
@@ -142,7 +142,7 @@ class TestGetAgentDir:
             "  agent_data_dir: _legacy_data\n"
             "  api_calls_dir: api_calls\n",
         )
-        monkeypatch.setenv("CONFIG_FILE", str(cfg))
+        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
         resolved = Path(get_agent_dir("api_calls_dir"))
         assert resolved == project / DEFAULT_AGENT_DATA_BASE_DIR / "api_calls"
         assert "_legacy_data" not in resolved.parts

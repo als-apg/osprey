@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment.runtime_helper import ComposeProvider
+from osprey_connectors.testing import config_of
 from tests._by_path import load_module
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "podman_compose.py"
@@ -172,7 +173,9 @@ def _fake_osprey(monkeypatch: pytest.MonkeyPatch, *, returncode: int = 0) -> lis
     from osprey_connectors import config as connectors_config
 
     info = SimpleNamespace(provider=ComposeProvider.PODMAN_COMPOSE)
-    monkeypatch.setattr(connectors_config, "load_config", lambda path: {"path": path})
+    monkeypatch.setattr(
+        connectors_config, "load_config", lambda path: config_of({"path": str(path)})
+    )
     monkeypatch.setattr(compose_generator, "resolve_repo_root", lambda config: ".")
     monkeypatch.setattr(compose_generator, "compose_provider_env", lambda provider, root: {})
     monkeypatch.setattr(

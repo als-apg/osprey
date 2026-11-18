@@ -108,10 +108,10 @@ def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
     """Load the deployment's ``config.yml`` and install it as the process default.
 
     ``${VAR}`` and ``${VAR:-default}`` resolve exactly as they do for every
-    other config reader, as in the load
-    :func:`~osprey.mcp_server.startup.prime_config_builder` installed.
-    Returns ``{}``, with a warning naming the path, when the file is missing or
-    cannot be loaded.
+    other config reader. The config
+    :func:`~osprey.mcp_server.startup.prime_config_builder` installed is reused
+    when it is this file, so the server parses it once. Returns ``{}``, with a
+    warning naming the path, when the file is missing or cannot be loaded.
     """
     path = config_path()
     if not path.exists():
@@ -119,10 +119,12 @@ def load_cf_config(logger: logging.Logger) -> dict[str, Any]:
         return {}
 
     try:
-        from osprey_connectors.config import install_config, load_config
+        from osprey_connectors.config import active_config, install_config, load_config
 
-        loaded = load_config(path)
-        install_config(loaded)
+        loaded = active_config()
+        if loaded is None or loaded.path.resolve() != path.resolve():
+            loaded = load_config(path)
+            install_config(loaded)
         raw: dict[str, Any] = loaded.raw_tree()
     except Exception as exc:
         logger.warning(

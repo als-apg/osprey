@@ -446,15 +446,15 @@ class TestLimitsValidator:
     def test_from_config_resolves_relative_path_against_config_file_dir(
         self, monkeypatch, tmp_path
     ):
-        """A relative database_path resolves against CONFIG_FILE's directory
-        when CONFIG_FILE is set, NOT against project_root.
+        """A relative database_path resolves against OSPREY_CONFIG's directory
+        when OSPREY_CONFIG is set, NOT against project_root.
 
-        Simulates the container deploy: config.yml (and CONFIG_FILE) live
+        Simulates the container deploy: config.yml (and OSPREY_CONFIG) live
         under the mounted /app/project, while project_root is the flattened
         HOST build path — which does not exist in the container and must
         NOT be used as the resolution base.
         """
-        # CONFIG_FILE dir: where the mounted config.yml actually lives.
+        # OSPREY_CONFIG dir: where the mounted config.yml actually lives.
         container_dir = tmp_path / "app_project"
         container_dir.mkdir()
         db_file = container_dir / "data" / "channel_limits.json"
@@ -462,7 +462,7 @@ class TestLimitsValidator:
         db_file.write_text(
             json.dumps({"TEST:PV": {"writable": True, "min_value": 0.0, "max_value": 100.0}})
         )
-        monkeypatch.setenv("CONFIG_FILE", str(container_dir / "config.yml"))
+        monkeypatch.setenv("OSPREY_CONFIG", str(container_dir / "config.yml"))
 
         # project_root: a HOST path that does NOT exist in this environment
         # either — proves resolution did not fall through to it.
@@ -497,10 +497,10 @@ class TestLimitsValidator:
     def test_from_config_resolves_relative_path_against_project_root_when_no_config_file(
         self, monkeypatch, tmp_path
     ):
-        """Unchanged host/local behavior: with CONFIG_FILE unset, a relative
+        """Unchanged host/local behavior: with OSPREY_CONFIG unset, a relative
         database_path still resolves against project_root.
         """
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
         project_root = tmp_path / "project"
         project_root.mkdir()
