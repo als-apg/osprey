@@ -32,7 +32,6 @@ try:
         AlarmStates,
         severity_rank,
     )
-    from osprey_connectors.deployment.archive_targets import APPLIANCE_TARGETS
     from osprey_connectors.deployment.simulator import has_simulator
     from osprey_connectors.directory import (
         ChannelDirectory,
@@ -49,7 +48,7 @@ try:
         Source,
         Unavailable,
     )
-    from osprey_connectors.service_targets import service_targets
+    from osprey_connectors.service_targets import APPLIANCE_TARGETS, service_targets
     from osprey_connectors.simulation.view import (
         ENGINEER,
         IOC_HEALTH_SIGNALS,

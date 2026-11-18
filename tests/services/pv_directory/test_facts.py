@@ -34,6 +34,7 @@ from osprey_connectors.alarm_state import (
     AlarmStateRow,
     AlarmStates,
 )
+from osprey_connectors.archiver import ArchiveCoverage, ArchiveExtent
 from osprey_connectors.directory import (
     DirectoryPage,
     DirectoryRecord,
@@ -1254,54 +1255,48 @@ async def test_an_ioc_without_a_configured_feed_carries_no_alarms(tmp_path: Path
 APPLIANCE = {"type": "epics_archiver", "settings": {"url": "http://archiver.example"}}
 
 
-class _Metadata:
-    """An ``ArchiverMetadata`` answer."""
-
-    def __init__(self, archived: bool | None, **fields: Any) -> None:
-        self.is_archived = archived
-        self.first_sample_at = fields.get("start")
-        self.last_sample_at = fields.get("end")
-        self.sampling_period = fields.get("period")
-        self.description = fields.get("description")
-
-
-class _Held:
-    """A ``store_extent`` answer."""
-
-    def __init__(self, addresses: Any = None, reason: str | None = None, **times: Any) -> None:
-        self.addresses = addresses
-        self.oldest_at = times.get("oldest")
-        self.newest_at = times.get("newest")
-        self.reason = reason
+def _covered(archived: bool | None, **fields: Any) -> dict[str, Any]:
+    """The fields of an ``ArchiveCoverage`` answer, but its address."""
+    return {
+        "is_archived": archived,
+        "first_sample_at": fields.get("start"),
+        "last_sample_at": fields.get("end"),
+        "sampling_period_s": fields.get("period"),
+        "unknown_reason": fields.get("unknown_reason"),
+    }
 
 
-class FakeArchiver:
-    """An archiver connector answering ``metadata`` and ``held``; ``fail`` makes reads raise."""
+class FakeArchiver(FakeBackend):
+    """An archive answering ``covered`` and ``held``; ``fail`` makes reads raise."""
 
-    metadata: Any = None
+    covered: Any = None
     held: Any = None
     fail = False
 
-    async def get_metadata(self, channel: str) -> Any:  # noqa: ARG002 - a fake
+    async def coverage(self, addresses: Any, *, timeout_s: float | None = None) -> Any:  # noqa: ARG002 - a fake
         if self.fail:
             raise RuntimeError("store down")
-        return self.metadata
+        return {address: ArchiveCoverage(address=address, **self.covered) for address in addresses}
 
-    async def store_extent(self) -> Any:
+    async def extent(self, *, timeout_s: float | None = None) -> Any:  # noqa: ARG002 - a fake
         return self.held
 
-    async def disconnect(self) -> None:
+    async def aclose(self) -> None:
         pass
 
 
 @pytest.fixture
 def archiver(monkeypatch: pytest.MonkeyPatch) -> type[FakeArchiver]:
-    async def create(config: Any) -> FakeArchiver:  # noqa: ARG001 - the factory's signature
-        return FakeArchiver()
+    async def create(spec: Any, **kwargs: Any) -> FakeArchiver:
+        return FakeArchiver(spec, **kwargs)
 
-    monkeypatch.setattr(service.ConnectorFactory, "create_archiver_connector", create)
-    monkeypatch.setattr(FakeArchiver, "metadata", _Metadata(None, description="cannot say"))
-    monkeypatch.setattr(FakeArchiver, "held", _Held(reason="this archiver does not say"))
+    patch_create_service(monkeypatch, "archive", create)
+    monkeypatch.setattr(FakeArchiver, "covered", _covered(None, unknown_reason="cannot say"))
+    monkeypatch.setattr(
+        FakeArchiver,
+        "held",
+        Unavailable(cause="unsupported", reason="this archiver does not say"),
+    )
     monkeypatch.setattr(FakeArchiver, "fail", False)
     return FakeArchiver
 
@@ -1355,7 +1350,7 @@ async def test_an_archiver_that_cannot_say_answers_found_with_archived_null(tmp_
 async def test_an_archived_pv_answers_its_samples_in_utc(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
-    archiver.metadata = _Metadata(
+    archiver.covered = _covered(
         True,
         start=datetime(2026, 11, 1, tzinfo=UTC),
         end=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
@@ -1388,10 +1383,10 @@ async def test_a_raised_archive_read_is_unavailable_with_its_reason(
 async def test_a_raised_archive_read_never_serves_the_exception_text(
     tmp_path: Path, archiver: type[FakeArchiver], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def leaking(self: FakeArchiver, channel: str) -> Any:  # noqa: ARG001 - a fake
+    async def leaking(self: FakeArchiver, addresses: Any, **_kwargs: Any) -> Any:  # noqa: ARG001 - a fake
         raise ConnectionError("cannot reach https://reader:secret@archiver.example/mgmt")
 
-    monkeypatch.setattr(archiver, "get_metadata", leaking)
+    monkeypatch.setattr(archiver, "coverage", leaking)
     page = _facts(_archived(tmp_path), tmp_path)
 
     section = _sections(await page.pv_facts("SR:BPM1"))["archive"]
@@ -1416,7 +1411,7 @@ async def _leak(*_args: Any, **_kwargs: Any) -> Any:
     ("section", "reads"),
     [
         ("directory", [(FakeDirectory, "describe")]),
-        ("archive", [(FakeArchiver, "get_metadata")]),
+        ("archive", [(FakeArchiver, "coverage")]),
         ("alarm_state", [(AlarmSnapshot, "state_for")]),
         ("alarm_config", [(AlarmSnapshot, "config_for"), (FakeAlarmLog, "config_for")]),
         ("alarm_history", [(FakeAlarmLog, "history")]),
@@ -1472,10 +1467,10 @@ async def test_an_archive_on_another_target_says_not_available(
 async def test_the_archive_summary_counts_the_directory_per_ioc(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
-    archiver.held = _Held(
+    archiver.held = ArchiveExtent(
         addresses=frozenset({"SR:BPM1", "SR:RF1", "SR:GONE"}),
-        oldest=datetime(2026, 10, 13, tzinfo=UTC),
-        newest=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
+        oldest_at=datetime(2026, 10, 13, tzinfo=UTC),
+        newest_at=datetime(2026, 11, 12, 8, 0, 4, tzinfo=UTC),
     )
     page = _facts(_archived(tmp_path), tmp_path)
 
@@ -1510,7 +1505,7 @@ async def test_an_archive_that_cannot_list_its_channels_counts_nothing(tmp_path:
 async def test_above_the_filter_cap_the_summary_gives_the_caps_reason(
     tmp_path: Path, archiver: type[FakeArchiver]
 ) -> None:
-    archiver.held = _Held(addresses=frozenset({"SR:BPM1"}))
+    archiver.held = ArchiveExtent(addresses=frozenset({"SR:BPM1"}))
     page = _facts(_archived(tmp_path, filter_cap=2), tmp_path)
 
     summary = await page.archive_summary()

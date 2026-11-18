@@ -1,16 +1,15 @@
-"""What the deployment's archive holds and how it is configured, read-only.
+"""How the deployment's archive is configured, and which targets it serves, read-only.
 
-The directory service builds the archiver connector per target
-(:meth:`~osprey.services.pv_directory.service.DirectoryService.archive`); this
-module turns its answers into the facts the panel and the agent read:
+The directory service builds the archive per target
+(:meth:`~osprey.services.pv_directory.service.DirectoryService.archive`) and
+asks it what it holds; this module adds the facts the panel and the agent read
+beside those answers:
 
-* :func:`read_extent` asks the connector which channels the store records and
-  the span of its samples, and answers unknown, with the reason, when it cannot.
 * :func:`deployed_configuration` is the archive's configuration as rendered:
   the archiver type and, for the deployment's own store, the knobs that shape
   it. Never a login, a password variable or an address.
 * :func:`served_targets` says, per configured control target, whether the
-  archive serves it.
+  archive serves it, from :func:`history_targets`.
 
 The directory's rows are joined with the store's channels in one place, the
 service's ``archived`` keyword and facet.
@@ -21,74 +20,38 @@ writes now.
 
 from __future__ import annotations
 
-import asyncio
-import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig, freshness_max_age_s
-from osprey.services.pv_directory.vocabulary import service_failed
+from osprey.services.pv_directory._connectors import service_targets
 from osprey_connectors.archiver_selection import resolve_archiver_type
 from osprey_connectors.connector_types import MONGODB_ARCHIVER, TARGET_VA
-from osprey_connectors.deployment.archive_targets import archive_targets
 from osprey_connectors.simulation.archive import SeedKnobs
 from osprey_connectors.targets import configured_targets
 
 __all__ = [
-    "NO_EXTENT_REASON",
-    "Extent",
     "deployed_configuration",
     "freshness_bound_s",
+    "history_targets",
     "own_store",
-    "read_extent",
     "served_targets",
 ]
-
-logger = logging.getLogger(__name__)
-
-#: The reason a connectors release whose archiver has no ``store_extent`` answers.
-NO_EXTENT_REASON = "installed osprey-connectors cannot list the archive's channels (upgrade it)"
 
 #: The recorder knob the configuration shows beside the seed's.
 _RECORDER_CADENCE = "recorder_cadence_sec"
 
 
-@dataclass(frozen=True)
-class Extent:
-    """What the store holds, as far as the archiver can say; ``None`` is unknown."""
+def history_targets(config: Mapping[str, Any]) -> frozenset[str]:
+    """The targets whose history the deployment's archive holds.
 
-    channels: frozenset[str] | None = None
-    oldest: datetime | None = None
-    newest: datetime | None = None
-    reason: str | None = None
-
-
-async def read_extent(connector: Any, deadline: float) -> Extent:
-    """The store's extent from *connector*, or unknown with the reason.
-
-    A connector without ``store_extent`` (an older connectors release) answers
-    :data:`NO_EXTENT_REASON`; a read that misses *deadline* or raises answers
-    its reason. Never raises.
+    The archive row of the connectors' ``service_targets``, without the mock;
+    none on a connectors release without the PV directory modules.
     """
-    read = getattr(connector, "store_extent", None)
-    if read is None:
-        return Extent(reason=NO_EXTENT_REASON)
-    try:
-        answer = await asyncio.wait_for(read(), deadline)
-    except TimeoutError:
-        return Extent(reason=f"no answer within {deadline:g} s")
-    except Exception as failure:
-        logger.warning("the archive's extent could not be read", exc_info=True)
-        return Extent(reason=service_failed(failure))
-    channels = getattr(answer, "addresses", None)
-    return Extent(
-        channels=frozenset(channels) if channels is not None else None,
-        oldest=getattr(answer, "oldest_at", None),
-        newest=getattr(answer, "newest_at", None),
-        reason=getattr(answer, "reason", None),
-    )
+    if service_targets is None:
+        return frozenset()
+    held: frozenset[str] = service_targets(config).history_targets()
+    return held
 
 
 def own_store(config: Mapping[str, Any], target: str) -> bool:
@@ -97,7 +60,7 @@ def own_store(config: Mapping[str, Any], target: str) -> bool:
     return (
         target == TARGET_VA
         and resolve_archiver_type(archiver) == MONGODB_ARCHIVER
-        and target in archive_targets(config)
+        and target in history_targets(config)
     )
 
 
@@ -130,8 +93,8 @@ def freshness_bound_s(config: Mapping[str, Any]) -> int | None:
 
 
 def served_targets(config: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Each control target a session can be on, and whether the archive serves it."""
-    served = archive_targets(config)
+    """Each control target a session can be on, and whether the archive holds its history."""
+    served = history_targets(config)
     return [
         {"target": target, "archive": target in served}
         for target in configured_targets(config.get("control_system"))

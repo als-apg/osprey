@@ -74,9 +74,9 @@ Most modules are their own API, each imported by its own path:
 | Configuration | `config`, `workspace` (where a process finds its config and agent data), `dotenv` (the deployment's env chain), `yaml_loader` |
 | Errors and logging | `errors`, `logger`, `log_filter` |
 | Writing safely | `execution_mode` (the read-only run), `write_tier` (the login tier's write ceiling), `limits_posture` (the limits posture a type or target runs under), `write_switch` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle) |
-| The deployment's machines | `deployment.simulator` (its virtual accelerator), `deployment.standin` (its stand-in soft IOC), `deployment.archive_targets` (which machines its archive serves) |
+| The deployment's machines | `deployment.simulator` (its virtual accelerator), `deployment.standin` (its stand-in soft IOC) |
 | Supervising connector processes | `gateways` (where a target's connector-host child will connect, derived from config), `epics_env` (the inherited EPICS client environment, and taking it out), `process` (starting and stopping child processes), `recovery` (what to do about a failed connector call) |
-| Read-only services | `service_answers` (what every service backend answers), `service_targets` (which source answers each kind on each target) |
+| Read-only services | `service_answers` (what every service backend answers), `service_targets` (which source answers each kind, the archive included, on each target) |
 | Utilities | `identity` (who an audit record names), `relative_time`, `safety_file` (replacing a file whole), `testing` (dropping the parsed control-state files between tests) |
 
 So are the `simulation` package and its modules (`simulation.state`,
@@ -89,7 +89,7 @@ and their names are imported from the subpackage itself:
 | Namespace | What it holds |
 | --- | --- |
 | `osprey_connectors.control_system` | The control-system connector contract (`ControlSystemConnector`, `ChannelValue`, `ChannelWriteResult`, `WriteOutcome`, `values_match`, ...) and `LimitsValidator` |
-| `osprey_connectors.archiver` | The archiver connector contract (`ArchiverConnector`, `ArchiverMetadata`), the shared time-range helpers, the field name a channel is stored under, the MongoDB client arguments |
+| `osprey_connectors.archiver` | The archive service contract (`ChannelArchive`, `ArchiveCoverage`, `ArchiveExtent`), the processing modes, the field name a channel is stored under, the MongoDB client arguments |
 | `osprey_connectors.ipc` | What a connector-host supervisor needs: the handle on one child (`ConnectorHost`) and the records it starts on, the pool and the proxy, their errors, and the verification of what a child reports (the wire codec itself is internal) |
 | `osprey_connectors.directory` | The channel directory contract (`ChannelDirectory`, `DirectoryQuery`, `DirectoryPage`, ...) |
 | `osprey_connectors.alarm_state` | The alarm-state feed contract (`AlarmState`, `AlarmStateRecord`, `AlarmStateRow`, `AlarmStates`, `AlarmConfigRecord`, `severity_rank`) |

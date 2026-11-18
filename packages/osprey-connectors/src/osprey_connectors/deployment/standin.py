@@ -22,7 +22,7 @@ owns the archiver pairing.
 Nothing here is about the archive. The stand-in has no store of its own: it
 rehearses the facility's real machine and is shown that machine's past, while
 the deployment's own store is the virtual accelerator's — see
-:mod:`osprey_connectors.deployment.archive_targets`, which decides whose history an
+:mod:`osprey_connectors.service_targets`, which decides whose history an
 ``archiver:`` block holds, and reads no stand-in key to do so.
 
 ``live_standin_active`` — the ``standin`` target's deployed-container gate

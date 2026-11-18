@@ -376,7 +376,7 @@ def _recorded_target_is_virtual_accelerator(config: dict[str, Any], config_path:
     1. **Did the deployment build a simulator?**
        :func:`~osprey_connectors.deployment.simulator.virtual_accelerator_port` — the
        same key the archive's attribution reads
-       (:mod:`osprey_connectors.deployment.archive_targets`), so the store this recorder
+       (:mod:`osprey_connectors.service_targets`), so the store this recorder
        writes is a ``va`` archive exactly when something samples it.
     2. **Does the ``va`` target still land on it?** The endpoint is derived by
        :func:`~osprey_connectors.gateways.derive_endpoints` — the same

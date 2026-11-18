@@ -20,6 +20,7 @@ import sys
 import textwrap
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -366,7 +367,8 @@ class TestMoleBlock:
     @pytest.fixture
     def store_archive(self, monkeypatch):
         """The deployment's store, attributed to ``va`` by the table."""
-        monkeypatch.setattr(sidecar_module, "archive_targets", lambda config: frozenset({"va"}))
+        held = SimpleNamespace(history_targets=lambda: frozenset({"va"}))
+        monkeypatch.setattr(sidecar_module, "service_targets", lambda config: held)
         monkeypatch.delenv("OSPREY_ARCHIVER_MONGODB_HOST", raising=False)
         monkeypatch.delenv("OSPREY_ARCHIVER_MONGODB_PORT", raising=False)
 

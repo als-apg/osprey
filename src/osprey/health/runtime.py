@@ -1,26 +1,24 @@
 """Health runtime — single owner of the control-system connector lifecycle.
 
 `HealthRuntime` is an async context manager that lazily constructs at most one
-control-system connector and at most one archiver connector, disconnecting each
-exactly once on exit. It is the sole owner of both connectors' lifecycles for a
-health-suite run: probes that need a control-system connection (e.g.
-``channel_read``) acquire it via :meth:`HealthRuntime.get_connector`, and probes
-that query the archiver (e.g. ``archiver_freshness``) acquire it via
-:meth:`HealthRuntime.get_archiver`; each constructs its connector on first call
-and caches it for the rest of the suite. A suite with no such probes never
+control-system connector and at most one archive, closing each exactly once on
+exit. It is the sole owner of both lifecycles for a health-suite run: probes
+that need a control-system connection (e.g. ``channel_read``) acquire it via
+:meth:`HealthRuntime.get_connector`, and probes that query the archive (e.g.
+``archiver_freshness``) acquire it via :meth:`HealthRuntime.get_archive`; each
+constructs on first call and caches it for the rest of the suite. A suite with no such probes never
 triggers construction, so no Channel Access client is created — and no channel
 is left for the garbage collector to finalize, when a native client's teardown
 can crash or hang the process.
 
-The two accessors differ in how they source their config, reflecting the two
-connectors' asymmetric roles. The control-system connector is the runtime's
-raison d'être — its careful single-ownership exists precisely to keep the CA
-client's lifecycle safe — so its config is fixed at construction. The archiver
-connector is a secondary, HTTP-class resource (EPICS Archiver Appliance,
-MongoDB, DOOCS — none Channel Access), so :meth:`get_archiver` takes its config
-block per call, letting the probe honor an explicit per-run ``ctx.config`` over
-the global singleton without threading archiver config through every
-``HealthRuntime`` construction site.
+The two accessors differ in how they source their config, reflecting their
+asymmetric roles. The control-system connector is the runtime's raison d'être —
+its careful single-ownership exists precisely to keep the CA client's lifecycle
+safe — so its config is fixed at construction. The archive is a secondary,
+HTTP-class service (EPICS Archiver Appliance, MongoDB, DOOCS — none Channel
+Access), so :meth:`get_archive` takes the archive's spec per call, letting the
+probe honor an explicit per-run ``ctx.config`` over the global singleton without
+threading archiver config through every ``HealthRuntime`` construction site.
 
 The get/create/shutdown surface deliberately mirrors
 :class:`osprey.mcp_server.control_system.server_context.ControlSystemContext`
@@ -35,14 +33,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from osprey.health.models import CheckResult, Status
 from osprey_connectors.control_system import ControlSystemConnector
 from osprey_connectors.targets import baseline_target
 
 if TYPE_CHECKING:
-    from osprey_connectors.archiver import ArchiverConnector
+    from osprey_connectors.archiver import ChannelArchive
+    from osprey_connectors.service_answers import BackendSpec
 
 logger = logging.getLogger("osprey.health.runtime")
 
@@ -91,8 +90,8 @@ class HealthRuntime:
         self._config = control_system_config
         self._connector: ControlSystemConnector | None = None
         self._ever_constructed = False
-        self._archiver: ArchiverConnector | None = None
-        self._archiver_ever_constructed = False
+        self._archive: ChannelArchive | None = None
+        self._archive_ever_constructed = False
         self._closed = False
         #: Guards lazy construction in both accessors (see the class docstring).
         #: Held only across construction, never across teardown.
@@ -111,15 +110,15 @@ class HealthRuntime:
         return self._ever_constructed
 
     @property
-    def archiver_ever_constructed(self) -> bool:
-        """Whether an archiver connector was ever successfully constructed.
+    def archive_ever_constructed(self) -> bool:
+        """Whether an archive was ever successfully constructed.
 
         Tracked separately from :attr:`ever_constructed` (which records the
-        control-system connector's history), so the archiver's presence never
+        control-system connector's history), so the archive's presence never
         influences control-system-specific reconciliation such as the web
         sidecar's config-change restart notice.
         """
-        return self._archiver_ever_constructed
+        return self._archive_ever_constructed
 
     @property
     def closed(self) -> bool:
@@ -183,53 +182,56 @@ class HealthRuntime:
                 )
             return self._connector
 
-    async def get_archiver(self, archiver_config: dict[str, Any]) -> ArchiverConnector:
-        """Return the cached archiver connector, constructing it on first call.
+    async def get_archive(self, spec: BackendSpec) -> ChannelArchive:
+        """Return the cached archive, constructing it on first call.
 
-        The first call registers the built-in connector types (idempotent) and
-        creates the archiver connector from *archiver_config* — the ``archiver:``
-        config block (``type`` plus the per-type sub-block), which the caller
-        resolves with the correct precedence (an explicit per-run ``ctx.config``
-        over the global singleton). ``ConnectorFactory.create_archiver_connector``
-        connects on construction, so a first call that returns is proof the
-        archiver was reachable. Later calls return the same cached instance and
-        ignore *archiver_config* — a suite runs against one archiver.
+        The first call builds the archive *spec* names — the first target's of
+        the deployment's archive row, which the caller resolves from the config
+        with the correct precedence (an explicit per-run ``ctx.config`` over the
+        global singleton). Building does no I/O: a first call that returns says
+        only that the spec's settings read, and the archive's own answers say
+        whether it is reachable. Later calls return the same cached instance and
+        ignore *spec* — a suite runs against one archive.
 
         After :meth:`shutdown` the runtime is closed and this refuses with
-        :class:`RuntimeError` rather than reconstructing a connector the suite
+        :class:`RuntimeError` rather than reconstructing an archive the suite
         already tore down.
 
         Construction is serialized on the same lock as :meth:`get_connector`, so
-        concurrent archiver probes build one connector between them rather than
+        concurrent archive probes build one archive between them rather than
         one apiece.
 
         Args:
-            archiver_config: The ``archiver`` config block passed straight to
-                :meth:`ConnectorFactory.create_archiver_connector`.
+            spec: The archive to build, handed to
+                :meth:`ConnectorFactory.create_service`.
+
+        Raises:
+            ConfigurationError: The spec's type is unknown or its settings are
+                refused, in the backend's own words.
         """
         if self._closed:
             raise RuntimeError(
-                "HealthRuntime is closed; get_archiver() cannot reconstruct "
-                "an archiver connector after shutdown()"
+                "HealthRuntime is closed; get_archive() cannot reconstruct "
+                "an archive after shutdown()"
             )
         async with self._lock:
-            if self._archiver is None:
+            if self._archive is None:
                 from osprey_connectors.factory import ConnectorFactory
 
-                archiver = await ConnectorFactory.create_archiver_connector(archiver_config)
+                built = await ConnectorFactory.create_service(spec)
+                archive = cast("ChannelArchive", built)
                 if self._closed:
                     # Same window as get_connector: closed mid-construction.
-                    await self._disconnect_one("archiver connector", archiver)
+                    await self._close_archive(archive)
                     raise RuntimeError(
-                        "HealthRuntime was closed while its archiver connector was being constructed"
+                        "HealthRuntime was closed while its archive was being constructed"
                     )
-                self._archiver = archiver
-                self._archiver_ever_constructed = True
+                self._archive = archive
+                self._archive_ever_constructed = True
                 logger.info(
-                    "HealthRuntime: constructed archiver connector (%s)",
-                    type(self._archiver).__name__,
+                    "HealthRuntime: constructed the archive (%s)", type(self._archive).__name__
                 )
-            return self._archiver
+            return self._archive
 
     @staticmethod
     def baseline_pinned_row() -> CheckResult | None:
@@ -270,23 +272,31 @@ class HealthRuntime:
         return CheckResult(BASELINE_ROW_NAME, BASELINE_ROW_CATEGORY, Status.SKIP, line)
 
     async def shutdown(self) -> None:
-        """Disconnect both connectors exactly once, iff each was constructed.
+        """Disconnect the connector and close the archive exactly once, iff each was constructed.
 
-        A never-constructed runtime disconnects nothing but still marks the
-        runtime closed. Disconnect exceptions are swallowed (best-effort
-        teardown), and each cached instance is cleared so a repeated call
-        disconnects nothing.
+        A never-constructed runtime closes nothing but still marks the runtime
+        closed. Teardown exceptions are swallowed (best-effort teardown), and
+        each cached instance is cleared so a repeated call closes nothing.
         """
         self._closed = True
         await self._disconnect_one("connector", self._connector)
         self._connector = None
-        await self._disconnect_one("archiver connector", self._archiver)
-        self._archiver = None
+        archive, self._archive = self._archive, None
+        if archive is not None:
+            await self._close_archive(archive)
+
+    @staticmethod
+    async def _close_archive(archive: ChannelArchive) -> None:
+        """Close the archive best-effort, swallowing any exception."""
+        try:
+            await archive.aclose()
+        except Exception:
+            logger.debug("HealthRuntime: error closing the archive (ignored)", exc_info=True)
 
     @staticmethod
     async def _disconnect_one(
         label: str,
-        connector: ControlSystemConnector | ArchiverConnector | None,
+        connector: ControlSystemConnector | None,
     ) -> None:
         """Disconnect one connector best-effort, swallowing any exception.
 

@@ -25,9 +25,9 @@ from osprey.interfaces.channel_finder import (
 )
 from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID
 from osprey.profiles.web_panels import panel_spec_enabled
+from osprey.services.pv_directory.archive import history_targets
 from osprey.services.pv_directory.resolve import ResolvedSection, predicates
 from osprey.services.pv_directory.vocabulary import DIRECTORY_LABEL, source_label
-from osprey_connectors.deployment.archive_targets import archive_targets
 
 __all__ = ["ariel_configured", "directory_descriptor", "router"]
 
@@ -75,7 +75,7 @@ async def directory_descriptor(
     flags = predicates(resolved)
     ariel = ariel_configured(config)
     services = [name for name in _SERVICES if flags[f"pv_directory_{name}"]]
-    if archive_targets(config):
+    if history_targets(config):
         services.append("archive")
     if ariel:
         services.append("logbook")

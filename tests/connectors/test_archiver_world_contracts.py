@@ -341,30 +341,39 @@ class World:
         from osprey_connectors.archiver._mongodb_archiver_connector import (
             MongoDBArchiverConnector,
         )
+        from osprey_connectors.service_answers import BackendSpec
 
-        connector = MongoDBArchiverConnector()
-        await connector.connect(
-            {
-                "host": self._store["host"],
-                "port": self._store["port"],
-                "name": self._store["database"],
-                "collection": self._store["collection"],
-                "auth": {
-                    "source": self._store["auth_db"],
-                    "username": self._store["username"],
-                    "password_env": self._password_env,
-                },
-                "timeout_s": 20,
-            }
+        settings = {
+            "host": self._store["host"],
+            "port": self._store["port"],
+            "name": self._store["database"],
+            "collection": self._store["collection"],
+            "auth": {
+                "source": self._store["auth_db"],
+                "username": self._store["username"],
+                "password_env": self._password_env,
+            },
+            "timeout_s": 20,
+        }
+        connector = MongoDBArchiverConnector(
+            BackendSpec(
+                kind="archive",
+                type="mongodb_archiver",
+                target="va",
+                settings=settings,
+                rehearsal=False,
+            )
         )
         try:
             # precision_ms=0 is full resolution: every stored sample at its own
             # timestamp, with no binning between the store and the assertion.
-            return await connector.get_data(
+            frame = await connector.history(
                 list(channels), start_at=start, end_at=end, precision_ms=0
             )
         finally:
-            await connector.disconnect()
+            await connector.aclose()
+        assert isinstance(frame, pd.DataFrame), frame
+        return frame
 
     def base_values(self, channels, stamps: list[datetime]) -> dict[str, list]:
         """What the archive holds at these instants with no scenario active.

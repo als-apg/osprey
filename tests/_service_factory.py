@@ -1,6 +1,6 @@
 """Stand a fake in for one service kind behind ``ConnectorFactory.create_service``.
 
-``create_service`` builds all four service kinds, so a test that fakes one kind
+``create_service`` builds all five service kinds, so a test that fakes one kind
 routes that kind's specs to its fake and every other kind to whatever answered
 before: the real factory, or another kind's fake.
 """
@@ -20,8 +20,8 @@ def patch_create_service(
 
     Args:
         monkeypatch: Undoes the patch at the end of the test.
-        kind: The connectors kind: ``directory``, ``alarm_state``, ``alarm_log``
-            or ``put_log``.
+        kind: The connectors kind: ``directory``, ``alarm_state``, ``alarm_log``,
+            ``put_log`` or ``archive``.
         create: Called as ``create_service`` is, with the spec and its keywords.
     """
     from osprey_connectors.factory import ConnectorFactory

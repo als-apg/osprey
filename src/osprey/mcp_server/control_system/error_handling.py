@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
+from typing import NoReturn
 
 from fastmcp.exceptions import ToolError
 
@@ -30,6 +31,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.ipc import ChildUnresponsiveError
 from osprey_connectors.refusals import RefusalReason
+from osprey_connectors.service_answers import Unavailable, UnavailableCause
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 
@@ -39,6 +41,7 @@ __all__ = [
     "connector_error_handler",
     "describe_active_target",
     "measure_active_target",
+    "refuse_unavailable",
     "shared_typed_cause",
 ]
 
@@ -311,6 +314,53 @@ async def connector_error_handler(
             exc, tool_name, connector_name, await _reachability_for(exc, connector_name)
         )
         make_error(error_type, message, suggestions, details=details)
+
+
+#: The envelope a service's ``Unavailable`` answer is rendered as, by its cause.
+#: Every cause not named is a ``connection_error``: the service could not be
+#: reached, refused, answered badly, is not ready, or its settings are wrong.
+_UNAVAILABLE_ERROR_TYPE: dict[UnavailableCause, str] = {
+    "timeout": "timeout_error",
+    "unsupported": "internal_error",
+    "failed": "internal_error",
+}
+
+
+def refuse_unavailable(tool_name: str, connector_name: str, answer: Unavailable) -> NoReturn:
+    """Answer a service that gave no answer with the envelope its cause is rendered as.
+
+    A service's ``Unavailable`` is not an exception, so no supervisor recovered
+    anything and the envelope carries no recovery; its message is built from
+    the answer's ``reason``. The archive has no machine axis, so it names no
+    active target.
+
+    Raises:
+        ToolError: Always, carrying the envelope.
+    """
+    error_type = _UNAVAILABLE_ERROR_TYPE.get(answer.cause, "connection_error")
+    reason = answer.reason.rstrip(".")
+    service = connector_name.replace("_", " ")
+    if error_type == "timeout_error":
+        make_error(
+            error_type,
+            f"{tool_name} timed out: {reason}",
+            ["Check network connectivity.", "Try a smaller request."],
+        )
+    if error_type == "connection_error":
+        make_error(
+            error_type,
+            f"Failed to connect to the {service}: {reason}.",
+            [
+                f"Check that the {service} is running.",
+                f"If the {connector_name} settings are wrong, fix them in the build profile "
+                "(profile.yml on the host), then rebuild and redeploy.",
+            ],
+        )
+    make_error(
+        error_type,
+        f"Unexpected error during {tool_name}: {reason}",
+        ["Check the MCP server logs for details."],
+    )
 
 
 def _refusal_suggestions(reasons: Iterable[object]) -> list[str]:

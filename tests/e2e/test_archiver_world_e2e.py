@@ -17,7 +17,7 @@ Seven claims, in the order a deployment makes them true:
   an archiver read within the recorder's budget — the whole point of running a
   recorder rather than only a seeder.
 * **The archive admits its edges.** A window before coverage begins returns no
-  points, and ``get_metadata`` reports the oldest sample it really holds rather
+  points, and ``coverage`` reports the oldest sample it really holds rather
   than a declared window.
 * **A scenario apply stays bounded.** Activating an eventful scenario rewrites
   event windows, not the archive; the document count is asked to stay inside a
@@ -496,7 +496,7 @@ def _collection(world: DeployedArchiverWorld):
 
 
 def _connector(world: DeployedArchiverWorld):
-    """A connected ``MongoDBArchiverConnector``, the agent's own read path.
+    """The ``MongoDBArchiverConnector`` archive, the agent's own read path.
 
     Read through the connector rather than pymongo wherever the assertion is
     about what a READER sees: the store holding a value and the connector
@@ -504,25 +504,33 @@ def _connector(world: DeployedArchiverWorld):
     operator experiences.
     """
     from osprey_connectors.archiver._mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.service_answers import BackendSpec
 
     store = world.store
-    connector = MongoDBArchiverConnector()
-    asyncio.run(
-        connector.connect(
-            {
-                "host": store["host"],
-                "port": store["port"],
-                "name": store["database"],
-                "collection": store["collection"],
-                "auth": {
-                    "source": store["auth_source"],
-                    "username": store["username"],
-                    "password_env": store["password_env"],
-                },
-            }
-        )
+    settings = {
+        "host": store["host"],
+        "port": store["port"],
+        "name": store["database"],
+        "collection": store["collection"],
+        "auth": {
+            "source": store["auth_source"],
+            "username": store["username"],
+            "password_env": store["password_env"],
+        },
+    }
+    spec = BackendSpec(
+        kind="archive", type="mongodb_archiver", target="va", settings=settings, rehearsal=False
     )
-    return connector
+    return MongoDBArchiverConnector(spec)
+
+
+def _history(connector, *args, **kwargs):
+    """The archive's frame; an archive that gave no answer fails the test with its reason."""
+    from osprey_connectors.service_answers import Unavailable
+
+    answer = asyncio.run(connector.history(*args, **kwargs))
+    assert not isinstance(answer, Unavailable), answer.reason
+    return answer
 
 
 def _recorder_container() -> str:
@@ -748,10 +756,11 @@ def test_written_setpoint_appears_in_the_archive_within_the_recorder_budget(
     deadline = started + RECORDER_BUDGET_SEC
     seen: list[float] = []
     while True:
-        frame = asyncio.run(
-            connector.get_data(
-                [setpoint], start_at=written_at - timedelta(seconds=5), end_at=datetime.now(UTC)
-            )
+        frame = _history(
+            connector,
+            [setpoint],
+            start_at=written_at - timedelta(seconds=5),
+            end_at=datetime.now(UTC),
         )
         seen = [float(v) for v in frame["value"]] if len(frame) else []
         if any(abs(value - target) < 1e-6 for value in seen):
@@ -797,8 +806,10 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
         return oldest if oldest.tzinfo else oldest.replace(tzinfo=UTC)
 
     oldest_before = oldest_held()
-    metadata = asyncio.run(connector.get_metadata(channel))
-    assert metadata.first_sample_at is not None, "get_metadata reported no first_sample_at"
+    covered = asyncio.run(connector.coverage([channel]))
+    assert isinstance(covered, dict), covered
+    metadata = covered[channel]
+    assert metadata.first_sample_at is not None, "coverage reported no first_sample_at"
     oldest_after = oldest_held()
 
     first_sample_at = metadata.first_sample_at
@@ -814,8 +825,8 @@ def test_a_window_before_coverage_is_reported_as_empty_not_invented(archiver_wor
     )
 
     before = first_sample_at - timedelta(days=2)
-    frame = asyncio.run(
-        connector.get_data([channel], start_at=before, end_at=first_sample_at - timedelta(hours=1))
+    frame = _history(
+        connector, [channel], start_at=before, end_at=first_sample_at - timedelta(hours=1)
     )
     assert len(frame) == 0, (
         f"a window entirely before coverage began returned {len(frame)} points for "

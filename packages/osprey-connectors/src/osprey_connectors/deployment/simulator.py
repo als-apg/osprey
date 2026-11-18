@@ -10,7 +10,7 @@ simulator, and two readers decide from it:
 * :func:`virtual_accelerator_port` — **the deployment's shape**: did it build
   a simulator, and on which Channel Access port? This is what makes the
   deployment's own archive store the simulator's
-  (:mod:`osprey_connectors.deployment.archive_targets`): the store is seeded with the
+  (:mod:`osprey_connectors.service_targets`): the store is seeded with the
   simulator's history and the recorder samples the simulator into it, so a
   deployment that builds one has a ``va`` archive whatever machine its
   sessions start on.
