@@ -238,7 +238,7 @@ def test_where_stands_full_width_after_the_channels(tmp_path) -> None:
     doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
     (where,) = [
         n for n in nodes(doc)
-        if n["type"] == "text-label" and n["props"]["text"].endswith("· WHERE")
+        if n["type"] == "text-label" and n["props"]["text"].startswith("Where:")
     ]  # fmt: skip
     assert where["geometry"]["x"] == layout.MARGIN
     channels = [

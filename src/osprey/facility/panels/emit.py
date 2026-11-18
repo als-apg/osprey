@@ -100,7 +100,7 @@ DIGEST_LEN = 8
 #: Failing problem kinds are all but these.
 NOTE_KINDS = frozenset({"outside_set"})
 #: View kinds whose ``over_budget`` is a note: drawn in full, the excess is reported.
-NOTED_OVER_BUDGET = frozenset({"card", "checkout"})
+NOTED_OVER_BUDGET = frozenset({"card", "channels", "checkout"})
 
 _STAMP = re.compile(r" Facility ([0-9a-f]{64}), panels format (\d+), draw ([0-9a-f]{16})\.$")
 _STAMP_IN_TEXT = re.compile(r" Facility [0-9a-f]{64}, panels format \d+, draw [0-9a-f]{16}\.\"")

@@ -37,6 +37,7 @@ from osprey.facility.panels.view import (
     Node,
     Picture,
     Placement,
+    Section,
     Strip,
     Target,
     Totals,
@@ -60,6 +61,15 @@ def card(thing_id: str) -> Target:
 
 
 def _section(view: View, title: str):
+    """A section by title; ``where`` and ``sources`` are the card foot's claims and
+    statements, as a section of them."""
+    if title in ("where", "sources"):
+        (foot,) = [s.items[0] for s in view.sections if s.title == "foot"]
+        if title == "where":
+            return Section(title, foot.claims)
+        return Section(
+            title, tuple(Fact(c.document, c.locator or "", citation=c) for c in foot.citations)
+        )
     found = [section for section in view.sections if section.title == title]
     assert len(found) == 1, f"{view.id}: sections {[s.title for s in view.sections]}"
     return found[0]
@@ -165,7 +175,7 @@ def test_a_light_whose_rules_the_engine_cannot_evaluate_says_so(panel_graph):
 
 def test_a_channel_less_thing_has_place_pose_and_no_signal_or_health(panel_graph):
     view = device_card(panel_graph, "XR02:SHIELD1")
-    assert _titles(view) == ["head", "relations", "where", "sources"]
+    assert _titles(view) == ["head", "relations", "foot"]
     where = _section(view, "where").items
     assert where[0] == Link("place", Target("card", "place", "XR/XR02"))
     (pose,) = [item for item in where if isinstance(item, Fact)]
@@ -189,14 +199,14 @@ def test_card_sections_come_in_their_fixed_order(panel_graph):
         "calibration",
         "operate",
         "all channels",
-        "where",
-        "sources",
+        "foot",
     ]
     assert _titles(device_card(panel_graph, "XR01:IP1")) == [
         "head",
         "relations",
+        "operate",  # it says no operator action is stated
         "all channels",
-        "where",
+        "foot",
     ]
 
 
@@ -226,21 +236,24 @@ def test_a_card_with_every_section_has_them_in_order(tmp_path):
         "calibration",
         "operate",
         "all channels",
-        "where",
-        "sources",
+        "foot",
     ]
     words = [b.title.split()[0] for b in _blocks(view)]
     assert "Power" in words and "Feeds" in words  # fed by the supply, feeding the pump
 
 
-def test_sources_hold_a_fact_per_citation(panel_graph):
-    (fact,) = _section(device_card(panel_graph, "XR01:QF1"), "sources").items
-    assert (fact.label, fact.citation.document, fact.citation.version) == (
-        "XR-LAYOUT",
-        "XR-LAYOUT",
-        "A",
-    )
-    assert "sheet 1" in fact.text
+def test_the_foot_counts_the_statements_and_names_their_documents(panel_graph):
+    view = device_card(panel_graph, "XR01:QF1")
+    fact = _section(view, "sources").items[0]  # the device's own citation first
+    assert (fact.citation.document, fact.citation.version) == ("XR-LAYOUT", "A")
+    (foot,) = [s.items[0] for s in view.sections if s.title == "foot"]
+    n = len(foot.citations)
+    documents = sorted({c.document for c in foot.citations})
+    assert foot.sources.startswith(f"{n} statement")
+    assert all(d in foot.sources for d in documents)
+    assert len(foot.provenance) == n and "sheet 1" in foot.provenance[0]
+    text, link = foot.where[0]
+    assert text.startswith(link.target.id)
 
 
 def test_the_place_relation_is_shown_under_where_with_its_unit(panel_graph):
@@ -266,7 +279,7 @@ def test_a_card_shows_each_claim_even_when_two_sources_agree(panel_graph):
 def test_unit_claims_show_under_where_without_a_built_place(panel_graph):
     view = device_card(panel_graph, "XR02:CH5")
     assert view.crumbs == ()
-    assert _titles(view) == ["head", "relations", "where"]  # no raw located_in section
+    assert _titles(view) == ["head", "relations", "foot"]  # no raw located_in section
     where = _section(view, "where").items
     assert [(p.link.target, p.unit, p.link.standing) for p in where] == [
         (Target("rack", "place", "XR/XR01/RK1"), 40, "contested"),
@@ -319,7 +332,7 @@ def test_a_contested_or_inferred_relation_is_marked_on_its_link(tmp_path):
     (block,) = [b for b in _blocks(device_card(graph, "XR01:IP1")) if b.title.startswith("Read")]
     link = block.link
     assert (link.target, link.standing, link.basis) == (card("XR01:CH2"), "contested", "inferred")
-    assert block.standing == "contested"
+    assert block.standing is None  # one thing: the block is not contested, its claim is
     (back,) = [b for b in _blocks(device_card(graph, "XR01:CH2")) if b.title.startswith("Reads")]
     assert (back.link.standing, back.link.basis) == ("contested", "inferred")
 
@@ -1179,3 +1192,32 @@ def test_a_contested_row_names_the_other_claim(panel_graph):
     row = _calibration_rows(panel_graph, "XR02:QF1")["Integrated gradient"]
     assert row.state == "contested" and row.chip == "two sources disagree"
     assert row.note == "also claimed: -4.9701 T"
+
+
+def _networks(*others: tuple[str, str, str]):
+    def add(document: dict[str, Any]) -> None:
+        for n, (kind, other, standing) in enumerate(others):
+            document["relations"].append(
+                {
+                    "id": f"xr01-qf1-net-{n}",
+                    "type": "networked_to",
+                    "subject": {"device": "XR01:QF1"},
+                    "object": {kind: other},
+                    "standing": standing,
+                }
+            )
+
+    return add
+
+
+def test_the_default_network_hop_takes_a_device_and_one_thing_is_not_contested(tmp_path):
+    place = ("place", "XR01", "accepted")
+    one = _graph(tmp_path / "a", _networks(place, ("device", "XR01:CH2", "contested")))
+    (block,) = [b for b in _blocks(device_card(one, "XR01:QF1")) if b.title.startswith("Network")]
+    assert block.title == "Network  XR01:CH2" and block.standing is None and not block.dashed
+    two = _graph(
+        tmp_path / "b",
+        _networks(place, ("device", "XR01:CH2", "accepted"), ("device", "XR01:PS1", "accepted")),
+    )
+    blocks = [b for b in _blocks(device_card(two, "XR01:QF1")) if b.title.startswith("Network")]
+    assert [b.standing for b in blocks] == ["contested", "contested"]  # both named, none picked

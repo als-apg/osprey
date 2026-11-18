@@ -64,10 +64,12 @@ from osprey.facility.panels.view import (
     CalibrationRow,
     Calibrations,
     CalibrationTallies,
+    CardFoot,
     CardHead,
     CardStrip,
     Chain,
     ChainBlock,
+    ChannelCount,
     ChannelGrid,
     CheckRow,
     Control,
@@ -226,6 +228,10 @@ BLOCK_ROW = 26
 BLOCK_TOP = 30  # a block's box above its first line
 BLOCK_LABEL = 100  # a block line's label column
 BLOCKS_PER_ROW = 5
+#: A row of blocks too wide for the card narrows to fit: its arrows to this run, its
+#: blocks in proportion down to this width; only then does the chain wrap.
+BLOCK_GAP_LEAST = 48
+BLOCK_NARROWEST = 168
 CONTROL_WIDTH = 160
 CONTROL_HEIGHT = 28
 CONTROL_TAG_HEIGHT = 18
@@ -272,6 +278,12 @@ _NOT_SERVED = "not served yet"
 #: The drawn card's closing sections, drawn as muted lines.
 _FACT_SECTIONS = frozenset({"where", "sources"})
 _NOT_STATED_TEXT = "not stated"
+_WHERE_WORD = "Where:"
+_HIDDEN = "{} driver-internal records not shown"
+_MORE = "\u203a"
+_FOOT_JOIN = " · "
+_OR = "or "
+_SOURCES_WORD = "Sources:"
 _MEANING_NOT_STATED = "meaning not stated"
 _GRID_NOTE = "hover a row for the full channel name"
 _APPLY = "Apply"
@@ -364,6 +376,7 @@ RACK_COLUMN = RACK_LABEL_WIDTH + RACK_WIDTH + 2 * RACK_PAD + 2 * COLUMN_GAP  # t
 # per condition (see engine_expression); the engine refuses one longer than
 # ``max_expression_len`` (canopy/formula_engine/config.py at 166989aa: 2048).
 RULE_EXPRESSION_LIMIT = 2048
+TOOLTIP_LINES = 24  # a card's sources line shows this many statements on hover
 TOOLTIP_CHANNELS = 8  # a light's tooltip names this many channels, else counts them
 MOSAIC_LIGHT = 10  # one child's light in an aggregate's mosaic
 MOSAIC_GAP = 3
@@ -2114,14 +2127,52 @@ class _Page:
                 number += 1
                 title = f"{number} · {section.title} ({len(first.rows)})"
                 self.framed(title, partial(self.channel_grid, first), note=_GRID_NOTE)
+            elif isinstance(first, ChannelCount):
+                number += 1
+                title = f"{number} · {section.title} ({first.total})"
+                self.framed(title, partial(self.channel_count, first))
             elif isinstance(first, Picture | Probe):
                 self.section(section)  # a drawing heads itself, by its view
+            elif isinstance(first, CardFoot):
+                self.card_foot(first)
             elif section.title in _FACT_SECTIONS:
                 number += 1
                 self.framed(f"{number} · {section.title}", partial(self.fact_lines, section.items))
             else:
                 number += 1
                 self.section(Section(f"{number} · {section.title}", section.items))
+
+    def card_foot(self, foot: CardFoot) -> None:
+        """Two muted lines under the last section, no frame and no number: where the
+        device is (opening the place), and its sources, each statement's full
+        provenance on hover."""
+        x = self.small(self.x0, self.y, _WHERE_WORD, fg=MUTED_TEXT) + WORD_GAP
+        for n, (text, link) in enumerate(foot.where):
+            if n:  # "<a> or <b>" reads on; anything else after a dot
+                join = " " if text.startswith(_OR) else _FOOT_JOIN
+                x = self.small(x, self.y, join, fg=MUTED_TEXT)
+            room = self.x0 + STRIP_WIDTH - x
+            if room < text_width(_ELLIPSIS, SMALL_SIZE):
+                break
+            right = self.small(x, self.y, _cut(text, room, SMALL_SIZE), fg=MUTED_TEXT)
+            if link is not None:
+                self.nav(x, self.y, right - x, SMALL_LINE, link)
+            x = right
+        self.y += SMALL_LINE + ROW_GAP
+        line = _cut(f"{_SOURCES_WORD} {foot.sources}", STRIP_WIDTH, SMALL_SIZE)
+        right = self.small(self.x0, self.y, line, fg=MUTED_TEXT)
+        if foot.provenance:
+            shown = list(foot.provenance[:TOOLTIP_LINES])
+            if len(foot.provenance) > TOOLTIP_LINES:
+                shown.append(f"and {len(foot.provenance) - TOOLTIP_LINES} more")
+            props = {
+                "fill": False,
+                "lineColor": TRANSPARENT,
+                "lineWidth": 0,
+                _TOOLTIP: "\n".join(shown),
+            }
+            self.s.widget("rectangle", self.x0, self.y, right - self.x0, SMALL_LINE, props)
+        self.y += SMALL_LINE + PANEL_GAP
 
     def fact_lines(self, items: Sequence[object]) -> None:
         """Where a device is and what it is read from, one muted line each: the place,
@@ -2262,7 +2313,7 @@ class _Page:
             return
         if shown_as == "lamp":
             top = y + (h - LIGHT_SIZE) / 2
-            if self.graph.rule(channel):
+            if self.graph.rule(channel) and words:  # no stated meaning: the neutral light
                 x = self.light(x, top, [describe_light(self.graph, channel)])
             else:
                 x = self.no_rule(x, top)
@@ -2433,46 +2484,92 @@ class _Page:
                 self.y += SMALL_LINE
 
     def chain_blocks(self, chain: Chain) -> None:
-        """Blocks left to right, centred, as many a row as fit the width (at most
-        :data:`BLOCKS_PER_ROW`); each its title over its box of lines, the arrow and
-        its word to the next in the row."""
-        widths = [self.block_width(b) for b in chain.blocks]
-        rows: list[list[int]] = [[]]
-        used = 0.0
-        for i, w in enumerate(widths):
-            need = w + (BLOCK_GAP if rows[-1] else 0)
-            if rows[-1] and (used + need > STRIP_WIDTH or len(rows[-1]) == BLOCKS_PER_ROW):
-                rows.append([])
-                used, need = 0.0, w
-            rows[-1].append(i)
-            used += need
-        for row in rows:
-            total = sum(widths[i] for i in row) + BLOCK_GAP * (len(row) - 1)
-            x = self.x0 + max(0.0, (STRIP_WIDTH - total) / 2)
+        """Blocks left to right, each its title over its box of lines, the arrow and
+        its word to the next. Up to :data:`BLOCKS_PER_ROW` share a row, narrowed to
+        fit the width (:meth:`chain_rows`); one row is centred, more rows start under
+        the first block, the arrow running on from the last block of a row down to
+        the first of the next."""
+        rows = self.chain_rows([self.block_width(b) for b in chain.blocks])
+        left: tuple[float, float, float, str | None] | None = None  # a row's last block
+        n = 0
+        for widths, gap in rows:
+            total = sum(widths) + gap * (len(widths) - 1)
+            x = self.x0 + (max(0.0, (STRIP_WIDTH - total) / 2) if len(rows) == 1 else 0)
             top = self.y
+            if left is not None:  # the arrow on from the row above
+                lx, ly, lw, word = left
+                mid, ya = top - ROW_GAP, top + BLOCK_TITLE + BLOCK_TOP
+                path = [
+                    (lx + lw / 2, ly),
+                    (lx + lw / 2, mid),
+                    (x - min(gap, x) / 2, mid),  # in the margin, left of the block
+                    (x - min(gap, x) / 2, ya),
+                    (x - ARROW_INSET, ya),
+                ]
+                self.line(path, PAGE_TEXT, BLOCK_LINE, arrow=True)
+                if word:
+                    self.small(
+                        lx + lw / 2 + GAP,
+                        ly + GAP / 2,
+                        _cut(word, STRIP_WIDTH / 2, SMALL_SIZE),
+                        fg=MUTED_TEXT,
+                    )
             bottom = top
-            for i in row:
-                block, w = chain.blocks[i], widths[i]
+            for k, w in enumerate(widths):
+                block = chain.blocks[n]
+                n += 1
                 end = self.chain_block(x, top, w, block)
                 for other in block.stack:  # the other things the hop reaches, under it
                     end = self.chain_block(x, end + GAP, w, other)
                 bottom = max(bottom, end)
-                if i != row[-1]:
+                if k != len(widths) - 1:
                     ya = top + BLOCK_TITLE + BLOCK_TOP
-                    start, end = x + w + ARROW_INSET / 2, x + w + BLOCK_GAP - ARROW_INSET
-                    self.line([(start, ya), (end, ya)], PAGE_TEXT, BLOCK_LINE, arrow=True)
+                    start, stop = x + w + ARROW_INSET / 2, x + w + gap - ARROW_INSET
+                    self.line([(start, ya), (stop, ya)], PAGE_TEXT, BLOCK_LINE, arrow=True)
                     if block.arrow:
-                        word = _cut(block.arrow, BLOCK_GAP - GAP, SMALL_SIZE)
+                        word = _cut(block.arrow, gap - GAP, SMALL_SIZE)
                         ww = text_width(word, SMALL_SIZE)
-                        left = x + w + (BLOCK_GAP - ww) / 2
-                        self.small(left, ya - SMALL_LINE - ARROW_INSET, word, fg=MUTED_TEXT)
-                x += w + BLOCK_GAP
-            self.y = bottom + GAP
+                        self.small(
+                            x + w + (gap - ww) / 2,
+                            ya - SMALL_LINE - ARROW_INSET,
+                            word,
+                            fg=MUTED_TEXT,
+                        )
+                else:
+                    left = (x, end, w, block.arrow)
+                x += w + gap
+            self.y = bottom + GAP + (2 * ROW_GAP if n < len(chain.blocks) else 0)
         if chain.foot:
             for line in _wrap(chain.foot, STRIP_WIDTH, SMALL_SIZE):
                 self.small(self.x0, self.y, line, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
         self.y += ROW_GAP
+
+    @staticmethod
+    def chain_rows(widths: list[float]) -> list[tuple[list[float], float]]:
+        """The rows of a chain: each its blocks' widths and its arrows' run. A row
+        takes up to :data:`BLOCKS_PER_ROW` blocks at their own widths and
+        :data:`BLOCK_GAP`; a row too wide takes :data:`BLOCK_GAP_LEAST` and narrows
+        its blocks in proportion, none below :data:`BLOCK_NARROWEST`; a row that
+        still does not fit gives its last block to the next row."""
+        rows: list[tuple[list[float], float]] = []
+        rest = list(widths)
+        while rest:
+            take = min(BLOCKS_PER_ROW, len(rest))
+            while True:
+                row = rest[:take]
+                if sum(row) + BLOCK_GAP * (take - 1) <= STRIP_WIDTH:
+                    rows.append((row, BLOCK_GAP))
+                    break
+                room = STRIP_WIDTH - BLOCK_GAP_LEAST * (take - 1)
+                factor = room / sum(row)
+                narrowed = [max(BLOCK_NARROWEST, w * factor) for w in row]
+                if sum(narrowed) <= room or take == 1:
+                    rows.append((narrowed, BLOCK_GAP_LEAST))
+                    break
+                take -= 1
+            rest = rest[take:]
+        return rows
 
     def block_width(self, block: ChainBlock) -> float:
         if block.stack:  # a column as wide as its widest block
@@ -2531,7 +2628,11 @@ class _Page:
 
     def operate(self, operate: Operate) -> None:
         """The legend of the kinds of control, then each group: its tag, its title,
-        its controls in a row, the line of what it writes."""
+        its controls in a row, the line of what it writes; with no group, its note."""
+        if not operate.groups:
+            self.small(self.x0, self.y, operate.note or "", fg=MUTED_TEXT)
+            self.y += SMALL_LINE + ROW_GAP
+            return
         x = self.x0
         for kind, meaning in CONTROL_LEGEND:
             x = self.control_tag(x, self.y, kind)
@@ -2724,6 +2825,21 @@ class _Page:
                 {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: channel},
             )  # fmt: skip
         self.y = top + per * GRID_ROW + ROW_GAP
+        if grid.hidden:
+            self.small(self.x0, self.y, _HIDDEN.format(grid.hidden), fg=MUTED_TEXT)
+            self.y += SMALL_LINE + ROW_GAP
+
+    def channel_count(self, count: ChannelCount) -> None:
+        """For a device with more channels than a card lists: the counts by owner in
+        one muted line, and the link to the full list at its right."""
+        link_text = f"{count.link.label} {_MORE}"
+        lw = text_width(link_text, TEXT_SIZE)
+        line = _cut(" · ".join(count.parts), STRIP_WIDTH - lw - 2 * GAP, SMALL_SIZE)
+        self.small(self.x0, self.y + (ROW - SMALL_LINE) / 2, line, fg=MUTED_TEXT)
+        x = self.x0 + STRIP_WIDTH - lw
+        self.text(x, self.y, link_text, w=lw, fg=symbols.FOCUS)
+        self.nav(x, self.y, lw, ROW, count.link)
+        self.y += ROW + ROW_GAP
 
     # -- the device card ------------------------------------------------------
 

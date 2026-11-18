@@ -14,6 +14,7 @@ written set against the model.
 """
 
 from osprey.facility.panels.describe import (
+    channel_list,
     checkout,
     describe,
     device_card,
@@ -68,6 +69,7 @@ __all__ = [
     "channel_state",
     "checkout",
     "describe",
+    "channel_list",
     "device_card",
     "health_rollup",
     "load_graph",

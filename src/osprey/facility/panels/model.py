@@ -1282,7 +1282,8 @@ class PanelGraph:
     def hop(self, thing_id: str, kind: ThingKind, step: ChainStep) -> list[Edge]:
         """The claims a chain hop walks from a thing: those of its relation in its
         direction, superseded ones left out, whose other end its ``to`` takes; one
-        per other end, a contested claim before an accepted one."""
+        per other end, an accepted claim before a contested one (a claim that several
+        layers state is one end)."""
         edges = self.neighbours(thing_id, kind).get(step.relation, ())
         found: dict[str, Edge] = {}
         for edge in edges:
@@ -1290,7 +1291,8 @@ class PanelGraph:
                 continue
             if not self._takes(step.to, edge):
                 continue
-            if edge.other not in found or edge.standing == "contested":
+            held = found.get(edge.other)
+            if held is None or (held.standing == "contested" and edge.standing != "contested"):
                 found[edge.other] = edge
         return [found[other] for other in sorted(found)]
 

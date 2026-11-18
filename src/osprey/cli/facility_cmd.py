@@ -1417,11 +1417,13 @@ def panels_check(
     loose = emit.unplaced_parts(graph)
     counted = ", ".join(f"{cls} {n}" for cls, n in loose.items()) or "none"
     report(f"pictures, parts not placed: {counted}")
-    from osprey.facility.panels.describe import unstated_presses
+    from osprey.facility.panels.describe import tile_less, unstated_presses
 
     devices = [t.id for t in graph.things() if t.kind == "device"]
     left, cards = unstated_presses(graph, devices)
     report(f"device cards, presses left out (no value stated): {left} on {cards} cards")
+    bare_classes, bare = tile_less(graph, devices)
+    report(f"default card without tiles: {bare_classes} classes, {bare} devices")
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")

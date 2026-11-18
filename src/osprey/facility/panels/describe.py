@@ -65,10 +65,12 @@ from osprey.facility.panels.view import (
     Calibrations,
     CalibrationTallies,
     CalibrationTally,
+    CardFoot,
     CardHead,
     CardStrip,
     Chain,
     ChainBlock,
+    ChannelCount,
     ChannelGrid,
     CheckRow,
     Control,
@@ -125,6 +127,7 @@ __all__ = [
     "STRIP_PLACED",
     "checkout",
     "describe",
+    "channel_list",
     "device_card",
     "health_rollup",
     "light",
@@ -199,6 +202,7 @@ class _Index:
     """Which screens a graph gets, apart from racks (those depend on a parameter)."""
 
     carded: frozenset[str]  # devices with a card
+    listed: frozenset[str]  # devices with more channels than a card lists: a channels view
     place_views: frozenset[str]
     sets: frozenset[str]
     ruled: frozenset[str]  # places with a rule-bearing channel in their contents
@@ -247,6 +251,7 @@ def _neighbour_edges(graph: PanelGraph, thing: Thing) -> dict[str, list[Edge]]:
 
 def _build_index(graph: PanelGraph) -> _Index:
     carded: set[str] = set()
+    listed: set[str] = set()
     place_views: set[str] = set()
     sets: set[str] = set()
     ruled: set[str] = set()
@@ -276,6 +281,8 @@ def _build_index(graph: PanelGraph) -> _Index:
         if thing.kind == "device":
             if channels or graph.pose(thing.id) is not None or _neighbour_edges(graph, thing):
                 carded.add(thing.id)
+            if len(channels) > GRID_CAP and len(_listed(graph, thing.id, channels)) > GRID_CAP:
+                listed.add(thing.id)
             if thing.place is not None:
                 place_views.add(thing.place)
         elif thing.place is not None:
@@ -302,6 +309,7 @@ def _build_index(graph: PanelGraph) -> _Index:
     unplaced = graph.unplaced()
     return _Index(
         frozenset(carded),
+        frozenset(listed),
         frozenset(place_views),
         frozenset(sets),
         frozenset(ruled),
@@ -336,6 +344,8 @@ def _has(
         return view == "checkout" and index.unplaced_channels
     if view == "card":
         return thing_id in index.carded if kind == "device" else _holds(graph, thing_id, kind)
+    if view == "channels":
+        return kind == "device" and thing_id in index.listed
     if view == "set":
         return kind == "group" and thing_id in index.sets
     if view == "calibration":
@@ -383,6 +393,8 @@ def targets(graph: PanelGraph, *, rack_classes: frozenset[str] = frozenset()) ->
     found: list[Target] = []
     for thing in graph.things():
         candidates = [Target("card", thing.kind, thing.id)]
+        if thing.kind == "device":
+            candidates.append(Target("channels", "device", thing.id))
         if thing.kind == "group":
             candidates.append(Target("set", "group", thing.id))
             cls = index.set_class.get(thing.id)
@@ -735,6 +747,65 @@ def _sources(thing: Thing) -> list[Item]:
     ]
 
 
+#: The most documents the sources line names; the rest are counted.
+FOOT_DOCUMENTS = 4
+
+
+def _card_foot(thing: Thing, where: list[Item]) -> CardFoot:
+    """Where the device is and what it is read from, one line each.
+
+    The where line: each place a ``located_in`` claim names with its unit or units,
+    opening that place's rack view (two places read "<a> or <b>", and a contested
+    claim says so), else the place, opening its card; then "in <place>, as part of
+    <whole>" for a part, then its position per frame. The sources line: the count of
+    statements (its own citations, its placement and pose claims) and the documents
+    they cite; each statement's full provenance is a line of the hover text."""
+    segments: list[tuple[str, Link | None]] = []
+    citations: list[Citation] = list(thing.citations)
+    places: dict[Target, tuple[Link, list[str]]] = {}
+    contested = False
+    for item in where:
+        if isinstance(item, Placement):
+            link, units = places.setdefault(item.link.target, (item.link, []))
+            if item.unit is not None and str(item.unit) not in units:
+                units.append(str(item.unit))
+            contested |= item.link.standing == "contested"
+        if isinstance(item, Placement | Fact) and item.citation is not None:
+            citations.append(item.citation)
+    for n, (link, units) in enumerate(places.values()):
+        word = "unit" if len(units) == 1 else "units"
+        text = f"{link.target.id} {word} {', '.join(units)}" if units else link.target.id
+        segments.append((("or " if n else "") + text, link))
+    if not places:
+        segments += [(i.target.id, i) for i in where if isinstance(i, Link)][:1]
+    frames: set[str] = set()
+    for item in where:
+        if isinstance(item, Link) and item.basis == "inferred":
+            segments.append((item.label, item))
+        elif isinstance(item, Fact) and item.label == "where":
+            segments.append((item.text, None))
+        elif isinstance(item, Fact) and item.label not in frames:
+            frames.add(item.label)
+            segments.append((f"{item.label} {item.text}", None))
+    if contested:
+        segments.append((_CONTESTED_WORD, None))
+    if not segments:
+        segments.append((_NOT_STATED, None))
+    documents = list(dict.fromkeys(c.document for c in citations))
+    named = ", ".join(documents[:FOOT_DOCUMENTS])
+    if len(documents) > FOOT_DOCUMENTS:
+        named += f" and {len(documents) - FOOT_DOCUMENTS} more"
+    noun = "statement" if len(citations) == 1 else "statements"
+    source_noun = "source" if len(documents) == 1 else "sources"
+    sources = (
+        f"{len(citations)} {noun} from {len(documents)} {source_noun}: {named}"
+        if citations
+        else "no source stated"
+    )
+    provenance = tuple(f"{c.document}: {_citation_text(c)}" for c in citations)
+    return CardFoot(tuple(segments), sources, provenance, tuple(where), tuple(citations))
+
+
 def device_card(
     graph: PanelGraph,
     thing_id: str,
@@ -772,11 +843,8 @@ def device_card(
             ("calibration", _calibration(graph, index, thing)),
         ]
         crumbs = _crumbs(graph, index, thing.place)
-        after = [
-            ("where", _where(graph, index, thing, rack_classes)),
-            ("sources", _sources(thing)),
-        ]
-        sections = _drawn_card(graph, index, thing, extra, after)
+        foot = _card_foot(thing, _where(graph, index, thing, rack_classes))
+        sections = _drawn_card(graph, index, thing, extra, [("foot", [foot])])
         return View(
             Target("card", "device", thing.id), thing.id, crumbs, sections, alias=thing.short_name
         )
@@ -851,6 +919,16 @@ _CHAIN_FOOT = (
 _DEFAULT_COLUMNS = 4
 FOCUS_ROWS = 4  # the most value roles a chain's device block shows
 _CONTESTED_WORD = "contested"
+#: The most channels a card lists in its grid; a device with more gets a ``channels``
+#: view, and its card the counts and a link to it. The densest mock grid that reads.
+GRID_CAP = 60
+#: The role ``channel_roles.csv`` gives a driver's own records (a private signal, a
+#: record field, a driver's diagnostics): never offered on a card, nor listed in its grid.
+INTERNAL_ROLE = "internal"
+_NO_ACTIONS = "no operator actions stated"
+_INTERNAL_COUNT = "{} driver-internal"
+#: The ``many`` words of ``chains.csv`` that say a set of things is expected.
+MANY_WORDS = frozenset({"yes", "1"})
 #: Record types whose setpoint is a whole number: an output of two or more states.
 ENUMERATED_OUTPUTS = frozenset({"bo", "mbbo"})
 _DEFAULT_PRESS = 1.0  # what a command a record types writes, with no role saying otherwise
@@ -942,7 +1020,11 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
         if len(tiles) == DEFAULT_TILES:
             break
         first = found[0].role
-        if role in IDENTITY_ROLES or first.shown_as in CONTROLS or len(found) != 1:
+        if (
+            role in (*IDENTITY_ROLES, INTERNAL_ROLE)
+            or first.shown_as in CONTROLS
+            or len(found) != 1
+        ):
             continue
         unit, scale = _role_unit(graph, found[0])
         tiles.append(
@@ -960,7 +1042,12 @@ def _key_tiles(graph: PanelGraph, thing: Thing, hits: list[RoleHit]) -> list[Key
 
 
 def _relation_block(
-    graph: PanelGraph, index: _Index, edge: Edge, word: str, arrow: str | None
+    graph: PanelGraph,
+    index: _Index,
+    edge: Edge,
+    word: str,
+    arrow: str | None,
+    contested: bool = False,
 ) -> ChainBlock:
     """A block for the thing one claim of the device names."""
     item = _edge_item(graph, index, word, edge)
@@ -978,7 +1065,7 @@ def _relation_block(
         rows.append(BlockRow("port", text=edge.other_port or edge.port))
     else:
         rows.append(BlockRow("kind", text=kind))
-    standing = "contested" if edge.standing == "contested" else None
+    standing = _CONTESTED_WORD if contested else None
     if edge.kind == PLACE_RELATION and kind != edge.other_kind:  # the place's level: rack
         word = kind
     title = f"{word.capitalize()}  {edge.other}"
@@ -997,20 +1084,19 @@ def _default_chain(
     before: list[ChainBlock] = []
     after: list[ChainBlock] = []
     for relation, word, arrow in DEFAULT_CHAIN:
-        found = [
-            e
-            for e in edges.get(relation, ())
-            if e.outgoing and not (relation == "networked_to" and e.other_kind == "place")
-        ]
-        if relation == PLACE_RELATION:
-            found = _one_per_thing(found)
+        to = "place" if relation == PLACE_RELATION else "device"
+        step = ChainStep(
+            DEFAULT_RECIPE, word, 1, 0, relation, "out", to, None, None, word, None, None
+        )
+        found = graph.hop(thing.id, thing.kind, step)
         side = before if relation in (PLACE_RELATION, "powered_by") else after
         if not found:
             side.append(
                 ChainBlock(f"{word.capitalize()}: {_NOT_STATED}", None, dashed=True, arrow=arrow)
             )
-        for edge in _one_per_thing(found):
-            side.append(_relation_block(graph, index, edge, word, arrow))
+        contested = len(found) > 1  # two things after the filter; a claim twice is one
+        for edge in found:
+            side.append(_relation_block(graph, index, edge, word, arrow, contested))
     shown = {relation for relation, _w, _a in DEFAULT_CHAIN}
     for outgoing in (True, False):  # what the device claims, then what claims it
         for kind in sorted(edges):
@@ -1167,10 +1253,24 @@ def unstated_presses(graph: PanelGraph, devices: Iterable[str]) -> tuple[int, in
     for device in devices:
         thing = graph.thing(device, "device")
         hits = graph.roles(device)
-        _operate_, _used, left = _operate(graph, thing, hits, graph.channels(device, thing.kind))
+        channels = _listed(graph, device, graph.channels(device, thing.kind))
+        _operate_, _used, left = _operate(graph, thing, hits, channels)
         count += len(left)
         cards += bool(left)
     return count, cards
+
+
+def tile_less(graph: PanelGraph, devices: Iterable[str]) -> tuple[int, int]:
+    """How many classes, and devices, the default recipe draws with no key tile: no
+    ``metrics.csv`` card row and no role that shows a value (the data side's to add)."""
+    classes: set[str] = set()
+    count = 0
+    for device in devices:
+        thing = graph.thing(device, "device")
+        if graph.recipe(device) is None and not _key_tiles(graph, thing, graph.roles(device)):
+            classes.add(thing.cls or thing.kind)
+            count += 1
+    return len(classes), count
 
 
 def _status(graph: PanelGraph, hit: RoleHit, status: Mapping[str, str]) -> str | None:
@@ -1463,10 +1563,10 @@ def recipe_chain(
             edges: list[Edge] = []
         else:
             edges = graph.hop(froms[0][0], froms[0][1], step)
-            many = step.many == "yes"
+            many = step.many in MANY_WORDS
             if not edges:
                 why = HOP_NOT_STATED
-            elif not many and (len(edges) > 1 or any(e.standing == "contested" for e in edges)):
+            elif not many and len(edges) > 1:  # a claim several layers state counts once
                 why = HOP_CONTESTED
             else:
                 why = HOP_FOUND
@@ -1492,7 +1592,8 @@ def recipe_chain(
     mine = [
         h for h in hits
         if h.owner == thing.id and h.role.role not in shown_roles
-        and h.role.shown_as in ("value", "word", "lamp") and h.role.role not in IDENTITY_ROLES
+        and h.role.shown_as in ("value", "word", "lamp")
+        and h.role.role not in (*IDENTITY_ROLES, INTERNAL_ROLE)
     ][:FOCUS_ROWS]  # fmt: skip
     times = Counter(h.role.role for h in mine)
     seen: Counter[str] = Counter()
@@ -1538,6 +1639,88 @@ def chain_states(graph: PanelGraph, devices: Iterable[str]) -> dict[str, Counter
     return found
 
 
+def _internal(graph: PanelGraph, device: str) -> set[str]:
+    """The device's channels the data marks as driver-internal (:data:`INTERNAL_ROLE`)."""
+    return {
+        h.channel for h in graph.roles(device) if h.role.role == INTERNAL_ROLE and h.owner == device
+    }
+
+
+def _listed(graph: PanelGraph, device: str, channels: list[Channel]) -> list[Channel]:
+    """The device's channels a card or its list shows: all but the driver-internal."""
+    internal = _internal(graph, device)
+    return [c for c in channels if c.name not in internal]
+
+
+def _channel_count(
+    graph: PanelGraph, thing: Thing, shown: list[Channel], hidden: int
+) -> ChannelCount:
+    """The counts line for a device over :data:`GRID_CAP`: its own channels, each other
+    device's channels its roles show, the driver-internal records."""
+    parts = [f"{len(shown)} on {thing.cls or thing.kind} {thing.id}"]
+    others: dict[str, set[str]] = {}
+    for hit in graph.roles(thing.id):
+        if hit.owner != thing.id and hit.role.role != INTERNAL_ROLE:
+            others.setdefault(hit.owner, set()).add(hit.channel)
+    for owner, found in others.items():
+        try:
+            cls = graph.thing(owner, "device").cls or "device"
+        except KeyError:
+            cls = "device"
+        parts.append(f"{len(found)} on {cls} {owner}")
+    if hidden:
+        parts.append(_INTERNAL_COUNT.format(hidden))
+    link = Link("open the full list", Target("channels", "device", thing.id))
+    return ChannelCount(len(shown), tuple(parts), link)
+
+
+def channel_list(graph: PanelGraph, device_id: str) -> View:
+    """A device's ``channels`` view: every channel, grouped by the role it plays, then
+    by record type, then the driver-internal records last; each row its name, value
+    and unit. The one view that is a plain list by design.
+
+    Raises:
+        KeyError: No such device.
+    """
+    thing = graph.thing(device_id, "device")
+    index = _index(graph)
+    role_of: dict[str, str] = {}
+    for hit in graph.roles(device_id):
+        if hit.owner == device_id:
+            role_of.setdefault(hit.channel, hit.role.role)
+    groups: dict[str, list[Item]] = {}
+    last: list[Item] = []
+    for channel in graph.channels(device_id, "device"):
+        role = role_of.get(channel.name)
+        if role == INTERNAL_ROLE:
+            last.append(_value_row(graph, channel))
+            continue
+        if role is not None:
+            title = _role_title(role)
+        else:
+            row = graph.record_type(channel.name)
+            title = (
+                f"record type {row.record_type}" if row is not None else "record type not stated"
+            )
+        groups.setdefault(title, []).append(_value_row(graph, channel))
+    roled = [k for k in groups if not k.startswith("record type")]
+    typed = sorted(k for k in groups if k.startswith("record type"))
+    pairs = [(k, groups[k]) for k in (*roled, *typed)]
+    if last:
+        pairs.append((_INTERNAL_COUNT.format(len(last)), last))
+    crumbs = (
+        *_crumbs(graph, index, thing.place),
+        Link(thing.id, Target("card", "device", thing.id)),
+    )
+    return View(
+        Target("channels", "device", device_id),
+        f"{device_id} · all channels",
+        crumbs,
+        _sections(pairs),
+        alias=thing.short_name,
+    )
+
+
 def _drawn_card(
     graph: PanelGraph,
     index: _Index,
@@ -1556,7 +1739,9 @@ def _drawn_card(
     if recipe is not None and recipe.description:
         description = _filled(recipe.description, graph, thing)
     hits = graph.roles(thing.id)
-    channels = graph.channels(thing.id, thing.kind)
+    every = graph.channels(thing.id, thing.kind)
+    channels = _listed(graph, thing.id, every)  # the driver-internal never shown
+    hidden = len(every) - len(channels)
     tiles = _key_tiles(graph, thing, hits)
     name = recipe.recipe if recipe is not None else DEFAULT_RECIPE
     drawings: list[tuple[str, list[Item]]] = []
@@ -1588,13 +1773,18 @@ def _drawn_card(
     rows = tuple(
         (_short_channel(c.name, thing.id), c.name) for c in channels if c.name not in drawn
     )
+    listing: list[Item] = []
+    if len(channels) > GRID_CAP:
+        listing = [_channel_count(graph, thing, channels, hidden)]
+    elif rows or hidden:
+        listing = [ChannelGrid(rows, columns, hidden)]
     pairs: list[tuple[str, list[Item]]] = [
         (CARD_SECTIONS["head"], [CardHead(kind, description, recipe is None, nowhere)]),
         (CARD_SECTIONS["tiles"], list(tiles)),
         *drawings,
         *extra,
-        (CARD_SECTIONS["operate"], [operate] if operate is not None else []),
-        (CARD_SECTIONS["channels"], [ChannelGrid(rows, columns)] if rows else []),
+        (CARD_SECTIONS["operate"], [operate or Operate((), _NO_ACTIONS)] if every else []),
+        (CARD_SECTIONS["channels"], listing),
         *after,
     ]
     return _sections(pairs)
@@ -2562,6 +2752,8 @@ def describe(
         return device_card(
             graph, target.id, target.kind, rack_classes=rack_classes, symbols=symbols
         )
+    if target.view == "channels":
+        return channel_list(graph, target.id)
     if target.view == "set":
         return set_overview(graph, target.id)
     if target.view == "calibration":

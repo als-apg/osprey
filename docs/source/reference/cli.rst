@@ -1388,9 +1388,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    facility tree (``--tables DIRECTORY`` names another), and draw with the
    settings in ``draw.json`` beside the tables (``--draw FILE`` names another;
    with neither, the empty settings, and one line says so). The screens are
-   Canopy Screen-IR documents, one file per screen, in seven view kinds:
+   Canopy Screen-IR documents, one file per screen, in eight view kinds:
    ``card`` (one device, its signals, picture, relations and calibration
-   records), ``set`` (the members of a group as a grid), ``calibration`` (one
+   records), ``channels`` (every channel of a device with more than a card
+   lists, grouped by role, then record type: the one plain list), ``set`` (the members of a group as a grid), ``calibration`` (one
    calibration kind over a set), ``place`` (a place's devices in beam order
    with a band of key numbers), ``rack`` (a rack elevation, chassis at their
    unit), ``rollup`` (the health of a place and everything in it, level by
@@ -1426,12 +1427,20 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``card`` whose ``level`` names its recipe, else its roles), its relations as
    a chain of blocks, its drawings, an operate block (its control roles, else its
    writable channels: a choice of stated states, an action, or a typed value
-   applied with Apply), every other channel in a grid, where it is and its
-   sources. A button writes only a value a source states (a role's press value
+   applied with Apply; "no operator actions stated" when there is none), every
+   other channel in a grid (up to 60; a device with more shows the counts by
+   owner and opens its ``channels`` view), then one muted line for where it is
+   and one for its sources (the count of statements and their documents, each
+   statement on hover). A channel ``channel_roles.csv`` gives the role
+   ``internal`` (a driver's own record) is never offered and never listed on a
+   card, only counted. A relation the chain names is drawn once per thing it
+   reaches after the ``to`` filter (the place for ``located_in``, a device for
+   the rest); two things make the hop contested, both named. A button writes only a value a source states (a role's press value
    or the value of its state word; 1 for a command); a press whose value is not
    stated is left out, and ``check`` counts those. Apply stays off the canvas,
    with "type a value first" in its place, until the field holds a number, so
-   no click writes a value nobody typed. A class with no recipe row is drawn with the default recipe (the
+   no click writes a value nobody typed. ``check`` also counts the default-recipe
+   cards with no key tile (no card metric and no role that shows a value). A class with no recipe row is drawn with the default recipe (the
    sections stated for the recipe ``default``, else a chain of its place, power,
    network and controller); ``write`` prints how many device cards each recipe
    drew, per chain, how many were drawn whole and the hop most often missing, and

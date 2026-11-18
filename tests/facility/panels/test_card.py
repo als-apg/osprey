@@ -65,7 +65,7 @@ def _reads(doc: dict, node: dict) -> set[str]:
 def _heads(doc: dict) -> list[str]:
     """The numbered section heads, in page order."""
     texts = sorted(_by_type(doc, "text-label"), key=lambda n: n["geometry"]["y"])
-    return [n["props"]["text"] for n in texts if " · " in n["props"]["text"][:5]]
+    return [n["props"]["text"] for n in texts if " · " in n["props"]["text"][1:5]]
 
 
 def test_a_drawn_card_has_its_title_line_numbered_sections_and_no_signal_table(panel_graph):
@@ -80,9 +80,7 @@ def test_a_drawn_card_has_its_title_line_numbered_sections_and_no_signal_table(p
         "2 · CALIBRATION",
         "3 · OPERATE",
         "4 · ALL CHANNELS (1)",
-        "5 · WHERE",
-        "6 · SOURCES",
-    ]
+    ]  # where and sources: one muted line each, no section
     texts = {n["props"]["text"] for n in _by_type(doc, "text-label")}
     assert not texts & {"SIGNAL", "SETPOINT", "READBACK", "SIGNALS", "SETTINGS"}
     bottom = max(n["geometry"]["y"] + n["geometry"]["height"] for n in nodes(doc))
@@ -393,17 +391,29 @@ def test_a_recipe_names_the_card_fills_its_sentence_and_sets_the_grid_columns(tm
     assert next(i for s in other.sections for i in s.items if isinstance(i, CardHead)).default
 
 
-def test_where_and_sources_are_muted_lines_a_contested_claim_says_so(panel_graph) -> None:
+def test_where_and_sources_are_one_muted_line_each_a_contested_claim_says_so(panel_graph) -> None:
     doc = stub_render(device_card(panel_graph, "XR02:CH5"), panel_graph)
-    lines = [
-        n for n in _by_type(doc, "text-label")
-        if n["props"]["text"].startswith("XR/XR0") and "unit" in n["props"]["text"]
-    ]  # fmt: skip
-    assert len(lines) == 3
-    assert all(n["props"]["text"].endswith("· contested") for n in lines)
-    assert all(n["props"]["foregroundColor"] == layout.MUTED_TEXT for n in lines)
-    opens = [n for n in _by_type(doc, "rectangle") if n["props"].get("actions")]
-    assert len([n for n in opens if n["geometry"]["y"] in {m["geometry"]["y"] for m in lines}]) == 3
+    (head,) = [n for n in _by_type(doc, "text-label") if n["props"]["text"] == "Where:"]
+    y = head["geometry"]["y"]
+    line = sorted(
+        (n for n in _by_type(doc, "text-label") if n["geometry"]["y"] == y),
+        key=lambda n: n["geometry"]["x"],
+    )
+    text = "".join(n["props"]["text"] for n in line)
+    assert text == "Where:XR/XR01/RK1 units 40, 41 or XR/XR02/RK2 unit 5 · contested"
+    (sources,) = [
+        n for n in _by_type(doc, "text-label") if n["props"]["text"].startswith("Sources:")
+    ]
+    for n in (*line, sources):
+        assert n["props"]["foregroundColor"] == layout.MUTED_TEXT
+    assert sources["geometry"]["y"] == y + layout.SMALL_LINE + layout.ROW_GAP
+    opens = [
+        n
+        for n in _by_type(doc, "rectangle")
+        if n["props"].get("actions") and n["geometry"]["y"] == y
+    ]
+    assert len(opens) == 2  # each place opens its rack view
+    assert not [n for n in _by_type(doc, "text-label") if n["props"]["text"].endswith("· WHERE")]
 
 
 def test_a_recipe_for_some_devices_of_a_class_wins_and_keys_its_own_tiles(tmp_path):
@@ -645,4 +655,62 @@ def test_strip_states_count_the_devices_of_a_recipe_by_how_they_are_placed(tmp_p
     graph = _stripped(tmp_path, raft=True)
     assert strip_states(graph, ["XR01:IP1", "XR01:IP2", "XR01:QF1"]) == {
         "pump": {"placed": 1, "on a raft": 1}
+    }
+
+
+def test_a_lamp_whose_meaning_is_not_stated_is_the_neutral_light(tmp_path) -> None:
+    roles = "Pump,state,*:State-Sts,device,lamp,,,,,stated,S,1,l\n"
+    bare = _roles_graph(tmp_path / "a", roles)
+    assert bare.rule("XR01-IP1:State-Sts")  # a health rule exists, its words do not
+    tile_lights = [
+        n
+        for n in _by_type(stub_render(device_card(bare, "XR01:IP1"), bare), "polygon")
+        if n["props"].get("tooltip") == layout._NO_RULE
+    ]
+    assert tile_lights
+    labels = "XR01-IP1:State-Sts,0,Off,S,1,l\nXR01-IP1:State-Sts,1,Running,S,1,l\n"
+    worded = _roles_graph(tmp_path / "b", roles, labels)
+    doc = stub_render(device_card(worded, "XR01:IP1"), worded)
+    assert not [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == layout._NO_RULE]
+
+
+def test_driver_internal_records_are_never_offered_nor_listed_only_counted(tmp_path) -> None:
+    roles = "PowerSupply,internal,*:On-Cmd,device,value,,,,,stated,S,1,l\n"
+    graph = _roles_graph(tmp_path, roles)
+    doc = stub_render(device_card(graph, "XR01:PS1"), graph)
+    assert _by_type(doc, "pv-button") == []  # its only command is internal
+    assert _text(doc, "no operator actions stated")
+    assert _text(doc, "1 driver-internal records not shown")
+    assert not [n for n in nodes(doc) if "XR01-PS1:On-Cmd" in _reads(doc, n)]
+    assert [n for n in nodes(doc) if "XR01-PS1:On-Sts" in _reads(doc, n)]
+
+
+def test_a_device_over_the_cap_shows_counts_and_opens_its_channels_view(tmp_path, monkeypatch):
+    import importlib
+
+    describing = importlib.import_module("osprey.facility.panels.describe")
+    from osprey.facility.panels.describe import describe, targets
+    from osprey.facility.panels.view import ChannelCount, Target, ValueRow
+
+    monkeypatch.setattr(describing, "GRID_CAP", 1)
+    roles = (
+        "Quadrupole,current,*:Current-RB,device,value,,,,,stated,S,1,l\n"
+        "PowerSupply,internal,*:On-Cmd,device,value,,,,,stated,S,1,l\n"
+    )
+    graph = _roles_graph(tmp_path, roles)
+    found = {t for t in targets(graph) if t.view == "channels"}
+    assert Target("channels", "device", "XR01:QF1") in found
+    assert Target("channels", "device", "XR01:PS1") not in found  # one listed, one internal
+    view = device_card(graph, "XR01:QF1")
+    (count,) = [i for s in view.sections for i in s.items if isinstance(i, ChannelCount)]
+    assert count.total == 2 and count.parts[0] == "2 on Quadrupole XR01:QF1"
+    doc = stub_render(view, graph)
+    assert _text(doc, "open the full list ›")
+    listing = describe(graph, Target("channels", "device", "XR01:QF1"))
+    titles = [s.title for s in listing.sections]
+    assert titles[0] == "Current"  # by role first, then by record type
+    assert all(isinstance(i, ValueRow) for s in listing.sections for i in s.items)
+    assert {i.channel for s in listing.sections for i in s.items} == {
+        "XR01-QF1:Current-RB",
+        "XR01-QF1:Current-SP",
     }

@@ -1533,3 +1533,16 @@ def test_over_the_budget_values_are_dropped_not_symbols_and_the_strip_says_so(
     shapes = [n for n in _by_type(doc, "polygon") if n["props"].get("tooltip") == "XR01:QF1"]
     assert shapes  # the symbol stays
     assert len(_values(full)) == 3  # two quadrupoles and the pump
+
+
+def test_five_chain_blocks_fit_one_row_and_a_sixth_wraps() -> None:
+    rows = layout._Page.chain_rows
+    three = rows([layout.BLOCK_LEAST] * 3)
+    assert three == [([layout.BLOCK_LEAST] * 3, layout.BLOCK_GAP)]  # room: as drawn
+    (five,) = rows([layout.BLOCK_MOST] * 5)
+    widths, gap = five
+    assert len(widths) == 5 and gap == layout.BLOCK_GAP_LEAST
+    assert sum(widths) + 4 * gap <= layout.STRIP_WIDTH
+    assert min(widths) >= layout.BLOCK_NARROWEST
+    six = rows([layout.BLOCK_LEAST] * 6)
+    assert [len(w) for w, _gap in six] == [5, 1]

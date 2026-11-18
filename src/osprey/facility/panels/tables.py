@@ -477,7 +477,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CHANNEL_ROLES: {"scope": ROLE_SCOPES, "shown_as": SHOWN_AS, "basis": BASES},
         CARD_RECIPES: {},
         CARD_SECTIONS: {"kind": SECTION_KINDS},
-        CHAINS: {"direction": DIRECTIONS, "many": ("yes",)},
+        CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
         STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
     }
 )
@@ -878,9 +878,9 @@ class ChainStep:
     It starts at the thing step ``from_step`` reached (``0``: the device; empty: the
     step before), walks ``relation`` from its subject (``out``) or to it (``in``),
     and keeps the things ``to`` takes: ``device``, ``place``, a class, or
-    ``class:pattern`` on the thing's id (empty: any). Two things, or a contested
-    claim, make the hop contested, unless ``many`` is ``yes``: then every thing is
-    a block. ``port_from`` labels the arrow: ``object_port``, ``subject_port`` or
+    ``class:pattern`` on the thing's id (empty: any). Two distinct things after that filter make the hop
+    contested (a claim several layers state is one thing), unless ``many`` is
+    ``yes`` or ``1``: then every thing is a block (empty or ``0``: one expected). ``port_from`` labels the arrow: ``object_port``, ``subject_port`` or
     a word of its own. ``roles`` are shown in the block (``;``-separated)."""
 
     recipe: str

@@ -19,11 +19,13 @@ __all__ = [
     "VIEW_KINDS",
     "Band",
     "BlockRow",
+    "CardFoot",
     "CardHead",
     "CardStrip",
     "StripMember",
     "Chain",
     "ChainBlock",
+    "ChannelCount",
     "ChannelGrid",
     "Control",
     "ControlGroup",
@@ -57,11 +59,12 @@ __all__ = [
     "ViewKind",
 ]
 
-ViewKind = Literal["card", "set", "calibration", "place", "rack", "rollup", "checkout"]
+ViewKind = Literal["card", "channels", "set", "calibration", "place", "rack", "rollup", "checkout"]
 
 #: Every view kind, in the order screens of one thing are listed.
 VIEW_KINDS: tuple[ViewKind, ...] = (
     "card",
+    "channels",
     "set",
     "calibration",
     "place",
@@ -617,6 +620,28 @@ class CalibrationTallies:
 
 
 @dataclass(frozen=True)
+class CardFoot:
+    """A drawn card's last two muted lines: where the device is and what it is read
+    from, each one line; the full provenance on hover.
+
+    Attributes:
+        where: The where line in pieces, each its text and the screen it opens (or
+            ``None``): the places with their units, the whole, the positions.
+        sources: The count of statements and the documents they cite.
+        provenance: One line per statement, shown on hover.
+        claims: What the where line is made of: the place, each ``located_in``
+            claim (:class:`Placement`), each pose (:class:`Fact`).
+        citations: The statements the sources line counts.
+    """
+
+    where: tuple[tuple[str, Link | None], ...]
+    sources: str
+    provenance: tuple[str, ...]
+    claims: tuple[Item, ...] = ()
+    citations: tuple[Citation, ...] = ()
+
+
+@dataclass(frozen=True)
 class CardHead:
     """A drawn card's title line under the bar: the device's class and recipe in
     muted words, and the recipe's sentence (``None`` with none).
@@ -799,17 +824,37 @@ class ControlGroup:
 
 @dataclass(frozen=True)
 class Operate:
-    """A drawn card's operate block."""
+    """A drawn card's operate block; with no group, *note* says why."""
 
     groups: tuple[ControlGroup, ...]
+    note: str | None = None
 
 
 @dataclass(frozen=True)
 class ChannelGrid:
-    """Every channel of the device not drawn above, compact: (short name, channel)."""
+    """Every channel of the device not drawn above, compact: (short name, channel);
+    *hidden* driver-internal records are left out and counted under it."""
 
     rows: tuple[tuple[str, str], ...]
     columns: int = 4
+    hidden: int = 0
+
+
+@dataclass(frozen=True)
+class ChannelCount:
+    """In place of the grid, for a device with more channels than a card lists: how
+    many there are by owner, and the link to its ``channels`` view.
+
+    Attributes:
+        total: The channels the full list holds.
+        parts: The counts by owner: the device's own, each device a role walks to,
+            the driver-internal records.
+        link: The ``channels`` view.
+    """
+
+    total: int
+    parts: tuple[str, ...]
+    link: Link
 
 
 Item = (
@@ -836,6 +881,8 @@ Item = (
     | CardStrip
     | Operate
     | ChannelGrid
+    | ChannelCount
+    | CardFoot
 )
 
 

@@ -59,6 +59,7 @@ def test_check_after_write_exits_0(facility_file, tmp_path):
     assert "pictures, none: " in result.output
     assert "pictures, parts not placed: none" in result.output  # information, not a problem
     assert "device cards, presses left out (no value stated): 0 on 0 cards" in result.output
+    assert "default card without tiles: " in result.output  # no roles: no tile is guessed
 
 
 def test_check_exits_1_and_counts_each_kind(facility_file, tmp_path):
