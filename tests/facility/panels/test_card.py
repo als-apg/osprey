@@ -2437,3 +2437,33 @@ def test_a_role_rows_stated_label_names_its_tile_value_and_entries(tmp_path) -> 
     ]  # fmt: skip
     assert group.title == "Pump size"
     assert [c.label for c in group.controls] == ["Pump size A", "Pump size B"]
+
+
+def test_a_channels_signal_never_turns_its_stated_words_into_a_typed_entry(tmp_path) -> None:
+    """A writable channel that only states a signal plays it as a role, and the card
+    still offers it as the choice of its stated words, a plain setpoint as an entry."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import Operate
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def modes(document) -> None:
+        for name, signal in (("XR01-IP1:Mode-Sel", "mode"), ("XR01-IP1:Size-SP", "size")):
+            document["channels"].append(
+                {"id": name, "on": {"device": "XR01:IP1"}, "role": "setpoint", "signal": signal}
+            )
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "record_types.csv").open("a") as handle:
+        handle.write("XR01-IP1:Mode-Sel,mbbo,setpoint,stated,xr-ioc,0a1b2c3,vacApp/Db/pump.db:9\n")
+        handle.write("XR01-IP1:Size-SP,ao,setpoint,stated,xr-ioc,0a1b2c3,vacApp/Db/pump.db:12\n")
+    (tables / "state_labels.csv").write_text(
+        "channel,value,label,source,revision,locator\n"
+        "XR01-IP1:Mode-Sel,0,Off,S,,\nXR01-IP1:Mode-Sel,1,On,S,,\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", modes), tables)
+    assert {h.channel: h.role.role for h in graph.roles("XR01:IP1")}["XR01-IP1:Mode-Sel"] == "mode"
+    (operate,) = [i for s in device_card(graph, "XR01:IP1").sections for i in s.items
+                  if isinstance(i, Operate)]  # fmt: skip
+    kinds = {c.channel: g.kind for g in operate.groups for c in g.controls}
+    assert kinds["XR01-IP1:Mode-Sel"] == "choice"
+    assert kinds["XR01-IP1:Size-SP"] == "entry"

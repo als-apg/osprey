@@ -479,13 +479,15 @@ def signal_role(cls: str, channel: Channel) -> ChannelRole | None:
     """The role a channel plays on its device when no ``channel_roles.csv`` row names
     it: its stated ``signal``, shown by how it is drawn (an entry for a setpoint, a
     word for a state, a value), with nothing else stated; ``None`` for a channel
-    with no signal or one drawn otherwise."""
+    with no signal or one drawn otherwise. It is no press: the card offers its
+    channel as the channels no row names are offered (a choice of stated words,
+    an action, an entry)."""
     shown = _DEFAULT_SHOWN.get(channel.drawn_as or "")
     if channel.signal is None or shown is None:
         return None
     return ChannelRole(
         cls, channel.signal, channel.name, "device", shown, None, None, None, None,
-        "stated", None, None, None,
+        "stated", None, None, None, stated=False,
     )  # fmt: skip
 
 

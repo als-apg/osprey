@@ -903,6 +903,10 @@ class ChannelRole:
     source: str | None
     revision: str | None
     locator: str | None
+    #: False for the role a channel's own ``signal`` gives it when no row names it
+    #: (:func:`osprey.facility.panels.model.signal_role`): it names what the channel
+    #: is, never how the card presses it.
+    stated: bool = True
 
 
 def _channel_role(**columns: Any) -> ChannelRole:

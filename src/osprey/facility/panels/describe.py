@@ -1535,7 +1535,8 @@ def _operate(
     groups: list[ControlGroup] = []
     used: set[str] = set()
     unstated: list[str] = []
-    controls = [h for h in hits if h.role.shown_as in CONTROLS]
+    # a role a channel's signal gives it says what it is, not how it is pressed
+    controls = [h for h in hits if h.role.shown_as in CONTROLS and h.role.stated]
     status = {h.role.role: h.channel for h in hits if h.role.shown_as not in CONTROLS}
     if controls:
         keyed: dict[tuple[str, str, str], list[RoleHit]] = {}
