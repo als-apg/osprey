@@ -46,6 +46,7 @@ TWO_CHANNELS = {"records/channels.yaml": [{"id": "LAB:TEMP:01"}, {"id": "LAB:TEM
 #: The simulator view's files, every one written whatever the tree holds.
 SIMULATOR_FILES = (
     "addresses.json",
+    "follows.json",
     "scenarios.json",
     "seeds.json",
     "served_models.json",

@@ -1,0 +1,1 @@
+Pin CANOPY to 8752ab77 and record the payload's screen viewer at 4038c44. A formula can read a whole group of channels with one token (`{*}`, `{g.*}`) and ask for a channel's alarm severity or connection state (`severity()`, `connected()`), and the viewer's rule compiler sends such formulas, so one light can show the worst state of many channels.

@@ -579,6 +579,66 @@ class SignalRoleEnum(str, Enum):
     """
     Current operating mode of the machine (e.g. user operation, machine development, shutdown).
     """
+    model_readback = "model_readback"
+    """
+    Model name a device reports of itself.
+    """
+    serial_number_readback = "serial_number_readback"
+    """
+    Serial number a device reports of itself.
+    """
+    firmware_version_readback = "firmware_version_readback"
+    """
+    Firmware version a device reports of itself.
+    """
+    temperature_lolo_limit_readback = "temperature_lolo_limit_readback"
+    """
+    Temperature of the low-low (major) alarm limit, as read back.
+    """
+    temperature_lolo_limit_setpoint = "temperature_lolo_limit_setpoint"
+    """
+    Temperature of the low-low (major) alarm limit, as commanded.
+    """
+    temperature_lo_limit_readback = "temperature_lo_limit_readback"
+    """
+    Temperature of the low (minor) alarm limit, as read back.
+    """
+    temperature_lo_limit_setpoint = "temperature_lo_limit_setpoint"
+    """
+    Temperature of the low (minor) alarm limit, as commanded.
+    """
+    temperature_hi_limit_readback = "temperature_hi_limit_readback"
+    """
+    Temperature of the high (minor) alarm limit, as read back.
+    """
+    temperature_hi_limit_setpoint = "temperature_hi_limit_setpoint"
+    """
+    Temperature of the high (minor) alarm limit, as commanded.
+    """
+    temperature_hihi_limit_readback = "temperature_hihi_limit_readback"
+    """
+    Temperature of the high-high (major) alarm limit, as read back.
+    """
+    temperature_hihi_limit_setpoint = "temperature_hihi_limit_setpoint"
+    """
+    Temperature of the high-high (major) alarm limit, as commanded.
+    """
+    normalized_strength_setpoint = "normalized_strength_setpoint"
+    """
+    Commanded normalized strength of a multipole magnet (K1 in 1/m^2 for a quadrupole, K2 in 1/m^3 for a sextupole), the field over the beam rigidity.
+    """
+    normalized_strength_readback = "normalized_strength_readback"
+    """
+    Normalized strength of a multipole magnet, as read back.
+    """
+    kick_angle_setpoint = "kick_angle_setpoint"
+    """
+    Commanded deflection angle of a corrector magnet.
+    """
+    kick_angle_readback = "kick_angle_readback"
+    """
+    Deflection angle of a corrector magnet, as read back.
+    """
 
 
 class PropertyNameEnum(str, Enum):
@@ -715,7 +775,7 @@ class RoleEnum(str, Enum):
     """
     readback = "readback"
     """
-    Read only; the pair of at most one setpoint.
+    Read only; the pair of any number of setpoints. The simulation drives it from its setpoint only where exactly one names it.
     """
     none = "none"
     """
@@ -1525,6 +1585,8 @@ class FacilitySignal(ConfiguredBaseModel):
                        'Channel',
                        'Group',
                        'Scenario']} })
+    nameplate: Optional[bool] = Field(default=None, description="""True for a signal that names the unit it is read from rather than its state (its model, serial number, firmware version): read once, never a live quantity.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilitySignal']} })
+    title: Optional[str] = Field(default=None, description="""The short word a screen names the signal by, on a tile or a value row (``Hi`` for a high alarm limit); with none, its name.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilitySignal', 'Document']} })
 
 
 class Provenance(ConfiguredBaseModel):
@@ -1537,6 +1599,7 @@ class Provenance(ConfiguredBaseModel):
     fixes: Optional[list[ProvenanceFix]] = Field(default=None, description="""The fixes applied to the record, in fixes.yaml order.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
     defaults: Optional[list[str]] = Field(default=None, description="""The fields the build filled because no source stated them.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
     place_from: Optional[PlaceFromEnum] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance']} })
+    rules: Optional[list[ProvenanceRule]] = Field(default=None, description="""The fields the build derived by a named rule (each also in `defaults`), one entry per rule; absent when none.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Provenance'], 'list_elements_ordered': True} })
 
 
 class ProvenanceSource(ConfiguredBaseModel):
@@ -1544,7 +1607,18 @@ class ProvenanceSource(ConfiguredBaseModel):
 
     layer: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
     file: str = Field(default=..., description="""Relative to data/facility/.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
-    fields: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource'], 'list_elements_ordered': True} })
+    fields: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule'],
+         'list_elements_ordered': True} })
+    basis: Optional[BasisEnum] = Field(default=None, description="""What the fields rest on, as the layer's record says (its `basis`); absent means stated.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'Relation', 'Alias']} })
+    rule: Optional[str] = Field(default=None, description="""The rule that derived the fields; present with basis inferred.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule', 'Relation', 'Alias']} })
+
+
+class ProvenanceRule(ConfiguredBaseModel):
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    fields: list[str] = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule'],
+         'list_elements_ordered': True} })
+    rule: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule', 'Relation', 'Alias']} })
 
 
 class ProvenanceFix(ConfiguredBaseModel):
@@ -1718,6 +1792,7 @@ class Seed(ConfiguredBaseModel):
     gate: Optional[Gate] = Field(default=None, description="""What the channel does while any of `inputs` reads its blocking label, beside `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     topoff: Optional[Topoff] = Field(default=None, description="""A stored current refilled every `period_s` and decaying between refills with lifetime `lifetime_h`; it holds the level the decay averages to, so it carries no `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     topoff_lifetime: Optional[TopoffLifetime] = Field(default=None, description="""The lifetime of a `topoff` channel, read as a constant.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    follows: Optional[str] = Field(default=None, description="""On a readback a setpoint names as its `pair`: the setpoint the simulation copies a write from into this readback, or `none` for no setpoint. Without it the simulation follows the readback when exactly one setpoint names it and the two hold values of one type.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
 
 
 class Topoff(ConfiguredBaseModel):
@@ -2065,8 +2140,8 @@ class Relation(ConfiguredBaseModel):
     subject: RelationEnd = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     object: RelationEnd = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     attributes: Optional[Any] = Field(default=None, description="""Free map: cable, signal, medium, length, ...""", json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Relation']} })
-    basis: Optional[BasisEnum] = Field(default=None, description="""Absent means stated.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
-    rule: Optional[str] = Field(default=None, description="""The rule that derived an inferred claim; required with basis inferred.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
+    basis: Optional[BasisEnum] = Field(default=None, description="""Absent means stated.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'Relation', 'Alias']} })
+    rule: Optional[str] = Field(default=None, description="""The rule that derived an inferred claim; required with basis inferred.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule', 'Relation', 'Alias']} })
     source: Optional[Citation] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
     standing: Optional[StandingEnum] = Field(default=None, description="""Computed; the claim's standing among the claims about the same fact.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
     contests: Optional[list[str]] = Field(default=None, description="""Computed; the ids of the claims this one disputes.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Relation']} })
@@ -2118,7 +2193,7 @@ class Document(ConfiguredBaseModel):
                        'Wiring',
                        'Relation',
                        'Document']} })
-    title: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Document']} })
+    title: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['FacilitySignal', 'Document']} })
     kind: Optional[str] = Field(default=None, description="""The facility's word for the sort of document; policy ranks by it.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Group', 'Document']} })
     system: Optional[str] = Field(default=None, description="""Where the document is kept.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Document']} })
 
@@ -2131,8 +2206,8 @@ class Alias(ConfiguredBaseModel):
 
     name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'FacilitySignal', 'Model', 'Scenario', 'Alias']} })
     scheme: str = Field(default=..., description="""The naming vocabulary: lattice, controls, cable-schedule, ...""", json_schema_extra = { "linkml_meta": {'domain_of': ['Alias']} })
-    basis: Optional[BasisEnum] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
-    rule: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
+    basis: Optional[BasisEnum] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'Relation', 'Alias']} })
+    rule: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule', 'Relation', 'Alias']} })
     source: Optional[Citation] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Relation', 'Alias']} })
 
 
@@ -2214,6 +2289,7 @@ FacilityClass.model_rebuild()
 FacilitySignal.model_rebuild()
 Provenance.model_rebuild()
 ProvenanceSource.model_rebuild()
+ProvenanceRule.model_rebuild()
 ProvenanceFix.model_rebuild()
 Place.model_rebuild()
 Span.model_rebuild()

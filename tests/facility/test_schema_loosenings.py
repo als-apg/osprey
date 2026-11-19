@@ -245,7 +245,13 @@ def test_limits_are_records_only(core: dict) -> None:
 def test_every_record_kind_carries_provenance(core: dict) -> None:
     for cls in ("Place", "Device", "Channel", "Group", "Model", "Wiring", "Relation"):
         assert _attrs(core, cls)["provenance"]["range"] == "Provenance"
-    assert set(_attrs(core, "Provenance")) == {"sources", "fixes", "defaults", "place_from"}
+    assert set(_attrs(core, "Provenance")) == {
+        "sources",
+        "fixes",
+        "defaults",
+        "place_from",
+        "rules",
+    }
 
 
 def test_every_multivalued_slot_but_the_sets_keeps_source_order(core: dict) -> None:

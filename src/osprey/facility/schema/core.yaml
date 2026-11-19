@@ -29,7 +29,9 @@ enums:
       setpoint:
         description: Written by a program; read back through its `pair`.
       readback:
-        description: Read only; the pair of at most one setpoint.
+        description: >-
+          Read only; the pair of any number of setpoints. The simulation drives it
+          from its setpoint only where exactly one names it.
       none:
         description: Neither written nor paired.
 
@@ -233,6 +235,16 @@ classes:
         multivalued: true
         list_elements_ordered: true
       description:
+      nameplate:
+        range: boolean
+        description: >-
+          True for a signal that names the unit it is read from rather than its
+          state (its model, serial number, firmware version): read once, never a
+          live quantity.
+      title:
+        description: >-
+          The short word a screen names the signal by, on a tile or a value row
+          (``Hi`` for a high alarm limit); with none, its name.
 
   Provenance:
     description: Which sources, fixes and defaults produced a record.
@@ -255,6 +267,14 @@ classes:
         description: The fields the build filled because no source stated them.
       place_from:
         range: place_from_enum
+      rules:
+        range: ProvenanceRule
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: >-
+          The fields the build derived by a named rule (each also in `defaults`),
+          one entry per rule; absent when none.
 
   ProvenanceSource:
     attributes:
@@ -266,6 +286,22 @@ classes:
       fields:
         multivalued: true
         list_elements_ordered: true
+      basis:
+        range: basis_enum
+        description: >-
+          What the fields rest on, as the layer's record says (its `basis`); absent
+          means stated.
+      rule:
+        description: The rule that derived the fields; present with basis inferred.
+
+  ProvenanceRule:
+    attributes:
+      fields:
+        multivalued: true
+        list_elements_ordered: true
+        required: true
+      rule:
+        required: true
 
   ProvenanceFix:
     attributes:
@@ -502,6 +538,12 @@ classes:
         range: TopoffLifetime
         inlined: true
         description: The lifetime of a `topoff` channel, read as a constant.
+      follows:
+        description: >-
+          On a readback a setpoint names as its `pair`: the setpoint the
+          simulation copies a write from into this readback, or `none` for
+          no setpoint. Without it the simulation follows the readback when
+          exactly one setpoint names it and the two hold values of one type.
 
   Topoff:
     description: >-

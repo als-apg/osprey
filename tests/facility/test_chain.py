@@ -84,6 +84,7 @@ VIEW_FILES: dict[str, tuple[str, ...]] = {
         "simulator/addresses.json",
         "simulator/decks/LTB.json",
         "simulator/decks/StorageRing.json",
+        "simulator/follows.json",
         "simulator/scenarios.json",
         "simulator/seeds.json",
         "simulator/served_models.json",

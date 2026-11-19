@@ -761,7 +761,7 @@ def _channels(
         role = roles.get(f"{view.raw_name}.{fld.name}")
         described = family.fields.get(fld.name)
         description = described.description if described is not None else None
-        signal = described.signal if described is not None else None
+        signal = described.signal_of(view.system) if described is not None else None
         for key in fld.keys:
             for index, slot in enumerate(fld.slots(key)[: view.n_devices]):
                 address = exported_text(slot)

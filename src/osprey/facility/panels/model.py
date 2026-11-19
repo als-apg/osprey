@@ -19,9 +19,8 @@ What the graph leaves out, everywhere:
 - a channel ``excluded.csv`` lists (``kind`` ``channel``) and a channel whose
   name starts with ``VA:`` (simulation only), with their record types, pairs
   and health rules; a pair whose readback is left out is left out;
-- a pair ``pairs.csv`` does not state: the table is the one source of pairs;
 - what a document ``excluded.csv`` lists (``kind`` ``document``) is the
-  source of: a citation, a relation claim, a pose, a health row, a pair, a
+  source of: a citation, a relation claim, a pose, a health row, a
   record type;
 - a ``superseded`` relation claim. ``accepted`` and ``contested`` claims are
   edges, their standing on the edge. A relation kind the framework does not
@@ -37,10 +36,8 @@ attributes field that is no mapping, members that are no list) never stops
 the graph: the row is kept without it, or with it as text where it is shown
 as text, and :attr:`PanelGraph.unread` counts such values.
 
-The ring frame is the frame of ``positions.csv`` that carries the most rows
-with an empty ``derived_assumes`` (on a
-tie, the rows name no ring frame: :func:`load_graph` refuses and asks for
-one), unless :func:`load_graph` is told which.
+Each model has its own beam frame: the frame of ``positions.csv`` in which most
+of its devices' rows state an ``s_m`` and assume nothing (see :func:`_beam_frames`).
 """
 
 from __future__ import annotations
@@ -60,9 +57,14 @@ from typing import Any, Literal
 from osprey.facility import FACILITY_FILE
 from osprey.facility.panels.tables import (
     CALIBRATION_BASES,
+    CHANNEL_ROLES,
+    CONTROLS,
     CURVE_PREFIX,
+    NAMES,
+    RECORD_TYPES,
     TABLE_FILES,
     WALKED_RELATIONS,
+    Basis,
     Calibration,
     CalibrationKind,
     CardRecipe,
@@ -76,7 +78,6 @@ from osprey.facility.panels.tables import (
     FrontRow,
     HealthRule,
     Metric,
-    Pair,
     PanelTables,
     PicturePart,
     Pose,
@@ -87,6 +88,7 @@ from osprey.facility.panels.tables import (
 )
 from osprey.facility.records import FacilityRecords
 from osprey.facility.relations import END_KINDS, end_identity
+from osprey.facility.validate import nameplate_signals, signal_titles
 
 __all__ = [
     "CalibrationState",
@@ -96,6 +98,7 @@ __all__ = [
     "Channel",
     "Citation",
     "Edge",
+    "Pair",
     "PanelGraph",
     "RoleHit",
     "Thing",
@@ -123,6 +126,26 @@ _Key = tuple[str, str]
 
 
 @dataclass(frozen=True)
+class Pair:
+    """The readback a setpoint is shown beside, as the facility file pairs them.
+
+    Attributes:
+        setpoint: The setpoint.
+        readback: Its pair.
+        basis: ``inferred`` when the build derived the pair, or the layer that
+            states it says a named rule did; ``stated`` otherwise.
+        rule: For an inferred pair, the rule that formed it.
+        source: The layer file that states the pair; ``None`` for one the build derived.
+    """
+
+    setpoint: str
+    readback: str
+    basis: Basis
+    rule: str | None = None
+    source: str | None = None
+
+
+@dataclass(frozen=True)
 class RoleHit:
     """A channel that plays a ``channel_roles.csv`` role for a device.
 
@@ -143,6 +166,30 @@ class RoleHit:
     owner: str
     port: str | None = None
     join: str | None = None
+
+
+def _facility_pair(setpoint: str, readback: str, record: Mapping[str, Any]) -> Pair:
+    """The pair a setpoint's record names, with what it rests on: stated when a layer
+    states ``pair`` outright, inferred by its rule when every layer that states it
+    says a rule derived it, or by the build's rule when the build derived it."""
+    provenance = record.get("provenance") or {}
+    for derived in provenance.get("rules") or ():
+        if "pair" in (derived.get("fields") or ()):
+            return Pair(setpoint, readback, "inferred", rule=_text(derived.get("rule")))
+    stating = [s for s in provenance.get("sources") or () if "pair" in (s.get("fields") or ())]
+    stated = [s for s in stating if s.get("basis") != "inferred"]
+    if stated or not stating:  # one layer stating it outright is enough
+        return Pair(
+            setpoint, readback, "stated", source=_text(stated[-1].get("file")) if stated else None
+        )
+    source = stating[-1]
+    return Pair(
+        setpoint,
+        readback,
+        "inferred",
+        rule=_text(source.get("rule")),
+        source=_text(source.get("file")),
+    )
 
 
 def _join(edges: Iterable[Edge]) -> str | None:
@@ -207,7 +254,8 @@ class Thing:
             tree, such as ``rack``); ``None`` for a device, a group or a place
             with none.
         short_name: The short name ``names.csv`` states for it (a strip's
-            label), or ``None``.
+            label), else the record's ``label``, else ``None``; :attr:`short`
+            falls back to its id's last part.
         model: The model a device belongs to, or ``None``.
     """
 
@@ -228,6 +276,18 @@ class Thing:
     #: A device's ``s`` along its model's beam path, as the build computed or a
     #: source stated it; ``None`` without one.
     s_m: float | None = None
+
+    @property
+    def short(self) -> str:
+        """The name a drawing gives it in short: :attr:`short_name`, else the last
+        ``:``- or ``/``-separated part of its id."""
+        return self.short_name or id_tail(self.id)
+
+
+def id_tail(thing_id: str) -> str:
+    """The last ``:``- or ``/``-separated part of an id (the whole id if it has none)."""
+    parts = [part for part in re.split(r"[:/]", thing_id) if part]
+    return parts[-1] if parts else thing_id
 
 
 @dataclass(frozen=True)
@@ -445,6 +505,53 @@ def _number_or_none(value: Any) -> float | None:
     return float(value)
 
 
+#: How a channel is drawn when ``record_types.csv`` says nothing: by its role in
+#: the facility file (a setpoint is an entry beside its readback, a readback a value).
+_ROLE_DRAWN: Mapping[str, DrawnAs] = MappingProxyType({"setpoint": "setpoint", "readback": "value"})
+#: The ``record_types.csv`` column an empty value of which means the role's drawing.
+_DRAWN_AS_COLUMN = f"{RECORD_TYPES} drawn_as"
+
+#: How a channel's default role (:func:`signal_role`) is shown, by how it is drawn;
+#: a command or a channel drawn as text or a waveform plays no default role.
+_DEFAULT_SHOWN: Mapping[str, str] = MappingProxyType(
+    {"setpoint": "entry", "state": "word", "value": "value"}
+)
+
+
+def _role_reading(hits: list[RoleHit]) -> tuple[tuple[Any, ...], ...]:
+    """What a card reads of a device's role hits, in order: each hit's channel,
+    owner, port and join, and its row's role, drawing, unit, scale, label and, for
+    a press, its value, basis and whether a row states it."""
+    return tuple(
+        (
+            h.channel, h.owner, h.port, h.join, h.role.role, h.role.shown_as, h.role.unit,
+            h.role.scale, h.role.label, h.role.press_value,
+            (h.role.basis, h.role.stated) if h.role.shown_as in CONTROLS else None,
+        )
+        for h in hits
+    )  # fmt: skip
+
+
+def signal_role(
+    cls: str, channel: Channel, ruled: bool = False, title: str | None = None
+) -> ChannelRole | None:
+    """The role a channel plays on its device when no ``channel_roles.csv`` row names
+    it: its stated ``signal``, shown by how it is drawn (an entry for a setpoint, a
+    word for a state, a lamp for a state *ruled* by health rows, a value), with
+    nothing else stated; ``None`` for a channel with no signal or one drawn otherwise. It is no press: the card offers its
+    channel as the channels no row names are offered (a choice of stated words,
+    an action, an entry)."""
+    shown = _DEFAULT_SHOWN.get(channel.drawn_as or "")
+    if channel.signal is None or shown is None:
+        return None
+    if shown == "word" and ruled:  # its health rows say what each state means
+        shown = "lamp"
+    return ChannelRole(
+        cls, channel.signal, channel.name, "device", shown, None, None, None, None,
+        "stated", None, None, None, stated=False, title=title,
+    )  # fmt: skip
+
+
 #: The frame name of a model's beam path: positions in it are its devices' ``s``.
 MODEL_FRAME = "model {}"
 
@@ -471,6 +578,10 @@ class PanelGraph:
     Built by :func:`load_graph`; see the module docstring for what it leaves out.
     """
 
+    #: The write scope a write kept to ``write_under`` describes the graph under
+    #: (:func:`~osprey.facility.panels.emit.scoped`); ``None`` for the whole facility.
+    write_scope: Any = None
+
     def __init__(
         self,
         records: FacilityRecords,
@@ -495,8 +606,21 @@ class PanelGraph:
             for row in tables.names
             if row.document not in self._excluded_documents
         }
+        #: Per table, the rows that only restate what the facility file says.
+        #: The signal roles that name a unit rather than its state (a ``nameplate``
+        #: signal of the vocabulary or ``signals.yaml``): a role of one of these
+        #: words says what a device is, never how it is.
+        self.identity: frozenset[str] = nameplate_signals(records.document.get("signals") or ())
+        #: The short word each titled signal role is named by on a screen.
+        self.titles: dict[str, str] = signal_titles(records.document.get("signals") or ())
+        self.redundant: dict[str, int] = {}
+        #: Per ``table column``: the rows whose value in it is the default, while
+        #: another column of the row is read (the row stays, the value may go).
+        self.redundant_columns: dict[str, int] = {}
         for key, thing in self._things.items():
             if thing.id in short:
+                if short[thing.id] == thing.short_name:
+                    self.redundant[NAMES] = self.redundant.get(NAMES, 0) + 1
                 self._things[key] = dataclasses.replace(thing, short_name=short[thing.id])
         self._children: dict[str, list[Thing]] = {}
         for thing in self._things.values():
@@ -520,7 +644,7 @@ class PanelGraph:
         for rule in tables.health:
             if rule.channel in self._channel and rule.source not in self._excluded_documents:
                 self._rules.setdefault(rule.channel, []).append(rule)
-        self._read_pairs(tables)
+        self._read_pairs()
         self._pictures: dict[str, list[PicturePart]] = {}
         self._held_by: dict[str, frozenset[str]] = {}
         for part in tables.pictures:
@@ -537,7 +661,8 @@ class PanelGraph:
         self._roles_of: dict[str, list[ChannelRole]] = {}
         for role in tables.channel_roles:
             if role.source not in self._excluded_documents:
-                self._roles_of.setdefault(role.cls, []).append(role)
+                titled = dataclasses.replace(role, title=self.titles.get(role.role))
+                self._roles_of.setdefault(role.cls, []).append(titled)
         self._recipes: dict[str, list[CardRecipe]] = {}
         for recipe in tables.card_recipes:
             self._recipes.setdefault(recipe.cls, []).append(recipe)
@@ -634,6 +759,7 @@ class PanelGraph:
                     group_kind=(_text(record.get("kind")) or "family") if kind == "group" else None,
                     attributes=_attribute_pairs(record) if kind == "device" else (),
                     s_m=_number_or_none(record.get("s")) if kind == "device" else None,
+                    short_name=_text(record.get("label")),
                 )
         return things
 
@@ -678,6 +804,7 @@ class PanelGraph:
             if row.source not in self._excluded_documents
         }
         self._types: dict[str, RecordType] = {}
+        self._stated_pairs: dict[str, Pair] = {}
         self._channel: dict[str, Channel] = {}
         self._channels: dict[_Key, list[Channel]] = {}
         self._unheld: list[Channel] = []
@@ -696,9 +823,18 @@ class PanelGraph:
                 continue
             row = types.get(name)
             names = sorted(str(alias) for alias in record.get("names") or ())
+            default = _ROLE_DRAWN.get(_text(record.get("role")) or "")
+            if row is not None and row.drawn_as is not None and row.drawn_as == default:
+                # the record type is still read: only the column may go
+                self.redundant_columns[_DRAWN_AS_COLUMN] = (
+                    self.redundant_columns.get(_DRAWN_AS_COLUMN, 0) + 1
+                )
+            paired = _text(record.get("pair"))
+            if paired is not None and paired != name and record.get("role") == "setpoint":
+                self._stated_pairs[name] = _facility_pair(name, paired, record)
             channel = Channel(
                 name=name,
-                drawn_as=row.drawn_as if row is not None else None,
+                drawn_as=row.drawn_as if row is not None and row.drawn_as else default,
                 writable=record.get("role") == "setpoint",
                 alias=names[0] if names else None,
                 thing=holder[1] if holder is not None else None,
@@ -854,13 +990,12 @@ class PanelGraph:
         for poses in self._poses.values():
             poses.sort(key=lambda pose: not pose.is_beam_position)
 
-    def _read_pairs(self, tables: PanelTables) -> None:
-        self._pairs: dict[str, Pair] = {}
-        for pair in tables.pairs:
-            if pair.source in self._excluded_documents:
-                continue
-            if pair.setpoint in self._channel and pair.readback in self._channel:
-                self._pairs[pair.setpoint] = pair
+    def _read_pairs(self) -> None:
+        self._pairs: dict[str, Pair] = {
+            setpoint: pair
+            for setpoint, pair in self._stated_pairs.items()
+            if pair.readback in self._channel
+        }
 
     # -- reading --------------------------------------------------------------
 
@@ -1535,11 +1670,77 @@ class PanelGraph:
         channel over all walked relations plays the role, more than one is
         contested and none plays it.
 
+        After the rows, by default, each channel on the device that states a
+        ``signal`` and no row gave a role plays that signal as its role
+        (:func:`signal_role`), so a deployment's table names only walked scopes,
+        labels, presses and channels with no signal.
+
         Raises:
             KeyError: No such device.
         """
+        return self._roles(device_id)
+
+    def _roles(self, device_id: str, skip: ChannelRole | None = None) -> list[RoleHit]:
+        """:meth:`roles`, the ``channel_roles.csv`` row *skip* left out."""
+        found = self._table_roles(device_id, skip)
+        taken = {hit.channel for hit in found}
+        for channel in self.channels(device_id, "device"):
+            if channel.thing != device_id or channel.name in taken:
+                continue
+            role = self._signal_role(self.thing(device_id, "device").cls or "", channel)
+            if role is not None:
+                found.append(RoleHit(role, channel.name, device_id))
+        return found
+
+    def _signal_role(self, cls: str, channel: Channel) -> ChannelRole | None:
+        """:func:`signal_role`, a state with health rows shown as a lamp."""
+        ruled = bool(self._rules.get(channel.name))
+        title = self.titles.get(channel.signal or "")
+        return signal_role(cls, channel, ruled=ruled, title=title)
+
+    def redundant_rows(self) -> dict[str, int]:
+        """Per table, how many rows only restate what the facility file says, no
+        column of them read for anything else: a ``names.csv`` short name that is the record's ``label``; and a ``channel_roles.csv`` row
+        without which every device it matches plays the same roles, in the same
+        order, with all a card reads of them the same (:func:`_role_reading`): a
+        press, which no default gives, never is. A deployment can delete them. A
+        row of which only one value is the default is counted in
+        :attr:`redundant_columns` instead."""
+        verdicts: dict[ChannelRole, bool] = {}
+        matched: dict[int, tuple[ChannelRole, set[str]]] = {}
+        for thing in self._things.values():
+            if thing.kind != "device" or not self._roles_of.get(thing.cls or ""):
+                continue
+            for hit in self._table_roles(thing.id):
+                row = hit.role
+                if row.scope != "device":
+                    continue
+                default = self._signal_role(row.cls, self._channel[hit.channel])
+                same = (
+                    default is not None
+                    and default.role == row.role
+                    and default.shown_as == row.shown_as
+                    and not (row.unit or row.scale or row.press_value is not None or row.label)
+                )
+                verdicts[row] = verdicts.get(row, True) and same
+                matched.setdefault(id(row), (row, set()))[1].add(thing.id)
+        for row, devices in matched.values():
+            if verdicts.get(row):  # the cheap test passed: the exact one decides
+                verdicts[row] = all(
+                    _role_reading(self._roles(d)) == _role_reading(self._roles(d, row))
+                    for d in sorted(devices)
+                )
+        found = dict(self.redundant)
+        roles = sum(verdicts.values())
+        if roles:
+            found[CHANNEL_ROLES] = roles
+        return found
+
+    def _table_roles(self, device_id: str, skip: ChannelRole | None = None) -> list[RoleHit]:
+        """The role hits ``channel_roles.csv`` gives a device (:meth:`roles`), the row
+        *skip* left out."""
         thing = self.thing(device_id, "device")
-        rows = self._roles_of.get(thing.cls or "", [])
+        rows = [r for r in self._roles_of.get(thing.cls or "", []) if r is not skip]
         if not rows:
             return []
         edges = self.neighbours(device_id, "device")
@@ -1586,7 +1787,8 @@ class PanelGraph:
         return self._labels.get((channel, _value_key(value)))
 
     def pair(self, setpoint: str) -> Pair | None:
-        """The readback ``pairs.csv`` shows the setpoint beside, or ``None``."""
+        """The readback the facility file pairs *setpoint* with, or ``None`` when it
+        is its own pair, is no setpoint, or its pair is left out."""
         return self._pairs.get(setpoint)
 
 

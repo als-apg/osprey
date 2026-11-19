@@ -1437,7 +1437,8 @@ def panels_check(
     a child has no screen to open), long_formula (an expression the formula engine
     would refuse as too long) or over_budget (more rules or channels than one
     screen may bind).
-    A link to a screen outside the written set (``outside_set``), a card or
+    A screen named without a link because a scoped write does not produce it, or
+    a link to a screen outside the written set (``outside_set``), a card or
     checkout over its budget, a probe row whose signal no channel states
     (``unbound_probe``), a pictures row whose signal resolves to no channel
     (``unbound_picture``) and one whose signal matches channels of several devices
@@ -1484,6 +1485,10 @@ def panels_check(
     report(f"  by default (no channel, no drawing): {by_default} devices")
     for number, (row, n) in enumerate(card_rule_counts(graph), start=1):
         report(f"  cards.csv row {number}, {row.action} ({_card_rule_terms(row)}): {n} devices")
+    for table, n in sorted(graph.redundant_rows().items()):
+        report(f"redundant: {table}: {n} rows restate the facility file or the default")
+    for column, n in sorted(graph.redundant_columns.items()):
+        report(f"redundant: {column}: {n} rows state the default; the value may be left empty")
     count = Counter(problem.kind for problem in problems)
     for kind in sorted(count):
         report(f"{kind}: {count[kind]}")

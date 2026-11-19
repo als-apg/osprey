@@ -493,6 +493,7 @@ def test_a_walked_role_takes_the_channel_of_its_port_and_a_contested_one_none(tm
     assert [(h.role.role, h.channel, h.owner, h.port) for h in hits] == [
         ("pressure", "XR01-CH2:IP2:P", "XR01:CH2", "CH2"),
         ("state", "XR01-IP1:State-Sts", "XR01:IP1", None),
+        ("vacuum_readback", "XR01-IP1:Pressure-RB", "XR01:IP1", None),  # its signal, by default
     ]
     from osprey.facility.panels.view import ChannelGrid
 
@@ -637,7 +638,8 @@ def test_the_device_s_block_shows_no_role_several_of_its_channels_play(tmp_path)
     graph = load_graph(write_fixture_facility(tmp_path / "g.json", statuses), tables)
     device = _chain_of(device_card(graph, "XR01:IP1")).blocks[0]
     assert [r.channel for r in device.rows] == [
-        "XR01-IP1:Pressure-RB"
+        "XR01-IP1:Pressure-RB",
+        "XR01-IP1:State-Sts",  # its signal, a role by default
     ]  # one per connector: not here
 
 
@@ -649,7 +651,10 @@ def test_a_recipe_chain_walks_its_hops_and_says_where_one_is_not_stated(tmp_path
     assert "Signal chain" in [s.title for s in view.sections]
     assert "relations" not in [s.title for s in view.sections]  # the recipe's chain instead
     device, readout, supply, further = _chain_of(view).blocks
-    assert device.focus and [r.channel for r in device.rows] == ["XR01-IP1:Pressure-RB"]
+    assert device.focus and [r.channel for r in device.rows] == [
+        "XR01-IP1:Pressure-RB",
+        "XR01-IP1:State-Sts",  # no row names it: its signal is its role
+    ]
     assert device.arrow == "CH2"  # the read-out's object port, on the arrow into it
     assert readout.title == "Read-out  XR01:CH2" and readout.link.target.id == "XR01:CH2"
     assert [(r.label, r.channel) for r in readout.rows] == [("temperature", "XR01-CH2:Temp-RB")]
@@ -797,7 +802,7 @@ def _stripped(tmp_path, *, place_pose: bool = False, change=None):
         "pump,1,strip,Where it sits,,Pump;Quadrupole,3,pressure,the strip's caption,S\n"
     )
     (tables / "symbols.csv").write_text(
-        "class,devices,symbol,lane,source\nPump,,pump,below,S\nQuadrupole,*:QF*,quad,beam,S\n"
+        "class,devices,symbol,lane,source\nPump,,pump,below,S\nQuadrupole,*:QF*,quadrupole,beam,S\n"
     )
     (tables / "channel_roles.csv").write_text(
         ROLES_HEADER + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
@@ -819,11 +824,13 @@ def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
     assert strip.window == (-1.75, 4.25) and strip.bracket is None
     assert [(m.thing, m.symbol, m.lane, m.focus) for m in strip.members] == [
         ("XR01:IP1", "pump", "below", True),
-        ("XR01:QF1", "quad", "beam", False),  # QD1 matches no symbols row: not drawn
+        ("XR01:QF1", "quadrupole", "beam", False),  # QD1 matches no symbols row: not drawn
     ]
     assert strip.members[0].channel == "XR01-IP1:Pressure-RB"
     doc = stub_render(view, graph)
-    assert _text(doc, "XR01:IP1 · here")["props"]["foregroundColor"]["$role"] == "Focus"
+    # the quadrupole by its record's label; the pump, with none, by its id's last part
+    assert [m.label for m in strip.members] == ["IP1", "F1"]
+    assert _text(doc, "IP1 · here")["props"]["foregroundColor"]["$role"] == "Focus"
     assert _text(doc, "2 m") and _text(doc, "-1 m")  # a tick every metre
     opens = [n for n in _by_type(doc, "rectangle") if n["props"].get("tooltip") == "XR01:QF1"]
     assert opens and opens[0]["props"]["actions"]
@@ -1617,11 +1624,10 @@ def test_a_group_wrapping_onto_a_second_line_names_it_continued(tmp_path):
 
 
 def test_inside_a_place_a_member_shows_its_short_name_and_two_alike_keep_what_differs():
-    from types import SimpleNamespace
-
     from osprey.facility.panels.describe import _short_labels
+    from osprey.facility.panels.model import Thing
 
-    members = [SimpleNamespace(id=i, short_name=None) for i in ("XR05A:G1", "XR05A:P1", "XR05B:P1")]
+    members = [Thing(i, "device", None, None) for i in ("XR05A:G1", "XR05A:P1", "XR05B:P1")]
     assert _short_labels(members) == {"XR05A:G1": "G1", "XR05A:P1": "A:P1", "XR05B:P1": "B:P1"}
 
 
@@ -2385,7 +2391,8 @@ def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _interlocked), tables)
     # the device's card shows its own point by the stated relation
     hits = [(h.role.role, h.channel, h.owner, h.port) for h in graph.roles("XR01:IP1")]
-    assert hits == [("interlock", "XR01-CH3:In1-Sts", "XR01:CH3", "IN1")]
+    assert hits[0] == ("interlock", "XR01-CH3:In1-Sts", "XR01:CH3", "IN1")
+    assert all(h[2] == "XR01:IP1" for h in hits[1:])  # then its own signals, by default
     assert graph.card_channels("XR01:IP2")
     # the interlock's card carries the point of each device it interlocks
     chain = next(
@@ -2397,3 +2404,213 @@ def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
         "Interlocks  XR01:IP1": ["XR01-CH3:In1-Sts"],
         "Interlocks  XR01:IP2": ["XR01-CH3:In2-Sts"],
     }
+
+
+def test_a_role_rows_stated_label_names_its_tile_value_and_entries(tmp_path) -> None:
+    """A stated label is the word on a lamp's and a value's tile, over the entries'
+    group and in front of what tells two entries of one role apart."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import ControlGroup, KeyTile
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def sizes(document) -> None:
+        for name in ("XR01-IP1:Size_A", "XR01-IP1:Size_B"):
+            document["channels"].append(
+                {"id": name, "on": {"device": "XR01:IP1"}, "role": "setpoint"}
+            )
+
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "Pump,pump-state,*:State-Sts,device,lamp,,,,Pump OK,stated,S,,\n"
+        + "Pump,pressure,*:Pressure-RB,device,value,,,,Vacuum,stated,S,,\n"
+        + "Pump,pump-size,*:Size_*,device,entry,,,,Pump size,stated,S,,\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", sizes), tables)
+    view = device_card(graph, "XR01:IP1")
+    items = [i for s in view.sections for i in s.items]
+    tiles = {t.channel: t.title for t in items if isinstance(t, KeyTile)}
+    assert tiles == {"XR01-IP1:State-Sts": "Pump OK", "XR01-IP1:Pressure-RB": "Vacuum"}
+    (group,) = [
+        g for o in items if hasattr(o, "groups") for g in o.groups
+        if isinstance(g, ControlGroup) and g.kind == "entry"
+    ]  # fmt: skip
+    assert group.title == "Pump size"
+    assert [c.label for c in group.controls] == ["Pump size A", "Pump size B"]
+
+
+def test_a_channels_signal_never_turns_its_stated_words_into_a_typed_entry(tmp_path) -> None:
+    """A writable channel that only states a signal plays it as a role, and the card
+    still offers it as the choice of its stated words, a plain setpoint as an entry."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import Operate
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def modes(document) -> None:
+        for name, signal in (("XR01-IP1:Mode-Sel", "mode"), ("XR01-IP1:Size-SP", "size")):
+            document["channels"].append(
+                {"id": name, "on": {"device": "XR01:IP1"}, "role": "setpoint", "signal": signal}
+            )
+
+    tables = copy_tables(tmp_path / "panels")
+    with (tables / "record_types.csv").open("a") as handle:
+        handle.write("XR01-IP1:Mode-Sel,mbbo,setpoint,stated,xr-ioc,0a1b2c3,vacApp/Db/pump.db:9\n")
+        handle.write("XR01-IP1:Size-SP,ao,setpoint,stated,xr-ioc,0a1b2c3,vacApp/Db/pump.db:12\n")
+    (tables / "state_labels.csv").write_text(
+        "channel,value,label,source,revision,locator\n"
+        "XR01-IP1:Mode-Sel,0,Off,S,,\nXR01-IP1:Mode-Sel,1,On,S,,\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", modes), tables)
+    assert {h.channel: h.role.role for h in graph.roles("XR01:IP1")}["XR01-IP1:Mode-Sel"] == "mode"
+    (operate,) = [i for s in device_card(graph, "XR01:IP1").sections for i in s.items
+                  if isinstance(i, Operate)]  # fmt: skip
+    kinds = {c.channel: g.kind for g in operate.groups for c in g.controls}
+    assert kinds["XR01-IP1:Mode-Sel"] == "choice"
+    assert kinds["XR01-IP1:Size-SP"] == "entry"
+
+
+def test_a_state_its_health_rows_rule_is_a_lamp_by_default(tmp_path) -> None:
+    """With no role row, a state channel's signal plays its role as a lamp when
+    health rows say what its states mean, else as a word; a row overrides."""
+    from osprey.facility.panels import load_graph
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    def shown(tables) -> str:
+        graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+        (hit,) = [h for h in graph.roles("XR01:IP1") if h.channel == "XR01-IP1:State-Sts"]
+        return hit.role.shown_as
+
+    ruled = copy_tables(tmp_path / "ruled")
+    assert shown(ruled) == "lamp"  # the fixture's health rows rule it
+    unruled = copy_tables(tmp_path / "unruled")
+    header = (unruled / "health.csv").read_text().splitlines()[0]
+    (unruled / "health.csv").write_text(header + "\n")
+    assert shown(unruled) == "word"
+    (ruled / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,status,*:State-Sts,device,word,,,,,stated,S,,\n"
+    )
+    assert shown(ruled) == "word"  # a row overrides
+
+
+def test_a_nameplate_signal_says_what_a_device_is_and_is_no_key_tile(tmp_path) -> None:
+    """A role of a signal the facility marks ``nameplate`` (it names the unit, as a
+    bootloader version does) is never a key tile; unmarked, the same channel is one;
+    a row that gives the channel another role word overrides the mark."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import KeyTile
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    firmware = "XR01-IP1:Bootloader-RB"
+
+    def facility(marked: bool):
+        def change(document) -> None:
+            signal = {"name": "bootloader_version_readback", "description": "Bootloader version."}
+            if marked:
+                signal["nameplate"] = True
+            document.setdefault("signals", []).append(signal)
+            document["channels"].append(
+                {"id": firmware, "on": {"device": "XR01:IP1"}, "role": "readback",
+                 "signal": "bootloader_version_readback"}
+            )  # fmt: skip
+
+        return write_fixture_facility(tmp_path / f"f-{marked}.json", change)
+
+    def tiles(graph) -> set[str]:
+        view = device_card(graph, "XR01:IP1")
+        return {i.channel for s in view.sections for i in s.items if isinstance(i, KeyTile)}
+
+    tables = copy_tables(tmp_path / "panels")
+    marked = load_graph(facility(True), tables)
+    assert "bootloader_version_readback" in marked.identity
+    assert firmware not in tiles(marked)
+    assert firmware in tiles(load_graph(facility(False), tables))
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,bootloader,*:Bootloader-RB,device,value,,,,,stated,S,,\n"
+    )
+    assert firmware in tiles(load_graph(facility(True), tables))  # a row's word decides
+
+
+def test_the_vocabularys_nameplate_signals_say_what_a_device_is_with_no_table(tmp_path) -> None:
+    """The shipped vocabulary marks its model, serial number and firmware version
+    signals nameplate: a channel stating one is never a key tile, with no row."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import KeyTile
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    signals = ("model_readback", "serial_number_readback", "firmware_version_readback")
+
+    def change(document) -> None:
+        for n, signal in enumerate(signals):
+            document["channels"].append(
+                {"id": f"XR01-IP1:Plate{n}-RB", "on": {"device": "XR01:IP1"},
+                 "role": "readback", "signal": signal}
+            )  # fmt: skip
+
+    graph = load_graph(
+        write_fixture_facility(tmp_path / "f.json", change), copy_tables(tmp_path / "p")
+    )
+    assert set(signals) <= graph.identity
+    view = device_card(graph, "XR01:IP1")
+    tiles = {i.channel for s in view.sections for i in s.items if isinstance(i, KeyTile)}
+    assert not {c for c in tiles if ":Plate" in c}
+    from osprey.facility.panels.view import Chain
+
+    (chain,) = [i for s in view.sections for i in s.items if isinstance(i, Chain)]
+    (own,) = [b for b in chain.blocks if b.focus]
+    # in the device's own block, each by the quantity its signal names
+    assert [r.label for r in own.rows] == ["model", "serial number", "firmware version"]
+
+
+def test_a_signal_s_title_names_its_channel_and_a_row_label_wins(tmp_path) -> None:
+    """A channel whose signal states a ``title`` (the vocabulary's alarm-limit word,
+    or one the facility gives its own signal) is called by it; a row's ``label``
+    still decides."""
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.view import KeyTile
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    limit, trip = "XR01-IP1:TempHi-RB", "XR01-IP1:Trip-RB"
+
+    def change(document) -> None:
+        document.setdefault("signals", []).append(
+            {"name": "trip_level_readback", "description": "Trip level.", "title": "Trip"}
+        )
+        for channel, signal in (
+            (limit, "temperature_hi_limit_readback"),
+            (trip, "trip_level_readback"),
+        ):
+            document["channels"].append(
+                {"id": channel, "on": {"device": "XR01:IP1"}, "role": "readback",
+                 "signal": signal}
+            )  # fmt: skip
+
+    def titles(graph) -> dict[str, str]:
+        view = device_card(graph, "XR01:IP1")
+        tiles = [i for s in view.sections for i in s.items if isinstance(i, KeyTile)]
+        return {t.channel: t.title for t in tiles if t.channel in (limit, trip)}
+
+    tables = copy_tables(tmp_path / "panels")
+    facility = write_fixture_facility(tmp_path / "f.json", change)
+    graph = load_graph(facility, tables)
+    assert graph.titles["temperature_hi_limit_readback"] == "Hi"  # the vocabulary's word
+    assert titles(graph) == {limit: "Hi", trip: "Trip"}
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER
+        + "Pump,temperature_hi_limit_readback,*:TempHi-RB,device,value,,,,High limit,stated,S,,\n"
+    )
+    assert titles(load_graph(facility, tables))[limit] == "High limit"
+
+
+def test_the_vocabulary_titles_its_general_signals_with_the_operator_s_word() -> None:
+    from osprey.facility.validate import signal_titles
+
+    titles = signal_titles()
+    assert {name: titles[name] for name in (
+        "current_readback", "current_setpoint", "voltage_readback", "ramp_rate_setpoint",
+        "power_on_command", "temperature_lolo_limit_readback", "temperature_hihi_limit_setpoint",
+    )} == {
+        "current_readback": "Current", "current_setpoint": "Setpoint",
+        "voltage_readback": "Voltage", "ramp_rate_setpoint": "Ramp rate",
+        "power_on_command": "On command", "temperature_lolo_limit_readback": "Lolo",
+        "temperature_hihi_limit_setpoint": "Hihi",
+    }  # fmt: skip

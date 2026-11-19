@@ -208,16 +208,16 @@ def test_a_file_of_our_shape_the_index_does_not_list_is_an_orphan(panel_graph, t
 
 def test_a_change_of_the_draw_settings_is_named_as_a_stamp_problem(panel_graph, tmp_path):
     out = tmp_path / "out"
-    write(panel_graph, out, draw=Draw(symbols={"Quadrupole": "quadrupole"}))
-    assert check(panel_graph, out, draw=Draw(symbols={"Quadrupole": "quadrupole"})) == []
+    write(panel_graph, out, draw=Draw(colours={"quadrupole": "#2f9e52"}))
+    assert check(panel_graph, out, draw=Draw(colours={"quadrupole": "#2f9e52"})) == []
     problems = check(panel_graph, out)
     assert "stamp" in _kinds(problems)
     assert any(p.file == "index.json" and "draw" in p.detail for p in problems)
 
 
 def test_the_draw_digest_does_not_depend_on_order():
-    one = Draw(symbols={"A": "bend", "B": "bpm"}, above=frozenset({"bend", "bpm"}))
-    two = Draw(symbols={"B": "bpm", "A": "bend"}, above=frozenset({"bpm", "bend"}))
+    one = Draw(colours={"bend": "#4c78d8", "bpm": "#2f9e52"})
+    two = Draw(colours={"bpm": "#2f9e52", "bend": "#4c78d8"})
     assert one.digest == two.digest != Draw().digest
 
 
@@ -230,18 +230,10 @@ def _draw_file(tmp_path: Path, content) -> Path:
 def test_a_draw_file_gives_the_settings(tmp_path):
     path = _draw_file(
         tmp_path,
-        {
-            "rack_classes": ["rack"],
-            "symbols": {"Quadrupole": "quadrupole", "Pump": "ion_pump"},
-            "above": ["Pump"],
-        },
+        {"colours": {"quadrupole": "#2f9e52"}, "write_under": ["XR/XR01"]},
     )
     draw = emit.load_draw(path)
-    assert draw == Draw(
-        rack_classes=frozenset({"rack"}),
-        symbols={"Quadrupole": "quadrupole", "Pump": "ion_pump"},
-        above=frozenset({"ion_pump"}),
-    )
+    assert draw == Draw(colours={"quadrupole": "#2f9e52"}, write_under=("XR/XR01",))
 
 
 @pytest.mark.parametrize(
@@ -250,12 +242,10 @@ def test_a_draw_file_gives_the_settings(tmp_path):
         ("{nope", "draw.json"),
         ("[]", "object"),
         ({"racks": []}, "racks"),
-        ({"rack_classes": "rack"}, "rack_classes"),
-        ({"rack_classes": [1]}, "rack_classes"),
-        ({"symbols": {"A": 3}}, "symbols"),
-        ({"symbols": {"A": "no_such_symbol"}}, "no_such_symbol"),
-        ({"symbols": {"A": "bend"}, "above": ["B"]}, "B"),
-        ({"above": "A"}, "above"),
+        ({"rack_classes": ["rack"]}, "rack_classes"),  # a unit claim makes a rack
+        ({"symbols": {"A": "bend"}}, "symbols"),  # symbols.csv holds them
+        ({"above": ["A"]}, "above"),
+        ({"colours": {"no_such_symbol": "#2f9e52"}}, "no_such_symbol"),
     ],
     ids=str,
 )
@@ -383,32 +373,15 @@ def test_the_fixture_colours_stand_out_on_both_themes_and_from_every_state() -> 
                 assert contrast(colour, _resolved(ground, theme)) >= 3, (colour, theme)
 
 
-def test_ring_names_places_and_is_part_of_the_draw_digest(tmp_path) -> None:
+def test_a_ring_setting_is_refused(tmp_path) -> None:
     path = tmp_path / "draw.json"
-    path.write_text(json.dumps({"ring": ["XR"]}))
-    draw = emit.load_draw(path)
-    assert draw.ring == ("XR",) and draw.digest != Draw().digest
-    path.write_text(json.dumps({"ring": "XR"}))
-    with pytest.raises(EmitError, match="ring must be a list"):
+    path.write_text(json.dumps({"ring": ["XR"]}))  # a ring is read from the facility file
+    with pytest.raises(EmitError, match="ring"):
         emit.load_draw(path)
 
 
-@pytest.mark.parametrize(
-    ("ring", "says"),
-    [(("NOWHERE",), "no place of the facility"), (("XR/XR01",), "fewer than 2")],
-)
-def test_a_ring_place_must_exist_and_have_children_on_the_ring(panel_graph, tmp_path, ring, says):
-    draw = Draw(ring=ring)
-    with pytest.raises(EmitError, match=says):
-        write(panel_graph, tmp_path / "out", draw=draw)
-    found = check(panel_graph, tmp_path / "other", draw=draw)
-    assert [(p.kind, p.file) for p in found] == [("invalid", emit.DRAW_FILE)]
-    assert says in found[0].detail
-
-
-def test_a_ring_roll_up_is_written_and_checks_clean(panel_graph, tmp_path) -> None:
+def test_a_ring_roll_up_is_written_and_checks_clean(ring_graph, tmp_path) -> None:
     out = tmp_path / "out"
-    draw = Draw(ring=("XR",))
-    write(panel_graph, out, draw=draw)
-    assert not [p for p in check(panel_graph, out, draw=draw) if p.failing]
+    write(ring_graph, out)
+    assert not [p for p in check(ring_graph, out) if p.failing]
     assert '"XR01"' in (out / "rollup/rollup-place-xr.screen.json").read_text()

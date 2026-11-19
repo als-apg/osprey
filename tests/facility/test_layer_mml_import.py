@@ -549,6 +549,38 @@ def test_a_mapping_that_fails_its_check_stops_the_import_before_anything_is_writ
     assert sorted(path.name for path in facility.iterdir()) == ["imported"]
 
 
+def test_a_by_model_answer_gives_one_model_s_channels_their_own_signal(
+    tmp_path: Path,
+) -> None:
+    exports = _nsls2_copy(tmp_path)
+    facility = _facility(tmp_path, "nsls2")
+    mapping = facility / MAPPING_FILE
+    text = mapping.read_text(encoding="utf-8")
+    stated = "        signal: current_x_setpoint\n"
+    assert text.count(stated) == 1
+    mapping.write_text(
+        text.replace(stated, stated + "        by_model:\n          LTB: null\n"),
+        encoding="utf-8",
+    )
+    import_mml(exports, facility)
+    channels = read_yaml(facility / LAYER_DIR / "channels.yaml")
+    written = {row["id"]: row for row in channels}
+    ao = {
+        stem: json.loads((FIXTURES / "nsls2" / f"{stem}.ao.json").read_text(encoding="utf-8"))
+        for stem in TREES["nsls2"]
+    }
+
+    def setpoints(stem: str) -> list[str]:
+        names = ao[stem]["HCM"]["Setpoint"]["ChannelNames"]
+        return [name for name in names if isinstance(name, str) and name in written]
+
+    ring = setpoints("nsls2.storagering")
+    line = setpoints("nsls2.ltb")
+    assert ring and line
+    assert {written[name].get("signal") for name in ring} == {"current_x_setpoint"}
+    assert {written[name].get("signal") for name in line} == {None}
+
+
 def test_a_field_s_signal_role_lands_on_its_channels(
     spear3: Path, parsed: Callable[..., Any]
 ) -> None:

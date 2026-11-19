@@ -49,6 +49,14 @@ from osprey.facility.errors import (
     exact_number,
     quoted_slots,
 )
+from osprey.facility.pairing import (
+    FOLLOWS_NONE,
+    NOT_FOLLOWED,
+    must_agree,
+    pair_follows,
+    same_type,
+    seed_follows,
+)
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.relations import shape_problems
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
@@ -124,6 +132,10 @@ _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
     ("model-conflict",),
 )
 _ROW: dict[str, int] = {kind: row for row, kinds in enumerate(_TABLE_ROWS) for kind in kinds}
+
+#: The seed keys that give a channel a value of its own, which a followed readback
+#: cannot keep: a write to its setpoint replaces the held value.
+_OWN_VALUE_KEYS = ("topoff", "topoff_lifetime", "linear", "pulse")
 
 #: The largest number of labels a bool or enum channel carries.
 _MAX_OPTIONS = 16
@@ -384,6 +396,47 @@ def signal_roles(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
     names = {str(role["name"]) for role in vocabulary()["signal_roles"]}
     names.update(str(row["name"]) for row in signals if isinstance(row.get("name"), str))
     return frozenset(names)
+
+
+def nameplate_signals(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
+    """The signal roles marked ``nameplate``: a signal that names the unit it is read
+    from (its model, serial number, firmware version) rather than its state.
+
+    Args:
+        signals: ``signals.yaml``'s records (the facility document's ``signals``).
+
+    Returns:
+        The vocabulary's marked signal roles joined with the facility's.
+    """
+    names = {str(role["name"]) for role in vocabulary()["signal_roles"] if role.get("nameplate")}
+    names.update(
+        str(row["name"])
+        for row in signals
+        if isinstance(row.get("name"), str) and row.get("nameplate") is True
+    )
+    return frozenset(names)
+
+
+def signal_titles(signals: Iterable[Mapping[str, Any]] = ()) -> dict[str, str]:
+    """The short words screens name signal roles by: each role's stated ``title``.
+
+    Args:
+        signals: ``signals.yaml``'s records (the facility document's ``signals``).
+
+    Returns:
+        The vocabulary's titled signal roles joined with the facility's, by name.
+    """
+    titles = {
+        str(role["name"]): str(role["title"])
+        for role in vocabulary()["signal_roles"]
+        if role.get("title")
+    }
+    titles.update(
+        (str(row["name"]), row["title"])
+        for row in signals
+        if isinstance(row.get("name"), str) and isinstance(row.get("title"), str) and row["title"]
+    )
+    return titles
 
 
 def relation_types() -> dict[str, dict[str, Any]]:
@@ -1736,7 +1789,11 @@ class _Records:
     # --- pairs ---------------------------------------------------------------------
 
     def _pairs(self) -> Iterator[FacilityBuildError]:
-        readers: dict[str, list[str]] = {}
+        """Each setpoint's ``pair`` names a readback it agrees with. Several setpoints
+        may name one readback. The checks of what the simulation does (one model,
+        the start value) apply only to a pair the simulation follows
+        (:func:`~osprey.facility.pairing.pair_follows`)."""
+        named: dict[str, list[str]] = {}
         for address, channel in sorted(self.index.channels.items()):
             role = channel.get("role", DEFAULT_ROLE)
             if role != "setpoint":
@@ -1751,29 +1808,75 @@ class _Records:
                     )
                 continue
             pair = str(channel.get("pair", address))
-            if pair == address:
+            if pair != address:
+                named.setdefault(pair, []).append(address)
+        followed = {
+            follow.readback: follow.setpoint
+            for follow in pair_follows(self.index.channels)
+            if follow.follow != NOT_FOLLOWED
+        }
+        for pair, setpoints in sorted(named.items()):
+            for address in setpoints:
+                channel = self.index.channels[address]
+                yield from self._pair(address, channel, pair, simulated=pair in followed)
+        yield from self._follows(named)
+        yield from self._followed_own_values(followed)
+
+    def _followed_own_values(self, followed: Mapping[str, str]) -> Iterator[FacilityBuildError]:
+        """A readback the simulation follows takes its setpoint's value, so its seed
+        states no value of its own."""
+        for readback, setpoint in sorted(followed.items()):
+            channel = self.index.channels[readback]
+            seed = channel.get("simulation")
+            if not isinstance(seed, dict):
                 continue
-            readers.setdefault(pair, []).append(address)
-            yield from self._pair(address, channel, pair)
-        for readback, setpoints in sorted(readers.items()):
-            if len(setpoints) > 1:
+            for key in _OWN_VALUE_KEYS:
+                if key in seed:
+                    yield self._error(
+                        "seed-invalid",
+                        "channel",
+                        readback,
+                        self._seed_files(channel),
+                        f"`{key}` on a readback the simulation follows from {setpoint}; a write "
+                        f"to {setpoint} would replace the value `{key}` gives it",
+                        f"state `follows: none` on {readback}, or remove `{key}`",
+                    )
+
+    def _follows(self, named: Mapping[str, list[str]]) -> Iterator[FacilityBuildError]:
+        """A seed's ``follows`` names the one setpoint that pairs with its readback, or ``none``."""
+        for address, channel in sorted(self.index.channels.items()):
+            follows = seed_follows(channel)
+            if follows is None:
+                continue
+            setpoints = sorted(named.get(address, ()))
+            problem = remedy = None
+            if not setpoints:
+                problem = "`follows` on a channel no setpoint names as its `pair`"
+                remedy = "remove `follows`"
+            elif len(setpoints) > 1:
+                problem = (
+                    f"`follows` on a readback several setpoints name ({', '.join(setpoints)}); "
+                    "the simulation follows it from none of them"
+                )
+                remedy = "remove `follows`"
+            elif follows == FOLLOWS_NONE:
+                continue
+            elif follows != setpoints[0]:
+                problem = f"`follows` names {follows}, whose `pair` is not {address}"
+                remedy = f"name {setpoints[0]}, whose `pair` is {address}, or `none`"
+            elif not same_type(self.index.channels[follows], channel):
+                problem = (
+                    f"`follows` names {follows}, which holds values of another type; "
+                    "the simulation copies the setpoint's value"
+                )
+                remedy = f"give {follows} and {address} one type, or remove `follows`"
+            if problem is not None and remedy is not None:
                 yield self._error(
-                    "pair-invalid",
-                    "channel",
-                    readback,
-                    sorted(
-                        {
-                            f
-                            for s in setpoints
-                            for f in stating_files(self.index.channels[s], "pair")
-                        }
-                    ),
-                    f"the pair of setpoints {', '.join(setpoints)}",
-                    "pair each setpoint with its own readback",
+                    "seed-invalid", "channel", address, self._seed_files(channel), problem, remedy
                 )
 
     def _pair(
-        self, address: str, channel: Mapping[str, Any], pair: str
+        self, address: str, channel: Mapping[str, Any], pair: str, *, simulated: bool
     ) -> Iterator[FacilityBuildError]:
         files = stating_files(channel, "pair")
         target = self.index.channels[pair]
@@ -1797,7 +1900,7 @@ class _Records:
             for slot in ("value_type", "options", "shape")
             if channel.get(slot) != target.get(slot)
         ]
-        if differing:
+        if differing and must_agree(channel, target):
             yield self._error(
                 "pair-invalid",
                 "channel",
@@ -1821,6 +1924,8 @@ class _Records:
                 f"`unit` {unit} differs from its pair {pair}'s {theirs}",
                 _pair_remedy(address, channel, f"give {address} and {pair} the same `unit`"),
             )
+            return
+        if not simulated or differing:
             return
         own = self.index.wired.get(address, set())
         theirs = self.index.wired.get(pair, set())

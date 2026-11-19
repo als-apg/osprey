@@ -48,6 +48,7 @@ Ownership
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -57,6 +58,7 @@ import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from osprey.facility.panels import layout
@@ -66,7 +68,6 @@ from osprey.facility.panels.describe import (
     describe,
     drawn_on,
     light,
-    ring_arcs,
     targets,
     unset_groups,
 )
@@ -170,7 +171,8 @@ class Problem:
 
     @property
     def failing(self) -> bool:
-        """False for a note: a link to a target outside the written set, or a card or
+        """False for a note: a screen a scoped write names without a link (or a link
+        to a target outside the written set), or a card or
         checkout over its budget (:data:`NOTED_OVER_BUDGET`)."""
         return not self.note and self.kind not in NOTE_KINDS
 
@@ -179,12 +181,8 @@ class Problem:
 class Draw:
     """The parameters a screen is described with; ``write`` and ``check`` must agree on them."""
 
-    rack_classes: frozenset[str] = frozenset()
-    symbols: Mapping[str, str] = field(default_factory=dict)
-    above: frozenset[str] = frozenset()
     colours: Mapping[str, str] = field(default_factory=dict)
     annotate: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
-    ring: tuple[str, ...] = ()
     #: The places a write keeps to (:func:`write_scope`); empty: everything. The
     #: screens do not depend on it, so it is no part of :attr:`digest`.
     write_under: tuple[str, ...] = ()
@@ -194,12 +192,8 @@ class Draw:
         """16 hex digits naming these settings, whatever the order they were given in."""
         text = json.dumps(
             {
-                "rack_classes": sorted(self.rack_classes),
-                "symbols": sorted(self.symbols.items()),
-                "above": sorted(self.above),
                 "colours": sorted(self.colours.items()),
                 "annotate": sorted((k, list(v)) for k, v in self.annotate.items()),
-                "ring": sorted(self.ring),
             },
             sort_keys=True,
         )
@@ -215,14 +209,10 @@ def _strings(value: Any, name: str, path: Path) -> list[str]:
 def load_draw(path: Path) -> Draw:
     """Read the drawing settings from a JSON file.
 
-    The keys are ``rack_classes`` (place levels that mark a rack), ``symbols``
-    (device class to symbol name), ``above`` (device classes drawn on the
-    upper lane of a strip; each needs a symbol), ``colours`` (symbol name to
+    The keys are ``colours`` (symbol name to
     the ``#rrggbb`` its strip symbols are filled with) and ``annotate`` (symbol
     name to at most :data:`MAX_ANNOTATIONS` stated signals whose values a strip
-    shows under its symbols) and ``ring`` (place ids whose roll-up draws their
-    children on the ring as arcs; each must be a place with children on the
-    ring, which :func:`check_draw` holds against the graph) and ``write_under``
+    shows under its symbols) and ``write_under``
     (place ids a write keeps to, :func:`write_scope`; each must be a place of the
     graph). All are optional.
 
@@ -239,24 +229,11 @@ def load_draw(path: Path) -> Draw:
         raise EmitError(f"{path} cannot be read as {DRAW_FILE}: {error}") from error
     if not isinstance(document, dict):
         raise EmitError(f"{path}: the file must hold one JSON object")
-    keys = {"rack_classes", "symbols", "above", "colours", "annotate", "ring", "write_under"}
+    keys = {"colours", "annotate", "write_under"}
     unknown = sorted(set(document) - keys)
     if unknown:
         raise EmitError(f"{path}: unknown key {', '.join(unknown)}")
-    racks = _strings(document.get("rack_classes", []), "rack_classes", path)
-    ring = _strings(document.get("ring", []), "ring", path)
     write_under = _strings(document.get("write_under", []), "write_under", path)
-    above = _strings(document.get("above", []), "above", path)
-    symbols = document.get("symbols", {})
-    if not isinstance(symbols, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in symbols.items()
-    ):
-        raise EmitError(f"{path}: symbols must map class names to symbol names")
-    for name in sorted(set(symbols.values()) - set(WIDTH_UNITS) - {"generic"}):
-        raise EmitError(f"{path}: {name} is not a symbol of the engine")
-    for cls in above:
-        if cls not in symbols:
-            raise EmitError(f"{path}: above names {cls}, which has no entry in symbols")
     known = {*WIDTH_UNITS, "generic"}
     colours = document.get("colours", {})
     if not isinstance(colours, dict) or not all(isinstance(v, str) for v in colours.values()):
@@ -282,29 +259,18 @@ def load_draw(path: Path) -> Draw:
         if len(signals) > MAX_ANNOTATIONS:
             raise EmitError(f"{path}: annotate {name} lists more than {MAX_ANNOTATIONS} signals")
     return Draw(
-        rack_classes=frozenset(racks),
-        symbols=dict(symbols),
-        above=frozenset(symbols[cls] for cls in above),
         colours={name: colour.lower() for name, colour in colours.items()},
         annotate={name: tuple(signals) for name, signals in annotate.items()},
-        ring=tuple(dict.fromkeys(ring)),
         write_under=tuple(dict.fromkeys(write_under)),
     )
 
 
-#: The fewest children on the ring a place named in ``ring`` must have.
-MIN_RING_ARCS = 2
-
-
 def check_draw(graph: PanelGraph, draw: Draw) -> None:
-    """Hold the drawing settings to the graph: each place named in ``ring`` exists and
-    has at least :data:`MIN_RING_ARCS` children on the ring (:func:`describe.ring_arcs`);
-    each place named in ``write_under`` exists.
+    """Hold the drawing settings to the graph: each place named in ``write_under``
+    exists.
 
     Raises:
-        EmitError: A place named in ``ring`` is no place of the graph or has
-            too few children on the ring, or one named in ``write_under`` is no
-            place of the graph.
+        EmitError: A place named in ``write_under`` is no place of the graph.
     """
     for place_id in draw.write_under:
         try:
@@ -313,17 +279,6 @@ def check_draw(graph: PanelGraph, draw: Draw) -> None:
             raise EmitError(
                 f"write_under names {place_id}, which is no place of the facility"
             ) from None
-    for place_id in draw.ring:
-        try:
-            graph.thing(place_id, "place")
-        except KeyError:
-            raise EmitError(f"ring names {place_id}, which is no place of the facility") from None
-        found = len(ring_arcs(graph, place_id))
-        if found < MIN_RING_ARCS:
-            raise EmitError(
-                f"ring names {place_id}, which has {found} children with a ring position, "
-                f"fewer than {MIN_RING_ARCS}"
-            )
 
 
 _HEX = re.compile(r"#[0-9a-fA-F]{6}")
@@ -473,6 +428,12 @@ class Scope:
     groups: frozenset[str]
     #: The classes of the kept devices in no place.
     loose_classes: frozenset[str]
+    #: The places the write was asked to keep to.
+    under: tuple[str, ...] = ()
+    #: Each kept group's members cut to the kept devices, in the group's order.
+    members: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: The groups cut to the same members as a kept one: written once, as that one.
+    dropped: frozenset[str] = frozenset()
 
     def __call__(self, target: Target) -> bool:
         if target.view == "home":
@@ -519,12 +480,50 @@ def write_scope(graph: PanelGraph, places: Iterable[str]) -> Scope:
             loose.add(thing.id)
             classes.add(thing.cls or NO_CLASS)
     devices = placed | loose
+    cut: dict[str, tuple[str, ...]] = {}
+    whole: set[str] = set()  # the groups all of whose members are kept
+    for thing in graph.things():
+        if thing.kind != "group":
+            continue
+        members = [m.id for m in graph.members(thing.id)]
+        kept = tuple(m for m in members if m in devices or m in kept_places)
+        if kept:
+            cut[thing.id] = kept
+            if len(kept) == len(members):
+                whole.add(thing.id)
+    # a group cut to the same members as another is written once: the one the
+    # facility defined whole within the scope, else the first by id
+    by_members: dict[frozenset[str], list[str]] = {}
+    for group, kept in cut.items():
+        by_members.setdefault(frozenset(kept), []).append(group)
     groups = {
-        thing.id
-        for thing in graph.things()
-        if thing.kind == "group" and any(m.id in devices for m in graph.members(thing.id))
+        min(same, key=lambda group: (group not in whole, group)) for same in by_members.values()
     }
-    return Scope(frozenset(kept_places), frozenset(devices), frozenset(groups), frozenset(classes))
+    return Scope(
+        frozenset(kept_places),
+        frozenset(devices),
+        frozenset(groups),
+        frozenset(classes),
+        tuple(places),
+        MappingProxyType({group: cut[group] for group in sorted(groups)}),
+        frozenset(cut) - frozenset(groups),
+    )
+
+
+def scoped(graph: PanelGraph, scope: Scope) -> PanelGraph:
+    """*graph* as a write kept to *scope* describes it: each kept group holds only its
+    kept members (:attr:`Scope.members`), a dropped duplicate (:attr:`Scope.dropped`)
+    none, so no screen of the write links to it rather than to the kept one, and the
+    home and the not-placed indexes list only what the scope keeps (the graph carries
+    it as ``write_scope``)."""
+    out = copy.copy(graph)
+    out._members = {
+        **graph._members,
+        **scope.members,
+        **dict.fromkeys(scope.dropped, ()),
+    }
+    out.write_scope = scope
+    return out
 
 
 # -- drawing --------------------------------------------------------------------------
@@ -536,22 +535,24 @@ def _stamp(graph: PanelGraph, draw: Draw) -> str:
 
 def _generate(
     graph: PanelGraph, target: Target, ids: Mapping[Target, str], draw: Draw
-) -> tuple[bytes, str, View]:
-    """The bytes of a target's file, its title and its view."""
+) -> tuple[bytes, str, View, tuple[Target, ...]]:
+    """The bytes of a target's file, its title, its view, and the screens it names
+    without a link because a write kept to ``write_under`` does not produce them."""
     own = _path(target, ids)
+    scope = graph.write_scope
+    unlinked: list[Target] = []
 
-    def screens(other: Target) -> str:
+    def screens(other: Target) -> str | None:
+        if scope is not None and not scope(other):
+            unlinked.append(other)
+            return None  # a written screen links only to a file of the same write
         # Every file sits one directory below ``out``, so this is relative to it.
         return "../" + _path(other, ids)
 
     view = describe(
         graph,
         target,
-        rack_classes=draw.rack_classes,
-        symbols=draw.symbols,
-        above=draw.above,
         annotate=draw.annotate,
-        ring=frozenset(draw.ring),
     )
     document = layout.render(
         view, graph=graph, screens=screens, doc_id=own[: -len(SCREEN_SUFFIX)], colours=draw.colours
@@ -560,7 +561,7 @@ def _generate(
     text = json.dumps(
         document, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
     )
-    return (text + "\n").encode("utf-8"), view.title, view
+    return (text + "\n").encode("utf-8"), view.title, view, tuple(dict.fromkeys(unlinked))
 
 
 def _atomic(path: Path, data: bytes) -> None:
@@ -693,6 +694,7 @@ def write(
     check_draw(graph, draw)
     if draw.write_under:
         scope = write_scope(graph, draw.write_under)
+        graph = scoped(graph, scope)
         given = only
         only = scope if given is None else (lambda t: scope(t) and given(t))
     out = Path(out)
@@ -709,7 +711,7 @@ def write(
             owned[name] = entry
         else:
             ignored.append(str(name))
-    found = targets(graph, rack_classes=draw.rack_classes)
+    found = targets(graph)
     ids = screen_ids(found)
     paths = {_path(t, ids) for t in found}
     # Pre-flight: every path the run will write, delete or prune is looked at
@@ -773,7 +775,7 @@ def write(
     for target in found:
         relative = _path(target, ids)
         if only is None or only(target):
-            data, title, _view = _generate(graph, target, ids, draw)
+            data, title, _view, _unlinked = _generate(graph, target, ids, draw)
             written.append(_put(out, relative, data, seen))
             entries[relative] = _entry(target, ids, title, len(data))
         elif relative in owned and _guard(out, relative, seen).is_file():
@@ -1004,10 +1006,12 @@ def check(
         problems.append(
             Problem("stamp", INDEX, f"written from other {' and '.join(changed)} than now")
         )
-    found = targets(graph, rack_classes=draw.rack_classes)
+    found = targets(graph)
     ids = screen_ids(found)
     wanted = {_path(t, ids): t for t in found}
     scope = write_scope(graph, draw.write_under) if draw.write_under else None
+    if scope is not None:
+        graph = scoped(graph, scope)
     listed = {e["file"]: e for e in index["screens"] if isinstance(e, dict) and "file" in e}
     outside = {e["file"] for e in index.get("outside", ()) if isinstance(e, dict) and "file" in e}
     problems.extend(
@@ -1232,7 +1236,16 @@ def _check_file(
             Problem("stamp", relative, f"written from other {' and '.join(changed)} than now")
         )
     problems += _long_formulas(document, relative)
-    fresh, _title, view = _generate(graph, target, ids, draw)
+    fresh, _title, view, unlinked = _generate(graph, target, ids, draw)
+    problems.extend(
+        Problem(
+            "outside_set",
+            relative,
+            f"names {other.kind} {other.id} without a link: its {other.view} screen is "
+            "outside the written set",
+        )
+        for other in unlinked
+    )
     if target.view == "rollup" and _reads(graph, view) and not _live(document):
         unopened = _unopened(graph, view, ids, valid)
         if unopened:

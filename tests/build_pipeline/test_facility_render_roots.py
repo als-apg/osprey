@@ -100,6 +100,7 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
             "data/simulator/decks/LINE.json",
             "data/simulator/decks/LTB.json",
             "data/simulator/decks/SR.json",
+            "data/simulator/follows.json",
             "data/simulator/scenarios/bpm-polarity/plots/corrector_bump_test.png",
             "data/simulator/scenarios/nominal/plots/orbit_rms.json",
             "data/simulator/scenarios/rf-thermal/plots/cavity_temperatures.json",

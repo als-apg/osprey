@@ -141,7 +141,16 @@ address means anything to OSPREY. What a channel is comes from its fields:
        (``gap_setpoint`` with ``gap_readback``). It does so only when exactly
        one setpoint and one readback of that quantity share it, no stated
        ``pair`` names the readback, and the two agree in ``value_type``,
-       ``options`` and ``shape``; else it pairs the setpoint with itself.
+       ``options`` and ``shape`` (a command and its status need not); else it
+       pairs the setpoint with itself. A setpoint and readback whose signals
+       name one quantity must agree in those three, stated or derived; a
+       command and the status it reads back on, or a pair whose quantity no
+       signal states, may differ. Several setpoints may name one readback (a
+       set and a reset command read back on one channel). The simulation
+       drives a readback from its setpoint only where exactly one setpoint
+       names it and the two agree in type; any other readback it drives from
+       no setpoint. The readback's seed ``follows`` changes that for one pair
+       (see Seeds).
    * - ``tolerance``
      - On a float setpoint, how close its readback must come before a move
        counts as done: ``{absolute: <x>}`` in the channel's unit or
@@ -242,6 +251,24 @@ refused:
    - name: taper_setpoint
      aliases: [gap taper]
      description: Commanded gap difference between an undulator's two ends.
+   - name: bootloader_version_readback
+     description: Bootloader version a controller reports.
+     nameplate: true
+   - name: trip_level_readback
+     description: Level at which a protection circuit trips.
+     title: Trip
+
+``nameplate: true`` marks a signal that names the unit it is read from rather
+than its state; a device card shows such a signal with what the device is,
+never as a key tile. The vocabulary's own ``model_readback``,
+``serial_number_readback`` and ``firmware_version_readback`` are marked so.
+
+``title`` is the short word a screen names the signal by, on a tile or a value
+row; with none, the signal's name stands. The vocabulary titles its general
+signals with the operator's word: ``Current``, ``Setpoint``, ``Voltage``,
+``Ramp rate``, ``On command``, ``Strength`` (a multipole's normalized
+strength), ``Kick`` (a corrector's angle), and ``Lolo``, ``Lo``, ``Hi``,
+``Hihi`` for the temperature alarm limits. A ``channel_roles.csv`` row's ``label`` wins over it.
 
 Layers
 ======
@@ -262,6 +289,28 @@ until they agree or a ``set`` fix names ``members``. A place's or device's
 ``scheme_names`` are joined too, so a layer can add a name to a record another
 layer states; one name in one scheme that two layers state with different
 content is still a ``layer-conflict``.
+A channel's seed (``simulation``, which ``seeds.yaml`` states too) is joined
+per key: one layer may state ``follows`` and another the seed's values, and
+only one key two layers state differently is a ``layer-conflict``.
+
+A place, device, channel or group record may say what the fields it states rest
+on. ``basis: inferred`` with a ``rule`` says a named rule derived them, not a
+source; with neither, they are stated. A producer that pairs channels by their
+names writes such a layer:
+
+.. code-block:: yaml
+
+   # data/facility/imported/names/channels.yaml
+   - id: BR:DIAG:TV:01:PADDLE:SP
+     pair: BR:DIAG:TV:01:PADDLE:RB
+     basis: inferred
+     rule: an SP channel pairs with the RB channel of its name
+
+The two words are no fields of the record: the build keeps them in the
+provenance entry of that layer's file. Screens mark such a field inferred,
+unless another layer states the same value outright. A record's fields all rest
+on one basis, so a layer that states some fields and infers others writes them
+as two layers.
 
 The importers are ``osprey facility import mml``,
 ``osprey facility import list`` and ``osprey facility import relations``.
@@ -600,6 +649,26 @@ archive's start state see. The build stops with ``value-invalid`` when
 ``period_s`` is not above zero, and with ``seed-invalid`` when ``topoff`` has
 a ``nominal`` beside it or ``topoff_lifetime.of`` names no channel with a
 ``topoff`` seed. Live reads and the archive show the same sawtooth.
+
+``follows`` says whether the simulation copies a setpoint's writes into this
+readback. By default it does when exactly one setpoint names the readback as
+its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``.
+``follows: <setpoint>`` makes the copy where the default does not, and
+``follows: none`` stops it where the default makes it. A followed readback
+starts at its setpoint's value and takes each write at once, with its own noise
+and drift on top. The build stops with ``seed-invalid`` when ``follows`` sits
+on a channel no setpoint names, on a readback several setpoints name, names a
+setpoint whose ``pair`` is another channel, or names a setpoint of another
+type. It stops too when a followed readback's seed gives it a value of its own
+(``topoff``, ``topoff_lifetime``, ``linear`` or ``pulse``): a write to the
+setpoint would replace that value, so state ``follows: none`` on it. The simulator view's ``follows.json`` lists every pair with whether the
+simulation follows it (``default``, ``seed`` or ``not followed``) and why, and
+counts each.
+
+.. code-block:: yaml
+
+   SR:VAC:VALVE:01:POSITION:OPEN:
+     follows: none
 
 At run time the ``gate`` acts on the channel's held value, after a ``linear``
 sum; ``drift`` and ``noise`` are added on top and ``clamp`` applied. A gated
