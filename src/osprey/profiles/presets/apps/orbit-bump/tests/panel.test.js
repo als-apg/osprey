@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   bindControls,
   clearSelection,
+  compute,
+  openConfirm,
   ownCompute,
   panelOf,
   recompute,
   refresh,
+  setSigmaKeep,
   showError,
   showState,
 } from '../panel/panel.js';
@@ -53,6 +56,7 @@ function plan(id, over = {}) {
     status: 'ready',
     targets: { BPM05: 0.1, BPM06: -0.2 },
     correctors: [{ element: 'VCM04' }, { element: 'VCM07' }],
+    setpoint_digest: `digest-${id}`,
     ...over,
   };
 }
@@ -314,6 +318,55 @@ describe('the orbit-bump panel', () => {
       await refresh(root, answering(state({ plan: plan('own', { plane: 'x' }) })));
       expect(panelOf(root).selection.rule).toBe('auto');
       expect(panelOf(root).selection.targets).toEqual({});
+    });
+
+    it('applies the plan the confirm card listed when a newer plan arrives mid-Compute', async () => {
+      /** @type {{url: string, body: unknown}[]} */
+      const posts = [];
+      /** @type {(body: unknown) => void} */
+      let answerCompute = () => {};
+      const fetcher = vi.fn(async (/** @type {string} */ url, /** @type {RequestInit} */ init) => {
+        posts.push({ url, body: JSON.parse(String(init.body)) });
+        if (url === 'api/compute') {
+          return new Promise((resolve) => {
+            answerCompute = (body) => resolve(new Response(JSON.stringify(body)));
+          });
+        }
+        return new Response('plan X is not the current plan', { status: 409 });
+      });
+      panelOf(root).fetcher = /** @type {typeof fetch} */ (/** @type {unknown} */ (fetcher));
+      showState(root, state({ plan: plan('X') }));
+      openConfirm(root);
+      const ok = field(root, 'confirm-apply');
+      expect(field(root, 'confirm').hidden).toBe(false);
+
+      // Starting a compute closes the card, and it does not open again mid-Compute.
+      const computing = compute(root);
+      expect(field(root, 'confirm').hidden).toBe(true);
+      openConfirm(root);
+      expect(field(root, 'confirm').hidden).toBe(true);
+
+      // A poll lands mid-Compute with a newer plan; the card's Confirm still names X.
+      await refresh(root, answering(state({ plan: plan('Y') })));
+      ok.click();
+      await vi.waitFor(() =>
+        expect(field(root, 'error').textContent).toBe('plan X is not the current plan')
+      );
+      expect(posts.filter((post) => post.url === 'api/apply')).toEqual([
+        { url: 'api/apply', body: { plan_id: 'X', setpoint_digest: 'digest-X' } },
+      ]);
+      answerCompute(plan('Z'));
+      await computing;
+    });
+
+    it('closes the confirm card when a drag of the σ cutoff starts a compute', async () => {
+      panelOf(root).fetcher = answering(plan('Z'));
+      showState(root, state({ plan: plan('X') }));
+      openConfirm(root);
+      expect(field(root, 'confirm').hidden).toBe(false);
+      setSigmaKeep(root, 1);
+      expect(field(root, 'confirm').hidden).toBe(true);
+      await vi.waitFor(() => expect(panelOf(root).computesInFlight).toBe(0));
     });
 
     it("hydrates an agent's plan that arrives after its own Compute", async () => {

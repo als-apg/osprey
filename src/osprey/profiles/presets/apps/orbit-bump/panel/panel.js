@@ -3548,7 +3548,13 @@ function renderCard(root, panel) {
   const applyButton = /** @type {HTMLButtonElement} */ (field(root, 'apply'));
   applyButton.hidden = panel.readOnly || !plan;
   applyButton.textContent = plan ? `Apply ${setpoints(plan.correctors.length)}…` : 'Apply…';
-  applyButton.disabled = !plan || plan.status !== 'ready' || !allowed || stale || panel.applying;
+  applyButton.disabled =
+    !plan ||
+    plan.status !== 'ready' ||
+    !allowed ||
+    stale ||
+    panel.computesInFlight > 0 ||
+    panel.applying;
   const why = phrase || (stale && plan ? `edited since plan #${plan.id}: Compute again` : '');
   if (why) applyButton.title = why;
   else applyButton.removeAttribute('title');
@@ -3660,6 +3666,8 @@ export async function compute(root) {
   if (selection.sigma_keep != null) body.sigma_keep = selection.sigma_keep;
   const key = selectionKey(selection);
   const send = async () => {
+    // The confirm card lists the plan this compute replaces: close it.
+    closeConfirm(root);
     render(root);
     try {
       const response = await panel.fetcher(COMPUTE_URL, {
@@ -3669,7 +3677,6 @@ export async function compute(root) {
       });
       if (response.status === 403) {
         panel.readOnly = true;
-        closeConfirm(root);
         showNotice(root, `read-only: ${await refusalText(response)}`);
         return null;
       }
@@ -3680,7 +3687,6 @@ export async function compute(root) {
       panel.shownGeneration = panel.generation;
       if (panel.state) panel.state = { ...panel.state, plan };
       if (plan.id != null) panel.computed = { id: plan.id, key };
-      closeConfirm(root);
       field(root, 'error').hidden = true;
       return plan;
     } catch (error) {
@@ -3694,13 +3700,15 @@ export async function compute(root) {
 
 /**
  * Open the in-panel confirm card for the shown plan: every setpoint, the
- * closure, and the Confirm and Cancel buttons. Only a ready plan opens it.
+ * closure, and the Confirm and Cancel buttons. Only a ready plan opens it, and
+ * not while a compute is in flight. Its Confirm applies the plan it lists.
  * @param {Element} root
  */
 export function openConfirm(root) {
   const panel = panelOf(root);
   const plan = shownPlan(panel);
   if (!plan || plan.status !== 'ready' || panel.readOnly || panel.applying) return;
+  if (panel.computesInFlight > 0) return;
   if (!(panel.state?.posture?.allowed ?? false)) return;
   if (edited(panel, plan)) return;
   const confirm = field(root, 'confirm');
@@ -3719,7 +3727,7 @@ export function openConfirm(root) {
     { type: 'button', class: 'osprey-btn', 'data-field': 'confirm-cancel' },
     'Cancel'
   );
-  ok.addEventListener('click', () => void applyPlan(root));
+  ok.addEventListener('click', () => void applyPlan(root, plan));
   cancel.addEventListener('click', () => closeConfirm(root));
   const buttons = htmlNode('div', { class: 'ob-actions' });
   buttons.append(cancel, ok);
@@ -3747,15 +3755,16 @@ export function openConfirm(root) {
 }
 
 /**
- * Apply the shown plan: post its id and setpoint digest, then show the plan the
- * backend returns with its outcomes. A refusal shows the backend's text.
+ * Apply the plan the confirm card listed: post its id and setpoint digest, then
+ * show the plan the backend returns with its outcomes. The backend refuses a
+ * plan that is no longer current; a refusal shows the backend's text.
  * @param {Element} root
+ * @param {Plan} plan
  */
-export async function applyPlan(root) {
+export async function applyPlan(root, plan) {
   const panel = panelOf(root);
-  const plan = shownPlan(panel);
   closeConfirm(root);
-  if (!plan || plan.status !== 'ready' || panel.applying) return;
+  if (plan.status !== 'ready' || panel.applying) return;
   panel.applying = true;
   render(root);
   try {
