@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import os
 import posixpath
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -5557,3 +5558,62 @@ def host_identity_advisories(config: Any, runtime_user: str | None) -> list[str]
         f"{identity!r}, the account that built the deployment. Run `osprey build` as "
         "the account that will launch them, or set deployment.host_identity"
     ]
+
+
+#: The code of the warning naming a panel the web terminal will not serve.
+PANEL_NOT_SERVED = "web_terminals.panel_not_served"
+
+
+def panels_not_served(render_dir: Path, *, shown_as: str) -> list[Finding]:
+    """One warning per bundle under a render's ``panels/`` the web terminal will not serve.
+
+    The build-time voice of the web terminal's panel discovery, driven by the
+    same function (:func:`~osprey.interfaces.web_terminal.panel_discovery.discover_panels`)
+    with the same ``taken`` ids the server passes it, so the two cannot disagree
+    on one render. Imported at call time, as :func:`_check_open_mode_code_panel`
+    does. A render whose config is unreadable, or whose
+    ``web.allow_runtime_panels`` is off, has nothing judged and yields nothing.
+
+    Args:
+        render_dir: The render's root, holding its ``config.yml`` and ``panels/``.
+        shown_as: The render's path as the operator reads it; each finding's
+            source is printed relative to the render, under this prefix.
+
+    Returns:
+        One ``warn`` finding per refused panel, naming every reason.
+    """
+    from osprey.interfaces.web_terminal.panel_discovery import (
+        PANELS_DIRNAME,
+        configured_panel_ids,
+        discover_panels,
+    )
+
+    try:
+        config = yaml.safe_load((render_dir / "config.yml").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return []
+    if not isinstance(config, Mapping):
+        return []
+    web = as_dict(config.get("web"))
+    if not bool(web.get("allow_runtime_panels", False)):
+        return []
+
+    prefix = f"{render_dir}{os.sep}"
+
+    def shown(source: str) -> str:
+        if not source.startswith(prefix):
+            return source
+        return f"{shown_as}/{Path(source.removeprefix(prefix)).as_posix()}"
+
+    findings: list[Finding] = []
+    verdict = discover_panels(render_dir / PANELS_DIRNAME, taken=configured_panel_ids(web))
+    for refused in verdict.refused:
+        reasons = "; ".join(f"{shown(f.source)}: {f.message}" for f in refused.findings)
+        findings.append(
+            Finding(
+                severity="warn",
+                code=PANEL_NOT_SERVED,
+                message=f"Panel {refused.id!r} will not be served: {reasons}",
+            )
+        )
+    return findings
