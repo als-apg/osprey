@@ -2333,3 +2333,59 @@ def test_a_shared_supply_on_a_member_card_links_to_no_unwritten_channels_list(
     assert not list(out.glob("channels/channels-XR01*"))
     problems = check(graph, out, draw=draw)
     assert not [p for p in problems if p.failing], problems
+
+
+def _interlocked(document) -> None:
+    """Both XR01 pumps interlocked by the chassis XR01:CH3 on inputs IN1 and IN2."""
+    for n, pump in enumerate(("XR01:IP1", "XR01:IP2"), start=1):
+        document["relations"].append(
+            {
+                "id": f"{pump.lower()}-interlock",
+                "type": "interlocked_by",
+                "subject": {"device": pump},
+                "object": {"device": "XR01:CH3", "port": f"IN{n}"},
+                "standing": "accepted",
+            }
+        )
+        document["channels"].append({"id": f"XR01-CH3:In{n}-Sts", "on": {"device": "XR01:CH3"}})
+
+
+def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
+    from osprey.facility.panels import load_graph
+    from osprey.facility.panels.tables import ROLE_SCOPES
+    from osprey.facility.panels.view import Chain
+    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+
+    assert {"read_out_by", "controlled_by", "interlocked_by"} <= set(ROLE_SCOPES)
+    assert "located_in" not in ROLE_SCOPES  # its object is a place
+    tables = copy_tables(tmp_path / "panels")
+    (tables / "channel_roles.csv").write_text(
+        ROLES_HEADER + "Pump,interlock,*:In{n}-Sts,interlocked_by,lamp,,,,,stated,S,1,l\n"
+    )
+    (tables / "card_recipes.csv").write_text(
+        "class,under,devices,recipe,description,channels_cols,source\n"
+        "ElectronicsChassis,,XR01:CH3,interlocks,,,S\n"
+    )
+    (tables / "card_sections.csv").write_text(
+        "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
+        "interlocks,1,chain,Inputs,,inputs,,,,S\n"
+    )
+    (tables / "chains.csv").write_text(
+        "recipe,chain,step,from_step,relation,direction,to,many,port_from,title,roles,source\n"
+        "interlocks,inputs,1,0,interlocked_by,in,Pump,yes,,Interlocks,interlock,S\n"
+    )
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _interlocked), tables)
+    # the device's card shows its own point by the stated relation
+    hits = [(h.role.role, h.channel, h.owner, h.port) for h in graph.roles("XR01:IP1")]
+    assert hits == [("interlock", "XR01-CH3:In1-Sts", "XR01:CH3", "IN1")]
+    assert graph.card_channels("XR01:IP2")
+    # the interlock's card carries the point of each device it interlocks
+    chain = next(
+        i for s in device_card(graph, "XR01:CH3").sections for i in s.items if isinstance(i, Chain)
+    )
+    _own, pumps = chain.blocks
+    points = {b.title: [r.channel for r in b.rows] for b in (pumps, *pumps.stack)}
+    assert points == {
+        "Interlocks  XR01:IP1": ["XR01-CH3:In1-Sts"],
+        "Interlocks  XR01:IP2": ["XR01-CH3:In2-Sts"],
+    }
