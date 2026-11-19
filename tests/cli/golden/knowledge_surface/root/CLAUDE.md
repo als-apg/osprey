@@ -54,7 +54,7 @@ do not attempt their work with your own tools.
 
 ## Control-System Directory
 
-The directory is the control system's own list of every channel and the server serving it, beside the curated channels. Its tools: `active_alarms`, `alarm_config`, `alarm_state`, `directory_properties`, `directory_search`, `server_fleet`, `server_record`, `channel_record`.
+The directory is the control system's own list of every channel and the server serving it, beside the curated channels. Its tools: `active_alarms`, `alarm_config`, `alarm_state`, `channel_record`, `directory_properties`, `directory_search`, `server_fleet`, `server_record`.
 
 - Check the curated channels first (through **channel-finder**, which searches the directory when they do not answer).
 - Directory names are the control system's own, not curated: say so when you report one.
