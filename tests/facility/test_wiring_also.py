@@ -210,6 +210,31 @@ def test_a_further_address_naming_the_records_own_pair_stops_the_build(tmp_path:
     )
 
 
+def test_a_pair_stated_on_a_further_address_alone_stops_the_build(tmp_path: Path) -> None:
+    tree = _tree()
+    _record(tree, "QF:SP")["also"] = _record(tree, SETPOINT).pop("also")
+    del _channel(tree, "QF:SP")["pair"]
+    _channel(tree, SETPOINT_ALSO).update(on={"device": "SR/QF"}, pair="QF:RB")
+
+    assert _stop(tmp_path, tree) == (
+        "facility: pair-invalid: wiring SR/QF:SP — `also` names RACK3:UNIT2:SP, whose `pair` "
+        "is QF:RB, while QF:SP states none; fix: state `pair: QF:RB` on QF:SP and remove "
+        "`pair` from RACK3:UNIT2:SP"
+    )
+
+
+def test_a_pair_naming_a_readbacks_further_address_stops_the_build(tmp_path: Path) -> None:
+    tree = _tree()
+    tree["records/channels.yaml"].append({"id": "RACK3:UNIT2:RB", "on": {"device": "SR/QF"}})
+    _record(tree, "QF:RB")["also"] = ["RACK3:UNIT2:RB"]
+    _channel(tree, "QF:SP")["pair"] = "RACK3:UNIT2:RB"
+
+    assert _stop(tmp_path, tree) == (
+        "facility: pair-invalid: channel QF:SP — `pair` names RACK3:UNIT2:RB, which wiring "
+        "record SR/QF:RB states under `also`; fix: name QF:RB as the pair"
+    )
+
+
 def test_an_address_two_records_name_stops_the_build(tmp_path: Path) -> None:
     tree = _tree()
     tree["records/channels.yaml"].append({"id": "RACK3:UNIT3:X", "on": {"device": "SR/BPM1"}})

@@ -757,9 +757,10 @@ Each address under ``also`` is a channel of ``records/channels.yaml`` with the
 and the same ``unit`` when both state one. It reads what ``address`` reads at
 the same instant, with the same calibration, motion and readout noise, and a
 write to it is a write to ``address``. It carries no seed of its own, and a
-limit is still stated per address. A setpoint's ``pair`` is stated on
-``address``: the build stops when an address under ``also`` names the same
-readback, because the two are one setpoint and not two that share it. A fault variable is named by ``address``
+limit is still stated per address. A pair is stated between
+records' ``address`` names: the build stops when an address under ``also``
+states a ``pair``, and when a setpoint's ``pair`` names an address under
+``also``. A fault variable is named by ``address``
 only (``LINE:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
 (``overrides``, ``noise``, ``couple``, ``channel_faults``, ``still``) may name
 either. An address belongs to one wiring record: the build stops when two

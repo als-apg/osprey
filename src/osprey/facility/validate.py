@@ -34,7 +34,7 @@ import numbers
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from dataclasses import fields as dataclass_fields
-from functools import cache
+from functools import cache, cached_property
 from importlib import resources
 from pathlib import Path
 from typing import IO, Any
@@ -2209,19 +2209,75 @@ class _Records:
                     f"`also` names {name}, which carries a seed",
                     f"remove the seed of {name}; it serves the value of {address}, motion included",
                 )
-            elif (pair := channel.get("pair")) not in (None, address) and other.get("pair") == pair:
+            else:
+                yield from self._also_pair(wid, files, address, channel, name, other)
+
+    @cached_property
+    def _named_as_pair(self) -> dict[str, list[str]]:
+        """The channels naming each address as their ``pair``, sorted, less the
+        further addresses of wiring records, whose own stop names their ``pair``."""
+        further = {name for _, entry in self.index.wiring for name in wiring_addresses(entry)[1:]}
+        named: dict[str, list[str]] = {}
+        for address, fields in sorted(self.index.channels.items()):
+            pair = fields.get("pair")
+            if isinstance(pair, str) and pair != address and address not in further:
+                named.setdefault(pair, []).append(address)
+        return named
+
+    def _also_pair(
+        self,
+        wid: str,
+        files: list[str],
+        address: str,
+        channel: Mapping[str, Any],
+        name: str,
+        other: Mapping[str, Any],
+    ) -> Iterator[FacilityBuildError]:
+        """A record's pair is stated on its ``address`` and names a record's ``address``.
+
+        The build pairs channels by the names they state, so a pair stated on a
+        further address, or naming one, would leave the record unpaired.
+        """
+        pair = channel.get("pair", address)
+        theirs = other.get("pair", name)
+        if theirs != name:
+            pair_files = sorted({*files, *stating_files(other, "pair")})
+            if theirs == pair:
                 # Several setpoints may name one readback, which the simulation
                 # then follows from none; two addresses of one record are one setpoint.
-                yield self._error(
-                    "pair-invalid",
-                    "wiring",
-                    wid,
-                    sorted({*files, *stating_files(other, "pair")}),
+                detail = (
                     f"`also` names {name}, whose `pair` is {pair} as {address}'s is, so {pair} "
-                    "would count as shared by two setpoints and follow neither",
-                    f"remove `pair` from {name}; {pair} follows the record under each of its "
-                    "addresses",
+                    "would count as shared by two setpoints and follow neither"
                 )
+                remedy = (
+                    f"remove `pair` from {name}; {pair} follows the record under each of its "
+                    "addresses"
+                )
+            elif pair == address:
+                detail = (
+                    f"`also` names {name}, whose `pair` is {theirs}, while {address} states none"
+                )
+                remedy = f"state `pair: {theirs}` on {address} and remove `pair` from {name}"
+            else:
+                detail = (
+                    f"`also` names {name}, whose `pair` is {theirs}, while {address}'s is {pair}"
+                )
+                remedy = f"remove `pair` from {name}; the record's pair is the one {address} states"
+            if _derived_pair(other):
+                remedy = (
+                    f"state `pair: {name}` on {name}; the record's pair is the one {address} states"
+                )
+            yield self._error("pair-invalid", "wiring", wid, pair_files, detail, remedy)
+        for setpoint in self._named_as_pair.get(name, ()):
+            fields = self.index.channels[setpoint]
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                setpoint,
+                sorted({*stating_files(fields, "pair"), *files}),
+                f"`pair` names {name}, which wiring record {wid} states under `also`",
+                _pair_remedy(setpoint, fields, f"name {address} as the pair"),
+            )
 
     # --- limits --------------------------------------------------------------------
 
