@@ -783,7 +783,7 @@ def test_a_word_with_no_stated_meaning_keeps_inside_its_block(tmp_path):
     assert inside and all(n["geometry"]["x"] + n["geometry"]["width"] <= right for n in inside)
 
 
-def _stripped(tmp_path, *, raft: bool = False, change=None):
+def _stripped(tmp_path, *, place_pose: bool = False, change=None):
     """A pump recipe whose first section is a strip of pumps and quadrupoles."""
     from osprey.facility.panels import load_graph
     from tests.facility.panels._fixture import copy_tables, write_fixture_facility
@@ -802,7 +802,7 @@ def _stripped(tmp_path, *, raft: bool = False, change=None):
     (tables / "channel_roles.csv").write_text(
         ROLES_HEADER + "Pump,pressure,*:Pressure-RB,device,value,,,,,stated,S,1,l\n"
     )
-    if raft:  # the place is placed; the second pump only by it
+    if place_pose:  # the place has a position of its own
         with (tables / "positions.csv").open("a") as handle:
             handle.write(
                 "XR/XR01,XR-RING,0,0,0,,,,1.5,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 9\n"
@@ -887,18 +887,26 @@ def test_close_strip_members_keep_their_names_and_values_apart(tmp_path) -> None
 def test_a_device_placed_only_by_its_place_is_a_dashed_bracket_and_one_placed_by_none_says_so(
     tmp_path,
 ) -> None:
-    from osprey.facility.panels.describe import STRIP_NOWHERE, STRIP_ON_RAFT, strip_state
+    from osprey.facility.panels.describe import STRIP_BY_PLACE, STRIP_NOWHERE, strip_state
     from osprey.facility.panels.view import CardHead, CardStrip
 
-    graph = _stripped(tmp_path, raft=True)
+    graph = _stripped(tmp_path, place_pose=True)
     view = device_card(graph, "XR01:IP2")
     strip = next(i for s in view.sections for i in s.items if isinstance(i, CardStrip))
-    assert strip.bracket == (0.0, 3.0, "on XR/XR01, place on the raft not stated")
+    # the place's stretch: its own point (1.5) and its devices' positions (1.25 to 2.0)
+    assert strip.bracket == (1.25, 2.0, "in XR/XR01, place in it not stated")
+    assert strip.window == (1.625 - 3, 1.625 + 3)
     assert [m.thing for m in strip.members if m.focus] == ["XR01:IP2"]
     doc = stub_render(view, graph)
-    assert _text(doc, "on XR/XR01, place on the raft not stated")
-    assert strip_state(graph, graph.thing("XR01:IP2", "device")) == STRIP_ON_RAFT
-    nowhere = _stripped(tmp_path / "b")
+    assert _text(doc, "in XR/XR01, place in it not stated")
+    assert strip_state(graph, graph.thing("XR01:IP2", "device")) == STRIP_BY_PLACE
+
+    def unplaced(document) -> None:
+        for device in document["devices"]:
+            if device["id"] == "XR01:IP2":
+                device.pop("place", None)
+
+    nowhere = _stripped(tmp_path / "b", change=unplaced)
     view = device_card(nowhere, "XR01:IP2")
     assert not [i for s in view.sections for i in s.items if isinstance(i, CardStrip)]
     head = next(i for s in view.sections for i in s.items if isinstance(i, CardHead))
@@ -910,9 +918,9 @@ def test_a_device_placed_only_by_its_place_is_a_dashed_bracket_and_one_placed_by
 def test_strip_states_count_the_devices_of_a_recipe_by_how_they_are_placed(tmp_path):
     from osprey.facility.panels.describe import strip_states
 
-    graph = _stripped(tmp_path, raft=True)
+    graph = _stripped(tmp_path, place_pose=True)
     assert strip_states(graph, ["XR01:IP1", "XR01:IP2", "XR01:QF1"]) == {
-        "pump": {"placed": 1, "on a raft": 1}
+        "pump": {"placed": 1, "by its place": 1}
     }
 
 

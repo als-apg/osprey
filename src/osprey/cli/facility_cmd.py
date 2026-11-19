@@ -1138,7 +1138,11 @@ def import_relations(
 
 @facility.group("panels")
 def panels_group() -> None:
-    """Write operator screens from the built facility, and check a written set."""
+    """Write operator screens from the built facility, and check a written set.
+
+    Experimental: the commands, the rule tables and the screens may change in any
+    release.
+    """
 
 
 def _panel_views() -> tuple[str, ...]:
@@ -1349,8 +1353,8 @@ def panels_write(
             FRONT_READING,
             FRONT_STATED,
             HOP_FOUND,
+            STRIP_BY_PLACE,
             STRIP_NOWHERE,
-            STRIP_ON_RAFT,
             STRIP_PLACED,
             chain_states,
             front_states,
@@ -1362,7 +1366,7 @@ def panels_write(
             total = sum(where.values())
             report(
                 f"  strip {recipe_name}: {where[STRIP_PLACED]} / {total} placed, "
-                f"{where[STRIP_ON_RAFT]} on a raft, {where[STRIP_NOWHERE]} not stated"
+                f"{where[STRIP_BY_PLACE]} by their place, {where[STRIP_NOWHERE]} not stated"
             )
 
         for chain, states in sorted(chain_states(graph, devices).items()):

@@ -2601,7 +2601,7 @@ class _Page:
         """The beam pipe across the card, to scale over the strip's window; each member
         as its symbol on the pipe or in its lane above or below it, its name and its
         value; the device in the focus colour; metre ticks under it; a dashed bracket
-        where only the device's raft is placed."""
+        where only a place around the device is placed."""
         lo, hi = strip.window
         scale = STRIP_WIDTH / max(hi - lo, CARD_LEAST_SPAN)  # px per m
 

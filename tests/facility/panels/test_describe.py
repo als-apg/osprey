@@ -53,6 +53,7 @@ from osprey.facility.panels.view import (
 from osprey.facility.records import FacilityRecords
 from tests.facility.panels._fixture import (
     PANELS_DIR,
+    RING_FRAME,
     copy_tables,
     graph_with_part,
     write_fixture_facility,
@@ -1370,7 +1371,7 @@ def test_a_part_stands_where_its_whole_is(tmp_path):
     assert _BY_WHOLE.format("XR/XR01/RK1", "XR01:CH1") in texts
     # the strip: at its whole's position
     part = graph.thing("XR01:QF1:PUMP", "device")
-    assert _where_on_strip(graph, part) == (1.25, None, graph.ring_frame)
+    assert _where_on_strip(graph, part) == (1.25, None, RING_FRAME)
     strip = place_view(graph, "XR/XR01", symbols={"Pump": "pump"}).sections
     elements = [e for s in strip for i in s.items for e in getattr(i, "elements", ())]
     assert ("XR01:QF1:PUMP", 1.25) in [(e.thing, e.s_m) for e in elements]
@@ -1437,7 +1438,7 @@ def test_a_line_model_is_drawn_from_its_devices_s(tmp_path):
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", line), PANELS_DIR)
     assert graph.beam_position(graph.thing("XL:D0", "device")) == ("model XL", 2.0)
     assert graph.frame_length("model XL") is None  # one pass: never wrapped
-    assert graph.frame_length(graph.ring_frame) is None  # no model states the ring's length
+    assert graph.frame_length(RING_FRAME) is None  # no model states the ring's length
     view = place_view(graph, "XL", symbols={"Quadrupole": "quad", "Pump": "pump"})
     (strip,) = [i for s in view.sections for i in s.items if isinstance(i, Strip)]
     assert [(e.thing, e.s_m) for e in strip.elements] == [
@@ -1465,5 +1466,5 @@ def ring_model(length: float):
 
 def test_the_ring_frame_takes_the_length_of_the_periodic_model_of_its_devices(tmp_path):
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", ring_model(12.0)), PANELS_DIR)
-    assert graph.frame_length(graph.ring_frame) == 12.0
+    assert graph.frame_length(RING_FRAME) == 12.0
     assert graph.frame_length("model XRM") == 12.0
