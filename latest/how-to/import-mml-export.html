@@ -762,11 +762,16 @@ token as under <code class="docutils literal notranslate"><span class="pre">mode
 <span class="w">        </span><span class="nt">provenance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">stated</span>
 <span class="w">        </span><span class="nt">signal</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">current_setpoint</span>
 <span class="w">        </span><span class="nt">by_model</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">TL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">      </span><span class="c1"># this model states the field as a gradient</span>
+<span class="w">          </span><span class="nt">TL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">normalized_strength_setpoint</span><span class="w">   </span><span class="c1"># this model states it in 1/m^2</span>
 </pre></div>
 </div>
-<p>The draft reads each model’s units on its own: the <code class="docutils literal notranslate"><span class="pre">signal</span></code> is the one most
-models give, and <code class="docutils literal notranslate"><span class="pre">by_model</span></code> lists only the models that differ. The mapping
+<p>The draft reads each model’s units on its own. A magnet field stated in a
+current gives the current signals. A multipole’s field stated in a normalized
+strength (<code class="docutils literal notranslate"><span class="pre">1/m^2</span></code>, <code class="docutils literal notranslate"><span class="pre">m^-3</span></code>) gives <code class="docutils literal notranslate"><span class="pre">normalized_strength_setpoint</span></code> and
+<code class="docutils literal notranslate"><span class="pre">normalized_strength_readback</span></code>. A corrector’s field stated in an angle
+(<code class="docutils literal notranslate"><span class="pre">rad</span></code>, <code class="docutils literal notranslate"><span class="pre">mrad</span></code>) gives <code class="docutils literal notranslate"><span class="pre">kick_angle_setpoint</span></code> and <code class="docutils literal notranslate"><span class="pre">kick_angle_readback</span></code>.
+A setpoint is drafted only for the family’s one written field of that quantity.
+The <code class="docutils literal notranslate"><span class="pre">signal</span></code> is the one most models give, and <code class="docutils literal notranslate"><span class="pre">by_model</span></code> lists only the models that differ. The mapping
 check, and with it the import, stops when a field gives a current signal to a
 model whose units for the field are not a current, and names the <code class="docutils literal notranslate"><span class="pre">by_model</span></code>
 answer to add. Any answer for the model settles it, even one that keeps the

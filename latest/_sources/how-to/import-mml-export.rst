@@ -252,10 +252,15 @@ token as under ``models``; ``null`` gives that model's channels no signal:
            provenance: stated
            signal: current_setpoint
            by_model:
-             TL: null      # this model states the field as a gradient
+             TL: normalized_strength_setpoint   # this model states it in 1/m^2
 
-The draft reads each model's units on its own: the ``signal`` is the one most
-models give, and ``by_model`` lists only the models that differ. The mapping
+The draft reads each model's units on its own. A magnet field stated in a
+current gives the current signals. A multipole's field stated in a normalized
+strength (``1/m^2``, ``m^-3``) gives ``normalized_strength_setpoint`` and
+``normalized_strength_readback``. A corrector's field stated in an angle
+(``rad``, ``mrad``) gives ``kick_angle_setpoint`` and ``kick_angle_readback``.
+A setpoint is drafted only for the family's one written field of that quantity.
+The ``signal`` is the one most models give, and ``by_model`` lists only the models that differ. The mapping
 check, and with it the import, stops when a field gives a current signal to a
 model whose units for the field are not a current, and names the ``by_model``
 answer to add. Any answer for the model settles it, even one that keeps the

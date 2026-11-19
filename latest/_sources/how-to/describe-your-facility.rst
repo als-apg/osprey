@@ -257,8 +257,9 @@ never as a key tile. The vocabulary's own ``model_readback``,
 ``title`` is the short word a screen names the signal by, on a tile or a value
 row; with none, the signal's name stands. The vocabulary titles its general
 signals with the operator's word: ``Current``, ``Setpoint``, ``Voltage``,
-``Ramp rate``, ``On command``, and ``Lolo``, ``Lo``, ``Hi``, ``Hihi`` for the
-temperature alarm limits. A ``channel_roles.csv`` row's ``label`` wins over it.
+``Ramp rate``, ``On command``, ``Strength`` (a multipole's normalized
+strength), ``Kick`` (a corrector's angle), and ``Lolo``, ``Lo``, ``Hi``,
+``Hihi`` for the temperature alarm limits. A ``channel_roles.csv`` row's ``label`` wins over it.
 
 Layers
 ======
