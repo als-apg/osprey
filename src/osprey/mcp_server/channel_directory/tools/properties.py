@@ -38,7 +38,7 @@ async def directory_properties(property: str, prefix: str | None = None) -> str:
 
     Args:
         property: The property name, as the directory spells it (for example
-            ``iocName`` or ``recordType`` in an EPICS ChannelFinder).
+            ``iocName`` or ``recordType`` in a ChannelFinder service).
         prefix: Only the values starting with this text.
 
     Returns:
