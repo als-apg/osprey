@@ -49,7 +49,14 @@ from osprey.facility.errors import (
     exact_number,
     quoted_slots,
 )
-from osprey.facility.pairing import must_agree
+from osprey.facility.pairing import (
+    FOLLOWS_NONE,
+    NOT_FOLLOWED,
+    must_agree,
+    pair_follows,
+    same_type,
+    seed_follows,
+)
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.relations import shape_problems
 from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
@@ -1778,9 +1785,9 @@ class _Records:
 
     def _pairs(self) -> Iterator[FacilityBuildError]:
         """Each setpoint's ``pair`` names a readback it agrees with. Several setpoints
-        may name one readback; the simulation follows it from none of them, so the
-        checks of what the simulation does (one model, the start value) apply only
-        to a readback one setpoint names."""
+        may name one readback. The checks of what the simulation does (one model,
+        the start value) apply only to a pair the simulation follows
+        (:func:`~osprey.facility.pairing.pair_follows`)."""
         named: dict[str, list[str]] = {}
         for address, channel in sorted(self.index.channels.items()):
             role = channel.get("role", DEFAULT_ROLE)
@@ -1798,10 +1805,49 @@ class _Records:
             pair = str(channel.get("pair", address))
             if pair != address:
                 named.setdefault(pair, []).append(address)
+        followed = {
+            follow.readback
+            for follow in pair_follows(self.index.channels)
+            if follow.follow != NOT_FOLLOWED
+        }
         for pair, setpoints in sorted(named.items()):
             for address in setpoints:
                 channel = self.index.channels[address]
-                yield from self._pair(address, channel, pair, simulated=len(setpoints) == 1)
+                yield from self._pair(address, channel, pair, simulated=pair in followed)
+        yield from self._follows(named)
+
+    def _follows(self, named: Mapping[str, list[str]]) -> Iterator[FacilityBuildError]:
+        """A seed's ``follows`` names the one setpoint that pairs with its readback, or ``none``."""
+        for address, channel in sorted(self.index.channels.items()):
+            follows = seed_follows(channel)
+            if follows is None:
+                continue
+            setpoints = sorted(named.get(address, ()))
+            problem = remedy = None
+            if not setpoints:
+                problem = "`follows` on a channel no setpoint names as its `pair`"
+                remedy = "remove `follows`"
+            elif len(setpoints) > 1:
+                problem = (
+                    f"`follows` on a readback several setpoints name ({', '.join(setpoints)}); "
+                    "the simulation follows it from none of them"
+                )
+                remedy = "remove `follows`"
+            elif follows == FOLLOWS_NONE:
+                continue
+            elif follows != setpoints[0]:
+                problem = f"`follows` names {follows}, whose `pair` is not {address}"
+                remedy = f"name {setpoints[0]}, whose `pair` is {address}, or `none`"
+            elif not same_type(self.index.channels[follows], channel):
+                problem = (
+                    f"`follows` names {follows}, which holds values of another type; "
+                    "the simulation copies the setpoint's value"
+                )
+                remedy = f"give {follows} and {address} one type, or remove `follows`"
+            if problem is not None and remedy is not None:
+                yield self._error(
+                    "seed-invalid", "channel", address, self._seed_files(channel), problem, remedy
+                )
 
     def _pair(
         self, address: str, channel: Mapping[str, Any], pair: str, *, simulated: bool

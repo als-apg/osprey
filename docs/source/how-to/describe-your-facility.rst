@@ -149,7 +149,8 @@ address means anything to OSPREY. What a channel is comes from its fields:
        set and a reset command read back on one channel). The simulation
        drives a readback from its setpoint only where exactly one setpoint
        names it and the two agree in type; any other readback it drives from
-       no setpoint.
+       no setpoint. The readback's seed ``follows`` changes that for one pair
+       (see Seeds).
    * - ``tolerance``
      - On a float setpoint, how close its readback must come before a move
        counts as done: ``{absolute: <x>}`` in the channel's unit or
@@ -645,6 +646,24 @@ archive's start state see. The build stops with ``value-invalid`` when
 ``period_s`` is not above zero, and with ``seed-invalid`` when ``topoff`` has
 a ``nominal`` beside it or ``topoff_lifetime.of`` names no channel with a
 ``topoff`` seed. Live reads and the archive show the same sawtooth.
+
+``follows`` says whether the simulation copies a setpoint's writes into this
+readback. By default it does when exactly one setpoint names the readback as
+its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``.
+``follows: <setpoint>`` makes the copy where the default does not, and
+``follows: none`` stops it where the default makes it. A followed readback
+starts at its setpoint's value and takes each write at once, with its own noise
+and drift on top. The build stops with ``seed-invalid`` when ``follows`` sits
+on a channel no setpoint names, on a readback several setpoints name, names a
+setpoint whose ``pair`` is another channel, or names a setpoint of another
+type. The simulator view's ``follows.json`` lists every pair with whether the
+simulation follows it (``default``, ``seed`` or ``not followed``) and why, and
+counts each.
+
+.. code-block:: yaml
+
+   SR:VAC:VALVE:01:POSITION:OPEN:
+     follows: none
 
 At run time the ``gate`` acts on the channel's held value, after a ``linear``
 sum; ``drift`` and ``noise`` are added on top and ``clamp`` applied. A gated

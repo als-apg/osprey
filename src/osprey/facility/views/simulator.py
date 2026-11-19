@@ -8,6 +8,7 @@ Written into ``<render>/data/simulator/``::
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
     variables.json       {schema: osprey.facility.simulator/4, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
+    follows.json         {schema: osprey.facility.follows/1, totals: {...}, pairs: [...]}
     scenarios.json       {schema: osprey.facility.scenarios/3, scenarios: [...]}
     scenarios/<name>/    a byte copy of each file a scenario's logbook entries attach
 
@@ -38,6 +39,13 @@ target's limits mode is ``optional``, and every other channel without a record
 is not writable.
 
 ``seeds.json`` maps each channel carrying a seed record to that record.
+``follows.json`` says for each pair, a setpoint whose ``pair`` names another
+channel, whether the simulation follows it: ``pairs`` lists ``{setpoint,
+readback, follow, why}`` sorted by readback, then setpoint, where ``follow`` is
+``default``, ``seed`` (the readback's seed ``follows`` names the setpoint) or
+``not followed``; ``totals`` counts each word. The runtime does not read it; a
+setpoint's ``pair`` in ``variables.json`` is the readback it follows, so the two
+agree.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
 states carried verbatim; ``faults`` maps each faulted model to ``{writes}``,
 plus ``inactive: model not served`` when the render does not serve it;
@@ -95,6 +103,8 @@ except ImportError:  # a connectors release whose view names no IOC health signa
 
 __all__ = [
     "ADDRESSES_FILE",
+    "FOLLOWS_FILE",
+    "FOLLOWS_SCHEMA",
     "ADDRESSES_SCHEMA",
     "DECKS_DIR",
     "INACTIVE_UNSERVED",
@@ -116,6 +126,10 @@ __all__ = [
     "write_simulator_view",
 ]
 
+
+#: The file saying which pairs the simulation follows, and why; no runtime reads it.
+FOLLOWS_FILE = "follows.json"
+FOLLOWS_SCHEMA = "osprey.facility.follows/1"
 
 #: The mark a scenario's faults carry for a model the render does not serve.
 INACTIVE_UNSERVED = "model not served"
@@ -290,7 +304,6 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
 
     from osprey.facility.pairing import simulated_pairs
 
-    # the simulation follows a readback only from its one setpoint
     followed = {
         setpoint: readback
         for readback, setpoint in simulated_pairs(
@@ -355,6 +368,17 @@ def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         if channel.get("simulation") is not None
     }
     return {"schema": SEEDS_SCHEMA, "seeds": seeds}
+
+
+def _follows_document(doc: Mapping[str, Any]) -> dict[str, Any]:
+    from osprey.facility.pairing import follow_totals, pair_follows
+
+    follows = pair_follows({str(c["id"]): c for c in doc.get("channels", [])})
+    return {
+        "schema": FOLLOWS_SCHEMA,
+        "totals": follow_totals(follows),
+        "pairs": [follow._asdict() for follow in follows],
+    }
 
 
 def _float_addresses(channels: Iterable[Mapping[str, Any]]) -> set[str]:
@@ -500,6 +524,7 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
         },
         VARIABLES_FILE: _variables_document(inputs),
         SEEDS_FILE: _seeds_document(doc),
+        FOLLOWS_FILE: _follows_document(doc),
         SCENARIOS_FILE: _scenarios_document(inputs),
     }
 

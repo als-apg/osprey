@@ -11,15 +11,17 @@ options or shape and the setpoint is no command (:func:`must_agree`). A command
 and the status it reads back on are a pair whatever their types.
 
 Several setpoints may name one readback (a set and a reset command read back on
-one channel). The simulation follows a readback only from its one setpoint, and
-only where the two hold values of one type (:func:`simulated_pairs`); any other
-readback it follows from no setpoint.
+one channel). By default the simulation follows a readback only from its one
+setpoint, and only where the two hold values of one type; any other readback it
+follows from no setpoint. The readback's seed states the exception both ways:
+``follows: <setpoint>`` makes its pair followed, ``follows: none`` stops it
+(:func:`pair_follows`, :func:`simulated_pairs`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Iterable, Mapping
+from typing import Any, NamedTuple
 
 #: The write word of a command: a setpoint whose signal ends in it is one.
 COMMAND_WORD = "command"
@@ -27,6 +29,21 @@ WRITE_WORDS = ("setpoint", COMMAND_WORD)
 READ_WORDS = ("readback", "status")
 
 _SAME_SLOTS = ("value_type", "options", "shape")
+
+#: Whether the simulation follows a pair: by default, by the readback's seed, or not.
+FOLLOWED_DEFAULT = "default"
+FOLLOWED_SEED = "seed"
+NOT_FOLLOWED = "not followed"
+FOLLOWS = (FOLLOWED_DEFAULT, FOLLOWED_SEED, NOT_FOLLOWED)
+#: The seed word ``follows`` takes to say the simulation follows the readback from no setpoint.
+FOLLOWS_NONE = "none"
+
+_WHY_DEFAULT = "one setpoint names the readback and the two hold values of one type"
+_WHY_SEED = "the readback's seed follows this setpoint"
+_WHY_NONE = "the readback's seed follows none"
+_WHY_SHARED = "several setpoints name the readback"
+_WHY_TYPES = "the setpoint and the readback hold values of different types"
+_WHY_OTHER = "the readback's seed follows another setpoint"
 
 #: The rule :func:`derive_pairs` applies, named where a derived pair is shown.
 PAIR_RULE = "the one readback of the same quantity where the setpoint sits"
@@ -99,17 +116,41 @@ def must_agree(setpoint: Mapping[str, Any], readback: Mapping[str, Any]) -> bool
     return quantity is not None and quantity == signal_quantity(readback.get("signal"), "readback")
 
 
-def simulated_pairs(channels: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
-    """The readbacks the simulation drives from a setpoint: each readback that
-    exactly one setpoint names as its ``pair`` and that holds values of the
-    setpoint's type, mapped to that setpoint.
+class Follow(NamedTuple):
+    """Whether the simulation follows one pair, and why."""
+
+    setpoint: str
+    readback: str
+    #: One of :data:`FOLLOWS`.
+    follow: str
+    why: str
+
+
+def seed_follows(channel: Mapping[str, Any]) -> str | None:
+    """The ``follows`` a channel's seed states, if any.
 
     Args:
-        channels: Every channel's fields by address, with ``role`` and ``pair``.
+        channel: The channel's fields.
+    """
+    seed = channel.get("simulation")
+    follows = seed.get("follows") if isinstance(seed, Mapping) else None
+    return None if follows is None else str(follows)
+
+
+def pair_follows(channels: Mapping[str, Mapping[str, Any]]) -> list[Follow]:
+    """Whether the simulation follows each pair, and why.
+
+    A pair is a setpoint whose ``pair`` names another channel. The readback's seed
+    decides when it states ``follows``: the setpoint it names is followed, and no
+    other. Otherwise the readback is followed when exactly one setpoint names it
+    and the two hold values of one type.
+
+    Args:
+        channels: Every channel's fields by address, with ``role``, ``pair`` and
+            the seed in ``simulation``.
 
     Returns:
-        ``{readback: setpoint}``; a readback no setpoint or several name, or one
-        of another type than its setpoint, is absent.
+        One :class:`Follow` per pair, sorted by readback, then setpoint.
     """
     named: dict[str, list[str]] = {}
     for address, fields in channels.items():
@@ -118,12 +159,54 @@ def simulated_pairs(channels: Mapping[str, Mapping[str, Any]]) -> dict[str, str]
         pair = str(fields.get("pair") or address)
         if pair != address:
             named.setdefault(pair, []).append(address)
+    found: list[Follow] = []
+    for readback, setpoints in sorted(named.items()):
+        channel = channels.get(readback)
+        follows = None if channel is None else seed_follows(channel)
+        for setpoint in sorted(setpoints):
+            if channel is None:
+                found.append(Follow(setpoint, readback, NOT_FOLLOWED, "the readback is no channel"))
+            elif len(setpoints) > 1:
+                found.append(Follow(setpoint, readback, NOT_FOLLOWED, _WHY_SHARED))
+            elif follows == FOLLOWS_NONE:
+                found.append(Follow(setpoint, readback, NOT_FOLLOWED, _WHY_NONE))
+            elif follows == setpoint:
+                found.append(Follow(setpoint, readback, FOLLOWED_SEED, _WHY_SEED))
+            elif follows is not None:
+                found.append(Follow(setpoint, readback, NOT_FOLLOWED, _WHY_OTHER))
+            elif same_type(channels[setpoint], channel):
+                found.append(Follow(setpoint, readback, FOLLOWED_DEFAULT, _WHY_DEFAULT))
+            else:
+                found.append(Follow(setpoint, readback, NOT_FOLLOWED, _WHY_TYPES))
+    return found
+
+
+def follow_totals(follows: Iterable[Follow]) -> dict[str, int]:
+    """How many pairs each word of :data:`FOLLOWS` counts.
+
+    Args:
+        follows: The pairs, as :func:`pair_follows` gives them.
+    """
+    totals = dict.fromkeys(FOLLOWS, 0)
+    for follow in follows:
+        totals[follow.follow] += 1
+    return totals
+
+
+def simulated_pairs(channels: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
+    """The readbacks the simulation drives from a setpoint (:func:`pair_follows`).
+
+    Args:
+        channels: Every channel's fields by address, with ``role``, ``pair`` and
+            the seed in ``simulation``.
+
+    Returns:
+        ``{readback: setpoint}`` for each followed pair.
+    """
     return {
-        readback: setpoints[0]
-        for readback, setpoints in named.items()
-        if len(setpoints) == 1
-        and readback in channels
-        and same_type(channels[setpoints[0]], channels[readback])
+        follow.readback: follow.setpoint
+        for follow in pair_follows(channels)
+        if follow.follow != NOT_FOLLOWED
     }
 
 

@@ -1231,6 +1231,78 @@ class TestSeedRules:
         assert error.detail == "`nominal` 1.0 differs from its setpoint Q1:SP's 0.0"
 
 
+class TestFollowsSeed:
+    """A readback's seed ``follows`` names the setpoint the simulation copies a write from."""
+
+    def test_follows_names_the_one_setpoint_that_pairs_with_it(self, tmp_path: Path) -> None:
+        files = _tree(**{"seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}}})
+        assert _run(tmp_path / "sp", files).ok, _lines(_run(tmp_path / "sp", files))
+        files = _tree(**{"seeds.yaml": {"Q1:RB": {"follows": "none"}}})
+        assert _run(tmp_path / "none", files).ok, _lines(_run(tmp_path / "none", files))
+
+    def test_follows_a_channel_that_does_not_name_this_readback(self, tmp_path: Path) -> None:
+        files = _with_channels(
+            {"id": "T", "role": "setpoint"}, **{"seeds.yaml": {"Q1:RB": {"follows": "T"}}}
+        )
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert (error.record_id, error.sources) == ("Q1:RB", ("seeds.yaml",))
+        assert error.detail == "`follows` names T, whose `pair` is not Q1:RB"
+
+    def test_follows_on_a_channel_no_setpoint_names(self, tmp_path: Path) -> None:
+        files = _tree(**{"seeds.yaml": {"BPM1:X": {"follows": "none"}}})
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert error.record_id == "BPM1:X"
+        assert error.detail == "`follows` on a channel no setpoint names as its `pair`"
+
+    def test_follows_on_a_readback_several_setpoints_name(self, tmp_path: Path) -> None:
+        files = _with_channels(
+            {"id": "T", "role": "setpoint", "pair": "Q1:RB"},
+            **{"seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}}},
+        )
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert error.detail == (
+            "`follows` on a readback several setpoints name (Q1:SP, T); the simulation "
+            "follows it from none of them"
+        )
+
+    def test_follows_a_setpoint_of_another_type(self, tmp_path: Path) -> None:
+        setpoint = {**SP, "value_type": "enum", "options": ["Idle", "On"]}
+        readback = {**RB, "value_type": "bool"}
+        files = _tree(
+            **{
+                "records/channels.yaml": [setpoint, readback, X],
+                "seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}},
+            }
+        )
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert error.detail == (
+            "`follows` names Q1:SP, which holds values of another type; the simulation "
+            "copies the setpoint's value"
+        )
+
+    def test_two_layers_that_state_follows_differently_conflict(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "imported/a/channels.yaml": [{"id": "Q1:RB", "simulation": {"follows": "none"}}],
+                "imported/b/channels.yaml": [{"id": "Q1:RB", "simulation": {"follows": "Q1:SP"}}],
+            }
+        )
+        result = _run(tmp_path, files)
+        assert result.failed == "combine", _lines(result)
+        assert [(e.kind, e.record_id) for e in result.errors] == [("layer-conflict", "Q1:RB")]
+
+    def test_a_readback_followed_from_none_starts_at_its_own_seed(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "seeds.yaml": {
+                    "Q1:SP": {"nominal": 2.0},
+                    "Q1:RB": {"nominal": 3.0, "follows": "none"},
+                }
+            }
+        )
+        assert _run(tmp_path, files).ok, _lines(_run(tmp_path, files))
+
+
 # --- pulse and gate seeds ------------------------------------------------------------
 
 EXAMPLE_TREE = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "facilities" / "example"
