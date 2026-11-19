@@ -335,6 +335,24 @@ describe('orm schema (channel lists + segmented sweep + bounded scalars + layout
     num.value = '7.4';
     expect(collect().num).toBeUndefined();
   });
+
+  test('a value the form cannot read marks its input invalid with a message, until it reads', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    const num = $$(form, 'input[type="number"]').find((i) => i.step === '1');
+    expect(num.getAttribute('aria-invalid')).toBeNull();
+
+    num.value = '7.4';
+    num.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(num.getAttribute('aria-invalid')).toBe('true');
+    expect(num.validationMessage).toBe('Enter a whole number.');
+    expect(collect().num).toBeUndefined();
+
+    // A value applied from the draft replaces the text, and the mark with it.
+    collect.applyValues({ num: 7 });
+    expect(num.getAttribute('aria-invalid')).toBe('false');
+    expect(num.validationMessage).toBe('');
+    expect(collect().num).toBe(7);
+  });
 });
 
 describe('grid_scan schema (axes table + toggle)', () => {
