@@ -183,11 +183,11 @@ def _write_deployment(root: Path) -> Path:
 def deployment(tmp_path, monkeypatch):
     """An on-disk deployment this process and its sandbox children both read.
 
-    ``OSPREY_CONFIG`` is what ``load_osprey_config`` resolves (the project root
-    and the agent-data root come from it) and ``CONFIG_FILE`` is what the
-    connectors' ``get_config_value`` singleton reads. Both are set to the same
-    file so the host's posture resolution and the sandbox's cannot be answered by
-    two different configs, and both are inherited by the child.
+    ``OSPREY_CONFIG`` is the file ``current_config`` loads (the project root and
+    the agent-data root come from it), here and in the inherited environment of
+    every sandbox child, so the host's posture resolution and the sandbox's
+    cannot be answered by two different configs. ``CONFIG_FILE`` names the same
+    file, as every deployment that sets it does.
     """
     from osprey_connectors.testing import clear_config_state
 

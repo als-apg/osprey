@@ -15,6 +15,8 @@ from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests.interfaces.ariel._attachments import PNG_URL, attachment_entry, attachment_row
 from tests.interfaces.ariel._routes_app import routes_app
 
@@ -2128,17 +2130,10 @@ def test_response_field_table(client, field_service, route, field, expected):
 
 
 @pytest.mark.parametrize("route", _ROUTES)
-def test_response_field_entry_url_rendered_for_a_logbook_entry(
-    client, field_service, route, monkeypatch
-):
+def test_response_field_entry_url_rendered_for_a_logbook_entry(client, field_service, route):
     """An entry that is in the facility logbook gets the template URL on every route."""
-    monkeypatch.setattr(
-        "osprey_connectors.config.get_config_value",
-        lambda key, default=None: (
-            "https://logbook.example/entry/{entry_id}"
-            if key == "ariel.entry_url_template"
-            else default
-        ),
+    serve_config(
+        config_of({"ariel": {"entry_url_template": "https://logbook.example/entry/{entry_id}"}})
     )
     entry = _field_entry(source_system="Example eLog", metadata={})
 

@@ -13,6 +13,8 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests._live import wait_until
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -1003,11 +1005,10 @@ class TestArtifactGalleryApp:
         assert data["count"] == 3
         assert data["total"] == 5
 
-    def test_a_configured_page_size_above_the_request_bound_is_capped(self, monkeypatch):
+    def test_a_configured_page_size_above_the_request_bound_is_capped(self):
         import osprey.interfaces.artifacts.app as gallery_app
-        import osprey_connectors.config as config
 
-        monkeypatch.setattr(config, "get_config_value", lambda key, default=None: 500)
+        serve_config(config_of({"artifact_server": {"page_size": 500}}))
 
         assert gallery_app._page_size() == gallery_app.MAX_PAGE_SIZE
 

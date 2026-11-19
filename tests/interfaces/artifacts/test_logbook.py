@@ -25,6 +25,8 @@ import pytest
 
 from osprey.agent_record.contract import Drain
 from osprey.registry.web import framework_web_port_default
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 
 _MODULE = "osprey.interfaces.artifacts.logbook"
 
@@ -63,17 +65,22 @@ _MOCK_PROVIDER_CONFIG = {
     "models": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
 }
 
-# Default logbook.composition config returned by get_config_value
+# The deployment's logbook.composition section for the compose tests
 _MOCK_COMPOSITION_CONFIG = {
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
 }
 
 
+def _composition_config(composition=_MOCK_COMPOSITION_CONFIG):
+    """The process config of a deployment whose logbook.composition is *composition*."""
+    return installed(config_of({"logbook": {"composition": composition}}))
+
+
 def _patch_model_resolution():
-    """Context manager that patches provider/config resolution for compose tests."""
+    """Context managers serving the composition config and patching the provider's."""
     return (
-        patch("osprey_connectors.config.get_config_value", return_value=_MOCK_COMPOSITION_CONFIG),
+        _composition_config(),
         patch("osprey.models.config.get_provider_config", return_value=_MOCK_PROVIDER_CONFIG),
     )
 
@@ -140,9 +147,7 @@ class TestLogbookCompose:
         entry = _make_artifact(store)
 
         with (
-            patch(
-                "osprey_connectors.config.get_config_value", return_value=_MOCK_COMPOSITION_CONFIG
-            ),
+            _composition_config(),
             patch("osprey.models.config.get_provider_config", return_value={}),
         ):
             resp = app_client.post(
@@ -628,18 +633,14 @@ class TestComposeWithSteering:
         store = app_client.app.state.artifact_store
         entry = _make_artifact(store)
 
-        values = {
-            "logbook.composition": {},
-            "claude_code.provider": "anthropic",
-            "claude_code.default_model": "claude-opus-5",
+        tree = {
+            "logbook": {"composition": {}},
+            "claude_code": {"provider": "anthropic", "default_model": "claude-opus-5"},
         }
         mock_llm = AsyncMock(return_value=_llm_json_response())
 
         with (
-            patch(
-                "osprey_connectors.config.get_config_value",
-                side_effect=lambda path, default=None: values.get(path, default),
-            ),
+            installed(config_of(tree)),
             patch("osprey.models.config.get_provider_config", return_value=_MOCK_PROVIDER_CONFIG),
             patch("osprey.models.completion.aget_chat_completion", mock_llm),
         ):
@@ -669,7 +670,7 @@ class TestLogbookModels:
 
     def test_no_provider_is_a_503(self, app_client):
         with (
-            patch("osprey_connectors.config.get_config_value", return_value={}),
+            installed(config_of({})),
             patch("osprey.models.config.get_provider_config", return_value={}),
         ):
             resp = app_client.get("/api/logbook/models")

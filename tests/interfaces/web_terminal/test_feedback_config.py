@@ -10,12 +10,14 @@ a *full lifespan* client (``_lifespan_client``) for the config plumbing, and a
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import unquote_plus
 
 import pytest
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -32,21 +34,7 @@ from osprey.interfaces.web_terminal.feedback_destination import (
     upstream_escalation_url,
 )
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
-
-
-def _config_reader(overrides: dict | None = None):
-    """A ``get_config_value`` stand-in that maps dotted keys to *overrides*.
-
-    Every unmapped key falls back to the default the caller passed, so the
-    other lifespan blocks reading through the same function (``web.theme``,
-    ``web.chat_*``) keep resolving to their own defaults.
-    """
-    mapping = overrides or {}
-
-    def _get(path: str, default=None, _config_path=None):
-        return mapping.get(path, default)
-
-    return _get
+from osprey_connectors_tests._config_trees import config_tree
 
 
 @contextmanager
@@ -56,31 +44,36 @@ def _lifespan_client(
     *,
     overrides: dict | None = None,
     watch_dir: Path | None = None,
-    config_reader=None,
 ):
-    """Run a full ``create_app`` lifespan with config injected at three seams.
+    """Run a full ``create_app`` lifespan over a ``config.yml`` the test writes.
 
-    ``shared_root`` becomes ``agent_data.base_dir`` (absolute, so it survives
-    anchoring untouched), which is what ``resolve_shared_data_root`` derives the
-    feedback store from. ``watch_dir`` — when given — is the ``web_terminal``
+    The file is the project's, named by ``OSPREY_CONFIG``, so the lifespan's own
+    reset of the process default finds it again: ``shared_root`` becomes
+    ``agent_data.base_dir`` (absolute, so it survives anchoring untouched),
+    which is what ``resolve_shared_data_root`` derives the feedback store from,
+    and *overrides* (dotted keys) are set over it; a key not named is absent,
+    so the other lifespan blocks (``web.theme``, ``web.chat_*``) resolve to
+    their own defaults. ``watch_dir`` — when given — is the ``web_terminal``
     section's key, which moves ``app.state.workspace_dir`` and nothing else.
     """
     web_terminal_section: dict = {}
     if watch_dir is not None:
         web_terminal_section["watch_dir"] = str(watch_dir)
+    config_file = project_dir / "config.yml"
+    config_file.write_text(
+        yaml.safe_dump(
+            config_tree(
+                overrides or {}, base={"web": {}, "agent_data": {"base_dir": str(shared_root)}}
+            )
+        ),
+        encoding="utf-8",
+    )
     with (
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
             return_value=web_terminal_section,
         ),
-        patch(
-            "osprey.utils.config_paths.loaded_or_empty",
-            return_value={"web": {}, "agent_data": {"base_dir": str(shared_root)}},
-        ),
-        patch(
-            "osprey_connectors.config.get_config_value",
-            side_effect=config_reader or _config_reader(overrides),
-        ),
+        patch.dict(os.environ, {"OSPREY_CONFIG": str(config_file)}),
     ):
         app = create_app(shell_command="echo", project_dir=project_dir)
         with TestClient(app) as client:

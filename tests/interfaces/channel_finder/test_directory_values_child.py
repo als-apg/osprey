@@ -48,7 +48,7 @@ from osprey_connectors.execution_mode import EXECUTION_MODE_ENV_VAR, READONLY_MO
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.model import evolve
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_config, with_values
 from osprey_connectors_tests._epics_fakes import FakeAioca, FakeChannel, InlineCaLoop
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
@@ -293,10 +293,7 @@ def session_env(tmp_path, monkeypatch) -> Iterator[Path]:
     ):
         monkeypatch.delenv(name, raising=False)
 
-    def get_config_value(path, default=None, _config_path=None):
-        return VA_SECTION if path == "control_system" else default
-
-    serve_config_lookup(monkeypatch, get_config_value)
+    serve_config(with_values({"control_system": VA_SECTION}))
     monkeypatch.setattr(session_module, "MOVE_POLL_S", 0.01)
     # The block and the watcher are process-wide; each has its own test below.
     monkeypatch.setattr(child_module, "_arm_raw_put_block", lambda: None)
@@ -810,12 +807,7 @@ EPICS_SECTION = {
 def dead_aioca(session_env, monkeypatch) -> FakeAioca:
     """The session bound to a real ``EPICSConnector`` on a fake aioca, with short windows."""
     _write_record(session_env, target="live", generation=1)
-    serve_config_lookup(
-        monkeypatch,
-        lambda path, default=None, _config_path=None: (
-            EPICS_SECTION if path == "control_system" else default
-        ),
-    )
+    serve_config(with_values({"control_system": EPICS_SECTION}))
     fake = _DeadlineAioca()
     monkeypatch.setitem(sys.modules, "aioca", fake)
     monkeypatch.setattr(epics_connector_module, "get_ca_loop", InlineCaLoop)
@@ -893,7 +885,6 @@ class _Gateways:
 
     def __init__(self, monkeypatch, state_dir: Path) -> None:
         self.state_dir = state_dir
-        self.monkeypatch = monkeypatch
         self.ca_loop = InlineCaLoop()
         self.aioca = FakeAioca()
         self.opened: list[session_module.ControlSession] = []
@@ -909,12 +900,7 @@ class _Gateways:
         monkeypatch.setattr(session_module.ControlSession, "open", classmethod(spying_open))
 
     def serve_section(self, section: dict[str, Any]) -> None:
-        serve_config_lookup(
-            self.monkeypatch,
-            lambda path, default=None, _config_path=None: (
-                section if path == "control_system" else default
-            ),
-        )
+        serve_config(with_values({"control_system": section}))
 
     @property
     def session(self) -> session_module.ControlSession:

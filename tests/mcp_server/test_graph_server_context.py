@@ -23,6 +23,8 @@ from typing import Any
 import pytest
 
 from osprey.mcp_server.graph import server_context as graph_ctx
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 from tests.mcp_server.conftest import get_tool_fn, hook_error_class_map
 
 # ---------------------------------------------------------------------------
@@ -58,29 +60,21 @@ def _configured_block(**overrides: Any) -> dict[str, Any]:
     return {"services": {"graphdb": block}}
 
 
-def _build_context(monkeypatch, config: dict[str, Any] | None, **settings: Any):
-    """Construct an initialized :class:`GraphContext` over a config mapping.
+def _build_context(config: dict[str, Any] | None, **settings: Any):
+    """Construct an initialized :class:`GraphContext` over a served config.
 
-    Both seams the context reads config through are module globals, so patching
-    them here is what lets every test below name its own store and its own
-    tuning values without a config file on disk.
+    The config is served as the process config, so every test below names its
+    own store and its own tuning values without a config file on disk.
 
     Args:
-        monkeypatch: The pytest monkeypatch fixture.
-        config: The mapping ``load_osprey_config`` should return.
-        **settings: Values ``get_config_value`` should serve, keyed by dotted
-            config key — pass the module's key constants through ``**{...}``.
+        config: The config tree; ``None`` is an empty one.
+        **settings: Tuning values set over it, keyed by dotted config key —
+            pass the module's key constants through ``**{...}``.
 
     Returns:
         The initialized context.
     """
-    monkeypatch.setattr(graph_ctx, "loaded_or_empty", lambda: config)
-    values = dict(settings)
-    monkeypatch.setattr(
-        graph_ctx,
-        "get_config_value",
-        lambda key, default=None: values.get(key, default),
-    )
+    serve_config(config_of(config_tree(settings, base=config or {}), environ={}))
     context = graph_ctx.GraphContext()
     context.initialize()
     return context
@@ -210,38 +204,36 @@ def _server_error(code: str, message: str) -> Exception:
 class TestConfigurationGate:
     """``configured`` is decided once, from the ``services.graphdb`` block."""
 
-    def test_block_present_resolves_a_connection(self, monkeypatch):
+    def test_block_present_resolves_a_connection(self):
         """A well-formed block makes the context configured and dialable."""
-        context = _build_context(monkeypatch, _configured_block(port_host=7999))
+        context = _build_context(_configured_block(port_host=7999))
 
         assert context.configured is True
         assert context.uri == "bolt://localhost:7999"
 
-    def test_explicit_uri_wins_over_the_derived_address(self, monkeypatch):
+    def test_explicit_uri_wins_over_the_derived_address(self):
         """An external store is dialed at the address it was given."""
-        context = _build_context(
-            monkeypatch, _configured_block(uri="bolt://graph.example.org:7687")
-        )
+        context = _build_context(_configured_block(uri="bolt://graph.example.org:7687"))
 
         assert context.uri == "bolt://graph.example.org:7687"
 
-    def test_absent_block_is_not_configured(self, monkeypatch):
+    def test_absent_block_is_not_configured(self):
         """A project with no graph store answers reads without dialing."""
-        context = _build_context(monkeypatch, {"services": {"postgresql": {}}})
+        context = _build_context({"services": {"postgresql": {}}})
 
         assert context.configured is False
         assert context.uri is None
 
-    def test_absent_services_section_is_not_configured(self, monkeypatch):
+    def test_absent_services_section_is_not_configured(self):
         """A config with no services at all is the same state, not an error."""
-        context = _build_context(monkeypatch, {})
+        context = _build_context({})
 
         assert context.configured is False
 
-    def test_malformed_block_is_not_configured_and_warns(self, monkeypatch, caplog):
+    def test_malformed_block_is_not_configured_and_warns(self, caplog):
         """A typo reads as unconfigured, but it is logged loudly rather than swallowed."""
         with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.graph.server_context"):
-            context = _build_context(monkeypatch, _configured_block(port_host="abc"))
+            context = _build_context(_configured_block(port_host="abc"))
 
         assert context.configured is False
         assert context.uri is None
@@ -254,8 +246,10 @@ class TestConfigurationGate:
         def _boom() -> dict[str, Any]:
             raise OSError("config.yml is unreadable")
 
+        # The process reader degrades every load error itself; the context's
+        # own guard is what a reader that raises anyway meets.
         monkeypatch.setattr(graph_ctx, "loaded_or_empty", _boom)
-        monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
+        serve_config(config_of({}))
 
         with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.graph.server_context"):
             context = graph_ctx.GraphContext()
@@ -267,13 +261,14 @@ class TestConfigurationGate:
     def test_initialize_is_idempotent(self, monkeypatch):
         """A second initialize() does not re-read config."""
         calls: list[int] = []
+        real_loaded_or_empty = graph_ctx.loaded_or_empty
 
         def _load() -> dict[str, Any]:
             calls.append(1)
-            return _configured_block()
+            return real_loaded_or_empty()
 
+        serve_config(config_of(_configured_block()))
         monkeypatch.setattr(graph_ctx, "loaded_or_empty", _load)
-        monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
 
         context = graph_ctx.GraphContext()
         context.initialize()
@@ -286,7 +281,7 @@ class TestConfigurationGate:
         monkeypatch.setenv("GRAPHDB_PASSWORD", "s3cret-value")
 
         with caplog.at_level(logging.DEBUG, logger="osprey.mcp_server.graph.server_context"):
-            _build_context(monkeypatch, _configured_block())
+            _build_context(_configured_block())
 
         assert "s3cret-value" not in caplog.text
 
@@ -304,17 +299,16 @@ class TestTuningKeys:
         assert graph_ctx.QUERY_TIMEOUT_CONFIG_KEY == "services.graphdb.query_timeout_s"
         assert graph_ctx.QUERY_MAX_ROWS_CONFIG_KEY == "services.graphdb.query_max_rows"
 
-    def test_defaults_when_unset(self, monkeypatch):
+    def test_defaults_when_unset(self):
         """An unconfigured project still has a bounded timeout and row cap."""
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
 
         assert context.query_timeout_s == graph_ctx.DEFAULT_QUERY_TIMEOUT_S == 15
         assert context.query_max_rows == graph_ctx.DEFAULT_QUERY_MAX_ROWS == 200
 
-    def test_config_overrides_both(self, monkeypatch):
+    def test_config_overrides_both(self):
         """Configured values replace the built-in defaults."""
         context = _build_context(
-            monkeypatch,
             _configured_block(),
             **{
                 graph_ctx.QUERY_TIMEOUT_CONFIG_KEY: 45,
@@ -326,11 +320,10 @@ class TestTuningKeys:
         assert context.query_max_rows == 25
 
     @pytest.mark.parametrize("bad", ["abc", 0, -5, True, 2.5])
-    def test_malformed_value_warns_and_falls_back(self, monkeypatch, caplog, bad):
+    def test_malformed_value_warns_and_falls_back(self, caplog, bad):
         """A bad tuning value must not leave the agent with no graph tools."""
         with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.graph.server_context"):
             context = _build_context(
-                monkeypatch,
                 _configured_block(),
                 **{graph_ctx.QUERY_MAX_ROWS_CONFIG_KEY: bad},
             )
@@ -348,9 +341,9 @@ class TestTuningKeys:
 class TestRunRead:
     """``run_read`` bounds every answer and never leaks a driver type."""
 
-    def test_unconfigured_raises_not_configured(self, monkeypatch):
+    def test_unconfigured_raises_not_configured(self):
         """No store means an immediate refusal, not a dial."""
-        context = _build_context(monkeypatch, {})
+        context = _build_context({})
 
         with pytest.raises(graph_ctx.GraphNotConfigured) as excinfo:
             context.run_read("RETURN 1")
@@ -358,10 +351,10 @@ class TestRunRead:
         assert excinfo.value.error_type == "not_configured"
         assert any("services.graphdb" in s for s in excinfo.value.suggestions)
 
-    def test_rows_and_parameters_reach_the_transaction(self, monkeypatch):
+    def test_rows_and_parameters_reach_the_transaction(self):
         """Records come back as plain dicts, with parameters passed through."""
         session = _FakeSession([_FakeRecord({"name": "SR:MAG:DIPOLE:01"})])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         result = context.run_read("MATCH (d) RETURN d.name AS name", {"limit": 5})
@@ -370,22 +363,20 @@ class TestRunRead:
         assert result.truncated is False
         assert session.transaction.calls == [("MATCH (d) RETURN d.name AS name", {"limit": 5})]
 
-    def test_session_names_the_database_explicitly(self, monkeypatch):
+    def test_session_names_the_database_explicitly(self):
         """Naming the database skips the driver's home-database round trip."""
         session = _FakeSession([_FakeRecord({"n": 1})])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         driver = _with_driver(context, session)
 
         context.run_read("RETURN 1 AS n")
 
         assert driver.session_kwargs == {"database": "neo4j"}
 
-    def test_row_cap_truncates_and_flags(self, monkeypatch):
+    def test_row_cap_truncates_and_flags(self):
         """More rows than the cap allows come back clipped and flagged."""
         session = _FakeSession([_FakeRecord({"i": i}) for i in range(10)])
-        context = _build_context(
-            monkeypatch, _configured_block(), **{graph_ctx.QUERY_MAX_ROWS_CONFIG_KEY: 3}
-        )
+        context = _build_context(_configured_block(), **{graph_ctx.QUERY_MAX_ROWS_CONFIG_KEY: 3})
         _with_driver(context, session)
 
         result = context.run_read("MATCH (n) RETURN n")
@@ -393,12 +384,10 @@ class TestRunRead:
         assert result.rows == [{"i": 0}, {"i": 1}, {"i": 2}]
         assert result.truncated is True
 
-    def test_exactly_the_cap_is_not_truncated(self, monkeypatch):
+    def test_exactly_the_cap_is_not_truncated(self):
         """A result that just fits must not be reported as clipped."""
         session = _FakeSession([_FakeRecord({"i": i}) for i in range(3)])
-        context = _build_context(
-            monkeypatch, _configured_block(), **{graph_ctx.QUERY_MAX_ROWS_CONFIG_KEY: 3}
-        )
+        context = _build_context(_configured_block(), **{graph_ctx.QUERY_MAX_ROWS_CONFIG_KEY: 3})
         _with_driver(context, session)
 
         result = context.run_read("MATCH (n) RETURN n")
@@ -406,10 +395,10 @@ class TestRunRead:
         assert len(result.rows) == 3
         assert result.truncated is False
 
-    def test_per_call_max_rows_overrides_the_default(self, monkeypatch):
+    def test_per_call_max_rows_overrides_the_default(self):
         """A caller may ask for fewer rows than the configured cap."""
         session = _FakeSession([_FakeRecord({"i": i}) for i in range(10)])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         result = context.run_read("MATCH (n) RETURN n", max_rows=2)
@@ -417,22 +406,20 @@ class TestRunRead:
         assert len(result.rows) == 2
         assert result.truncated is True
 
-    def test_max_rows_below_one_is_raised_to_one(self, monkeypatch):
+    def test_max_rows_below_one_is_raised_to_one(self):
         """A zero-row answer would be indistinguishable from an empty graph."""
         session = _FakeSession([_FakeRecord({"i": 0}), _FakeRecord({"i": 1})])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         result = context.run_read("MATCH (n) RETURN n", max_rows=0)
 
         assert len(result.rows) == 1
 
-    def test_transaction_function_carries_the_unit_of_work_timeout(self, monkeypatch):
+    def test_transaction_function_carries_the_unit_of_work_timeout(self):
         """The timeout is enforced server-side, via neo4j's own decorator."""
         session = _FakeSession([_FakeRecord({"n": 1})])
-        context = _build_context(
-            monkeypatch, _configured_block(), **{graph_ctx.QUERY_TIMEOUT_CONFIG_KEY: 7}
-        )
+        context = _build_context(_configured_block(), **{graph_ctx.QUERY_TIMEOUT_CONFIG_KEY: 7})
         _with_driver(context, session)
 
         context.run_read("RETURN 1 AS n")
@@ -446,7 +433,7 @@ class TestRunRead:
 class TestJsonSafety:
     """Driver-native values must not reach a JSON envelope unconverted."""
 
-    def test_temporal_and_spatial_values_become_strings(self, monkeypatch):
+    def test_temporal_and_spatial_values_become_strings(self):
         """DateTime, Duration and Point all render as readable text."""
         from neo4j.spatial import WGS84Point
         from neo4j.time import Date, DateTime, Duration
@@ -463,7 +450,7 @@ class TestJsonSafety:
                 )
             ]
         )
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         row = context.run_read("MATCH (n) RETURN n").rows[0]
@@ -477,22 +464,22 @@ class TestJsonSafety:
         assert row["where"] == "WGS84Point(13.4, 52.5)"
         assert row["how_long"].startswith("P")  # ISO-8601 duration
 
-    def test_nested_containers_are_converted_recursively(self, monkeypatch):
+    def test_nested_containers_are_converted_recursively(self):
         """Lists and maps inside a record get the same pass."""
         from neo4j.time import Date
 
         session = _FakeSession([_FakeRecord({"outer": {"inner": [Date(2026, 1, 2), 3, "text"]}})])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         row = context.run_read("MATCH (n) RETURN n").rows[0]
 
         assert row == {"outer": {"inner": ["2026-01-02", 3, "text"]}}
 
-    def test_json_natives_pass_through_unchanged(self, monkeypatch):
+    def test_json_natives_pass_through_unchanged(self):
         """Nothing that JSON already carries is stringified."""
         session = _FakeSession([_FakeRecord({"i": 3, "f": 1.5, "b": True, "s": "x", "none": None})])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         row = context.run_read("MATCH (n) RETURN n").rows[0]
@@ -503,17 +490,17 @@ class TestJsonSafety:
 class TestErrorMapping:
     """Every way the store can refuse maps to one class carrying one remedy."""
 
-    def _run_with_error(self, monkeypatch, error: Exception):
+    def _run_with_error(self, error: Exception):
         """Run a read whose session raises *error* and return the context."""
         session = _FakeSession(error=error)
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
         return context
 
-    def test_auth_error_maps_to_auth_failed(self, monkeypatch):
+    def test_auth_error_maps_to_auth_failed(self):
         """A rejected credential names GRAPHDB_PASSWORD, never its value."""
         error = _server_error("Neo.ClientError.Security.Unauthorized", "bad credentials")
-        context = self._run_with_error(monkeypatch, error)
+        context = self._run_with_error(error)
 
         with pytest.raises(graph_ctx.GraphAuthFailed) as excinfo:
             context.run_read("RETURN 1")
@@ -532,7 +519,7 @@ class TestErrorMapping:
     @pytest.mark.parametrize(
         "kind", ["service_unavailable", "session_expired", "os_error", "socket_timeout"]
     )
-    def test_dial_failures_map_to_unreachable(self, monkeypatch, kind):
+    def test_dial_failures_map_to_unreachable(self, kind):
         """A store that does not answer names the port key and `osprey up`."""
         from neo4j.exceptions import ServiceUnavailable, SessionExpired
 
@@ -543,7 +530,7 @@ class TestErrorMapping:
             # socket.timeout is an alias of TimeoutError, itself an OSError.
             "socket_timeout": TimeoutError("socket timed out"),
         }
-        context = self._run_with_error(monkeypatch, errors[kind])
+        context = self._run_with_error(errors[kind])
 
         with pytest.raises(graph_ctx.GraphUnreachable) as excinfo:
             context.run_read("RETURN 1")
@@ -554,13 +541,13 @@ class TestErrorMapping:
         assert "services.graphdb.uri" in remedies
         assert "osprey up" in remedies
 
-    def test_access_mode_maps_to_read_only_violation(self, monkeypatch):
+    def test_access_mode_maps_to_read_only_violation(self):
         """A write that got past the gate is named as a write, not a syntax error."""
         error = _server_error(
             "Neo.ClientError.Statement.AccessMode",
             "Write queries cannot be performed in READ access mode.",
         )
-        context = self._run_with_error(monkeypatch, error)
+        context = self._run_with_error(error)
 
         with pytest.raises(graph_ctx.GraphReadOnlyViolation) as excinfo:
             context.run_read("CREATE (n)")
@@ -579,9 +566,9 @@ class TestErrorMapping:
             "Neo.TransientError.Transaction.TransactionTimedOutClientConfiguration",
         ],
     )
-    def test_transaction_timeout_codes_map_to_timeout(self, monkeypatch, code):
+    def test_transaction_timeout_codes_map_to_timeout(self, code):
         """Both codes the server uses for a terminated transaction land here."""
-        context = self._run_with_error(monkeypatch, _server_error(code, "transaction ended"))
+        context = self._run_with_error(_server_error(code, "transaction ended"))
 
         with pytest.raises(graph_ctx.GraphQueryTimeout) as excinfo:
             context.run_read("MATCH (a)-[*]->(b) RETURN a, b")
@@ -592,18 +579,18 @@ class TestErrorMapping:
         assert "services.graphdb.query_timeout_s" in remedies
 
     @pytest.mark.parametrize("message", ["The transaction timed out", "Transaction terminated"])
-    def test_timeout_recognised_from_the_message(self, monkeypatch, message):
+    def test_timeout_recognised_from_the_message(self, message):
         """An unrecognised code still reads as a timeout when the message says so."""
         error = _server_error("Neo.TransientError.General.SomethingElse", message)
-        context = self._run_with_error(monkeypatch, error)
+        context = self._run_with_error(error)
 
         with pytest.raises(graph_ctx.GraphQueryTimeout):
             context.run_read("MATCH (n) RETURN n")
 
-    def test_syntax_error_maps_to_query_error(self, monkeypatch):
+    def test_syntax_error_maps_to_query_error(self):
         """A rejected query points at the schema, not at the service."""
         error = _server_error("Neo.ClientError.Statement.SyntaxError", "Invalid input 'MATHC'")
-        context = self._run_with_error(monkeypatch, error)
+        context = self._run_with_error(error)
 
         with pytest.raises(graph_ctx.GraphQueryError) as excinfo:
             context.run_read("MATHC (n) RETURN n")
@@ -616,10 +603,10 @@ class TestErrorMapping:
         assert "Invalid input 'MATHC'" in str(excinfo.value)
         assert any("get_schema" in s for s in excinfo.value.suggestions)
 
-    def test_database_error_maps_to_query_error(self, monkeypatch):
+    def test_database_error_maps_to_query_error(self):
         """A server-side failure is still a reached store, so it is not 'unreachable'."""
         error = _server_error("Neo.DatabaseError.General.UnknownError", "internal failure")
-        context = self._run_with_error(monkeypatch, error)
+        context = self._run_with_error(error)
 
         with pytest.raises(graph_ctx.GraphQueryError):
             context.run_read("MATCH (n) RETURN n")
@@ -684,37 +671,37 @@ class TestErrorTaxonomy:
 class TestIsEmpty:
     """The bootstrapped-but-unseeded state is a question of its own."""
 
-    def test_zero_resources_is_empty(self, monkeypatch):
+    def test_zero_resources_is_empty(self):
         """A store with no Resource nodes was never seeded."""
         session = _FakeSession([_FakeRecord({"n": 0})])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         assert context.is_empty() is True
         assert session.transaction.calls[0][0] == "MATCH (r:Resource) RETURN count(r) AS n"
 
-    def test_a_populated_store_is_not_empty(self, monkeypatch):
+    def test_a_populated_store_is_not_empty(self):
         """Any Resource node means the corpus is there."""
         session = _FakeSession([_FakeRecord({"n": 8123})])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         assert context.is_empty() is False
 
-    def test_no_rows_reads_as_empty(self, monkeypatch):
+    def test_no_rows_reads_as_empty(self):
         """A count that returned nothing is not evidence of a corpus."""
         session = _FakeSession([])
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         assert context.is_empty() is True
 
-    def test_unreachable_store_is_not_reported_as_empty(self, monkeypatch):
+    def test_unreachable_store_is_not_reported_as_empty(self):
         """'Empty' and 'down' are different states with different remedies."""
         from neo4j.exceptions import ServiceUnavailable
 
         session = _FakeSession(error=ServiceUnavailable("down"))
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         _with_driver(context, session)
 
         with pytest.raises(graph_ctx.GraphUnreachable):
@@ -729,20 +716,18 @@ class TestSingleton:
         with pytest.raises(RuntimeError, match="not initialized"):
             graph_ctx.get_server_context()
 
-    def test_initialize_then_get_returns_the_same_object(self, monkeypatch):
+    def test_initialize_then_get_returns_the_same_object(self):
         """One context per process, shared by every tool."""
-        monkeypatch.setattr(graph_ctx, "loaded_or_empty", lambda: _configured_block())
-        monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
+        serve_config(config_of(_configured_block()))
 
         created = graph_ctx.initialize_server_context()
 
         assert graph_ctx.get_server_context() is created
         assert created.configured is True
 
-    def test_reset_closes_the_driver(self, monkeypatch):
+    def test_reset_closes_the_driver(self):
         """Resetting must not leak the connection pool between tests."""
-        monkeypatch.setattr(graph_ctx, "loaded_or_empty", lambda: _configured_block())
-        monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
+        serve_config(config_of(_configured_block()))
 
         context = graph_ctx.initialize_server_context()
         driver = _with_driver(context, _FakeSession())
@@ -753,14 +738,14 @@ class TestSingleton:
         with pytest.raises(RuntimeError):
             graph_ctx.get_server_context()
 
-    def test_shutdown_survives_a_driver_that_refuses_to_close(self, monkeypatch):
+    def test_shutdown_survives_a_driver_that_refuses_to_close(self):
         """Teardown is best-effort; a failing close must not propagate."""
 
         class _AngryDriver(_FakeDriver):
             def close(self) -> None:
                 raise RuntimeError("close failed")
 
-        context = _build_context(monkeypatch, _configured_block())
+        context = _build_context(_configured_block())
         context._driver = _AngryDriver(_FakeSession())
 
         context.shutdown()
@@ -846,7 +831,7 @@ class TestNoConfigFile:
 
 
 @pytest.mark.timeout(20)
-def test_unreachable_store_fails_within_the_budget(monkeypatch):
+def test_unreachable_store_fails_within_the_budget():
     """An unreachable store raises GraphUnreachable in seconds, not minutes.
 
     Success Criterion 5 allows eight seconds, and the whole point of
@@ -855,7 +840,7 @@ def test_unreachable_store_fails_within_the_budget(monkeypatch):
     192.0.2.1 is TEST-NET-1, reserved for documentation and unroutable, so the
     dial can only end in a timeout.
     """
-    context = _build_context(monkeypatch, _configured_block(uri="bolt://192.0.2.1:7687"))
+    context = _build_context(_configured_block(uri="bolt://192.0.2.1:7687"))
     assert context.configured is True
 
     started = time.perf_counter()

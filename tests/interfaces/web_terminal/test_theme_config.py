@@ -16,7 +16,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 import re
-from unittest.mock import patch
 
 import pytest
 
@@ -28,6 +27,9 @@ from osprey.interfaces.design_system.theme_config import (
     resolve_pinned_mode,
     resolve_theme_id,
 )
+from osprey_connectors.errors import ConfigNotFoundError
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests.interfaces.web_terminal._started_app import started_client, terminal_client
 
 # A synthetic manifest mirroring the real baked tokens.js THEMES: the
@@ -125,15 +127,12 @@ class TestRenderedDataTheme:
         else:
             assert f'data-theme-mode="{mode}"' in body
 
-    def test_missing_config_yml_fails_open_to_dark(self, workspace_dir):
-        """No config.yml at all (FileNotFoundError from get_config_value) -> fallback 'dark'."""
-        with terminal_client(
-            workspace_dir,
-            patch(
-                "osprey_connectors.config.get_config_value",
-                side_effect=FileNotFoundError("no config.yml found"),
-            ),
-        ) as client:
+    def test_missing_config_yml_fails_open_to_dark(self, workspace_dir, tmp_path, monkeypatch):
+        """No config.yml at all (the config read raises ConfigNotFoundError) -> fallback 'dark'."""
+        monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+        with terminal_client(workspace_dir) as client:
             body = client.get("/").text
             assert 'data-theme="dark"' in body
 
@@ -194,41 +193,43 @@ class TestConfiguredWebTheme:
 
     def test_env_var_outranks_config(self, monkeypatch):
         monkeypatch.setenv("OSPREY_WEB_THEME", "desy-light")
-        with patch("osprey_connectors.config.get_config_value", return_value="main") as get_value:
-            assert configured_web_theme() == "desy-light"
-        get_value.assert_not_called()  # the config is not even read
+
+        def refuse_to_read():
+            pytest.fail("the env var answered, so the config may not even be read")
+
+        monkeypatch.setattr("osprey_connectors.config.current_config", refuse_to_read)
+
+        assert configured_web_theme() == "desy-light"
 
     def test_blank_env_var_falls_through_to_config(self, monkeypatch):
         """An empty env var is 'unset', not 'the empty theme'."""
         monkeypatch.setenv("OSPREY_WEB_THEME", "   ")
-        with patch("osprey_connectors.config.get_config_value", return_value="retro") as get_value:
-            assert configured_web_theme() == "retro"
-        get_value.assert_called_once_with("web.theme", "main")
+        serve_config(config_of({"web": {"theme": "retro"}}))
+
+        assert configured_web_theme() == "retro"
 
     def test_absent_env_var_reads_web_theme_with_the_main_default(self, monkeypatch):
         monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
-        with patch("osprey_connectors.config.get_config_value", return_value="main") as get_value:
-            assert configured_web_theme() == DEFAULT_WEB_THEME
-        get_value.assert_called_once_with("web.theme", "main")
+        serve_config(config_of({"web": {}}))
+
+        assert configured_web_theme() == DEFAULT_WEB_THEME == "main"
 
     def test_empty_config_value_falls_back_to_the_default(self, monkeypatch):
         """`web.theme:` with nothing after it reads as None, not as a theme name."""
         monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
-        with patch("osprey_connectors.config.get_config_value", return_value=None):
-            assert configured_web_theme() == DEFAULT_WEB_THEME
+        serve_config(config_of({"web": {"theme": None}}))
 
-    def test_config_read_error_propagates(self, monkeypatch):
+        assert configured_web_theme() == DEFAULT_WEB_THEME
+
+    def test_config_read_error_propagates(self, monkeypatch, tmp_path):
         """No config primed: the callers disagree about what to do (the terminal
         renders a fallback theme, the gallery serves unpinned pages), so this
         must not decide for them."""
         monkeypatch.delenv("OSPREY_WEB_THEME", raising=False)
-        with (
-            patch(
-                "osprey_connectors.config.get_config_value",
-                side_effect=FileNotFoundError("no config.yml found"),
-            ),
-            pytest.raises(FileNotFoundError),
-        ):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+
+        with pytest.raises(ConfigNotFoundError):
             configured_web_theme()
 
 

@@ -14,7 +14,6 @@ provider of their own, so the deployment's main model answers.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -22,6 +21,8 @@ from fastapi import HTTPException
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.interfaces.artifacts.logbook import _resolve_composition_model
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, installed
 
 _PROVIDER = {
     "api_key": "test-key",
@@ -31,18 +32,9 @@ _PROVIDER = {
 
 
 def _resolve(config: dict[str, Any], providers: dict[str, dict], model: str | None = None):
-    """Resolve with *config* as the dotted-path config store and *providers* as api.providers."""
-
-    def fake_get_config_value(path: str, default: Any = None, _config_path: str | None = None):
-        return config.get(path, default)
-
-    def fake_get_provider_config(name: str, _config_path: str | None = None):
-        return providers.get(name, {})
-
-    with (
-        patch("osprey_connectors.config.get_config_value", fake_get_config_value),
-        patch("osprey.models.config.get_provider_config", fake_get_provider_config),
-    ):
+    """Resolve under a served config: *config*'s dotted keys, and *providers* as api.providers."""
+    tree = config_tree({**config, "api.providers": providers})
+    with installed(config_of(tree, environ={})):
         return _resolve_composition_model(model)
 
 

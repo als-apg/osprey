@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
+import os
 import threading
 import time
 from contextlib import ExitStack, contextmanager, nullcontext, suppress
@@ -14,6 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal import app as web_terminal_app
@@ -24,9 +26,10 @@ from osprey.interfaces.web_terminal.app import (
     _load_panel_presets,
     create_app,
 )
-from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+from osprey.interfaces.web_terminal.operator_session import shared_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, JUPYTER_PANEL_ID, SIDECAR_PANELS
+from osprey_connectors_tests._config_trees import config_tree
 from tests._live import wait_until
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -151,13 +154,10 @@ def _stub_sidecar_class(script):
     return _StubSidecar
 
 
-def _config_reader(values):
-    """A ``get_config_value`` stand-in answering *values*, else the caller's default."""
-
-    def _get(path, default=None, _config_path=None):
-        return values.get(path, default)
-
-    return _get
+def _config_file_named(path: Path, values: dict):
+    """Write *values* (dotted keys) to *path* and name it in ``OSPREY_CONFIG``."""
+    path.write_text(yaml.safe_dump(config_tree(values)), encoding="utf-8")
+    return patch.dict(os.environ, {"OSPREY_CONFIG": str(path)})
 
 
 def _make_client(
@@ -169,17 +169,17 @@ def _make_client(
 ):
     """Create a TestClient with the given panel config.
 
-    *config_values* maps dotted config keys to what ``get_config_value`` returns
-    for them; every other key resolves to the default its reader passes.
+    *config_values* maps dotted config keys to their values in a ``config.yml``
+    next to the watched directory, named by ``OSPREY_CONFIG`` so the lifespan's
+    own reset of the process default finds it again; every other key is absent,
+    so it resolves to the default its reader passes.
     """
     if enabled_panels is None:
         enabled_panels = set(UNIVERSAL_PANELS)
     if custom_panels is None:
         custom_panels = []
     config_patch = (
-        patch(
-            "osprey_connectors.config.get_config_value", side_effect=_config_reader(config_values)
-        )
+        _config_file_named(Path(workspace_dir).parent / "config.yml", config_values)
         if config_values is not None
         else nullcontext()
     )
@@ -820,7 +820,7 @@ class TestPanelsAPIShape:
 
     def test_visible_defaults_to_all_enabled_when_no_hidden_flags(self, client_all_panels):
         """visible equals the full enabled set when no hidden:true flags are configured."""
-        # Arrange — no hidden flags in config (load_osprey_config returns {})
+        # Arrange — no hidden flags in config (no config is loaded)
 
         # Act
         resp = client_all_panels.get("/api/panels")
@@ -1334,15 +1334,12 @@ class TestSidecarReadyTimeout:
         assert repr(value) in warnings[0].getMessage()
 
     def test_a_config_read_that_raises_waits_the_default(
-        self, workspace_dir, ready_sidecar, caplog
+        self, workspace_dir, ready_sidecar, caplog, tmp_path, monkeypatch
     ):
-        def _reader(path, default=None, _config_path=None):
-            if path == self.KEY:
-                raise RuntimeError("config unreadable")
-            return default
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
 
         with (
-            patch("osprey_connectors.config.get_config_value", side_effect=_reader),
             patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(ready_sidecar)),
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_config",
@@ -1436,7 +1433,7 @@ class TestSidecarPanelAvailability:
 
         # The sidecar shares the agent-data root every other child of this
         # server is stamped with, not a directory of its own.
-        assert shared_root == Path(resolve_agent_data_root(client_with_sidecar.app))
+        assert shared_root == Path(shared_data_root(client_with_sidecar.app))
         assert outer_prefix == ""
         assert pinned_mode == state.web_theme_mode
 
