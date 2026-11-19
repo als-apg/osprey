@@ -36,6 +36,8 @@ from osprey.mcp_server.control_system import target_banner, target_state
 from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.queue_backend import Capability, QueueBackend
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 from tests._control_system import IN_PROCESS, section_for
 
 # The wire keys the capability object carries. Pinned as a set because every
@@ -95,18 +97,10 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
         if connector is not None:
             control_system["connector"] = {**control_system.get("connector", {}), **connector}
 
-        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
-            if key == "control_system.type":
-                return control_system["type"]
-            if key == "control_system":
-                return control_system
-            return declared.get(key, default)
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
-        # The host-side resolver this module's fallback is pinned equal to
-        # reads the section, not a dotted key.
-        monkeypatch.setattr(
-            target_banner, "loaded_or_empty", lambda: {"control_system": control_system}
+        # One config answers both the bridge's dotted-key reads and the
+        # host-side resolver this module's fallback is pinned equal to.
+        serve_config(
+            config_of(config_tree(declared, base={"control_system": control_system}), environ={})
         )
 
     return _stage
@@ -209,18 +203,16 @@ async def test_the_legacy_fallback_agrees_with_the_host_side_baseline(
     assert (await _capability()).lane_target == target_banner.resolve_baseline_target()
 
 
-async def test_an_unreadable_config_still_yields_a_lane_identity(monkeypatch) -> None:
+async def test_an_unreadable_config_still_yields_a_lane_identity(monkeypatch, tmp_path) -> None:
     """The capability record is fail-closed, so it is also never half-built.
 
     `config_unreadable` is a real reason code with a real record; a consumer
     reading `lane_target` off it must find a string, not a hole.
     """
 
-    def raising_get_config_value(_key: str, _default: Any = None, _config_path: Any = None) -> Any:
-        raise FileNotFoundError("no config.yml found")
-
     monkeypatch.delenv(qb.LANE_ENV, raising=False)
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", raising_get_config_value)
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+    monkeypatch.chdir(tmp_path)
 
     capability = await _capability()
 

@@ -23,6 +23,8 @@ import pytest
 
 from osprey.services.bluesky_bridge import qserver_startup
 from osprey.services.bluesky_bridge import queue_backend as qb
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 
 # A live baseline with its simulator beside it, whose tier allows writes. The
 # tier is target-blind (ruling PR-3): which machine a write reaches is the
@@ -64,14 +66,7 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
 
         declared = {f"services.{key}.target": value for key, value in (targets or {}).items()}
 
-        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
-            if key == "control_system":
-                return section
-            if key == "control_system.type":
-                return section.get("type", default)
-            return declared.get(key, default)
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+        serve_config(config_of(config_tree(declared, base={"control_system": section}), environ={}))
 
     return _stage
 
@@ -92,14 +87,13 @@ def test_a_lane_with_no_declared_target_builds_control_system_type(
     assert qb.resolve_lane_connector_type()[1] is None
 
 
-def test_an_unreadable_config_still_builds_the_simulator(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unreadable_config_still_builds_the_simulator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     """The documented fail-safe: the simulator, which an unreadable config serves in process."""
-
-    def _raise(*_: Any, **__: Any) -> Any:
-        raise FileNotFoundError("no project config context")
-
     monkeypatch.delenv(qb.LANE_ENV, raising=False)
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", _raise)
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+    monkeypatch.chdir(tmp_path)
 
     assert qserver_startup.resolve_control_system_type() == "virtual_accelerator"
     assert qserver_startup.worker_writes_enabled() is False

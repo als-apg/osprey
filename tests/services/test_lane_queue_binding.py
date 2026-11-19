@@ -64,10 +64,12 @@ from osprey.mcp_server.bluesky.server_context import (
 )
 from osprey.mcp_server.bluesky.tools import draft as draft_tools
 from osprey.mcp_server.bluesky.tools import queue
-from osprey.mcp_server.control_system import target_banner, target_state
+from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey_connectors import write_switch
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -252,15 +254,9 @@ def deployment(tmp_path, monkeypatch):
             "approval": {"enabled": False},
         }
 
-        monkeypatch.setattr(target_banner, "loaded_or_empty", lambda: config)
-        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
-
-        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
-            # The whole section: the write verdict reads the tier and resolves
-            # each lane's target out of it.
-            return {"control_system": section}.get(key, default)
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+        # The rendered config every reader takes: the write verdict reads the
+        # tier and resolves each lane's target out of its section.
+        serve_config(config_of(config, path=tmp_path / "build" / "config.yml", environ={}))
         # The per-server reports and the control-context record have to land in
         # the same scratch deployment: the reports resolve through
         # ``target_state``'s own root helper, the record through the

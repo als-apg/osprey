@@ -49,6 +49,8 @@ from osprey.services.ariel_search.enhancement.image_caption import module as cap
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
 from osprey.services.ariel_search.ingestion.ingest import ingest_one
 from osprey.services.ariel_search.search import qmd as qmd_module
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.services.ariel_search.fake_adapters import ORIGINS, HttpStubAdapter
 from tests.services.ariel_search.integration._support import (
@@ -204,7 +206,7 @@ def _status_json(config: dict[str, Any]) -> dict[str, Any]:
     from osprey.cli.ariel import ariel_group
 
     with (
-        patch("osprey.cli.ariel.get_config_value", return_value=config),
+        installed(config_of({"ariel": config})),
         patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=None)),
     ):
         result = CliRunner().invoke(ariel_group, ["status", "--json"])

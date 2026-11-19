@@ -16,6 +16,8 @@ import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.exceptions import StoreSilentError
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 from ._silent_store import MARGIN_S, SHORT_DEADLINE_S, silent_store, silent_uri
 
@@ -101,13 +103,7 @@ async def test_the_capability_caches_nothing_on_a_silent_store(monkeypatch):
     capability.reset_ariel_service()
     monkeypatch.setattr(capability, "_STORE_DEADLINE_S", SHORT_DEADLINE_S)
     with silent_store() as port:
-        monkeypatch.setattr(
-            capability,
-            "get_config_value",
-            lambda key, default=None: (
-                {"database": {"uri": silent_uri(port)}} if key == "ariel" else default
-            ),
-        )
+        serve_config(config_of({"ariel": {"database": {"uri": silent_uri(port)}}}))
         for _ in range(2):  # the second call asks the store again
             started = time.monotonic()
             with pytest.raises(StoreSilentError) as raised:
@@ -164,10 +160,7 @@ def test_ingest_against_a_silent_store_ends_within_one_deadline(tmp_path, monkey
     source.write_text("[]")
     with silent_store() as port:
         config = _mirrored(silent_uri(port), tmp_path / "mirror")
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": config}))
         started = time.monotonic()
         result = CliRunner().invoke(
             ariel_group, ["ingest", "-s", str(source), "-a", "generic_json"]

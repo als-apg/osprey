@@ -27,6 +27,8 @@ from osprey.cli.ariel import (
 )
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.config import framework_ariel_names
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 _DB = {"database": {"uri": "postgresql://ariel:ariel@localhost:5432/ariel"}}
 
@@ -71,9 +73,9 @@ class TestChoicesComeFromTheRegistry:
         assert set(_RegistryChoice(attribute).choices) >= set(framework_ariel_names(attribute))
 
     @pytest.mark.usefixtures("registered_ingest")
-    def test_every_registered_adapter_parses(self, monkeypatch) -> None:
+    def test_every_registered_adapter_parses(self) -> None:
         """A name the registry carries is accepted, one it does not is refused."""
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        serve_config(config_of({"ariel": _DB}))
 
         for name in framework_ariel_names(_INGESTION_ADAPTERS_ATTR):
             result = CliRunner().invoke(ariel_group, ["ingest", "-s", "entries.json", "-a", name])
@@ -86,7 +88,7 @@ class TestChoicesComeFromTheRegistry:
 
     def test_a_registry_added_adapter_is_accepted(self, monkeypatch, registered_ingest) -> None:
         """The point of the change: a facility's own adapter needs no code edit."""
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        serve_config(config_of({"ariel": _DB}))
         monkeypatch.setattr(
             "osprey.cli.ariel._registered_names",
             lambda attribute: ("facility_logbook",),
@@ -103,8 +105,8 @@ class TestChoicesComeFromTheRegistry:
 class TestIngestHonoursTheConfiguredAdapter:
     """``--adapter`` is an override, not a value the CLI always supplies."""
 
-    def test_no_flag_passes_no_override(self, monkeypatch, registered_ingest) -> None:
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+    def test_no_flag_passes_no_override(self, registered_ingest) -> None:
+        serve_config(config_of({"ariel": _DB}))
 
         result = CliRunner().invoke(ariel_group, ["ingest", "-s", "entries.json"])
 

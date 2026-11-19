@@ -39,6 +39,8 @@ from osprey.services.ariel_search.database.migrations import KNOWN_MIGRATIONS
 from osprey.services.ariel_search.database.qmd_resync_migration import QmdResyncMigration
 from osprey.services.ariel_search.enhancement.qmd_export import TOUCH_MARKER_NAME
 from osprey.services.ariel_search.enhancement.qmd_export.writer import encode_entry_id
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests.services.ariel_search._cli_ops_doubles import _patch_pool
 from tests.services.ariel_search.conftest import _FakePool
 
@@ -592,7 +594,7 @@ class TestQmdResyncCommand:
             )
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        serve_config(config_of({"ariel": _DB}))
 
         result = CliRunner().invoke(ariel_group, ["qmd-resync"])
 
@@ -628,7 +630,7 @@ class TestQmdResyncCommand:
             )
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        serve_config(config_of({"ariel": _DB}))
 
         result = CliRunner().invoke(ariel_group, ["qmd-resync", "--rebuild"])
 
@@ -648,7 +650,7 @@ class TestQmdResyncCommand:
             return None
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        serve_config(config_of({"ariel": _DB}))
 
         result = CliRunner().invoke(ariel_group, ["qmd-resync"])
 
@@ -667,7 +669,7 @@ class TestQmdResyncCommand:
             raise ValueError("enhancement_modules.qmd_export.mirror_path is required")
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        serve_config(config_of({"ariel": _DB}))
 
         result = CliRunner().invoke(ariel_group, ["qmd-resync"])
 
@@ -687,7 +689,7 @@ class TestPipelinePreStep:
             return None
 
         monkeypatch.setattr(ops, "resync_qmd_mirror_best_effort", _fake_resync)
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        serve_config(config_of({"ariel": _DB}))
         return calls
 
     def test_ingest_resyncs_first(self, monkeypatch, _observed) -> None:
@@ -1032,7 +1034,7 @@ class TestQmdResyncCommandExpansionKey:
             )
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
+        serve_config(config_of({"ariel": _DB}))
         result = CliRunner().invoke(ariel_group, ["qmd-resync"])
         assert result.exit_code == 0, result.output
         return result.output

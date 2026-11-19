@@ -43,9 +43,11 @@ from osprey.mcp_server.bluesky.server_context import (
     reset_server_context,
 )
 from osprey.mcp_server.bluesky.tools import queue
-from osprey.mcp_server.control_system import target_banner, target_state
+from osprey.mcp_server.control_system import target_state
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey_connectors import control_context, testing
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     owner,
@@ -85,25 +87,18 @@ def deployment(tmp_path, monkeypatch):
     def _stage(baseline: str) -> None:
         control_system = {**section_for(_BASELINE_TYPES[baseline]), "writes": "allowed"}
 
-        # The baseline comes from the shared resolver reading the deployment
-        # config; the tool module reads the write posture separately.
-        monkeypatch.setattr(
-            target_banner, "loaded_or_empty", lambda: {"control_system": control_system}
-        )
-        # Stage 1 of approval reads the rendered config too. These cases call
-        # the tools with no approval hook in front of them, so approval is off
+        # The deployment config: the shared resolver reads the baseline out of
+        # it, the write verdict the tier and the lane's target. Stage 1 of
+        # approval reads it too; these cases call the tools with no approval
+        # hook in front of them, so approval is off
         # (tests/mcp_server/bluesky/test_queue_approval_record.py has it on).
-        monkeypatch.setattr(
-            "osprey.utils.config_paths.loaded_or_empty",
-            lambda: {"control_system": control_system, "approval": {"enabled": False}},
+        serve_config(
+            config_of(
+                {"control_system": control_system, "approval": {"enabled": False}},
+                path=tmp_path / "build" / "config.yml",
+                environ={},
+            )
         )
-
-        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
-            # The whole section: the write verdict reads the tier and resolves
-            # the lane's target out of it.
-            return {"control_system": control_system}.get(key, default)
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
 
         # The control-context record lives under the agent-data root; stamping
         # that at tmp_path is what keeps one test's deployment out of another's,

@@ -21,6 +21,8 @@ from osprey.services.ariel_search.search.semantic import (
     format_semantic_result,
 )
 from osprey.services.ariel_search.service import ARIELSearchService
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 
 
 class TestToolInputSchemas:
@@ -785,11 +787,7 @@ class TestServiceVerifySearchModelTable:
         }
 
         with (
-            patch.object(
-                capability,
-                "get_config_value",
-                side_effect=lambda key, default=None: raw if key == "ariel" else default,
-            ),
+            installed(config_of({"ariel": raw})),
             patch("osprey.services.ariel_search.service.create_ariel_service", new=create),
             patch(
                 "osprey.services.ariel_search.search.keyword.keyword_search",

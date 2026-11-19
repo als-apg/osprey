@@ -38,7 +38,7 @@ from pydantic import ValidationError
 from osprey.services.bluesky_bridge import plan_loader, preflight, qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import ConnectorReadable, ConnectorSettable
 from osprey_connectors.testing import config_of
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_config, with_values
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -432,13 +432,10 @@ def test_a_readables_only_device_file_builds_that_half_alone(tmp_path: Path) -> 
 
 
 def test_control_system_type_falls_back_to_the_simulator_when_config_is_unreadable(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-
-    def _raise(*_: Any, **__: Any) -> Any:
-        raise FileNotFoundError("no project config context")
-
-    serve_config_lookup(monkeypatch, _raise)
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+    monkeypatch.chdir(tmp_path)
 
     assert qserver_startup.resolve_control_system_type() == "virtual_accelerator"
 
@@ -513,17 +510,8 @@ def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
             }
         },
     }
-    values: dict[str, Any] = {
-        "control_system": section,
-        "control_system.limits_checking.database_path": str(database),
-    }
-
-    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
     render = served_tree(tmp_path / "served", ["SR:MAG:HCM:01:CUR:SP"]).parent.parent
-    monkeypatch.setattr(
-        "osprey_connectors.config.active_config",
-        lambda: config_of({}, path=render / "config.yml"),
-    )
+    serve_config(config_of({"control_system": section}, path=render / "config.yml", environ={}))
     # The write posture is refused outright in a readonly run, which would make
     # both lanes agree for a reason that has nothing to do with the stamp.
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
@@ -576,19 +564,11 @@ def test_a_degraded_live_lane_refuses_each_worker_write_target_unknown(
     verdict answers ``target_unknown``, and the simulator never sees the put.
     """
     from osprey.services.bluesky_bridge import queue_backend
-    from osprey_connectors import config as connector_config
     from osprey_connectors.errors import ChannelWriteBlockedError
     from osprey_connectors.refusals import refusal_phrase
 
     _posture_config(monkeypatch, tmp_path)
-    configured = connector_config.get_config_value
-
-    def with_live_lane(key: str, default: Any = None) -> Any:
-        if key == f"services.{queue_backend.DEFAULT_LANE}.target":
-            return "live"
-        return configured(key, default)
-
-    serve_config_lookup(monkeypatch, with_live_lane)
+    serve_config(with_values({f"services.{queue_backend.DEFAULT_LANE}.target": "live"}))
     monkeypatch.delenv(queue_backend.LANE_ENV, raising=False)
     root = tmp_path / "agent-data"
     isolate_verdict_environment(monkeypatch, root)

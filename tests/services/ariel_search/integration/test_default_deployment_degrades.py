@@ -50,6 +50,8 @@ from osprey.services.ariel_search.enhancement import _offload, availability
 from osprey.services.ariel_search.search import image_lane
 from osprey.services.ariel_search.search import qmd as qmd_module
 from osprey.services.ariel_search.search.qmd import PICTURE_UNAVAILABLE_MESSAGE
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests.mcp_server.conftest import get_tool_fn
 from tests.services.ariel_search.integration._support import FakeQMDClient
 from tests.services.ariel_search.llama_stub import FIXTURES
@@ -350,7 +352,7 @@ def _status(config: dict[str, Any], *, as_json: bool) -> str:
     from osprey.cli.ariel import ariel_group
 
     with (
-        patch("osprey.cli.ariel.get_config_value", return_value=config),
+        installed(config_of({"ariel": config})),
         patch("osprey.imaging.render.probe_render_worker", new=AsyncMock(return_value=None)),
     ):
         result = CliRunner().invoke(ariel_group, ["status", "--json"] if as_json else ["status"])
@@ -361,7 +363,7 @@ def _status(config: dict[str, Any], *, as_json: bool) -> str:
 def _skip_line(name: str, reason: str, config: dict[str, Any]) -> str:
     from osprey.cli.ariel import module_skip_line
 
-    with patch("osprey.cli.ariel.get_config_value", return_value=config):
+    with installed(config_of({"ariel": config})):
         return module_skip_line(name, reason, config)
 
 

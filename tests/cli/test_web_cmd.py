@@ -35,6 +35,8 @@ from osprey.cli.web_cmd import (
     web,
 )
 from osprey.port_layout import default_port
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness._ports import bound_socket, reserved_port
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
@@ -71,6 +73,12 @@ def deployment(lifecycle_repo: Path) -> Path:
     """An exemplar repo with a render — the shape every launch test needs."""
     stub_build(lifecycle_repo, config="web: {}\n")
     return lifecycle_repo
+
+
+@pytest.fixture
+def config_without_web_keys(deployment: Path) -> None:
+    """Serve the render's config holding none of the keys ``osprey web`` reads."""
+    serve_config(config_of({}, path=deployment / "build" / "config.yml"))
 
 
 def seed_pid(root: Path, text: str) -> Path:
@@ -312,10 +320,9 @@ class TestDeploymentResolution:
     @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch_subprocess("osprey.cli.web_cmd", popen=True)
-    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    @pytest.mark.usefixtures("config_without_web_keys")
     def test_repo_flag_resolves_a_deployment_from_elsewhere(
         self,
-        _mock_config,
         fake_subprocess,
         _mock_wait,
         _mock_preflight,
@@ -340,10 +347,9 @@ class TestDeploymentResolution:
     @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch_subprocess("osprey.cli.web_cmd", popen=True)
-    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    @pytest.mark.usefixtures("config_without_web_keys")
     def test_detach_child_argv_always_carries_the_repo(
         self,
-        _mock_config,
         fake_subprocess,
         _mock_wait,
         _mock_preflight,
@@ -374,10 +380,9 @@ class TestDeploymentResolution:
     @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch_subprocess("osprey.cli.web_cmd", popen=True)
-    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    @pytest.mark.usefixtures("config_without_web_keys")
     def test_banner_names_the_repo_and_the_render(
         self,
-        _mock_config,
         fake_subprocess,
         _mock_wait,
         _mock_preflight,
@@ -521,9 +526,8 @@ class TestDeploymentResolution:
 @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
 @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
 @patch_subprocess("osprey.cli.web_cmd", popen=True)
-@patch("osprey.cli.web_cmd.get_config_value", return_value={})
+@pytest.mark.usefixtures("config_without_web_keys")
 def test_detach_spawns_subprocess(
-    _mock_config,
     fake_subprocess,
     _mock_wait,
     _mock_preflight,
@@ -549,9 +553,8 @@ def test_detach_spawns_subprocess(
 @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
 @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
 @patch_subprocess("osprey.cli.web_cmd", popen=True)
-@patch("osprey.cli.web_cmd.get_config_value", return_value={})
+@pytest.mark.usefixtures("config_without_web_keys")
 def test_detach_writes_pid_file_into_the_state_zone(
-    _mock_config,
     fake_subprocess,
     _mock_wait,
     _mock_preflight,
@@ -581,9 +584,9 @@ def test_detach_writes_pid_file_into_the_state_zone(
 @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
 @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
 @patch("osprey.cli.web_cmd._read_pid", return_value=99999)
-@patch("osprey.cli.web_cmd.get_config_value", return_value={})
+@pytest.mark.usefixtures("config_without_web_keys")
 def test_detach_idempotent_when_running(
-    _mock_config, _mock_read_pid, _mock_preflight, _mock_resolve, monkeypatch, runner, deployment
+    _mock_read_pid, _mock_preflight, _mock_resolve, monkeypatch, runner, deployment
 ):
     monkeypatch.chdir(deployment)
     result = runner.invoke(web, ["--detach"])
@@ -596,9 +599,8 @@ def test_detach_idempotent_when_running(
 @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
 @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
 @patch_subprocess("osprey.cli.web_cmd", popen=True)
-@patch("osprey.cli.web_cmd.get_config_value", return_value={})
+@pytest.mark.usefixtures("config_without_web_keys")
 def test_detach_cleans_stale_pid(
-    _mock_config,
     fake_subprocess,
     _mock_wait,
     _mock_preflight,
@@ -627,9 +629,8 @@ def test_detach_cleans_stale_pid(
 @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
 @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
 @patch_subprocess("osprey.cli.web_cmd", popen=True)
-@patch("osprey.cli.web_cmd.get_config_value", return_value={})
+@pytest.mark.usefixtures("config_without_web_keys")
 def test_detach_shows_url_and_pid(
-    _mock_config,
     fake_subprocess,
     _mock_wait,
     _mock_preflight,
@@ -709,7 +710,7 @@ def _hold_port(port: int, host: str = "127.0.0.1") -> socket.socket:
 
 
 def _patch_config(monkeypatch, config: dict) -> None:
-    """Point every load_osprey_config() call site the pre-flight touches at *config*.
+    """Point every loaded_or_empty() call site the pre-flight touches at *config*.
 
     `_load_panel_config()` (web_terminal/app.py) does a per-call lazy import of
     `osprey.utils.config_paths.loaded_or_empty`, while `server_launcher.py`
@@ -936,7 +937,7 @@ class TestWebCommandPreflightWiring:
 # neither a keyless endpoint nor an interactive login cannot launch without its
 # secret, on either route. Probe 3 does a dedicated JSON/YAML parse of
 # .claude/settings.json and config.yml so a syntax error surfaces as a
-# pre-flight failure instead of load_osprey_config() silently degrading to {}.
+# pre-flight failure instead of loaded_or_empty() silently degrading to {}.
 
 
 def _stub_spec(**overrides):
@@ -1816,10 +1817,9 @@ class TestOperatorLoginUrl:
     @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch_subprocess("osprey.cli.web_cmd", popen=True)
-    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    @pytest.mark.usefixtures("config_without_web_keys")
     def test_detach_parent_announces_and_child_argv_is_tokenless(
         self,
-        _mock_config,
         fake_subprocess,
         _mock_wait,
         _mock_preflight,
@@ -1922,12 +1922,7 @@ class TestPortZero:
             held.listen(1)
             busy = held.getsockname()[1]
             wt = {"host": "127.0.0.1", "port": busy}
-            monkeypatch.setattr(
-                "osprey.cli.web_cmd.get_config_value",
-                lambda key, default=None: (
-                    wt if key == "web_terminal" else ({} if default is None else default)
-                ),
-            )
+            serve_config(config_of({"web_terminal": wt}, path=deployment / "build" / "config.yml"))
             result = runner.invoke(
                 web,
                 ["--repo", str(deployment), "--shell", "true", "--skip-preflight"],
@@ -1973,10 +1968,9 @@ class TestPortZero:
     @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch_subprocess("osprey.cli.web_cmd", popen=True)
-    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    @pytest.mark.usefixtures("config_without_web_keys")
     def test_detach_port_zero_reads_the_child_s_startup_line(
         self,
-        _mock_config,
         fake_subprocess,
         mock_wait,
         _mock_preflight,
@@ -2013,10 +2007,9 @@ class TestPortZero:
     @patch("osprey.cli.web_cmd._preflight", return_value=([], []))
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch_subprocess("osprey.cli.web_cmd", popen=True)
-    @patch("osprey.cli.web_cmd.get_config_value", return_value={})
+    @pytest.mark.usefixtures("config_without_web_keys")
     def test_detach_port_zero_child_that_exits_first_is_reported(
         self,
-        _mock_config,
         fake_subprocess,
         mock_wait,
         _mock_preflight,

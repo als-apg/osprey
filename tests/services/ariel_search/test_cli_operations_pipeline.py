@@ -51,6 +51,8 @@ from osprey.services.ariel_search.database.repository import (
 )
 from osprey.services.ariel_search.ingestion.ingest import EntryIngestOutcome
 from osprey.services.ariel_search.ingestion.scheduler import StopReason
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests.services.ariel_search._cli_ops_doubles import (
     _Adapter,
     _Enhancer,
@@ -1973,7 +1975,6 @@ class TestWritePathsRecordSyncStatus:
         self, tmp_path, mock_repository
     ):
         """An entry written to the JSON file and read back from it keeps no facility link."""
-        from unittest.mock import patch
 
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.entry_url import build_entry_url
@@ -1999,12 +2000,7 @@ class TestWritePathsRecordSyncStatus:
 
         stored = mock_repository.upsert_entry.call_args.args[0]
         assert stored["metadata"]["sync_status"] == "local_only"
-        with patch(
-            "osprey_connectors.config.get_config_value",
-            lambda path, default=None, _config_path=None: (
-                "https://logbook.example/{entry_id}"
-                if path == "ariel.entry_url_template"
-                else default
-            ),
+        with installed(
+            config_of({"ariel": {"entry_url_template": "https://logbook.example/{entry_id}"}})
         ):
             assert build_entry_url(entry_id, metadata=stored["metadata"]) is None

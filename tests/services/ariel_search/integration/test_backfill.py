@@ -20,6 +20,8 @@ from click.testing import CliRunner
 
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.config import ARIELConfig
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests.services.ariel_search.integration._support import migrate
 
 # xdist_group("docker"): every container-starting test file shares one worker, so a
@@ -224,12 +226,7 @@ class TestBackfillRefusal:
 def _invoke_cli(config_dict: dict[str, Any], args: list[str], **top: Any):
     from osprey.cli.ariel import ariel_group
 
-    values = {"ariel": config_dict, **top}
-
-    def _get(key, default=None, *_a, **_k):
-        return values.get(key, default)
-
-    with patch("osprey.cli.ariel.get_config_value", side_effect=_get):
+    with installed(config_of({"ariel": config_dict, **top})):
         return CliRunner().invoke(ariel_group, args, catch_exceptions=False)
 
 

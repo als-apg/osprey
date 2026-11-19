@@ -60,8 +60,8 @@ production code path:
 * ``query`` — ``run_query`` / ``read_only_disallowed_tools`` /
   ``expected_mcp_servers`` patched (as in ``test_query_cmd.py``) over a stub
   build.
-* ``ariel status`` / ``ariel search`` — ``osprey.cli.ariel.get_config_value``
-  supplies a config section and
+* ``ariel status`` / ``ariel search`` — a served config (``config_of``) supplies the
+  ``ariel`` section and
   ``osprey.services.ariel_search.create_ariel_service`` is routed to a stub
   service (as in ``tests/services/ariel_search/test_cli_operations.py``), so
   the real ``get_status`` / ``run_search`` assemble the dict.
@@ -85,6 +85,8 @@ from osprey.cli.health_cmd import health
 from osprey.cli.query_cmd import query
 from osprey.health.models import CheckReport, CheckResult, Status
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests.cli._lifecycle_build import stub_build
 
 # --------------------------------------------------------------------------- #
@@ -460,9 +462,7 @@ def ariel_service(monkeypatch: pytest.MonkeyPatch):
     return _install
 
 
-def test_ariel_status_json_keyset(
-    runner: CliRunner, ariel_service, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ariel_status_json_keyset(runner: CliRunner, ariel_service) -> None:
     """``ariel status --json`` emits the recorded ``get_status`` shape."""
     repository = build_ariel_status_repository(
         {
@@ -472,7 +472,7 @@ def test_ariel_status_json_keyset(
         }
     )
     ariel_service(_StubService(repository=repository))
-    monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda *a, **kw: dict(_ARIEL_CONFIG))
+    serve_config(config_of({"ariel": _ARIEL_CONFIG}))
 
     with patch_render_probe_ok():
         result = runner.invoke(ariel_group, ["status", "--json"])
@@ -481,9 +481,7 @@ def test_ariel_status_json_keyset(
     _assert_matches_golden(json.loads(result.stdout), "ariel_status")
 
 
-def test_ariel_search_json_keyset(
-    runner: CliRunner, ariel_service, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ariel_search_json_keyset(runner: CliRunner, ariel_service) -> None:
     """``ariel search --json`` emits the recorded ``run_search`` shape."""
     search_result = SimpleNamespace(
         answer="Two coupler trips overnight.",
@@ -493,7 +491,7 @@ def test_ariel_search_json_keyset(
         entries=[{"entry_id": "E1", "author": "op", "raw_text": "coupler trip", "_score": 0.9}],
     )
     ariel_service(_StubService(search_result=search_result))
-    monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda *a, **kw: dict(_ARIEL_CONFIG))
+    serve_config(config_of({"ariel": _ARIEL_CONFIG}))
 
     result = runner.invoke(ariel_group, ["search", "coupler", "--json"])
 
