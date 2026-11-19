@@ -37,7 +37,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # A digest moves whenever its preset's resolved content does, and the commit
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
-    "demo": ("sha256:e322c477cd42221e9649b3f3b2ab4177701be22142e6fb6b984ac1cc1c31fe02"),
+    "demo": ("sha256:922c1ef4698306f142b53635e4558198534879249174b8597ba1ff1b40667a4e"),
     "hello-world": ("sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"),
     "tiers/admin": ("sha256:197ef2a65251887b0af8a2a03dac1494b366d2bb3fdabe42c5f8227fdc729736"),
     "tiers/readonly": ("sha256:8d24dbff3b01876824e3fc10ac61595d9e841feddf632064894ceef7e5031a81"),
@@ -45,8 +45,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "tiers/channel-finder": (
         "sha256:fae0acda4aeea5d60ce3815317c71cdeb521c94b8fe386da5b6dac9146dccb5f"
     ),
-    "tiers/knowledge": ("sha256:73c2cc7786478434689f4824f4de88de0c85cd9c666f6231f4e432595506816f"),
-    "tiers/logbook": ("sha256:5386977660a6d0ce083984abc91cad3b6ea3bb26accb8e1c899319fa9546d00b"),
+    "tiers/knowledge": ("sha256:807cebbe516e4e0d58b291d64d502e893823b1408d48c3f38926aef81fc69d9c"),
+    "tiers/logbook": ("sha256:615bbc1fe3ad1d3e6101531664e48100159a95bf98178cbdc7daa190f72cb4f1"),
 }
 
 

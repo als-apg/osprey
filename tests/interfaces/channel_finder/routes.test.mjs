@@ -8,6 +8,7 @@
  * listener the boot added, so one case's app never answers the next case's hash.
  */
 
+import './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 
 const JS = '../../../src/osprey/interfaces/channel_finder/static/js';
@@ -20,9 +21,9 @@ const DESCRIPTOR = { label: 'All PVs', configured_services: [], canopy: true, ar
 const VIEW_MODULES = {
   explore: ['explore.js', 'mountExplore', 'unmountExplore'],
   feedback: ['feedback.js', 'mountFeedback', 'unmountFeedback'],
-  allpvs: ['allpvs.js', 'mountAllPvs', 'unmountAllPvs'],
-  pv: ['pv-page.js', 'mountPvPage', 'unmountPvPage'],
-  ioc: ['ioc-page.js', 'mountIocPage', 'unmountIocPage'],
+  channels: ['channels.js', 'mountChannels', 'unmountChannels'],
+  channel: ['channel-page.js', 'mountChannelPage', 'unmountChannelPage'],
+  server: ['server-page.js', 'mountServerPage', 'unmountServerPage'],
 };
 
 /** @type {EventListener[]} */
@@ -108,96 +109,96 @@ function go(hash) {
 
 describe('routing', () => {
   test('a deep link mounts its view with the decoded params', async () => {
-    const { views } = await boot('#/pv/SR01%3AX');
-    expect(views.pv.mount).toHaveBeenCalledTimes(1);
-    expect(views.pv.mount.mock.calls[0][1]).toEqual({ name: 'SR01:X' });
+    const { views } = await boot('#/channel/SR01%3AX');
+    expect(views.channel.mount).toHaveBeenCalledTimes(1);
+    expect(views.channel.mount.mock.calls[0][1]).toEqual({ name: 'SR01:X' });
     expect(views.explore.mount).not.toHaveBeenCalled();
   });
 
-  test('the ioc and allpvs routes reach their views', async () => {
-    const { views } = await boot('#/ioc/ioc-sr01');
-    expect(views.ioc.mount.mock.calls[0][1]).toEqual({ name: 'ioc-sr01' });
-    go('#/allpvs?q=beam%20current');
-    expect(views.ioc.unmount).toHaveBeenCalledTimes(1);
-    expect(views.allpvs.mount.mock.calls[0][1]).toEqual({ q: 'beam current' });
+  test('the ioc and channels routes reach their views', async () => {
+    const { views } = await boot('#/server/ioc-sr01');
+    expect(views.server.mount.mock.calls[0][1]).toEqual({ name: 'ioc-sr01' });
+    go('#/channels?q=beam%20current');
+    expect(views.server.unmount).toHaveBeenCalledTimes(1);
+    expect(views.channels.mount.mock.calls[0][1]).toEqual({ q: 'beam current' });
   });
 
   test('a param change unmounts and re-mounts the same view on a cleared container', async () => {
-    const { views } = await boot('#/pv/A');
+    const { views } = await boot('#/channel/A');
     const container = /** @type {HTMLElement} */ (document.getElementById('view-container'));
     container.innerHTML = '<p>page of A</p>';
 
-    go('#/pv/B');
+    go('#/channel/B');
 
-    expect(views.pv.unmount).toHaveBeenCalledTimes(1);
-    expect(views.pv.mount).toHaveBeenCalledTimes(2);
-    expect(views.pv.mount.mock.calls[1][1]).toEqual({ name: 'B' });
+    expect(views.channel.unmount).toHaveBeenCalledTimes(1);
+    expect(views.channel.mount).toHaveBeenCalledTimes(2);
+    expect(views.channel.mount.mock.calls[1][1]).toEqual({ name: 'B' });
     expect(container.innerHTML).toBe('');
   });
 
   test('new words re-mount All PVs; the same route does not', async () => {
-    const { views } = await boot('#/allpvs?q=a');
-    go('#/allpvs?q=a');
-    expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
-    go('#/allpvs?q=b');
-    expect(views.allpvs.mount).toHaveBeenCalledTimes(2);
+    const { views } = await boot('#/channels?q=a');
+    go('#/channels?q=a');
+    expect(views.channels.mount).toHaveBeenCalledTimes(1);
+    go('#/channels?q=b');
+    expect(views.channels.mount).toHaveBeenCalledTimes(2);
   });
 
   describe('a view stating its route', () => {
     test('is written when the view states it on its first mount', async () => {
-      const { views } = await boot('#/allpvs?ioc=X', undefined, (state, views) => {
-        views.allpvs.mount.mockImplementation(() =>
-          state.emit('replaceRoute', { view: 'allpvs', params: { q: '', ioc: ['X'] } })
+      const { views } = await boot('#/channels?server=X', undefined, (state, views) => {
+        views.channels.mount.mockImplementation(() =>
+          state.emit('replaceRoute', { view: 'channels', params: { q: '', server: ['X'] } })
         );
       });
-      expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
-      expect(location.hash).toBe('#/allpvs?q=&ioc=X');
-      go('#/allpvs?ioc=X');
-      expect(views.allpvs.mount).toHaveBeenCalledTimes(2);
+      expect(views.channels.mount).toHaveBeenCalledTimes(1);
+      expect(location.hash).toBe('#/channels?q=&server=X');
+      go('#/channels?server=X');
+      expect(views.channels.mount).toHaveBeenCalledTimes(2);
     });
 
     test('the written route in another param order does not re-mount', async () => {
-      const { state, views } = await boot('#/allpvs?q=a');
-      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
-      go('#/allpvs?ioc=X&q=a');
-      expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
+      const { state, views } = await boot('#/channels?q=a');
+      state.emit('replaceRoute', { view: 'channels', params: { q: 'a', server: ['X'] } });
+      go('#/channels?server=X&q=a');
+      expect(views.channels.mount).toHaveBeenCalledTimes(1);
     });
 
     test('replaces the hash without a history entry or a re-mount', async () => {
-      const { state, views } = await boot('#/allpvs?q=a');
+      const { state, views } = await boot('#/channels?q=a');
       const entries = window.history.length;
-      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
-      expect(location.hash).toBe('#/allpvs?q=a&ioc=X');
+      state.emit('replaceRoute', { view: 'channels', params: { q: 'a', server: ['X'] } });
+      expect(location.hash).toBe('#/channels?q=a&server=X');
       expect(window.history.length).toBe(entries);
-      expect(views.allpvs.mount).toHaveBeenCalledTimes(1);
+      expect(views.channels.mount).toHaveBeenCalledTimes(1);
     });
 
     test('Back to the written hash mounts its words and filters', async () => {
-      const { state, views } = await boot('#/allpvs?q=a');
-      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
-      go('#/pv/P');
-      go('#/allpvs?q=a&ioc=X');
-      expect(views.allpvs.mount).toHaveBeenCalledTimes(2);
-      expect(views.allpvs.mount.mock.calls[1][1]).toEqual({ q: 'a', ioc: ['X'] });
+      const { state, views } = await boot('#/channels?q=a');
+      state.emit('replaceRoute', { view: 'channels', params: { q: 'a', server: ['X'] } });
+      go('#/channel/P');
+      go('#/channels?q=a&server=X');
+      expect(views.channels.mount).toHaveBeenCalledTimes(2);
+      expect(views.channels.mount.mock.calls[1][1]).toEqual({ q: 'a', server: ['X'] });
     });
 
     test('a route for a view that is not mounted is ignored', async () => {
-      const { state, views } = await boot('#/pv/P');
+      const { state, views } = await boot('#/channel/P');
       const entries = window.history.length;
-      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
-      expect(location.hash).toBe('#/pv/P');
+      state.emit('replaceRoute', { view: 'channels', params: { q: 'a', server: ['X'] } });
+      expect(location.hash).toBe('#/channel/P');
       expect(window.history.length).toBe(entries);
-      go('#/pv/P');
-      expect(views.pv.mount).toHaveBeenCalledTimes(1);
-      expect(views.allpvs.mount).not.toHaveBeenCalled();
+      go('#/channel/P');
+      expect(views.channel.mount).toHaveBeenCalledTimes(1);
+      expect(views.channels.mount).not.toHaveBeenCalled();
     });
 
     test('the hash the view was opened with mounts it again', async () => {
-      const { state, views } = await boot('#/allpvs?q=a');
-      state.emit('replaceRoute', { view: 'allpvs', params: { q: 'a', ioc: ['X'] } });
-      go('#/allpvs?q=a');
-      expect(views.allpvs.mount).toHaveBeenCalledTimes(2);
-      expect(views.allpvs.mount.mock.calls[1][1]).toEqual({ q: 'a' });
+      const { state, views } = await boot('#/channels?q=a');
+      state.emit('replaceRoute', { view: 'channels', params: { q: 'a', server: ['X'] } });
+      go('#/channels?q=a');
+      expect(views.channels.mount).toHaveBeenCalledTimes(2);
+      expect(views.channels.mount.mock.calls[1][1]).toEqual({ q: 'a' });
     });
   });
 
@@ -212,48 +213,48 @@ describe('routing', () => {
     expect(views.feedback.mount).toHaveBeenCalledTimes(1);
   });
 
-  test.each(['#nonsense', '#/pv/', '#/pv/%zz', '#constructor', '#/toString'])(
+  test.each(['#nonsense', '#/channel/', '#/channel/%zz', '#constructor', '#/toString'])(
     'the unknown route %s falls back to explore',
     async (hash) => {
       const { views } = await boot(hash);
       expect(views.explore.mount).toHaveBeenCalledTimes(1);
-      expect(views.pv.mount).not.toHaveBeenCalled();
+      expect(views.channel.mount).not.toHaveBeenCalled();
     }
   );
 
   describe('while state.directory is null', () => {
     const noDirectory = { pipeline_type: 'hierarchical' };
 
-    test.each(['#allpvs', '#/allpvs?q=a', '#/pv/A', '#/ioc/B'])(
+    test.each(['#channels', '#/channels?q=a', '#/channel/A', '#/server/B'])(
       '%s falls back to explore',
       async (hash) => {
         const { views, state } = await boot(hash, noDirectory);
         expect(state.directory).toBeNull();
         expect(views.explore.mount).toHaveBeenCalledTimes(1);
-        for (const view of ['allpvs', 'pv', 'ioc']) {
+        for (const view of ['channels', 'channel', 'server']) {
           expect(views[view].mount).not.toHaveBeenCalled();
         }
       }
     );
 
     test('a failed /api/info leaves it null, and the routes fall back', async () => {
-      const { views, state } = await boot('#/pv/A', null);
+      const { views, state } = await boot('#/channel/A', null);
       expect(state.directory).toBeNull();
-      expect(views.pv.mount).not.toHaveBeenCalled();
+      expect(views.channel.mount).not.toHaveBeenCalled();
       expect(views.explore.mount).toHaveBeenCalledTimes(1);
     });
   });
 
   test('state.directory is set from /api/info before the first route', async () => {
     const seen = /** @type {any[]} */ ([]);
-    await boot('#/pv/A', undefined, (state, views) => {
-      views.pv.mount.mockImplementation(() => seen.push(state.directory));
+    await boot('#/channel/A', undefined, (state, views) => {
+      views.channel.mount.mockImplementation(() => seen.push(state.directory));
     });
     expect(seen).toEqual([DESCRIPTOR]);
   });
 
   test('a later /api/info replaces state.directory, and the route is re-judged', async () => {
-    const { state, views } = await boot('#/pv/A', {
+    const { state, views } = await boot('#/channel/A', {
       pipeline_type: 'hierarchical',
       available_pipelines: ['hierarchical', 'graph'],
       directory: DESCRIPTOR,
@@ -264,11 +265,11 @@ describe('routing', () => {
     await vi.waitFor(() => expect(views.explore.mount).toHaveBeenCalledTimes(1));
 
     expect(state.directory).toBeNull();
-    expect(views.pv.unmount).toHaveBeenCalledTimes(1);
+    expect(views.channel.unmount).toHaveBeenCalledTimes(1);
   });
 
   test('a pipeline switch unmounts and re-mounts the same route', async () => {
-    const { views } = await boot('#/pv/A', {
+    const { views } = await boot('#/channel/A', {
       pipeline_type: 'hierarchical',
       available_pipelines: ['hierarchical', 'graph'],
       directory: DESCRIPTOR,
@@ -277,9 +278,9 @@ describe('routing', () => {
     /** @type {HTMLElement} */ (
       document.querySelector('.pipeline-dropdown-item[data-pipeline="graph"]')
     ).click();
-    await vi.waitFor(() => expect(views.pv.mount).toHaveBeenCalledTimes(2));
-    expect(views.pv.unmount).toHaveBeenCalledTimes(1);
-    expect(views.pv.mount.mock.calls[1][1]).toEqual({ name: 'A' });
+    await vi.waitFor(() => expect(views.channel.mount).toHaveBeenCalledTimes(2));
+    expect(views.channel.unmount).toHaveBeenCalledTimes(1);
+    expect(views.channel.mount.mock.calls[1][1]).toEqual({ name: 'A' });
   });
 });
 

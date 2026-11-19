@@ -31,11 +31,12 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
+from osprey.facility.views.simulator import INACTIVE_UNSERVED
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import (
-    IOC_HEALTH_SIGNALS,
     SCENARIOS_SCHEMA,
     SEEDS_SCHEMA,
+    SERVER_HEALTH_SIGNALS,
     SimulatorView,
 )
 from tests._builds import init_project
@@ -151,38 +152,38 @@ def test_addresses_are_the_facility_file_channels_and_the_served_status(
     assert addresses["status"] == [f"ca:SIM:{name}:STATUS" for name in ("BTS", "LINE", "LTB", "SR")]
 
 
-def test_every_served_model_lists_its_ioc_health_addresses_texture_last(
+def test_every_served_model_lists_its_server_health_addresses_texture_last(
     built_demo: BuiltProject,
 ) -> None:
     addresses = json.loads((built_demo.build_dir / ADDRESSES).read_bytes())
 
-    assert addresses["ioc_health"] == [
+    assert addresses["server_health"] == [
         f"ca:SIM:{name}:{signal}"
         for name in ("BTS", "LINE", "LTB", "SR", TEXTURE)
         for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
     ]
 
 
-def test_a_render_with_a_pv_directory_section_lists_the_same_ioc_health_addresses(
+def test_a_render_with_a_channel_directory_section_lists_the_same_server_health_addresses(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     plain = _render(tmp_path, built_demo, {}, "plain")
     with_directory = _render(
-        tmp_path, built_demo, {"pv_directory": {"type": "channelfinder"}}, "with-directory"
+        tmp_path, built_demo, {"channel_directory": {"type": "channelfinder"}}, "with-directory"
     )
 
     assert (with_directory / ADDRESSES).read_bytes() == (plain / ADDRESSES).read_bytes()
 
 
-def test_the_reader_groups_the_written_ioc_health_addresses_by_model(
+def test_the_reader_groups_the_written_server_health_addresses_by_model(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     render_dir = _render(tmp_path, built_demo, {"simulation": {"models": ["SR"]}})
 
     view = SimulatorView.open(render_dir / "data" / "simulator")
 
-    assert view.ioc_health_by_model() == {
-        name: {signal: f"ca:SIM:{name}:{signal}" for signal in IOC_HEALTH_SIGNALS}
+    assert view.server_health_by_model() == {
+        name: {signal: f"ca:SIM:{name}:{signal}" for signal in SERVER_HEALTH_SIGNALS}
         for name in ("SR", TEXTURE)
     }
 
@@ -220,7 +221,7 @@ def test_no_physics_serves_texture_alone_and_keeps_the_deck(
     addresses = json.loads((render_dir / ADDRESSES).read_bytes())
     assert served["models"] == [TEXTURE]
     assert addresses["status"] == []
-    assert addresses["ioc_health"] == [
+    assert addresses["server_health"] == [
         f"ca:SIM:{TEXTURE}:{signal}" for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
     ]
     assert (render_dir / DECK).read_bytes() == (built_demo.build_dir / DECK).read_bytes()
@@ -1292,3 +1293,49 @@ def test_an_empty_inputs_list_is_written_as_no_inputs(
     root = _render_facility(tmp_path, built_demo, _with_inputs(built_demo, {"SR": []}))
 
     assert (root / VARIABLES).read_bytes() == (plain / VARIABLES).read_bytes()
+
+
+def test_stopped_servers_of_served_models_are_carried_verbatim(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR", "sim-texture"]}
+
+    (entry,) = [
+        e for e in _rendered_scenarios(tmp_path, built_demo, [scenario]) if e["name"] == "sr-down"
+    ]
+    assert entry == scenario
+
+
+def test_stopped_servers_of_an_unserved_model_are_marked_inactive_and_left_out_of_the_stop(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR", "sim-texture"]}
+
+    (entry,) = [
+        e
+        for e in _rendered_scenarios(
+            tmp_path, built_demo, [scenario], {"simulation": {"models": [TEXTURE]}}
+        )
+        if e["name"] == "sr-down"
+    ]
+    assert entry == {
+        "name": "sr-down",
+        "stopped_servers": ["sim-texture"],
+        "inactive_servers": {"sim-SR": INACTIVE_UNSERVED},
+    }
+
+
+def test_a_default_scenario_stopping_an_unserved_models_ioc_is_refused_at_render(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR"]}
+    config = {"simulation": {"models": [TEXTURE], "default_scenarios": ["sr-down"]}}
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _rendered_scenarios(tmp_path, built_demo, [scenario], config)
+
+    assert stop.value.kind == "value-invalid"
+    assert stop.value.record_id == "sr-down"
+    assert "`sim-SR`, which this render does not serve" in stop.value.detail
+    assert "`sim-texture`" in stop.value.remedy
+    assert "`simulation.default_scenarios`" in stop.value.remedy

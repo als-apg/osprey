@@ -267,6 +267,59 @@ def _canopy_theme_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+#: The demo root's frozen ``deployed_services``, in build order; the server fleet
+#: injector appends ``server_fleet`` after them.
+_DEMO_DEPLOYED_SERVICES = (
+    "postgresql",
+    "qmd",
+    "graphdb",
+    "archive",
+    "event_dispatcher",
+    "dispatch_worker",
+    "bluesky",
+    "bluesky_web",
+    "virtual_accelerator",
+    "live_standin",
+    "mongodb",
+    "archiver_recorder",
+)
+
+
+def _server_fleet_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The server fleet the demo preset switches on, which each of *documents* gains.
+
+    Every render carries the ``channel_directory.fleet`` sub-block and the injected
+    service's port; the root alone also carries its path and deploys it.
+
+    Args:
+        documents: The rendered documents the cell emits.
+
+    Returns:
+        The deltas of every document.
+    """
+    deltas: list[Delta] = []
+    for document in documents:
+        deltas.append(Delta(document=document, path="channel_directory.fleet.period_s", live=10))
+        deltas.append(Delta(document=document, path="services.server_fleet.port", live=10084))
+        if document == "root":
+            deltas.append(
+                Delta(
+                    document=document,
+                    path="services.server_fleet.path",
+                    live="./services/server_fleet",
+                )
+            )
+            deltas.append(
+                Delta(
+                    document=document,
+                    path="deployed_services",
+                    fixture=list(_DEMO_DEPLOYED_SERVICES),
+                    live=[*_DEMO_DEPLOYED_SERVICES, "server_fleet"],
+                )
+            )
+    return tuple(deltas)
+
+
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
 #: mapping must equal its fixture exactly. See the module docstring for how to
@@ -278,6 +331,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
         f"demo/{mode}": (
             *_catalog_addition_deltas(*_DEMO_RENDERS),
             *_canopy_theme_deltas(*_DEMO_RENDERS),
+            *_server_fleet_deltas(*_DEMO_RENDERS),
         )
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
@@ -291,8 +345,11 @@ STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {}
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of
-#: :data:`CELL_DELTAS`. Empty while the fixtures match the live render.
-BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {}
+#: :data:`CELL_DELTAS`. Every demo cell stages the server fleet service's copy.
+BUILD_CONFIG_GAINS: dict[str, tuple[str, ...]] = {
+    f"demo/{mode}": ("services/server_fleet/config.yml",)
+    for mode in ("in_context", "hierarchical", "middle_layer", "graph")
+}
 
 
 #: Substrings a refused cell's live refusal must still contain, keyed by cell

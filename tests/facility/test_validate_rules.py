@@ -1000,6 +1000,32 @@ class TestValueRules:
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == (f"`channel_faults` is {block!r}, not a mapping of address to fault")
 
+    def test_stopped_servers_name_served_simulated_servers(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [_wired("Q1:SP")],
+                "scenarios/s.yaml": {"stopped_servers": ["sim-optics", "sim-texture"]},
+            }
+        )
+        assert _run(tmp_path, files).ok
+
+    def test_a_stopped_ioc_the_facility_does_not_serve_is_refused(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [_wired("Q1:SP")],
+                "scenarios/s.yaml": {"stopped_servers": ["sim-nothing"]},
+            }
+        )
+        error = _rule(tmp_path, files, "value-invalid")
+        assert (error.record_kind, error.record_id) == ("scenario", "s")
+        assert error.detail == "`stopped_servers` names `sim-nothing`, which no simulated IOC is"
+        assert error.remedy == "write one of `sim-optics`, `sim-texture`"
+
+    @pytest.mark.parametrize("block", ["sim-texture", {"sim-texture": True}, [1]])
+    def test_stopped_servers_is_a_list_of_names(self, tmp_path: Path, block: Any) -> None:
+        files = _tree(**{"scenarios/s.yaml": {"stopped_servers": block}})
+        assert not _run(tmp_path, files).ok
+
     def _monitor_map(self, faults: dict[str, Any]) -> dict[str, Any]:
         model = _wired("Q1:SP")
         model["wiring"].append({"address": "BPM1:X", "element": "BPM1", "engine": {"axis": "x"}})

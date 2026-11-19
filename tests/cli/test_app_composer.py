@@ -24,7 +24,7 @@ from osprey.cli.build_profile_emit import effective_config_subtree
 from osprey.cli.build_profile_load import load_profile
 from osprey.cli.build_profile_merge import resolve_profile_document
 from osprey.cli.build_profile_presets import _presets_dir, preset_data_bundle
-from osprey.cli.templates.claude_code import _graphdb_configured, _pv_directory_context
+from osprey.cli.templates.claude_code import _channel_directory_context, _graphdb_configured
 from osprey.deployment.web_terminals.lint import lint_shared_render
 from osprey.registry.mcp import resolve_servers
 from osprey_connectors.errors import BuildProfileError
@@ -175,9 +175,12 @@ def _render_servers(profile) -> list[str]:
     claude_code = effective_config_subtree(profile.config, ("claude_code",))
     services = effective_config_subtree(profile.config, ("services",))
     rendered = {"services": services}
-    if (section := _expand_dotted(profile.config).get("pv_directory")) is not None:
-        rendered["pv_directory"] = section
-    ctx = {"graphdb_configured": _graphdb_configured(rendered), **_pv_directory_context(rendered)}
+    if (section := _expand_dotted(profile.config).get("channel_directory")) is not None:
+        rendered["channel_directory"] = section
+    ctx = {
+        "graphdb_configured": _graphdb_configured(rendered),
+        **_channel_directory_context(rendered),
+    }
     if profile.channel_finder_mode and "channel-finder" in profile.agents:
         ctx["channel_finder_pipeline"] = profile.channel_finder_mode
     names = [s["name"] for s in resolve_servers(claude_code, ctx) if s["enabled"]]

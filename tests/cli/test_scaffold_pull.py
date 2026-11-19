@@ -261,6 +261,7 @@ DEMO_PULLABLE = [
     "data/facility/scenarios/bpm-polarity.yaml",
     "data/facility/scenarios/bpm-polarity/plots/corrector_bump_test.png",
     "data/facility/scenarios/demo-history.yaml",
+    "data/facility/scenarios/line-server-stopped.yaml",
     "data/facility/scenarios/nominal.yaml",
     "data/facility/scenarios/nominal/plots/orbit_rms.json",
     "data/facility/scenarios/orm-dual-fault.yaml",

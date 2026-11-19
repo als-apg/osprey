@@ -131,6 +131,11 @@ def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) 
     the approval block's to say -- it is the write position, which the build
     states as the tier (:func:`build`) and a session sets as its switch
     (:func:`acting_in`).
+
+    The preset's server fleet is switched off (``channel_directory.fleet``
+    nulled): nothing here reads it, and its refresh period must be at least
+    twice the longest read bound of a target it refreshes, which this
+    connector's ``timeout_s`` raises past the preset's period.
     """
     gateway = {"address": "127.0.0.1", "port": port, "use_name_server": True}
     connector = {
@@ -146,6 +151,7 @@ def isolation_settings(port: int, pva_port: int, probe: str, *, approval: bool) 
         f"virtual_accelerator.port={port}",
         f"virtual_accelerator.pva_port={pva_port}",
         "virtual_accelerator.live_standin=null",
+        "config.channel_directory.fleet=null",
         f"config.simulation.default_scenarios=[{STILL}]",
         f"config.approval.enabled={'true' if approval else 'false'}",
         "config.approval.default_policy=always",

@@ -173,7 +173,7 @@ TIER2_DIR = "tests/e2e/tier2"
 #: Tier 2 files that deploy a stack and run on the benchmark board only.
 TIER2_BOARD_ONLY_FILES = (
     "tests/e2e/tier2/test_chart_value_reading.py",
-    "tests/e2e/tier2/test_pv_directory_agentic.py",
+    "tests/e2e/tier2/test_channel_directory_agentic.py",
 )
 FLOOR_JOB = "dependency-floor"
 NEXTCLOUD_JOB = "nextcloud-talk-bridge-e2e"

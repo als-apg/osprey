@@ -105,16 +105,18 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.Channel": "a view answers a channel in this type",
     "osprey_connectors.simulation.view.ENGINE_ROLES": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS": (
+        "a released framework reads SERVER_HEALTH_SIGNALS under this name"
+    ),
     "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
-    "osprey_connectors.simulation.view.PERIODIC_SERVER_HEALTH": ("a word of the wiring vocabulary"),
+    "osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH": (
+        "a released framework reads PERIODIC_SERVER_HEALTH under this name"
+    ),
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
-    "osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS": (
-        "a view writer names the server health signals by these words"
-    ),
     "osprey_connectors.types.LIMITS_MODE_EXCLUSIVE": (
         "a word of the limits-mode vocabulary a config states"
     ),

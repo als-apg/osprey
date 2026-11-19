@@ -470,7 +470,7 @@ class ValidateRequest(BaseModel):
 async def get_info(request: Request):
     """Return pipeline type and pipeline-specific metadata.
 
-    With the ``pv_directory`` section configured, the payload also carries the
+    With the ``channel_directory`` section configured, the payload also carries the
     ``directory`` scope descriptor, computed per request so its label follows a
     target move; without it the key is absent and the payload is today's.
     """
@@ -480,7 +480,7 @@ async def get_info(request: Request):
         from osprey.interfaces.channel_finder.directory_api import directory_descriptor
 
         info["directory"] = await directory_descriptor(
-            request.app.state.config, request.app.state.pv_directory, service
+            request.app.state.config, request.app.state.channel_directory, service
         )
     return info
 

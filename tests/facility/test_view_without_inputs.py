@@ -15,9 +15,16 @@ facility without inputs on purpose replaces them, and says why.
 
 Replaced since: the four ``addresses.json`` digests, retaken when the view began
 listing the IOC health addresses, which are part of the view of every served
-model; and the injection fixture's ``variables.json``, whose request record now
+model, and retaken again when the key that lists them, ``ioc_health``, took its
+server word, ``server_health``; with the old spelling put back each file has
+the previous digest; and the injection fixture's ``variables.json``, whose request record now
 carries the ``command`` mark the injection engine describes it with; with that
-one mark removed the file still has its pre-inputs digest. ``follows.json``,
+one mark removed the file still has its pre-inputs digest; and the example
+facility's ``scenarios.json``, retaken when the facility gained the
+``line-server-stopped`` scenario; with that one scenario removed the file still
+has its pre-inputs digest, and retaken again when that scenario's name and its
+``stopped_servers`` key took server words for their EPICS ones; with the old
+spellings put back the file has the previous digest. ``follows.json``,
 written since, is no file of the pre-inputs view and is left out; it reports
 what ``variables.json`` already holds.
 """

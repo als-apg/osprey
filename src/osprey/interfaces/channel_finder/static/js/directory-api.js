@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Channel Finder — PV Directory Client
+ * OSPREY Channel Finder — Channel Directory Client
  *
  * The routes under the panel's directory API with their payload types, and the
  * cross-panel URLs and gates All PVs and the PV page share. Another panel's URL
@@ -12,6 +12,7 @@
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
 import { fetchJSON } from './api.js';
+import { LABELS } from './labels.js';
 import { state } from './state.js';
 
 /** @typedef {'found'|'inactive'|'not_listed'|'no_match'|'unavailable'} Outcome */
@@ -45,7 +46,7 @@ import { state } from './state.js';
  *   status: 'Active'|'Inactive'|null,
  *   description: string|null,
  *   record_type: string|null,
- *   ioc: string|null,
+ *   server: string|null,
  *   host: string|null,
  *   last_announced: string|null,
  * }} DirectoryRow
@@ -67,7 +68,7 @@ import { state } from './state.js';
  *   partial: { part: string, reason: string }[],
  *   facets: {
  *     origin: FacetCount[],
- *     ioc: FacetCount[],
+ *     server: FacetCount[],
  *     record_type: FacetCount[],
  *     alarm?: FacetCount[],
  *     archived?: FacetCount[],
@@ -94,7 +95,7 @@ import { state } from './state.js';
 /**
  * @typedef {{
  *   at: string,
- *   pv: string,
+ *   channel: string,
  *   field: string|null,
  *   old: string|null,
  *   new: string|null,
@@ -158,7 +159,7 @@ import { state } from './state.js';
  *   detail_properties?: string[],
  *   reason?: string,
  *   label?: string,
- * }} PvFactsSection
+ * }} ChannelFactsSection
  */
 
 /**
@@ -170,20 +171,20 @@ import { state } from './state.js';
  *   name: string,
  *   outcome: 'found'|'not_listed'|'unknown'|'unavailable',
  *   reason?: string,
- *   sections: PvFactsSection[],
- * }} PvFacts
+ *   sections: ChannelFactsSection[],
+ * }} ChannelFacts
  */
 
 /**
  * One PV of an IOC in alarm now.
  * @typedef {{
- *   pv: string,
+ *   channel: string,
  *   severity: string|null,
  *   status: string|null,
  *   latched: boolean|null,
  *   acknowledged: boolean|null,
  *   time: string|null,
- * }} IocAlarmRow
+ * }} ServerAlarmRow
  */
 
 /**
@@ -193,36 +194,108 @@ import { state } from './state.js';
  * @typedef {{
  *   outcome: 'found'|'no_match'|'unavailable',
  *   total?: number|null,
- *   rows?: IocAlarmRow[],
+ *   rows?: ServerAlarmRow[],
  *   counts?: Record<string, number>,
  *   reason?: string,
- * }} IocAlarms
+ * }} ServerAlarms
  */
 
 /**
  * @typedef {{
- *   ioc: string,
+ *   server: string,
  *   outcome: Outcome,
  *   source: Source,
  *   host: string|null,
  *   ports: number[]|null,
- *   pv_count: number|null,
+ *   channel_count: number|null,
  *   inactive_count: number|null,
  *   curated_count: number|null,
  *   curated_reason?: string,
  *   engineer: string|null,
  *   engineer_source: 'directory property'|'ENGINEER PV'|null,
- *   health_pvs: HealthPv[],
- *   health_pvs_reason?: string,
- *   alarms?: IocAlarms,
+ *   health_channels: HealthChannel[],
+ *   health_channels_reason?: string,
+ *   alarms?: ServerAlarms,
  *   links: Record<string, string>,
  *   reason?: string,
- * }} IocFacts
+ *   fleet?: FleetEntry,
+ * }} ServerFacts
+ */
+
+// ---- The server fleet (GET /api/directory/fleet) ----
+// Every time here is epoch seconds, never an ISO string.
+
+/**
+ * What the fleet service answered. `stale` keeps the last snapshot, marked;
+ * every other non-`ok` outcome carries none. `not_in_snapshot` is an entry's
+ * outcome only.
+ * @typedef {'ok'|'no_snapshot'|'not_refreshed'|'cannot_list'|'unavailable'|'stale'|'not_in_snapshot'} FleetOutcome
+ */
+
+/** @typedef {'alive'|'stalled'|'silent'|'unreached'|'unknown'} FleetState */
+/** @typedef {'degraded'|'expected_running_not_alive'|'expected_stopped_alive'|'alive_unexpected'} FleetFinding */
+
+/**
+ * One IOC of a snapshot, in the served order.
+ * @typedef {{
+ *   name: string,
+ *   host: string|null,
+ *   class_name: string|null,
+ *   group: string|null,
+ *   state: FleetState,
+ *   since: number|null,
+ *   reason: string|null,
+ *   findings: FleetFinding[],
+ *   directory_status: string|null,
+ *   listed: boolean,
+ *   sources: string[],
+ *   liveness: { channel: string|null, kind: 'counter'|'value'|null, value: unknown, read_at: number|null, ambiguous: boolean }|null,
+ *   health: { channel: string, value: unknown, status: 'ok'|'out_of_range'|'unread' }[],
+ * }} FleetRow
+ */
+
+/**
+ * A snapshot of one target's fleet.
+ * @typedef {{
+ *   outcome: string,
+ *   target: string,
+ *   generated_at: number,
+ *   cycle?: number,
+ *   period_s?: number,
+ *   cycle_duration_s?: number,
+ *   read_path: { status: 'ok'|'down'|'unverified', channel: string|null },
+ *   sources: { name: string, outcome: string, reason: string|null }[],
+ *   counts: { by_state: Record<FleetState, number>, by_finding: Record<FleetFinding, number> },
+ *   group_by: 'host'|'class_name'|'group'|null,
+ *   servers: FleetRow[],
+ * }} FleetSnapshot
+ */
+
+/**
+ * The fleet route's answer for the session's target.
+ * @typedef {{
+ *   outcome: FleetOutcome,
+ *   target: string|null,
+ *   reason: string|null,
+ *   generated_at: number|null,
+ *   snapshot: FleetSnapshot|null,
+ * }} FleetAnswer
+ */
+
+/**
+ * One IOC's fleet entry, as the IOC facts carry it while the view is on.
+ * @typedef {{
+ *   outcome: FleetOutcome,
+ *   target: string|null,
+ *   reason: string|null,
+ *   generated_at: number|null,
+ *   row: FleetRow|null,
+ * }} FleetEntry
  */
 
 /**
  * One IOC health PV: its name and its role.
- * @typedef {{ name: string, role: 'heartbeat'|'uptime'|'engineer' }} HealthPv
+ * @typedef {{ name: string, role: 'heartbeat'|'uptime'|'engineer' }} HealthChannel
  */
 
 /**
@@ -258,7 +331,7 @@ import { state } from './state.js';
  * in the alarm tree when the feed knows one, `status` the record's alarm now
  * and `time` when the alarm started.
  * @typedef {{
- *   pv: string,
+ *   channel: string,
  *   path: string|null,
  *   severity: string,
  *   status: string,
@@ -295,7 +368,7 @@ import { state } from './state.js';
 /**
  * What the current target's archive holds. `archived.count` is how many of the
  * directory's `of` PVs the store records now, null with `reason` when it cannot
- * be counted; `by_ioc` the same per IOC (empty with `by_ioc_reason`). The
+ * be counted; `by_server` the same per IOC (empty with `by_server_reason`). The
  * samples are ISO times, null when unknown. `freshness_bound_s` is how old the
  * newest sample of the deployment's own store may be, null for any other
  * archive. `configuration` is the archive's as rendered; `targets` names, per
@@ -304,8 +377,8 @@ import { state } from './state.js';
  *   outcome: 'found'|'unavailable',
  *   source: Source,
  *   archived?: { count: number|null, of: number|null, reason?: string },
- *   by_ioc?: { ioc: string, pvs: number, archived: number }[],
- *   by_ioc_reason?: string,
+ *   by_server?: { server: string, channels: number, archived: number }[],
+ *   by_server_reason?: string,
  *   newest_sample?: string|null,
  *   oldest_sample?: string|null,
  *   freshness_bound_s?: number|null,
@@ -333,7 +406,7 @@ import { state } from './state.js';
  */
 
 /** Past this many PVs selected, Plot is disabled. */
-const PLOT_MAX_PVS = 12;
+const PLOT_MAX_CHANNELS = 12;
 
 /**
  * The query string for `filters`, with its `?`; empty when nothing is set.
@@ -352,11 +425,38 @@ function queryString(filters) {
 }
 
 /**
+ * The target an answer says it came from: its source's, a channel page's
+ * first section's, or the fleet answer's own.
+ * @param {any} answer
+ * @returns {string|null}
+ */
+function answerTarget(answer) {
+  if (!answer || typeof answer !== 'object') return null;
+  const target =
+    answer.source?.target ?? answer.sections?.[0]?.source?.target ?? answer.target ?? null;
+  return typeof target === 'string' ? target : null;
+}
+
+/**
+ * *read*'s answer, after the panel moved to the words of the target it came
+ * from, so the words follow the target an answer shows.
+ * @template T
+ * @param {Promise<T>|T} read
+ * @returns {Promise<T>}
+ */
+function followed(read) {
+  return Promise.resolve(read).then((answer) => {
+    state.followTarget(answerTarget(answer));
+    return answer;
+  });
+}
+
+/**
  * @param {DirectoryFilters} [filters]
  * @returns {Promise<DirectoryPage>}
  */
 export function searchDirectory(filters = {}) {
-  return fetchJSON(`/api/directory/search${queryString(filters)}`);
+  return followed(fetchJSON(`/api/directory/search${queryString(filters)}`));
 }
 
 /**
@@ -375,24 +475,24 @@ export function directoryExportUrl(filters = {}) {
  * @returns {Promise<DirectoryCount>}
  */
 export function countDirectory(q) {
-  return fetchJSON(`/api/directory/count${queryString({ q })}`);
+  return followed(fetchJSON(`/api/directory/count${queryString({ q })}`));
 }
 
 /**
  * @param {string} name
  * @param {AbortSignal} [signal]
- * @returns {Promise<PvFacts>}
+ * @returns {Promise<ChannelFacts>}
  */
-export function fetchPvFacts(name, signal) {
-  return fetchJSON(`/api/directory/pv/${encodeURIComponent(name)}`, { signal });
+export function fetchChannelFacts(name, signal) {
+  return followed(fetchJSON(`/api/directory/channel/${encodeURIComponent(name)}`, { signal }));
 }
 
 /**
  * @param {string} name
- * @returns {Promise<IocFacts>}
+ * @returns {Promise<ServerFacts>}
  */
-export function fetchIocFacts(name) {
-  return fetchJSON(`/api/directory/ioc/${encodeURIComponent(name)}`);
+export function fetchServerFacts(name) {
+  return followed(fetchJSON(`/api/directory/server/${encodeURIComponent(name)}`));
 }
 
 /** @returns {Promise<LogbookAvailability>} */
@@ -408,7 +508,9 @@ export function fetchLogbookAvailability() {
  * @returns {Promise<ActiveAlarms>}
  */
 export function fetchActiveAlarms({ severity, limit } = {}, signal) {
-  return fetchJSON(`/api/directory/alarms${queryString({ severity, limit })}`, { signal });
+  return followed(
+    fetchJSON(`/api/directory/alarms${queryString({ severity, limit })}`, { signal })
+  );
 }
 
 /**
@@ -417,7 +519,17 @@ export function fetchActiveAlarms({ severity, limit } = {}, signal) {
  * @returns {Promise<ArchiveSummary>}
  */
 export function fetchArchiveSummary(signal) {
-  return fetchJSON('/api/directory/archive', { signal });
+  return followed(fetchJSON('/api/directory/archive', { signal }));
+}
+
+/**
+ * The server fleet of the session's target, from the fleet service alone: the
+ * route reads no PV and queries no directory. `signal` aborts the read.
+ * @param {AbortSignal} [signal]
+ * @returns {Promise<FleetAnswer>}
+ */
+export function fetchFleet(signal) {
+  return followed(fetchJSON('/api/directory/fleet', { signal }));
 }
 
 /**
@@ -466,11 +578,11 @@ export function plotUrl(names) {
  * @returns {{ disabled: boolean, label: string, title: string }}
  */
 export function plotButton(selected) {
-  if (selected <= PLOT_MAX_PVS) return { disabled: false, label: 'Plot', title: '' };
+  if (selected <= PLOT_MAX_CHANNELS) return { disabled: false, label: 'Plot', title: '' };
   return {
     disabled: true,
-    label: `Plot (max ${PLOT_MAX_PVS})`,
-    title: `Data Browser takes at most ${PLOT_MAX_PVS} PVs`,
+    label: `Plot (max ${PLOT_MAX_CHANNELS})`,
+    title: `Data Browser takes at most ${PLOT_MAX_CHANNELS} ${LABELS.channels}`,
   };
 }
 

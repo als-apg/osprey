@@ -1,10 +1,15 @@
-"""The ``python`` server's optional tools: what follows the pyAML view and what never does.
+"""Optional tools: what follows its context key and what never does.
 
-``model_response_matrix`` and ``pyaml_measure`` are registered by the server
-only when the render carries a pyAML view, and ``model_response_matrix``'s
-allow row follows the view with them. ``pyaml_measure``'s ask row and its
-write and approval hooks render whatever the view says, so the write floor,
-the deny list and the approval set never depend on it.
+``model_response_matrix`` and ``pyaml_measure`` are registered by the
+``python`` server only when the render carries a pyAML view, and
+``model_response_matrix``'s allow row follows the view with them.
+``pyaml_measure``'s ask row and its write and approval hooks render whatever
+the view says, so the write floor, the deny list and the approval set never
+depend on it.
+
+The ``channel-directory`` server's ``server_fleet`` follows the fleet sub-block
+(``channel_directory_fleet``): with the fleet off the agent is offered no fleet
+tool at all.
 """
 
 from __future__ import annotations
@@ -117,3 +122,43 @@ def test_with_writes_off_the_measurement_is_denied(tmp_path, monkeypatch, view: 
     assert MEASURE in permissions["deny"]
     assert MEASURE not in permissions["allow"]
     assert ("mcp__python__model_response_matrix" in permissions["allow"]) is view
+
+
+# --- channel-directory: the server fleet tool -----------------------------------------------
+
+
+def _channel_directory(ctx: dict[str, Any]) -> dict:
+    resolved = resolve_servers({}, {"channel_directory_configured": True, **ctx})
+    (server,) = [entry for entry in resolved if entry["name"] == "channel-directory"]
+    return server
+
+
+def test_the_fleet_tool_is_optional_on_the_fleet_key():
+    assert FRAMEWORK_SERVERS["channel-directory"].optional_tools["server_fleet"] == OptionalTool(
+        "channel_directory_fleet"
+    )
+
+
+def test_the_fleet_tool_is_allowed_only_with_the_fleet_on():
+    assert (
+        "server_fleet" in _channel_directory({"channel_directory_fleet": True})["permissions_allow"]
+    )
+    assert (
+        "server_fleet"
+        not in _channel_directory({"channel_directory_fleet": False})["permissions_allow"]
+    )
+
+
+def test_an_absent_fleet_key_withholds_the_fleet_tool():
+    server = _channel_directory({})
+
+    assert "server_fleet" not in server["permissions_allow"]
+    assert "server_fleet" not in server["permissions_ask"]
+    assert "server_fleet" in FRAMEWORK_SERVERS["channel-directory"].withheld_optional_tools({})
+
+
+def test_the_fleet_key_offers_no_other_tool():
+    on = set(_channel_directory({"channel_directory_fleet": True})["permissions_allow"])
+    off = set(_channel_directory({})["permissions_allow"])
+
+    assert on - off == {"server_fleet"}
