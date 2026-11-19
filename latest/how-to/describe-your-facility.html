@@ -771,12 +771,20 @@ refused:</p>
 <span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bootloader_version_readback</span>
 <span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Bootloader version a controller reports.</span>
 <span class="w">  </span><span class="nt">nameplate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">trip_level_readback</span>
+<span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Level at which a protection circuit trips.</span>
+<span class="w">  </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Trip</span>
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">nameplate:</span> <span class="pre">true</span></code> marks a signal that names the unit it is read from rather
 than its state; a device card shows such a signal with what the device is,
 never as a key tile. The vocabulary’s own <code class="docutils literal notranslate"><span class="pre">model_readback</span></code>,
 <code class="docutils literal notranslate"><span class="pre">serial_number_readback</span></code> and <code class="docutils literal notranslate"><span class="pre">firmware_version_readback</span></code> are marked so.</p>
+<p><code class="docutils literal notranslate"><span class="pre">title</span></code> is the short word a screen names the signal by, on a tile or a value
+row; with none, the signal’s name stands. The vocabulary titles its general
+signals with the operator’s word: <code class="docutils literal notranslate"><span class="pre">Current</span></code>, <code class="docutils literal notranslate"><span class="pre">Setpoint</span></code>, <code class="docutils literal notranslate"><span class="pre">Voltage</span></code>,
+<code class="docutils literal notranslate"><span class="pre">Ramp</span> <span class="pre">rate</span></code>, <code class="docutils literal notranslate"><span class="pre">On</span> <span class="pre">command</span></code>, and <code class="docutils literal notranslate"><span class="pre">Lolo</span></code>, <code class="docutils literal notranslate"><span class="pre">Lo</span></code>, <code class="docutils literal notranslate"><span class="pre">Hi</span></code>, <code class="docutils literal notranslate"><span class="pre">Hihi</span></code> for the
+temperature alarm limits. A <code class="docutils literal notranslate"><span class="pre">channel_roles.csv</span></code> row’s <code class="docutils literal notranslate"><span class="pre">label</span></code> wins over it.</p>
 </section>
 <section id="layers">
 <h2>Layers<a class="headerlink" href="#layers" title="Link to this heading">#</a></h2>
