@@ -184,7 +184,9 @@ stages and a stage runs only when every earlier one is clean:
      - The pair, value, limits and seed rules.
    * - wiring
      - Fills each wiring record's direction, unit, value range and start
-       value from its model's engine, and marks each command channel.
+       value from its model's engine, and marks each command channel; then
+       holds each command's ``timeout_s`` and its status's ``idle`` to the
+       command rules and stops with ``command-invalid``.
    * - compute
      - Positions, places, ordinals and groups, read off the decks, and the
        checks only a deck can answer.
