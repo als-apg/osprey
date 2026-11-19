@@ -30,7 +30,7 @@ from click.testing import CliRunner
 import osprey.facility
 from osprey.cli.main import cli
 from osprey.facility.build import build_facility
-from osprey.facility.errors import KINDS
+from osprey.facility.errors import KINDS, FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
@@ -3411,6 +3411,39 @@ def test_limits_records_without_a_defaults_block_build(tmp_path: Path) -> None:
     assert document["limits"] == {
         "records": [{"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}]
     }
+
+
+#: A bool command setpoint on the plain tree's quadrupole, with no bounds.
+GO_SP = {"id": "GO:SP", "role": "setpoint", "value_type": "bool", "on": {"device": "SR/Q1"}}
+
+
+def test_an_override_on_a_stated_writable_bool_setpoint_builds(tmp_path: Path) -> None:
+    tree = _plain(
+        append("records/channels.yaml", GO_SP),
+        limits({"address": "GO:SP", "writable": True}),
+        scenario("warm", {"overrides": {"GO:SP": 1}}),
+    )()
+
+    document = build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+
+    assert [s["overrides"] for s in document["scenarios"]] == [{"GO:SP": 1}]
+
+
+def test_an_override_on_a_bool_setpoint_with_a_bare_record_stops(tmp_path: Path) -> None:
+    tree = _plain(
+        append("records/channels.yaml", GO_SP),
+        limits({"address": "GO:SP", "confirm": False}),
+        scenario("warm", {"overrides": {"GO:SP": 1}}),
+    )()
+
+    with pytest.raises(FacilityBuildError) as stopped:
+        build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+
+    assert str(stopped.value) == (
+        "facility: seed-invalid: scenario warm — `overrides.GO:SP` writes GO:SP, which "
+        "limits.yaml locks; fix: remove `overrides.GO:SP`, or make GO:SP writable in "
+        "limits.yaml"
+    )
 
 
 def test_a_tree_without_limits_builds(tmp_path: Path) -> None:
