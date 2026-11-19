@@ -2167,9 +2167,10 @@ html[data-agent-surface="terminal"] #operator-container {
 }
 
 /* Voice input before Send (chat-voice.js): the mic icon, outlined like the
-   "/" button. Red while the microphone is live, as web.voice.mode decides:
-   pulsing while it records (holding the icon or the talk key, or `mic` mode
-   hearing speech), steady while `mic` mode listens between clips. Accent
+   "/" button. Red while the microphone is live, for whichever of
+   web.voice.inputs are on: pulsing while it records (holding the icon or the
+   talk key, or `mic` hearing speech), steady while `mic` listens between
+   clips. Accent
    while the microphone opens or a clip is transcribed. */
 .op-input-controls .op-mic-btn {
   display: inline-flex;
@@ -2198,8 +2199,8 @@ html[data-agent-surface="terminal"] #operator-container {
   height: 16px;
 }
 
-/* In `key` mode the icon only shows the state; the key does the talking. */
-.op-input-controls .op-mic-btn[data-mode='key'] {
+/* With only `key` on, the icon only shows the state; the key does the talking. */
+.op-input-controls .op-mic-btn[data-role='indicator'] {
   cursor: default;
 }
 

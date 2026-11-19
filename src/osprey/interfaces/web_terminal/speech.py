@@ -42,15 +42,15 @@ logger = logging.getLogger(__name__)
 #: leaning back or facing away. Set ``OSPREY_SPEECH_MODEL=base.en`` for speed.
 DEFAULT_MODEL = "small.en"
 
-#: How the operator talks to the chat (``web.voice.mode``): ``mic`` toggles
-#: listening for a push-to-talk microphone whose button gates the sound,
-#: ``key`` holds a keyboard key, ``button`` holds the mic icon, ``off`` hides
-#: voice input.
-VOICE_MODES = ("mic", "key", "button", "off")
-DEFAULT_MODE = "button"
+#: The ways of talking to the chat that ``web.voice.inputs`` may list:
+#: ``button`` holds the mic icon, ``key`` holds a keyboard key, ``mic`` toggles
+#: listening for a push-to-talk microphone whose button gates the sound. An
+#: empty list is no voice input.
+VOICE_INPUTS = ("button", "key", "mic")
+DEFAULT_INPUTS = ("button",)
 
-#: The key held to talk in ``key`` mode (``web.voice.key``): modifiers and a
-#: key joined by ``+``, parsed by the browser.
+#: The key held to talk with the ``key`` input (``web.voice.key``): modifiers
+#: and a key joined by ``+``, parsed by the browser.
 DEFAULT_KEY = "Ctrl+Space"
 
 #: Segments Whisper rates at least this likely to be silence are dropped.
@@ -70,15 +70,48 @@ def model_name() -> str:
 class VoiceSettings:
     """How the chat offers voice input (``web.voice``)."""
 
-    mode: str = DEFAULT_MODE
+    inputs: tuple[str, ...] = DEFAULT_INPUTS
     key: str = DEFAULT_KEY
 
 
-def voice_settings() -> VoiceSettings:
-    """``web.voice.mode`` and ``web.voice.key`` from the deployment's config.
+def _voice_inputs(raw: Any) -> tuple[str, ...]:
+    """The inputs a ``web.voice.inputs`` value switches on.
 
-    An unknown mode warns and falls back to the default, and an unreadable
-    config gives the defaults: a settings mistake never blocks the chat.
+    Unknown entries warn and are dropped; ``button`` gives way to ``mic``,
+    since both use the icon. A missing or malformed value, or a list with
+    nothing usable in it, is the default; an empty list is no voice input.
+    """
+    if raw is None:
+        return DEFAULT_INPUTS
+    if not isinstance(raw, list):
+        logger.warning(
+            "web.voice.inputs must be a list such as [button, key]; using %s",
+            list(DEFAULT_INPUTS),
+        )
+        return DEFAULT_INPUTS
+    if not raw:
+        return ()
+    wanted = [str(entry).strip().lower() for entry in raw]
+    unknown = [entry for entry in wanted if entry not in VOICE_INPUTS]
+    if unknown:
+        logger.warning(
+            "web.voice.inputs: ignoring %s (known: %s)", unknown, ", ".join(VOICE_INPUTS)
+        )
+    inputs = tuple(kind for kind in VOICE_INPUTS if kind in wanted)
+    if not inputs:
+        return DEFAULT_INPUTS
+    if "button" in inputs and "mic" in inputs:
+        logger.warning("web.voice.inputs: button and mic both use the mic icon; using mic")
+        inputs = tuple(kind for kind in inputs if kind != "button")
+    return inputs
+
+
+def voice_settings() -> VoiceSettings:
+    """``web.voice.inputs`` and ``web.voice.key`` from the deployment's config.
+
+    Mistakes in the list warn and are worked around (see :func:`_voice_inputs`),
+    and an unreadable config gives the defaults: a settings mistake never
+    blocks the chat.
     """
     try:
         from osprey_connectors.workspace import load_osprey_config
@@ -89,17 +122,9 @@ def voice_settings() -> VoiceSettings:
         voice = {}
     if not isinstance(voice, dict):
         voice = {}
-    mode = str(voice.get("mode", DEFAULT_MODE)).strip().lower()
-    if mode not in VOICE_MODES:
-        logger.warning(
-            "web.voice.mode %r is not one of %s; using %r",
-            mode,
-            ", ".join(VOICE_MODES),
-            DEFAULT_MODE,
-        )
-        mode = DEFAULT_MODE
+    inputs = _voice_inputs(voice.get("inputs"))
     key = str(voice.get("key", DEFAULT_KEY)).strip() or DEFAULT_KEY
-    return VoiceSettings(mode, key)
+    return VoiceSettings(inputs, key)
 
 
 @dataclass(frozen=True)

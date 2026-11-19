@@ -157,29 +157,48 @@ def config_says(monkeypatch, config):
 
 def test_voice_defaults_to_the_button_and_ctrl_space(monkeypatch):
     config_says(monkeypatch, {})
-    assert speech.voice_settings() == speech.VoiceSettings("button", "Ctrl+Space")
+    assert speech.voice_settings() == speech.VoiceSettings(("button",), "Ctrl+Space")
 
 
-@pytest.mark.parametrize("mode", ["mic", "key", "button", "off"])
-def test_voice_mode_is_read_from_web_voice(monkeypatch, mode):
-    config_says(monkeypatch, {"web": {"voice": {"mode": mode}}})
-    assert speech.voice_settings().mode == mode
+@pytest.mark.parametrize(
+    ("listed", "inputs"),
+    [
+        (["button"], ("button",)),
+        (["key"], ("key",)),
+        (["mic"], ("mic",)),
+        (["button", "key"], ("button", "key")),
+        (["key", "mic"], ("key", "mic")),
+        ([" Key ", "BUTTON"], ("button", "key")),
+        (["key", "key"], ("key",)),
+        ([], ()),
+    ],
+)
+def test_voice_inputs_are_read_from_web_voice(monkeypatch, listed, inputs):
+    config_says(monkeypatch, {"web": {"voice": {"inputs": listed}}})
+    assert speech.voice_settings().inputs == inputs
 
 
-def test_voice_mode_is_read_without_regard_to_case(monkeypatch):
-    config_says(monkeypatch, {"web": {"voice": {"mode": " Mic "}}})
-    assert speech.voice_settings().mode == "mic"
+def test_button_gives_way_to_mic_and_says_so(monkeypatch, caplog):
+    config_says(monkeypatch, {"web": {"voice": {"inputs": ["button", "mic", "key"]}}})
+    assert speech.voice_settings().inputs == ("key", "mic")
+    assert "button and mic" in caplog.text
 
 
-def test_an_unknown_voice_mode_warns_and_falls_back_to_the_button(monkeypatch, caplog):
-    config_says(monkeypatch, {"web": {"voice": {"mode": "always-on"}}})
-    assert speech.voice_settings().mode == "button"
-    assert "always-on" in caplog.text
+def test_unknown_inputs_are_ignored_with_a_warning(monkeypatch, caplog):
+    config_says(monkeypatch, {"web": {"voice": {"inputs": ["button", "mike"]}}})
+    assert speech.voice_settings().inputs == ("button",)
+    assert "mike" in caplog.text
+
+
+@pytest.mark.parametrize("listed", [["mike"], "button", 3])
+def test_a_list_with_nothing_usable_or_not_a_list_is_the_default(monkeypatch, listed):
+    config_says(monkeypatch, {"web": {"voice": {"inputs": listed}}})
+    assert speech.voice_settings().inputs == ("button",)
 
 
 def test_the_voice_key_is_read_from_web_voice(monkeypatch):
-    config_says(monkeypatch, {"web": {"voice": {"mode": "key", "key": "Alt+M"}}})
-    assert speech.voice_settings() == speech.VoiceSettings("key", "Alt+M")
+    config_says(monkeypatch, {"web": {"voice": {"inputs": ["key"], "key": "Alt+M"}}})
+    assert speech.voice_settings() == speech.VoiceSettings(("key",), "Alt+M")
 
 
 @pytest.mark.parametrize(
@@ -204,12 +223,14 @@ def test_status_route(client, monkeypatch):
     monkeypatch.setattr(
         speech, "status", lambda: speech.SpeechStatus(False, "base.en", "ffmpeg is missing.")
     )
-    monkeypatch.setattr(speech, "voice_settings", lambda: speech.VoiceSettings("mic", "F8"))
+    monkeypatch.setattr(
+        speech, "voice_settings", lambda: speech.VoiceSettings(("key", "mic"), "F8")
+    )
     assert client.get("/api/speech/status").json() == {
         "available": False,
         "model": "base.en",
         "reason": "ffmpeg is missing.",
-        "mode": "mic",
+        "inputs": ["key", "mic"],
         "key": "F8",
     }
 

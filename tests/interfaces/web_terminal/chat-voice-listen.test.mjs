@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Unit tests for chat-voice-listen.js and the `mic` mode of chat-voice.js --
+ * Unit tests for chat-voice-listen.js and the `mic` input of chat-voice.js --
  * the Simple-view chat recording whenever a push-to-talk microphone lets
  * sound through:
  *   ./node_modules/.bin/vitest run tests/interfaces/web_terminal/chat-voice-listen.test.mjs
@@ -182,7 +182,7 @@ describe('createClipCutter', () => {
   });
 });
 
-// ---- mic mode in the voice input ---- //
+// ---- the mic input ---- //
 
 /** A microphone stream whose tracks remember being stopped. */
 function fakeStream() {
@@ -229,7 +229,7 @@ class FakeAudioContext {
   }
 }
 
-describe('mic mode: listening for a push-to-talk microphone', () => {
+describe('the mic input: listening for a push-to-talk microphone', () => {
   /** @type {HTMLTextAreaElement} */
   let textarea;
   /** @type {ReturnType<typeof vi.fn>} */
@@ -257,7 +257,7 @@ describe('mic mode: listening for a push-to-talk microphone', () => {
     return voice;
   }
 
-  /** Build, show the icon in mic mode, and click it to start listening. */
+  /** Build, show the icon with mic on, and click it to start listening. */
   async function listening(overrides = {}) {
     const voice = build(overrides);
     await voice.checkAvailability();
@@ -285,7 +285,7 @@ describe('mic mode: listening for a push-to-talk microphone', () => {
       if (url.endsWith('/api/speech/status')) {
         return {
           ok: true,
-          json: async () => ({ available: true, model: 'small.en', mode: 'mic' }),
+          json: async () => ({ available: true, model: 'small.en', inputs: ['mic'] }),
         };
       }
       return {
@@ -302,7 +302,7 @@ describe('mic mode: listening for a push-to-talk microphone', () => {
     document.body.replaceChildren();
   });
 
-  test('the icon shows in mic mode only when the server can transcribe and the browser has Web Audio', async () => {
+  test('the icon shows for mic only when the server can transcribe and the browser has Web Audio', async () => {
     const voice = build();
     expect(voice.button.hidden).toBe(true);
     await voice.checkAvailability();
@@ -342,7 +342,7 @@ describe('mic mode: listening for a push-to-talk microphone', () => {
     let n = 0;
     fetchImpl.mockImplementation(async (/** @type {string} */ url) => {
       if (url.endsWith('/api/speech/status'))
-        return { ok: true, json: async () => ({ available: true, mode: 'mic' }) };
+        return { ok: true, json: async () => ({ available: true, inputs: ['mic'] }) };
       n += 1;
       const text = `part ${n}`;
       return { ok: true, status: 200, json: async () => ({ text }) };
@@ -357,7 +357,7 @@ describe('mic mode: listening for a push-to-talk microphone', () => {
     expect(textarea.value).toBe('part 1 part 2');
   });
 
-  test('holding the icon does not record in mic mode, and Ctrl + Space does nothing', async () => {
+  test('with only mic on, holding the icon does not record, and Ctrl + Space does nothing', async () => {
     const { voice } = await listening();
     voice.button.dispatchEvent(new Event('pointerdown', { cancelable: true }));
     const down = new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, cancelable: true });
@@ -448,6 +448,38 @@ describe('mic mode: listening for a push-to-talk microphone', () => {
     const { voice } = await listening();
     expect(voice.button.dataset.state).toBe('idle');
     expect(onError).toHaveBeenCalledWith(expect.stringMatching(/microphone could not be opened/));
+  });
+
+  test('button and mic listed together: mic wins, so a click toggles listening', async () => {
+    fetchImpl.mockImplementation(async (/** @type {string} */ url) =>
+      url.endsWith('/api/speech/status')
+        ? { ok: true, json: async () => ({ available: true, inputs: ['button', 'mic'] }) }
+        : { ok: true, status: 200, json: async () => ({ text: 'x' }) }
+    );
+    const { voice } = await listening();
+    expect(voice.inputs()).toEqual(['mic']);
+    expect(voice.button.dataset.state).toBe('listening');
+  });
+
+  test('key and mic together: the key holds to talk, but not while listening', async () => {
+    fetchImpl.mockImplementation(async (/** @type {string} */ url) =>
+      url.endsWith('/api/speech/status')
+        ? { ok: true, json: async () => ({ available: true, inputs: ['key', 'mic'] }) }
+        : { ok: true, status: 200, json: async () => ({ text: 'x' }) }
+    );
+    textarea.placeholder = 'Message the agent…';
+    const voice = build();
+    await voice.checkAvailability();
+    expect(textarea.placeholder).toBe(
+      'Message the agent… (click the mic to listen, or hold Ctrl + Space to talk)'
+    );
+    voice.button.click();
+    await vi.advanceTimersByTimeAsync(0);
+    const down = new KeyboardEvent('keydown', { key: ' ', ctrlKey: true, cancelable: true });
+    document.dispatchEvent(down);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(down.defaultPrevented).toBe(false);
+    expect(getMicrophone).toHaveBeenCalledTimes(1); // only the listening's
   });
 
   test('disposing the input stops listening', async () => {
