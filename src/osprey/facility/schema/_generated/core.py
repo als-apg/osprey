@@ -1987,6 +1987,7 @@ class Wiring(ConfiguredBaseModel):
                        'ModelInput',
                        'Wiring',
                        'LimitRecord']} })
+    also: Optional[list[str]] = Field(default=None, description="""Further channel addresses of the same variable. Each serves what `address` serves, and a write to a settable one writes the variable.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring'], 'list_elements_ordered': True} })
     element: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring', 'Slice']} })
     slices: Optional[list[Slice]] = Field(default=None, description="""The first slice is the element read from.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Wiring'], 'list_elements_ordered': True} })
     engine: Optional[Any] = Field(default=None, description="""The engine's own words for the variable.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'ModelInput', 'Wiring']} })

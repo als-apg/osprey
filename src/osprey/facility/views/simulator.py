@@ -30,8 +30,8 @@ when the model declares one, so a model without inputs is written as under
 value_type, options?, shape?, unit, description, writable, value_range,
 owner, on}``: ``role`` defaults to ``readback`` and ``value_type`` to ``float``
 as in the facility file; ``pair`` is a setpoint's readback (itself when it names none) and
-null on any other role; ``owner`` is the model wiring the address, else
-``texture``; ``on`` is the node the facility record puts the channel on,
+null on any other role; ``owner`` is the model wiring the address, as a record's
+``address`` or under its ``also``, else ``texture``; ``on`` is the node the facility record puts the channel on,
 ``{device: id}`` or ``{place: id}``, or null. ``writable`` and ``value_range`` come from the channel's limits
 record (``value_range`` = ``[min_value, max_value]`` when it states both, else
 null); a setpoint without a record is writable only when the simulated
@@ -51,7 +51,10 @@ label]`` per index; ``totals`` counts each word. The runtime does not read it; a
 setpoint's ``pair`` in ``variables.json`` is the readback it follows, so the two
 agree.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
-states carried verbatim; ``faults`` maps each faulted model to ``{writes}``,
+states carried verbatim, but that a key of ``overrides``, ``couple``, ``noise``,
+``channel_faults`` or a model's fault writes, and an entry of ``still``, that
+names a served model's wiring record under ``also`` is written as the record's ``address``;
+``faults`` maps each faulted model to ``{writes}``,
 plus ``inactive: model not served`` when the render does not serve it;
 ``stopped_servers`` keeps only the IOCs this render serves, and each named IOC of
 a model the render does not serve moves to ``inactive_servers``, mapped to
@@ -65,7 +68,8 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
 
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
-its element (or slices), engine block and calibration, plus the slots the build
+the further addresses it states under ``also``, its element (or slices), engine
+block and calibration, plus the slots the build
 filled from the channel, its limits record and the model's engine (direction,
 unit, default, value_range, engine_role, plane, refresh, marks) and, for a waveform
 channel, its ``value_type`` and ``shape``.
@@ -79,7 +83,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, wiring_addresses
 from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
@@ -154,6 +158,9 @@ _SCENARIO_BLOCKS = (
     "stopped_servers",
 )
 
+#: The scenario blocks keyed by channel address.
+_ADDRESS_KEYED_BLOCKS = ("overrides", "couple", "noise", "channel_faults")
+
 #: The scenario ``scenarios.json`` lists when no file defines ``still``.
 _BUILT_IN_STILL = {
     "name": STILL_SCENARIO,
@@ -166,6 +173,7 @@ _BUILT_IN_STILL = {
 _WIRING_ENTRY_KEYS = (
     "id",
     "address",
+    "also",
     "element",
     "slices",
     "engine",
@@ -302,7 +310,8 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     owners: dict[str, str] = {}
     for model in models:
         for record in model.get("wiring", []):
-            owners.setdefault(str(record["address"]), str(model["name"]))
+            for address in wiring_addresses(record):
+                owners.setdefault(address, str(model["name"]))
     limits = limits_document(inputs.records)
     unlisted_writable = _unlisted_setpoints_writable(inputs.rendered_config)
 
@@ -504,26 +513,62 @@ def _split_stopped_servers(
     return stopped, dict.fromkeys(unserved, INACTIVE_UNSERVED)
 
 
+def _record_addresses(document: Mapping[str, Any], served: Iterable[str]) -> dict[str, str]:
+    """Each address a served model's wiring record names under ``also``, mapped to its ``address``.
+
+    A model the render does not serve leaves every address of its wiring to
+    the texture model, each a channel of its own.
+    """
+    served = set(served)
+    return {
+        further: address
+        for model in document.get("models", [])
+        if model.get("name") in served
+        for record in model.get("wiring", [])
+        for address, *also in [wiring_addresses(record)]
+        for further in also
+    }
+
+
+def _by_record_address(block: Any, record_of: Mapping[str, str]) -> Any:
+    """A copy of a scenario block keyed by address, each key the address of its wiring record.
+
+    A key naming a record under ``also`` becomes the record's ``address``; an
+    entry keyed by that ``address`` itself stands over it.
+    """
+    if not isinstance(block, Mapping) or not any(str(key) in record_of for key in block):
+        return copy.deepcopy(block)
+    keyed = {record_of[str(key)]: value for key, value in block.items() if str(key) in record_of}
+    keyed.update({key: value for key, value in block.items() if str(key) not in record_of})
+    return copy.deepcopy(keyed)
+
+
 def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
+    record_of = _record_addresses(inputs.records.document, inputs.served)
     scenarios: list[dict[str, Any]] = []
     for scenario in sorted(
         inputs.records.document.get("scenarios", []), key=lambda s: str(s["name"])
     ):
         entry: dict[str, Any] = {"name": scenario["name"]}
         for block in _SCENARIO_BLOCKS:
-            if scenario.get(block) is not None:
+            if scenario.get(block) is None:
+                continue
+            if block in _ADDRESS_KEYED_BLOCKS:
+                entry[block] = _by_record_address(scenario[block], record_of)
+            else:
                 entry[block] = copy.deepcopy(scenario[block])
         if scenario.get("stopped_servers"):
             entry["stopped_servers"], inactive = _split_stopped_servers(inputs, scenario)
             if inactive:
                 entry["inactive_servers"] = inactive
         if scenario.get("still") is not None:
-            entry["still"] = resolved_still(inputs.records, scenario)
+            still = resolved_still(inputs.records, scenario)
+            entry["still"] = sorted({record_of.get(address, address) for address in still})
         faults = scenario.get("faults")
         if faults is not None:
             entry["faults"] = {}
             for model, writes in faults.items():
-                fault: dict[str, Any] = {"writes": copy.deepcopy(writes)}
+                fault: dict[str, Any] = {"writes": _by_record_address(writes, record_of)}
                 if model not in inputs.served:
                     fault["inactive"] = INACTIVE_UNSERVED
                 entry["faults"][model] = fault

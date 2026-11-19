@@ -39,8 +39,9 @@ A finished document holds these invariants, each enforced by a build stage:
   the first record) and the ``combine`` stage merges one id across layers. So
   :meth:`~FacilityRecords.record` and :meth:`~FacilityRecords.require` are
   single-valued, while one string may name records of several kinds.
-- I2, an address is wired at most once. The ``compute`` stage stops on a second
-  wiring record (``wiring-conflict``).
+- I2, an address is wired at most once, as a wiring record's ``address`` or
+  one of its ``also``. The ``compute`` stage stops on a second naming
+  (``wiring-conflict``).
 - I3, every record carries its id slot and every id a record names exists. The
   ``schema`` and ``references`` stages enforce it, so a lookup by a stated id
   never needs a spelling fallback.
@@ -57,6 +58,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, get_args
 
+from osprey.facility import wiring_addresses
 from osprey.facility.places import resolve_place_name
 from osprey.utils.facility import FacilityFileError
 
@@ -237,6 +239,8 @@ class FacilityRecords:
             for entry in wiring if isinstance(wiring, list) else ():
                 if isinstance(entry, Mapping) and entry.get("address") is not None:
                     self._wiring.setdefault(str(entry["address"]), (name, entry))
+                    for address in wiring_addresses(entry)[1:]:
+                        self._wiring.setdefault(address, (name, entry))
         self._by_name: dict[str, set[tuple[RecordKind, str]]] = {}
         for kind in _LOOKUP_KINDS:
             for id_, record in self._by_kind[kind].items():
@@ -378,10 +382,10 @@ class FacilityRecords:
         return self._channels_on.get(device_id, ())
 
     def wired(self, address: str) -> Mapping[str, Any] | None:
-        """The one wiring record naming an address.
+        """The one wiring record naming an address, as its ``address`` or under ``also``.
 
         An address is wired at most once: the ``compute`` stage stops on a second
-        wiring record (``compute.py`` ``_addresses_wired_twice``, ``wiring-conflict``).
+        naming (``compute.py`` ``_addresses_wired_twice``, ``wiring-conflict``).
 
         Args:
             address: A channel's address.

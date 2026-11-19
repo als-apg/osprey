@@ -41,7 +41,7 @@ from typing import IO, Any
 
 import click
 
-from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
 from osprey.facility.errors import (
     FacilityBuildError,
@@ -149,6 +149,15 @@ _MAX_LABEL = 25
 _MAX_PRECISION = 17
 
 _NUMERIC_TYPES = ("float", "int")
+
+#: The channel slots every address of one wiring record states alike, each with
+#: the value a channel stating none has.
+_SAME_VARIABLE_SLOTS: dict[str, Any] = {
+    "role": DEFAULT_ROLE,
+    "value_type": "float",
+    "options": None,
+    "shape": None,
+}
 _LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
 _MOTION = ("noise", "drift")
 #: The two terms a ``noise`` record states exactly one of.
@@ -823,8 +832,7 @@ class _Index:
             for entry in model.get("wiring") or []:
                 if isinstance(entry, dict):
                     self.wiring.append((name, entry))
-                    address = entry.get("address")
-                    if isinstance(address, str):
+                    for address in wiring_addresses(entry):
                         self.wired.setdefault(address, set()).add(name)
         limits = document.get("limits")
         records = limits.get("records") if isinstance(limits, dict) else None
@@ -1056,6 +1064,10 @@ class _References:
             yield from self._missing(
                 "wiring", wid, stating_files(entry, "address"), "address", "channel", address
             )
+            for name in wiring_addresses(entry)[1:] if isinstance(address, str) else ():
+                yield from self._missing(
+                    "wiring", wid, stating_files(entry, "also"), "also", "channel", name
+                )
             channel = self.index.channels.get(str(address), {})
             on = channel.get("on")
             own = on.get("device") if isinstance(on, dict) else None
@@ -2141,6 +2153,7 @@ class _Records:
                     "drop `curve` from the first slice; it converts through `calibration.curve`",
                 )
                 continue
+            yield from self._also(wid, entry)
             channel = self.index.channels.get(str(entry.get("address")), {})
             endpoints = channel.get("endpoint_of") or []
             # A record naming no element drives a property of the whole deck,
@@ -2157,6 +2170,58 @@ class _Records:
                         f"`endpoint_of` device {', '.join(unnamed)} is named by no slice",
                         "name each `endpoint_of` device in a slice, or remove it from `endpoint_of`",
                     )
+
+    def _also(self, wid: str, entry: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
+        """Each `also` name is a channel like the record's own, with no motion of its own."""
+        address, *further = wiring_addresses(entry)
+        channel = self.index.channels[address]
+        files = stating_files(entry, "also")
+        for name in further:
+            if name == address:
+                # Named twice by one record: the compute stage's wiring-conflict.
+                continue
+            other = self.index.channels[name]
+            differing = [
+                slot
+                for slot, default in _SAME_VARIABLE_SLOTS.items()
+                if channel.get(slot, default) != other.get(slot, default)
+            ]
+            unit, theirs = channel.get("unit"), other.get("unit")
+            if unit and theirs and unit != theirs:
+                differing.append("unit")
+            if differing:
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    files,
+                    f"`also` names {name}, which differs from {address} in "
+                    f"{quoted_slots(differing)}",
+                    f"give {address} and {name} the same {quoted_slots(differing)}, or remove "
+                    f"{name} from `also`",
+                )
+            elif other.get("simulation") is not None:
+                yield self._error(
+                    "seed-invalid",
+                    "wiring",
+                    wid,
+                    sorted({*files, *self._seed_files(other)}),
+                    f"`also` names {name}, which carries a seed",
+                    f"remove the seed of {name}; it serves the value of {address}, motion included",
+                )
+            elif (pair := channel.get("pair")) not in (None, address) and other.get("pair") == pair:
+                # Several setpoints may name one readback, which the simulation
+                # then follows from none; two addresses of one record are one setpoint.
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    sorted({*files, *stating_files(other, "pair")}),
+                    f"`also` names {name}, whose `pair` is {pair} as {address}'s is, so {pair} "
+                    "would count as shared by two setpoints and follow neither",
+                    f"remove `pair` from {name}; {pair} follows the record under each of its "
+                    "addresses",
+                )
 
     # --- limits --------------------------------------------------------------------
 
