@@ -308,14 +308,11 @@ class TestSchemaStage:
         result = _run(tmp_path, _tree(**{"limits.yaml": {"records": records}}))
         assert result.ok, _lines(result)
         assert result.validated.document["limits"] == {"records": records}
+        schema = yaml.safe_load(CORE_YAML.read_text(encoding="utf-8"))
+        stated = schema["classes"]["LimitRecord"]["attributes"]
         fields = core.LimitRecord.model_fields
-        assert fields["writable"].description == (
-            "Absent means true on a setpoint carrying both `min_value` and `max_value`, "
-            "false otherwise."
-        )
-        assert fields["confirm"].description == (
-            "Absent means true; false turns off the re-read after a write."
-        )
+        for slot in ("writable", "confirm"):
+            assert fields[slot].description == stated[slot]["description"]
 
     @pytest.mark.parametrize(
         "text",

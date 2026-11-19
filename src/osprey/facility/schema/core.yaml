@@ -921,8 +921,10 @@ classes:
       writable:
         range: boolean
         description: >-
-          Absent means true on a setpoint carrying both `min_value` and
-          `max_value`, false otherwise.
+          Absent means true on a float or int setpoint carrying both
+          `min_value` and `max_value`, false otherwise. A setpoint of any other
+          value_type carries no bounds and is writable only when this is true;
+          its value is not checked against this record.
       confirm:
         range: boolean
         description: Absent means true; false turns off the re-read after a write.

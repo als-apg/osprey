@@ -2090,7 +2090,7 @@ class LimitRecord(ConfiguredBaseModel):
     min_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_value: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     max_step: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
-    writable: Optional[bool] = Field(default=None, description="""Absent means true on a setpoint carrying both `min_value` and `max_value`, false otherwise.""", json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
+    writable: Optional[bool] = Field(default=None, description="""Absent means true on a float or int setpoint carrying both `min_value` and `max_value`, false otherwise. A setpoint of any other value_type carries no bounds and is writable only when this is true; its value is not checked against this record.""", json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
     confirm: Optional[bool] = Field(default=None, description="""Absent means true; false turns off the re-read after a write.""", json_schema_extra = { "linkml_meta": {'domain_of': ['LimitRecord']} })
 
 

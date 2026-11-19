@@ -12,9 +12,12 @@ Written to ``<render>/data/channel_limits.json``::
 The file holds one entry per limits record and nothing else: no ``defaults``
 block, and no entry for a channel without a record, which
 ``control_system.limits_checking.mode`` decides at write time. Each entry
-states ``writable`` and ``confirm`` explicitly. ``writable`` is true only for a
-setpoint whose record carries both ``min_value`` and ``max_value`` and does not
-say ``writable: false``; ``confirm`` is the record's own value, else true.
+states ``writable`` and ``confirm`` explicitly. Only a setpoint is writable,
+and never when its record says ``writable: false``. A ``float`` or ``int``
+setpoint is writable when its record carries both ``min_value`` and
+``max_value``. A setpoint of any other ``value_type`` is writable when its
+record says ``writable: true``. ``confirm`` is the record's own value, else
+true.
 A bound the record does not state is not written. A facility with no
 ``limits.yaml`` gets the version line alone.
 """
@@ -27,20 +30,50 @@ from typing import Any
 
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs
+from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 
-__all__ = ["LIMITS_FILE", "LIMITS_VERSION", "limits_document", "write_limits_view"]
+__all__ = [
+    "LIMITS_FILE",
+    "LIMITS_VERSION",
+    "NUMERIC_TYPES",
+    "limits_document",
+    "record_writable",
+    "write_limits_view",
+]
 
 LIMITS_FILE = "channel_limits.json"
 LIMITS_VERSION = "4.0"
 
+#: The value types a limits record bounds; every other type carries no bounds.
+NUMERIC_TYPES = ("float", "int")
+
 _BOUNDS = ("min_value", "max_value", "max_step")
 
 
-def _entry(record: Mapping[str, Any], role: str) -> dict[str, Any]:
-    entry: dict[str, Any] = {slot: record[slot] for slot in _BOUNDS if record.get(slot) is not None}
-    bounded = "min_value" in entry and "max_value" in entry
+def record_writable(record: Mapping[str, Any], role: str, value_type: str) -> bool:
+    """Whether a channel's limits record leaves it writable.
+
+    Args:
+        record: The channel's limits record.
+        role: The channel's role; only a setpoint is ever writable.
+        value_type: The channel's value type.
+
+    Returns:
+        False for any role but setpoint and for ``writable: false``; on a
+        numeric channel, whether the record carries both ``min_value`` and
+        ``max_value``; on any other, whether it says ``writable: true``.
+    """
     writable = record.get("writable")
-    entry["writable"] = writable is not False and role == "setpoint" and bounded
+    if role != "setpoint" or writable is False:
+        return False
+    if value_type in NUMERIC_TYPES:
+        return record.get("min_value") is not None and record.get("max_value") is not None
+    return writable is True
+
+
+def _entry(record: Mapping[str, Any], role: str, value_type: str) -> dict[str, Any]:
+    entry: dict[str, Any] = {slot: record[slot] for slot in _BOUNDS if record.get(slot) is not None}
+    entry["writable"] = record_writable(record, role, value_type)
     confirm = record.get("confirm")
     entry["confirm"] = confirm if isinstance(confirm, bool) else True
     return entry
@@ -60,7 +93,8 @@ def limits_document(records: FacilityRecords) -> dict[str, Any]:
     for row in sorted(rows, key=lambda row: str(row["address"])):
         address = str(row["address"])
         channel = records.record("channel", address) or {}
-        document[address] = _entry(row, str(channel.get("role")))
+        value_type = str(channel.get("value_type") or DEFAULT_VALUE_TYPE)
+        document[address] = _entry(row, str(channel.get("role")), value_type)
     return document
 
 
