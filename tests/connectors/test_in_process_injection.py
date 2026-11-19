@@ -18,8 +18,7 @@ import pytest
 import osprey_connectors.simulation.composite as composite_module
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
-from osprey_connectors_tests._config_lookup import serve_config_lookup
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, serve_writes_enabled
 from tests.facility._injection_fixture import (
     OFFSETS,
     PARAMETERS,
@@ -51,7 +50,7 @@ class _Clock:
 def _armed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Writes reach the simulator: the switch on and a write tier that allows."""
     arm_switch(monkeypatch, tmp_path / "armed-data")
-    serve_config_lookup(monkeypatch, writes_enabled_config)
+    serve_writes_enabled()
     monkeypatch.setattr(composite_module, "active_config", lambda: None)
 
 

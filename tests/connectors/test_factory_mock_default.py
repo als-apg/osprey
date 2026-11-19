@@ -19,7 +19,7 @@ from osprey_connectors import connector_types
 from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import isolated_connector_registries
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -81,15 +81,13 @@ class TestFactoryTypeFallback:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_config_none_loads_global_config_and_falls_back(
-        self, caplog, monkeypatch, tmp_path
-    ):
+    async def test_config_none_loads_global_config_and_falls_back(self, caplog, tmp_path):
         section = {
             "connector": {
                 connector_types.VIRTUAL_ACCELERATOR: in_process_config(served_tree(tmp_path))
             }
         }
-        serve_config_lookup(monkeypatch, lambda path, default=None, config_path=None: section)
+        serve_control_system(section)
 
         with caplog.at_level(logging.WARNING, logger=FACTORY_LOGGER):
             connector = await ConnectorFactory.create_control_system_connector(None)

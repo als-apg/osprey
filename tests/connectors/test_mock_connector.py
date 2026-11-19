@@ -25,12 +25,13 @@ from osprey_connectors.errors import (
     ConnectorUnavailableError,
 )
 from osprey_connectors.service_answers import BackendSpec, Unavailable
-from osprey_connectors_tests._config_lookup import (
-    config_lookup_patched,
-    constant_lookup,
-    serve_config_lookup,
+from osprey_connectors_tests._config_trees import control_system_config, installed
+from osprey_connectors_tests._write_fakes import (
+    ARMED_SECTION,
+    arm_switch,
+    armed_context,
+    serve_writes_enabled,
 )
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
 from tests._live import async_wait_until
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -39,7 +40,7 @@ from tests.facility.served_tree import in_process_config, served_tree
 def _switch_on(monkeypatch, tmp_path):
     """The login's switch on for the simulator target, connectors stamped with it.
 
-    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    With :func:`serve_writes_enabled` serving a write tier that allows, that is
     everything the reference monitor's verdict asks before a write reaches the
     transport; a test that disarms serves a tier that does not.
     """
@@ -62,11 +63,9 @@ class TestVAInProcessConnector:
         assert connector._connected is False
 
     @pytest.mark.asyncio
-    async def test_a_disconnected_in_process_simulator_serves_no_address(
-        self, tmp_path, monkeypatch
-    ):
+    async def test_a_disconnected_in_process_simulator_serves_no_address(self, tmp_path):
         """After disconnect no address validates and a write says it is not connected."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         connector = VAInProcessConnector()
         await connector.connect(
             armed_context(
@@ -133,7 +132,7 @@ class TestVAInProcessConnector:
     async def test_read_refuses_an_address_outside_the_facility_file(self, tmp_path):
         """An address the built facility file does not hold is refused, by name."""
         view = served_tree(tmp_path, readings=["MADE:UP:CHANNEL"])
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -153,7 +152,7 @@ class TestVAInProcessConnector:
         """A live read is stamped as an aware UTC instant, not a naive one —
         guards the connector against silent reversion to ``datetime.now()``."""
         view = served_tree(tmp_path, readings=["ANY:CHANNEL"])
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -176,7 +175,7 @@ class TestVAInProcessConnector:
     async def test_read_carries_the_unit_of_the_channel_record(self, tmp_path, channel, units):
         """A read's unit is exactly the one the channel record states."""
         view = served_tree(tmp_path, readings=[channel], channels={channel: {"unit": units}})
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -192,7 +191,7 @@ class TestVAInProcessConnector:
         """Test that mock connector maintains state between writes and reads."""
         view = served_tree(tmp_path, ["TEST:SETPOINT:SP"])
         connector = VAInProcessConnector()
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
             )
@@ -212,7 +211,7 @@ class TestVAInProcessConnector:
     @pytest.mark.asyncio
     async def test_write_to_a_readback_is_refused_before_any_put(self, tmp_path, monkeypatch):
         """A channel that is not a writable setpoint is refused, and nothing is put."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         connector = VAInProcessConnector()
         await connector.connect(
@@ -234,7 +233,7 @@ class TestVAInProcessConnector:
         self, tmp_path, monkeypatch
     ):
         """A simulator refusal that raises with no text still carries a message."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         connector = VAInProcessConnector()
         await connector.connect(
             armed_context(
@@ -259,9 +258,9 @@ class TestVAInProcessConnector:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_write_outside_the_facility_file_is_refused(self, tmp_path, monkeypatch):
+    async def test_write_outside_the_facility_file_is_refused(self, tmp_path):
         """A write to an address the facility file does not hold is refused by name."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         connector = VAInProcessConnector()
         await connector.connect(
             armed_context(
@@ -278,11 +277,9 @@ class TestVAInProcessConnector:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_a_write_outside_the_facility_is_not_a_control_system_refusal(
-        self, tmp_path, monkeypatch
-    ):
+    async def test_a_write_outside_the_facility_is_not_a_control_system_refusal(self, tmp_path):
         """A checked write to an unknown address is refused as not found, not as denied."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         connector = VAInProcessConnector()
         await connector.connect(
             armed_context(
@@ -303,7 +300,7 @@ class TestVAInProcessConnector:
         self, tmp_path, monkeypatch
     ):
         """The composite's refusal text is the refusal's message, verbatim."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         connector = VAInProcessConnector()
         await connector.connect(
             armed_context(
@@ -331,7 +328,7 @@ class TestVAInProcessConnector:
         """Test that writes are blocked via base class when config says false."""
         view = served_tree(tmp_path, ["TEST:PV"])
         connector = VAInProcessConnector()
-        with config_lookup_patched(constant_lookup(False)):
+        with installed(control_system_config({})):
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
             )
@@ -342,9 +339,9 @@ class TestVAInProcessConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_an_enum_channel_reads_its_option_index(self, tmp_path, monkeypatch):
+    async def test_an_enum_channel_reads_its_option_index(self, tmp_path):
         """A bool or enum channel reads back as its option index, its label beside it."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         view = served_tree(
             tmp_path,
             ["MODE:SP"],
@@ -380,9 +377,9 @@ class TestVAInProcessConnector:
         (state / "active_scenarios").write_text("cut\n", encoding="utf-8")
 
     @pytest.mark.asyncio
-    async def test_a_write_to_a_stuck_texture_setpoint_confirms(self, tmp_path, monkeypatch):
+    async def test_a_write_to_a_stuck_texture_setpoint_confirms(self, tmp_path):
         """A held write confirms on the setpoint, and its readback does not follow."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         self._fault(view, {"MAGNET:CURRENT:SP": "stuck"})
         connector = VAInProcessConnector()
@@ -426,9 +423,9 @@ class TestVAInProcessConnector:
         await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_a_subscription_fires_after_a_write(self, tmp_path, monkeypatch):
+    async def test_a_subscription_fires_after_a_write(self, tmp_path):
         """A write that changes a subscribed channel's held value fires its callback."""
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         view = served_tree(tmp_path, {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB"})
         connector = VAInProcessConnector()
         await connector.connect(
@@ -606,7 +603,7 @@ class TestVAInProcessConnector:
     async def test_read_multiple_channels(self, tmp_path):
         """Test reading multiple PVs concurrently."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3", "PV:4"])
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -638,7 +635,7 @@ class TestVAInProcessConnector:
     async def test_read_multiple_channels_reports_a_channel_failure(self, tmp_path):
         """A read that fails for its channel is a failure in the batch, with its error."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -655,7 +652,7 @@ class TestVAInProcessConnector:
     async def test_read_multiple_channels_raises_an_error_that_is_no_channel_s(self, tmp_path):
         """A read that fails with an ordinary error fails the whole batch."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -670,7 +667,7 @@ class TestVAInProcessConnector:
     async def test_read_multiple_channels_propagates_a_cancelled_read(self, tmp_path):
         """A cancelled read raises the cancellation instead of returning it as a value."""
         view = served_tree(tmp_path, readings=["PV:1", "PV:2", "PV:3"])
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -685,7 +682,7 @@ class TestVAInProcessConnector:
     async def test_validate_channel_is_membership(self, tmp_path):
         """A channel is valid exactly when the built facility file holds it."""
         view = served_tree(tmp_path, readings=["ANY:PV:NAME"])
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -704,7 +701,7 @@ class TestVAInProcessConnector:
             readings=["BEAM:CURRENT"],
             channels={"BEAM:CURRENT": {"unit": "mA", "description": "Stored beam current"}},
         )
-        with config_lookup_patched(writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             connector = VAInProcessConnector()
             await connector.connect(
                 armed_context(settings=in_process_config(view, response_delay_ms=0))
@@ -1120,7 +1117,7 @@ class TestInProcessWriteConfirmationContract:
         has to outlive connect(). The tree serves the setpoints these tests
         write, and the readback one of them is paired with.
         """
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         view = served_tree(
             tmp_path,
             {"MAGNET:CURRENT:SP": "MAGNET:CURRENT:RB", "TEST:CHANNEL:SP": None},

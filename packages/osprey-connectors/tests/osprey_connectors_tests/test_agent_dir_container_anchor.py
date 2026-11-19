@@ -1,4 +1,4 @@
-"""Where ``get_agent_dir`` anchors when the configured project root is not here.
+"""Where the agent-data root anchors when the configured project root is not here.
 
 A container runs with a ``project_root`` written on the host, so the configured
 path frequently does not exist inside the image. What to do then used to be a
@@ -10,6 +10,7 @@ the shipped layout — the image puts the project at ``/app/<project>/``, not at
 
 The loaded config's own repo root names the project root by construction: the
 file this process read, not an environment variable that may name another.
+:attr:`~osprey_connectors.config.LoadedConfig.agent_data_root` derives from it.
 """
 
 from __future__ import annotations
@@ -30,11 +31,10 @@ def test_the_loaded_configs_repo_names_the_project_root(monkeypatch, tmp_path):
     project = tmp_path / "facility"
     monkeypatch.setenv("OSPREY_CONFIG", str(_config(project, tmp_path / "does-not-exist")))
 
-    resolved = Path(connectors_config.get_agent_dir("api_calls_dir"))
+    resolved = connectors_config.current_config().agent_data_root
 
     assert resolved.is_relative_to(project)
     assert not resolved.is_relative_to(tmp_path / "does-not-exist")
-    assert resolved.name == "api_calls_dir"
 
 
 def test_a_config_file_export_naming_another_project_is_not_the_anchor(monkeypatch, tmp_path):
@@ -44,7 +44,7 @@ def test_a_config_file_export_naming_another_project_is_not_the_anchor(monkeypat
     monkeypatch.setenv("OSPREY_CONFIG", str(_config(project, tmp_path / "does-not-exist")))
     monkeypatch.setenv("CONFIG_FILE", str(_config(other, tmp_path / "does-not-exist")))
 
-    resolved = Path(connectors_config.get_agent_dir("api_calls_dir"))
+    resolved = connectors_config.current_config().agent_data_root
 
     assert resolved.is_relative_to(project)
     assert not resolved.is_relative_to(other)

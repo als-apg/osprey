@@ -34,10 +34,13 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.errors import ChannelWriteBlockedError, LimitsViolation
 from osprey_connectors.refusals import RefusalReason
-from osprey_connectors_tests._config_lookup import config_lookup_patched
+from osprey_connectors_tests._config_trees import control_system_config, installed
 from osprey_connectors_tests._epics_fakes import ECA_NOWTACCESS
-from osprey_connectors_tests._write_fakes import arm_switch, make_mock_epics_connector
-from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config
+from osprey_connectors_tests._write_fakes import (
+    ARMED_SECTION,
+    arm_switch,
+    make_mock_epics_connector,
+)
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -55,7 +58,7 @@ _VIOLATION = LimitsViolation(kind="MAX_EXCEEDED", reason="above max", max_value=
 def _switch_on(monkeypatch, tmp_path):
     """The login's switch on for the simulator target, connectors stamped with it.
 
-    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    With :func:`serve_writes_enabled` serving a write tier that allows, that is
     everything the reference monitor's verdict asks before a write reaches the
     transport; a test that disarms serves a tier that does not.
 
@@ -73,7 +76,7 @@ def _make_connector():
 
 
 async def _write(connector, value=42.0, confirm=False):
-    with config_lookup_patched(_writes_enabled_config):
+    with installed(control_system_config(ARMED_SECTION)):
         return await connector.write_channel(CHANNEL, value, confirm=confirm)
 
 
@@ -379,7 +382,7 @@ async def _run_all_blocked_batch(tmp_path, monkeypatch, *reasons, connector=None
             "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config",
             return_value=None,
         ),
-        config_lookup_patched(_writes_enabled_config),
+        installed(control_system_config(ARMED_SECTION)),
         pytest.raises(ToolError) as excinfo,
     ):
         await fn(operations=operations)

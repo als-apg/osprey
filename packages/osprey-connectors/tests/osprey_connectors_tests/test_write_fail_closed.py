@@ -16,18 +16,17 @@ import pytest
 
 from osprey_connectors.control_system._base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelUnreachableError
-from osprey_connectors_tests._config_lookup import config_lookup_patched
+from osprey_connectors_tests._config_trees import control_system_config, installed
 from osprey_connectors_tests._epics_fakes import ECA_DISCONN
-from osprey_connectors_tests._write_fakes import arm_switch
+from osprey_connectors_tests._write_fakes import ARMED_SECTION, arm_switch
 from osprey_connectors_tests._write_fakes import make_mock_epics_connector as _make_connector
-from osprey_connectors_tests._write_fakes import writes_enabled_config as _writes_enabled_config
 
 
 @pytest.fixture(autouse=True)
 def _switch_on(monkeypatch, tmp_path):
     """The login's switch on for the simulator target, connectors stamped with it.
 
-    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    With :func:`serve_writes_enabled` serving a write tier that allows, that is
     everything the reference monitor's verdict asks before a write reaches the
     transport; a test that disarms serves a tier that does not.
     """
@@ -50,7 +49,7 @@ class TestOneNamePerWrite:
         )
         connector = _make_connector(validate_side_effect=violation)
 
-        with config_lookup_patched(_writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             result = await connector.write_channel(spelling, 999.0, confirm=False)
 
         assert result.refusal_reason == "LIMITS"
@@ -67,7 +66,7 @@ class TestOneNamePerWrite:
         """A write that passes validation puts to ``TEST:PV`` and reports that name."""
         connector = _make_connector()
 
-        with config_lookup_patched(_writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             result = await connector.write_channel(spelling, 1.0, confirm=False)
 
         (name, _value), _kwargs = connector._limits_validator.validate.call_args
@@ -82,7 +81,7 @@ class TestFailClosedValidation:
         """A non-limits exception from validate() refuses the write; caput never runs."""
         connector = _make_connector(validate_side_effect=RuntimeError("boom"))
 
-        with config_lookup_patched(_writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             result = await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
         assert isinstance(result, ChannelWriteResult)
@@ -116,7 +115,7 @@ class TestFailClosedValidation:
         )
         connector = _make_connector(validate_side_effect=violation)
 
-        with config_lookup_patched(_writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             result = await connector.write_channel("TEST:PV", value, confirm=False)
 
         assert result.refusal_reason == "LIMITS"
@@ -135,7 +134,7 @@ class TestFailClosedValidation:
         """
         connector = _make_connector(put=ECA_DISCONN)
 
-        with config_lookup_patched(_writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             with pytest.raises(ChannelUnreachableError):
                 await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
@@ -165,7 +164,7 @@ class TestNonBlockingOffload:
 
         connector._limits_validator.validate = MagicMock(side_effect=recording_validate)
 
-        with config_lookup_patched(_writes_enabled_config):
+        with installed(control_system_config(ARMED_SECTION)):
             result = await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
         loop_thread = threading.get_ident()

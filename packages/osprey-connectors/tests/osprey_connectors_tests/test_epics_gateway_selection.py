@@ -33,7 +33,7 @@ from osprey_connectors.control_system._va_connector import VirtualAcceleratorCon
 from osprey_connectors.errors import ConnectorUnavailableError, ConnectRefusedError
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_tier import WRITES_KEY
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, used by name
     FakeChannel,
     InlineCaLoop,
@@ -46,7 +46,6 @@ from osprey_connectors_tests._write_fakes import (
     ARMED_TARGET,
     arm_switch,
     armed_context,
-    config_reader,
     turn_switch,
 )
 
@@ -63,9 +62,9 @@ def _both_gateways():
     return {"read_only": dict(READ), "write_access": dict(WRITE)}
 
 
-def _serve(monkeypatch, section: dict) -> None:
+def _serve(section: dict) -> None:
     """Serve one ``control_system:`` section to every config read."""
-    serve_config_lookup(monkeypatch, config_reader(section))
+    serve_control_system(section)
 
 
 @pytest.fixture
@@ -79,7 +78,7 @@ def _armed(monkeypatch, root, *, on: bool, section: dict | None = None):
     *on* writes the login's switch on for it; off writes an ownerless record
     with every switch off.
     """
-    _serve(monkeypatch, dict(ARMED_SECTION) if section is None else section)
+    _serve(dict(ARMED_SECTION) if section is None else section)
     arm_switch(monkeypatch, root, ARMED_TARGET if on else None)
     monkeypatch.setattr(
         ControlSystemConnector, "_context", ConnectorContext(control_target=ARMED_TARGET)

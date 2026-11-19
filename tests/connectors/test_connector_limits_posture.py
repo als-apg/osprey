@@ -26,7 +26,8 @@ import pytest
 from osprey_connectors.connector_types import DOOCS, EPICS, LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.errors import ChannelLimitsViolationError
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 from tests.facility.served_tree import in_process_config, served_tree
 
 DEPLOYMENT_WIDE_MODE_KEY = "control_system.limits_checking.mode"
@@ -63,25 +64,18 @@ def _permissive_simulators_section() -> dict[str, Any]:
     }
 
 
-def _patch_config(monkeypatch, section: dict[str, Any], db_path: Path) -> None:
-    """Serve one ``control_system:`` section plus the limits database path.
+def _patch_config(section: dict[str, Any], db_path: Path) -> None:
+    """Serve one ``control_system:`` section with the limits database path set in it.
 
     The posture is read from the whole section (the resolvers walk it) while the
-    database path stays deployment-wide and dotted — one file per deployment, so
-    a per-type block changes policy and never the data.
+    database path is deployment-wide — one file per deployment, so a per-type
+    block changes policy and never the data.
     """
-
-    def fake_get_config_value(key: str, default: Any = None) -> Any:
-        if key == "control_system":
-            return section
-        if key == "control_system.limits_checking.database_path":
-            return str(db_path)
-        if key == "control_system.writes_enabled":
-            return section.get("writes_enabled", default)
-        return default
-
-    serve_config_lookup(monkeypatch, fake_get_config_value)
-    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
+    tree = config_tree(
+        {"control_system.limits_checking.database_path": str(db_path)},
+        base={"control_system": section},
+    )
+    serve_config(config_of(tree, environ={}))
 
 
 def _posture(connector) -> tuple[Any, Any]:
@@ -95,10 +89,10 @@ def _posture(connector) -> tuple[Any, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def _connected_mock(monkeypatch, tmp_path, section, db_path, connector_type):
+async def _connected_mock(tmp_path, section, db_path, connector_type):
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
-    _patch_config(monkeypatch, section, db_path)
+    _patch_config(section, db_path)
     connector = VAInProcessConnector()
     await connector.connect(
         ConnectorContext(
@@ -113,9 +107,8 @@ class TestVAInProcessConnectorPosture:
     """``VAInProcessConnector.connect()`` asks about the type the factory stamped."""
 
     @pytest.mark.asyncio
-    async def test_stamped_type_reads_its_own_block(self, monkeypatch, tmp_path):
+    async def test_stamped_type_reads_its_own_block(self, tmp_path):
         connector = await _connected_mock(
-            monkeypatch,
             tmp_path,
             _permissive_simulators_section(),
             _limits_db(tmp_path),
@@ -125,32 +118,32 @@ class TestVAInProcessConnectorPosture:
         assert _posture(connector) == ("optional", _type_mode_key(VIRTUAL_ACCELERATOR))
 
     @pytest.mark.asyncio
-    async def test_unstamped_connector_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
+    async def test_unstamped_connector_reads_the_deployment_wide_block(self, tmp_path):
         """Parity: a connector built outside the factory behaves as it always has."""
         connector = await _connected_mock(
-            monkeypatch, tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), None
+            tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), None
         )
 
         assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
 
     @pytest.mark.asyncio
-    async def test_type_without_a_block_inherits_deployment_wide(self, monkeypatch, tmp_path):
+    async def test_type_without_a_block_inherits_deployment_wide(self, tmp_path):
         """``epics`` states no limits block, so the deployment-wide one answers."""
         connector = await _connected_mock(
-            monkeypatch, tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
+            tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
         )
 
         assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)
 
     @pytest.mark.asyncio
-    async def test_refusal_names_the_key_that_answered(self, monkeypatch, tmp_path):
+    async def test_refusal_names_the_key_that_answered(self, tmp_path):
         """The live machine's refusal quotes its own key, not the simulator's.
 
         The end the posture exists for: an operator reading the refusal is sent
         to the line they can actually edit.
         """
         connector = await _connected_mock(
-            monkeypatch, tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
+            tmp_path, _permissive_simulators_section(), _limits_db(tmp_path), EPICS
         )
 
         with pytest.raises(ChannelLimitsViolationError) as excinfo:
@@ -159,10 +152,9 @@ class TestVAInProcessConnectorPosture:
         assert DEPLOYMENT_WIDE_MODE_KEY in str(excinfo.value)
 
     @pytest.mark.asyncio
-    async def test_the_simulator_allows_an_unlisted_channel(self, monkeypatch, tmp_path):
+    async def test_the_simulator_allows_an_unlisted_channel(self, tmp_path):
         """The simulator's half of the same deployment; the live refusal is the test above."""
         connector = await _connected_mock(
-            monkeypatch,
             tmp_path,
             _permissive_simulators_section(),
             _limits_db(tmp_path),
@@ -200,11 +192,11 @@ class TestEPICSConnectorPosture:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
-    async def test_stand_in_reads_its_own_block(self, monkeypatch, tmp_path):
+    async def test_stand_in_reads_its_own_block(self, tmp_path):
         """``live_standin`` is a type of its own, served by this same connector."""
         from osprey_connectors.control_system._epics_connector import EPICSConnector
 
-        _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
+        _patch_config(_permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
         await connector.connect(
             ConnectorContext(connector_type=LIVE_STANDIN, settings={"gateways": _gateways()})
@@ -214,10 +206,10 @@ class TestEPICSConnectorPosture:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
-    async def test_live_type_inherits_deployment_wide(self, monkeypatch, tmp_path):
+    async def test_live_type_inherits_deployment_wide(self, tmp_path):
         from osprey_connectors.control_system._epics_connector import EPICSConnector
 
-        _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
+        _patch_config(_permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
         await connector.connect(
             ConnectorContext(connector_type=EPICS, settings={"gateways": _gateways()})
@@ -227,10 +219,10 @@ class TestEPICSConnectorPosture:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
-    async def test_unstamped_connector_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
+    async def test_unstamped_connector_reads_the_deployment_wide_block(self, tmp_path):
         from osprey_connectors.control_system._epics_connector import EPICSConnector
 
-        _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
+        _patch_config(_permissive_simulators_section(), _limits_db(tmp_path))
         connector = EPICSConnector()
         await connector.connect(ConnectorContext(settings={"gateways": _gateways()}))
 
@@ -238,13 +230,11 @@ class TestEPICSConnectorPosture:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("clean_epics_env")
-    async def test_va_connector_inherits_the_wiring_through_super_connect(
-        self, monkeypatch, tmp_path
-    ):
+    async def test_va_connector_inherits_the_wiring_through_super_connect(self, tmp_path):
         """``VirtualAcceleratorConnector`` builds no validator of its own."""
         from osprey_connectors.control_system._va_connector import VirtualAcceleratorConnector
 
-        _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
+        _patch_config(_permissive_simulators_section(), _limits_db(tmp_path))
         connector = VirtualAcceleratorConnector()
         await connector.connect(
             ConnectorContext(connector_type=VIRTUAL_ACCELERATOR, settings={"gateways": _gateways()})
@@ -266,8 +256,8 @@ def _mock_doocs4py() -> MagicMock:
     return module
 
 
-async def _connected_doocs(monkeypatch, section, db_path, connector_type):
-    _patch_config(monkeypatch, section, db_path)
+async def _connected_doocs(section, db_path, connector_type):
+    _patch_config(section, db_path)
     with patch.dict(sys.modules, {"doocs4py": _mock_doocs4py()}):
         from osprey_connectors.control_system._doocs_connector import DOOCSConnector
 
@@ -278,17 +268,17 @@ async def _connected_doocs(monkeypatch, section, db_path, connector_type):
 
 class TestDOOCSConnectorPosture:
     @pytest.mark.asyncio
-    async def test_stamped_type_reads_its_own_block(self, monkeypatch, tmp_path):
+    async def test_stamped_type_reads_its_own_block(self, tmp_path):
         connector = await _connected_doocs(
-            monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), DOOCS
+            _permissive_simulators_section(), _limits_db(tmp_path), DOOCS
         )
 
         assert _posture(connector) == ("optional", _type_mode_key(DOOCS))
 
     @pytest.mark.asyncio
-    async def test_unstamped_connector_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
+    async def test_unstamped_connector_reads_the_deployment_wide_block(self, tmp_path):
         connector = await _connected_doocs(
-            monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path), None
+            _permissive_simulators_section(), _limits_db(tmp_path), None
         )
 
         assert _posture(connector) == ("exclusive", DEPLOYMENT_WIDE_MODE_KEY)

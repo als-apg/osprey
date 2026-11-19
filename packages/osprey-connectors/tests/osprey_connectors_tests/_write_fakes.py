@@ -82,9 +82,8 @@ def arm_switch(
     connects with :func:`armed_context` does too. A test about the unstamped
     connector passes ``stamp=False``.
 
-    The tier is not set here: serve a section that allows writes
-    (:data:`ARMED_SECTION`, :func:`writes_enabled_config`) through
-    ``get_config_value``.
+    The tier is not set here: serve a section that allows writes as the process
+    config (:func:`serve_writes_enabled`, which serves :data:`ARMED_SECTION`).
 
     Returns:
         The record's path, or ``None`` when no record was written.
