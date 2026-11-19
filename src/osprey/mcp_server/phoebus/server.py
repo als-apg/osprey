@@ -18,7 +18,7 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from osprey.phoebus_agent_access import DRIVE_TOOL, drive_offered
-from osprey_connectors.workspace import load_osprey_config
+from osprey.utils.config_paths import loaded_or_empty
 
 if TYPE_CHECKING:
     import mcp.types as mt
@@ -42,7 +42,7 @@ class DriveOfferMiddleware(Middleware):
     ) -> Sequence[Tool]:
         """Return the listed tools, without the drive when it is not offered."""
         tools = await call_next(context)
-        if drive_offered(load_osprey_config()):
+        if drive_offered(loaded_or_empty()):
             return tools
         return [tool for tool in tools if tool.name != DRIVE_TOOL]
 

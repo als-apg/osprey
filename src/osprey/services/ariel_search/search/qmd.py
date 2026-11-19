@@ -300,10 +300,10 @@ def _default_client() -> QMDClient:
     with _client_lock:
         if _cached_client is None:
             from osprey.deployment.qmd_service import resolve_qmd_corpus_config
-            from osprey_connectors.workspace import load_osprey_config
+            from osprey.utils.config_paths import loaded_or_empty
 
             _cached_client = QMDClient(
-                resolve_qmd_corpus_config(load_osprey_config(), ARIEL_COLLECTION)
+                resolve_qmd_corpus_config(loaded_or_empty(), ARIEL_COLLECTION)
             )
         return _cached_client
 

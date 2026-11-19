@@ -97,14 +97,11 @@ def _pin_loaded_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``load_osprey_config()`` return :data:`CONFIG`.
 
     The resolvers that load the project config themselves (rather than being
-    handed one) import :func:`osprey_connectors.workspace.load_osprey_config` inside
+    handed one) import :func:`osprey.utils.config_paths.loaded_or_empty` inside
     the function body, so patching it at its source reaches all of them.
     """
-    import osprey_connectors.workspace
 
-    monkeypatch.setattr(
-        osprey_connectors.workspace, "load_osprey_config", lambda *a, **k: dict(CONFIG)
-    )
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda *a, **k: dict(CONFIG))
 
 
 # ---------------------------------------------------------------------------
@@ -223,9 +220,7 @@ def _ariel_mcp_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple
     from osprey.mcp_server.ariel.server_context import ARIELContext
 
     raw = {**CONFIG, "ariel": dict(_ARIEL_SECTION)}
-    monkeypatch.setattr(
-        osprey_connectors.workspace, "load_osprey_config", lambda *a, **k: dict(raw)
-    )
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda *a, **k: dict(raw))
     monkeypatch.setattr(
         osprey_connectors.workspace, "resolve_config_path", lambda *a, **k: tmp_path / "config.yml"
     )

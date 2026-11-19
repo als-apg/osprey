@@ -136,9 +136,8 @@ class TestWebTerminalUrlFromMcp:
     @staticmethod
     def _url(monkeypatch, config: dict) -> str:
         from osprey.mcp_server import http
-        from osprey_connectors import workspace
 
-        monkeypatch.setattr(workspace, "load_osprey_config", lambda *a, **k: config)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda *a, **k: config)
         return http.web_terminal_url()
 
     def test_default_base_project(self, monkeypatch):

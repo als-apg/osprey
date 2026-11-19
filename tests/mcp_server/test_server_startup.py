@@ -36,9 +36,9 @@ async def test_load_osprey_config(tmp_path, monkeypatch):
         "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  writes_enabled: true\n"
     )
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     assert config["control_system"]["type"] == "virtual_accelerator"
     assert config["control_system"]["writes_enabled"] is True
 
@@ -49,9 +49,9 @@ async def test_load_osprey_config_from_env(tmp_path, monkeypatch):
     config_file.write_text("control_system:\n  type: epics\n")
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     assert config["control_system"]["type"] == "epics"
 
 
@@ -61,9 +61,9 @@ async def test_load_osprey_config_missing_file(tmp_path, monkeypatch):
     # Ensure no OSPREY_CONFIG env var
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     assert isinstance(config, dict)
     assert config == {}
 
@@ -81,9 +81,9 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     # CS_HOST set → should resolve
     monkeypatch.setenv("CS_HOST", "epics-server.example.com")
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     assert config["control_system"]["type"] == "epics"
     assert config["control_system"]["host"] == "epics-server.example.com"
 

@@ -25,7 +25,6 @@ from osprey.registry.web import (
     framework_web_port_default,
     panel_url_state_attr,
 )
-from osprey_connectors import workspace
 
 ALL_KEYS = sorted(FRAMEWORK_WEB_SERVERS)
 
@@ -74,8 +73,8 @@ def launched(monkeypatch) -> list[str]:
 def config(monkeypatch) -> dict:
     """A mutable config seen by both the launcher and the address resolver."""
     cfg: dict = {}
-    monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: cfg)
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: cfg)
+    monkeypatch.setattr(server_launcher, "loaded_or_empty", lambda: cfg)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: cfg)
     # An inherited port override would decide the port out from under the
     # config these tests set.
     for definition in FRAMEWORK_WEB_SERVERS.values():
@@ -122,8 +121,8 @@ class TestAutoLaunchGating:
         def _boom() -> dict:
             raise RuntimeError("config.yml is unreadable")
 
-        monkeypatch.setattr(server_launcher, "load_osprey_config", _boom)
-        monkeypatch.setattr(workspace, "load_osprey_config", _boom)
+        monkeypatch.setattr(server_launcher, "loaded_or_empty", _boom)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", _boom)
 
         _launch(stub_app, key)
 

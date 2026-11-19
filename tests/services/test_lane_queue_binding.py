@@ -252,8 +252,8 @@ def deployment(tmp_path, monkeypatch):
             "approval": {"enabled": False},
         }
 
-        monkeypatch.setattr(target_banner, "load_osprey_config", lambda: config)
-        monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: config)
+        monkeypatch.setattr(target_banner, "loaded_or_empty", lambda: config)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
 
         def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
             # The whole section: the write verdict reads the tier and resolves

@@ -1071,10 +1071,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     # Resolved once, after config priming like the theme pin: the spelling of
     # the artifact directory that the page's artifactPath hands the agent.
-    from osprey_connectors.workspace import agent_data_base_dir, load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
+    from osprey_connectors.workspace import agent_data_base_dir
 
     artifact_dir_for_agent = _agent_artifact_dir(
-        store.artifact_dir, store.repo_root, agent_data_base_dir(load_osprey_config())
+        store.artifact_dir, store.repo_root, agent_data_base_dir(loaded_or_empty())
     )
 
     # Resolved once, after config priming like the theme pin, because the

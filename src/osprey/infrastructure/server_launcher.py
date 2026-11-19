@@ -28,7 +28,7 @@ from osprey.registry.web import (
     resolve_web_server_address,
     web_server_config_section,
 )
-from osprey_connectors.workspace import load_osprey_config
+from osprey.utils.config_paths import loaded_or_empty
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -795,7 +795,7 @@ def _make_auto_launch_checker(defn: WebServerDefinition) -> Callable[[], bool]:
     """
 
     def _checker() -> bool:
-        config = load_osprey_config()
+        config = loaded_or_empty()
         top = config.get(defn.config_key, {})
         if defn.require_section and not top:
             return False
@@ -832,7 +832,7 @@ def _make_app_factory(defn: WebServerDefinition) -> Callable[..., ASGIApp]:
         if defn.pass_workspace:
             kwargs["workspace_root"] = workspace_root
         if defn.factory_config_kwargs:
-            config = load_osprey_config()
+            config = loaded_or_empty()
             for kwarg_name, dotted_path in defn.factory_config_kwargs.items():
                 kwargs[kwarg_name] = _resolve_dotted(config, dotted_path)
         app: ASGIApp = create_app(**kwargs)

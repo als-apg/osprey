@@ -159,12 +159,13 @@ def spool_dir() -> Path:
     if configured:
         return Path(configured)
 
+    from osprey.utils.config_paths import loaded_or_empty
     from osprey.utils.workspace import SPOOL_DIR_RELPATH
     from osprey_connectors.identity import acting_identity
-    from osprey_connectors.workspace import load_osprey_config, resolve_project_root
+    from osprey_connectors.workspace import resolve_project_root
 
     identity = check_identity(acting_identity())
-    return resolve_project_root(load_osprey_config()) / SPOOL_DIR_RELPATH / identity
+    return resolve_project_root(loaded_or_empty()) / SPOOL_DIR_RELPATH / identity
 
 
 # ---------------------------------------------------------------------------

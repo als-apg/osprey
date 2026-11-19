@@ -358,9 +358,9 @@ def resolve_session_lifetime(config: Mapping[str, Any], env: Mapping[str, str] =
 
 def get_config_value(key: str, default=None):
     """Read a top-level config value from config.yml."""
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    return load_osprey_config().get(key, default)
+    return loaded_or_empty().get(key, default)
 
 
 # -- helpers ---------------------------------------------------------------
@@ -691,7 +691,7 @@ def _probe_companion_ports() -> list[str]:
         framework_web_port_default,
         resolve_web_server_address,
     )
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
     try:
         enabled_panels, _custom_panels, _default_panel = _load_panel_config()
@@ -709,7 +709,7 @@ def _probe_companion_ports() -> list[str]:
     # default. Passing it on also spares each server a reload — except when
     # nothing loaded, where the resolver's own no-config warning is worth more
     # than the saved read.
-    config = load_osprey_config() or {}
+    config = loaded_or_empty() or {}
     base = resolve_port_base(config)
     roster_enabled = bool(((config.get("modules") or {}).get("web_terminals") or {}).get("enabled"))
 
@@ -852,8 +852,8 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
 def _probe_config_validity(build_dir: Path, config_path: Path) -> list[str]:
     """Probe 3: config.yml and .claude/settings.json must at least parse.
 
-    ``load_osprey_config()`` swallows every exception and returns ``{}`` on
-    malformed YAML (see ``osprey_connectors.workspace.load_osprey_config``), which
+    ``loaded_or_empty()`` swallows every exception and returns ``{}`` on
+    malformed YAML (see ``osprey.utils.config_paths.loaded_or_empty``), which
     would otherwise let the launch silently proceed on defaults instead of the
     project's actual configuration. This probe does its own dedicated parse of
     each file so a syntax error surfaces as a pre-flight failure instead of an
@@ -1165,7 +1165,7 @@ def web(
     # process that has already bound, from the port publication made below.
     #
     # `get_config_value` is the read the rest of `web()` uses (it is
-    # `load_osprey_config()` behind a section lookup), and the anchor is the
+    # `loaded_or_empty()` behind a section lookup), and the anchor is the
     # `repo_root` `_resolve_render()` settled on rather than
     # `resolve_project_root(config)`: this command has already chdir'ed into
     # the render, and a `--repo` launch serves a deployment the ambient

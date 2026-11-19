@@ -150,9 +150,9 @@ def _resolve_plan_module_path() -> str | None:
     if path:
         return path
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     value = config.get("bluesky", {}).get("plan_module")
     return str(value) if value else None
 
@@ -169,9 +169,9 @@ def _resolve_plan_dir_layers() -> list[tuple[Path, Provenance]]:
     """
     layers: list[tuple[Path, Provenance]] = [(_SHIPPED_PLANS_DIR, "shipped")]
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     preset_dirs = config.get("bluesky", {}).get("plan_dirs") or []
     if isinstance(preset_dirs, str):
         preset_dirs = [preset_dirs]
@@ -206,9 +206,9 @@ def _resolve_excluded_plans() -> set[str]:
     if env_value:
         excluded.update(t for t in env_value.split(os.pathsep) if t)
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     config_excluded = config.get("bluesky", {}).get("excluded_plans") or []
     if isinstance(config_excluded, str):
         config_excluded = [config_excluded]

@@ -329,7 +329,7 @@ def _app_tool_call(staged: Staged) -> Any:
         "apps": {"surface": {"approval": {"act": {"app": "surface"}}}},
     }
     staged.monkeypatch.setenv(_approval.APP_NAME_ENV_VAR, "surface")
-    staged.monkeypatch.setattr(_approval, "load_osprey_config", lambda: config)
+    staged.monkeypatch.setattr(_approval, "loaded_or_empty", lambda: config)
     try:
         check_approved_call("act", {})
     except ApprovalRefused as error:

@@ -187,7 +187,7 @@ class TestBothSurfacesResolveOneRoot:
     def _resolve_under(env: dict[str, str], project_root: Path) -> Path:
         """Resolve the execution root a child holding *env* would see."""
         with (
-            patch.object(workspace, "load_osprey_config", return_value={}),
+            patch("osprey.utils.config_paths.loaded_or_empty", return_value={}),
             patch.object(workspace, "resolve_project_root", return_value=project_root),
             patch.dict(
                 os.environ,

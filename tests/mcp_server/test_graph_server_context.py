@@ -74,7 +74,7 @@ def _build_context(monkeypatch, config: dict[str, Any] | None, **settings: Any):
     Returns:
         The initialized context.
     """
-    monkeypatch.setattr(graph_ctx, "load_osprey_config", lambda: config)
+    monkeypatch.setattr(graph_ctx, "loaded_or_empty", lambda: config)
     values = dict(settings)
     monkeypatch.setattr(
         graph_ctx,
@@ -254,7 +254,7 @@ class TestConfigurationGate:
         def _boom() -> dict[str, Any]:
             raise OSError("config.yml is unreadable")
 
-        monkeypatch.setattr(graph_ctx, "load_osprey_config", _boom)
+        monkeypatch.setattr(graph_ctx, "loaded_or_empty", _boom)
         monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
 
         with caplog.at_level(logging.WARNING, logger="osprey.mcp_server.graph.server_context"):
@@ -272,7 +272,7 @@ class TestConfigurationGate:
             calls.append(1)
             return _configured_block()
 
-        monkeypatch.setattr(graph_ctx, "load_osprey_config", _load)
+        monkeypatch.setattr(graph_ctx, "loaded_or_empty", _load)
         monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
 
         context = graph_ctx.GraphContext()
@@ -731,7 +731,7 @@ class TestSingleton:
 
     def test_initialize_then_get_returns_the_same_object(self, monkeypatch):
         """One context per process, shared by every tool."""
-        monkeypatch.setattr(graph_ctx, "load_osprey_config", lambda: _configured_block())
+        monkeypatch.setattr(graph_ctx, "loaded_or_empty", lambda: _configured_block())
         monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
 
         created = graph_ctx.initialize_server_context()
@@ -741,7 +741,7 @@ class TestSingleton:
 
     def test_reset_closes_the_driver(self, monkeypatch):
         """Resetting must not leak the connection pool between tests."""
-        monkeypatch.setattr(graph_ctx, "load_osprey_config", lambda: _configured_block())
+        monkeypatch.setattr(graph_ctx, "loaded_or_empty", lambda: _configured_block())
         monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
 
         context = graph_ctx.initialize_server_context()

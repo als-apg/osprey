@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.utils.config_paths import loaded_or_empty
 from osprey_connectors import workspace
 from osprey_connectors.testing import clear_config_state
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, resolve_project_root
@@ -552,7 +553,7 @@ class TestTheFrameworkTakesTheSameLadder:
 
         hook = _repo_root(hook_module, {"cwd": str(cwd)})
         clear_config_state()
-        framework = workspace.resolve_project_root(workspace.load_osprey_config())
+        framework = workspace.resolve_project_root(loaded_or_empty())
 
         assert hook == str(framework)
         assert framework == (repo if expected == "repo" else cwd)
@@ -568,7 +569,7 @@ class TestTheFrameworkTakesTheSameLadder:
 
         hook = _repo_root(hook_module, {"cwd": str(cwd)})
         clear_config_state()
-        framework = workspace.resolve_project_root(workspace.load_osprey_config())
+        framework = workspace.resolve_project_root(loaded_or_empty())
 
         assert hook == str(framework)
         assert framework == inner
@@ -736,7 +737,7 @@ def test_feedback_capture_lands_where_the_review_app_reads_under_a_relocated_roo
 
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
     loaded = yaml.safe_load(config_file.read_text())
-    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: loaded)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: loaded)
     app = create_app(project_cwd=str(build))
     with TestClient(app):
         pending_path = app.state.pending_review_store._path

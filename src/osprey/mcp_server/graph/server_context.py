@@ -68,8 +68,8 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.mcp_server.config_values import positive_int
 from osprey.port_layout import resolve_port_base
+from osprey.utils.config_paths import loaded_or_empty
 from osprey_connectors.config import get_config_value
-from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.graph.server_context")
 
@@ -504,7 +504,7 @@ class GraphContext:
             over a file the graph tools are not the only reader of.
         """
         try:
-            return load_osprey_config() or {}
+            return loaded_or_empty() or {}
         except Exception as exc:  # a bad config must not kill startup
             logger.warning("GraphContext: could not load config.yml (%s)", exc)
             return {}

@@ -21,12 +21,12 @@ from pathlib import Path
 
 import pytest
 
+from osprey.utils.config_paths import loaded_or_empty
 from osprey.utils.workspace import repo_root_for_agent_data
 from osprey_connectors.testing import clear_config_state
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     RENDERED_CONFIG_RELPATH,
-    load_osprey_config,
     rendered_config_path,
     resolve_agent_data_root,
     resolve_config_path,
@@ -181,19 +181,19 @@ class TestLoadOspreyConfig:
     def test_loads_parsed_config(self, tmp_path, monkeypatch):
         _write_config(tmp_path, "project_root: /somewhere\nfoo:\n  bar: 7\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-        config = load_osprey_config()
+        config = loaded_or_empty()
         assert config["project_root"] == "/somewhere"
         assert config["foo"]["bar"] == 7
 
     def test_missing_file_returns_empty_dict(self, tmp_path, monkeypatch):
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does_not_exist.yml"))
-        assert load_osprey_config() == {}
+        assert loaded_or_empty() == {}
 
     def test_resolves_env_var_placeholders(self, tmp_path, monkeypatch):
         _write_config(tmp_path, "system:\n  timezone: ${WS_TZ:-UTC}\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
         monkeypatch.setenv("WS_TZ", "America/Los_Angeles")
-        config = load_osprey_config()
+        config = loaded_or_empty()
         assert config["system"]["timezone"] == "America/Los_Angeles"
 
 
@@ -201,7 +201,7 @@ class TestResetConfigCache:
     def test_clears_singleton_and_cache(self, tmp_path, monkeypatch):
         _write_config(tmp_path, "project_root: /x\n")
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-        load_osprey_config()  # populates default singleton
+        loaded_or_empty()  # populates default singleton
 
         from osprey_connectors import config as config_module
 
@@ -285,12 +285,11 @@ class TestResolveSharedDataRoot:
         assert resolve_shared_data_root() == (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR).resolve()
 
     def test_a_given_config_is_used_without_loading_one(self, tmp_path, monkeypatch):
-        import osprey_connectors.workspace as workspace_module
 
         def _no_load():
             raise AssertionError("a caller holding a config must not trigger a load")
 
-        monkeypatch.setattr(workspace_module, "load_osprey_config", _no_load)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", _no_load)
         config = {"project_root": str(tmp_path), "agent_data": {"base_dir": "var/data"}}
 
         assert resolve_shared_data_root(config) == (tmp_path / "var" / "data").resolve()

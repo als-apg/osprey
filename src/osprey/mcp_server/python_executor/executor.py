@@ -341,13 +341,13 @@ def _read_config() -> dict:
             ``python_executor.execution_timeout_seconds`` is not a finite,
             positive number (an explicit null included).
     """
+    from osprey.utils.config_paths import loaded_or_empty
     from osprey.utils.execution_method import (
         DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         resolve_execution_method,
     )
-    from osprey_connectors.workspace import load_osprey_config
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
 
     return {
         "execution_method": resolve_execution_method(config),
@@ -371,9 +371,10 @@ def _resolve_project_root() -> Path:
     exactly one level below it, which stopped being true when it moved under
     ``var/`` and was never true for a project that relocated it.
     """
-    from osprey_connectors.workspace import load_osprey_config, resolve_project_root
+    from osprey.utils.config_paths import loaded_or_empty
+    from osprey_connectors.workspace import resolve_project_root
 
-    return resolve_project_root(load_osprey_config())
+    return resolve_project_root(loaded_or_empty())
 
 
 def resolve_protected_roots(
@@ -468,12 +469,13 @@ def resolve_permitted_roots(
     Returns:
         Absolute, resolved paths.
     """
-    from osprey_connectors.workspace import agent_data_base_dir, anchored_path, load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
     root = Path(project_root) if project_root is not None else _resolve_project_root()
     root = root.resolve()
     if config is None:
-        config = load_osprey_config()
+        config = loaded_or_empty()
 
     return (anchored_path(agent_data_base_dir(config), root).resolve(),)
 
@@ -1011,10 +1013,10 @@ def admission_refusal(code: str, mode: str, tool: str, approved: Mapping[str, st
         could not answer: the review then still runs, because declining here on an unknown
         would launch the code unreviewed if :func:`execute_code` then admitted it.
     """
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
     try:
-        _, refusal = _admission(code, mode, load_osprey_config(), tool, approved, {})
+        _, refusal = _admission(code, mode, loaded_or_empty(), tool, approved, {})
     except _SwitchInProgress:
         return True
     except Exception:
@@ -1193,7 +1195,7 @@ async def _execute_via_local(
     (:data:`FAILURE_KIND_UNREVIEWED`) instead of launched unreviewed.
     """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
     # cwd = project root so user code can access workspace files via relative
     # paths (e.g. "_agent_data/data/002_archiver_read.json"). Resolved here,
@@ -1201,7 +1203,7 @@ async def _execute_via_local(
     # script are anchored on it: the child is handed absolute literals and
     # never re-derives the layout for itself.
     project_root = _resolve_project_root()
-    osprey_config = load_osprey_config()
+    osprey_config = loaded_or_empty()
 
     # The child gets the allowlist plus the deployment's passthrough names, with
     # the credential set and the sandbox-only drop on top, from one shared helper

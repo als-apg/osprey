@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.workspace import load_osprey_config
+from osprey.utils.config_paths import loaded_or_empty
 
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_config_all_deleted_keys.yml"
 
@@ -116,7 +116,7 @@ def test_load_zero_errors_zero_warnings(caplog):
     gc.collect()
     with warnings.catch_warnings(record=True) as python_warnings:
         warnings.simplefilter("always")
-        config = load_osprey_config()
+        config = loaded_or_empty()
 
     # ``load_osprey_config`` swallows every exception and returns ``{}``, so
     # "no errors" has to be asserted as "the config actually arrived".
@@ -137,7 +137,7 @@ def test_load_zero_errors_zero_warnings(caplog):
 @pytest.mark.usefixtures("legacy_config_path")
 def test_fixture_still_carries_every_retired_key():
     """The fixture is the coverage — a retired key vanishing from it is a regression."""
-    config = load_osprey_config()
+    config = loaded_or_empty()
 
     missing = [
         f"{section}: {path}"
@@ -163,7 +163,7 @@ def _has(config: dict[str, Any], path: str) -> bool:
 @pytest.mark.usefixtures("legacy_config_path")
 def test_retired_keys_keep_their_misleading_values():
     """The safety knobs are carried at the values that would be dangerous if honored."""
-    config = load_osprey_config()
+    config = loaded_or_empty()
 
     verification = config["control_system"]["write_verification"]
     assert verification["enabled"] is True

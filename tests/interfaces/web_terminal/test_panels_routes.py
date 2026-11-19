@@ -500,7 +500,7 @@ def _loaded_panel(block: dict) -> dict:
 
     spec = {"label": "DIAL", "url": "http://127.0.0.1:9300", "app": "dial", **block}
     with patch(
-        "osprey_connectors.workspace.load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         return_value={"web": {"panels": {"dial": spec}}},
     ):
         _enabled, custom, _default = _load_panel_config()

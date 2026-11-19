@@ -74,7 +74,7 @@ def _lifespan_client(
             return_value=web_terminal_section,
         ),
         patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={"web": {}, "agent_data": {"base_dir": str(shared_root)}},
         ),
         patch(

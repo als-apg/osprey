@@ -28,7 +28,7 @@ def host_project(tmp_path, monkeypatch) -> Path:
     """A host-form project root at *tmp_path*, acting as ``carol``."""
     import osprey_connectors.workspace as workspace
 
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
     monkeypatch.setattr(workspace, "resolve_project_root", lambda config=None: tmp_path)
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "carol")
     return tmp_path

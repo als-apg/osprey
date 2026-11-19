@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from osprey_connectors import control_context  # noqa: E402
 
-_CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
+_CONFIG_SEAM = "osprey.utils.config_paths.loaded_or_empty"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
 _LOAD_MOMENT = datetime(2026, 11, 6, 12, 0, 0, tzinfo=UTC)
 

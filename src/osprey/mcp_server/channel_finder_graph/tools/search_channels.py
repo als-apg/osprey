@@ -42,7 +42,7 @@ from osprey.services.channel_finder.graph_index.reader import (
     GraphIndexAbsence,
     open_graph_index,
 )
-from osprey_connectors.workspace import load_osprey_config
+from osprey.utils.config_paths import loaded_or_empty
 
 from ..server import make_error, mcp
 
@@ -153,7 +153,7 @@ def _get_index() -> GraphIndex:
         if _INDEX is not None:
             return _INDEX
 
-        config = load_osprey_config() or {}
+        config = loaded_or_empty() or {}
         # No config_dir: the render is found through OSPREY_CONFIG, which is how
         # an in-container consumer resolves it, and this server is one.
         path = resolve_graph_index_path(config)

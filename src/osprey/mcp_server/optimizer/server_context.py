@@ -9,7 +9,7 @@ import httpx
 from osprey.mcp_server.control_system.target_banner import resolve_target_situation
 from osprey.mcp_server.errors import make_error
 from osprey.optimizer_connection import OPTIMIZER_TIMEOUT_S, OPTIMIZER_URL_ENV_VAR, optimizer_url
-from osprey_connectors.workspace import load_osprey_config
+from osprey.utils.config_paths import loaded_or_empty
 
 _UNREACHABLE_HINTS = [
     "Confirm the optimizer service is running (`osprey status`).",
@@ -72,7 +72,7 @@ async def request(
     or ``optimizer_error`` (any other non-2xx, or a 2xx whose body is not JSON),
     with ``details`` holding the HTTP ``status`` and the service's ``detail``.
     """
-    url = f"{optimizer_url(load_osprey_config())}{path}"
+    url = f"{optimizer_url(loaded_or_empty())}{path}"
     try:
         async with httpx.AsyncClient(timeout=OPTIMIZER_TIMEOUT_S) as client:
             resp = await client.request(method, url, params=params, json=json_body)

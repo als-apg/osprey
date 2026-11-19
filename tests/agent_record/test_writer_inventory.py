@@ -329,7 +329,7 @@ def project(request, tmp_path, monkeypatch, spool_zone) -> Iterator[Project]:
     root.mkdir()
     (root / "profile.yml").write_text("name: writer-inventory\n", encoding="utf-8")
     monkeypatch.chdir(root)
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
     monkeypatch.setattr(workspace, "resolve_project_root", lambda config=None: root)
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(root))
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root))

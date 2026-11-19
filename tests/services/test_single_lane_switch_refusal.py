@@ -88,13 +88,13 @@ def deployment(tmp_path, monkeypatch):
         # The baseline comes from the shared resolver reading the deployment
         # config; the tool module reads the write posture separately.
         monkeypatch.setattr(
-            target_banner, "load_osprey_config", lambda: {"control_system": control_system}
+            target_banner, "loaded_or_empty", lambda: {"control_system": control_system}
         )
         # Stage 1 of approval reads the rendered config too. These cases call
         # the tools with no approval hook in front of them, so approval is off
         # (tests/mcp_server/bluesky/test_queue_approval_record.py has it on).
         monkeypatch.setattr(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             lambda: {"control_system": control_system, "approval": {"enabled": False}},
         )
 

@@ -118,10 +118,11 @@ class BaseStore(Generic[T]):
         an entry records) and the read side (the gallery resolving one) cannot
         answer differently.
         """
+        from osprey.utils.config_paths import loaded_or_empty
         from osprey.utils.workspace import repo_root_for_agent_data
-        from osprey_connectors.workspace import agent_data_base_dir, load_osprey_config
+        from osprey_connectors.workspace import agent_data_base_dir
 
-        return repo_root_for_agent_data(self._workspace, agent_data_base_dir(load_osprey_config()))
+        return repo_root_for_agent_data(self._workspace, agent_data_base_dir(loaded_or_empty()))
 
     def _entry_from_dict(self, d: dict) -> T:
         raise NotImplementedError

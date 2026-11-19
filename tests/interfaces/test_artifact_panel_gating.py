@@ -21,15 +21,14 @@ from fastapi.testclient import TestClient
 from osprey.infrastructure import server_launcher
 from osprey.interfaces.web_terminal.app import _launch_panel_server
 from osprey.interfaces.web_terminal.routes import panels
-from osprey_connectors import workspace
 
 
 @pytest.fixture
 def config(monkeypatch) -> dict:
     """A mutable config seen by both the launcher and the web terminal."""
     cfg: dict = {}
-    monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: cfg)
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: cfg)
+    monkeypatch.setattr(server_launcher, "loaded_or_empty", lambda: cfg)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: cfg)
     # The port resolver honours this override; an inherited value would decide
     # the port out from under the config these tests set.
     monkeypatch.delenv("OSPREY_ARTIFACT_SERVER_PORT", raising=False)

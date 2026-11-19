@@ -293,11 +293,11 @@ async def _serve_index_read(request: Request, subject: str, read: Any) -> Any:
         # Read here rather than held on app state: this is the failure path, the
         # loader is a cached singleton, and the alternative is a copy of the
         # config kept alive for the two keys a 503 names.
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
         return JSONResponse(
             status_code=503,
-            content=_graph_index_error_payload(index, load_osprey_config()),
+            content=_graph_index_error_payload(index, loaded_or_empty()),
         )
 
     try:

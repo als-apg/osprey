@@ -650,9 +650,9 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
             block that spells the retired ``arm_writes``, naming the tier key.
     """
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        config = load_osprey_config()
+        config = loaded_or_empty()
     except Exception:
         return set(UNIVERSAL_PANELS), [], None
 
@@ -966,9 +966,9 @@ def _load_panel_runtime_config(
     allow_runtime_panels = False
     runtime_panel_allowlist: list[str] | None = None
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        web_cfg = load_osprey_config().get("web", {})
+        web_cfg = loaded_or_empty().get("web", {})
         allow_runtime_panels = bool(web_cfg.get("allow_runtime_panels", False))
         allowlist_raw = web_cfg.get("runtime_panel_allowlist")
         if isinstance(allowlist_raw, list):
@@ -1029,9 +1029,9 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
     known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}
     presets: list[dict] = []
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        raw_presets = load_osprey_config().get("web", {}).get("presets", {})
+        raw_presets = loaded_or_empty().get("web", {}).get("presets", {})
     except Exception:
         return []
 
@@ -1487,7 +1487,7 @@ def _create_lifespan(
         render_zone_readonly = is_container_render()
         app.state.render_zone_readonly = render_zone_readonly
 
-        # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
+        # Ensure OSPREY_CONFIG is set before any loaded_or_empty() call
         if "OSPREY_CONFIG" not in os.environ:
             candidate = Path(app.state.project_cwd) / "config.yml"
             if candidate.exists():
@@ -1615,11 +1615,11 @@ def _create_lifespan(
         # at startup; GET /api/panels echoes it to the browser. Fails open to
         # the default policy on any config-read error.
         try:
-            from osprey_connectors.workspace import load_osprey_config
+            from osprey.utils.config_paths import loaded_or_empty
 
             configured_tour = os.environ.get(
                 "OSPREY_WEB_TOUR", ""
-            ).strip() or load_osprey_config().get("web", {}).get("tour", DEFAULT_TOUR_POLICY)
+            ).strip() or loaded_or_empty().get("web", {}).get("tour", DEFAULT_TOUR_POLICY)
             app.state.web_tour_policy = resolve_tour_policy(configured_tour)
         except Exception:  # never let config load block startup
             logger.warning(
@@ -1819,14 +1819,14 @@ def _create_lifespan(
         if config.get("watch_dir"):
             workspace_dir = Path(config["watch_dir"]).resolve()
         else:
+            from osprey.utils.config_paths import loaded_or_empty
             from osprey_connectors.workspace import (
                 agent_data_base_dir,
                 anchored_path,
-                load_osprey_config,
                 resolve_project_root,
             )
 
-            _osprey_config = load_osprey_config()
+            _osprey_config = loaded_or_empty()
             workspace_dir = anchored_path(
                 agent_data_base_dir(_osprey_config), resolve_project_root(_osprey_config)
             ).resolve()

@@ -482,9 +482,9 @@ def _require_approval_record(tool: str, *, lane: str | None) -> None:
     ``approval_config_invalid``) and its message the record's sentence.
     """
     from osprey.mcp_server.approval_record import require_approval_record
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    refusal = require_approval_record(tool, load_osprey_config())
+    refusal = require_approval_record(tool, loaded_or_empty())
     if refusal is None:
         return
     make_error(

@@ -83,7 +83,7 @@ def started_client(
     with terminal_client(
         workspace_dir,
         patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value={"web": dict(web or {})},
         ),
         config_lookup_patched(get_config_value),

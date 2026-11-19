@@ -528,7 +528,7 @@ class TestFirstRunHomeStillRenders:
                 "osprey_connectors.workspace.resolve_project_root",
                 return_value=sandbox.project_root,
             ),
-            patch("osprey_connectors.workspace.load_osprey_config", return_value={}),
+            patch("osprey.utils.config_paths.loaded_or_empty", return_value={}),
         ):
             result = await execute_sandbox_code(
                 code=code,

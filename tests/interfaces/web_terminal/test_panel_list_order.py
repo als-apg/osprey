@@ -36,9 +36,7 @@ def _request(**state):
 
 
 def _no_config():
-    return patch(
-        "osprey_connectors.workspace.load_osprey_config", side_effect=RuntimeError("no config")
-    )
+    return patch("osprey.utils.config_paths.loaded_or_empty", side_effect=RuntimeError("no config"))
 
 
 def test_catalog_order_is_every_builtin_once():
@@ -95,7 +93,7 @@ from osprey.interfaces.web_terminal import app as a
 from osprey.interfaces.web_terminal.routes import panels as p
 from osprey.profiles.web_panels import BUILTIN_PANELS
 enabled = set(BUILTIN_PANELS)
-with patch("osprey_connectors.workspace.load_osprey_config", side_effect=RuntimeError):
+with patch("osprey.utils.config_paths.loaded_or_empty", side_effect=RuntimeError):
     visible = a._load_panel_runtime_config(enabled, []).visible_panels
 req = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(enabled_panels=enabled)))
 body = asyncio.run(p.get_panels(req))

@@ -39,7 +39,7 @@ def optimizer(monkeypatch) -> StubOptimizer:
         return real_client(transport=httpx.MockTransport(stub.handle), **kwargs)
 
     monkeypatch.setenv("OPTIMIZER_URL", BASE_URL)
-    monkeypatch.setattr(server_context, "load_osprey_config", dict)
+    monkeypatch.setattr(server_context, "loaded_or_empty", dict)
     monkeypatch.setattr(server_context.httpx, "AsyncClient", client)
     monkeypatch.setattr(
         server_context,

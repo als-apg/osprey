@@ -423,7 +423,7 @@ class TestOpenPanel:
 def _pinned_deployment():
     """Pin the port block (default base 10000) and the terminal's own port."""
     with (
-        patch("osprey_connectors.workspace.load_osprey_config", return_value={}),
+        patch("osprey.utils.config_paths.loaded_or_empty", return_value={}),
         patch("osprey.mcp_server.http.web_terminal_url", return_value="http://127.0.0.1:10100"),
     ):
         yield

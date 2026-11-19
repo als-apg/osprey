@@ -49,7 +49,7 @@ class TestLauncherConfigReader:
         from osprey.infrastructure import server_launcher
 
         reader = server_launcher._launchers[key]._config_reader
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
+        with patch("osprey.utils.config_paths.loaded_or_empty", return_value=config):
             return reader()
 
     def test_defaults_when_section_empty(self):
@@ -104,7 +104,7 @@ class TestMakeAutoLaunchChecker:
 
         checker = _make_auto_launch_checker(FRAMEWORK_WEB_SERVERS[server])
         with patch(
-            "osprey.infrastructure.server_launcher.load_osprey_config",
+            "osprey.infrastructure.server_launcher.loaded_or_empty",
             return_value=config,
         ):
             assert checker() is launches

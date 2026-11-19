@@ -106,7 +106,7 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
         # The host-side resolver this module's fallback is pinned equal to
         # reads the section, not a dotted key.
         monkeypatch.setattr(
-            target_banner, "load_osprey_config", lambda: {"control_system": control_system}
+            target_banner, "loaded_or_empty", lambda: {"control_system": control_system}
         )
 
     return _stage

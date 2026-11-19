@@ -3664,7 +3664,7 @@ keys:
     default_note: '"artifacts" — the Workspace tab, which every deployment serves'
   web.presets:
     data-map: true
-    evidence: 'load_osprey_config\(\)\.get\("web", \{\}\)\.get\("presets", \{\}\)'
+    evidence: 'loaded_or_empty\(\)\.get\("web", \{\}\)\.get\("presets", \{\}\)'
     note: >-
       Named panel layouts, applied in one click from the workspace's "+"
       popover. Derived from the profile's `panel_presets:` field. The LAYOUT

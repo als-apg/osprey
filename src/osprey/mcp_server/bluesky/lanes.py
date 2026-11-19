@@ -152,9 +152,9 @@ def discover_lanes(baseline_target: str) -> tuple[Lane, ...]:
         :data:`~osprey_connectors.connector_types.CONTROL_TARGETS`.
     """
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        config = load_osprey_config()
+        config = loaded_or_empty()
     except Exception:
         logger.debug("Could not load the project config for lane discovery", exc_info=True)
         config = {}

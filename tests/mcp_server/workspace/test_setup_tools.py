@@ -126,7 +126,7 @@ def _patch_config_path(project_dir: Path):
 def _patch_load_config(config: dict):
     """Return a context manager that patches load_osprey_config."""
     return patch(
-        "osprey.mcp_server.workspace.tools.setup.load_osprey_config",
+        "osprey.mcp_server.workspace.tools.setup.loaded_or_empty",
         return_value=config,
     )
 

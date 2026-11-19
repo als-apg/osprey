@@ -69,9 +69,9 @@ import logging
 from dataclasses import dataclass
 
 from osprey.mcp_server.control_system.target_state import TARGET_LIVE
+from osprey.utils.config_paths import loaded_or_empty
 from osprey_connectors import control_context, targets
 from osprey_connectors.config_sections import ControlSystemSection
-from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_banner")
 
@@ -126,7 +126,7 @@ def resolve_baseline_target() -> str:
     check read. Re-implementing it here would be a second opinion about what the
     deployment is, which is exactly the bug this module exists to prevent.
     """
-    config = load_osprey_config()
+    config = loaded_or_empty()
     section = config.get("control_system") if isinstance(config, dict) else None
     return targets.baseline_target(ControlSystemSection.read(section))
 

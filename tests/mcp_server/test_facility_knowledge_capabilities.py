@@ -232,7 +232,7 @@ class TestBundleFailureCause:
         import osprey_connectors.workspace as workspace
 
         monkeypatch.setattr(workspace, "resolve_config_path", lambda: tmp_path / "config.yml")
-        monkeypatch.setattr(workspace, "load_osprey_config", lambda: config)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
         monkeypatch.setattr(srv, "_bundle", None)
         monkeypatch.setattr(srv, "_bundle_error", None)
 

@@ -42,7 +42,7 @@ from osprey_connectors.put_log import PutLogEntry
 from osprey_connectors.service_answers import LogPage, NotListed, Source
 from tests._service_factory import patch_create_service
 
-_CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
+_CONFIG_SEAM = "osprey.utils.config_paths.loaded_or_empty"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
 _NEW_MODULES = (
     "osprey_connectors.service_answers",

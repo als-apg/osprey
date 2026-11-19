@@ -149,10 +149,9 @@ def _panel_client(bundle_root: Path, config: dict[str, Any], monkeypatch):
     """Build a panel ``TestClient`` whose config load returns *config*."""
     from fastapi.testclient import TestClient
 
-    import osprey_connectors.workspace as workspace
     from osprey.interfaces.okf_panel.app import create_app
 
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda *a, **kw: config)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda *a, **kw: config)
     return TestClient(create_app(str(bundle_root)))
 
 

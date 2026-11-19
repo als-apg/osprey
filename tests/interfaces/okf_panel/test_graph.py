@@ -245,7 +245,6 @@ def test_the_graph_is_served_without_a_bundle(ttl):
 
 
 def test_the_configured_graph_is_read_relative_to_the_render(monkeypatch, tmp_path):
-    import osprey_connectors.workspace as workspace
 
     render = tmp_path / "render"
     (render / "data" / "graph").mkdir(parents=True)
@@ -256,8 +255,7 @@ def test_the_configured_graph_is_read_relative_to_the_render(monkeypatch, tmp_pa
     (render / "config.yml").write_text("{}\n", encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
     monkeypatch.setattr(
-        workspace,
-        "load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         lambda: {
             "config_dir": str(render),
             "services": {"graphdb": {"ttl_path": "./data/graph/facility.ttl"}},

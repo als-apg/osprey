@@ -113,7 +113,7 @@ def launch(
     folder = tmp_path / "exec"
     (folder / "figures").mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
-    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: config)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
     monkeypatch.setattr(executor, "_apply_target_stamp", stamp_target)
     monkeypatch.setattr(executor, "_load_limits_validator", lambda target: None)
     monkeypatch.setattr(executor, "resolve_agent_interpreter", lambda root=None: "/bin/true")

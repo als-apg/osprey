@@ -712,12 +712,12 @@ def _patch_config(monkeypatch, config: dict) -> None:
     """Point every load_osprey_config() call site the pre-flight touches at *config*.
 
     `_load_panel_config()` (web_terminal/app.py) does a per-call lazy import of
-    `osprey_connectors.workspace.load_osprey_config`, while `server_launcher.py`
+    `osprey.utils.config_paths.loaded_or_empty`, while `server_launcher.py`
     binds it once at module-import time — both need patching independently to
     control panel/port resolution deterministically and offline.
     """
-    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: config)
-    monkeypatch.setattr("osprey.infrastructure.server_launcher.load_osprey_config", lambda: config)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
+    monkeypatch.setattr("osprey.infrastructure.server_launcher.loaded_or_empty", lambda: config)
 
 
 def _spy_config_readers(monkeypatch) -> list[str]:

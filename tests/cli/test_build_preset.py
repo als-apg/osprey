@@ -1309,7 +1309,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
     assert narrow["grafana"]["enabled"] is False
     assert narrow["okf"]["enabled"] is True
     with patch(
-        "osprey_connectors.workspace.load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         return_value=_config_yaml(_render_project(root, "narrow")),
     ):
         enabled, custom, _default = _load_panel_config()
@@ -1369,7 +1369,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(tmp_path: Path) -> No
 
     # Custom panels are in the custom list, never in the enabled set.
     for config, expected in ((wide_config, ["beam.viewer"]), (narrow_config, [])):
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
+        with patch("osprey.utils.config_paths.loaded_or_empty", return_value=config):
             _enabled, custom, _default = _load_panel_config()
         assert [panel["id"] for panel in custom] == expected
 

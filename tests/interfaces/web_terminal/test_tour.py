@@ -76,7 +76,7 @@ def _started_over(workspace_dir, config: dict):
     """
     with terminal_client(
         workspace_dir,
-        patch("osprey_connectors.workspace.load_osprey_config", return_value=config),
+        patch("osprey.utils.config_paths.loaded_or_empty", return_value=config),
     ) as client:
         yield client
 

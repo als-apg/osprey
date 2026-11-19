@@ -19,10 +19,10 @@ from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
+from osprey.utils.config_paths import loaded_or_empty
 from osprey_connectors.workspace import (
     agent_data_base_dir,
     anchored_path,
-    load_osprey_config,
     repo_root_for_config,
     resolve_config_path,
 )
@@ -231,7 +231,7 @@ def _mask_document(
 def _unexpanded_config(config_path: Path) -> dict:
     """The config document with its ``${VAR}`` placeholders still in place.
 
-    ``load_osprey_config`` returns the EXPANDED document — every placeholder
+    ``loaded_or_empty`` returns the EXPANDED document — every placeholder
     replaced by the value the environment holds — which is the right input for
     resolving a path and the wrong thing to hand back to an agent transcript.
     The unexpanded copy is the better diagnostic anyway: it shows which
@@ -311,7 +311,7 @@ async def setup_inspect() -> str:
         # Config. Two copies with two jobs: the expanded one resolves the
         # agent-data path below and is never reported; the unexpanded one is
         # what the caller sees.
-        config = load_osprey_config()
+        config = loaded_or_empty()
         reported_config = _mask_document(_unexpanded_config(config_path))
 
         # MCP servers (.mcp.json)

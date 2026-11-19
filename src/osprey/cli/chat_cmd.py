@@ -266,8 +266,8 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     from osprey.interfaces.web_auth import close_env_carriers, mint_and_announce
     from osprey.port_layout import resolve_port_base
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+    from osprey.utils.config_paths import loaded_or_empty
     from osprey_connectors.config import install_config
-    from osprey_connectors.workspace import load_osprey_config
 
     config_file = project_dir / "config.yml"
     if config_file.exists():
@@ -283,7 +283,7 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     # counts as absent: an unset compose variable interpolates to the empty
     # string.
     if not (os.environ.get(WEB_PORT_ENV) or "").strip():
-        chat_config = load_osprey_config()
+        chat_config = loaded_or_empty()
         web_terminal = chat_config.get("web_terminal") or {}
         os.environ[WEB_PORT_ENV] = str(
             resolve_web_port(None, web_terminal.get("port"), base=resolve_port_base(chat_config))

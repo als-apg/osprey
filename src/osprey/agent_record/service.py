@@ -1008,7 +1008,7 @@ def create_app(
     """Create the agent-record FastAPI application.
 
     Args:
-        config: The rendered deployment config; ``load_osprey_config()`` when
+        config: The rendered deployment config; ``loaded_or_empty()`` when
             ``None``.
         backend: A backend to run instead of the configured one. It is kept
             open at shutdown: whoever made it closes it.
@@ -1033,9 +1033,9 @@ def create_app(
             above zero.
     """
     if config is None:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        config = load_osprey_config()
+        config = loaded_or_empty()
     config = dict(config)
     environ: Mapping[str, str] = os.environ if env is None else env
     settings = _settings(config, environ)

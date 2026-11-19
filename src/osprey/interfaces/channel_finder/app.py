@@ -564,9 +564,9 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
         feedback_api,
         pending_review_api,
     )
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     pv_directory = _resolve_pv_directory(config)
 
     app = FastAPI(

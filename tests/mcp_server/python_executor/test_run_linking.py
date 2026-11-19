@@ -322,7 +322,7 @@ async def test_pyaml_measure_writes_no_head(monkeypatch):
     monkeypatch.setattr(tool, "enforce_posture_clamp", lambda mode, *, tool: None)
     monkeypatch.setattr(_execution_gates, "enforce_posture_clamp", lambda mode, *, tool: None)
     monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: Path("."))
-    monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: {})
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
     monkeypatch.setattr(tool, "resolve_measure_args", lambda *a, **k: args)
     monkeypatch.setattr(tool, "_script", lambda *a, **k: None)
     monkeypatch.setattr(tool, "build_measure_script", lambda _script: "eval('1')")

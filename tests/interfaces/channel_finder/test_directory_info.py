@@ -34,7 +34,7 @@ from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import Source
 
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
-_CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
+_CONFIG_SEAM = "osprey.utils.config_paths.loaded_or_empty"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
 _NEW_MODULES = (
     "osprey_connectors.service_answers",

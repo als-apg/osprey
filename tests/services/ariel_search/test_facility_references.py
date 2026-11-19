@@ -16,7 +16,7 @@ _IDENTIFIER_EDGE = "_"
 
 def _config_for(monkeypatch, render_dir) -> None:
     monkeypatch.setattr(
-        "osprey_connectors.workspace.load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         lambda: {"config_dir": str(render_dir)},
     )
 

@@ -178,9 +178,9 @@ def _deployment_config() -> Mapping[str, Any]:
     Imported at call time: the loader pulls in the workspace machinery, which
     a sidecar has no other reason to carry.
     """
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    return load_osprey_config()
+    return loaded_or_empty()
 
 
 def _child_env_passthrough() -> tuple[str, ...]:

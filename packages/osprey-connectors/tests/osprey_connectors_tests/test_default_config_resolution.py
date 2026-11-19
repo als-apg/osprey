@@ -20,12 +20,13 @@ from pathlib import Path
 
 import pytest
 
+from osprey.utils.config_paths import loaded_or_empty
 from osprey_connectors import connector_types
 from osprey_connectors.archiver import ChannelArchive
 from osprey_connectors.config import active_config, current_config, get_config_value
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_targets import service_targets
-from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+from osprey_connectors.workspace import resolve_config_path
 
 ARCHIVER_URL = "https://archiver.example.org:8443"
 
@@ -92,7 +93,7 @@ def test_the_default_config_is_the_one_resolve_config_path_names(project):
     loaded = current_config()
 
     assert loaded.path == resolve_config_path()
-    assert loaded.raw_tree() == load_osprey_config()
+    assert loaded.raw_tree() == loaded_or_empty()
 
 
 @pytest.mark.usefixtures("project")
@@ -144,7 +145,7 @@ def test_a_missing_osprey_config_target_is_named(tmp_path, monkeypatch):
 async def test_the_archive_built_from_the_loaded_config_is_the_renders(project, facility_archiver):
     write_config(project / "build" / "config.yml")
 
-    spec = service_targets(load_osprey_config()).archive["live"]
+    spec = service_targets(loaded_or_empty()).archive["live"]
     assert spec is not None
     archive = await ConnectorFactory.create_service(spec)
 
@@ -175,7 +176,7 @@ async def test_a_render_with_no_archiver_section_still_builds_the_mock(project, 
     (project / "build" / "config.yml").write_text("system:\n  timezone: UTC\n", encoding="utf-8")
     mock = _recording(monkeypatch, connector_types.MOCK_ARCHIVER)
 
-    spec = service_targets(load_osprey_config()).archive["live"]
+    spec = service_targets(loaded_or_empty()).archive["live"]
     assert spec is not None
     archive = await ConnectorFactory.create_service(spec)
 

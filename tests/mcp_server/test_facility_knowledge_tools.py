@@ -507,7 +507,7 @@ class TestCreateServer:
         config = {"facility_knowledge": {"bundle_path": str(fixture_bundle)}}
 
         monkeypatch.setattr(ws, "resolve_config_path", lambda: config_file)
-        monkeypatch.setattr(ws, "load_osprey_config", lambda: config)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
 
         result = srv.create_server()
 
@@ -526,7 +526,7 @@ class TestCreateServer:
         config_file.write_text("", encoding="utf-8")
 
         monkeypatch.setattr(ws, "resolve_config_path", lambda: config_file)
-        monkeypatch.setattr(ws, "load_osprey_config", lambda: {})  # no key
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})  # no key
 
         srv.create_server()
 
@@ -544,7 +544,7 @@ class TestCreateServer:
         config = {"facility_knowledge": {"bundle_path": str(tmp_path / "nonexistent")}}
 
         monkeypatch.setattr(ws, "resolve_config_path", lambda: config_file)
-        monkeypatch.setattr(ws, "load_osprey_config", lambda: config)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
 
         srv.create_server()
 
@@ -565,7 +565,7 @@ class TestCreateServer:
         config = {"facility_knowledge": {"bundle_path": str(fixture_bundle)}}
 
         monkeypatch.setattr(ws, "resolve_config_path", lambda: config_file)
-        monkeypatch.setattr(ws, "load_osprey_config", lambda: config)
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: config)
 
         srv.create_server()
 

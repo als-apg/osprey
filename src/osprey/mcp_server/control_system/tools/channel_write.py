@@ -135,6 +135,7 @@ from osprey.mcp_server.control_system.error_handling import connector_error_hand
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import NothingAnsweredError, make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.utils.config_paths import loaded_or_empty
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import control_context
 from osprey_connectors.config import facility_timezone
@@ -147,7 +148,6 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.refusals import RefusalReason, VerdictReason, refusal_text
 from osprey_connectors.targets import baseline_target
-from osprey_connectors.workspace import load_osprey_config
 from osprey_connectors.write_switch import CONTROL_OWNER_ENV_VAR, Refused
 
 if TYPE_CHECKING:
@@ -947,7 +947,7 @@ async def channel_write(
     # Stage 1, before any other work: the write verdict for the target this
     # call entered on, then the record the approval prompt left for it. A
     # verdict that refuses is the answer even where the prompt left no record.
-    config = load_osprey_config()
+    config = loaded_or_empty()
     _check_write_verdict(entry_record, config)
     approval_applies = _check_approval_record(config)
 

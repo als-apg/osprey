@@ -36,7 +36,7 @@ def patch_config():
 
     def _apply(config: dict):
         return patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value=config,
         )
 

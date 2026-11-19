@@ -427,7 +427,7 @@ def _server_channel_write(tool_use_id: str) -> None:
     from osprey.audit.call import call_scope
     from osprey.mcp_server.control_system.tools import channel_write
 
-    config = channel_write.load_osprey_config()
+    config = channel_write.loaded_or_empty()
     with call_scope(tool_use_id, None):
         record = channel_write._read_record()
         channel_write._check_write_verdict(record, config)

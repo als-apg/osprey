@@ -258,7 +258,7 @@ def _installed_context(uri: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[An
 
     monkeypatch.setenv(GRAPHDB_PASSWORD_ENV, GRAPHDB_TEST_PASSWORD)
     monkeypatch.setattr(
-        graph_ctx, "load_osprey_config", lambda: {"services": {"graphdb": {"uri": uri}}}
+        graph_ctx, "loaded_or_empty", lambda: {"services": {"graphdb": {"uri": uri}}}
     )
     monkeypatch.setattr(graph_ctx, "get_config_value", lambda key, default=None: default)
 

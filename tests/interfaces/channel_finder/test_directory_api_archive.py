@@ -27,7 +27,7 @@ from osprey_connectors.directory import DirectoryEntry, DirectoryPage
 from osprey_connectors.service_answers import Source
 from tests._service_factory import patch_create_service
 
-_CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
+_CONFIG_SEAM = "osprey.utils.config_paths.loaded_or_empty"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
 
 VA_BUILD = {"type": "virtual_accelerator"}

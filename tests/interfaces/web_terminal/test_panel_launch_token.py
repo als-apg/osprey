@@ -116,7 +116,7 @@ def armed(workspace_dir):
 def test_the_panel_dict_carries_the_variable_name_and_never_the_value():
     os.environ[TOKEN_ENV] = TOKEN
     with patch(
-        "osprey_connectors.workspace.load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         return_value={
             "web": {
                 "panels": {
@@ -137,7 +137,7 @@ def test_the_panel_dict_carries_the_variable_name_and_never_the_value():
 
 def test_a_block_naming_no_token_carries_no_key():
     with patch(
-        "osprey_connectors.workspace.load_osprey_config",
+        "osprey.utils.config_paths.loaded_or_empty",
         return_value={"web": {"panels": {PANEL_ID: {"url": "http://127.0.0.1:9300"}}}},
     ):
         _enabled, (panel,), _default = _load_panel_config()

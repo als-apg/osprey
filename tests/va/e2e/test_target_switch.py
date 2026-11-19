@@ -1237,7 +1237,7 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
     def lane_deployment(self, monkeypatch, endpoints):
         """Arm the Bluesky tools against this module's deployment."""
         config = raw_config(va_port=endpoints.va, live_port=endpoints.live)
-        monkeypatch.setattr(target_banner, "load_osprey_config", lambda: config)
+        monkeypatch.setattr(target_banner, "loaded_or_empty", lambda: config)
         monkeypatch.setattr(
             "osprey_connectors.config.get_config_value",
             lambda key, default=None, config_path=None: default,
