@@ -141,7 +141,15 @@ address means anything to OSPREY. What a channel is comes from its fields:
        (``gap_setpoint`` with ``gap_readback``). It does so only when exactly
        one setpoint and one readback of that quantity share it, no stated
        ``pair`` names the readback, and the two agree in ``value_type``,
-       ``options`` and ``shape``; else it pairs the setpoint with itself.
+       ``options`` and ``shape`` (a command and its status need not); else it
+       pairs the setpoint with itself. A setpoint and readback whose signals
+       name one quantity must agree in those three, stated or derived; a
+       command and the status it reads back on, or a pair whose quantity no
+       signal states, may differ. Several setpoints may name one readback (a
+       set and a reset command read back on one channel). The simulation
+       drives a readback from its setpoint only where exactly one setpoint
+       names it and the two agree in type; any other readback it drives from
+       no setpoint.
    * - ``tolerance``
      - On a float setpoint, how close its readback must come before a move
        counts as done: ``{absolute: <x>}`` in the channel's unit or
