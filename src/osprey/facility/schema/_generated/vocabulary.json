@@ -1029,7 +1029,8 @@
         "readback current"
       ],
       "description": "Measured current value read back from a powered device.",
-      "name": "current_readback"
+      "name": "current_readback",
+      "title": "Current"
     },
     {
       "aliases": [
@@ -1042,7 +1043,8 @@
         "commanded current"
       ],
       "description": "Commanded current value sent to a powered device.",
-      "name": "current_setpoint"
+      "name": "current_setpoint",
+      "title": "Setpoint"
     },
     {
       "aliases": [
@@ -1140,6 +1142,16 @@
       "aliases": [],
       "description": "Filament warm-up / runtime timeout readback.",
       "name": "filament_timeout_status"
+    },
+    {
+      "aliases": [
+        "firmware",
+        "firmware version",
+        "firmware revision"
+      ],
+      "description": "Firmware version a device reports of itself.",
+      "name": "firmware_version_readback",
+      "nameplate": true
     },
     {
       "aliases": [
@@ -1242,6 +1254,28 @@
       "name": "internal_interlock_3_status"
     },
     {
+      "aliases": [
+        "kick readback",
+        "kick angle readback",
+        "corrector angle readback",
+        "deflection readback"
+      ],
+      "description": "Deflection angle of a corrector magnet, as read back.",
+      "name": "kick_angle_readback",
+      "title": "Kick"
+    },
+    {
+      "aliases": [
+        "kick setpoint",
+        "kick angle setpoint",
+        "corrector angle setpoint",
+        "deflection setpoint"
+      ],
+      "description": "Commanded deflection angle of a corrector magnet.",
+      "name": "kick_angle_setpoint",
+      "title": "Kick"
+    },
+    {
       "aliases": [],
       "description": "Commanded lamp on/off transition.",
       "name": "lamp_command"
@@ -1280,12 +1314,48 @@
         "D.H"
       ],
       "description": "Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).",
-      "name": "magnet_voltage_readback"
+      "name": "magnet_voltage_readback",
+      "title": "Voltage"
+    },
+    {
+      "aliases": [
+        "model",
+        "model name",
+        "device model",
+        "model number"
+      ],
+      "description": "Model name a device reports of itself.",
+      "name": "model_readback",
+      "nameplate": true
     },
     {
       "aliases": [],
       "description": "Modulator state-machine command (StateCmd; MemberOf=Boolean Control).",
       "name": "modulator_state_command"
+    },
+    {
+      "aliases": [
+        "normalized strength readback",
+        "K readback",
+        "K1 readback",
+        "K2 readback",
+        "strength readback"
+      ],
+      "description": "Normalized strength of a multipole magnet, as read back.",
+      "name": "normalized_strength_readback",
+      "title": "Strength"
+    },
+    {
+      "aliases": [
+        "normalized strength setpoint",
+        "K setpoint",
+        "K1 setpoint",
+        "K2 setpoint",
+        "strength setpoint"
+      ],
+      "description": "Commanded normalized strength of a multipole magnet (K1 in 1/m^2 for a quadrupole, K2 in 1/m^3 for a sextupole), the field over the beam rigidity.",
+      "name": "normalized_strength_setpoint",
+      "title": "Strength"
     },
     {
       "aliases": [
@@ -1438,7 +1508,8 @@
     {
       "aliases": [],
       "description": "Commanded power on/off transition for a powered device.",
-      "name": "power_on_command"
+      "name": "power_on_command",
+      "title": "On command"
     },
     {
       "aliases": [],
@@ -1551,7 +1622,8 @@
     {
       "aliases": [],
       "description": "Commanded ramp-rate setpoint for a powered device's current loop.",
-      "name": "ramp_rate_setpoint"
+      "name": "ramp_rate_setpoint",
+      "title": "Ramp rate"
     },
     {
       "aliases": [],
@@ -1634,6 +1706,16 @@
       "name": "screen_out_status"
     },
     {
+      "aliases": [
+        "serial",
+        "serial number",
+        "serial no"
+      ],
+      "description": "Serial number a device reports of itself.",
+      "name": "serial_number_readback",
+      "nameplate": true
+    },
+    {
       "aliases": [],
       "description": "SF6 insulating-gas pressure readback in an electron gun pressure vessel (PSI).",
       "name": "sf6_pressure_readback"
@@ -1657,6 +1739,30 @@
       "name": "status"
     },
     {
+      "aliases": [],
+      "description": "Temperature of the high (minor) alarm limit, as read back.",
+      "name": "temperature_hi_limit_readback",
+      "title": "Hi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high (minor) alarm limit, as commanded.",
+      "name": "temperature_hi_limit_setpoint",
+      "title": "Hi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high-high (major) alarm limit, as read back.",
+      "name": "temperature_hihi_limit_readback",
+      "title": "Hihi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high-high (major) alarm limit, as commanded.",
+      "name": "temperature_hihi_limit_setpoint",
+      "title": "Hihi"
+    },
+    {
       "aliases": [
         "temperature limit",
         "trip temperature",
@@ -1665,6 +1771,30 @@
       ],
       "description": "Temperature above which a device's over-temperature interlock trips.",
       "name": "temperature_limit_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low (minor) alarm limit, as read back.",
+      "name": "temperature_lo_limit_readback",
+      "title": "Lo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low (minor) alarm limit, as commanded.",
+      "name": "temperature_lo_limit_setpoint",
+      "title": "Lo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low-low (major) alarm limit, as read back.",
+      "name": "temperature_lolo_limit_readback",
+      "title": "Lolo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low-low (major) alarm limit, as commanded.",
+      "name": "temperature_lolo_limit_setpoint",
+      "title": "Lolo"
     },
     {
       "aliases": [
@@ -1772,7 +1902,8 @@
         "readback voltage"
       ],
       "description": "Measured voltage.",
-      "name": "voltage_readback"
+      "name": "voltage_readback",
+      "title": "Voltage"
     },
     {
       "aliases": [

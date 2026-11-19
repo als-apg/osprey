@@ -95,8 +95,8 @@ _CORE_CATEGORY_SPECS: dict[str, tuple[str, str]] = {
     "dispatch": ("dispatch", "dispatch"),
     "service_capabilities": ("service_capabilities", "service_capabilities"),
     "ariel_modules": ("ariel_modules", "ariel_modules"),
-    "pv_directory": ("pv_directory", "pv_directory"),
-    "pv_directory_alarm_feed": ("pv_directory", "pv_directory_alarm_feed"),
+    "channel_directory": ("channel_directory", "channel_directory"),
+    "channel_directory_alarm_feed": ("channel_directory", "channel_directory_alarm_feed"),
 }
 
 

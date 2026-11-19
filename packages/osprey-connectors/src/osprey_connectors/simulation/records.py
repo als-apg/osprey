@@ -261,6 +261,7 @@ class ScenarioRecord(TypedDict, total=False):
     couple: Mapping[str, Sequence[CouplingTerm]]
     noise: Mapping[str, NoiseRecord]
     channel_faults: Mapping[str, str]
+    stopped_servers: Sequence[str]
     still: Sequence[str]
     faults: Mapping[str, _FaultRecord]
 
@@ -276,13 +277,15 @@ class AddressesDocument(TypedDict):
     """``addresses.json``: every channel address, sorted, and the simulator's own addresses.
 
     ``status`` lists each served physics model's status address and
-    ``ioc_health`` each served model's IOC health addresses; a build before
-    ``ioc_health`` was written lists none.
+    ``server_health`` each served model's server health addresses.
+    ``ioc_health`` is the key that list was first written under, read when a
+    document has no ``server_health``; a build that wrote neither lists none.
     """
 
     schema: str
     channels: Sequence[str]
     status: Sequence[str]
+    server_health: NotRequired[Sequence[str]]
     ioc_health: NotRequired[Sequence[str]]
 
 

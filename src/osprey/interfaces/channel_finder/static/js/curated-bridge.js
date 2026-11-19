@@ -10,10 +10,11 @@
  * a no-op and draws nothing.
  */
 
+import { LABELS } from './labels.js';
 import { state } from './state.js';
 import { esc } from './utils.js';
 import { countDirectory } from './directory-api.js';
-import { allPvsHash } from './route.js';
+import { channelsHash } from './route.js';
 
 /**
  * The line under curated results: "Not here?" with the route to All PVs, or,
@@ -27,14 +28,14 @@ import { allPvsHash } from './route.js';
 export function bridgeHtml(words, total, size) {
   const directory = state.directory;
   if (!directory) return '';
-  const href = esc(allPvsHash(words));
+  const href = esc(channelsHash(words));
   const text = words.trim();
   if (total === 0) {
     const all = size === null ? 'all' : `all ${size.toLocaleString()}`;
     const what = text ? ` for "${text}"` : '';
     return (
       `<div class="curated-bridge curated-bridge-miss">` +
-      `<a href="${href}">Search ${esc(all)} PVs${esc(what)} &rarr;</a></div>`
+      `<a href="${href}">Search ${esc(all)} ${esc(LABELS.channels)}${esc(what)} &rarr;</a></div>`
     );
   }
   return (

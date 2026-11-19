@@ -44,6 +44,7 @@ import pytest
 import yaml
 
 from osprey.cli.build_cmd import _attached_service_overrides
+from osprey.cli.build_injectors import SERVER_FLEET_SERVICE
 from osprey.cli.build_profile_merge import merge_layer_delta
 from osprey.cli.build_profile_ports import layout_port_fill
 from osprey.deployment.graphdb_service import DEFAULT_TTL_PATH
@@ -94,12 +95,16 @@ def _baseline_root() -> dict[str, Any]:
 
 
 def _expected_deployed_services() -> list[str]:
-    """The frozen baseline ``deployed_services`` of this cell, in order.
+    """The ``deployed_services`` of this cell, in order.
+
+    The frozen baseline's list, then the server fleet: the demo preset's
+    ``channel_directory.fleet`` block postdates the baseline, and its injector
+    runs last.
 
     Returns:
         The ordered list the deploying render must carry.
     """
-    return list(_baseline_root().get("deployed_services") or [])
+    return [*(_baseline_root().get("deployed_services") or []), SERVER_FLEET_SERVICE]
 
 
 def _preset_config() -> dict[str, Any]:
@@ -253,9 +258,10 @@ def external_store_render(tmp_path_factory: pytest.TempPathFactory) -> dict[str,
 def test_deploying_render_lists_the_baseline_services_in_order(
     rendered: dict[str, dict[str, Any]],
 ) -> None:
-    """The deployment's ``deployed_services`` equals the baseline's, in order.
+    """The deployment's ``deployed_services`` equals the expected list, in order.
 
-    The baseline is the frozen list (:func:`_expected_deployed_services`). Order
+    That is the frozen baseline's list and the server fleet after it
+    (:func:`_expected_deployed_services`). Order
     and all: it is the order the injectors ran in, and two of them read it
     back — the chat bridges gate their dispatcher URLs on the dispatch pair
     already being listed, the recorder gates its image and addressing on the

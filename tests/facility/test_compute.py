@@ -19,7 +19,7 @@ from osprey.facility.build import (
 )
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.validate import StageReport, run_stages, validate
-from osprey.facility.views.simulator import ioc_health_addresses
+from osprey.facility.views.simulator import server_health_addresses
 
 QUAD = "Quadrupole"
 BPM = "BeamPositionMonitor"
@@ -638,12 +638,12 @@ class TestModelConflicts:
     def test_every_ioc_health_address_is_guarded(self, tmp_path):
         files = _tree()
         files["records/channels.yaml"].extend(
-            {"id": address} for address in ioc_health_addresses("p", "SR")
+            {"id": address} for address in server_health_addresses("p", "SR")
         )
         stopped = _stops(tmp_path, files)
         assert {code for code, _, _ in stopped} == {"model-conflict"}
         assert sorted(address for _, _, address in stopped) == sorted(
-            ioc_health_addresses("p", "SR")
+            server_health_addresses("p", "SR")
         )
 
     def test_a_channel_on_another_signal_of_a_model_builds(self, tmp_path):

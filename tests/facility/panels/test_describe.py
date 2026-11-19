@@ -31,7 +31,7 @@ from osprey.facility.panels.describe import (
     targets,
 )
 from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.tables import HealthRule, Pair, PanelTables, Pose, RecordType
+from osprey.facility.panels.tables import HealthRule, PanelTables, Pose, RecordType
 from osprey.facility.panels.view import (
     CardHead,
     CheckRow,
@@ -53,12 +53,13 @@ from osprey.facility.panels.view import (
 from osprey.facility.records import FacilityRecords
 from tests.facility.panels._fixture import (
     PANELS_DIR,
+    RING_FRAME,
     copy_tables,
     graph_with_part,
     write_fixture_facility,
 )
+from tests.facility.panels._views import with_symbols
 
-SECTORS = frozenset({"sector"})  # a level marked as a rack by parameter
 EXCLUDED = ("XR02:SAF1", "XR/XR02/SAFE", "XR/XR02/SAFE/CAB1", "XR02:SAF2")
 
 
@@ -187,7 +188,8 @@ def test_a_channel_less_thing_has_place_pose_and_no_signal_or_health(panel_graph
     assert _titles(view) == ["head", "relations", "foot"]
     where = _section(view, "where").items
     assert where[0] == Link("place", Target("card", "place", "XR/XR02"))
-    (pose,) = [item for item in where if isinstance(item, Fact)]
+    pose, beam = [item for item in where if isinstance(item, Fact)]
+    assert beam.text == "s 12.500 m along XR-RING, from its pose in positions.csv"
     assert pose.label == "XR-RING"
     assert "s 12.500 m" in pose.text
     assert pose.caveat is None
@@ -203,6 +205,7 @@ def test_a_derived_pose_carries_its_assumption_as_a_caveat(panel_graph):
 def test_card_sections_come_in_their_fixed_order(panel_graph):
     assert _titles(device_card(panel_graph, "XR01:QF1")) == [
         "head",
+        "tiles",  # its channels' signals are its roles: key tiles by default
         "relations",
         "picture",
         "calibration",
@@ -212,6 +215,7 @@ def test_card_sections_come_in_their_fixed_order(panel_graph):
     ]
     assert _titles(device_card(panel_graph, "XR01:IP1")) == [
         "head",
+        "tiles",
         "relations",
         "operate",  # it says no operator action is stated
         "all channels",
@@ -240,6 +244,7 @@ def test_a_card_with_every_section_has_them_in_order(tmp_path):
     view = device_card(load_graph(facility, tables), "XR01:QD1")
     assert _titles(view) == [
         "head",
+        "tiles",
         "relations",
         "picture",
         "calibration",
@@ -390,8 +395,6 @@ def test_a_place_card_lists_its_screens_and_what_is_within(panel_graph):
     assert sector not in [
         item.target for item in _section(device_card(panel_graph, "XR/XR01"), "screens").items
     ]
-    marked = device_card(panel_graph, "XR/XR01", rack_classes=SECTORS)
-    assert sector in [item.target for item in _section(marked, "screens").items]
 
 
 def test_a_thing_with_no_screen_is_a_fact_not_a_link(panel_graph):
@@ -424,11 +427,8 @@ def test_targets_name_each_screen_with_view_kind_thing_kind_and_id(panel_graph):
     for place in ("XR", "XR/XR01", "XR/XR02", "XR/XR01/RK1"):
         assert Target("card", "place", place) in found
         assert Target("place", "place", place) in found
-    assert Target("rack", "place", "XR/XR01/RK1") in found  # unit claims, no parameter
-    assert Target("rack", "place", "XR/XR01") not in found
-    marked = set(targets(panel_graph, rack_classes=SECTORS))
-    assert Target("rack", "place", "XR/XR01") in marked
-    assert Target("rack", "place", "XR") not in marked  # level machine
+    assert Target("rack", "place", "XR/XR01/RK1") in found  # a unit claim makes a rack
+    assert Target("rack", "place", "XR/XR01") not in found  # its level alone does not
     for group in ("XR01-VAC", "XR02-VAC", "XR-QUAD"):
         assert Target("card", "group", group) in found
         assert Target("set", "group", group) in found
@@ -451,18 +451,14 @@ def test_a_set_needs_members_that_share_one_class(tmp_path):
     assert Target("set", "group", "XR01-MIX") not in found
 
 
-def _every_view(
-    graph: PanelGraph, rack_classes: frozenset[str] = frozenset(), **params: Any
-) -> list[View]:
-    found = targets(graph, rack_classes=rack_classes)
-    return [describe(graph, target, rack_classes=rack_classes, **params) for target in found]
+def _every_view(graph: PanelGraph, **params: Any) -> list[View]:
+    return [describe(graph, target, **params) for target in targets(graph)]
 
 
 def test_every_link_target_is_a_screen(panel_graph):
-    params = {"symbols": {"Pump": "pump"}, "above": frozenset({"pump"})}
-    found = set(targets(panel_graph, rack_classes=SECTORS))
-    views = _every_view(panel_graph, SECTORS, **params)
-    assert [view.id for view in views] == targets(panel_graph, rack_classes=SECTORS)
+    found = set(targets(panel_graph))
+    views = _every_view(panel_graph)
+    assert [view.id for view in views] == targets(panel_graph)
     links = [link for view in views for link in _links(view)]
     assert links
     assert {link.target for link in links} <= found
@@ -475,7 +471,7 @@ def test_every_link_target_is_a_screen_with_contested_and_unknown_relations(tmp_
 
 
 def test_views_carry_channel_names_never_values(panel_graph):
-    for view in _every_view(panel_graph, SECTORS):
+    for view in _every_view(panel_graph):
         for item in _walk(view):
             assert not {"value", "values"} & {field.name for field in dataclasses.fields(item)}
 
@@ -523,7 +519,11 @@ def test_the_primary_pair_is_keyed_on_the_stated_signal_never_the_name(panel_gra
         unit="A",
         readback_unit="A",
     )
-    assert cells["XR01:QD1"].pair is None  # its setpoint is in no pair of the table
+    # the pair the facility file states
+    assert (cells["XR01:QD1"].pair.channel, cells["XR01:QD1"].pair.readback) == (
+        "XR01-QD1:Current-SP",
+        "XR01-QD1:Current-RB",
+    )
 
 
 def test_a_set_member_with_no_place_is_in_a_last_row(tmp_path):
@@ -549,7 +549,7 @@ BEAMLINE = {"Quadrupole": "quadrupole", "Dipole": "bend", "Pump": "ion_pump"}
 
 
 def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
-    view = place_view(panel_graph, "XR/XR02", symbols=BEAMLINE)
+    view = place_view(with_symbols(panel_graph, BEAMLINE), "XR/XR02")
     (strip,) = _section(view, "strip").items
     assert isinstance(strip, Strip)
     # only a class with a symbol is drawn: XR02:SHIELD1 (Infrastructure) has a
@@ -573,7 +573,7 @@ def test_place_view_strips_ring_positions_and_trays_the_rest(panel_graph):
 def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
     # a class meant to show without a picture of its own is mapped to generic on purpose
     symbols = {"Pump": "pump", "Quadrupole": "generic"}
-    view = place_view(panel_graph, "XR/XR01", symbols=symbols, above=frozenset({"pump"}))
+    view = place_view(with_symbols(panel_graph, symbols, frozenset({"pump"})), "XR/XR01")
     (strip,) = _section(view, "strip").items
     assert [(e.thing, e.cls, e.s_m, e.symbol, e.lane) for e in strip.elements] == [
         ("XR01:IP1", "Pump", 1.25, "pump", "above"),
@@ -582,7 +582,9 @@ def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
     ]
     assert strip.elements[1].link == Link("XR01:QF1", card("XR01:QF1"))
     assert strip.extent_m == (1.25, 2.0)
-    view = place_view(panel_graph, "XR/XR01", symbols={**BEAMLINE, "ElectronicsChassis": "generic"})
+    view = place_view(
+        with_symbols(panel_graph, {**BEAMLINE, "ElectronicsChassis": "generic"}), "XR/XR01"
+    )
     (strip,) = _section(view, "strip").items
     tray = {entry.thing: entry.reason for entry in strip.tray}
     assert tray["XR01:BEND1"] == "fixture: frame treated as the ring frame"
@@ -590,8 +592,10 @@ def test_place_view_two_at_one_s_are_both_drawn_on_their_lanes(panel_graph):
 
 
 def test_a_ring_position_without_a_symbol_is_counted_not_drawn(panel_graph):
-    drawn = place_view(panel_graph, "XR/XR02", symbols={**BEAMLINE, "Infrastructure": "generic"})
-    (strip,) = _section(drawn, "strip").items
+    view = place_view(
+        with_symbols(panel_graph, {**BEAMLINE, "Infrastructure": "generic"}), "XR/XR02"
+    )
+    (strip,) = _section(view, "strip").items
     assert [(e.thing, e.symbol) for e in strip.elements] == [
         ("XR02:QF1", "quadrupole"),
         ("XR02:SHIELD1", "generic"),
@@ -599,11 +603,11 @@ def test_a_ring_position_without_a_symbol_is_counted_not_drawn(panel_graph):
     # mapped, XR02:BLOCK1 (no position) joins the tray; only XR02:CH5 is counted
     assert "XR02:BLOCK1" in {entry.thing for entry in strip.tray}
     assert strip.others.label == "1 other things in this place"
-    (strip,) = _section(place_view(panel_graph, "XR/XR02", symbols=BEAMLINE), "strip").items
+    (strip,) = _section(place_view(with_symbols(panel_graph, BEAMLINE), "XR/XR02"), "strip").items
     assert "XR02:SHIELD1" not in {e.thing for e in strip.elements}
     assert strip.others.label == "3 other things in this place"
     # no symbols at all: nothing is drawn and every device is counted
-    (strip,) = _section(place_view(panel_graph, "XR/XR02"), "strip").items
+    (strip,) = _section(place_view(with_symbols(panel_graph, {}), "XR/XR02"), "strip").items
     assert strip.elements == () and strip.extent_m is None and strip.tray == ()
     assert strip.others.target == Target("card", "place", "XR/XR02")
 
@@ -830,7 +834,7 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
         has_rule=True,
         has_source=True,
     )
-    assert rows["XR01-CH1:Temp-RB"] == CheckRow(
+    assert rows["XR01-CH1:Temp-RB"] == CheckRow(  # drawn by its role, no record type stated
         "XR01-CH1:Temp-RB", "XR01:CH1", True, False, False, False
     )
     # sourced by its health rows alone
@@ -843,7 +847,8 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
         has_rule=sum(row.has_rule for row in rows.values()),
         has_source=sum(row.has_source for row in rows.values()),
     )
-    assert (totals.channels, totals.typed, totals.has_rule) == (13, 4, 2)
+    # typed: a record type a source states, not the drawing a role defaults to
+    assert (totals.channels, totals.has_rule) == (13, 2) and 0 < totals.typed < 13
 
 
 def test_describe_refuses_a_rollup_with_no_grouping(panel_graph):
@@ -869,7 +874,7 @@ def _big_graph(devices: int) -> PanelGraph:
         "groups": [{"id": f"G{n}", "members": []} for n in range(90)],
         "relations": [],
     }
-    poses, types, health, pairs = [], [], [], []
+    poses, types, health = [], [], []
     for n in range(devices):
         device = f"D{n}"
         document["devices"].append(
@@ -880,9 +885,9 @@ def _big_graph(devices: int) -> PanelGraph:
             channel = {"id": f"{device}:{suffix}", "on": {"device": device}}
             if role:
                 channel["role"] = role
+                channel["pair"] = f"{device}:RB"
             document["channels"].append(channel)
             types.append(RecordType(f"{device}:{suffix}", "ai", "value", "stated", "s", "r", "l"))
-        pairs.append(Pair(f"{device}:SP", f"{device}:RB", "e", "stated", "s", "r", "l"))
         health.append(HealthRule(f"{device}:St", "1", "bad", "e", "stated", "s", "r", "l"))
         if n:
             document["relations"].append(
@@ -915,7 +920,7 @@ def _big_graph(devices: int) -> PanelGraph:
                 None,
             )
         )
-    tables = PanelTables(tuple(poses), tuple(types), tuple(pairs), tuple(health), (), ())
+    tables = PanelTables(tuple(poses), tuple(types), tuple(health), (), ())
     return PanelGraph(FacilityRecords(document), tables)
 
 
@@ -1143,17 +1148,11 @@ def test_every_roll_up_counts_a_channel_once_at_every_level(tmp_path) -> None:
     assert root.channels.count("XR02-CH5:Fault-Sts") == 1
 
 
-def test_a_class_the_draw_settings_lift_is_drawn_on_the_upper_lane(panel_graph, tmp_path):
-    import json
-
-    from osprey.facility.panels.emit import load_draw
-
-    path = tmp_path / "draw.json"
-    path.write_text(
-        json.dumps({"symbols": {"Pump": "pump", "Quadrupole": "generic"}, "above": ["Pump"]})
+def test_a_symbols_row_off_the_beam_is_drawn_on_the_upper_lane(panel_graph):
+    graph = with_symbols(
+        panel_graph, {"Pump": "pump", "Quadrupole": "generic"}, frozenset({"pump"})
     )
-    draw = load_draw(path)
-    view = place_view(panel_graph, "XR/XR01", symbols=draw.symbols, above=draw.above)
+    view = place_view(graph, "XR/XR01")
     (strip,) = _section(view, "strip").items
     lanes = {e.thing: (e.symbol, e.lane) for e in strip.elements}
     assert lanes["XR01:IP1"] == ("pump", "above")
@@ -1163,13 +1162,13 @@ def test_a_class_the_draw_settings_lift_is_drawn_on_the_upper_lane(panel_graph, 
 def test_a_strip_element_carries_the_values_its_symbols_annotation_names(panel_graph):
     annotate = {"quadrupole": ("current_readback",), "ion_pump": ("vacuum_readback",)}
     view = place_view(
-        panel_graph, "XR/XR01", symbols={**BEAMLINE, "Pump": "ion_pump"}, annotate=annotate
+        with_symbols(panel_graph, {**BEAMLINE, "Pump": "ion_pump"}), "XR/XR01", annotate=annotate
     )
     (strip,) = _section(view, "strip").items
     values = {e.thing: e.annotations for e in strip.elements}
     assert values["XR01:QF1"] == (("XR01-QF1:Current-RB", "A"),)
     assert values["XR01:IP1"] == (("XR01-IP1:Pressure-RB", None),)
-    plain = place_view(panel_graph, "XR/XR01", symbols={**BEAMLINE, "Pump": "ion_pump"})
+    plain = place_view(with_symbols(panel_graph, {**BEAMLINE, "Pump": "ion_pump"}), "XR/XR01")
     (strip,) = _section(plain, "strip").items
     assert all(e.annotations == () for e in strip.elements)  # nothing named, nothing shown
 
@@ -1370,8 +1369,8 @@ def test_a_part_stands_where_its_whole_is(tmp_path):
     assert _BY_WHOLE.format("XR/XR01/RK1", "XR01:CH1") in texts
     # the strip: at its whole's position
     part = graph.thing("XR01:QF1:PUMP", "device")
-    assert _where_on_strip(graph, part) == (1.25, None, graph.ring_frame)
-    strip = place_view(graph, "XR/XR01", symbols={"Pump": "pump"}).sections
+    assert _where_on_strip(graph, part) == (1.25, None, RING_FRAME)
+    strip = place_view(with_symbols(graph, {"Pump": "pump"}), "XR/XR01").sections
     elements = [e for s in strip for i in s.items for e in getattr(i, "elements", ())]
     assert ("XR01:QF1:PUMP", 1.25) in [(e.thing, e.s_m) for e in elements]
 
@@ -1437,8 +1436,8 @@ def test_a_line_model_is_drawn_from_its_devices_s(tmp_path):
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", line), PANELS_DIR)
     assert graph.beam_position(graph.thing("XL:D0", "device")) == ("model XL", 2.0)
     assert graph.frame_length("model XL") is None  # one pass: never wrapped
-    assert graph.frame_length(graph.ring_frame) is None  # no model states the ring's length
-    view = place_view(graph, "XL", symbols={"Quadrupole": "quad", "Pump": "pump"})
+    assert graph.frame_length(RING_FRAME) is None  # no model states the ring's length
+    view = place_view(with_symbols(graph, {"Quadrupole": "quadrupole", "Pump": "pump"}), "XL")
     (strip,) = [i for s in view.sections for i in s.items if isinstance(i, Strip)]
     assert [(e.thing, e.s_m) for e in strip.elements] == [
         ("XL:D1", 0.5),
@@ -1465,5 +1464,28 @@ def ring_model(length: float):
 
 def test_the_ring_frame_takes_the_length_of_the_periodic_model_of_its_devices(tmp_path):
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", ring_model(12.0)), PANELS_DIR)
-    assert graph.frame_length(graph.ring_frame) == 12.0
+    assert graph.frame_length(RING_FRAME) == 12.0
     assert graph.frame_length("model XRM") == 12.0
+
+
+def test_a_card_says_which_beam_position_it_uses_and_from_where(tmp_path):
+    def stated(document: dict[str, Any]) -> None:
+        for device in document["devices"]:
+            if device["id"] == "XR01:QF1":
+                device.update(model="XRM", s=1.5)  # the deck's s, another origin
+            if device["id"] == "XR01:QD1":
+                device.update(model="XRM", s=2.0)
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", stated), PANELS_DIR)
+
+    def beam(device: str) -> Fact:
+        (fact,) = [
+            i for i in _section(device_card(graph, device), "where").items
+            if isinstance(i, Fact) and i.label == "beam position"
+        ]  # fmt: skip
+        return fact
+
+    qf1 = beam("XR01:QF1")
+    assert qf1.text == "s 1.250 m along XR-RING, from its pose in positions.csv"
+    assert qf1.caveat == "the facility file states s 1.500 m along model XRM"
+    assert beam("XR01:QD1").caveat is None  # the two agree

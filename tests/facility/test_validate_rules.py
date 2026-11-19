@@ -632,13 +632,9 @@ class TestPairRules:
         error = _rule(tmp_path, files, "pair-invalid")
         assert error.detail == "`pair` names setpoint channel Q1:SP"
 
-    def test_a_readback_paired_twice(self, tmp_path: Path) -> None:
+    def test_a_readback_two_setpoints_name_is_the_pair_of_both(self, tmp_path: Path) -> None:
         files = _with_channels({"id": "T", "role": "setpoint", "pair": "Q1:RB"})
-        error = _rule(tmp_path, files, "pair-invalid")
-        assert (error.record_id, error.detail) == (
-            "Q1:RB",
-            "the pair of setpoints Q1:SP, T",
-        )
+        assert _run(tmp_path, files).ok
 
     def test_a_setpoint_without_pair_pairs_itself(self, tmp_path: Path) -> None:
         files = _with_channels({"id": "T", "role": "setpoint"})
@@ -661,12 +657,40 @@ class TestPairRules:
         ],
         ids=["value_type", "options", "shape"],
     )
-    def test_setpoint_and_pair_share_their_type(
+    def test_a_setpoint_and_readback_of_one_quantity_share_their_type(
         self, tmp_path: Path, setpoint: dict[str, Any], readback: dict[str, Any], slots: str
     ) -> None:
-        files = _tree(**{"records/channels.yaml": [{**SP, **setpoint}, {**RB, **readback}, X]})
+        sp = {**SP, "signal": "gap_setpoint", **setpoint}
+        rb = {**RB, "signal": "gap_readback", **readback}
+        files = _tree(**{"records/channels.yaml": [sp, rb, X]})
         error = _rule(tmp_path, files, "pair-invalid")
         assert error.detail == f"setpoint and pair Q1:RB differ in {slots}"
+
+    @pytest.mark.parametrize(
+        ("setpoint", "readback"),
+        [
+            # a command of no stated signal and the two-state status it reads back on
+            ({}, {"value_type": "bool", "options": ["Active", "Bypassed"]}),
+            (
+                {
+                    "signal": "power_on_command",
+                    "value_type": "enum",
+                    "options": ["Idle", "On", "Off", "Cycle"],
+                },
+                {
+                    "signal": "power_on_status",
+                    "value_type": "enum",
+                    "options": ["Unknown", "Off", "On"],
+                },
+            ),
+        ],
+        ids=["no signal", "command and status"],
+    )
+    def test_a_command_or_a_pair_of_no_stated_quantity_may_differ_in_type(
+        self, tmp_path: Path, setpoint: dict[str, Any], readback: dict[str, Any]
+    ) -> None:
+        files = _tree(**{"records/channels.yaml": [{**SP, **setpoint}, {**RB, **readback}, X]})
+        assert _run(tmp_path, files).ok, _lines(_run(tmp_path, files))
 
     def test_setpoint_and_pair_are_owned_by_one_model(self, tmp_path: Path) -> None:
         files = _tree(**{"models.yaml": [_wired("Q1:SP"), _wired("Q1:RB", model="other")]})
@@ -976,6 +1000,32 @@ class TestValueRules:
         error = _rule(tmp_path, files, "value-invalid")
         assert error.detail == (f"`channel_faults` is {block!r}, not a mapping of address to fault")
 
+    def test_stopped_servers_name_served_simulated_servers(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [_wired("Q1:SP")],
+                "scenarios/s.yaml": {"stopped_servers": ["sim-optics", "sim-texture"]},
+            }
+        )
+        assert _run(tmp_path, files).ok
+
+    def test_a_stopped_ioc_the_facility_does_not_serve_is_refused(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "models.yaml": [_wired("Q1:SP")],
+                "scenarios/s.yaml": {"stopped_servers": ["sim-nothing"]},
+            }
+        )
+        error = _rule(tmp_path, files, "value-invalid")
+        assert (error.record_kind, error.record_id) == ("scenario", "s")
+        assert error.detail == "`stopped_servers` names `sim-nothing`, which no simulated IOC is"
+        assert error.remedy == "write one of `sim-optics`, `sim-texture`"
+
+    @pytest.mark.parametrize("block", ["sim-texture", {"sim-texture": True}, [1]])
+    def test_stopped_servers_is_a_list_of_names(self, tmp_path: Path, block: Any) -> None:
+        files = _tree(**{"scenarios/s.yaml": {"stopped_servers": block}})
+        assert not _run(tmp_path, files).ok
+
     def _monitor_map(self, faults: dict[str, Any]) -> dict[str, Any]:
         model = _wired("Q1:SP")
         model["wiring"].append({"address": "BPM1:X", "element": "BPM1", "engine": {"axis": "x"}})
@@ -1207,6 +1257,101 @@ class TestSeedRules:
         assert error.detail == "`nominal` 1.0 differs from its setpoint Q1:SP's 0.0"
 
 
+class TestFollowsSeed:
+    """A readback's seed ``follows`` names the setpoint the simulation copies a write from."""
+
+    def test_follows_names_the_one_setpoint_that_pairs_with_it(self, tmp_path: Path) -> None:
+        files = _tree(**{"seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}}})
+        assert _run(tmp_path / "sp", files).ok, _lines(_run(tmp_path / "sp", files))
+        files = _tree(**{"seeds.yaml": {"Q1:RB": {"follows": "none"}}})
+        assert _run(tmp_path / "none", files).ok, _lines(_run(tmp_path / "none", files))
+
+    def test_follows_a_channel_that_does_not_name_this_readback(self, tmp_path: Path) -> None:
+        files = _with_channels(
+            {"id": "T", "role": "setpoint"}, **{"seeds.yaml": {"Q1:RB": {"follows": "T"}}}
+        )
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert (error.record_id, error.sources) == ("Q1:RB", ("seeds.yaml",))
+        assert error.detail == "`follows` names T, whose `pair` is not Q1:RB"
+
+    def test_follows_on_a_channel_no_setpoint_names(self, tmp_path: Path) -> None:
+        files = _tree(**{"seeds.yaml": {"BPM1:X": {"follows": "none"}}})
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert error.record_id == "BPM1:X"
+        assert error.detail == "`follows` on a channel no setpoint names as its `pair`"
+
+    def test_follows_on_a_readback_several_setpoints_name(self, tmp_path: Path) -> None:
+        files = _with_channels(
+            {"id": "T", "role": "setpoint", "pair": "Q1:RB"},
+            **{"seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}}},
+        )
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert error.detail == (
+            "`follows` on a readback several setpoints name (Q1:SP, T); the simulation "
+            "follows it from none of them"
+        )
+
+    def test_follows_a_setpoint_of_another_type(self, tmp_path: Path) -> None:
+        setpoint = {**SP, "value_type": "enum", "options": ["Idle", "On"]}
+        readback = {**RB, "value_type": "bool"}
+        files = _tree(
+            **{
+                "records/channels.yaml": [setpoint, readback, X],
+                "seeds.yaml": {"Q1:RB": {"follows": "Q1:SP"}},
+            }
+        )
+        error = _rule(tmp_path, files, "seed-invalid")
+        assert error.detail == (
+            "`follows` names Q1:SP, which holds values of another type; the simulation "
+            "copies the setpoint's value"
+        )
+
+    def test_two_layers_that_state_follows_differently_conflict(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "imported/a/channels.yaml": [{"id": "Q1:RB", "simulation": {"follows": "none"}}],
+                "imported/b/channels.yaml": [{"id": "Q1:RB", "simulation": {"follows": "Q1:SP"}}],
+            }
+        )
+        result = _run(tmp_path, files)
+        assert result.failed == "combine", _lines(result)
+        assert [(e.kind, e.record_id) for e in result.errors] == [("layer-conflict", "Q1:RB")]
+
+    @pytest.mark.parametrize(
+        "seed",
+        [
+            {"topoff": {"ceiling": 500.0, "lifetime_h": 7.0, "period_s": 30.0}},
+            {"linear": {"BPM1:X": 2.0}},
+        ],
+        ids=["topoff", "linear"],
+    )
+    def test_a_followed_readback_with_a_value_of_its_own(
+        self, tmp_path: Path, seed: dict[str, Any]
+    ) -> None:
+        files = _tree(**{"seeds.yaml": {"Q1:RB": seed}})
+        error = _rule(tmp_path / "followed", files, "seed-invalid")
+        key = next(iter(seed))
+        assert error.record_id == "Q1:RB"
+        assert error.detail == (
+            f"`{key}` on a readback the simulation follows from Q1:SP; a write to Q1:SP "
+            f"would replace the value `{key}` gives it"
+        )
+        assert error.remedy == f"state `follows: none` on Q1:RB, or remove `{key}`"
+        files = _tree(**{"seeds.yaml": {"Q1:RB": {**seed, "follows": "none"}}})
+        assert _run(tmp_path / "none", files).ok, _lines(_run(tmp_path / "none", files))
+
+    def test_a_readback_followed_from_none_starts_at_its_own_seed(self, tmp_path: Path) -> None:
+        files = _tree(
+            **{
+                "seeds.yaml": {
+                    "Q1:SP": {"nominal": 2.0},
+                    "Q1:RB": {"nominal": 3.0, "follows": "none"},
+                }
+            }
+        )
+        assert _run(tmp_path, files).ok, _lines(_run(tmp_path, files))
+
+
 # --- pulse and gate seeds ------------------------------------------------------------
 
 EXAMPLE_TREE = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "facilities" / "example"
@@ -1430,7 +1575,7 @@ class TestRefusedArchiverEvents:
         assert [e.kind for e in result.errors] == ["seed-invalid", "seed-invalid"]
 
     def test_an_event_on_a_linear_input_builds(self, tmp_path: Path) -> None:
-        seeds = {**self.GATED, "Q1:RB": {"linear": {"BPM1:X": 1.0}}}
+        seeds = {**self.GATED, "Q1:RB": {"linear": {"BPM1:X": 1.0}, "follows": "none"}}
         files = _pulse_tree(seeds=seeds, **{"scenarios/s.yaml": {"archiver": [_event("BPM1:X")]}})
         result = _run(tmp_path, files)
         assert result.ok, _lines(result)

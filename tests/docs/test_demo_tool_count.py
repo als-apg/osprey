@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from osprey.cli.build_profile_presets import _load_preset_raw
-from osprey.cli.templates.claude_code import _pv_directory_context, _pv_directory_tools
+from osprey.cli.templates.claude_code import _channel_directory_context, _channel_directory_tools
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from tests.docs.test_facility_graph_pages import tool_counts
 
@@ -16,11 +16,11 @@ DEMO_PAGE = Path(__file__).resolve().parents[2] / "docs" / "source" / "getting-s
 def _rendered_tools() -> list[str]:
     """The channel-finder agent's search tools in the demo render."""
     raw, _ = _load_preset_raw("demo")
-    ctx = _pv_directory_context(raw["config"])
-    assert ctx["pv_directory_configured"], "the demo preset renders no pv-directory tools"
-    return list(CHANNEL_FINDER_TOOLS_BY_PIPELINE[raw["channel_finder_mode"]]) + _pv_directory_tools(
-        ctx
-    )
+    ctx = _channel_directory_context(raw["config"])
+    assert ctx["channel_directory_configured"], "the demo preset renders no channel-directory tools"
+    return list(
+        CHANNEL_FINDER_TOOLS_BY_PIPELINE[raw["channel_finder_mode"]]
+    ) + _channel_directory_tools(ctx)
 
 
 def _how_it_works(page: str) -> str:
@@ -63,7 +63,7 @@ def test_the_bullets_name_exactly_the_rendered_tools() -> None:
 def test_a_miscounted_or_unnamed_tool_is_caught() -> None:
     paragraph = _paragraph()
     rendered = _rendered_tools()
-    assert tool_counts(paragraph.replace("twelve tools", "thirteen tools")) != [len(rendered)]
+    assert tool_counts(paragraph.replace("thirteen tools", "fourteen tools")) != [len(rendered)]
     assert _bullet_tools(paragraph.replace("``alarm_config``", "the alarm configuration")) != (
         set(rendered)
     )

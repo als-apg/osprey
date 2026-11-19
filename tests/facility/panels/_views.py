@@ -61,9 +61,26 @@ def stub_render(
     )
 
 
+def with_symbols(
+    graph: PanelGraph, symbols: dict[str, str], above: frozenset[str] = frozenset()
+) -> PanelGraph:
+    """*graph* with ``symbols.csv`` replaced: each class drawn as its symbol, in the
+    lane off the beam when the symbol is in *above*, else on the beam."""
+    import copy
+
+    from osprey.facility.panels.tables import StripSymbol
+
+    out = copy.copy(graph)
+    out._symbols = {  # type: ignore[attr-defined]
+        cls: [StripSymbol(cls, None, kind, "above" if kind in above else "beam", None)]
+        for cls, kind in symbols.items()
+    }
+    return out
+
+
 def fixture_views(graph: PanelGraph) -> list[View]:
     """One view per target of the fixture graph."""
-    return [describe(graph, t, symbols=SYMBOLS, above=ABOVE) for t in targets(graph)]
+    return [describe(graph, t) for t in targets(graph)]  # the fixture's symbols.csv
 
 
 def card(title: str, *items: Any) -> View:

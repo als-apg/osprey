@@ -1395,6 +1395,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    exits 1. A profile that states ``machine:`` imports into that machine root.
 
 ``osprey facility panels``
+   **Experimental.** The commands, the rule tables under ``panels/``, the
+   ``draw.json`` settings and the screens they write may change in any release,
+   without a compatibility path.
+
    Group for the operator screens drawn from the built facility. Both verbs
    read the facility file ``build/facility.json`` (``--facility FILE`` names
    another; neither verb builds) and the rule tables in ``panels/`` beside the
@@ -1404,8 +1408,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``write_under`` lists place ids a write keeps to: the home, those places and
    the places within them, the devices placed there, each device in no place one
    relation joins to one of those, and each group with one of those devices as a
-   member; links to the other screens are still written and ``index.json`` lists
-   them under ``outside``. ``check`` reads the same key: a screen outside it may
+   member. A written screen links only to files of the same write: it names a
+   screen the write does not produce as text, without a link, and
+   ``index.json`` lists those screens under ``outside``. Under it the home lists
+   only what the write keeps,
+   the kept places that lie in no kept place at the top and one line naming the
+   places the write keeps to, and the not-placed indexes only kept devices; a
+   group is cut to its kept members, and a group cut to the same members as
+   another is written once (the one all of whose members are kept, else the
+   first by id); the other holds no members under the scope, so screens name the
+   kept one. ``check`` reads the same key: a screen outside it may
    be absent, and only the health rules of what it keeps must be read. The
    screens are
    Canopy Screen-IR documents, one file per screen, in nine view kinds:
@@ -1417,16 +1429,24 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    records), ``channels`` (every channel of a device with more than a card
    lists, grouped by role, then record type: the one plain list), ``set`` (the members of a group as a grid), ``calibration`` (one
    calibration kind over a set), ``place`` (a place's devices in beam order
-   with a band of key numbers: positions are the ring-frame poses, else each
-   device's ``s`` along its model; one strip keeps to the beam path most of its
-   devices are on, the others wait in its tray, and a stretch across a ring's
+   with a band of key numbers: positions are each device's pose in its model's
+   beam frame, else its ``s`` along its model. A model's beam frame is the
+   ``positions.csv`` frame in which most of its devices' rows state an ``s_m``
+   and assume nothing (the devices with no model count as one more model), so
+   two rings each have their own; a tie goes to the frame with the most such
+   rows of all devices; a frame where fewer are stated is a local frame; one strip keeps to the beam path most of its
+   devices are on, the others wait in its tray (a device's card says which
+   position it uses and where it is read from, and gives the facility file's
+   ``s`` beside a pose that differs from it by more than 1 cm), and a stretch across a ring's
    start is drawn in one piece; a card's strip window reads on across the start
    the same way. A ring is a model the facility file marks ``periodic``, at its
-   ``length``; the ring frame of the poses takes the model most of its posed
-   devices belong to), ``rack`` (a rack elevation, chassis at their
+   ``length``, and a beam frame takes the length of its model), ``rack`` (a rack elevation, chassis at their
    unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
    ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
-   level) and ``checkout`` (every setpoint beside its readback).
+   level; a place with at least two children along a beam path the facility
+   file marks ``periodic``, going round it (no gap between their positions half
+   the ring or more, so one sector's places are no ring), draws them as arcs of
+   a ring, in beam order) and ``checkout`` (every setpoint beside its readback).
 
    Every screen but the home leads back to it first in its crumbs, then out
    through the places around it (to each place's view where it has one). The
@@ -1449,12 +1469,36 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    400 rule-bearing channels, which its node in the place roll-up opens: every
    rule-bearing channel is read by exactly one roll-up page.
 
-   The rule tables are CSV files, each held to its header: ``positions.csv``
-   (where a thing sits), ``record_types.csv`` (each channel's record type and
-   how a screen draws it), ``pairs.csv`` (the readback a setpoint is shown
-   beside) and ``panels/health.csv`` (the state a channel's value means: ``normal``,
+   The rule tables are CSV files, each held to its header, and each may be
+   absent. What the facility file states is the default, and a table states
+   only what it does not: a setpoint's readback is its channel's ``pair`` and
+   nothing else (a pair the build derives is marked inferred, with its rule), a thing's short name what ``names.csv`` states,
+   else its ``label``, else the last ``:``- or ``/``-separated part of its id, a
+   channel is drawn by its ``role`` (a setpoint as an entry
+   beside its readback, a readback as a value; ``record_types.csv`` names its
+   record type and, where its ``drawn_as`` is not empty, any other drawing), and a channel on a device that states a
+   ``signal`` plays that signal as its role on the device's card, shown as an
+   entry, a word or a value by how it is drawn, a state that ``panels/health.csv`` rows
+   rule as a lamp; such a role says what the channel is, never how it is pressed:
+   a writable channel no row names is offered as any such channel is (a choice
+   of its stated words, an action, an entry) (``channel_roles.csv`` names
+   walked scopes, labels, presses and channels with no signal; a row's stated
+   ``label`` is the word the card shows for the channel on every tile, value row
+   and group title, and stays in front of what tells two channels of one role
+   apart, while a choice's or an action's label is the word on its press). ``check``
+   prints one ``redundant: <table>: <n> rows`` line per table whose rows only
+   restate the facility file or these defaults with no column of them read for
+   anything else (a
+   ``channel_roles.csv`` row without which every device it matches plays the same
+   roles in the same order, read the same, so never a press), so a
+   deployment can delete them, and one ``redundant: record_types.csv drawn_as``
+   line for the rows whose ``drawn_as`` is their role's: their record type is
+   read, so the row stays and only that value may be left empty.
+   The tables: ``positions.csv``
+   (where a thing sits), ``record_types.csv``,
+   ``panels/health.csv`` (the state a channel's value means: ``normal``,
    ``warn``, ``bad``; a value no row names is ``unknown``, and one that two
-   sources give two states is ``disagree``) must be there;
+   sources give two states is ``disagree``),
    ``excluded.csv``, ``pictures.csv``, ``names.csv``, ``metrics.csv``,
    ``probe_pictures.csv``, ``calibration_kinds.csv``, ``calibrations.csv``,
    ``calibration_curves.csv``, ``state_labels.csv`` (the word each value of a
@@ -1474,11 +1518,17 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    the device or an earlier hop, keeps the things its ``to`` filter takes, and
    shows its roles in the block; a hop that reaches nothing is a dashed "not
    stated" block, two answers are stacked as contested) and ``symbols.csv`` (how
-   a card's strip draws a device of a class: a symbol and a lane above, on or
-   below the beam pipe) may be absent. A strip section draws the devices of its
+   every strip, a card's and a place's, draws a device of a class, optionally
+   only those whose id matches a pattern: one of the drawing's symbols and a
+   lane above, on or below the beam pipe; a place's strip has one lane off the
+   beam; a class no row names is not drawn on a strip). ``draw.json`` keeps
+   only ``colours`` and ``annotate`` (both keyed by symbol) and
+   ``write_under``; a rack is a place some ``located_in`` claim gives a unit in. A strip section draws the devices of its
    classes within its window of the device along the beam, to scale, each with
-   the value of the section's role; a device placed only by a place around it
-   (its raft) is drawn in a dashed bracket round that place's point, and a card
+   the value of the section's role (a window of 3 m either side when the section
+   states none); a device placed only by a place around it is drawn in a dashed
+   bracket over that place's stretch (the place's own position and those of the
+   devices in it), the window widened to hold it, and a card
    whose device is placed by neither says "where it sits is not stated".
    ``fronts.csv`` (a recipe's connectors: one row per connector or numbered range
    ``Outlet{n}``, by face, group and order) draws a front section: the connectors
@@ -1580,7 +1630,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    card names it without a link. ``check`` counts the devices with no card, those
    the default alone leaves without one, and how many devices each row decides. A device card is drawn:
    its title line, up to five key tiles (the ``metrics.csv`` rows of view
-   ``card`` whose ``level`` names its recipe, else its roles; a tile's measure is
+   ``card`` whose ``level`` names its recipe, else its roles, but never a role
+   whose word is a ``nameplate`` signal, which says what the device is, not how
+   it is (a ``channel_roles.csv`` row giving the channel another word overrides
+   it); a tile's measure is
    ``value`` or ``word`` of the role's first channel, or over every channel of
    the role on the device ``count_true`` shown "k of N", ``max`` or ``sum``, a
    dash and "one of N has no value" while any member has none), its relations as
@@ -1637,7 +1690,7 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    sections stated for the recipe ``default``, else a chain of its place, power,
    network and controller); ``write`` prints how many device cards each recipe
    drew, per chain, how many were drawn whole and the hop most often missing, and
-   per strip, how many devices are placed, on a raft or not placed. A table that breaks its schema
+   per strip, how many devices are placed, placed by their place or not placed. A table that breaks its schema
    prints the file and line and exits 1. A ``pictures.csv`` row with a place id
    in its optional ``under`` column draws only the devices of its class in that
    place (and one with a ``devices`` id pattern only the devices it matches,

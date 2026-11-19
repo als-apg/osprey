@@ -2435,7 +2435,7 @@ def _resolve_prebuilt_images(config: dict) -> bool:
 #: (``${OSPREY_WORKER_IMAGE:-<services.<name>.image | default(osprey_images.worker)>}``).
 #: None has a ``build:`` block, so :func:`_build_project_image` is the only thing
 #: that produces the image they run.
-_PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive")
+_PROJECT_IMAGE_SERVICES = ("dispatch_worker", "ariel_sync", "archive", "server_fleet")
 
 
 def _deployed_project_image_services(

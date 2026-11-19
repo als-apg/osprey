@@ -1,4 +1,0 @@
-setpoint,readback,evidence,basis,source,revision,locator
-XR01-QF1:Current-SP,XR01-QF1:Current-RB,hardware,stated,xr-ioc,0a1b2c3,magnetApp/Db/magnet.db:10
-XR01-PS1:On-Cmd,XR01-PS1:On-Sts,hardware-via-link,inferred,xr-ioc,,psApp/Db/ps.db:3
-XR02-IP2:Interlock-Sts,XR02-IP2:Pressure-RB,hardware,inferred,xr-ioc,0a1b2c3,vacApp/Db/pump.db:9

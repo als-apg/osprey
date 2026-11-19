@@ -27,7 +27,7 @@ from osprey.mcp_server.control_system.server_context import (
     reset_server_context,
 )
 from osprey.stores.artifact_store import reset_artifact_store
-from osprey_connectors.simulation.view import IOC_HEALTH_SIGNALS
+from osprey_connectors.simulation.view import SERVER_HEALTH_SIGNALS
 from osprey_connectors.workspace import reset_config_cache
 from osprey_connectors_tests._harness import write_control_context
 from tests._approval_stamp_fixture import ApprovalStamps
@@ -37,9 +37,9 @@ from tests.va.e2e import conftest as e2e_conftest
 
 VIEW = e2e_conftest.PRESET_VIEW
 LANE = e2e_conftest.LANE
-HEALTH = tuple(VIEW.ioc_health_by_model()[LANE.model].values())
+HEALTH = tuple(VIEW.server_health_by_model()[LANE.model].values())
 HEARTBEAT, UPTIME, ENGINEER = (
-    VIEW.ioc_health_by_model()[LANE.model][signal] for signal in IOC_HEALTH_SIGNALS
+    VIEW.server_health_by_model()[LANE.model][signal] for signal in SERVER_HEALTH_SIGNALS
 )
 
 pytestmark = pytest.mark.usefixtures("deployment")

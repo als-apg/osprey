@@ -47,19 +47,25 @@ def _permissible_values(view: Any, enum_name: str) -> list[dict[str, Any]]:
         enum_name: The enum to read.
 
     Returns:
-        ``{name, description, aliases, unit}`` per value; ``unit`` is the
-        value's ``unit`` annotation, or ``None``.
+        ``{name, description, aliases, unit, nameplate, title}`` per value;
+        ``unit`` is the value's ``unit`` annotation, or ``None``; ``nameplate``
+        whether its ``nameplate`` annotation is ``true``; ``title`` its ``title``
+        annotation (the short word a screen names it by), or ``None``.
     """
     enum = view.get_enum(enum_name, strict=True)
     records = []
     for name, value in (enum.permissible_values or {}).items():
         unit = value.annotations.get("unit") if value.annotations else None
+        plate = value.annotations.get("nameplate") if value.annotations else None
+        title = value.annotations.get("title") if value.annotations else None
         records.append(
             {
                 "name": name,
                 "description": value.description,
                 "aliases": list(value.aliases or []),
                 "unit": unit.value if unit is not None else None,
+                "nameplate": plate is not None and str(plate.value).lower() == "true",
+                "title": str(title.value) if title is not None else None,
             }
         )
     return sorted(records, key=lambda record: record["name"])
@@ -145,10 +151,19 @@ def render(schema_dir: Path = SCHEMA_DIR) -> str:
         "schema": view.schema.name,
         "classes": _classes(view),
         "signal_roles": [
-            {key: value for key, value in record.items() if key != "unit"}
+            # a nameplate signal (it names the unit, as a model or serial does) says so,
+            # and a signal with a short word for screens states it as its title
+            {
+                key: value
+                for key, value in record.items()
+                if key != "unit" and (key not in ("nameplate", "title") or value)
+            }
             for record in _permissible_values(view, SIGNAL_ROLE_ENUM)
         ],
-        "properties": _permissible_values(view, PROPERTY_NAME_ENUM),
+        "properties": [
+            {key: value for key, value in record.items() if key not in ("nameplate", "title")}
+            for record in _permissible_values(view, PROPERTY_NAME_ENUM)
+        ],
         "relations": _relations(view),
     }
     return json.dumps(table, indent=2, sort_keys=True, ensure_ascii=False) + "\n"

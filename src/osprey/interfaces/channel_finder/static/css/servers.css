@@ -1,0 +1,159 @@
+/**
+ * OSPREY Channel Finder — the IOCs view (#/iocs).
+ *
+ * The header, the band of count tiles that filter, and the table of the
+ * fleet snapshot. Tokens only; the chips are the design system's.
+ */
+
+.servers {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+}
+
+.servers-header[hidden],
+.servers-band[hidden],
+.servers-state[hidden],
+.servers-list[hidden] {
+  display: none;
+}
+
+.servers-header {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+}
+
+.servers-taken strong {
+  color: var(--text-primary);
+}
+
+.servers-sources {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.servers-band {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.servers-tile {
+  min-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.servers-tile:hover {
+  background: var(--surface-hover);
+}
+
+.servers-tile[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.servers-tile-n {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.servers-tile-k {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.servers-tile.is-zero .servers-tile-n,
+.servers-tile.is-zero .servers-tile-k {
+  color: var(--text-muted);
+}
+
+.servers-band-rule {
+  align-self: stretch;
+  width: 1px;
+  margin: var(--space-1);
+  background: var(--border-default);
+}
+
+.servers-grow {
+  flex: 1;
+}
+
+.servers-band .osprey-btn[aria-pressed='true'] {
+  border-color: var(--color-accent);
+}
+
+.servers-state {
+  flex: 1;
+}
+
+.servers-list {
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.servers-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.servers-table th {
+  color: var(--text-muted);
+  font-weight: var(--weight-medium);
+  text-align: left;
+}
+
+.servers-table th,
+.servers-table td {
+  padding: var(--space-1) var(--space-3) var(--space-1) 0;
+  border-bottom: 1px solid var(--border-default);
+  vertical-align: middle;
+}
+
+.servers-table td {
+  font-family: var(--font-mono);
+}
+
+.servers-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.servers-table a {
+  color: var(--text-accent);
+}
+
+.servers-table .servers-group th {
+  padding-top: var(--space-3);
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+}
+
+.servers-findings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}

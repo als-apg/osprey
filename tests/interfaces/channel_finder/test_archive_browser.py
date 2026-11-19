@@ -26,7 +26,7 @@ pytest.importorskip("osprey_connectors.service_answers")
 
 from osprey.channel_roster import registered_channels
 from osprey_connectors.factory import ConnectorFactory
-from tests.interfaces.channel_finder.test_all_pvs_browser import (
+from tests.interfaces.channel_finder.test_all_channels_browser import (
     _open,
     _tabs,
     panel_server,  # noqa: F401  (fixture)

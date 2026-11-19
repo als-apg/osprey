@@ -375,7 +375,7 @@ def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None
     and its ``web_panels`` added to the host's selection. Only the subtrees the
     gates read are assembled — ``services`` (the graph store), ``deployment``
     (the port base that store's defaults resolve against), ``web.panels`` and
-    ``pv_directory``, which a layer spelling ``null`` removes.
+    ``channel_directory``, which a layer spelling ``null`` removes.
 
     The panel blocks are projected the way the build projects them
     (:func:`~osprey.cli.build_profile_panels.panel_selection_overrides`): a
@@ -404,9 +404,9 @@ def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None
             _merge_subtree(section, effective_config_subtree(layer, subtree))
         rendered[subtree[0]] = section
 
-    section = _pv_directory_section(layers)
+    section = _channel_directory_section(layers)
     if section is not None:
-        rendered["pv_directory"] = section
+        rendered["channel_directory"] = section
 
     web = rendered["web"]
     panels = web.get("panels")
@@ -420,8 +420,8 @@ def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None
     return rendered
 
 
-def _pv_directory_section(layers: Sequence[Mapping[str, Any]]) -> Any:
-    """The ``pv_directory`` section the layers render, or ``None`` when none does.
+def _channel_directory_section(layers: Sequence[Mapping[str, Any]]) -> Any:
+    """The ``channel_directory`` section the layers render, or ``None`` when none does.
 
     A later layer's mapping folds over the earlier ones, deeper key winning; a
     later ``null`` removes the section.
@@ -432,9 +432,9 @@ def _pv_directory_section(layers: Sequence[Mapping[str, Any]]) -> Any:
     section: Any = None
     for layer in layers:
         tree = _expand_dotted(dict(layer))
-        if "pv_directory" not in tree:
+        if "channel_directory" not in tree:
             continue
-        value = tree["pv_directory"]
+        value = tree["channel_directory"]
         if isinstance(value, Mapping) and isinstance(section, dict):
             _merge_subtree(section, value)
         else:
@@ -449,7 +449,7 @@ def _registry_context(profile: BuildProfile, rendered: Mapping[str, Any]) -> dic
     than restated, so the card and the render cannot disagree about whether a
     render ships the ``graph`` or the ``event_dispatcher`` server, a server
     derived from a sidecar panel (listed when that render's ``web.panels``
-    block for the panel is enabled), or the ``pv_directory`` tools.
+    block for the panel is enabled), or the ``channel_directory`` tools.
     """
     from osprey.deployment.web_terminals.roster import (
         config_declares_panel,
@@ -458,8 +458,8 @@ def _registry_context(profile: BuildProfile, rendered: Mapping[str, Any]) -> dic
 
     from .profile_conventions import library_selection
     from .templates.claude_code import (
+        _channel_directory_context,
         _graphdb_configured,
-        _pv_directory_context,
         panel_declared_context,
     )
 
@@ -467,7 +467,7 @@ def _registry_context(profile: BuildProfile, rendered: Mapping[str, Any]) -> dic
         **panel_declared_context(lambda panel_id: config_declares_panel(rendered, panel_id)),
         "graphdb_configured": _graphdb_configured(dict(rendered)),
         "event_dispatcher_wired": config_needs_dispatcher_token(rendered),
-        **_pv_directory_context(rendered),
+        **_channel_directory_context(rendered),
     }
     if profile.channel_finder_mode and "channel-finder" in library_selection(
         "agents", profile.agents

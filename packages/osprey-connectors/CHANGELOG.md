@@ -20,6 +20,101 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.14] - 2026-11-19
+
+### Added
+
+- The texture model copies a setpoint into a labelled readback by index. A
+  labelled setpoint gives the index of its label, so a pair whose labels differ
+  (`Clear / Set` into `Off / On`) follows state for state; a number written to a
+  setpoint must be an integral index of the readback's labels. A write the
+  readback refuses (a fraction, an index past its labels) holds nothing on
+  either channel, and the readback starts at the state of its setpoint's start
+  value. A pair of equal labels or of one unlabelled type copies as before.
+
+## [2026.11.13] - 2026-11-19
+
+### Added
+
+- The Phoebus alarm feed (`phoebus_alarm_server`) logs in to a Kafka broker that asks for it: `settings.auth` takes `username` and `password_env`, sent as SASL (`mechanism`: `PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`). A login goes over TLS, verified against `settings.tls.ca_bundle` or the system trust store; `auth.cleartext: true` sends it unencrypted for a listener with no TLS.
+- An alarm relay for a broker the reader cannot reach: `python -m osprey_connectors.alarm_state.relay` follows a Phoebus alarm server's Kafka topic from beside the broker and serves the folded state over read-only HTTP, and the `osprey_alarm_relay` alarm-state backend reads it.
+- `ChannelDirectory.list_servers(deadline)` lists every server the directory knows,
+  one `osprey_connectors.directory.ServerRow(name, host, channel_count, inactive_count)`
+  each. The list is complete or `Unavailable`, never partial. It is not abstract:
+  a backend that does not list keeps the default, which answers `Unavailable`.
+  The ChannelFinder backend lists the servers its channels name in `iocName`,
+  reading every channel over the service's scroll route, and the simulator
+  directory lists the simulated servers of the view.
+- A read-only service backend may `GET` one percent-encoded segment under an
+  allowed `/*` prefix, which is how a channel name travels as a path segment.
+  The segment is refused unless it decodes to UTF-8 holding no `/`, `\` or
+  control character and is neither `.` nor `..`.
+- A scenario's `stopped_servers` stops simulated servers by name: `sim-<model>`
+  for a served physics model, `sim-texture` for every channel no physics model
+  owns (`osprey_connectors.simulation.servers`). While the scenario is active no
+  channel of a stopped server answers: the in-process connector raises
+  `ChannelUnreachableError` for a read, fails a write with nothing sent and tells
+  subscriptions the channel disconnected, and `Composite.stopped()` lists the
+  addresses. A channel answers again, with its current value, once the scenario
+  is no longer active.
+
+### Changed
+
+- `service_targets` reads the directory section under `channel_directory`, the
+  control-system-neutral name of the former `pv_directory` section. A config
+  that has no `channel_directory` key is still read under `pv_directory`, which
+  is what a framework release from before the rename hands over. Each
+  `BackendSpec` carries the key it was read under in a new `section` field
+  (default `channel_directory`, left out of equality), and `settings_key` is the
+  config key of its settings: a settings error of a directory, alarm or put-log
+  backend names the key that is in the config, `channel_directory.settings.url`
+  or `pv_directory.settings.url`.
+- The simulator view names its health signals in server words:
+  `osprey_connectors.simulation.view.SERVER_HEALTH_SIGNALS`,
+  `PERIODIC_SERVER_HEALTH` and `SimulatorView.server_health_by_model()`, read
+  from the `server_health` key of `addresses.json`. The released names
+  `IOC_HEALTH_SIGNALS`, `PERIODIC_IOC_HEALTH` and
+  `SimulatorView.ioc_health_by_model()` stay as aliases of them, and a view whose
+  `addresses.json` has no `server_health` is read under `ioc_health`, which is
+  what a framework release from before the rename writes. The contract
+  docstrings of the directory, alarm and put-log kinds say channel and server
+  where they said PV and IOC.
+
+### Removed
+
+- Members that only the tests called are gone. No framework release uses any of them:
+
+  - `osprey_connectors.connection.ConnectionSettings.credential_env_names`: read
+    `login.env_names`, or `read_credential_env_names()` for a whole block.
+  - `osprey_connectors.control_system.ChannelWriteResult.observed_number`:
+    `observed_value` holds the reading in the type the channel reports.
+  - `osprey_connectors.control_system.LimitsValidator.writable_addresses()`.
+  - `osprey_connectors.config.ConfigBuilder._require_config()` and
+    `osprey_connectors.errors.ChannelWriteFailedError._VALID_REASONS`, both
+    private. A write failure's reason is still its outcome word, uppercased.
+
+### Fixed
+
+- A command pointed at a deployment with `--repo` keeps reading that deployment's
+  config, facility timezone included, after it looks up an agent-data directory.
+  Before, the lookup could switch the rest of the command to the config that
+  `OSPREY_CONFIG` or the working directory named.
+- A process pointed at its config with `CONFIG_FILE` keeps reading that file
+  after it looks up an agent-data directory. Before, the lookup could switch the
+  rest of the process to the file `OSPREY_CONFIG` or the working directory
+  named. A connector-host child now reads the config file its parent handed it
+  for every lookup.
+- The record of which shell exports the env chain overrode now compares each
+  export with the value actually applied. Before, a `.env` line with an inline
+  `# comment` or a `${VAR}` reference could be reported as overriding an export
+  it matched, and an export it did replace could go unreported.
+- The `logging.rich_tracebacks`, `logging.show_traceback_locals` and
+  `logging.show_full_paths` settings now read a quoted `"false"` or a
+  `${VAR:-false}` value as off. Before, such a value read as on, so
+  `show_traceback_locals: "false"` showed local variables in tracebacks. A value
+  that is neither on nor off now falls back to the defaults (locals hidden, short
+  paths) with a warning naming the setting.
+
 ## [2026.11.12] - 2026-11-16
 
 ### Added

@@ -49,7 +49,7 @@ from osprey.facility.panels.describe import (
 )
 from osprey.facility.panels.describe import light as describe_light
 from osprey.facility.panels.health import State
-from osprey.facility.panels.model import Citation, PanelGraph
+from osprey.facility.panels.model import Citation, PanelGraph, id_tail
 from osprey.facility.panels.strip import Placed
 from osprey.facility.panels.symbols import (
     BOX_BORDER,
@@ -289,19 +289,6 @@ CARD_LEAST_SPAN = 1e-9  # m: a window of no length is drawn as this
 CARD_ABOVE_ROOM = 2 * ROW + CARD_LANE  # over the pipe: a lane, a name, a value
 CARD_BELOW_ROOM = 3 * ROW + CARD_LANE  # under it: a lane, a name, a value
 _STRIP_TRIES = 200  # lines a strip's name or value moves out, at most, to clear the others
-#: The drawing kind of each strip symbol word ``symbols.csv`` may name.
-STRIP_KINDS: Mapping[str, str] = MappingProxyType(
-    {
-        "pump": "ion_pump",
-        "gauge": "gauge",
-        "valve": "gate_valve",
-        "dipole": "bend",
-        "quad": "quadrupole",
-        "sext": "sextupole",
-        "bpm": "bpm",
-        "sensor": "generic",
-    }
-)
 _DIPOLE_DRAWN = "dipoles drawn {:g} m long"
 _HERE = "{} · here"
 _NOWHERE = "where it sits is not stated"
@@ -534,7 +521,6 @@ _AGGREGATE_SYMBOL = "aggregate: symbol"
 _AGGREGATE_TEXT = "{} channels, open for detail"
 _SUMMARY_TEXT = "{} channels: a live summary of this level needs a server-side aggregate"
 _PART = "part {} of {}"
-_ID_PARTS = re.compile(r"[:/]")
 _PICTURE = "picture"
 #: The kind of a pictures row that is a point of the class's outline, not a part.
 OUTLINE_KIND = "outline"
@@ -1495,7 +1481,7 @@ class _Page:
         self,
         view: View,
         graph: PanelGraph,
-        screens: Callable[[Target], str],
+        screens: Callable[[Target], str | None],
         doc_id: str,
         colours: Mapping[str, str] = MappingProxyType({}),
     ) -> None:
@@ -1858,9 +1844,14 @@ class _Page:
             return None
 
     def own_kind(self, channel: str) -> str | None:
-        """The ``drawn_as`` ``record_types.csv`` states for *channel*, or ``None``."""
-        row = self.graph.record_type(channel)
-        return row.drawn_as if row is not None else None
+        """How *channel*'s ``record_types.csv`` row draws it: the ``drawn_as`` it
+        states, else its role's default; ``None`` with no row (its kind unknown)."""
+        if self.graph.record_type(channel) is None:
+            return None
+        try:
+            return self.graph.channel(channel).drawn_as
+        except KeyError:
+            return None
 
     def command_label(self, channel: str) -> str:
         """The word a command's button reads: the word ``state_labels.csv`` states
@@ -2584,10 +2575,10 @@ class _Page:
         self.s.widget("text-label", x, y, w, h, props, rules=[rule])
 
     def _strip_nodes(self, member: Any, x: float, y: float, scale: float) -> list[dict[str, Any]]:
-        """A card strip member's symbol at (*x*, *y*): a dipole a box round the pipe
+        """A card strip member's symbol at (*x*, *y*): a bend a box round the pipe
         its stated length long, any other its symbol."""
-        if member.symbol != "dipole":
-            return symbols.draw(STRIP_KINDS[member.symbol], x, y, unit=CARD_SYMBOL_UNIT)
+        if member.symbol != "bend":
+            return symbols.draw(member.symbol, x, y, unit=CARD_SYMBOL_UNIT)
         w, h = CARD_DIPOLE_M * scale, CARD_DIPOLE_HEIGHT
         props: dict[str, Any] = {
             "lineColor": symbols.FOCUS if member.focus else PAGE_TEXT,
@@ -2601,7 +2592,7 @@ class _Page:
         """The beam pipe across the card, to scale over the strip's window; each member
         as its symbol on the pipe or in its lane above or below it, its name and its
         value; the device in the focus colour; metre ticks under it; a dashed bracket
-        where only the device's raft is placed."""
+        where only a place around the device is placed."""
         lo, hi = strip.window
         scale = STRIP_WIDTH / max(hi - lo, CARD_LEAST_SPAN)  # px per m
 
@@ -2642,13 +2633,13 @@ class _Page:
             label = _HERE.format(member.label) if member.focus else member.label
             lw = min(text_width(label, SMALL_SIZE), CARD_STRIP_VALUE * 2)
             lx = min(max(x - lw / 2, self.x0), self.x0 + STRIP_WIDTH - lw)
-            up = member.lane == "above" or member.lane == "beam" and member.symbol == "dipole"
+            up = member.lane == "above" or member.lane == "beam" and member.symbol == "bend"
             sign = -1 if up else 1
             ty = top - SMALL_LINE - ROW_GAP if up else bottom + ROW_GAP
             ty = free(lx, ty, lw, SMALL_LINE, sign * SMALL_LINE)
             vx: float | None = None
             vy = 0.0
-            if member.channel is not None and member.symbol != "dipole":
+            if member.channel is not None and member.symbol != "bend":
                 vx = min(
                     max(x - CARD_STRIP_VALUE / 2, self.x0), self.x0 + STRIP_WIDTH - CARD_STRIP_VALUE
                 )
@@ -2669,7 +2660,7 @@ class _Page:
         for member, x, y, (left, top, right, bottom) in drawn:
             if member.lane != "beam":
                 self.line([(x, axis), (x, axis + y)], MUTED_TEXT)  # its stem to the pipe
-            dipoles = dipoles or member.symbol == "dipole"
+            dipoles = dipoles or member.symbol == "bend"
             for node in self._strip_nodes(member, x, axis + y, scale):
                 if member.focus:
                     node["props"]["lineColor"] = symbols.FOCUS
@@ -4647,14 +4638,14 @@ class _Page:
         return y + h
 
     def member_name(self, member: Link | Fact) -> str:
-        """A member's short name: what ``names.csv`` states, else its id's last part."""
+        """A member's short name (:attr:`Thing.short`); a member that is no thing of
+        the graph by its label's last part."""
         if isinstance(member, Fact):
             return member.text
         try:
-            short = self.graph.thing(member.target.id, member.target.kind).short_name
+            return self.graph.thing(member.target.id, member.target.kind).short
         except KeyError:
-            short = None
-        return short or _short(member.label)
+            return id_tail(member.label)
 
     def check_header(self) -> None:
         tags = (_need("table"),)
@@ -4798,8 +4789,13 @@ class _Page:
 
         Every link is one: a button's text is a label under an *outline* in
         the border role, a symbol or a tile has a transparent box that shows
-        the link's label while the pointer is on it.
+        the link's label while the pointer is on it. A screen the write does not
+        produce (*screens* gives no file for it) gets no box: what is drawn there
+        names it as text.
         """
+        file = self.screens(link.target)
+        if file is None:
+            return
         props: dict[str, Any] = {
             "lineColor": BOX_BORDER if outline else TRANSPARENT,
             "lineWidth": LINE_WIDTH if outline else 0,
@@ -4808,7 +4804,7 @@ class _Page:
             "actions": [
                 {
                     "type": "open_display",
-                    "file": self.screens(link.target),
+                    "file": file,
                     "target": _NAVIGATION_TARGET,
                 }
             ],
@@ -6591,8 +6587,7 @@ def _ticks(lo: float, hi: float) -> list[tuple[float, float]]:
 
 def _short(thing: str) -> str:
     """A symbol's name: the last component of its id."""
-    parts = [part for part in _ID_PARTS.split(thing) if part]
-    return parts[-1] if parts else thing
+    return id_tail(thing)
 
 
 def _column_head(groups: Sequence[tuple[str, Sequence[GridRow]]], column: int) -> str:
@@ -7000,7 +6995,7 @@ def render(
     view: View,
     *,
     graph: PanelGraph,
-    screens: Callable[[Target], str],
+    screens: Callable[[Target], str | None],
     doc_id: str,
     colours: Mapping[str, str] = MappingProxyType({}),
 ) -> dict[str, Any]:

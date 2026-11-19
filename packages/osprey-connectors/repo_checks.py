@@ -48,6 +48,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.directory.ChannelDirectory": (
         "an out-of-tree directory backend subclasses it"
     ),
+    "osprey_connectors.directory.ServerRow": (
+        "a directory backend's list_servers answers in this type"
+    ),
     "osprey_connectors.factory.BuiltinConnector": (
         "the framework reads each built-in's fields in this type"
     ),
@@ -94,14 +97,23 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.series.loss_refill_bound": (
         "the framework's archive rewrite reads the loss refill bound"
     ),
+    "osprey_connectors.simulation.servers.TEXTURE_SERVER": (
+        "a facility validator names the server of the channels no model owns"
+    ),
     "osprey_connectors.simulation.state.Overlap": "a composition check answers in this type",
     "osprey_connectors.simulation.view.Binding": "a view lists its wiring records in this type",
     "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.Channel": "a view answers a channel in this type",
     "osprey_connectors.simulation.view.ENGINE_ROLES": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS": (
+        "a released framework reads SERVER_HEALTH_SIGNALS under this name"
+    ),
     "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH": (
+        "a released framework reads PERIODIC_SERVER_HEALTH under this name"
+    ),
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",

@@ -36,8 +36,10 @@ computes:
 - for each wiring record, its unit, direction, value range and operating
   point, and what its model's engine says it is: engine_role, plane and refresh.
 
-The second is ``provenance``: per record, which layer and file stated each field,
-which fixes were applied and which fields the build filled.
+The second is ``provenance``: per record, which layer and file stated each field
+(and, where the layer's record says so, the rule the field rests on), which fixes
+were applied, which fields the build filled, and of those the ones it derived by
+a named rule, such as a setpoint's pair.
 ``osprey facility show <id>`` prints it.
 
 The file is the same in every render of a build. It carries no timestamp, no
@@ -429,9 +431,10 @@ A model that names no deck and wires no channel is not a failure: nothing is
 built for it, its status is ``no deck``, and every channel of that machine is
 the texture's.
 
-Every served model, ``texture`` included, also has read-only IOC health
-channels, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``, which
-the IOC pages of All PVs read (:ref:`channel-finder-all-pvs`).
+Every served model, ``texture`` included, also has read-only health channels
+for its simulated server, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and
+``ENGINEER``, which the server pages of the channel directory and the server
+fleet read (:ref:`channel-finder-directory`).
 
 **A model may read another model's records.** A model record's ``inputs``
 lists records other models of the facility wire, each an ``address`` and an

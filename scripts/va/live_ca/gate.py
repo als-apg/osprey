@@ -81,13 +81,24 @@ LIVE_SUITES = ("tests/va/test_apply_fault.py",)
 
 #: Added in --pva mode: the model runner's seam, which serves a composite on
 #: both transports, its timed passes over an evolving composite, the
-#: entrypoint serving the injection chain, and one armed turn-by-turn shot.
+#: entrypoint serving the injection chain, one armed turn-by-turn shot, a
+#: scenario's stopped IOC withholding its channels from held clients, and the
+#: server fleet end to end over the served demo.
 PVA_SUITES = (
     "tests/va/test_lume_pva_seam.py",
     "tests/va/test_timed_passes_live.py",
     "tests/va/test_injection_live.py",
     "tests/va/test_turn_by_turn_live.py",
+    "tests/va/test_stopped_servers_live.py",
+    "tests/va/test_server_fleet_live.py",
 )
+
+#: Suites whose own waits are measured in refresh periods rather than seconds,
+#: with the wall-clock limit each needs instead of ``MODULE_TIMEOUT_S`` when
+#: that is shorter. The server fleet suite waits out a dozen 10 s refresh periods
+#: and a held Channel Access client's reconnect backoff (up to 120 s) on top of
+#: a demo build and its physics serve.
+SUITE_TIMEOUTS_S = {"tests/va/test_server_fleet_live.py": 900.0}
 
 #: Modules that must import in --pva mode. This is a precondition, not a
 #: preference, and it is checked *before* pytest runs.
@@ -331,7 +342,7 @@ def main(argv: list[str]) -> int:
     silent: list[str] = []
     for target in targets:
         print(f"--- {target} ---")
-        counts, target_status = _run_module(target, limit_s)
+        counts, target_status = _run_module(target, max(limit_s, SUITE_TIMEOUTS_S.get(target, 0.0)))
         for outcome in OUTCOMES:
             totals[outcome] += counts.get(outcome, 0)
         status = status or target_status

@@ -1,4 +1,10 @@
-"""The simulator view reads the optional ``ioc_health`` field of ``addresses.json``, per model."""
+"""The simulator view reads the optional server health field of ``addresses.json``, per model.
+
+The field is ``server_health``; ``ioc_health`` is the key it was first released
+under, which a framework release from before the rename still writes. Most of
+this file writes and reads the released spelling, which has to keep working;
+the tests at the end hold the two spellings to one behaviour.
+"""
 
 from __future__ import annotations
 
@@ -15,8 +21,10 @@ from osprey_connectors.simulation.view import (
     HEARTBEAT,
     IOC_HEALTH_SIGNALS,
     PERIODIC_IOC_HEALTH,
+    PERIODIC_SERVER_HEALTH,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
+    SERVER_HEALTH_SIGNALS,
     STATUS_SIGNAL,
     UPTIME,
     VARIABLES_FILE,
@@ -137,3 +145,50 @@ def test_another_addresses_schema_is_refused_with_the_field_present(tmp_path: Pa
 
     with pytest.raises(ViewSchemaError, match="rebuild"):
         SimulatorView.open(path)
+
+
+# -- ``server_health``, and the released ``ioc_health`` spelling beside it ---
+
+
+def test_the_released_names_are_the_neutral_ones() -> None:
+    assert IOC_HEALTH_SIGNALS is SERVER_HEALTH_SIGNALS
+    assert PERIODIC_IOC_HEALTH is PERIODIC_SERVER_HEALTH
+
+
+def test_the_field_is_read_under_its_neutral_key(tmp_path: Path) -> None:
+    listed = _health("SR") + _health("texture")
+    view = SimulatorView.open(_view(tmp_path, {"status": [], "server_health": listed}))
+
+    assert view.server_health_by_model() == {
+        model: {signal: f"T:SIM:{model}:{signal}" for signal in SERVER_HEALTH_SIGNALS}
+        for model in ("SR", "texture")
+    }
+
+
+def test_the_released_key_is_read_when_the_neutral_one_is_absent(tmp_path: Path) -> None:
+    view = SimulatorView.open(_view(tmp_path, {"status": [], "ioc_health": _health("SR")}))
+
+    assert view.server_health_by_model() == {
+        "SR": {signal: f"T:SIM:SR:{signal}" for signal in SERVER_HEALTH_SIGNALS}
+    }
+
+
+def test_the_neutral_key_wins_over_the_released_one(tmp_path: Path) -> None:
+    addresses = {"status": [], "server_health": _health("SR"), "ioc_health": _health("texture")}
+    view = SimulatorView.open(_view(tmp_path, addresses))
+
+    assert list(view.server_health_by_model()) == ["SR"]
+
+
+def test_the_released_method_answers_as_the_neutral_one(tmp_path: Path) -> None:
+    view = SimulatorView.open(_view(tmp_path, {"status": [], "server_health": _health("SR")}))
+
+    assert view.ioc_health_by_model() == view.server_health_by_model() != {}
+
+
+@pytest.mark.parametrize("key", ["server_health", "ioc_health"])
+def test_a_refused_field_is_named_by_the_key_the_document_used(tmp_path: Path, key: str) -> None:
+    view = SimulatorView.open(_view(tmp_path, {"status": [], key: ["T:SIM:SR:TEMPERATURE"]}))
+
+    with pytest.raises(ViewSchemaError, match=f"under {key},"):
+        view.server_health_by_model()

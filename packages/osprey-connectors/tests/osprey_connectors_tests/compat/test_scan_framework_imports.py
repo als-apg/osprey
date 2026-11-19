@@ -321,7 +321,7 @@ def test_an_import_its_fallback_stands_in_for_is_not_reported(tmp_path: Path) ->
 
 
 def test_a_release_scan_reports_an_import_only_its_stand_in_resolves(tmp_path: Path) -> None:
-    # The shape of the PV directory shim at a floor that lacks the module: the
+    # The shape of the channel directory shim at a floor that lacks the module: the
     # framework runs, and what the import was for is switched off.
     result = _scan(
         tmp_path,

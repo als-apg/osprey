@@ -64,6 +64,7 @@ from typing import Any
 
 from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
+from osprey.facility.pairing import simulated_pairs
 from osprey.facility.provenance import add_defaults, set_place_from
 from osprey.facility.relations import (
     ACCEPTED,
@@ -261,13 +262,13 @@ def _model_conflicts(run: _Run) -> None:
                 f"a source declares model {model['name']}, which the build provides",
                 f"remove model {model['name']}; every channel no model wires is {TEXTURE}'s",
             )
-    from osprey.facility.views.simulator import ioc_health_addresses, status_address
+    from osprey.facility.views.simulator import server_health_addresses, status_address
 
     code = run.document["identity"]["code"]
     physics = [model["name"] for model in models if str(model["name"]).casefold() != TEXTURE]
     served = {status_address(code, name): (name, "status") for name in physics}
     for name in (*physics, TEXTURE):
-        for address in ioc_health_addresses(code, name):
+        for address in server_health_addresses(code, name):
             served[address] = (name, "IOC health")
     for channel in run.document.get("channels", []):
         owner = served.get(channel["id"])
@@ -989,11 +990,7 @@ def _nominal_band(run: _Run) -> None:
         for record in model.get("wiring", []):
             if "default" in record:
                 defaults[record["address"]] = (record["default"], record)
-    setpoint_of = {
-        str(c["pair"]): c["id"]
-        for c in channels.values()
-        if c.get("role") == "setpoint" and c.get("pair", c["id"]) != c["id"]
-    }
+    setpoint_of = simulated_pairs(channels)
 
     def seed(address: str) -> dict[str, Any]:
         channel = channels.get(address)

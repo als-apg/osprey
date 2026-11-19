@@ -1220,10 +1220,10 @@ jobs:
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
-        # The chart-value-reading and PV directory benchmarks deploy a stack and
+        # The chart-value-reading and channel directory benchmarks deploy a stack and
         # run on the benchmark board only; this job carries the stack-free tier-2 tests.
         uv run pytest tests/e2e/tier2/ --ignore=tests/e2e/tier2/test_chart_value_reading.py \
-          --ignore=tests/e2e/tier2/test_pv_directory_agentic.py \
+          --ignore=tests/e2e/tier2/test_channel_directory_agentic.py \
           -v --tb=short
 
   deploy-e2e:

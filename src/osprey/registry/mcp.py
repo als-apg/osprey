@@ -802,17 +802,17 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         permissions_ask=[],
         hooks_post=[_post_error("mcp__graph__.*")],
     ),
-    "pv-directory": ServerDefinition(
-        name="pv-directory",
-        module="osprey.mcp_server.pv_directory",
+    "channel-directory": ServerDefinition(
+        name="channel-directory",
+        module="osprey.mcp_server.channel_directory",
         env={
             "OSPREY_CONFIG": RENDERED_CONFIG_ENV_VALUE,
             # See osprey_workspace: osprey_connectors.config reads CONFIG_FILE.
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
-        # Conditional on a configured ``pv_directory`` section: without one there
+        # Conditional on a configured ``channel_directory`` section: without one there
         # is no directory to read, so the server is left out of the render.
-        condition="pv_directory_configured",
+        condition="channel_directory_configured",
         # Read-only directory lookups: every tool reads, so there is no approval
         # or writes-check hook, permissions_ask stays empty and every tool is
         # auto-allowed. A gated tool's allow row follows its sub-block's key.
@@ -821,21 +821,23 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             "alarm_config",
             "alarm_history",
             "alarm_state",
+            "channel_record",
             "directory_properties",
             "directory_search",
-            "ioc_record",
             "put_history",
-            "pv_record",
+            "server_fleet",
+            "server_record",
         ],
         permissions_ask=[],
         optional_tools={
-            "active_alarms": OptionalTool("pv_directory_alarm_state"),
-            "alarm_state": OptionalTool("pv_directory_alarm_state"),
-            "alarm_history": OptionalTool("pv_directory_alarm_log"),
-            "alarm_config": OptionalTool("pv_directory_alarm_config"),
-            "put_history": OptionalTool("pv_directory_put_log"),
+            "active_alarms": OptionalTool("channel_directory_alarm_state"),
+            "alarm_state": OptionalTool("channel_directory_alarm_state"),
+            "alarm_history": OptionalTool("channel_directory_alarm_log"),
+            "alarm_config": OptionalTool("channel_directory_alarm_config"),
+            "put_history": OptionalTool("channel_directory_put_log"),
+            "server_fleet": OptionalTool("channel_directory_fleet"),
         },
-        hooks_post=[_post_error("mcp__pv-directory__.*")],
+        hooks_post=[_post_error("mcp__channel-directory__.*")],
     ),
     "event_dispatcher": ServerDefinition(
         name="event_dispatcher",

@@ -17,7 +17,7 @@ from osprey.facility.panels.describe import device_card
 from osprey.facility.panels.model import load_graph
 from osprey.facility.panels.tables import COLUMNS, PanelTableError, read_tables
 from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_facility
-from tests.facility.panels._views import bound, nodes, stub_render
+from tests.facility.panels._views import bound, nodes, stub_render, with_symbols
 
 PICTURES = "pictures.csv"
 HEADER = ",".join(c for c in COLUMNS[PICTURES] if c not in ("under", "devices"))  # reads
@@ -65,7 +65,7 @@ def _switches(document) -> None:
 
 
 def _card(graph) -> dict:
-    view = device_card(graph, "XR01:QF1", symbols={"Quadrupole": "quadrupole"})
+    view = device_card(with_symbols(graph, {"Quadrupole": "quadrupole"}), "XR01:QF1")
     return stub_render(view, graph, colours={"quadrupole": COLOUR})
 
 
@@ -242,6 +242,26 @@ def test_a_part_shows_its_state_where_it_sits_and_one_without_a_signal_is_plain(
         and "tooltip" not in n["props"]
     ]
     assert not leaders
+
+
+def test_a_ruled_readback_drawn_by_its_role_default_still_shows_its_number(tmp_path) -> None:
+    rows = [*_six_poles(), _row("gauge 1", "thermocouple", -90, 90, signal="current_readback")]
+    tables = _tables(tmp_path, rows)
+    types = tables / "record_types.csv"
+    types.write_text(types.read_text().replace("Current-RB,ai,value,", "Current-RB,ai,,"))
+    with (tables / "health.csv").open("a") as handle:
+        handle.write("XR01-QF1:Current-RB,1,bad,screen,stated,xr-screens,4d5e6f7,m.screen:2\n")
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
+    assert graph.channel("XR01-QF1:Current-RB").drawn_as == "value"  # the readback default
+    doc = _card(graph)
+    (gauge,) = _tipped(doc, "gauge 1")
+    gy = _centre(gauge)[1]
+    beside = [
+        n
+        for n in _by_type(doc, "pv-label")
+        if n["props"].get("pv") == "XR01-QF1:Current-RB" and abs(_centre(n)[1] - gy) < 1
+    ]
+    assert beside  # an empty drawn_as draws as the stated "value" does
 
 
 def test_the_picture_is_a_drawing_of_its_own_after_the_relations(tmp_path) -> None:
@@ -839,3 +859,8 @@ def test_a_row_s_devices_pattern_takes_or_leaves_out_devices_of_its_class(tmp_pa
     but = graph_with("!XR01:QF1")  # every device of the class but that one
     assert not but.pictures("Quadrupole", "XR01:QF1")
     assert but.pictures("Quadrupole", "XR02:QF1")
+
+
+def test_a_signal_resolves_on_a_device_any_relation_names(panel_graph) -> None:
+    # the magnet's own channels and parts hold no supply state; its powered_by does
+    assert panel_graph.picture_matches("XR01:QF1", "*:On-Sts") == [("XR01:PS1", "XR01-PS1:On-Sts")]

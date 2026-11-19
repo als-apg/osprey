@@ -1,0 +1,297 @@
+/**
+ * OSPREY Channel Finder — PV page
+ */
+
+.channel-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.chp-crumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-md);
+}
+
+.chp-crumb a {
+  color: var(--text-accent);
+}
+
+.chp-crumb-leaf {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* Header: mark, name and status chips on one line, the actions at its end. */
+.chp-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+}
+
+.chp-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.chp-mark {
+  color: var(--text-accent);
+  font-size: var(--text-md);
+}
+
+.chp-name {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* The stale chip carries the warning icon in place of the dot. */
+.chp-stale::before {
+  display: none;
+}
+
+.chp-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.chp-sub {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.chp-server {
+  font-family: var(--font-mono);
+  color: var(--text-accent);
+}
+
+/* The alarm banner, tinted by the severity's token. */
+.chp-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, currentColor 7%, var(--surface-card));
+  color: var(--cf-severity-invalid);
+}
+
+.chp-banner--major {
+  color: var(--color-error);
+}
+
+.chp-banner--minor {
+  color: var(--color-warning);
+}
+
+.chp-banner-alarm {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+}
+
+.chp-banner-rest,
+.chp-banner-guidance {
+  color: var(--text-primary);
+}
+
+.chp-banner-guidance {
+  flex: 1 1 260px;
+  max-width: 420px;
+  margin-left: auto;
+}
+
+/* Two columns of cards; one column on a narrow panel. */
+.chp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .chp-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.chp-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.chp-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+.chp-card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.chp-card-aside {
+  margin-left: auto;
+  font-weight: var(--weight-regular);
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.chp-card-part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+/* A card whose service is not configured: one dashed line. */
+.chp-off {
+  padding: var(--space-2) var(--space-4);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-xl);
+  color: var(--text-muted);
+}
+
+.chp-refresh {
+  margin-left: auto;
+}
+
+.chp-bigval {
+  font-family: var(--font-mono);
+  font-size: var(--text-4xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.chp-unit {
+  margin-left: var(--space-2);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+}
+
+.chp-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--space-4);
+  row-gap: var(--space-1);
+  margin: 0;
+}
+
+.chp-facts dt {
+  color: var(--text-muted);
+}
+
+.chp-facts dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.chp-more > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.chp-note {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.chp-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* Guidance and displays: a title line and a details line per entry. */
+.chp-entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chp-entry-title {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+}
+
+.chp-entry-details {
+  color: var(--text-secondary);
+}
+
+.chp-guidance {
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--border-default);
+  background: var(--surface-well);
+}
+
+.chp-logbook {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chp-logbook-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-3);
+}
+
+.chp-logbook-title {
+  color: var(--text-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chp-logbook-meta {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.chp-logbook-excerpt {
+  grid-column: 1 / -1;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

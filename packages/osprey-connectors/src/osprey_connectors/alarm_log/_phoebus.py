@@ -45,7 +45,6 @@ from osprey_connectors.service_answers import (
 
 _SEARCH_PATH = "/search/alarm"
 _CONFIG_PATH = "/search/alarm/config"
-_SETTINGS_KEY = "pv_directory.alarm_log.settings"
 
 #: How far back a configuration lookup reads, so a noisy PV's state rows leave room.
 _CONFIG_SEARCH_SIZE = 200
@@ -72,7 +71,9 @@ class PhoebusAlarmLogger(AlarmLog):
     ) -> None:
         super().__init__(spec, project_dir=project_dir, **seams)
         if transport is None:
-            transport = ReadOnlyTransport(spec.settings, self.ALLOWED_REQUESTS, where=_SETTINGS_KEY)
+            transport = ReadOnlyTransport(
+                spec.settings, self.ALLOWED_REQUESTS, where=spec.settings_key
+            )
         self._transport = transport
 
     @override

@@ -812,7 +812,7 @@ class CardStrip:
     Attributes:
         window: The stretch drawn, ``(from, to)`` in m.
         members: The things on it, by ``s_m``.
-        bracket: Where the device is when only its raft (or chamber) is placed:
+        bracket: Where the device is when only a place around it is placed:
             ``(from, to, label)`` in m; ``None`` when the device is placed.
         caption: The line under it, or ``None``.
     """

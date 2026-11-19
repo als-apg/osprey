@@ -2428,14 +2428,24 @@ SERVICE_ROLE_DRIVES_TARGET = "drives_target"
 #: The container's compose fragment binds the staged control-identity module.
 SERVICE_ROLE_CONTROL_IDENTITY = "control_identity"
 
+#: The container reads the target and writes nothing to it: its staged
+#: ``config.yml`` reaches the deployed machines across the compose network
+#: (:func:`_stage_in_network_gateways`), without the login→tier map a
+#: :data:`SERVICE_ROLE_DRIVES_TARGET` container judges writes by.
+SERVICE_ROLE_READS_TARGET = "reads_target"
+
 #: The bundled templates' declaration of the same roles, by service key: every
 #: bluesky lane, the dispatch worker and the optimizer, whose runs each write
 #: for the login that started them. All lanes render the one ``bluesky``
 #: directory (``osprey.cli.build_injectors._inject_bluesky``), so
 #: its basename is the first lane's key.
+#: The server fleet service reads every refreshed target's liveness channels.
 BUNDLED_SERVICE_ROLES: dict[str, frozenset[str]] = {
-    key: frozenset({SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY})
-    for key in (*LANE_KEYS, "dispatch_worker", "optimizer")
+    **{
+        key: frozenset({SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY})
+        for key in (*LANE_KEYS, "dispatch_worker", "optimizer")
+    },
+    "server_fleet": frozenset({SERVICE_ROLE_READS_TARGET}),
 }
 
 
@@ -2452,8 +2462,8 @@ def service_role(config, service_key, role):
     :type config: dict
     :param service_key: A ``services:`` key (for a build context, its basename).
     :type service_key: str
-    :param role: :data:`SERVICE_ROLE_DRIVES_TARGET` or
-        :data:`SERVICE_ROLE_CONTROL_IDENTITY`.
+    :param role: :data:`SERVICE_ROLE_DRIVES_TARGET`,
+        :data:`SERVICE_ROLE_CONTROL_IDENTITY` or :data:`SERVICE_ROLE_READS_TARGET`.
     :type role: str
     :rtype: bool
     """
@@ -2614,9 +2624,9 @@ def in_network_gateways(document, deployed_services):
 
 
 def _stage_in_network_gateways(config, source_dir, out_dir, service_key=None):
-    """Readdress the deployed machines in a bridged target driver's staged ``config.yml``.
+    """Readdress the deployed machines in a bridged target reader's staged ``config.yml``.
 
-    Applies to every context whose service drives the target
+    Applies to every context whose service drives or reads the target
     (:func:`service_role`) and is not on the host network: it reaches the
     machines across the compose network (:func:`in_network_gateways`). Every
     other context is left alone, as are the tiered worker's copy (the tier's
@@ -2633,7 +2643,10 @@ def _stage_in_network_gateways(config, source_dir, out_dir, service_key=None):
     :type service_key: str or None
     """
     key = service_key or _service_key(source_dir)
-    if not service_role(config, key, SERVICE_ROLE_DRIVES_TARGET):
+    if not (
+        service_role(config, key, SERVICE_ROLE_DRIVES_TARGET)
+        or service_role(config, key, SERVICE_ROLE_READS_TARGET)
+    ):
         return
     block = (config.get("services") or {}).get(key)
     if isinstance(block, Mapping) and block.get("network") == "host":
@@ -4909,6 +4922,7 @@ def dispatch_worker_audit_identities(config):
 #: projected service's identity comes from its block's ``audit_identity``
 #: (:func:`service_audit_identities`), not from this mapping.
 FIXED_SERVICE_AUDIT_IDENTITIES = {
+    "server_fleet": "server-fleet",
     "bluesky_web": "bluesky-web",
     "optimizer": "optimizer",
     "optimizer_web": "optimizer-web",
@@ -6064,7 +6078,7 @@ def _connection_ca_bundles(config, source_dir):
     Each is bind-mounted read-only at the same path by the service's compose
     template, so a block's ``tls.ca_bundle`` names one file on the host and in
     the container. A dispatch worker opens the SELECTED archiver block and the
-    ``pv_directory`` blocks, as a web terminal does; the archive recorder always opens
+    ``channel_directory`` blocks, as a web terminal does; the archive recorder always opens
     ``archiver.mongodb_archiver``, whatever ``archiver.type`` selects. Every
     other service reads no connection block and mounts nothing.
 
@@ -6079,12 +6093,12 @@ def _connection_ca_bundles(config, source_dir):
         as_dict,
         ca_bundle_mounts,
         config_archiver_ca_bundles,
-        config_pv_directory_ca_bundles,
+        config_channel_directory_ca_bundles,
     )
 
     service = os.path.basename(os.path.normpath(source_dir))
     if service == "dispatch_worker":
-        paths = (*config_archiver_ca_bundles(config), *config_pv_directory_ca_bundles(config))
+        paths = (*config_archiver_ca_bundles(config), *config_channel_directory_ca_bundles(config))
         return list(dict.fromkeys(paths))
     if service == ARCHIVER_RECORDER_SERVICE:
         store = as_dict(config.get("archiver")).get("mongodb_archiver")

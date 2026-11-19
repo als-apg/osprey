@@ -1,8 +1,7 @@
 """The serving side of the IOC health addresses, over a real composite and a hand-written view.
 
 ``periodic_addresses`` and the model RPC's surface read the view's optional
-``ioc_health`` field through a guarded accessor, so a connectors release without
-it serves none. A periodic pass publishes the advancing addresses; a write pass
+``server_health`` field, so a view without it serves none. A periodic pass publishes the advancing addresses; a write pass
 leaves them for the next one.
 """
 
@@ -22,12 +21,12 @@ from osprey.services.virtual_accelerator.serving.model_surface import (
 )
 from osprey.services.virtual_accelerator.serving.runner_config import (
     apply_safety,
-    ioc_health_addresses,
     periodic_addresses,
+    server_health_addresses,
     setting_records,
 )
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import PERIODIC_IOC_HEALTH, SCHEMAS, SimulatorView
+from osprey_connectors.simulation.view import PERIODIC_SERVER_HEALTH, SCHEMAS, SimulatorView
 from tests._simulator_view import view_channel
 
 TOKEN = "s3cret"
@@ -48,23 +47,11 @@ class _Clock:
         return self.now
 
 
-class _OlderView:
-    """A view as a connectors release without ``ioc_health_by_model`` presents it."""
-
-    def __init__(self, view: SimulatorView) -> None:
-        self._view = view
-
-    def __getattr__(self, name: str) -> Any:
-        if name == "ioc_health_by_model":
-            raise AttributeError(name)
-        return getattr(self._view, name)
-
-
 def _view(path: Path, *, health: bool = True) -> SimulatorView:
     """A view of one texture setpoint and a physics model ``M`` with no deck."""
     addresses: dict[str, Any] = {"channels": [SETPOINT], "status": [STATUS]}
     if health:
-        addresses["ioc_health"] = list(HEALTH)
+        addresses["server_health"] = list(HEALTH)
     documents = {
         "served_models.json": {"models": ["M", "texture"]},
         "addresses.json": addresses,
@@ -121,31 +108,23 @@ def test_heartbeat_and_uptime_are_periodic_and_engineer_is_not(tmp_path: Path) -
 
 def test_periodic_health_is_the_views_periodic_signals(tmp_path: Path) -> None:
     view = _view(tmp_path)
-    by_model = view.ioc_health_by_model()
+    by_model = view.server_health_by_model()
 
     assert periodic_addresses(view) == {
-        by_model[model][signal] for model in by_model for signal in PERIODIC_IOC_HEALTH
+        by_model[model][signal] for model in by_model for signal in PERIODIC_SERVER_HEALTH
     }
-
-
-def test_a_view_without_the_accessor_names_no_periodic_health_address(tmp_path: Path) -> None:
-    assert periodic_addresses(_OlderView(_view(tmp_path))) == frozenset()
 
 
 def test_a_view_without_the_field_names_no_periodic_health_address(tmp_path: Path) -> None:
     assert periodic_addresses(_view(tmp_path, health=False)) == frozenset()
 
 
-def test_ioc_health_addresses_are_every_health_address_of_the_view(tmp_path: Path) -> None:
-    assert ioc_health_addresses(_view(tmp_path)) == {HEARTBEAT, UPTIME, ENGINEER}
+def test_server_health_addresses_are_every_health_address_of_the_view(tmp_path: Path) -> None:
+    assert server_health_addresses(_view(tmp_path)) == {HEARTBEAT, UPTIME, ENGINEER}
 
 
-def test_a_view_without_the_accessor_names_no_ioc_health_address(tmp_path: Path) -> None:
-    assert ioc_health_addresses(_OlderView(_view(tmp_path))) == frozenset()
-
-
-def test_a_view_without_the_field_names_no_ioc_health_address(tmp_path: Path) -> None:
-    assert ioc_health_addresses(_view(tmp_path, health=False)) == frozenset()
+def test_a_view_without_the_field_names_no_server_health_address(tmp_path: Path) -> None:
+    assert server_health_addresses(_view(tmp_path, health=False)) == frozenset()
 
 
 def test_the_engineer_variable_is_text_and_the_counters_are_not(tmp_path: Path) -> None:
@@ -214,17 +193,17 @@ def test_the_model_rpc_refuses_a_write_to_a_health_address(tmp_path: Path) -> No
         surface.set({HEARTBEAT: 1}, TOKEN)
 
 
-def test_info_on_a_view_without_the_accessor_lists_no_health_address(tmp_path: Path) -> None:
+def test_info_on_a_view_without_the_field_lists_no_health_address(tmp_path: Path) -> None:
     view = _view(tmp_path, health=False)
 
-    surface = _surface(_OlderView(view), _composite(tmp_path, view, _Clock()))
+    surface = _surface(view, _composite(tmp_path, view, _Clock()))
 
     assert _served(surface) == [SETPOINT, STATUS]
 
 
-def test_get_on_a_view_without_the_accessor_refuses_a_health_address(tmp_path: Path) -> None:
+def test_get_on_a_view_without_the_field_refuses_a_health_address(tmp_path: Path) -> None:
     view = _view(tmp_path, health=False)
-    surface = _surface(_OlderView(view), _composite(tmp_path, view, _Clock()))
+    surface = _surface(view, _composite(tmp_path, view, _Clock()))
 
     assert surface.get([STATUS]) == {STATUS: "no deck"}
     with pytest.raises(ModelRpcError):
@@ -301,7 +280,7 @@ def test_a_text_health_address_is_a_ca_string_and_the_rest_keep_their_spec(
         made.supports_pva = False
         made._pv_meta = {}
         made.pv_handlers = {}
-        made._ioc_health = frozenset({ENGINEER, HEARTBEAT})
+        made._server_health = frozenset({ENGINEER, HEARTBEAT})
         return made
 
     served, plain = runner(ModelRunner), runner(Runner)
