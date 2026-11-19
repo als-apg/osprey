@@ -362,7 +362,7 @@ def _ariel_stack(
         initialize_ariel_context,
         reset_ariel_context,
     )
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     db_name = f"ariel_{os.getpid()}_{int(time.time() * 1000) % 10_000_000}"
     db_url = _fresh_database(admin_url, db_name)
@@ -397,7 +397,7 @@ def _ariel_stack(
                 # through OSPREY_WEB_PORT, as they do in a deployment.
                 monkeypatch.chdir(config_dir)
                 monkeypatch.setenv("OSPREY_WEB_PORT", port)
-                reset_config_cache()
+                clear_config_state()
                 reset_ariel_context()
                 initialize_ariel_context()
                 try:
@@ -432,7 +432,7 @@ def _ariel_stack(
                     with contextlib.suppress(Exception):
                         loop.run(get_ariel_context().shutdown(), timeout=20)
                     reset_ariel_context()
-                    reset_config_cache()
+                    clear_config_state()
     finally:
         loop.close()
 

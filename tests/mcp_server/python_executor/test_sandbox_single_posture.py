@@ -189,7 +189,7 @@ def deployment(tmp_path, monkeypatch):
     file so the host's posture resolution and the sandbox's cannot be answered by
     two different configs, and both are inherited by the child.
     """
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     root = tmp_path / "deployment"
     root.mkdir()
@@ -197,7 +197,7 @@ def deployment(tmp_path, monkeypatch):
 
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
-    reset_config_cache()
+    clear_config_state()
 
     (root / "var" / "agent_data" / target_state.CONTROL_STATE_DIR_NAME).mkdir(
         parents=True, exist_ok=True

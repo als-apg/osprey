@@ -704,7 +704,7 @@ async def _attachment_view_response(workdir, monkeypatch, attachment_id, row):
     )
     from osprey.mcp_server.ariel.tools.attachment import attachment_view
     from osprey.services.ariel_search.database.repository import SchemaFacts
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     workdir.mkdir(exist_ok=True)
     monkeypatch.chdir(workdir)
@@ -727,7 +727,7 @@ async def _attachment_view_response(workdir, monkeypatch, attachment_id, row):
                 await getattr(attachment_view, "fn", attachment_view)(attachment_id=attachment_id)
     finally:
         reset_ariel_context()
-        reset_config_cache()
+        clear_config_state()
     return {"isError": True, "content": [{"type": "text", "text": str(exc_info.value)}]}
 
 

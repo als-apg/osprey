@@ -15,7 +15,7 @@ import yaml
 
 from osprey.apps.sdk import bridges_for_target
 from osprey.bluesky_bridge_connection import LANE_KEYS, lane_env_prefix
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 
 LIVE_PORT = 9311
 VA_PORT = 9312
@@ -29,7 +29,7 @@ def _render(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: dict[str, A
     path = tmp_path / "config.yml"
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(path))
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +37,7 @@ def _isolated(monkeypatch: pytest.MonkeyPatch):
     for lane in LANE_KEYS:
         monkeypatch.delenv(f"{lane_env_prefix(lane)}_BRIDGE_URL", raising=False)
     yield
-    reset_config_cache()
+    clear_config_state()
 
 
 def _two_lanes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

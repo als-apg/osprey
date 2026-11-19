@@ -22,7 +22,7 @@ import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context, reset_ariel_context
 from osprey.services.ariel_search.config import READONLY_URI_KEY
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from tests.mcp_server.ariel.conftest import get_tool_fn
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -64,7 +64,7 @@ async def test_without_a_readonly_login_tools_list_lacks_sql_query_and_nothing_e
     _context(tmp_path / "derived", monkeypatch, DERIVED)
     offered = await _listed_names()
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
 
     _context(tmp_path / "authored", monkeypatch, WITHOUT_LOGIN)
     withheld = await _listed_names()

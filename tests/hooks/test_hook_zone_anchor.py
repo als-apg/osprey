@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 
 from osprey_connectors import workspace
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, resolve_project_root
 
 HOOKS_DIR = (
@@ -550,7 +551,7 @@ class TestTheFrameworkTakesTheSameLadder:
         monkeypatch.chdir(cwd)
 
         hook = _repo_root(hook_module, {"cwd": str(cwd)})
-        workspace.reset_config_cache()
+        clear_config_state()
         framework = workspace.resolve_project_root(workspace.load_osprey_config())
 
         assert hook == str(framework)
@@ -566,7 +567,7 @@ class TestTheFrameworkTakesTheSameLadder:
         monkeypatch.chdir(cwd)
 
         hook = _repo_root(hook_module, {"cwd": str(cwd)})
-        workspace.reset_config_cache()
+        clear_config_state()
         framework = workspace.resolve_project_root(workspace.load_osprey_config())
 
         assert hook == str(framework)

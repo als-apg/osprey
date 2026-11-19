@@ -35,7 +35,8 @@ from osprey.interfaces.bluesky_web.app import _lane_roster
 from osprey.mcp_server.sandbox_env import configured_child_env_passthrough
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.utils.workspace import SPOOL_DIR_RELPATH
-from osprey_connectors.workspace import load_osprey_config, reset_config_cache, resolve_project_root
+from osprey_connectors.testing import clear_config_state
+from osprey_connectors.workspace import load_osprey_config, resolve_project_root
 
 _TEMPLATES_ROOT = resources.files(osprey).joinpath("templates")
 
@@ -130,7 +131,7 @@ def _stand_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service: dict, co
         monkeypatch.delenv(name, raising=False)
         if name in environment:
             monkeypatch.setenv(name, str(_inside(root, environment[name])))
-    reset_config_cache()
+    clear_config_state()
     return root
 
 
@@ -186,7 +187,7 @@ def test_config_file_alone_loads_nothing_through_the_framework_loader(
     container sees an empty config. This is why the templates set both."""
     _stand_up(tmp_path, monkeypatch, _osprey_containers()["queueserver"], _PLAN_CONFIG)
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-    reset_config_cache()
+    clear_config_state()
 
     assert load_osprey_config() == {}
     assert plan_loader._resolve_plan_module_path() is None

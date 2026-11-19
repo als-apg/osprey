@@ -23,7 +23,7 @@ from osprey.apps.sdk._approval import input_digest
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
 from osprey_connectors import session_hold, testing, write_switch
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     state_dir_under,
@@ -82,7 +82,7 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     def write_config(config: dict[str, Any]) -> None:
         (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
         monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-        reset_config_cache()
+        clear_config_state()
 
     def write_record(target: str = "va", switch: dict[str, str] | None = None) -> None:
         write_control_context(
@@ -97,7 +97,7 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     write_record()
     stamps = use_stamp_dir(monkeypatch, tmp_path / "stamps")
     yield _Deployment(stamps, write_config, write_record)
-    reset_config_cache()
+    clear_config_state()
 
 
 class _Deployment:

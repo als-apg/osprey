@@ -261,7 +261,7 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
     wrote.
     """
     # Arrange
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     config = tmp_path / "config.yml"
     config.write_text(
@@ -270,7 +270,7 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
-    reset_config_cache()
+    clear_config_state()
     testing.invalidate_cache()
 
     # Act
@@ -282,7 +282,7 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
         assert canonical is not None
         assert os.path.realpath(hook_answer) == os.path.realpath(str(canonical))
     finally:
-        reset_config_cache()
+        clear_config_state()
         testing.invalidate_cache()
 
 
@@ -300,7 +300,7 @@ def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatc
     "no record", which is a legitimate answer meaning "nothing is narrowed".
     """
     # Arrange
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     render = tmp_path / "build"
     render.mkdir()
@@ -311,7 +311,7 @@ def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatc
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
-    reset_config_cache()
+    clear_config_state()
     testing.invalidate_cache()
 
     # Act
@@ -327,7 +327,7 @@ def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatc
         assert os.path.realpath(hook_dir) == os.path.realpath(str(canonical_dir))
         assert os.path.realpath(hook_dir).startswith(os.path.realpath(str(tmp_path)))
     finally:
-        reset_config_cache()
+        clear_config_state()
         testing.invalidate_cache()
 
 
@@ -599,7 +599,7 @@ def test_an_unstamped_process_with_no_record_is_fail_closed(tmp_path, monkeypatc
     that the derivation found the right place is missing, and a readwrite call
     is refused until the first controls server writes one.
     """
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     config = tmp_path / "config.yml"
     config.write_text(
@@ -608,12 +608,12 @@ def test_an_unstamped_process_with_no_record_is_fail_closed(tmp_path, monkeypatc
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
-    reset_config_cache()
+    clear_config_state()
 
     try:
         assert reader.posture_unknown({}) is True
     finally:
-        reset_config_cache()
+        clear_config_state()
         testing.invalidate_cache()
 
 
@@ -625,7 +625,7 @@ def test_an_unstamped_hook_and_the_store_derive_one_root_under_a_relocated_base_
     Paths are compared resolved: the framework side resolves its answer, and a
     temporary directory can sit under a symlink.
     """
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     config = tmp_path / "config.yml"
     config.write_text(f"project_root: {tmp_path}\nagent_data:\n  base_dir: relocated/agent_data\n")
@@ -633,7 +633,7 @@ def test_an_unstamped_hook_and_the_store_derive_one_root_under_a_relocated_base_
     monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
-    reset_config_cache()
+    clear_config_state()
     testing.invalidate_cache()
 
     try:
@@ -643,7 +643,7 @@ def test_an_unstamped_hook_and_the_store_derive_one_root_under_a_relocated_base_
         assert hook_root == _control_state._agent_data_root().resolve() == expected
         assert Path(reader.resolve_state_dir({})).resolve().is_relative_to(expected)
     finally:
-        reset_config_cache()
+        clear_config_state()
         testing.invalidate_cache()
 
 
@@ -653,7 +653,7 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     A readable record at the derived path IS the evidence the derivation found
     the right directory, so the deployment's own terms decide from here on.
     """
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     config = tmp_path / "config.yml"
     config.write_text(
@@ -662,7 +662,7 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
     monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
-    reset_config_cache()
+    clear_config_state()
 
     try:
         write_control_context(tmp_path / "var" / "agent_data", switch={"va": "asked"})
@@ -672,7 +672,7 @@ def test_an_unstamped_process_with_a_readable_record_is_answered_by_it(tmp_path,
         assert status == "ok"
         assert record["switch"] == {"va": "asked"}
     finally:
-        reset_config_cache()
+        clear_config_state()
         testing.invalidate_cache()
 
 

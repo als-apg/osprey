@@ -550,16 +550,16 @@ def reset_state_between_tests():
     """
     # Reset before test
     from osprey.registry import reset_registry
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     reset_registry()
-    reset_config_cache()
+    clear_config_state()
 
     yield
 
     # Reset after test
     reset_registry()
-    reset_config_cache()
+    clear_config_state()
 
 
 # ===================================================================

@@ -225,12 +225,12 @@ def _listing_items(document: dict[str, Any]) -> list[dict[str, Any]]:
 def _isolated(monkeypatch):
     """Fresh availability, offload, MCP and qmd state; a configured caption provider."""
     from osprey.mcp_server.ariel.server_context import reset_ariel_context
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     availability.reset_availability()
     _offload.reset_offload_state()
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     qmd_module._reset_client_cache()
     monkeypatch.setattr("osprey.models.config.get_provider_config", lambda name: {"api_key": "k"})
     monkeypatch.setattr(
@@ -238,7 +238,7 @@ def _isolated(monkeypatch):
     )
     yield
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     qmd_module._reset_client_cache()
     availability.reset_availability()
     _offload.reset_offload_state()

@@ -37,7 +37,7 @@ from osprey.mcp_server.control_system.server_context import (
     reset_server_context,
 )
 from osprey.stores.artifact_store import reset_artifact_store
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors_tests._harness import write_control_context
 from tests._approval_stamp_fixture import ApprovalStamps
 from tests.facility.served_tree import in_process_config, served_tree
@@ -68,7 +68,7 @@ def _reset_singletons():
     yield
     reset_server_context()
     reset_artifact_store()
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture

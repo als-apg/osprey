@@ -939,11 +939,11 @@ def reset_connector_config_cache():
     which also resets the framework registry and so cannot be imported here. Not
     imported by that conftest: its own fixture already clears this cache.
     """
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
-    reset_config_cache()
+    clear_config_state()
     yield
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture

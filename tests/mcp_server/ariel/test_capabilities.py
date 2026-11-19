@@ -6,7 +6,7 @@ import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context, reset_ariel_context
 from osprey.registry import get_registry
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
     example_descriptors,
     example_entry_fields_fixture,
@@ -368,7 +368,7 @@ async def test_capabilities_reports_view_disabled(tmp_path, monkeypatch):
     enabled = json.loads(await _get_capabilities()())["attachments"]
 
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     search_modules, extra = _picture_config(view=False)
     _setup_registry(tmp_path, monkeypatch, search_modules=search_modules, extra=extra)
     disabled = json.loads(await _get_capabilities()())["attachments"]

@@ -86,7 +86,7 @@ from osprey.mcp_server.python_executor import executor as host_executor
 from osprey_connectors import testing
 from osprey_connectors.control_system._base import ChannelValue
 from osprey_connectors.errors import ConnectorUnavailableError
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors_tests._harness import write_control_context
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests._approval_stamp_fixture import ApprovalStamps
@@ -460,14 +460,14 @@ def served_context(monkeypatch):
 
     def install(manager: ConnectorHostManager) -> ControlSystemContext:
         monkeypatch.setenv("OSPREY_CONFIG", str(manager._config.config_path))
-        reset_config_cache()
+        clear_config_state()
         context = context_for(manager)
         monkeypatch.setattr(server_context_mod, "_registry", context)
         return context
 
     yield install
     server_context_mod.reset_server_context()
-    reset_config_cache()
+    clear_config_state()
 
 
 def approved_call():

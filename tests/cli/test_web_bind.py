@@ -523,7 +523,7 @@ class TestCompanionProbeAttribution:
 
     def _render(self, lifecycle_repo, monkeypatch, artifact_port: int, *, roster: bool) -> int:
         """Stand this repo's render on the base under *artifact_port*; return the base."""
-        from osprey_connectors.workspace import reset_config_cache
+        from osprey_connectors.testing import clear_config_state
 
         base = artifact_port - self.ARTIFACT_OFFSET
         build = stub_build(
@@ -535,7 +535,7 @@ class TestCompanionProbeAttribution:
             ),
         )
         monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
-        reset_config_cache()
+        clear_config_state()
         return base
 
     @contextlib.contextmanager

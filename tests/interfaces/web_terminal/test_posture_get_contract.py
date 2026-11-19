@@ -55,11 +55,12 @@ from osprey.mcp_server.control_system import (
     target_eligibility,
     target_state,
 )
-from osprey_connectors import control_context, gateways, testing, workspace, write_switch
+from osprey_connectors import control_context, gateways, testing, write_switch
 from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.model import ReadResult
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors_tests._harness import (
     owner,
     state_dir_under,
@@ -1115,10 +1116,10 @@ class TestTargetIdentity:
         config = render(tmp_path=tmp_path, va_port=15064, name="terminal.yml")
         try:
             with make_client(config) as client:
-                workspace.reset_config_cache()
+                clear_config_state()
                 payload = get_posture(client)
         finally:
-            workspace.reset_config_cache()
+            clear_config_state()
         assert row_for(payload, "va")["endpoint"].endswith(":15064")
 
     def test_every_roster_derivation_reads_the_terminals_own_render(self, client, monkeypatch):

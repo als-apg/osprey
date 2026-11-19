@@ -1399,7 +1399,8 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     """
     import osprey.infrastructure.server_launcher as launcher
     from osprey.stores.artifact_store import ArtifactStore
-    from osprey_connectors.workspace import reset_config_cache, resolve_shared_data_root
+    from osprey_connectors.testing import clear_config_state
+    from osprey_connectors.workspace import resolve_shared_data_root
 
     config_path = tmp_path / "config.yml"
     config_path.write_text(
@@ -1407,7 +1408,7 @@ def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
     )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
-    reset_config_cache()
+    clear_config_state()
 
     launches: list[str] = []
     monkeypatch.setattr(launcher, "ensure_web_server", lambda key: launches.append(key))
@@ -3027,7 +3028,7 @@ def test_approval_focus_swallows_a_failing_gallery(approval, monkeypatch):
 def test_review_notebook_focus_carries_the_session(tmp_path, approval, focus_posts, monkeypatch):
     """The notebook the prompt saves is focused in the session that asked."""
     import osprey.infrastructure.server_launcher as launcher
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     config_path = tmp_path / "config.yml"
     config_path.write_text(
@@ -3035,7 +3036,7 @@ def test_review_notebook_focus_carries_the_session(tmp_path, approval, focus_pos
     )
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
-    reset_config_cache()
+    clear_config_state()
     monkeypatch.setattr(launcher, "ensure_web_server", lambda key: None)
     monkeypatch.setattr(approval, "_gallery_base_url", lambda config: "http://127.0.0.1:1")
 

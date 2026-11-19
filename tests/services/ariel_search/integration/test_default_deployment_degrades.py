@@ -392,12 +392,12 @@ def _mirror_hit(tmp_path: Path) -> tuple[str, str]:
 def _isolated(reserve_port, monkeypatch, tmp_path):
     """Fresh process state, ``cwd`` in ``tmp_path``, every server URL closed by default."""
     from osprey.mcp_server.ariel.server_context import reset_ariel_context
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     availability.reset_availability()
     _offload.reset_offload_state()
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     qmd_module._reset_client_cache()
     image_lane._reset_state()
     _local_server.reset_cache()
@@ -428,7 +428,7 @@ def _isolated(reserve_port, monkeypatch, tmp_path):
     monkeypatch.setenv("LLAMA_CPP_HOST", _closed_url(reserve_port()))
     yield
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     qmd_module._reset_client_cache()
     availability.reset_availability()
     _offload.reset_offload_state()

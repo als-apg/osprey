@@ -1443,7 +1443,7 @@ def _stage_the_queue_tools(
     from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
     from osprey.bluesky_bridge_connection import LANE_ONE, lane_env_prefix
     from osprey.mcp_server.bluesky.server_context import initialize_server_context
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
     from osprey_connectors.write_switch import CONTROL_CONTEXT_DIR_ENV_VAR
 
     monkeypatch.chdir(tmp_path)
@@ -1451,7 +1451,7 @@ def _stage_the_queue_tools(
     # The builder caches the config it loaded, and the tools load theirs on the
     # first gate they run -- clear it so the posture they read is the one this
     # line just wrote.
-    reset_config_cache()
+    clear_config_state()
 
     prefix = lane_env_prefix(LANE_ONE)
     monkeypatch.setenv(f"{prefix}_BRIDGE_URL", bridge_url)
@@ -1554,10 +1554,10 @@ def queue_tools_context_reset() -> Iterator[None]:
     yield
 
     from osprey.mcp_server.bluesky.server_context import reset_server_context
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     reset_server_context()
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.mark.usefixtures("queue_tools_context_reset")

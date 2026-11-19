@@ -56,7 +56,7 @@ def test_chat_companions_publish_the_port_before_the_first_launch(monkeypatch, t
     OSPREY server on the host that also fell back.
     """
     from osprey.cli import chat_cmd
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     (tmp_path / "config.yml").write_text("web_terminal:\n  port: 8188\n")
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
@@ -87,7 +87,7 @@ def test_chat_companions_publish_the_port_before_the_first_launch(monkeypatch, t
         assert seen == ["8188"]
         assert session_cookie_name() == session_cookie_name(8188)
     finally:
-        reset_config_cache()
+        clear_config_state()
 
 
 def test_chat_does_not_overwrite_a_published_port(monkeypatch, tmp_path):
@@ -98,7 +98,7 @@ def test_chat_does_not_overwrite_a_published_port(monkeypatch, tmp_path):
     from under the browser nginx just handed a session to.
     """
     from osprey.cli import chat_cmd
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     (tmp_path / "config.yml").write_text("web_terminal:\n  port: 8188\n")
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
@@ -113,4 +113,4 @@ def test_chat_does_not_overwrite_a_published_port(monkeypatch, tmp_path):
 
         assert session_cookie_name() == session_cookie_name(10101)
     finally:
-        reset_config_cache()
+        clear_config_state()

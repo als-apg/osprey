@@ -22,12 +22,12 @@ from pathlib import Path
 import pytest
 
 from osprey.utils.workspace import repo_root_for_agent_data
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     RENDERED_CONFIG_RELPATH,
     load_osprey_config,
     rendered_config_path,
-    reset_config_cache,
     resolve_agent_data_root,
     resolve_config_path,
     resolve_path,
@@ -207,7 +207,7 @@ class TestResetConfigCache:
 
         assert config_module._installed is not None
         assert config_module._loads
-        reset_config_cache()
+        clear_config_state()
         assert config_module._installed is None
         assert config_module._last_lazy is None
         assert config_module._loads == {}

@@ -359,18 +359,18 @@ def test_resolve_bridge_url_reads_the_config_when_the_env_is_empty(monkeypatch, 
     variable reaches the server EMPTY and must count as no override."""
     import yaml
 
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     (tmp_path / "config.yml").write_text(
         yaml.safe_dump({"services": {"bluesky": {"port": 18090}}}), encoding="utf-8"
     )
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", "")
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-    reset_config_cache()
+    clear_config_state()
     try:
         assert resolve_bridge_url() == "http://127.0.0.1:18090"
     finally:
-        reset_config_cache()
+        clear_config_state()
 
 
 def test_a_non_mapping_config_block_spells_nothing():

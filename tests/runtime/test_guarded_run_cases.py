@@ -28,7 +28,7 @@ import osprey.runtime
 from osprey.runtime import ENV_CONTROL_TARGET
 from osprey.runtime.guarded_run import GUARDED_RUN_DIR, LOCK_FILE_NAME, OspreyRunBusy, lock
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from tests._guarded_run import lock_path, reset_run_state, write_config
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
@@ -169,7 +169,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     reset_run_state(monkeypatch)
     yield root
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture

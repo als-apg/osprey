@@ -45,7 +45,7 @@ from osprey.mcp_server.ariel.tools.entry import entry_create
 from osprey.mcp_server.ariel.tools.publish import entry_publish
 from osprey.services.ariel_search.search.base import ParameterDescriptor
 from osprey.services.ariel_search.service import ARIELSearchService
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
     EXAMPLE_SOURCE_SYSTEM,
     DictRepository,
@@ -75,11 +75,11 @@ def ariel_mcp_context_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     }
     (tmp_path / "config.yml").write_text(json.dumps({"ariel": ariel}))
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     initialize_ariel_context()
     yield
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture(name="drafts_dir")
