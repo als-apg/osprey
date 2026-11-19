@@ -775,7 +775,7 @@ class RoleEnum(str, Enum):
     """
     readback = "readback"
     """
-    Read only; the pair of at most one setpoint.
+    Read only; the pair of any number of setpoints. The simulation drives it from its setpoint only where exactly one names it.
     """
     none = "none"
     """

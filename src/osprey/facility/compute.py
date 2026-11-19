@@ -64,6 +64,7 @@ from typing import Any
 
 from osprey.facility import TEXTURE
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
+from osprey.facility.pairing import simulated_pairs
 from osprey.facility.provenance import add_defaults, set_place_from
 from osprey.facility.relations import (
     ACCEPTED,
@@ -989,11 +990,7 @@ def _nominal_band(run: _Run) -> None:
         for record in model.get("wiring", []):
             if "default" in record:
                 defaults[record["address"]] = (record["default"], record)
-    setpoint_of = {
-        str(c["pair"]): c["id"]
-        for c in channels.values()
-        if c.get("role") == "setpoint" and c.get("pair", c["id"]) != c["id"]
-    }
+    setpoint_of = simulated_pairs(channels)
 
     def seed(address: str) -> dict[str, Any]:
         channel = channels.get(address)

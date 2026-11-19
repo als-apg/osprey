@@ -6,7 +6,14 @@ has no quantity. A setpoint pairs with the one readback that sits on the same
 device, place or nothing, and whose signal names the same quantity. A pair a
 source states wins, and the readback it names is no other setpoint's candidate.
 When the location holds several setpoints or several readbacks of that quantity,
-or the two differ in value type, options or shape, the setpoint stays its own pair.
+the setpoint stays its own pair; so it does when the two differ in value type,
+options or shape and the setpoint is no command (:func:`must_agree`). A command
+and the status it reads back on are a pair whatever their types.
+
+Several setpoints may name one readback (a set and a reset command read back on
+one channel). The simulation follows a readback only from its one setpoint, and
+only where the two hold values of one type (:func:`simulated_pairs`); any other
+readback it follows from no setpoint.
 """
 
 from __future__ import annotations
@@ -72,6 +79,54 @@ def location(channel: Mapping[str, Any]) -> tuple[Any, ...]:
     return ("facility",)
 
 
+def same_type(setpoint: Mapping[str, Any], readback: Mapping[str, Any]) -> bool:
+    """Whether two channels hold values of one type: equal value type, options and shape."""
+    return all(setpoint.get(slot) == readback.get(slot) for slot in _SAME_SLOTS)
+
+
+def must_agree(setpoint: Mapping[str, Any], readback: Mapping[str, Any]) -> bool:
+    """Whether a pair's two ends must hold values of one type: a setpoint and a
+    readback whose signals name one quantity, the setpoint no command. A command
+    and its status, and a pair whose quantity no signal states, may differ.
+
+    Args:
+        setpoint: The setpoint's fields.
+        readback: The readback's fields.
+    """
+    if is_command_signal(setpoint.get("signal")):
+        return False
+    quantity = signal_quantity(setpoint.get("signal"), "setpoint")
+    return quantity is not None and quantity == signal_quantity(readback.get("signal"), "readback")
+
+
+def simulated_pairs(channels: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
+    """The readbacks the simulation drives from a setpoint: each readback that
+    exactly one setpoint names as its ``pair`` and that holds values of the
+    setpoint's type, mapped to that setpoint.
+
+    Args:
+        channels: Every channel's fields by address, with ``role`` and ``pair``.
+
+    Returns:
+        ``{readback: setpoint}``; a readback no setpoint or several name, or one
+        of another type than its setpoint, is absent.
+    """
+    named: dict[str, list[str]] = {}
+    for address, fields in channels.items():
+        if fields.get("role") != "setpoint":
+            continue
+        pair = str(fields.get("pair") or address)
+        if pair != address:
+            named.setdefault(pair, []).append(address)
+    return {
+        readback: setpoints[0]
+        for readback, setpoints in named.items()
+        if len(setpoints) == 1
+        and readback in channels
+        and same_type(channels[setpoints[0]], channels[readback])
+    }
+
+
 def derive_pairs(channels: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
     """The pairs the rule forms for setpoints that state none.
 
@@ -111,6 +166,8 @@ def derive_pairs(channels: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
         if len(writers) != 1 or len(readers) != 1:
             continue
         setpoint, readback = writers[0], readers[0]
-        if all(channels[setpoint].get(s) == channels[readback].get(s) for s in _SAME_SLOTS):
+        if is_command_signal(channels[setpoint].get("signal")) or same_type(
+            channels[setpoint], channels[readback]
+        ):
             derived[setpoint] = readback
     return dict(sorted(derived.items()))

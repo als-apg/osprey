@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.pairing import derive_pairs, signal_quantity
+from osprey.facility.pairing import derive_pairs, signal_quantity, simulated_pairs
 from osprey.facility.validate import StageReport, run_stages, vocabulary
 from tests.facility._mml_built import TREES, BuiltModel
 
@@ -93,6 +93,43 @@ def test_a_signal_without_a_role_word_of_its_side_has_no_quantity() -> None:
     assert signal_quantity("position_offset", "readback") is None
     assert signal_quantity("status", "readback") is None
     assert signal_quantity(None, "setpoint") is None
+
+
+# --- simulated_pairs -------------------------------------------------------------------
+
+
+def test_the_simulation_follows_a_readback_only_from_its_one_setpoint() -> None:
+    channels = {
+        **_sp("SP", pair="RB"),
+        **_sp("SET", pair="SHARED"),
+        **_sp("RESET", pair="SHARED"),
+        **_sp("SELF", pair="SELF"),
+        **_sp("NONE"),
+        **_rb("RB"),
+        **_rb("SHARED"),
+    }
+    assert simulated_pairs(channels) == {"RB": "SP"}
+
+
+def test_the_simulation_follows_no_readback_of_another_type() -> None:
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", value_type="enum", options=["Idle", "On"]),
+        **_rb("STS", "power_on_status", value_type="bool"),
+    }
+    assert simulated_pairs(channels) == {}
+
+
+def test_a_command_pairs_with_its_status_of_another_type() -> None:
+    channels = {
+        **_sp("CMD", "power_on_command", value_type="enum", options=["Idle", "On", "Off"]),
+        **_rb("STS", "power_on_status", value_type="enum", options=["Unknown", "Off", "On"]),
+    }
+    assert derive_pairs(channels) == {"CMD": "STS"}
+
+
+def test_a_setpoint_and_readback_of_another_type_do_not_pair() -> None:
+    channels = {**_sp("SP", value_type="int"), **_rb("RB")}
+    assert derive_pairs(channels) == {}
 
 
 # --- derive_pairs ----------------------------------------------------------------------
