@@ -383,32 +383,15 @@ def test_the_fixture_colours_stand_out_on_both_themes_and_from_every_state() -> 
                 assert contrast(colour, _resolved(ground, theme)) >= 3, (colour, theme)
 
 
-def test_ring_names_places_and_is_part_of_the_draw_digest(tmp_path) -> None:
+def test_a_ring_setting_is_refused(tmp_path) -> None:
     path = tmp_path / "draw.json"
-    path.write_text(json.dumps({"ring": ["XR"]}))
-    draw = emit.load_draw(path)
-    assert draw.ring == ("XR",) and draw.digest != Draw().digest
-    path.write_text(json.dumps({"ring": "XR"}))
-    with pytest.raises(EmitError, match="ring must be a list"):
+    path.write_text(json.dumps({"ring": ["XR"]}))  # a ring is read from the facility file
+    with pytest.raises(EmitError, match="ring"):
         emit.load_draw(path)
 
 
-@pytest.mark.parametrize(
-    ("ring", "says"),
-    [(("NOWHERE",), "no place of the facility"), (("XR/XR01",), "fewer than 2")],
-)
-def test_a_ring_place_must_exist_and_have_children_on_the_ring(panel_graph, tmp_path, ring, says):
-    draw = Draw(ring=ring)
-    with pytest.raises(EmitError, match=says):
-        write(panel_graph, tmp_path / "out", draw=draw)
-    found = check(panel_graph, tmp_path / "other", draw=draw)
-    assert [(p.kind, p.file) for p in found] == [("invalid", emit.DRAW_FILE)]
-    assert says in found[0].detail
-
-
-def test_a_ring_roll_up_is_written_and_checks_clean(panel_graph, tmp_path) -> None:
+def test_a_ring_roll_up_is_written_and_checks_clean(ring_graph, tmp_path) -> None:
     out = tmp_path / "out"
-    draw = Draw(ring=("XR",))
-    write(panel_graph, out, draw=draw)
-    assert not [p for p in check(panel_graph, out, draw=draw) if p.failing]
+    write(ring_graph, out)
+    assert not [p for p in check(ring_graph, out) if p.failing]
     assert '"XR01"' in (out / "rollup/rollup-place-xr.screen.json").read_text()

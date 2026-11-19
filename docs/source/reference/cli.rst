@@ -1420,13 +1420,16 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    and assume nothing (the devices with no model count as one more model), so
    two rings each have their own; a tie goes to the frame with the most such
    rows of all devices; a frame where fewer are stated is a local frame; one strip keeps to the beam path most of its
-   devices are on, the others wait in its tray, and a stretch across a ring's
+   devices are on, the others wait in its tray (a device's card says which
+   position it uses and where it is read from, and gives the facility file's
+   ``s`` beside a pose that differs from it by more than 1 cm), and a stretch across a ring's
    start is drawn in one piece; a card's strip window reads on across the start
    the same way. A ring is a model the facility file marks ``periodic``, at its
    ``length``, and a beam frame takes the length of its model), ``rack`` (a rack elevation, chassis at their
    unit; a half-width unit, whose ``located_in`` claim states ``side`` ``L`` or
    ``R``, fills that half, two halves of one unit side by side), ``rollup`` (the health of a place and everything in it, level by
-   level) and ``checkout`` (every setpoint beside its readback).
+   level; a place with at least two children along a beam path the facility
+   file marks ``periodic`` draws them as arcs of a ring, in beam order) and ``checkout`` (every setpoint beside its readback).
 
    Every screen but the home leads back to it first in its crumbs, then out
    through the places around it (to each place's view where it has one). The

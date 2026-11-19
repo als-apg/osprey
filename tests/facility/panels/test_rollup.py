@@ -149,21 +149,22 @@ def test_the_ring_orders_children_by_where_their_span_starts() -> None:
     assert ring_arcs(_Ringed(), "R") == ["R/A", "R/B", "R/C"]  # C starts at 80 m, not 0.5 m
 
 
-def _ring_view(panel_graph):
-    return health_rollup(panel_graph, "XR", ring=frozenset({"XR"}))
+def _ring_view(ring_graph):
+    return health_rollup(ring_graph, "XR")
 
 
-def test_a_ring_roll_up_has_its_children_on_the_ring_in_beam_order(panel_graph) -> None:
-    view = _ring_view(panel_graph)
+def test_a_ring_roll_up_has_its_children_on_the_ring_in_beam_order(ring_graph, panel_graph) -> None:
+    view = _ring_view(ring_graph)
     (group,) = _section(view, "ring").items
     assert isinstance(group, Group) and group.form == "ring"
     assert [n.label for n in group.nodes] == ["XR/XR01", "XR/XR02"]
+    # no periodic model states the ring: no arcs
     assert not [s for s in health_rollup(panel_graph, "XR").sections if s.title == "ring"]
-    assert not [s for s in health_rollup(panel_graph, "XR", "system").sections if s.title == "ring"]
+    assert not [s for s in health_rollup(ring_graph, "XR", "system").sections if s.title == "ring"]
 
 
-def test_the_ring_draws_an_arc_per_child_with_its_name_and_link(panel_graph) -> None:
-    doc = stub_render(_ring_view(panel_graph), panel_graph)
+def test_the_ring_draws_an_arc_per_child_with_its_name_and_link(ring_graph) -> None:
+    doc = stub_render(_ring_view(ring_graph), ring_graph)
     big = [
         n for n in nodes(doc)
         if n["type"] == "polygon" and n["geometry"]["height"] > 2 * layout.RING_INNER

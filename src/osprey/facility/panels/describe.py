@@ -8,9 +8,8 @@ links only point at those targets; a thing with no screen is named in a
 
 Which things get which screens:
 
-- ``card``: every device that has a channel, a pose, or a relation other
-  than its place relation (``located_in`` its own place), every place, every
-  group; a citation alone gives no card;
+- ``card``: every device that has a channel its card shows or a drawing, or that
+  a ``cards.csv`` row keeps (and none it drops), every place, every group;
 - ``set``: every group whose members are devices of one class;
 - ``place``: every place with anything within it;
 - ``rack``: every place some ``located_in`` claim names a unit in, and every
@@ -39,6 +38,7 @@ from types import MappingProxyType
 
 from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
 from osprey.facility.panels.model import (
+    MODEL_FRAME,
     PART_RELATION,
     PLACE_RELATION,
     CalibrationState,
@@ -890,7 +890,42 @@ def _where(
         claims = graph.neighbours(thing.id, thing.kind).get(PLACE_RELATION, ())
         items += [_placement(graph, index, e, rack_classes) for e in claims if e.outgoing]
         items += [_pose_fact(pose) for pose in graph.poses(thing.id)]
+    if thing.kind == "device":
+        items += _beam_fact(graph, thing)
     return items
+
+
+_BEAM_TEXT = "s {:.3f} m along {}, from {}"
+_BEAM_OTHER = "the facility file states s {:.3f} m along {}"
+#: How far apart two stated positions of one device may be before the card says so, m.
+BEAM_AGREE_M = 0.01
+
+
+def _beam_fact(graph: PanelGraph, thing: Thing) -> list[Item]:
+    """Which position along the beam the device's strips use, and where it is read
+    from: its pose in its model's beam frame, else the facility file's ``s``, else
+    its whole's; with the other stated one beside it when the two differ."""
+    pose = graph.pose(thing.id)
+    found = graph.beam_position(thing)
+    by = None
+    if found is None:
+        whole = graph.whole_of(thing.id)
+        found = _beam_of(graph, thing)
+        by = whole[0] if whole is not None and found is not None else None
+    if found is None:
+        return []
+    frame, s_m = found
+    if by is not None:
+        source = f"its whole {by}"
+    elif pose is not None and pose.is_beam_position:
+        source = "its pose in positions.csv"
+    else:
+        source = "the facility file"
+    caveat = None
+    posed = source.startswith("its pose") and thing.model is not None
+    if posed and thing.s_m is not None and abs(thing.s_m - s_m) > BEAM_AGREE_M:
+        caveat = _BEAM_OTHER.format(thing.s_m, MODEL_FRAME.format(thing.model))
+    return [Fact("beam position", _BEAM_TEXT.format(s_m, frame, source), caveat=caveat)]
 
 
 def _within(graph: PanelGraph, index: _Index, place: Thing) -> list[Item]:
@@ -3928,7 +3963,18 @@ def _place_children(graph: PanelGraph, index: _Index, root_id: str, by: str) -> 
     return children
 
 
-def ring_arcs(graph: PanelGraph, place_id: str) -> list[str]:
+#: The fewest children on a ring for a place's roll-up to draw them as arcs.
+MIN_RING_ARCS = 2
+
+
+def on_a_ring(graph: PanelGraph, place_id: str) -> bool:
+    """Whether a place's roll-up draws its children as arcs of a ring: at least
+    :data:`MIN_RING_ARCS` of them lie along one beam path the facility file marks
+    ``periodic`` (:meth:`PanelGraph.frame_length`)."""
+    return len(ring_arcs(graph, place_id, ring_only=True)) >= MIN_RING_ARCS
+
+
+def ring_arcs(graph: PanelGraph, place_id: str, *, ring_only: bool = False) -> list[str]:
     """The child places of *place_id* that lie on the ring, in beam order.
 
     A child lies on the ring when what it holds (:meth:`PanelGraph.contents`)
@@ -3958,6 +4004,8 @@ def ring_arcs(graph: PanelGraph, place_id: str) -> list[str]:
         if any(f == frame for f, _s in found)
     }
     length = graph.frame_length(frame) if frame is not None else None
+    if ring_only and not length:
+        return []
 
     def start(found: list[float]) -> float:
         gaps = [(b - a, b) for a, b in zip(found, found[1:], strict=False)]
@@ -4059,7 +4107,6 @@ def health_rollup(
     *,
     system_of: Callable[[Thing], str | None] | None = None,
     system: str | None = None,
-    ring: frozenset[str] = frozenset(),
 ) -> View:
     """The channels each node of a place's roll-up reads: the root and one level below it.
 
@@ -4130,7 +4177,7 @@ def health_rollup(
         label = _OWN.format(root_id)
         children.insert(0, _node(label, Link(label, rest), own))
     arcs: list[Node] = []
-    if by == "place" and root_id in ring:
+    if by == "place" and on_a_ring(graph, root_id):
         on_ring = {node.label: node for node in children}
         arcs = [on_ring[label] for label in ring_arcs(graph, root_id) if label in on_ring]
     children = _ordered(graph, children, rest, sort=by == "place", tail=unplaced)
@@ -4357,7 +4404,6 @@ def describe(
     above: frozenset[str] = frozenset(),
     annotate: Mapping[str, tuple[str, ...]] = MappingProxyType({}),
     system_of: Callable[[Thing], str | None] | None = None,
-    ring: frozenset[str] = frozenset(),
 ) -> View:
     """The view a target addresses, each parameter passed to the function that takes it.
 
@@ -4392,7 +4438,6 @@ def describe(
             target.by,  # type: ignore[arg-type]
             system_of=system_of,
             system=target.system,
-            ring=ring,
         )
     if target.view == "checkout":
         return checkout(graph, target.id)

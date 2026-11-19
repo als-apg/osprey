@@ -188,7 +188,8 @@ def test_a_channel_less_thing_has_place_pose_and_no_signal_or_health(panel_graph
     assert _titles(view) == ["head", "relations", "foot"]
     where = _section(view, "where").items
     assert where[0] == Link("place", Target("card", "place", "XR/XR02"))
-    (pose,) = [item for item in where if isinstance(item, Fact)]
+    pose, beam = [item for item in where if isinstance(item, Fact)]
+    assert beam.text == "s 12.500 m along XR-RING, from its pose in positions.csv"
     assert pose.label == "XR-RING"
     assert "s 12.500 m" in pose.text
     assert pose.caveat is None
@@ -1475,3 +1476,26 @@ def test_the_ring_frame_takes_the_length_of_the_periodic_model_of_its_devices(tm
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", ring_model(12.0)), PANELS_DIR)
     assert graph.frame_length(RING_FRAME) == 12.0
     assert graph.frame_length("model XRM") == 12.0
+
+
+def test_a_card_says_which_beam_position_it_uses_and_from_where(tmp_path):
+    def stated(document: dict[str, Any]) -> None:
+        for device in document["devices"]:
+            if device["id"] == "XR01:QF1":
+                device.update(model="XRM", s=1.5)  # the deck's s, another origin
+            if device["id"] == "XR01:QD1":
+                device.update(model="XRM", s=2.0)
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", stated), PANELS_DIR)
+
+    def beam(device: str) -> Fact:
+        (fact,) = [
+            i for i in _section(device_card(graph, device), "where").items
+            if isinstance(i, Fact) and i.label == "beam position"
+        ]  # fmt: skip
+        return fact
+
+    qf1 = beam("XR01:QF1")
+    assert qf1.text == "s 1.250 m along XR-RING, from its pose in positions.csv"
+    assert qf1.caveat == "the facility file states s 1.500 m along model XRM"
+    assert beam("XR01:QD1").caveat is None  # the two agree
