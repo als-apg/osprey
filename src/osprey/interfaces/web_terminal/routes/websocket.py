@@ -53,8 +53,8 @@ from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
     POSTURE_SOURCE_SPAWN,
     build_operator_child_env,
-    resolve_agent_data_root,
     session_hold_root_of,
+    shared_data_root,
     stamp_session_hold,
 )
 from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
@@ -239,7 +239,7 @@ def _record_available() -> bool:
     """Whether the control-context record has a location at all.
 
     :func:`~osprey_connectors.control_context.record_path` is the ONE path rule
-    (env ``OSPREY_AGENT_DATA_ROOT``, else ``resolve_shared_data_root()``), and
+    (env ``OSPREY_AGENT_DATA_ROOT``, else ``process_agent_data_root()``), and
     it answers ``None`` rather than raising when neither resolves. A deployment
     with no location for its record is ``store_available: false`` on the GET
     and the 503 on a gesture: there is nowhere to record a context the agent
@@ -411,7 +411,7 @@ def _build_extra_env(
     ``claude_session_id or telemetry_session_id`` the handler keys the pool on
     — so it is set on every spawn this function serves, the brand-new session
     included. It scopes the child's execution root
-    (:func:`osprey_connectors.workspace.resolve_agent_data_root` appends
+    (:func:`osprey.utils.config_paths.session_agent_data_root` appends
     ``sessions/<key>``) and tags the artifacts it files. One key, one root: a
     conversation is one session whichever surface is showing it, so the chat
     child spawned under that key
@@ -495,7 +495,7 @@ def _build_extra_env(
     if session_key:
         extra_env[POSTURE_SOURCE_ENV] = POSTURE_SOURCE_LIVE
         extra_env[POSTURE_SESSION_ENV] = session_key
-        extra_env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(websocket.app)
+        extra_env[OSPREY_AGENT_DATA_ROOT] = shared_data_root(websocket.app)
         extra_env.update(terminal_session_env(session_key, os.environ))
     return extra_env
 

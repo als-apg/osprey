@@ -64,7 +64,7 @@ def agent_root(tmp_path, monkeypatch) -> Path:
     """Pin the agent-data root into *tmp_path*, so nothing lands in the repository."""
     root = tmp_path / "agent_data"
     root.mkdir()
-    monkeypatch.setattr(chat_attachments, "resolve_agent_data_root", lambda app=None: str(root))
+    monkeypatch.setattr(chat_attachments, "shared_data_root", lambda app=None: str(root))
     return root
 
 
@@ -440,7 +440,7 @@ async def test_a_client_that_disconnects_mid_upload_leaves_nothing_behind(agent_
 def test_a_root_that_cannot_hold_files_answers_503(tmp_path, monkeypatch):
     blocked = tmp_path / "not_a_directory"
     blocked.write_text("in the way")
-    monkeypatch.setattr(chat_attachments, "resolve_agent_data_root", lambda app=None: str(blocked))
+    monkeypatch.setattr(chat_attachments, "shared_data_root", lambda app=None: str(blocked))
     with TestClient(bare_route_app(router)) as client:
         assert _refusal(_upload(client, "shot.png", PNG)) == (503, "store_write_failed")
 

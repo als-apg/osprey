@@ -72,6 +72,8 @@ from osprey.cli.audit_prompts import AuditFinding, AuditReport
 from osprey.cli.health_cmd import health
 from osprey.cli.query_cmd import query
 from osprey.health.models import CheckReport, CheckResult, Status
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 from tests._builds import init_project
 from tests.cli._lifecycle_build import stub_build
 from tests.cli.test_json_keyset_capture import (
@@ -312,7 +314,7 @@ def _invoke_ariel_status(
     with (
         _install_ariel_service(_StubService(repository=repository)),
         patch_render_probe_ok(),
-        patch("osprey.cli.ariel.get_config_value", new=lambda *a, **kw: dict(_ARIEL_CONFIG)),
+        installed(config_of({"ariel": _ARIEL_CONFIG})),
     ):
         return runner.invoke(ariel_group, ["status", "--json"])
 
@@ -336,7 +338,7 @@ def _invoke_ariel_search(
 
     with (
         _install_ariel_service(_HookingService(search_result=search_result)),
-        patch("osprey.cli.ariel.get_config_value", new=lambda *a, **kw: dict(_ARIEL_CONFIG)),
+        installed(config_of({"ariel": _ARIEL_CONFIG})),
     ):
         return runner.invoke(ariel_group, ["search", "coupler", "--json"])
 
@@ -625,7 +627,7 @@ def test_ariel_status_module_health_rides_in_the_one_document(runner: CliRunner)
             "osprey.services.ariel_search.enhancement.create_enhancers_from_config",
             new=_build,
         ),
-        patch("osprey.cli.ariel.get_config_value", new=lambda *a, **kw: dict(config)),
+        installed(config_of({"ariel": config})),
     ):
         result = runner.invoke(ariel_group, ["status", "--json"])
 

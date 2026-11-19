@@ -60,7 +60,7 @@ def shared_root(tmp_path, monkeypatch):
 def unresolvable_root(monkeypatch):
     """No stamp and no config derivation: a map with nowhere to write."""
     monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
-    monkeypatch.setattr(_control_state, "resolve_shared_data_root", _raise_no_root)
+    monkeypatch.setattr(_control_state, "_config_agent_data_root", _raise_no_root)
     testing.invalidate_cache()
     yield
     testing.invalidate_cache()

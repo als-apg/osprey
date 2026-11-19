@@ -28,8 +28,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
     simulation_state_dir,
 )
-from osprey_connectors_tests._config_lookup import serve_config_lookup
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, serve_writes_enabled
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]
@@ -40,7 +39,7 @@ JOURNAL = ("inprocess", "writes.json")
 def _switch_on(monkeypatch, tmp_path):
     """The login's switch on for the simulator target, connectors stamped with it.
 
-    With :func:`writes_enabled_config` serving a write tier that allows, that is
+    With :func:`serve_writes_enabled` serving a write tier that allows, that is
     everything the reference monitor's verdict asks before a write reaches the
     transport; a test that disarms serves a tier that does not.
     """
@@ -48,8 +47,8 @@ def _switch_on(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def writes_enabled(monkeypatch):
-    serve_config_lookup(monkeypatch, writes_enabled_config)
+def writes_enabled():
+    serve_writes_enabled()
 
 
 def _journal(view: Path) -> Path:
@@ -272,27 +271,20 @@ _WRITER = """
     import asyncio, sys
     import osprey_connectors.config as config
 
-    # A write tier that allows; the parent's armed record (its switch on for
-    # the simulator) reaches this process through the inherited environment.
-    real = config.get_config_value
-    config.get_config_value = lambda key, default=None, config_path=None: (
-        {"writes": "allowed"} if key == "control_system" else real(key, default, config_path)
-    )
+    # A write tier that allows, installed as this process's config over the one
+    # it would load (none here is fine); the parent's armed record (its switch
+    # on for the simulator) reaches this process through the inherited
+    # environment.
     from osprey_connectors.testing import config_of
 
-    real_current = config.current_config
-
-    def _current():
-        try:
-            base = real_current()
-        except Exception:
-            tree, path = {}, "config.yml"
-        else:
-            tree, path = base.raw_tree(), base.path
-        tree["control_system"] = {"writes": "allowed"}
-        return config_of(tree, path=path)
-
-    config.current_config = _current
+    try:
+        base = config.current_config()
+    except Exception:
+        tree, path = {}, "config.yml"
+    else:
+        tree, path = base.raw_tree(), base.path
+    tree["control_system"] = {"writes": "allowed"}
+    config.install_config(config_of(tree, path=path))
     from osprey_connectors.control_system import ConnectorContext
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 

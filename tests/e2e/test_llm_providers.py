@@ -419,7 +419,7 @@ def setup_llm_test_environment(test_config, monkeypatch):
 
     test_config.write_text(yaml.dump(config))
 
-    monkeypatch.setenv("CONFIG_FILE", str(test_config))
+    monkeypatch.setenv("OSPREY_CONFIG", str(test_config))
 
     # Remove proxy env vars that interfere with direct API calls
     for var in ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENAI_BASE_URL", "OPENAI_API_BASE"):

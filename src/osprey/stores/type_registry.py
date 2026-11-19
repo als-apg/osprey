@@ -312,7 +312,6 @@ def _read_config_block() -> tuple[Any, Path | None]:
     without making it the process default.
     """
     from osprey_connectors.config import active_config, load_config, locate_config
-    from osprey_connectors.workspace import resolve_project_root
 
     loaded = active_config()
     if loaded is None:
@@ -320,7 +319,7 @@ def _read_config_block() -> tuple[Any, Path | None]:
         if not path.is_file():
             return {}, None
         loaded = load_config(path)
-    return loaded.get("artifact_server", {}), resolve_project_root(loaded.raw_tree())
+    return loaded.get("artifact_server", {}), loaded.repo_root
 
 
 def load_extension_types(
@@ -349,7 +348,8 @@ def load_extension_types(
             config. When given, the result is returned without
             replacing the process registry.
         project_root: Containment root for config viewers; defaults to
-            :func:`osprey_connectors.workspace.resolve_project_root`.
+            the repo root of *config* (:func:`osprey.utils.config_paths.repo_root_of`),
+            else of the process config.
         entry_points: Entry points to read instead of the installed ones.
 
     Returns:
@@ -374,9 +374,9 @@ def load_extension_types(
         block = config.get("artifact_server", {})
         root = None
         if project_root is None:
-            from osprey_connectors.workspace import resolve_project_root
+            from osprey.utils.config_paths import repo_root_of
 
-            root = resolve_project_root(config)
+            root = repo_root_of(config)
     if project_root is not None:
         root = Path(project_root)
     if not isinstance(block, Mapping):

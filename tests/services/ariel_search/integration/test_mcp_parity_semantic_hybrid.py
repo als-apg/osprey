@@ -134,10 +134,10 @@ def _isolated(monkeypatch):
     from osprey.mcp_server.ariel.server_context import reset_ariel_context
     from osprey.models.provider_registry import ProviderRegistry
     from osprey.services.ariel_search.search import qmd as qmd_module
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     qmd_module._reset_client_cache()
     fake = make_fake_embedding_provider(dimension=DIM, vector=QUERY_VECTOR)
     monkeypatch.setattr(ProviderRegistry, "get_provider", lambda _self, _name: fake)
@@ -148,7 +148,7 @@ def _isolated(monkeypatch):
     monkeypatch.setattr(qmd_module, "_resolve_client", lambda client: (qmd_client, True))
     yield
     reset_ariel_context()
-    reset_config_cache()
+    clear_config_state()
     qmd_module._reset_client_cache()
 
 

@@ -24,7 +24,7 @@ def workspace_dir(tmp_path):
 def test_cdn_mode_stamps_the_vendor_source(workspace_dir, monkeypatch):
     monkeypatch.setenv("OSPREY_OFFLINE", "0")
     with terminal_client(workspace_dir) as c:
-        with patch("osprey_connectors.workspace.load_osprey_config", return_value={}):
+        with patch("osprey.utils.config_paths.loaded_or_empty", return_value={}):
             body = c.get("/").text
     assert 'data-vendor="cdn"' in body
 

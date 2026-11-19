@@ -33,7 +33,7 @@ from typing import Any
 
 from osprey.agent_record import writer as record_writer
 from osprey.agent_record.contract import KIND_API_CALL
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("osprey.models")
@@ -267,7 +267,7 @@ def _get_caller_info(skip_frames: int = 2) -> dict[str, Any]:
 
         # Try to make filename relative to project root for readability
         try:
-            project_root = get_config_value("project_root", None)
+            project_root = current_config().get("project_root", None)
             if project_root and isinstance(project_root, str | Path):
                 caller_info["filename"] = str(Path(caller_frame.filename).relative_to(project_root))
         except (ValueError, TypeError):
@@ -440,7 +440,7 @@ def log_api_call(
                 include_stack_trace: true  # Add full stack traces
     """
     try:
-        development_config = get_config_value("development", {})
+        development_config = current_config().get("development", {})
         if not isinstance(development_config, dict):
             # An empty ``development:`` reads as None: nothing asked to record.
             if development_config is not None:

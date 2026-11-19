@@ -34,6 +34,7 @@ from osprey_connectors import connector_types, control_context, session_hold, te
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
 from osprey_connectors_tests._harness._control_context_fixtures import _set_switch_to
@@ -66,13 +67,6 @@ class _SpyFake(FakeConnector):
 
 class _NoStaleHook:
     """A connector-shaped object that predates ``wait_stale``."""
-
-
-def _serve(monkeypatch, section):
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
 
 
 def write_record(state_dir: Path, *, target="va", generation=3, switch=None) -> Path:
@@ -122,9 +116,9 @@ def state_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def mock_va(monkeypatch, state_dir):
+def mock_va(state_dir):
     """Serve :data:`VA_SECTION` and build a spying fake for the virtual accelerator."""
-    _serve(monkeypatch, VA_SECTION)
+    serve_control_system(VA_SECTION)
     _SpyFake.asked = 0
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, _SpyFake)
@@ -174,8 +168,8 @@ class TestWaitStale:
         await _never_returns(asyncio.ensure_future(session.wait_stale()))
         await session.close()
 
-    async def test_an_unservable_session_never_returns(self, state_dir, monkeypatch):
-        _serve(monkeypatch, STANDIN_ONLY_SECTION)
+    async def test_an_unservable_session_never_returns(self, state_dir):
+        serve_control_system(STANDIN_ONLY_SECTION)
         write_record(state_dir, target="live", generation=2)
         session = await _opened()
         assert session._connector is None
@@ -253,9 +247,9 @@ ARMED_SECTION = {
 
 
 @pytest.fixture
-def armed_va(monkeypatch, mock_va):
+def armed_va(mock_va):
     """:func:`mock_va` serving :data:`ARMED_SECTION`, so the tier passes."""
-    _serve(monkeypatch, ARMED_SECTION)
+    serve_control_system(ARMED_SECTION)
     return mock_va
 
 

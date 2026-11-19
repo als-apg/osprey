@@ -178,9 +178,9 @@ def _scope(repo: Path | None, config_option: Path | None) -> _Scope:
             requests=root / write_requests_relpath(),
             ledger=root / write_ledger_relpath(),
         )
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
-    config_path = config_option or resolve_config_path()
+    config_path = config_option or locate_config()
     return _Scope(
         repo_root=None,
         config=_load(config_path) if config_path.is_file() else None,

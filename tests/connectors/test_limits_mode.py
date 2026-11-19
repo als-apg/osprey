@@ -33,7 +33,7 @@ from osprey_connectors.limits_posture import (
     incomplete_limits_blocks,
     type_limits_posture,
 )
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_control_system
 
 BOUNDED = "DEMO:MAG:HCM:01:CURRENT:SP"
 LOCKED = "DEMO:VAC:PUMP:01:VOLTAGE:SP"
@@ -53,17 +53,17 @@ VA_MODE_KEY = f"control_system.connector.{VA}.limits_checking.mode"
 LEFTOVER_LEAF = "allow_unlisted_channels"
 
 
-def _validator(monkeypatch, tmp_path: Path, mode: Any) -> LimitsValidator:
-    """Load the limits file under *mode*, stated deployment-wide."""
+def _serve_limits(tmp_path: Path, limits_checking: dict[str, Any]) -> None:
+    """Serve *limits_checking* deployment-wide, its database the limits file under *tmp_path*."""
     db_file = tmp_path / "channel_limits.json"
     db_file.write_text(json.dumps(LIMITS_FILE), encoding="utf-8")
-    values = {
-        "control_system": {"limits_checking": {"enabled": True, "mode": mode}},
-        "control_system.limits_checking.database_path": str(db_file),
-        "project_root": None,
-    }
-    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
-    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
+    block = {**limits_checking, "database_path": str(db_file)}
+    serve_control_system({"limits_checking": block})
+
+
+def _validator(tmp_path: Path, mode: Any) -> LimitsValidator:
+    """Load the limits file under *mode*, stated deployment-wide."""
+    _serve_limits(tmp_path, {"enabled": True, "mode": mode})
     validator = LimitsValidator.from_config()
     assert isinstance(validator, LimitsValidator)
     return validator
@@ -79,8 +79,8 @@ class TestTheModeDecidesAChannelWithNoRecord:
     def test_the_two_modes_are_exclusive_and_optional(self) -> None:
         assert LIMITS_MODES == ("exclusive", "optional")
 
-    def test_exclusive_refuses_a_channel_with_no_record(self, monkeypatch, tmp_path) -> None:
-        validator = _validator(monkeypatch, tmp_path, "exclusive")
+    def test_exclusive_refuses_a_channel_with_no_record(self, tmp_path) -> None:
+        validator = _validator(tmp_path, "exclusive")
 
         refusal = _refusal(validator, UNLISTED, 499.5)
 
@@ -89,21 +89,14 @@ class TestTheModeDecidesAChannelWithNoRecord:
 
     @pytest.mark.parametrize("value", [499.5, -1.0e12, 1.0e12])
     def test_optional_writes_a_channel_with_no_record_with_no_bounds(
-        self, monkeypatch, tmp_path, value: float
+        self, tmp_path, value: float
     ) -> None:
-        validator = _validator(monkeypatch, tmp_path, "optional")
+        validator = _validator(tmp_path, "optional")
 
         validator.validate(UNLISTED, value)
 
-    def test_an_unstated_mode_refuses_a_channel_with_no_record(self, monkeypatch, tmp_path) -> None:
-        db_file = tmp_path / "channel_limits.json"
-        db_file.write_text(json.dumps(LIMITS_FILE), encoding="utf-8")
-        values = {
-            "control_system": {"limits_checking": {"enabled": True}},
-            "control_system.limits_checking.database_path": str(db_file),
-        }
-        serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
-        monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
+    def test_an_unstated_mode_refuses_a_channel_with_no_record(self, tmp_path) -> None:
+        _serve_limits(tmp_path, {"enabled": True})
 
         refusal = _refusal(LimitsValidator.from_config(), UNLISTED, 499.5)
 
@@ -114,22 +107,22 @@ class TestTheModeDecidesAChannelWithNoRecord:
 class TestARecordMeansTheSameInBothModes:
     @pytest.mark.parametrize("value", [-12.0, 0.0, 12.0])
     def test_the_bounded_record_takes_a_value_inside_its_bounds(
-        self, monkeypatch, tmp_path, mode: str, value: float
+        self, tmp_path, mode: str, value: float
     ) -> None:
-        _validator(monkeypatch, tmp_path, mode).validate(BOUNDED, value)
+        _validator(tmp_path, mode).validate(BOUNDED, value)
 
     @pytest.mark.parametrize(
         ("value", "violation"), [(12.5, "MAX_EXCEEDED"), (-12.5, "MIN_EXCEEDED")]
     )
     def test_the_bounded_record_is_enforced(
-        self, monkeypatch, tmp_path, mode: str, value: float, violation: str
+        self, tmp_path, mode: str, value: float, violation: str
     ) -> None:
-        refusal = _refusal(_validator(monkeypatch, tmp_path, mode), BOUNDED, value)
+        refusal = _refusal(_validator(tmp_path, mode), BOUNDED, value)
 
         assert refusal.violation_type == violation
 
-    def test_the_writable_false_record_is_refused(self, monkeypatch, tmp_path, mode: str) -> None:
-        refusal = _refusal(_validator(monkeypatch, tmp_path, mode), LOCKED, 0.0)
+    def test_the_writable_false_record_is_refused(self, tmp_path, mode: str) -> None:
+        refusal = _refusal(_validator(tmp_path, mode), LOCKED, 0.0)
 
         assert refusal.violation_type == "READ_ONLY_CHANNEL"
 

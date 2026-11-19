@@ -177,15 +177,17 @@ def shared_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     Returns:
         The shared root the sidecar will use.
     """
-    from osprey.interfaces.web_terminal import operator_session
     from osprey.interfaces.web_terminal.routes import websocket
 
     root = tmp_path / "agent_data"
     root.mkdir()
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "does-not-exist.yml"))
     monkeypatch.setenv("OSPREY_WEB_THEME", "dark")
-    monkeypatch.setattr(operator_session, "resolve_agent_data_root", lambda app=None: str(root))
-    monkeypatch.setattr(websocket, "resolve_agent_data_root", lambda app=None: str(root))
+    monkeypatch.setattr(
+        "osprey.interfaces.web_terminal.operator_session.shared_data_root",
+        lambda app=None: str(root),
+    )
+    monkeypatch.setattr(websocket, "shared_data_root", lambda app=None: str(root))
     return root
 
 

@@ -614,7 +614,7 @@ def _container_agent_data_dir(config: Any, container_project_dir: str) -> str:
 
     The mount target has to be the directory the process inside the container
     actually writes to, and that directory is decided by ``agent_data.base_dir``
-    — the same key :func:`osprey_connectors.workspace.resolve_agent_data_root`
+    — the same key :func:`osprey.utils.config_paths.session_agent_data_root`
     resolves at runtime, anchored on the config's ``project_root`` (in-container:
     *container_project_dir*). Derived through the shared
     :func:`~osprey_connectors.workspace.agent_data_base_dir` reader for that reason:
@@ -1186,7 +1186,7 @@ def render_web_terminals(
                 # Read from `agent_data.base_dir` through the shared helper
                 # rather than spelled as a literal here, because the container
                 # resolves its own agent-data root from that key
-                # (workspace.resolve_agent_data_root, anchored on the config's
+                # (LoadedConfig.agent_data_root, anchored on the config's
                 # project_root, which in-container is container_project_dir).
                 # A literal here silently decouples the two: the volume mounts
                 # at one path while memory, sessions and artifacts are written

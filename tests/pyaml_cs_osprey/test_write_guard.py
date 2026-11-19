@@ -30,6 +30,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
 )
 from osprey_connectors.limits_posture import LIMITS_MODE_EXCLUSIVE
+from osprey_connectors.testing import clear_config_state
 from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.catalog import parse_reference
 from pyaml_cs_osprey.device import OspreyDevice
@@ -160,6 +161,9 @@ class TestRunToolWrites:
         bare = tmp_path / "bare"
         bare.mkdir()
         monkeypatch.chdir(bare)
+        # No deployment named either: the process stands in a bare directory.
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        clear_config_state()
         called: list[str] = []
 
         def tool() -> None:

@@ -40,10 +40,10 @@ from osprey_connectors.write_authorization import (
     revoke_grants,
     start_lease,
 )
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from osprey_connectors_tests._harness._control_context_fixtures import FIXTURE_IDENTITY
-from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader, turn_switch
+from osprey_connectors_tests._write_fakes import RecordingConnector, turn_switch
 
 SECTION = {"type": "epics", "writes": "allowed"}
 TARGET = "va"
@@ -141,7 +141,7 @@ def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in (wa.AUTHORIZATION_ENV_VAR, wa.LEDGER_DIR_ENV_VAR, "OSPREY_SESSION_ID"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv(session_hold.HOLD_DIR_ENV_VAR, raising=False)
-    serve_config_lookup(monkeypatch, config_reader(SECTION))
+    serve_control_system(SECTION)
     write_control_context(data, switch={})
     return data
 
@@ -345,7 +345,7 @@ class TestSingleWrites:
 
     async def test_a_tier_that_never_writes_is_not_lifted(self, monkeypatch):
         grant = approve(monkeypatch)
-        serve_config_lookup(monkeypatch, config_reader({"type": "epics", "writes": "never"}))
+        serve_control_system({"type": "epics", "writes": "never"})
         assert (await connector().write_channel("A:SP", 1.0)).verdict_reason == "tier_never"
         assert steps(grant) == 0
 

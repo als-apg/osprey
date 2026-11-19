@@ -49,7 +49,7 @@ from osprey_connectors.errors import (
     ChannelWriteBlockedError,
     ChannelWriteFailedError,
 )
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from tests._guarded_run import LIVE_BASELINE, reset_run_state
 
 #: Commands of the facility definition: the setpoints the build marked ``command``.
@@ -91,7 +91,7 @@ def _deploy(root: Path, limits_checking: Any = None) -> None:
         section["limits_checking"] = limits_checking
     config = {"control_system": section, "approval": {"enabled": False}}
     (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
-    reset_config_cache()
+    clear_config_state()
 
 
 def _facility(root: Path, channels: list[dict[str, Any]]) -> None:
@@ -119,7 +119,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
     monkeypatch.setenv(write_switch.CONTROL_OWNER_ENV_VAR, "alice")
     yield root
-    reset_config_cache()
+    clear_config_state()
 
 
 # --------------------------------------------------------------------------

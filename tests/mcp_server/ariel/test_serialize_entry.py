@@ -2,18 +2,17 @@
 
 import inspect
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel import server
 from osprey.mcp_server.ariel.server import serialize_entry
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import installed
 
 
-def _no_template(path, default=None, _config_path=None):
-    """Answer the entry_url template with None so no entry_url is emitted."""
-    if path == "ariel.entry_url_template":
-        return None
-    return default
+def _no_template():
+    """Serve a config that names no entry_url template, so no entry_url is emitted."""
+    return installed(config_of({}))
 
 
 def _entry(raw_text: str) -> dict:
@@ -29,7 +28,7 @@ def _entry(raw_text: str) -> dict:
 
 def test_an_uncut_entry_keeps_its_shape():
     text = "beam loss on the north arc"
-    with patch("osprey_connectors.config.get_config_value", _no_template):
+    with _no_template():
         out = serialize_entry(
             _entry(text),
             text_limit=len(text) + 10,
@@ -43,7 +42,7 @@ def test_an_uncut_entry_keeps_its_shape():
 
 
 def test_a_cut_entry_says_so_and_gives_its_length():
-    with patch("osprey_connectors.config.get_config_value", _no_template):
+    with _no_template():
         out = serialize_entry(
             _entry("abcdefghi"),
             text_limit=4,
@@ -94,7 +93,7 @@ def _serialize(entry: dict, **overrides):
         "file_source": False,
     }
     kwargs.update(overrides)
-    with patch("osprey_connectors.config.get_config_value", _no_template):
+    with _no_template():
         return serialize_entry(entry, **kwargs)
 
 
@@ -217,7 +216,7 @@ def test_the_attachment_arguments_are_required_keywords():
 
 def test_a_partial_keyword_hit_names_its_matched_and_missing_terms():
     entry = {**_entry("#HP Prep"), "_matched_terms": ["hp", "prep"], "_missing_terms": ["oct"]}
-    with patch("osprey_connectors.config.get_config_value", _no_template):
+    with _no_template():
         out = serialize_entry(
             entry,
             text_limit=100,
@@ -233,7 +232,7 @@ def test_a_partial_keyword_hit_names_its_matched_and_missing_terms():
 
 def _serialize_with_references(spans, *, records=None, text="TWIN then GONE", limit=100) -> dict:
     entry = {**_entry(text), "facility_refs": spans}
-    with patch("osprey_connectors.config.get_config_value", _no_template):
+    with _no_template():
         return serialize_entry(
             entry,
             text_limit=limit,

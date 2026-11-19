@@ -299,10 +299,11 @@ class ARIELContext:
         Returns:
             The raw config dict (empty when no config file is reachable).
         """
-        from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+        from osprey.utils.config_paths import loaded_or_empty
+        from osprey_connectors.config import locate_config
 
-        raw = load_osprey_config()
-        config_path = resolve_config_path()
+        raw = loaded_or_empty()
+        config_path = locate_config()
         self._config_path = config_path
         if config_path.exists():
             logger.info("ARIELContext: config loaded from %s", config_path)

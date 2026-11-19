@@ -18,6 +18,8 @@ from osprey.agent_record.client import ClientAnswer
 from osprey.agent_record.contract import Drain
 from osprey.interfaces.web_terminal.routes import session as session_routes
 from osprey.stores.artifact_store import ArtifactStore
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests.agent_record.fakes import FakeRecordClient
 from tests.interfaces.web_terminal._fakes import FakePtySession
 from tests.interfaces.web_terminal._started_app import terminal_client
@@ -213,21 +215,17 @@ class TestActivity:
 
 
 class TestRetention:
-    def test_the_configured_retention_is_reported(self, client, monkeypatch):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda path, default=None: 30 if path == "agent_record.retention_days" else default,
-        )
+    def test_the_configured_retention_is_reported(self, client):
+        serve_config(config_of({"agent_record": {"retention_days": 30}}))
 
         session = client.get(ROUTE, params={"transcript_id": TRANSCRIPT}).json()["session"]
 
         assert session["retention_days"] == 30
 
-    def test_an_unreadable_config_reports_no_retention(self, client, monkeypatch):
-        def broken(*_args, **_kwargs):
-            raise RuntimeError("no config")
-
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", broken)
+    def test_an_unreadable_config_reports_no_retention(self, client, monkeypatch, tmp_path):
+        broken = tmp_path / "broken-config.yml"
+        broken.write_text("agent_record: [unclosed\n", encoding="utf-8")
+        monkeypatch.setenv("OSPREY_CONFIG", str(broken))
 
         session = client.get(ROUTE, params={"transcript_id": TRANSCRIPT}).json()["session"]
 

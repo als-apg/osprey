@@ -187,7 +187,7 @@ class TestConnectorHostChild:
         from osprey_connectors.ipc import _host as host
 
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         view = served_tree(tmp_path / "served")
         connector, report = await host._build_connector(
             host._host_init(
@@ -215,7 +215,7 @@ class TestConnectorHostChild:
         from osprey_connectors.ipc import _host as host
 
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         connector, _ = await host._build_connector(
             host._host_init(
                 {

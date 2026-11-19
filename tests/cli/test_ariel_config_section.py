@@ -3,11 +3,13 @@
 import pytest
 
 import osprey.cli.ariel as ariel_cli
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 
-def test_a_non_mapping_ariel_section_is_refused_as_unconfigured(monkeypatch):
+def test_a_non_mapping_ariel_section_is_refused_as_unconfigured():
     """An ``ariel:`` section that is not a mapping takes the not-configured path."""
-    monkeypatch.setattr(ariel_cli, "get_config_value", lambda *_args, **_kwargs: True)
+    serve_config(config_of({"ariel": True}))
 
     with pytest.raises(SystemExit) as excinfo:
         ariel_cli._load_ariel_config()

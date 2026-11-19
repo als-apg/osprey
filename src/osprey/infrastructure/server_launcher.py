@@ -28,7 +28,7 @@ from osprey.registry.web import (
     resolve_web_server_address,
     web_server_config_section,
 )
-from osprey_connectors.workspace import load_osprey_config
+from osprey.utils.config_paths import loaded_or_empty
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -576,18 +576,18 @@ class ServerLauncher:
 
                 if self._share_panel_token:
                     from osprey.interfaces.web_auth import share_panel_token_with_project
-                    from osprey_connectors.workspace import resolve_shared_data_root
+                    from osprey.utils.config_paths import process_agent_data_root
 
                     # Before the app is built: building it settles the credentials.
-                    share_panel_token_with_project(resolve_shared_data_root())
+                    share_panel_token_with_project(process_agent_data_root())
 
                 if self._pass_workspace:
-                    from osprey_connectors.workspace import resolve_shared_data_root
+                    from osprey.utils.config_paths import process_agent_data_root
 
                     # Launched servers are daemons serving the shared store (they
                     # may be auto-launched from a session-scoped MCP process on
                     # first artifact save).
-                    app = self._app_factory(workspace_root=resolve_shared_data_root())
+                    app = self._app_factory(workspace_root=process_agent_data_root())
                 else:
                     app = self._app_factory()
                 uvicorn.run(app, host=host, port=port, log_level="warning")
@@ -795,7 +795,7 @@ def _make_auto_launch_checker(defn: WebServerDefinition) -> Callable[[], bool]:
     """
 
     def _checker() -> bool:
-        config = load_osprey_config()
+        config = loaded_or_empty()
         top = config.get(defn.config_key, {})
         if defn.require_section and not top:
             return False
@@ -832,7 +832,7 @@ def _make_app_factory(defn: WebServerDefinition) -> Callable[..., ASGIApp]:
         if defn.pass_workspace:
             kwargs["workspace_root"] = workspace_root
         if defn.factory_config_kwargs:
-            config = load_osprey_config()
+            config = loaded_or_empty()
             for kwarg_name, dotted_path in defn.factory_config_kwargs.items():
                 kwargs[kwarg_name] = _resolve_dotted(config, dotted_path)
         app: ASGIApp = create_app(**kwargs)

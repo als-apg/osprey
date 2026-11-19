@@ -19,7 +19,6 @@ from osprey_connectors.config import (
     active_config,
     current_config,
     facility_timezone,
-    get_config_value,
     install_config,
     load_config,
     localize_facility,
@@ -350,7 +349,6 @@ class TestProcessDefault:
 
         assert locate_config() == config_file
         assert current_config().get("marker") == "build"
-        assert get_config_value("marker") == "build"
         assert active_config() is current_config()
 
     def test_osprey_config_names_the_file_and_config_file_does_not(self, tmp_path, monkeypatch):
@@ -380,7 +378,7 @@ class TestProcessDefault:
         with pytest.raises(ConfigNotFoundError):
             current_config()
         with pytest.raises(FileNotFoundError):
-            get_config_value("anything")
+            current_config().get("anything")
 
     def test_an_installed_config_answers_ahead_of_the_located_one(self, tmp_path, monkeypatch):
         _write(tmp_path / "config.yml", "marker: located\n")
@@ -398,23 +396,23 @@ class TestProcessDefault:
 
         with using_config(inner) as scoped:
             assert scoped is inner
-            assert get_config_value("marker") == "scoped"
+            assert current_config().get("marker") == "scoped"
             with using_config(config_of({"marker": "nested"})):
-                assert get_config_value("marker") == "nested"
+                assert current_config().get("marker") == "nested"
             assert active_config() is inner
-        assert get_config_value("marker") == "process"
+        assert current_config().get("marker") == "process"
 
     def test_a_scope_named_by_path_loads_it(self, tmp_path):
         config_file = _write(tmp_path / "config.yml", "marker: from-path\n")
 
         with using_config(config_file) as scoped:
             assert scoped.path == config_file
-            assert get_config_value("marker") == "from-path"
+            assert current_config().get("marker") == "from-path"
 
     def test_an_explicit_path_is_read_without_becoming_the_default(self, tmp_path):
         config_file = _write(tmp_path / "config.yml", "marker: explicit\n")
 
-        assert get_config_value("marker", None, str(config_file)) == "explicit"
+        assert load_config(config_file).get("marker") == "explicit"
         assert active_config() is None
 
     def test_the_lazy_default_applies_the_env_chain_before_it_loads(self, tmp_path, monkeypatch):
@@ -423,7 +421,7 @@ class TestProcessDefault:
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("OSPREY_LAZY_CHAIN_PROBE", raising=False)
 
-        assert get_config_value("value") == "from-the-chain"
+        assert current_config().get("value") == "from-the-chain"
 
 
 class TestFacilityTimezone:

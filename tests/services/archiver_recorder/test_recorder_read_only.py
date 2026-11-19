@@ -36,10 +36,9 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors.write_switch import write_verdict
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._epics_fakes import install_fake_aioca
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
-from osprey_connectors_tests._write_fakes import config_reader
 
 #: Every method or property on the connector interface that writes, or decides a write.
 WRITE_NAMES = frozenset(
@@ -123,7 +122,7 @@ async def test_the_recorders_connector_carries_no_target_and_refuses_a_write(tmp
     root = tmp_path / "agent-data"
     isolate_verdict_environment(monkeypatch, root)
     write_control_context(root, owned_by=None, switch={"live": "on", "va": "on"})
-    serve_config_lookup(monkeypatch, config_reader(dict(WRITES_ALLOWED)))
+    serve_control_system(WRITES_ALLOWED)
 
     connector = await recorder._connect()
     result = await connector.write_channel("SR:BPM01:X", 1.0)

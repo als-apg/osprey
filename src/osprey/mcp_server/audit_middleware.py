@@ -376,7 +376,7 @@ def hook_config_path() -> Path | None:
 
     ``None`` means :data:`CONFIG_ENV` is unset, blank, or not absolute — the
     caller degrades to the floor. Deliberately not a resolver:
-    ``resolve_project_root`` answers the repo root, one directory above the
+    ``process_repo_root`` answers the repo root, one directory above the
     render zone, and a fallback to it would read a *different* deployment's hook
     config while looking entirely healthy. A *relative* ``OSPREY_CONFIG`` does
     the same thing by a shorter route — it resolves against whatever directory

@@ -334,8 +334,7 @@ def _create_lifespan(
         import httpx
 
         from osprey.services.channel_finder.utils.detection import detect_pipeline_config
-        from osprey_connectors.config import active_config
-        from osprey_connectors.workspace import resolve_config_path
+        from osprey_connectors.config import active_config, locate_config
 
         cf_config = config.get("channel_finder", {})
 
@@ -355,7 +354,7 @@ def _create_lifespan(
         # none still names the file it would have read.
         loaded_config = active_config()
         render_root = (
-            loaded_config.path.parent if loaded_config is not None else resolve_config_path().parent
+            loaded_config.path.parent if loaded_config is not None else locate_config().parent
         )
         identity = facility_identity(render_root, config.get("project_name"))
         app.state.facility_name = identity["name"] if identity is not None else ""
@@ -511,13 +510,13 @@ def _create_lifespan(
             app.state.config = config
             app.state.pv_directory = pv_directory
             app.state.directory_service = DirectoryService(
-                config, project_dir=resolve_config_path().parent
+                config, project_dir=locate_config().parent
             )
 
             # Current values are read by a supervised child, never here.
             from osprey.interfaces.channel_finder import directory_values_supervisor
 
-            supervisor = directory_values_supervisor.ValueSupervisor(resolve_config_path())
+            supervisor = directory_values_supervisor.ValueSupervisor(locate_config())
             await asyncio.to_thread(supervisor.start)
             app.state.directory_values = supervisor
 
@@ -564,9 +563,9 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
         feedback_api,
         pending_review_api,
     )
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     pv_directory = _resolve_pv_directory(config)
 
     app = FastAPI(

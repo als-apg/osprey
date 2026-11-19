@@ -12,7 +12,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from osprey_connectors.workspace import resolve_config_path
+from osprey_connectors.config import locate_config
 
 __all__ = [
     "DEFAULT_EXECUTION_TIMEOUT_SECONDS",
@@ -51,7 +51,7 @@ def _describe_config_source(source: str | None) -> str:
     if source:
         return str(source)
     try:
-        return str(resolve_config_path())
+        return str(locate_config())
     except Exception:  # pragma: no cover - defensive: never fail a config read
         return "config.yml"
 

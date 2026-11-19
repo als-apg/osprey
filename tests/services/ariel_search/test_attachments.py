@@ -25,6 +25,8 @@ from osprey.services.ariel_search.attachments import (
 from osprey.services.ariel_search.attachments import prepare as prepare_module
 from osprey.services.ariel_search.attachments.prepare import PreparedPicture, RenderUnavailable
 from osprey.services.ariel_search.database.repository import CopyRendition, SchemaFacts
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 
 _DEFAULT_MAX_BYTES = DEFAULT_MAX_ATTACHMENT_MB * 1024 * 1024
 
@@ -163,14 +165,9 @@ class TestProcessAttachmentsForEntry:
         mock_repo.insert_native_attachment.assert_not_called()
 
 
-def _section(section: object):
-    """A ``get_config_value`` double that serves only the ``ariel.attachments`` block."""
-
-    def get_config_value(path, *_args, **_kwargs):
-        assert path == "ariel.attachments", path
-        return section
-
-    return get_config_value
+def _serve_attachments(section: object) -> None:
+    """Serve a config whose only content is *section* as the ``ariel.attachments`` block."""
+    serve_config(config_of(config_tree({"ariel.attachments": section})))
 
 
 class TestTheAttachmentCapIsAConfigKey:
@@ -181,25 +178,21 @@ class TestTheAttachmentCapIsAConfigKey:
     parsed by ``AttachmentsConfig``, the one parser of ``ariel.attachments.*``.
     """
 
-    def test_default_when_no_config_is_primed(self, monkeypatch):
+    def test_default_when_no_config_is_primed(self, monkeypatch, tmp_path):
         """A standalone ARIEL reads no config and still has a bound."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no config")),
-        )
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+        monkeypatch.chdir(tmp_path)
 
         assert attachments_module.max_attachment_bytes() == _DEFAULT_MAX_BYTES
 
-    def test_an_absent_block_is_the_default(self, monkeypatch):
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", _section({}))
+    def test_an_absent_block_is_the_default(self):
+        _serve_attachments({})
 
         assert attachments_module.max_attachment_bytes() == _DEFAULT_MAX_BYTES
 
-    def test_configured_value_is_read_in_megabytes(self, monkeypatch):
+    def test_configured_value_is_read_in_megabytes(self):
         """The key is authored in MB; validation compares bytes."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section({"max_file_mb": 50})
-        )
+        _serve_attachments({"max_file_mb": 50})
 
         assert attachments_module.max_attachment_bytes() == 50 * 1024 * 1024
         validate_file_size(40 * 1024 * 1024, "trace.bin")
@@ -207,26 +200,22 @@ class TestTheAttachmentCapIsAConfigKey:
             validate_file_size(50 * 1024 * 1024 + 1, "trace.bin")
 
     @pytest.mark.parametrize("bad", [0, -1, True, "10", None])
-    def test_an_unusable_cap_falls_back_to_the_default(self, monkeypatch, bad):
+    def test_an_unusable_cap_falls_back_to_the_default(self, bad):
         """A nonsense cap keeps the documented bound rather than removing it."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section({"max_file_mb": bad})
-        )
+        _serve_attachments({"max_file_mb": bad})
 
         assert attachments_module.max_attachment_bytes() == _DEFAULT_MAX_BYTES
 
-    def test_a_non_number_cap_warns_and_keeps_ten_megabytes(self, monkeypatch, caplog):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section({"max_file_mb": "x"})
-        )
+    def test_a_non_number_cap_warns_and_keeps_ten_megabytes(self, caplog):
+        _serve_attachments({"max_file_mb": "x"})
 
         with caplog.at_level("WARNING"):
             assert attachments_module.max_attachment_bytes() == 10 * 1024 * 1024
         assert "ariel.attachments.max_file_mb" in caplog.text
 
     @pytest.mark.parametrize("section", [50, "10", ["max_file_mb", 50], True])
-    def test_a_non_mapping_block_is_logged_and_the_default_kept(self, monkeypatch, caplog, section):
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", _section(section))
+    def test_a_non_mapping_block_is_logged_and_the_default_kept(self, caplog, section):
+        _serve_attachments(section)
 
         with caplog.at_level("WARNING"):
             assert attachments_module.max_attachment_bytes() == _DEFAULT_MAX_BYTES
@@ -241,9 +230,9 @@ class TestTheAttachmentCapIsAConfigKey:
             {"view": {"enabled": "no"}},
         ],
     )
-    def test_a_malformed_sibling_does_not_break_validation(self, monkeypatch, caplog, section):
+    def test_a_malformed_sibling_does_not_break_validation(self, caplog, section):
         """The size check keeps a bound when another attachments knob is malformed."""
-        monkeypatch.setattr("osprey_connectors.config.get_config_value", _section(section))
+        _serve_attachments(section)
 
         with caplog.at_level("WARNING"):
             assert attachments_module.max_attachment_bytes() == _DEFAULT_MAX_BYTES
@@ -252,11 +241,9 @@ class TestTheAttachmentCapIsAConfigKey:
                 validate_file_size(_DEFAULT_MAX_BYTES + 1, "trace.bin")
         assert "ariel.attachments" in caplog.text
 
-    def test_the_refusal_names_the_configured_limit(self, monkeypatch):
+    def test_the_refusal_names_the_configured_limit(self):
         """The operator is told the number in force, not a framework literal."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section({"max_file_mb": 50})
-        )
+        _serve_attachments({"max_file_mb": 50})
 
         with pytest.raises(AttachmentValidationError, match="50 MB limit"):
             validate_file_size(60 * 1024 * 1024, "trace.bin")
@@ -577,12 +564,10 @@ class TestStoreNativeAttachment:
         ],
     )
     async def test_native_non_image_keeps_data_and_records_its_skip_reason(
-        self, monkeypatch, mode, data, mime, reason
+        self, mode, data, mime, reason
     ):
         """``copy_on_ingest`` never applies to a native writer: the bytes are always kept."""
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", _section({"copy_on_ingest": mode})
-        )
+        _serve_attachments({"copy_on_ingest": mode})
         repo = _fake_repo(SchemaFacts(True, True))
 
         info = await store_native_attachment(

@@ -44,6 +44,7 @@ from osprey.mcp_server.bluesky.tools import queue
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import testing, write_switch
 from osprey_connectors.refusals import refusal_phrase
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -464,19 +465,14 @@ async def test_a_plain_halt_is_never_gated_by_the_verdict(tmp_path, monkeypatch)
 # =========================================================================
 
 
-def _patch_bridge_config(monkeypatch, *, section, lane_targets, limits_enabled, db_path):
-    """Patch the config keys ``_assert_limits_readable_if_writable`` reads.
-
-    The guard does its lookups through a function-body import of
-    ``osprey_connectors.config``, so patching the module attribute is what takes
-    effect — the same convention ``test_startup_assertion.py`` uses.
+def _serve_bridge_config(*, section, lane_targets, limits_enabled, db_path):
+    """Serve the config ``_assert_limits_readable_if_writable`` reads.
 
     Limits checking is per connector type and the guard resolves it out of the
-    ``control_system`` SECTION, so ``limits_enabled`` is folded into the
-    section's deployment-wide ``limits_checking`` block (on a copy, so the
-    module-level section never carries one test's posture into the next)
-    rather than answered behind a dotted key the guard no longer asks for.
-    Only ``database_path`` stays a dotted lookup: it is deployment-wide.
+    ``control_system`` SECTION, so ``limits_enabled`` and the deployment-wide
+    ``database_path`` go into the section's ``limits_checking`` block (on a
+    copy, so the module-level section never carries one test's posture into
+    the next). Each lane's target is its ``services.<lane>.target``.
     """
     section = {
         **section,
@@ -484,31 +480,19 @@ def _patch_bridge_config(monkeypatch, *, section, lane_targets, limits_enabled, 
             **section.get("limits_checking", {}),
             "enabled": limits_enabled,
             "mode": "exclusive",
+            "database_path": db_path,
         },
     }
-
-    def fake_get_config_value(key: str, default=None):
-        if key == "control_system":
-            return section
-        if key == "control_system.type":
-            return section.get("type", default)
-        if key == "control_system.limits_checking.enabled":
-            return limits_enabled
-        if key == "control_system.limits_checking.database_path":
-            return db_path
-        if key.startswith("services.") and key.endswith(".target"):
-            return lane_targets.get(key.split(".")[1], default)
-        return default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    serve_control_system(
+        section, services={lane: {"target": target} for lane, target in lane_targets.items()}
+    )
 
 
-def test_the_bridge_startup_guard_refuses_a_writable_lane_with_no_limits_db(tmp_path, monkeypatch):
+def test_the_bridge_startup_guard_refuses_a_writable_lane_with_no_limits_db(tmp_path):
     """The unnarrowed baseline: this is the one posture that refuses startup."""
     from osprey.services.bluesky_bridge.validation import _assert_limits_readable_if_writable
 
-    _patch_bridge_config(
-        monkeypatch,
+    _serve_bridge_config(
         section=_ALLOWED_SECTION,
         lane_targets={"bluesky": "standin"},
         limits_enabled=True,
@@ -530,8 +514,7 @@ def test_the_bridge_startup_guard_does_not_read_the_switch(tmp_path, monkeypatch
     """
     from osprey.services.bluesky_bridge.validation import _assert_limits_readable_if_writable
 
-    _patch_bridge_config(
-        monkeypatch,
+    _serve_bridge_config(
         section=_ALLOWED_SECTION,
         lane_targets={"bluesky": "standin"},
         limits_enabled=True,
@@ -548,8 +531,7 @@ def test_the_bridge_startup_guard_ignores_a_switch_of_another_target(tmp_path, m
     """Switching the stand-in off says nothing about the lane serving ``va``."""
     from osprey.services.bluesky_bridge.validation import _assert_limits_readable_if_writable
 
-    _patch_bridge_config(
-        monkeypatch,
+    _serve_bridge_config(
         section=_ALLOWED_SECTION,
         lane_targets={"bluesky": "va"},
         limits_enabled=True,

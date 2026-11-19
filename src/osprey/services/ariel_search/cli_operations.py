@@ -2,7 +2,7 @@
 
 Extracted from ``osprey.cli.ariel`` so that the CLI handlers are thin
 wrappers around these service-layer functions.  Each function accepts a
-raw config dict (from ``get_config_value("ariel", {})``) and returns a
+raw config dict (from ``current_config().get("ariel", {})``) and returns a
 structured result; the CLI layer handles Click decorators, output
 formatting, and ``SystemExit`` translation.
 
@@ -175,10 +175,10 @@ def _postgresql_services() -> dict:
         ConfigurationError: ``services.postgresql`` is set but is not a mapping.
     """
     from osprey.services.ariel_search.exceptions import ConfigurationError
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        services = get_config_value("services.postgresql", {}) or {}
+        services = current_config().get("services.postgresql", {}) or {}
     except FileNotFoundError:
         return {}
     if not isinstance(services, dict):
@@ -207,10 +207,10 @@ def _port_base() -> int:
     the shipped defaults rather than crashing about a missing config.yml.
     """
     from osprey.port_layout import resolve_port_base
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        deployment = get_config_value("deployment", {})
+        deployment = current_config().get("deployment", {})
     except FileNotFoundError:
         deployment = {}
     return resolve_port_base({"deployment": deployment})

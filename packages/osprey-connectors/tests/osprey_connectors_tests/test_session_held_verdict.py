@@ -33,7 +33,6 @@ from osprey_connectors.write_switch import (
     session_hold_refusal,
     write_verdict,
 )
-from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._harness import REFUSAL_BAN_LIST
 from osprey_connectors_tests._harness._control_context_fixtures import (
     isolate_verdict_environment,
@@ -45,7 +44,7 @@ from osprey_connectors_tests._write_fakes import (
     ARMED_SECTION,
     RecordingConnector,
     arm_switch,
-    writes_enabled_config,
+    serve_writes_enabled,
 )
 from osprey_connectors_tests.ipc._soft_ioc import SoftIOC
 
@@ -121,7 +120,7 @@ def _corrupt(root: Path) -> None:
 def _armed(monkeypatch, tmp_path) -> None:
     """The simulator's switch on, and a tier that allows writes."""
     arm_switch(monkeypatch, tmp_path / "data", TARGET_VA)
-    serve_config_lookup(monkeypatch, writes_enabled_config)
+    serve_writes_enabled()
 
 
 # -- the words ---------------------------------------------------------------------
@@ -518,7 +517,7 @@ async def test_a_child_spawned_held_connects_for_writes_and_survives_the_release
     pool = None
     try:
         monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.setenv("PYTHONPATH", str(PACKAGE_SRC))
         data = tmp_path / "agent-data"
         arm_switch(monkeypatch, data, None, stamp=False)

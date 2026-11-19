@@ -416,7 +416,7 @@ async def served_from_a_child(tmp_path, monkeypatch, make_manager):
     from osprey.mcp_server.control_system import server_context as server_context_module
 
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.setattr(connector_host_manager, "DEFAULT_CALL_TIMEOUT_S", TEST_DEADLINE_S)
     view = served_tree(
         tmp_path / "served", (), ("SLOW:X", "WEDGE:X", "BUG:X", "GONE:X", "LOST:X", "SR:A")

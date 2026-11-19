@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.errors import ConfigurationError, RegistryError  # re-exported
-from osprey_connectors.config import get_agent_dir, get_config_value
+from osprey_connectors.config import current_config
 from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig, RegistryConfigProvider  # noqa: F401 (re-exported)
@@ -364,9 +364,9 @@ def resolve_registry_path(
     raw: object = os.environ.get(REGISTRY_PATH_ENV)
     if not raw:
         if config is None:
-            raw = get_config_value("registry_path", None)
+            raw = current_config().get("registry_path", None)
             if not raw:
-                application = get_config_value("application", None)
+                application = current_config().get("application", None)
                 if isinstance(application, Mapping):
                     raw = application.get("registry_path")
         else:
@@ -398,7 +398,9 @@ def _project_root_anchor(config: Mapping[str, Any] | None) -> Path | None:
         The project root as a path, or ``None`` when the config names none or
         names one that does not exist on this machine.
     """
-    root = get_config_value("project_root", None) if config is None else config.get("project_root")
+    root = (
+        current_config().get("project_root", None) if config is None else config.get("project_root")
+    )
     if not root or not isinstance(root, (str, Path)):
         return None
     path = Path(os.path.expandvars(str(root)))
@@ -427,7 +429,7 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
 
         base_path = None
         if config_path:
-            project_root = get_config_value("project_root", None)
+            project_root = current_config().get("project_root", None)
             if project_root:
                 if not isinstance(project_root, str | Path):
                     raise TypeError(
@@ -483,7 +485,17 @@ def initialize_registry(
 
     if auto_export:
         try:
-            export_dir = Path(get_agent_dir("registry_exports_dir"))
+            config = current_config()
+            file_paths = config.get("file_paths", {})
+            if not isinstance(file_paths, dict):
+                raise TypeError(f"'file_paths' must be a mapping, got {type(file_paths).__name__}")
+            # Absent, the directory is named after the key itself.
+            exports = file_paths.get("registry_exports_dir", "registry_exports_dir")
+            if not isinstance(exports, str):
+                raise TypeError(
+                    f"'file_paths.registry_exports_dir' must be a path, got {exports!r}"
+                )
+            export_dir = config.agent_data_root / exports
             export_dir.mkdir(parents=True, exist_ok=True)
             registry.export_registry_to_json(str(export_dir))
         except Exception as e:

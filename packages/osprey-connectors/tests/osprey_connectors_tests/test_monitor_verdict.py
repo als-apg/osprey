@@ -32,7 +32,7 @@ from osprey_connectors.control_system import _base as connector_base
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.refusals import REASONS, refusal_phrase
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import (
     REFUSAL_BAN_LIST,
     isolated_connector_registries,
@@ -40,7 +40,7 @@ from osprey_connectors_tests._harness import (
     write_payload,
 )
 from osprey_connectors_tests._harness._write_verdict_cases import case_environment
-from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
+from osprey_connectors_tests._write_fakes import RecordingConnector
 
 __all__ = ["case_environment"]
 
@@ -64,11 +64,11 @@ def root(tmp_path) -> Path:
 
 
 @pytest.fixture
-def tier(monkeypatch):
-    """Serve one ``control_system`` section through ``get_config_value``."""
+def tier():
+    """Serve one ``control_system`` section as the process config."""
 
     def _install(section: Any) -> None:
-        serve_config_lookup(monkeypatch, config_reader(section))
+        serve_control_system(section)
 
     return _install
 
@@ -233,11 +233,9 @@ class TestTheEarlierTermsRefuseFirst:
         assert connector.writes == []
 
     @pytest.mark.asyncio
-    async def test_a_config_that_cannot_be_read_arms_nothing(self, monkeypatch, root):
-        def _broken(*_args, **_kwargs):
-            raise FileNotFoundError("no config")
-
-        serve_config_lookup(monkeypatch, _broken)
+    async def test_a_config_that_cannot_be_read_arms_nothing(self, monkeypatch, root, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
         _switch(root, TARGET_LIVE)
         connector = _built(TARGET_LIVE)
 
@@ -267,10 +265,10 @@ class TestTheEarlierTermsRefuseFirst:
     async def test_a_readonly_run_reads_neither_config_nor_record(self, monkeypatch, root):
         """A run that refuses whatever they say has no business opening them."""
 
-        def _no_config(key, *_args, **_kwargs):
-            raise AssertionError(f"config read under a read-only run: {key}")
+        def _no_config():
+            raise AssertionError("config read under a read-only run")
 
-        serve_config_lookup(monkeypatch, _no_config)
+        monkeypatch.setattr("osprey_connectors.config.current_config", _no_config)
         _switch(root, TARGET_LIVE)
         reads = _count_record_reads(monkeypatch)
         monkeypatch.setenv(EXECUTION_MODE, "readonly")

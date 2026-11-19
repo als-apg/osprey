@@ -369,9 +369,9 @@ keys:
       environment (not in the scaffolded pipeline, which reads the profile).
     default: ''
   services:
-    evidence: 'get_config_value\("services\.postgresql", \{\}\)'
+    evidence: 'current_config\(\)\.get\("services\.postgresql", \{\}\)'
     default: {}
-  services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)', default: {}}
+  services.postgresql: {evidence: 'current_config\(\)\.get\("services\.postgresql", \{\}\)', default: {}}
   services.postgresql.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/postgresql"}
   services.postgresql.database_name: {evidence: 'database_name', default: ariel}
   services.postgresql.username: {covered-by: services.postgresql, default: ariel}
@@ -1274,9 +1274,9 @@ keys:
     default: []
 
   # ── Control system ──────────────────────────────────────────────────
-  control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
+  control_system: {evidence: 'current_config\(\)\.get\("control_system", \{\}\)', default: {}}
   control_system.type:
-    evidence: 'get_config_value\("control_system\.type", None\)'
+    evidence: 'current_config\(\)\.get\("control_system\.type", None\)'
     default: required
     default_note: >-
       The types a project can be built on are `epics`, `virtual_accelerator`,
@@ -2093,10 +2093,10 @@ keys:
     evidence: 'config\.get\("file_paths", \{\}\)'
     default: {}
   file_paths.registry_exports_dir:
-    evidence: 'get_agent_dir\("registry_exports_dir"\)'
+    evidence: 'file_paths\.get\("registry_exports_dir", "registry_exports_dir"\)'
     note: >-
       Absent from file_paths, the subdirectory falls back to the KEY'S OWN NAME
-      (utils/config.get_agent_dir), so a missing entry silently renames the
+      (registry.manager.initialize_registry), so a missing entry silently renames the
       directory rather than failing.
     default: derived
     default_note: >-
@@ -2190,7 +2190,7 @@ keys:
     evidence: 'get_config_value\("claude_code", \{\}\)'
     default: {}
   claude_code.provider:
-    evidence: 'get_config_value\("claude_code\.provider", ""\)'
+    evidence: 'current_config\(\)\.get\("claude_code\.provider", ""\)'
     default: ''
   claude_code.default_model:
     evidence: 'claude_code_config\.get\("default_model"\)'
@@ -2601,7 +2601,7 @@ keys:
   pv_directory.put_log.caveats: {rendered: false, covered-by: pv_directory.put_log, default: []}
 
   # ── ARIEL ───────────────────────────────────────────────────────────
-  ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
+  ariel: {evidence: 'current_config\(\)\.get\("ariel", \{\}\)', default: {}}
   ariel.ingestion:
     rendered: false
     covered-by: ariel
@@ -2673,7 +2673,7 @@ keys:
   ariel.web.auto_launch: {rendered: false, covered-by: ariel.web, default: true}
   ariel.entry_url_template:
     rendered: false
-    evidence: 'get_config_value\("ariel\.entry_url_template"'
+    evidence: 'current_config\(\)\.get\("ariel\.entry_url_template"'
     note: >-
       The logbook's own URL for one entry, with a single `{entry_id}`
       placeholder filled with the URL-encoded id. Commented in the preset
@@ -3177,8 +3177,8 @@ keys:
   ariel.embedding.provider: {covered-by: ariel.embedding, default: ollama}
 
   # ── Logbook / facility knowledge / panels ───────────────────────────
-  logbook: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
-  logbook.composition: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
+  logbook: {evidence: 'current_config\(\)\.get\("logbook\.composition", \{\}\)', default: {}}
+  logbook.composition: {evidence: 'current_config\(\)\.get\("logbook\.composition", \{\}\)', default: {}}
   logbook.composition.provider: {covered-by: logbook.composition, default: derived, default_note: claude_code.provider}
   logbook.composition.model:
     rendered: false
@@ -3199,7 +3199,7 @@ keys:
       appears, and the evidence anchors on it.
     default: null
   facility_knowledge.bundle_path:
-    evidence: 'get_config_value\("facility_knowledge\.bundle_path", None\)'
+    evidence: 'current_config\(\)\.get\("facility_knowledge\.bundle_path", None\)'
     default: required
     default_note: >-
       A path to the bundle, absolute or resolved against the project directory.
@@ -3244,7 +3244,7 @@ keys:
     default: {}
   artifact_server.max_timeseries_file_mb:
     rendered: false
-    evidence: 'get_config_value\(\s*"artifact_server\.max_timeseries_file_mb"'
+    evidence: 'current_config\(\)\.get\(\s*"artifact_server\.max_timeseries_file_mb"'
     note: >-
       Largest timeseries data file the gallery renders as a chart or a table,
       in megabytes. Commented in the presets, because the number that
@@ -3256,7 +3256,7 @@ keys:
     default: 200
   artifact_server.page_size:
     rendered: false
-    evidence: 'get_config_value\(\s*"artifact_server\.page_size"'
+    evidence: 'current_config\(\)\.get\(\s*"artifact_server\.page_size"'
     note: >-
       How many artifacts one listing request answers with, and so how many the
       gallery draws before it fetches the next page. Commented in the
@@ -3484,7 +3484,7 @@ keys:
       on it. No preset states it.
     default: true
   web.theme:
-    evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
+    evidence: 'current_config\(\)\.get\("web\.theme", DEFAULT_WEB_THEME\)'
     note: >-
       Live in project only; commented in demo; absent from the
       three others. The default is "main" whether the key is live or absent,
@@ -3517,7 +3517,7 @@ keys:
     default: true
   web.file_watch_reconcile_interval_s:
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.file_watch_reconcile_interval_s"'
+    evidence: 'current_config\(\)\.get\(\s*"web\.file_watch_reconcile_interval_s"'
     note: >-
       How often each interface file watcher re-reads the directories it tracks,
       so a change the platform's notification stream never delivers is still
@@ -3664,7 +3664,7 @@ keys:
     default_note: '"artifacts" — the Workspace tab, which every deployment serves'
   web.presets:
     data-map: true
-    evidence: 'load_osprey_config\(\)\.get\("web", \{\}\)\.get\("presets", \{\}\)'
+    evidence: 'loaded_or_empty\(\)\.get\("web", \{\}\)\.get\("presets", \{\}\)'
     note: >-
       Named panel layouts, applied in one click from the workspace's "+"
       popover. Derived from the profile's `panel_presets:` field. The LAYOUT
@@ -3677,7 +3677,7 @@ keys:
     # OSPREY project's own documentation site into every deployment's
     # profile.yml. The default below still applies when nothing spells the key.
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
     note: >-
       Documented as a commented example in every preset that carries a `web:`
       block; hello-world has none.
@@ -3737,7 +3737,7 @@ keys:
     default: true
   web.feedback:
     rendered: false
-    evidence: 'get_config_value\("web\.feedback\.'
+    evidence: 'current_config\(\)\.get\("web\.feedback\.'
     note: >-
       The block is never read as a mapping — each leaf below has its own
       dotted lookup in the web terminal's lifespan. The evidence anchors on
@@ -3751,7 +3751,7 @@ keys:
     # OSPREY project's own tracker into every deployment's profile.yml. The
     # default below still applies when nothing spells the key.
     rendered: false
-    evidence: 'get_config_value\("web\.feedback\.github_repo", None\)'
+    evidence: 'current_config\(\)\.get\("web\.feedback\.github_repo", None\)'
     note: >-
       Read with a None sentinel rather than its own default, unlike its
       neighbours: `web.feedback.owner` can stand in for this key, and the
@@ -3764,13 +3764,13 @@ keys:
     # never rendered as a live key: the shipped posture is the github_repo
     # shorthand alone, and a facility adds trackers by hand.
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.feedback\.trackers",\s*None\s*\)'
     default: null
   web.feedback.email:
     # Commented rather than rendered, for the reason `web.feedback.github_repo`
     # carries above.
     rendered: false
-    evidence: 'get_config_value\("web\.feedback\.email", None\)'
+    evidence: 'current_config\(\)\.get\("web\.feedback\.email", None\)'
     note: >-
       Read with a None sentinel for the same reason as
       `web.feedback.github_repo` — see that entry. Blank ships no Email
@@ -3784,7 +3784,7 @@ keys:
     # by hand. Rendering it live would force `osprey init --revalidate` on every
     # already-deployed profile to clear a drift report.
     rendered: false
-    evidence: 'get_config_value\("web\.feedback\.owner", None\)'
+    evidence: 'current_config\(\)\.get\("web\.feedback\.owner", None\)'
     note: >-
       One block naming who owns this deployment: `name`, `email` and a
       forge-agnostic `tracker`. The leaf keys `web.feedback.email` and
@@ -3813,7 +3813,7 @@ keys:
     # a template, so it is not part of the rendered union and carries
     # rendered: false rather than an all-templates disposition.
     rendered: false
-    evidence: 'get_config_value\("provenance\.'
+    evidence: 'current_config\(\)\.get\("provenance\.'
     default: derived
     default_note: >-
       stamped into the resolved config by build_profile_emit from the preset
@@ -3828,12 +3828,12 @@ keys:
       two leaf readers share, so this entry dies with the last of them.
   provenance.preset:
     rendered: false
-    evidence: 'get_config_value\("provenance\.preset", None\)'
+    evidence: 'current_config\(\)\.get\("provenance\.preset", None\)'
     default: derived
     default_note: the preset name build_profile_emit stamps, absent without a preset
   provenance.preset_hash:
     rendered: false
-    evidence: 'get_config_value\("provenance\.preset_hash", None\)'
+    evidence: 'current_config\(\)\.get\("provenance\.preset_hash", None\)'
     default: derived
     default_note: the preset's resolved-content hash build_profile_emit stamps, absent without a preset
   web.channel_suggestions: {evidence: 'web\.get\("channel_suggestions"\)', default: {}}
@@ -3856,7 +3856,7 @@ keys:
     default: ''
   web.chat_turn_timeout_s:
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.chat_turn_timeout_s",\s*600\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.chat_turn_timeout_s",\s*600\s*\)'
     note: >-
       Hidden key, unset in the framework template and the presets.
       First of the three keys that
@@ -3869,7 +3869,7 @@ keys:
     default: 600
   web.chat_idle_timeout_s:
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.chat_idle_timeout_s",\s*1800\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.chat_idle_timeout_s",\s*1800\s*\)'
     note: >-
       Hidden key, unset in the framework template and the presets.
       How long an operator's chat
@@ -3878,7 +3878,7 @@ keys:
     default: 1800
   web.chat_max_sessions:
     rendered: false
-    evidence: 'get_config_value\(\s*"web\.chat_max_sessions",\s*5\s*\)'
+    evidence: 'current_config\(\)\.get\(\s*"web\.chat_max_sessions",\s*5\s*\)'
     note: >-
       Hidden key, unset in the framework template and the presets.
       Cap on concurrent operator-chat
@@ -3897,14 +3897,14 @@ keys:
       is refused with a warning and the default applies. Documented in
       reference/configuration/config.rst.
     default: 60.0
-  cli: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: {}}
-  cli.theme: {evidence: 'get_config_value\("cli\.theme", "default", config_path\)', default: default}
+  cli: {evidence: 'config\.get\("cli\.theme", "default"\)', default: {}}
+  cli.theme: {evidence: 'config\.get\("cli\.theme", "default"\)', default: default}
 
   # ── Bluesky queue ───────────────────────────────────────────────────
   # No app template ever rendered these: the `bluesky:` posture has always been
   # preset-side, and it entered this manifest when the presets became the other
   # half of the rendered config.
-  bluesky: {evidence: 'get_config_value\("bluesky", \{\}\)', default: {}}
+  bluesky: {evidence: 'current_config\(\)\.get\("bluesky", \{\}\)', default: {}}
   bluesky.queue_autostart:
     evidence: 'section\.get\("queue_autostart"\) is True'
     note: >-

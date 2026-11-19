@@ -72,8 +72,8 @@ from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sand
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
 )
+from osprey.utils.config_paths import loaded_or_empty
 from osprey_connectors.epics_env import scrub_epics_env
-from osprey_connectors.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.plan_validation")
 
@@ -805,7 +805,7 @@ async def _dry_run(
         )
 
         env = scrub_sandbox_child_env(
-            os.environ, passthrough=configured_child_env_passthrough(load_osprey_config())
+            os.environ, passthrough=configured_child_env_passthrough(loaded_or_empty())
         )
         # Every inherited EPICS addressing variable goes first — a configured
         # server port, a repeater port, anything this dict does not name — and

@@ -17,9 +17,9 @@ from osprey.facility import FACILITY_FILE
 
 
 def _render_root() -> Path:
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
-    return Path(resolve_config_path()).parent
+    return Path(locate_config()).parent
 
 
 def facility_file() -> Path:

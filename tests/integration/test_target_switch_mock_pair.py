@@ -85,6 +85,8 @@ from osprey_connectors.gateways import derive_endpoints
 from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc._proxy import ConnectorHostProxy
 from osprey_connectors.refusals import RefusalReason
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     isolated_connector_registries,
@@ -181,7 +183,7 @@ def fixture_dir(tmp_path_factory):
 def child_environment(fixture_dir, monkeypatch):
     """Children see the repo, the fixture registration, and no project config."""
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(fixture_dir), *REPO_PATHS]))
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -200,7 +202,7 @@ def state_root(tmp_path, monkeypatch):
     writes, and the limits violation below is raised one layer under the
     write guard, which only an allowed write reaches.
     """
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
+    monkeypatch.setattr(target_state, "process_agent_data_root", lambda: tmp_path)
     isolate_verdict_environment(monkeypatch, tmp_path)
     harness_write_control_context(tmp_path, owned_by=None, switch={"live": "on", "va": "on"})
     testing.invalidate_cache()
@@ -621,19 +623,6 @@ SANDBOX_CONFIG: dict[str, Any] = {
 }
 
 
-def _config_reader(section: dict[str, Any], va_port: int):
-    """A ``get_config_value`` stand-in serving the two keys this half reads."""
-
-    def get_config_value(path, default=None, _config_path=None):
-        if path == "control_system":
-            return section
-        if path == "services.virtual_accelerator.port":
-            return va_port
-        return default
-
-    return get_config_value
-
-
 class _CapturingConnector:
     """Records the type-specific config block the factory handed ``connect()``."""
 
@@ -655,10 +644,7 @@ class TestSandboxEndpointMatchesTheDerivation:
         """A stamped sandbox with the fake registry the factory will build from."""
         import osprey.runtime as runtime
 
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value",
-            _config_reader(SANDBOX_SECTION, SANDBOX_VA_PORT),
-        )
+        serve_config(config_of(SANDBOX_CONFIG, environ={}))
         runtime._runtime_connector = None
         runtime._limits_validator = None
         with isolated_connector_registries():
@@ -759,7 +745,7 @@ class TestTheSimulatorInProcessIsTheBaseline:
     def child_environment(self, monkeypatch):
         """Children see the repo and no project config, and no fixture registration."""
         monkeypatch.setenv("PYTHONPATH", os.pathsep.join(REPO_PATHS))
-        monkeypatch.delenv("CONFIG_FILE", raising=False)
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
     @pytest.fixture
     def section(self, tmp_path) -> dict[str, Any]:

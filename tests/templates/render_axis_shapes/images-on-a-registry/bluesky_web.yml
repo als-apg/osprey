@@ -59,7 +59,7 @@ services:
       # catalog answers 404.
       CONFIG_FILE: /app/project/config.yml
       # The framework's own config loader
-      # (osprey_connectors.workspace.resolve_config_path) reads this and never
+      # (osprey_connectors.config.locate_config) reads this and never
       # CONFIG_FILE. It is how the sidecar learns which plan lanes the
       # deployment renders and which target each serves (the `services.<lane>`
       # blocks), and where its audit zone is: the project this names, which is

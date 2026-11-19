@@ -17,6 +17,6 @@ def facility_zone_config(tmp_path, monkeypatch) -> str:
     each instant has one answer.
     """
     (tmp_path / "config.yml").write_text("system:\n  timezone: Asia/Tokyo\n")
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.chdir(tmp_path)
     return "Asia/Tokyo"

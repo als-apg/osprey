@@ -34,6 +34,8 @@ from click.testing import CliRunner
 from osprey.cli.ariel import ariel_group
 from osprey.services.ariel_search import cli_operations as ops
 from osprey.services.ariel_search.ingestion.scheduler import StopReason
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests.services.ariel_search._cli_ops_doubles import _patch_service, _StubService
 
 if TYPE_CHECKING:
@@ -663,11 +665,8 @@ class TestSyncWatchCommand:
         return CliRunner()
 
     @pytest.fixture(autouse=True)
-    def _config_present(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: _config() if key == "ariel" else default,
-        )
+    def _config_present(self) -> None:
+        serve_config(config_of({"ariel": _config()}))
 
     def _patch_composite(self, monkeypatch, result: Any = None, error: BaseException | None = None):
         calls: list[dict[str, Any]] = []

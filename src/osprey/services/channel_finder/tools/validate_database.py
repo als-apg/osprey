@@ -334,7 +334,6 @@ def run_validation(
     """
     console = console or _default_console
     from osprey_connectors.config import current_config
-    from osprey_connectors.workspace import resolve_path
 
     pipeline_type: str
 
@@ -410,7 +409,7 @@ def run_validation(
                         )
                     )
                     return 1
-            db_path = resolve_path(db_path_str)
+            db_path = current_config().repo_path(db_path_str)
         except PipelineModeError as e:
             # A mode nobody implements is a config typo, not an unreadable
             # config: say which value was rejected instead of folding it into

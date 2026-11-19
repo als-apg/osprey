@@ -817,7 +817,7 @@ async def test_the_agent_data_root_is_stamped_for_the_agent(monkeypatch, tmp_pat
     """
     root = tmp_path / "var" / "agent_data"
     monkeypatch.setattr(
-        "osprey_connectors.workspace.resolve_shared_data_root",
+        "osprey.utils.config_paths.process_agent_data_root",
         lambda: root,
     )
 
@@ -891,7 +891,7 @@ async def test_an_unresolvable_root_leaves_the_variable_absent(monkeypatch):
     def _raise():
         raise RuntimeError("no config here")
 
-    monkeypatch.setattr("osprey_connectors.workspace.resolve_shared_data_root", _raise)
+    monkeypatch.setattr("osprey.utils.config_paths.process_agent_data_root", _raise)
 
     env = await _env_of_run(monkeypatch)
 

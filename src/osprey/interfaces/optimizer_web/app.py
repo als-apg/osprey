@@ -59,9 +59,9 @@ def resolve_service_url() -> str:
     """
     config: dict[str, Any] | None
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        config = load_osprey_config()
+        config = loaded_or_empty()
     except Exception:
         config = None
     return optimizer_url(config)

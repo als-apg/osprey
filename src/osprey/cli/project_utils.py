@@ -27,7 +27,7 @@ from pathlib import Path
 def project_config_path(project_path: Path) -> Path:
     """The ``config.yml`` a resolved project directory answers with.
 
-    Two spellings, in the order :func:`osprey_connectors.workspace.resolve_config_path`
+    Two spellings, in the order :func:`osprey_connectors.config.locate_config`
     reads them: the render at ``build/config.yml`` for a deployment repo, then
     the flat ``config.yml`` a rendered or container project directory holds at
     its own root.

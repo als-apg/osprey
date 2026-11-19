@@ -72,7 +72,7 @@ from osprey_connectors.factory import (
 )
 from osprey_connectors.refusals import STORE_PATH_MARKERS, refusal_phrase
 from osprey_connectors.write_switch import NO_OWNER, RESERVED_OWNER_KWARG
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import isolated_connector_registries, write_payload
 from tests.facility.served_tree import in_process_config, served_tree
 
@@ -190,7 +190,6 @@ def build_plan(devices, params):
 
 
 def arm_deployment_writes(
-    monkeypatch: pytest.MonkeyPatch,
     *,
     tier: str = "allowed",
     login_tiers: dict[str, str] | None = None,
@@ -206,13 +205,7 @@ def arm_deployment_writes(
         "writes": tier,
         "login_tiers": dict(_LOGIN_TIERS if login_tiers is None else login_tiers),
     }
-
-    def config_value(key: str, default: Any = None) -> Any:
-        if key == "control_system":
-            return section
-        return default
-
-    serve_config_lookup(monkeypatch, config_value)
+    serve_control_system(section)
 
 
 def switch_for(tree: Path, owner: str, state: str, target: str = _TARGET) -> Path:
@@ -263,9 +256,9 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
 
 
 @pytest.fixture
-def armed_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
+def armed_deployment() -> None:
     """A tier that allows writes and a login map naming both users."""
-    arm_deployment_writes(monkeypatch)
+    arm_deployment_writes()
 
 
 @pytest.fixture
@@ -710,7 +703,6 @@ def test_an_owner_missing_from_the_login_map_is_refused(
 def test_a_demoted_owners_stale_switch_on_is_refused(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingInProcessConnector,
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The tier is read before the record, so a demoted login's "on" stays inert.
@@ -720,9 +712,7 @@ def test_a_demoted_owners_stale_switch_on_is_refused(
     on the same deployment — writes through the same arrangement.
     """
     plan_function, logger_name = wrapped_plan
-    arm_deployment_writes(
-        monkeypatch, login_tiers={SWITCHING_OWNER: "never", OTHER_OWNER: "allowed"}
-    )
+    arm_deployment_writes(login_tiers={SWITCHING_OWNER: "never", OTHER_OWNER: "allowed"})
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
@@ -783,7 +773,6 @@ def test_an_owner_less_item_is_refused_as_owner_unknown(
 def test_an_owner_less_item_on_a_tier_of_never_is_refused_by_the_tier(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingInProcessConnector,
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The tier is asked first, so its refusal is the one a person reads.
@@ -793,7 +782,7 @@ def test_an_owner_less_item_on_a_tier_of_never_is_refused_by_the_tier(
     a chip that cannot lift it.
     """
     plan_function, logger_name = wrapped_plan
-    arm_deployment_writes(monkeypatch, tier="never")
+    arm_deployment_writes(tier="never")
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:

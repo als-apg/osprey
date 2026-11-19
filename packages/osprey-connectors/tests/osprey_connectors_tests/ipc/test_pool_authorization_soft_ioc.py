@@ -92,7 +92,7 @@ def deployment(tmp_path, monkeypatch, iocs):
     """A pool over the two-gateway deployment, this login's switch off, and its grant writer."""
     read, write = iocs
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.setenv("PYTHONPATH", str(PACKAGE_SRC))
     for name in (wa.AUTHORIZATION_ENV_VAR, wa.LEDGER_DIR_ENV_VAR, "OSPREY_SESSION_ID"):

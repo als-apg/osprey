@@ -830,7 +830,7 @@ async def _review_before_launch(
         admission_refusal,
     )
     from osprey.services.code_review.review import review_code
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
     approved = {
         "approved_target": approved_target,
@@ -862,7 +862,7 @@ async def _review_before_launch(
         request,
         settings,
         repo_root=project_root if project_root is not None else _resolve_project_root(),
-        render_dir=resolve_config_path().parent,
+        render_dir=locate_config().parent,
     )
     return _PreLaunchReview(await _conclude_review(tool, outcome, request))
 

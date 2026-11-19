@@ -272,7 +272,7 @@ def chip_hub(
       control-context record reader and ``write_switch`` resolve through, and
       the stamp this feature puts in every session child's environment. Pinning
       it to *tmp_path* keeps every write off the real agent-data tree. Patching
-      ``resolve_shared_data_root`` instead is a no-op on the store —
+      ``process_agent_data_root`` instead is a no-op on the store —
       ``write_switch`` reads this stamp first and binds the resolver at import
       — so it would redirect one half and leave the other writing into the
       repository's own ``var/agent_data``.
@@ -288,7 +288,7 @@ def chip_hub(
 
     The **record is written before ``create_app``**, at :data:`ACTIVE_TARGET`
     and owned by this process. That is what makes the lifespan's claim a merge
-    instead of a mint from ``load_osprey_config``, and what makes this terminal
+    instead of a mint from ``loaded_or_empty``, and what makes this terminal
     the owner — the two conditions behind ``data-enforceable="true"``.
 
     The keyword arguments are the states the chip criteria are about, all of

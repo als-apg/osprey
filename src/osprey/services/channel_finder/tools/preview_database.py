@@ -77,9 +77,9 @@ def _resolve_path(path_str: str) -> Path:
     if path.is_absolute():
         return path
     try:
-        from osprey_connectors.workspace import resolve_path
+        from osprey_connectors.config import current_config
 
-        return resolve_path(path_str)
+        return current_config().repo_path(path_str)
     except Exception:
         return Path.cwd() / path
 

@@ -479,9 +479,9 @@ def _deployment_ports() -> tuple[range, int | None]:
     terminal_port: int | None = None
     try:
         from osprey.mcp_server.http import web_terminal_url
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        base = resolve_port_base(load_osprey_config())
+        base = resolve_port_base(loaded_or_empty())
         terminal_port = urlsplit(web_terminal_url()).port
     except Exception:  # an unreadable config falls back to the default block
         base = resolve_port_base(None)

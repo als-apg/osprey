@@ -19,6 +19,7 @@ from osprey.runtime.session import ControlSession
 from osprey_connectors import connector_types, control_context, testing, write_switch
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -33,15 +34,6 @@ STANDIN_ONLY_SECTION = {
     "type": connector_types.LIVE_STANDIN,
     "connector": {connector_types.LIVE_STANDIN: {}},
 }
-
-
-def _serve(monkeypatch, section):
-    """Serve *section* as ``control_system`` without touching the config file."""
-
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
 
 
 def _write_record(state_dir: Path, *, target="va", generation=3) -> None:
@@ -80,9 +72,9 @@ def config_file(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def va_session(config_file, monkeypatch):
+def va_session(config_file):
     """A ``va`` record served by the fake; yields the config file to rewrite first."""
-    _serve(monkeypatch, VA_SECTION)
+    serve_control_system(VA_SECTION)
     _write_record(config_file.parent / "control_target", target="va")
     with isolated_connector_registries():
         ConnectorFactory.register_control_system(connector_types.VIRTUAL_ACCELERATOR, FakeConnector)
@@ -114,8 +106,8 @@ class TestDisplayName:
 
         assert await _display_name() == "Booster twin"
 
-    async def test_an_unservable_target_is_still_named(self, config_file, monkeypatch):
-        _serve(monkeypatch, STANDIN_ONLY_SECTION)
+    async def test_an_unservable_target_is_still_named(self, config_file):
+        serve_control_system(STANDIN_ONLY_SECTION)
         _write_record(config_file.parent / "control_target", target="live")
 
         session = await ControlSession.open(surface="panel")

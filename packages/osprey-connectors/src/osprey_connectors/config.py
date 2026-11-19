@@ -70,10 +70,11 @@ from osprey_connectors.model import FrozenModel, FrozenTuple
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
+    agent_data_base_dir,
     anchored_path,
-    dotted_config_str,
     rendered_config_path,
     repo_root_for_config,
+    resolve_simulation_state_dir,
 )
 
 __all__ = [
@@ -85,8 +86,6 @@ __all__ = [
     "connector_block",
     "current_config",
     "facility_timezone",
-    "get_agent_dir",
-    "get_config_value",
     "install_config",
     "is_unresolved_placeholder",
     "load_config",
@@ -276,8 +275,8 @@ def _runtime_write_paths_under_data(
     offenders: list[tuple[str, str]] = []
 
     for key in _RUNTIME_WRITE_PATH_KEYS:
-        value = dotted_config_str(config, key)
-        if value is None:
+        found, value = _walk(config, key)
+        if not found or not isinstance(value, str) or not value:
             continue
 
         resolved = anchored_path(value, project_root).resolve()
@@ -294,7 +293,7 @@ def _warn_on_runtime_write_paths_under_data(tree: "Mapping[str, object]", path: 
     ``osprey build`` wipes ``data/`` and takes the runtime state
     with it, so this warns rather than raising.
     """
-    configured_root = dotted_config_str(tree, "project_root")
+    configured_root = _configured_root(tree)
     project_root = (
         Path(configured_root) if configured_root else repo_root_for_config(path)
     ).expanduser()
@@ -325,6 +324,12 @@ def _walk(tree: object, key: str) -> tuple[bool, object]:
             return False, None
         value = value[part]
     return True, value
+
+
+def _configured_root(tree: "Mapping[str, object]") -> str | None:
+    """The ``project_root`` *tree* names, when it is a non-empty string."""
+    value = tree.get("project_root")
+    return value if isinstance(value, str) and value else None
 
 
 class UnresolvedRef(FrozenModel):
@@ -455,6 +460,44 @@ class LoadedConfig(FrozenModel):
         value = self.get(key)
         return default if value is None else config_flag(value, key=key)
 
+    def repo_path(self, value: "str | os.PathLike[str]") -> Path:
+        """A path the config names, as a path here.
+
+        ``~`` is expanded; an absolute path is returned as written, and a
+        relative one is anchored at :attr:`repo_root`, as every relative path
+        a deployment configures is.
+        """
+        return anchored_path(os.fspath(value), self.repo_root)
+
+    @property
+    def agent_data_root(self) -> Path:
+        """The shared agent-data root: ``agent_data.base_dir`` (else ``var/agent_data``), resolved.
+
+        Shared by every session: the stores long-lived daemons read (the
+        gallery, ARIEL, the control-context record) live here.
+        """
+        return self.repo_path(agent_data_base_dir(self._tree)).resolve()
+
+    def session_data_root(self, session_id: str) -> Path:
+        """One session's own agent-data directory, under :attr:`agent_data_root`.
+
+        Raises:
+            ValueError: *session_id* is blank.
+        """
+        if not session_id.strip():
+            raise ValueError("a session's data root needs a non-blank session id")
+        return self.agent_data_root / "sessions" / session_id
+
+    @property
+    def simulation_state_dir(self) -> Path:
+        """The directory holding the simulation's ``active_scenarios`` state file.
+
+        ``simulation.state_dir`` when it names one (relative to
+        :attr:`repo_root`), else ``simulation`` under the agent-data base
+        directory; not created here.
+        """
+        return resolve_simulation_state_dir(self._tree, self.repo_root)
+
     # The trees are the YAML parse's, handed out as such: every framework reader
     # reads the shape its own keys have.
     def raw_tree(self) -> dict[str, ContractAny]:
@@ -524,7 +567,7 @@ def _loaded(
 
     _warn_on_runtime_write_paths_under_data(resolved, path)
 
-    configured_root = dotted_config_str(resolved, "project_root")
+    configured_root = _configured_root(resolved)
     candidate = Path(configured_root).expanduser() if configured_root else None
     repo_root = (
         candidate if candidate is not None and candidate.is_dir() else repo_root_for_config(path)
@@ -757,24 +800,13 @@ def _load_and_cache(path: Path | None) -> LoadedConfig:
     return loaded
 
 
-def _cached_load(path: Path) -> LoadedConfig:
-    """*path* loaded by the lazy rule: cached until the file changes, the env chain applied first.
+def _lazy_default() -> LoadedConfig:
+    """The file :func:`locate_config` finds, cached until it changes, the env chain applied first.
 
     The working directory's env chain is applied before each load this makes,
     as every config load applied it before loads were explicit, so the
     ``${VAR}`` placeholders resolve against the deployment's ``.env``.
     """
-    from osprey_connectors.dotenv import load_project_dotenv
-
-    hit = _cache_hit(path)
-    if hit is not None:
-        return hit
-    load_project_dotenv()
-    return _load_and_cache(path)
-
-
-def _lazy_default() -> LoadedConfig:
-    """The file :func:`locate_config` finds, loaded by :func:`_cached_load`'s rule."""
     global _last_lazy
 
     from osprey_connectors.dotenv import load_project_dotenv
@@ -869,7 +901,7 @@ def using_config(config: "LoadedConfig | Path | str") -> Iterator[LoadedConfig]:
 def _clear_process_state() -> None:
     """Forget the process default, every lazy load and every warn-once latch.
 
-    For ``workspace.reset_config_cache``, between tests; the current
+    For :func:`osprey_connectors.testing.clear_config_state`, between tests; the current
     context's :func:`using_config` scope is cleared with them.
     """
     global _installed, _last_lazy, _no_zone_reported
@@ -913,110 +945,6 @@ def subsection(section: Mapping[str, object], name: str) -> dict[str, object]:
 def connector_block(config: object, connector_type: str) -> object:
     """The ``control_system.connector.<type>`` block, as written."""
     return subsection(config_section(config, "control_system"), "connector").get(connector_type)
-
-
-def _as_path(value: object, key: str) -> Path:
-    """*value*, a configured path, as a :class:`~pathlib.Path`.
-
-    Raises:
-        TypeError: *value* is not a string or path-like, as ``Path(value)`` raises.
-    """
-    if isinstance(value, str | os.PathLike):
-        return Path(value)
-    raise TypeError(f"'{key}' must be a path, got {type(value).__name__}")
-
-
-def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
-    """
-    Get the target directory path within the agent data directory using absolute paths.
-
-    The root comes from ``agent_data.base_dir`` — the single key naming this
-    directory — while ``file_paths`` supplies the subdirectory names. A
-    subdirectory key absent from ``file_paths`` falls back to its own name.
-
-    Args:
-        sub_dir: Subdirectory name (e.g., 'registry_exports_dir')
-        host_path: If True, force return of host filesystem path even when running in container
-
-    Returns:
-        Absolute path to the target directory
-    """
-    from osprey_connectors.workspace import agent_data_base_dir
-
-    config = current_config()
-
-    project_root = config.get("project_root")
-    main_file_paths = config.get("file_paths", {})
-    agent_data_root = agent_data_base_dir(config.raw_tree())
-
-    if not isinstance(main_file_paths, Mapping):
-        # Refused rather than probed: on a list or a str, ``in`` and indexing
-        # either raised TypeError or matched by accident.
-        raise TypeError(f"'file_paths' must be a mapping, got {type(main_file_paths).__name__}")
-    if sub_dir in main_file_paths:
-        sub_dir_path = _as_path(main_file_paths[sub_dir], f"file_paths.{sub_dir}")
-        logger.debug(f"Found {sub_dir} in file_paths: {sub_dir_path}")
-    else:
-        sub_dir_path = Path(sub_dir)
-        logger.debug(f"Using fallback path for {sub_dir}: {sub_dir_path}")
-
-    if project_root:
-        project_root_path = _as_path(project_root, "project_root")
-
-        if host_path:
-            logger.debug(f"Forcing host path resolution for: {sub_dir}")
-            path = project_root_path / agent_data_root / sub_dir_path
-        elif not project_root_path.exists():
-            # A configured root written on the host does not exist inside a
-            # container; the repo the loaded config belongs to is the project
-            # root here — a fact rather than a guess at a container layout.
-            logger.debug(
-                f"Configured project root {project_root} is absent; anchoring on "
-                f"the loaded config's repo root {config.repo_root}"
-            )
-            path = config.repo_root / agent_data_root / sub_dir_path
-        else:
-            path = project_root_path / agent_data_root / sub_dir_path
-    else:
-        logger.warning("No project root configured, using relative path for agent data directory")
-        path = Path(agent_data_root) / sub_dir_path
-        path = path.resolve()
-
-    return str(path)
-
-
-def get_config_value(path: str, default: object = None, config_path: str | None = None) -> object:
-    """The value at the dotted *path* of the process's config, as a copy.
-
-    The config is :func:`current_config`'s, or the file *config_path* names,
-    loaded by the lazy default's rule (cached until it changes, the working
-    directory's env chain applied before it loads).
-
-    Args:
-        path: Dot-separated configuration path (e.g., "execution.timeout")
-        default: Default value to return if path is not found
-        config_path: Optional explicit path to configuration file
-
-    Returns:
-        The configuration value at the specified path, or default if not found.
-        It is typed ``object`` because the YAML decides its shape: a caller
-        checks for the shape it needs before using it.
-
-    Raises:
-        ConfigurationError: If path is empty.
-        ConfigLoadError: If the config does not load (see :func:`current_config`).
-
-    Examples:
-        >>> timeout = get_config_value("execution.timeout", 30)
-        >>> debug_mode = get_config_value("development.debug", False)
-
-        >>> # With explicit config path
-        >>> timeout = get_config_value("execution.timeout", 30, "/path/to/config.yml")
-    """
-    if not path:
-        raise ConfigurationError("Configuration path cannot be empty or None")
-    config = current_config() if config_path is None else _cached_load(Path(config_path))
-    return config.get(path, default)
 
 
 def facility_timezone(config: LoadedConfig | None = None) -> ZoneInfo:

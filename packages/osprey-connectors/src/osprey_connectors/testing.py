@@ -12,10 +12,12 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+from osprey_connectors import config as config_module
 from osprey_connectors import control_context
+from osprey_connectors import dotenv as dotenv_module
 from osprey_connectors.config import LoadedConfig, _loaded
 
-__all__ = ["config_of", "invalidate_cache"]
+__all__ = ["clear_config_state", "config_of", "invalidate_cache"]
 
 
 def invalidate_cache() -> None:
@@ -27,6 +29,21 @@ def invalidate_cache() -> None:
     agent-data root under a reader, drops the cache through this before it reads.
     """
     control_context._invalidate_cache()
+
+
+def clear_config_state() -> None:
+    """Forget all config state this process holds, as at its start.
+
+    The process default, every cached load, the current context's
+    ``using_config`` scope, the env chain's shell-override record and every
+    warn-once latch (the facility-timezone fallback, the ignored shell-only
+    variables). The latches are process state in exactly the way a cache is:
+    left set, whichever test happened to run first would consume the single
+    warning and every later test asserting on it would see none — an
+    order-dependent pass that says nothing about the code.
+    """
+    config_module._clear_process_state()
+    dotenv_module._clear_process_state()
 
 
 def config_of(

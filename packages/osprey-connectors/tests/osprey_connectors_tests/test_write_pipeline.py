@@ -39,13 +39,12 @@ from osprey_connectors.control_system._limits_validator import (
     LimitsValidator,
 )
 from osprey_connectors.refusals import RefusalReason
-from osprey_connectors_tests._config_lookup import serve_config_lookup
 from osprey_connectors_tests._stall import Stall
 from osprey_connectors_tests._write_fakes import (
     ARMED_TARGET,
     arm_switch,
     armed_context,
-    writes_enabled_config,
+    serve_writes_enabled,
 )
 
 _FROM_CONFIG = "osprey_connectors.control_system._limits_validator.LimitsValidator.from_config"
@@ -55,7 +54,7 @@ _FROM_CONFIG = "osprey_connectors.control_system._limits_validator.LimitsValidat
 def _armed(monkeypatch, tmp_path):
     """A write tier that allows and the simulator's switch on: writes reach the pipeline."""
     arm_switch(monkeypatch, tmp_path / "armed-data")
-    serve_config_lookup(monkeypatch, writes_enabled_config)
+    serve_writes_enabled()
 
 
 def _validator(**channels: dict[str, Any]) -> LimitsValidator:

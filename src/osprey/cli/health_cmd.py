@@ -110,7 +110,7 @@ def _resolve_anchors(project_path: Path) -> tuple[Path, Path, list[Path]]:
     So the config is looked up through
     :func:`osprey.cli.project_utils.project_config_path` (render first, then the
     flat spelling a container project directory uses — the same order
-    :func:`osprey_connectors.workspace.resolve_config_path` reads, and the same one
+    :func:`osprey_connectors.config.locate_config` reads, and the same one
     the ``channel-finder`` group resolves through), the repo root is derived from
     wherever that landed, and the env chain comes from
     :func:`osprey.utils.workspace.deployment_env_chain` — the same

@@ -724,7 +724,7 @@ def mcp_render(tmp_path):
     (tmp_path / ".mcp.json").write_text(
         json.dumps({"mcpServers": {"demo": {"command": "python"}}}, indent=2) + "\n"
     )
-    with patch(f"{SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
+    with patch(f"{SETUP_MOD}.locate_config", return_value=tmp_path / "config.yml"):
         yield tmp_path
 
 

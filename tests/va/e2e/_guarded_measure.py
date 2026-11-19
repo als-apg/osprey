@@ -466,7 +466,7 @@ def acting_in(
     from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
     from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
     from osprey_connectors import control_context, write_switch
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
     from osprey_connectors_tests._harness import write_control_context
 
     agent_data.mkdir(parents=True, exist_ok=True)
@@ -492,7 +492,7 @@ def acting_in(
                 patch.delenv(name, raising=False)
         for name, value in values.items():
             patch.setenv(name, value)
-        reset_config_cache()
+        clear_config_state()
         testing.invalidate_cache()
         if not control_context._record_path_under(agent_data).exists():
             write_control_context(
@@ -505,7 +505,7 @@ def acting_in(
         try:
             yield
         finally:
-            reset_config_cache()
+            clear_config_state()
             testing.invalidate_cache()
 
 

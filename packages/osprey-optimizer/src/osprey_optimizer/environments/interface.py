@@ -135,10 +135,10 @@ class _PoolBridge:
     """One event-loop thread and one ``ConnectorHostPool`` for this process."""
 
     def __init__(self) -> None:
-        from osprey_connectors.config import active_config, get_config_value
+        from osprey_connectors.config import active_config, current_config
         from osprey_connectors.ipc import ConnectorHostPool
 
-        section = get_config_value("control_system", None)
+        section = current_config().get("control_system", None)
         if not section:
             raise InterfaceError(
                 "The project config has no control_system section, so the optimizer has no "

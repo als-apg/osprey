@@ -194,7 +194,7 @@ async def _sandbox_child_env(execution_folder, workspace_root) -> dict[str, str]
 
     with (
         patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
+            "osprey.utils.config_paths.session_agent_data_root",
             return_value=workspace_root,
         ),
         patch(
@@ -301,7 +301,7 @@ async def test_real_execution_cannot_see_launch_token(
     """)
 
     with patch(
-        "osprey_connectors.workspace.resolve_agent_data_root",
+        "osprey.utils.config_paths.session_agent_data_root",
         return_value=workspace_root,
     ):
         result = await execute_sandbox_code(code=code, execution_folder=execution_folder)

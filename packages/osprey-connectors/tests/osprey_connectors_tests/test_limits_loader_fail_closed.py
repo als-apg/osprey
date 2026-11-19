@@ -14,31 +14,20 @@ import pytest
 
 from osprey_connectors.control_system._limits_validator import LimitsValidator
 from osprey_connectors.errors import ChannelLimitsViolationError
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 
 
-def _patch_config(monkeypatch, db_file, mode: str = "exclusive"):
-    """Point from_config at a limits file on disk.
-
-    ``from_config`` reads the nested ``control_system`` section to resolve the
-    posture and the dotted key for the database path, so the shim answers both
-    spellings of the one deployment these tests describe.
-    """
-    values = {
-        "control_system": {
-            "limits_checking": {
-                "enabled": True,
-                "mode": mode,
-                "database_path": str(db_file),
-            },
-        },
-        "control_system.limits_checking.enabled": True,
-        "control_system.limits_checking.database_path": str(db_file),
-        "control_system.limits_checking.mode": mode,
-        "project_root": None,
-    }
-    serve_config_lookup(monkeypatch, lambda key, default=None: values.get(key, default))
-    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
+def _patch_config(db_file, mode: str = "exclusive"):
+    """Serve a config whose limits checking points ``from_config`` at a file on disk."""
+    tree = config_tree(
+        {
+            "control_system.limits_checking.enabled": True,
+            "control_system.limits_checking.database_path": str(db_file),
+            "control_system.limits_checking.mode": mode,
+        }
+    )
+    serve_config(config_of(tree, environ={}))
 
 
 def _write_db(tmp_path, db: dict):
@@ -47,9 +36,9 @@ def _write_db(tmp_path, db: dict):
     return limits_file
 
 
-def _refusal(monkeypatch, tmp_path, db: dict, mode: str = "exclusive") -> str:
+def _refusal(tmp_path, db: dict, mode: str = "exclusive") -> str:
     """Load through from_config and return the refusal an operator would see."""
-    _patch_config(monkeypatch, _write_db(tmp_path, db), mode=mode)
+    _patch_config(_write_db(tmp_path, db), mode=mode)
 
     validator = LimitsValidator.from_config()
 
@@ -72,10 +61,8 @@ class TestRetiredVerificationBlock:
         assert "verification" in str(exc.value)
         assert "confirm" in str(exc.value)
 
-    def test_refusal_points_at_confirm(self, monkeypatch, tmp_path):
-        reason = _refusal(
-            monkeypatch, tmp_path, {"FOO": {"max_value": 10.0, "verification": {"level": "none"}}}
-        )
+    def test_refusal_points_at_confirm(self, tmp_path):
+        reason = _refusal(tmp_path, {"FOO": {"max_value": 10.0, "verification": {"level": "none"}}})
 
         assert "confirm" in reason
         assert "verification" in reason
@@ -88,14 +75,11 @@ class TestUnknownFields:
         with pytest.raises(ValueError, match="confrim"):
             LimitsValidator._load_limits_database(str(db_file))
 
-    def test_typo_refusal_names_the_key_even_when_unlisted_channels_are_allowed(
-        self, monkeypatch, tmp_path
-    ):
+    def test_typo_refusal_names_the_key_even_when_unlisted_channels_are_allowed(self, tmp_path):
         # ``mode: optional`` is the dangerous half of this bug: the
         # typo'd channel was dropped from the database, and an unlisted channel
         # was then waved through with no limits at all.
         reason = _refusal(
-            monkeypatch,
             tmp_path,
             {"FOO": {"max_value": 10.0, "confrim": True}},
             mode="optional",

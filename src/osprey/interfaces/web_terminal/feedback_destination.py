@@ -306,7 +306,7 @@ def resolve_feedback_destination(
     """Resolve the raw config values into one coherent destination.
 
     Deliberately **pure**: it reads no config of its own and takes whatever the
-    reader returned, so the ``get_config_value`` calls stay in the lifespan
+    reader returned, so the ``current_config().get`` calls stay in the lifespan
     where the config-key manifest can see them, and this function stays
     callable from a route that has no config at all.
 

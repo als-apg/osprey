@@ -5666,7 +5666,8 @@ def _ensure_agent_data_structure(config):
     directories. The root comes from ``agent_data.base_dir`` — ``var/agent_data``
     under the repo root unless a profile moved it; each subdirectory below
     is created only when ``file_paths`` declares its name, so the created structure
-    matches what :func:`osprey_connectors.config.get_agent_dir` resolves at runtime. The
+    matches what the runtime resolves under the loaded config's
+    :attr:`~osprey_connectors.config.LoadedConfig.agent_data_root`. The
     scenario state directory is the one addition outside ``file_paths``, created only
     for a Virtual Accelerator deployment — the one compose service that mounts it.
     The control-context tree is the other: its root, its marker and one directory

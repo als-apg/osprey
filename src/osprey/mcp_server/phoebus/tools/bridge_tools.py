@@ -115,17 +115,13 @@ from osprey.mcp_server.http import (
 )
 from osprey.mcp_server.phoebus.server import mcp
 from osprey.phoebus_agent_access import AGENT_ACCESS_KEY, READ, READ_WRITE, agent_access
+from osprey.utils.config_paths import loaded_or_empty, process_repo_root
 from osprey.utils.session_hold_api import execution_verdict, refusal_detail
 from osprey_connectors import write_switch
+from osprey_connectors.config import locate_config
 from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.targets import baseline_target
-from osprey_connectors.workspace import (
-    agent_data_base_dir,
-    anchored_path,
-    load_osprey_config,
-    resolve_config_path,
-    resolve_project_root,
-)
+from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus")
 
@@ -196,10 +192,10 @@ def _snapshot_dir() -> Path:
     configured value may resolve against the working directory, which for an
     MCP server is whatever launched it.
     """
-    config = load_osprey_config()
+    config = loaded_or_empty()
     configured = (config.get("phoebus", {}) or {}).get("snapshot_dir")
     relative = str(configured or f"{agent_data_base_dir(config)}/screenshots")
-    out = anchored_path(relative, resolve_project_root(config))
+    out = anchored_path(relative, process_repo_root())
     out.mkdir(parents=True, exist_ok=True)
     return out
 
@@ -230,7 +226,7 @@ def _require_handle() -> bool:
         return True
     if env in _FALSY:
         return False
-    config = load_osprey_config()
+    config = loaded_or_empty()
     return bool(config.get("phoebus", {}).get("require_handle", False))
 
 
@@ -241,7 +237,7 @@ def _check_drive_offered() -> None:
     tool learns which switch withholds it.
     """
     try:
-        access = agent_access(load_osprey_config())
+        access = agent_access(loaded_or_empty())
     except ValueError as exc:
         make_error(
             "configuration_error",
@@ -279,7 +275,7 @@ def _check_drive_switch() -> None:
     from osprey_connectors.refusals import VerdictReason, refusal_text
 
     try:
-        config = load_osprey_config()
+        config = loaded_or_empty()
         section = config.get("control_system") if isinstance(config, dict) else None
         target = baseline_target(ControlSystemSection.read(section))
         verdict = execution_verdict(ControlSystemSection.read(section or {}), target)
@@ -312,7 +308,7 @@ def _check_drive_record() -> None:
     """
     from osprey.mcp_server.approval_record import require_approval_record
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     refusal = require_approval_record("phoebus_drive", config if isinstance(config, dict) else {})
     if refusal is not None:
         make_error(
@@ -380,7 +376,7 @@ def _panel_resource(name: str, panels: dict) -> str | None:
             if candidate.exists():
                 resource = str(candidate)
             else:
-                config_path = resolve_config_path()
+                config_path = locate_config()
                 if config_path.exists():
                     resource = str((config_path.parent / builtin_relative).resolve())
                 else:
@@ -391,7 +387,7 @@ def _panel_resource(name: str, panels: dict) -> str | None:
 
     # Resolve relative non-URL config paths against the config file's directory.
     if not resource.startswith("file:") and not Path(resource).is_absolute():
-        config_path = resolve_config_path()
+        config_path = locate_config()
         if config_path.exists():
             resource = str((config_path.parent / resource).resolve())
 
@@ -412,7 +408,7 @@ def _display_key(value: str) -> str:
         text = urllib.request.url2pathname(urllib.parse.urlparse(text).path)
     path = Path(text).expanduser()
     if not path.is_absolute():
-        path = resolve_config_path().parent / path
+        path = locate_config().parent / path
     return str(path.resolve())
 
 
@@ -425,7 +421,7 @@ def _panel_index() -> dict[str, str]:
     the first one wins, so two names on one file answer with one of them
     deterministically.
     """
-    config = load_osprey_config()
+    config = loaded_or_empty()
     panels = config.get("phoebus", {}).get("panels", {})
     if not isinstance(panels, dict):
         panels = {}
@@ -458,7 +454,7 @@ def _resolve_panel_resource(name: str) -> str:
     Raises:
         ToolError(unknown_panel): When *name* is not found in either source.
     """
-    config = load_osprey_config()
+    config = loaded_or_empty()
     panels: dict = config.get("phoebus", {}).get("panels", {})
     resource = _panel_resource(name, panels)
 

@@ -413,7 +413,7 @@ async def test_the_facility_zone_comes_from_system_timezone(monkeypatch, tmp_pat
 
     (tmp_path / "config.yml").write_text("system:\n  timezone: Europe/Berlin\n")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.setattr(_cfg, "_installed", None)
     monkeypatch.setattr(_cfg, "_last_lazy", None)
     monkeypatch.setattr(_cfg, "_loads", {})

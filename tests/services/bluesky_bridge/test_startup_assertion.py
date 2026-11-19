@@ -48,11 +48,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import queue
 from osprey.services.bluesky_bridge.app import app, set_queue_backend
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 
 _DEVICES_FILE_ENV = "BLUESKY_DEVICES_FILE"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
@@ -101,8 +103,7 @@ def _clean_env_and_inert_backend(monkeypatch: pytest.MonkeyPatch):
     set_queue_backend(None)
 
 
-def _patch_config(
-    monkeypatch: pytest.MonkeyPatch,
+def _guard_config_tree(
     *,
     writes_allowed: bool | None = None,
     section: dict[str, Any] | None = None,
@@ -110,8 +111,8 @@ def _patch_config(
     limits_enabled: bool | None = None,
     db_path: str | None = None,
     project_root: str | None = None,
-) -> None:
-    """Patch `osprey_connectors.config.get_config_value` for the keys the guard reads.
+) -> dict[str, Any]:
+    """The config tree holding the keys the guard reads.
 
     Write posture is per connector type, so the guard reads the whole
     `control_system` SECTION (its `writes` tier key), plus the
@@ -123,17 +124,10 @@ def _patch_config(
 
     Limits checking is per connector type too, and the guard reads it out of
     the same SECTION, so `limits_enabled` is folded into the section's
-    `limits_checking` block rather than answered behind a dotted key. The copy
-    is what keeps a module-level section constant (`_MIXED_SECTION`) from
-    carrying one test's posture into the next. Only `database_path` stays
-    deployment-wide, since the deployment mounts one limits database.
-
-    `_assert_limits_readable_if_writable` does its own
-    `from osprey_connectors.config import get_config_value` inside the function
-    body (never at module import time), so patching the underlying
-    `osprey_connectors.config` attribute — the same convention
-    `test_epics_gateway_selection.py` uses for `EPICSConnector.connect` —
-    takes effect on the next call.
+    `limits_checking` block. The copy is what keeps a module-level section
+    constant (`_MIXED_SECTION`) from carrying one test's posture into the next.
+    `database_path` is the deployment-wide key, since the deployment mounts
+    one limits database.
     """
     control_system: dict[str, Any] = (
         {"writes": "allowed" if writes_allowed else "never"} if section is None else dict(section)
@@ -143,24 +137,23 @@ def _patch_config(
             **control_system.get("limits_checking", {}),
             "enabled": limits_enabled,
         }
-    targets = lane_targets or {}
+    values: dict[str, Any] = {
+        f"services.{lane}.target": target for lane, target in (lane_targets or {}).items()
+    }
+    if db_path is not None:
+        values["control_system.limits_checking.database_path"] = db_path
+    if project_root is not None:
+        values["project_root"] = project_root
+    return config_tree(values, base={"control_system": control_system})
 
-    def fake_get_config_value(key: str, default=None):
-        if key == "control_system":
-            return control_system
-        if key == "control_system.type":
-            return control_system.get("type", default)
-        if key == "control_system.limits_checking.database_path":
-            return db_path if db_path is not None else default
-        if key == "project_root":
-            return project_root if project_root is not None else default
-        if key.startswith("services.") and key.endswith(".target"):
-            return targets.get(key.split(".")[1], default)
-        return default
 
-    # Served as the process config too: the limits database path is read from
-    # the loaded config, not through get_config_value.
-    serve_config_lookup(monkeypatch, fake_get_config_value)
+def _serve_guard_config(**keys: Any) -> None:
+    """Serve :func:`_guard_config_tree` of *keys* as the process config.
+
+    Process-wide, so the guard reads it on the thread the ``TestClient``
+    lifespan runs on.
+    """
+    serve_config(config_of(_guard_config_tree(**keys), environ={}))
 
 
 def _valid_limits_db(tmp_path: Path) -> Path:
@@ -176,11 +169,9 @@ def _valid_limits_db(tmp_path: Path) -> Path:
 # =========================================================================
 
 
-def test_writable_with_missing_limits_db_refuses_startup(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_writable_with_missing_limits_db_refuses_startup(tmp_path: Path) -> None:
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(missing))
+    _serve_guard_config(writes_allowed=True, limits_enabled=True, db_path=str(missing))
 
     with pytest.raises(RuntimeError) as excinfo:
         with TestClient(app):
@@ -192,9 +183,7 @@ def test_writable_with_missing_limits_db_refuses_startup(
     assert "limits_checking.enabled" in message
 
 
-def test_guard_runs_with_no_bluesky_env_set_at_all(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_guard_runs_with_no_bluesky_env_set_at_all(tmp_path: Path) -> None:
     """The guard is unconditional, not gated on any device-wiring flag.
 
     It once lived inside the device-substrate runner branch, so a deployment
@@ -208,19 +197,17 @@ def test_guard_runs_with_no_bluesky_env_set_at_all(
         assert var not in os.environ
 
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(missing))
+    _serve_guard_config(writes_allowed=True, limits_enabled=True, db_path=str(missing))
 
     with pytest.raises(RuntimeError):
         with TestClient(app):
             pass
 
 
-def test_writable_with_unparseable_limits_db_refuses_startup(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_writable_with_unparseable_limits_db_refuses_startup(tmp_path: Path) -> None:
     bad_json = tmp_path / "channel_limits.json"
     bad_json.write_text("{not valid json")
-    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(bad_json))
+    _serve_guard_config(writes_allowed=True, limits_enabled=True, db_path=str(bad_json))
 
     with pytest.raises(RuntimeError):
         with TestClient(app):
@@ -232,11 +219,9 @@ def test_writable_with_unparseable_limits_db_refuses_startup(
 # =========================================================================
 
 
-def test_writable_with_readable_limits_db_starts(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_writable_with_readable_limits_db_starts(tmp_path: Path) -> None:
     db = _valid_limits_db(tmp_path)
-    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(db))
+    _serve_guard_config(writes_allowed=True, limits_enabled=True, db_path=str(db))
 
     with TestClient(app) as client:
         resp = client.get("/health")
@@ -259,22 +244,24 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
     """
     container_dir = tmp_path / "app_project"
     container_dir.mkdir()
-    (container_dir / "config.yml").write_text("control_system: {}\n")
     data_dir = container_dir / "data"
     data_dir.mkdir()
     (data_dir / "channel_limits.json").write_text(
         json.dumps({"TEST:COR:01:SP": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
     )
-    monkeypatch.setenv("OSPREY_CONFIG", str(container_dir / "config.yml"))
-
     bogus_project_root = tmp_path / "host_build_path_does_not_exist"
-    _patch_config(
-        monkeypatch,
-        writes_allowed=True,
-        limits_enabled=True,
-        db_path="data/channel_limits.json",
-        project_root=str(bogus_project_root),
+    (container_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            _guard_config_tree(
+                writes_allowed=True,
+                limits_enabled=True,
+                db_path="data/channel_limits.json",
+                project_root=str(bogus_project_root),
+            )
+        )
     )
+    monkeypatch.setenv("OSPREY_CONFIG", str(container_dir / "config.yml"))
+    monkeypatch.chdir(tmp_path)
 
     with TestClient(app) as client:
         resp = client.get("/health")
@@ -282,7 +269,7 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
 
 
 def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, limits_probe_calls: list[str]
+    tmp_path: Path, limits_probe_calls: list[str]
 ) -> None:
     """A leaf that is present but not a literal boolean is a startup refusal.
 
@@ -291,8 +278,7 @@ def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
     rather than a lane that starts writable and then denies everything.
     """
     # Arrange
-    _patch_config(
-        monkeypatch,
+    _serve_guard_config(
         section={"type": "epics", "writes": "allowed", "limits_checking": {"enabled": "true"}},
         db_path=str(_valid_limits_db(tmp_path)),
     )
@@ -311,23 +297,18 @@ def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
     assert limits_probe_calls == []
 
 
-def test_writable_with_limits_checking_disabled_starts_without_db(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_writable_with_limits_checking_disabled_starts_without_db() -> None:
     """writes enabled + limits checking disabled: no database required at all."""
-    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=False, db_path=None)
+    _serve_guard_config(writes_allowed=True, limits_enabled=False, db_path=None)
 
     with TestClient(app) as client:
         resp = client.get("/health")
         assert resp.status_code == 200
 
 
-def test_writable_optional_with_no_db_path_starts(
-    monkeypatch: pytest.MonkeyPatch, limits_probe_calls: list[str]
-) -> None:
+def test_writable_optional_with_no_db_path_starts(limits_probe_calls: list[str]) -> None:
     """writes enabled + optional limits + no path: legal, nothing to load (q-0001/1, q-0002)."""
-    _patch_config(
-        monkeypatch,
+    _serve_guard_config(
         section={"writes": "allowed", "limits_checking": {"mode": "optional"}},
         limits_enabled=True,
         db_path=None,
@@ -339,12 +320,9 @@ def test_writable_optional_with_no_db_path_starts(
     assert limits_probe_calls == []
 
 
-def test_writable_exclusive_with_no_db_path_refuses_startup(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_writable_exclusive_with_no_db_path_refuses_startup() -> None:
     """Exclusive mode needs the database to know what is writable at all."""
-    _patch_config(
-        monkeypatch,
+    _serve_guard_config(
         section={"writes": "allowed", "limits_checking": {"mode": "exclusive"}},
         limits_enabled=True,
         db_path=None,
@@ -355,12 +333,9 @@ def test_writable_exclusive_with_no_db_path_refuses_startup(
             pass
 
 
-def test_writable_optional_with_missing_db_refuses_startup(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_writable_optional_with_missing_db_refuses_startup(tmp_path: Path) -> None:
     """A configured path must load whatever the mode."""
-    _patch_config(
-        monkeypatch,
+    _serve_guard_config(
         section={"writes": "allowed", "limits_checking": {"mode": "optional"}},
         limits_enabled=True,
         db_path=str(tmp_path / "does_not_exist.json"),
@@ -372,11 +347,11 @@ def test_writable_optional_with_missing_db_refuses_startup(
 
 
 def test_writes_disabled_starts_readonly_even_with_missing_db(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, limits_probe_calls: list[str]
+    tmp_path: Path, limits_probe_calls: list[str]
 ) -> None:
     """Read-only posture starts regardless of limits readability, and never probes."""
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(monkeypatch, writes_allowed=False, limits_enabled=True, db_path=str(missing))
+    _serve_guard_config(writes_allowed=False, limits_enabled=True, db_path=str(missing))
 
     with TestClient(app) as client:
         resp = client.get("/health")
@@ -392,12 +367,10 @@ def test_writes_disabled_starts_readonly_even_with_missing_db(
 # =========================================================================
 
 
-def test_refusal_message_never_leaks_db_contents(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_refusal_message_never_leaks_db_contents(tmp_path: Path) -> None:
     db = tmp_path / "channel_limits.json"
     db.write_text('{"SECRET_MARKER_VALUE_DO_NOT_LEAK": not valid json')
-    _patch_config(monkeypatch, writes_allowed=True, limits_enabled=True, db_path=str(db))
+    _serve_guard_config(writes_allowed=True, limits_enabled=True, db_path=str(db))
 
     with pytest.raises(RuntimeError) as excinfo:
         with TestClient(app):
@@ -435,8 +408,7 @@ def test_va_lane_requires_limits_db_when_the_tier_allows_writes(
     # Arrange
     monkeypatch.setenv(_LANE_ENV, _VA_LANE)
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(
-        monkeypatch,
+    _serve_guard_config(
         section=_MIXED_SECTION,
         lane_targets=_MIXED_LANE_TARGETS,
         limits_enabled=True,
@@ -468,8 +440,7 @@ def test_live_lane_requires_limits_db_too_because_the_tier_is_target_blind(
     # Arrange
     monkeypatch.setenv(_LANE_ENV, _LIVE_LANE)
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(
-        monkeypatch,
+    _serve_guard_config(
         section=_MIXED_SECTION,
         lane_targets=_MIXED_LANE_TARGETS,
         limits_enabled=True,
@@ -497,8 +468,7 @@ def test_a_degraded_lane_does_not_require_the_limits_db(
     # Arrange: a VA baseline with no live block, and a lane that declares live.
     monkeypatch.setenv(_LANE_ENV, _LIVE_LANE)
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(
-        monkeypatch,
+    _serve_guard_config(
         section={
             "type": "virtual_accelerator",
             "writes": "allowed",
@@ -526,8 +496,7 @@ def test_readonly_run_never_requires_the_limits_db(
     monkeypatch.setenv(_LANE_ENV, _VA_LANE)
     monkeypatch.setenv(_EXECUTION_MODE_ENV, "readonly")
     missing = tmp_path / "does_not_exist.json"
-    _patch_config(
-        monkeypatch,
+    _serve_guard_config(
         section=_MIXED_SECTION,
         lane_targets=_MIXED_LANE_TARGETS,
         limits_enabled=True,
@@ -558,7 +527,7 @@ def test_malformed_device_page_size_refuses_startup(
     can refuse the lifespan is the page-size parse.
     """
     # Arrange
-    _patch_config(monkeypatch, writes_allowed=False)
+    _serve_guard_config(writes_allowed=False)
     monkeypatch.setenv(_DEVICE_PAGE_SIZE_ENV, bad_value)
 
     # Act
@@ -604,7 +573,7 @@ def test_malformed_live_row_cap_refuses_startup(
     refusal an operator can see.
     """
     # Arrange
-    _patch_config(monkeypatch, writes_allowed=False)
+    _serve_guard_config(writes_allowed=False)
     monkeypatch.setenv(env_var, bad_value)
 
     # Act

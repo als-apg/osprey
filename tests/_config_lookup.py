@@ -14,13 +14,13 @@ def reset_config_caches(monkeypatch):
     """Reset every config cache around a test that writes its own ``config.yml``.
 
     Earlier modules install a process config (``install_config``, or
-    ``load_osprey_config``); a test that reads its own
+    ``loaded_or_empty``); a test that reads its own
     ``config.yml`` (through ``monkeypatch.chdir(tmp_path)``) must not inherit, or
     leave behind, another test's cached configuration.
     """
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
-    reset_config_cache()
+    clear_config_state()
 
     import osprey_connectors.config as _cfg
 
@@ -31,6 +31,6 @@ def reset_config_caches(monkeypatch):
 
     yield
 
-    reset_config_cache()
+    clear_config_state()
     _cfg._loads.clear()
     _cfg._loads.update(saved_cache)

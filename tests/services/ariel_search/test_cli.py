@@ -10,6 +10,8 @@ from click.testing import CliRunner
 
 from osprey.cli.ariel import ariel_group
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 from tests._text import flat
 
 #: A store without attachment copy state: ingest stores each entry with the
@@ -109,7 +111,7 @@ class TestARIELCLIGroup:
         assert result.exit_code != 0
         assert "Missing option" in result.output or option in result.output
 
-    def test_ingest_tracks_runs(self, runner, tmp_path, monkeypatch):
+    def test_ingest_tracks_runs(self, runner, tmp_path):
         """ingest command calls start_ingestion_run and complete_ingestion_run."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -120,10 +122,7 @@ class TestARIELCLIGroup:
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         mock_repo = MagicMock()
         mock_repo.start_ingestion_run = AsyncMock(return_value=42)
@@ -200,10 +199,7 @@ class TestARIELCLIGroup:
 
         monkeypatch.setattr(ops, "run_ingest", _fake_ingest)
         monkeypatch.setattr(ops, "resync_qmd_mirror_best_effort", _no_resync)
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {"database": {"uri": "postgresql://localhost/test"}},
-        )
+        serve_config(config_of({"ariel": {"database": {"uri": "postgresql://localhost/test"}}}))
 
         result = runner.invoke(ariel_group, ["ingest", "-s", "entries.json"])
 
@@ -211,7 +207,7 @@ class TestARIELCLIGroup:
         assert ("Skipped 2 entries that could not be read" in result.output) is warned
         assert ("Skipped" in result.output) is warned
 
-    def test_ingest_missing_tables_shows_user_friendly_error(self, runner, tmp_path, monkeypatch):
+    def test_ingest_missing_tables_shows_user_friendly_error(self, runner, tmp_path):
         """ingest shows helpful error when database tables don't exist."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -226,10 +222,7 @@ class TestARIELCLIGroup:
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         # Mock create_ariel_service to raise DatabaseQueryError with missing table message
         error = DatabaseQueryError(
@@ -298,7 +291,7 @@ class TestWatchCommand:
         assert "--source" in result.output
         assert "--adapter" in result.output
 
-    def test_watch_once_runs_poll(self, runner, monkeypatch):
+    def test_watch_once_runs_poll(self, runner):
         """watch --once invokes poll_once and shows result."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -306,10 +299,7 @@ class TestWatchCommand:
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {"adapter": "generic_json", "source_url": "https://api.example.com/log"},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         mock_service = MagicMock()
         mock_service.__aenter__ = AsyncMock(return_value=mock_service)
@@ -345,7 +335,7 @@ class TestWatchCommand:
         assert "Poll complete" in result.stdout
         assert "3 added" in result.stdout
 
-    def test_watch_once_dry_run(self, runner, monkeypatch):
+    def test_watch_once_dry_run(self, runner):
         """watch --once --dry-run shows dry-run prefix in output."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -353,10 +343,7 @@ class TestWatchCommand:
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {"adapter": "generic_json", "source_url": "https://api.example.com/log"},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         mock_service = MagicMock()
         mock_service.__aenter__ = AsyncMock(return_value=mock_service)
@@ -392,28 +379,22 @@ class TestWatchCommand:
         assert "[dry-run]" in result.stdout
         assert "Poll complete" in result.stdout
 
-    def test_watch_no_source_shows_error(self, runner, monkeypatch):
+    def test_watch_no_source_shows_error(self, runner):
         """watch shows error when ingestion has no source_url."""
         mock_config = {
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {"adapter": "generic_json"},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         result = runner.invoke(ariel_group, ["watch", "--once"])
 
         assert result.exit_code == 1
         assert "source" in result.stderr.lower()
 
-    def test_watch_no_config_shows_error(self, runner, monkeypatch):
+    def test_watch_no_config_shows_error(self, runner):
         """watch shows error when ARIEL not configured."""
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: default,
-        )
+        serve_config(config_of({}))
         result = runner.invoke(ariel_group, ["watch", "--once"])
         assert result.exit_code == 1
         assert "not configured" in result.stderr.lower()
@@ -444,17 +425,14 @@ class TestQuickstartCommand:
         result = runner.invoke(ariel_group, ["quickstart", "--help"])
         assert "--source" in result.output
 
-    def test_quickstart_no_config_shows_error(self, runner, monkeypatch):
+    def test_quickstart_no_config_shows_error(self, runner):
         """quickstart shows error when ARIEL not configured."""
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: default,
-        )
+        serve_config(config_of({}))
         result = runner.invoke(ariel_group, ["quickstart"])
         assert result.exit_code == 1
         assert "not configured" in result.stderr.lower()
 
-    def test_quickstart_connection_failure_shows_guidance(self, runner, monkeypatch):
+    def test_quickstart_connection_failure_shows_guidance(self, runner):
         """quickstart shows 'osprey up' guidance on connection failure."""
         from unittest.mock import AsyncMock, patch
 
@@ -462,10 +440,7 @@ class TestQuickstartCommand:
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {"adapter": "generic_json", "source_url": "/tmp/demo.json"},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         with patch(
             "osprey.services.ariel_search.database.connection.create_connection_pool",
@@ -477,7 +452,7 @@ class TestQuickstartCommand:
         assert result.exit_code == 1
         assert "osprey up" in result.stderr
 
-    def test_quickstart_success_flow(self, runner, monkeypatch, tmp_path):
+    def test_quickstart_success_flow(self, runner, tmp_path):
         """quickstart completes successfully with mocked database."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -492,10 +467,7 @@ class TestQuickstartCommand:
             "ingestion": {"adapter": "generic_json", "source_url": str(demo_file)},
             "search_modules": {"keyword": {"enabled": True}},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         mock_pool = MagicMock()
         mock_pool.close = AsyncMock()
@@ -538,7 +510,7 @@ class TestSyncCommand:
         """Create a CLI runner."""
         return CliRunner()
 
-    def test_sync_runs_successfully(self, runner, monkeypatch):
+    def test_sync_runs_successfully(self, runner):
         """sync invokes run_sync and displays results."""
         from unittest.mock import AsyncMock, patch
 
@@ -548,10 +520,7 @@ class TestSyncCommand:
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {"adapter": "als_logbook", "source_url": "https://example.com/log"},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         sync_result = SyncResult(
             migrations_applied=0,
@@ -574,7 +543,7 @@ class TestSyncCommand:
         assert "5 enhanced" in result.stdout
         assert "1 failed" in result.stdout
 
-    def test_sync_with_limit(self, runner, monkeypatch):
+    def test_sync_with_limit(self, runner):
         """sync passes --limit to run_sync."""
         from unittest.mock import AsyncMock, patch
 
@@ -584,10 +553,7 @@ class TestSyncCommand:
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {"adapter": "als_logbook", "source_url": "https://example.com/log"},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         sync_result = SyncResult(
             migrations_applied=0,
@@ -608,17 +574,14 @@ class TestSyncCommand:
         call_kwargs = mock_sync.call_args
         assert call_kwargs[1]["limit"] == 100 or call_kwargs[0][1] == 100
 
-    def test_sync_no_config_shows_error(self, runner, monkeypatch):
+    def test_sync_no_config_shows_error(self, runner):
         """sync shows error when ARIEL not configured."""
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: default,
-        )
+        serve_config(config_of({}))
         result = runner.invoke(ariel_group, ["sync"])
         assert result.exit_code == 1
         assert "not configured" in result.stderr.lower()
 
-    def test_sync_connection_failure_shows_guidance(self, runner, monkeypatch):
+    def test_sync_connection_failure_shows_guidance(self, runner):
         """sync shows 'osprey up' guidance on connection failure."""
         from unittest.mock import AsyncMock, patch
 
@@ -626,10 +589,7 @@ class TestSyncCommand:
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {"adapter": "als_logbook", "source_url": "https://example.com/log"},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         with patch(
             "osprey.services.ariel_search.cli_operations.run_sync",
@@ -646,13 +606,10 @@ class TestMigrateCommand:
     """Tests for the ariel migrate command's busy-tables exit."""
 
     @pytest.fixture
-    def runner(self, monkeypatch):
+    def runner(self):
         """A CLI runner with an ARIEL config in place."""
         mock_config = {"database": {"uri": "postgresql://localhost/test"}}
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
         return CliRunner()
 
     def _invoke(self, runner, busy: list[str]):
@@ -691,17 +648,14 @@ class TestEnhanceCommand:
         """Create a CLI runner."""
         return CliRunner()
 
-    def test_enhance_reports_the_completion_line_once(self, runner, monkeypatch):
+    def test_enhance_reports_the_completion_line_once(self, runner):
         """The completion line run_enhance reports is printed once, not repeated."""
         from unittest.mock import patch
 
         from osprey.services.ariel_search.cli_operations import EnhanceResult
 
         mock_config = {"database": {"uri": "postgresql://localhost/test"}}
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
 
         async def fake_run_enhance(*_args, progress=None, **_kwargs):
             progress(
@@ -726,10 +680,7 @@ class TestEnhanceCommand:
         from osprey.services.ariel_search.cli_operations import EnhanceResult
 
         mock_config = {"database": {"uri": "postgresql://localhost/test"}}
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
         calls: list[tuple[tuple, dict]] = []
 
         async def fake_run_enhance(*args, **kwargs):
@@ -994,10 +945,7 @@ class TestSearchResultRendering:
 
     def test_search_command_renders_entries_when_answer_empty(self, runner, monkeypatch):
         """Found entries must be shown even when no composed answer exists."""
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": {"database": {"uri": "x"}}}))
 
         async def fake_run_search(_config_dict, query, _mode, _limit, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return {
@@ -1037,10 +985,7 @@ class TestSearchResultRendering:
 
     def test_search_command_no_results_message_only_when_truly_empty(self, runner, monkeypatch):
         """'No results found.' is reserved for zero entries AND no answer."""
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": {"database": {"uri": "x"}}}))
 
         async def fake_run_search(_config_dict, query, _mode, _limit, *, store_deadline_s=None):  # noqa: ARG001 - the signature it stands in for
             return {
@@ -1101,6 +1046,12 @@ concepts:
 """
 
 
+def _outside_a_project(monkeypatch, tmp_path) -> None:
+    """Stand where no config is found: the config loader raises ``ConfigNotFoundError``."""
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing.yml"))
+    monkeypatch.chdir(tmp_path)
+
+
 class TestVocabCheckCommand:
     """``osprey ariel vocab-check`` — the database-free vocabulary validator."""
 
@@ -1109,12 +1060,9 @@ class TestVocabCheckCommand:
         return CliRunner()
 
     @pytest.fixture
-    def no_config(self, monkeypatch):
+    def no_config(self):
         """Run with no ``ariel`` section at all, as a bare checkout would."""
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {} if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": {}}))
 
     def _write(self, tmp_path, body):
         path = tmp_path / "vocabulary.yml"
@@ -1238,22 +1186,17 @@ class TestVocabCheckCommand:
     def test_explicit_path_needs_no_project_config(self, runner, tmp_path, monkeypatch):
         """Outside a project directory the config loader raises; PATH must still work."""
         path = self._write(tmp_path, _AMBIGUOUS)
-
-        def _no_project(_key, _default=None):
-            raise FileNotFoundError("No config.yml found in current directory")
-
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", _no_project)
+        _outside_a_project(monkeypatch, tmp_path)
 
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
 
         assert result.exit_code == 0
         assert "Vocabulary OK: 2 concepts" in flat(result.stdout)
 
-    def test_no_path_outside_a_project_still_reports_the_missing_config(self, runner, monkeypatch):
-        def _no_project(_key, _default=None):
-            raise FileNotFoundError("No config.yml found in current directory")
-
-        monkeypatch.setattr("osprey.cli.ariel.get_config_value", _no_project)
+    def test_no_path_outside_a_project_still_reports_the_missing_config(
+        self, runner, tmp_path, monkeypatch
+    ):
+        _outside_a_project(monkeypatch, tmp_path)
 
         result = runner.invoke(ariel_group, ["vocab-check"])
 
@@ -1262,14 +1205,9 @@ class TestVocabCheckCommand:
             result.exception, FileNotFoundError
         )
 
-    def test_configured_path_is_used_when_no_argument_is_given(self, runner, tmp_path, monkeypatch):
+    def test_configured_path_is_used_when_no_argument_is_given(self, runner, tmp_path):
         path = self._write(tmp_path, _AMBIGUOUS)
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: (
-                {"vocabulary": {"enabled": True, "path": str(path)}} if key == "ariel" else default
-            ),
-        )
+        serve_config(config_of({"ariel": {"vocabulary": {"enabled": True, "path": str(path)}}}))
 
         result = runner.invoke(ariel_group, ["vocab-check"])
 
@@ -1315,11 +1253,8 @@ class TestStatusVocabularyLine:
         return CliRunner()
 
     @pytest.fixture(autouse=True)
-    def _config(self, monkeypatch):
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
-        )
+    def _config(self):
+        serve_config(config_of({"ariel": {"database": {"uri": "x"}}}))
 
     def _patch_status(self, monkeypatch, result):
         async def fake_get_status(config_dict, *, config_dir=None, store_deadline_s=None):  # noqa: ARG001 - the get_status signature
@@ -1409,11 +1344,8 @@ class TestStatusCaptionLines:
         return CliRunner()
 
     @pytest.fixture(autouse=True)
-    def _config(self, monkeypatch):
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
-        )
+    def _config(self):
+        serve_config(config_of({"ariel": {"database": {"uri": "x"}}}))
 
     def _status(self, monkeypatch, captions):
         result = {
@@ -1548,16 +1480,13 @@ class TestModuleConfigRefusal:
     VOCAB_REMEDY = "fix ariel.vocabulary.path or set ariel.vocabulary.expand_entries: false"
 
     @pytest.fixture
-    def runner(self, monkeypatch):
+    def runner(self):
         """A CLI runner with an ARIEL config in place."""
         mock_config = {
             "database": {"uri": "postgresql://localhost/test"},
             "ingestion": {"adapter": "als_logbook", "source_url": "https://example.com/log"},
         }
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: mock_config if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": mock_config}))
         return CliRunner()
 
     @staticmethod
@@ -1746,11 +1675,8 @@ class TestStatusEmbeddingBuilds:
         return CliRunner()
 
     @pytest.fixture(autouse=True)
-    def _config(self, monkeypatch):
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
-        )
+    def _config(self):
+        serve_config(config_of({"ariel": {"database": {"uri": "x"}}}))
 
     @staticmethod
     def _table(
@@ -1951,10 +1877,7 @@ class TestStatusReportErrors:
             "search_modules.semantic.model: semantic search is enabled for model 'm', "
             "but this database has no embedding table for it ('text_embeddings_m')."
         )
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
-        )
+        serve_config(config_of({"ariel": {"database": {"uri": "x"}}}))
 
         async def fake_get_status(config_dict, *, config_dir=None, store_deadline_s=None):  # noqa: ARG001 - the get_status signature
             return {"status": "error", "message": "boom", "errors": [refusal], "vocabulary": None}
@@ -1977,11 +1900,8 @@ class TestStatusReportVocabularyExpansion:
         return CliRunner()
 
     @pytest.fixture(autouse=True)
-    def _config(self, monkeypatch):
-        monkeypatch.setattr(
-            "osprey.cli.ariel.get_config_value",
-            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
-        )
+    def _config(self):
+        serve_config(config_of({"ariel": {"database": {"uri": "x"}}}))
 
     def _vocabulary(self, monkeypatch, vocabulary):
         async def fake_get_status(config_dict, *, config_dir=None, store_deadline_s=None):  # noqa: ARG001 - the get_status signature
@@ -2086,10 +2006,7 @@ class TestSilentStore:
         monkeypatch.setattr("osprey.cli.ariel._STORE_DEADLINE_S", SHORT_DEADLINE_S)
         with silent_store() as port:
             config = {"database": {"uri": silent_uri(port)}}
-            monkeypatch.setattr(
-                "osprey.cli.ariel.get_config_value",
-                lambda key, default=None: config if key == "ariel" else default,
-            )
+            serve_config(config_of({"ariel": config}))
             started = time.monotonic()
             result = CliRunner().invoke(ariel_group, args)
             elapsed = time.monotonic() - started

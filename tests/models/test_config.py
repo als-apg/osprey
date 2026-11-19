@@ -10,6 +10,8 @@ from osprey.models.config import (
     main_model_id,
     provider_requests_per_minute,
 )
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 
 def _config(*, provider="als-apg", default_model=None, entry_default="claude-haiku-4-5-20251001"):
@@ -70,14 +72,9 @@ def test_a_malformed_cap_is_refused_naming_the_key(value):
     assert "api.providers.gw.requests_per_minute" in str(excinfo.value)
 
 
-def test_a_non_mapping_config_entry_reads_as_absent(monkeypatch):
-    import osprey_connectors.config as connectors_config
-
-    sections = {"models": "oops", "api.providers": {"p": "oops"}}
-    monkeypatch.setattr(
-        connectors_config,
-        "get_config_value",
-        lambda path, default=None, config_path=None: sections.get(path, default),
-    )
+def test_a_non_mapping_config_entry_reads_as_absent():
+    # A non-mapping ``models`` or ``api.providers`` section never gets this far:
+    # the load refuses it (tests/config/test_load_config.py). Its entries can.
+    serve_config(config_of({"models": {"m": "oops"}, "api": {"providers": {"p": "oops"}}}))
     assert get_model_config("m") == {}
     assert get_provider_config("p") == {}

@@ -17,7 +17,7 @@ launch and after every config write from the terminal's config panel. Every MCP
 server and hook receives its config as ``registry/mcp.py``'s
 ``{project_root}/build/config.yml``, so a ``project_root`` of ``<repo>/build``
 declares ``<repo>/build/build/config.yml`` — a file that does not exist. The
-servers come up pointed at nothing and ``get_config_value`` raises
+servers come up pointed at nothing and their config read raises
 ``FileNotFoundError``. It fires on every host deployment, because a faithful
 render always diffs against artifacts written with the wrong root.
 

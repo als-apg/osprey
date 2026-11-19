@@ -140,7 +140,7 @@ class LimitsPosture(FrozenModel):
             leaf: One of :data:`LIMITS_LEAVES`.
 
         Returns:
-            The dotted key, as a caller spells it for ``get_config_value`` and
+            The dotted key, as a caller spells it for ``LoadedConfig.get`` and
             as a refusal names it to an operator.
         """
         if not self.connector_type:

@@ -54,11 +54,11 @@ def _fresh_middle_layer_server() -> Iterator[None]:
     from osprey.mcp_server.channel_finder_middle_layer.server_context import (
         reset_cf_ml_context,
     )
-    from osprey_connectors.workspace import reset_config_cache
+    from osprey_connectors.testing import clear_config_state
 
     def reset() -> None:
         reset_cf_ml_context()
-        reset_config_cache()
+        clear_config_state()
         config._installed = None
         config._last_lazy = None
         config._loads.clear()

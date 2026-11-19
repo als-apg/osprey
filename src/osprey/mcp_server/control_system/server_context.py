@@ -790,10 +790,11 @@ class ControlSystemContext:
     @staticmethod
     def _load_config() -> MCPServerConfig:
         """Load config.yml via the shared config loader."""
-        from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+        from osprey.utils.config_paths import loaded_or_empty
+        from osprey_connectors.config import locate_config
 
-        raw = load_osprey_config()
-        config_path = resolve_config_path()
+        raw = loaded_or_empty()
+        config_path = locate_config()
         if not config_path.exists():
             logger.warning("Config file not found: %s", config_path)
 

@@ -85,12 +85,12 @@ def _plans_panel_id() -> str:
     facility that registered it under a different id is found by that fixed
     mount path. Same config fallback chain as the bridge URL resolution
     (``osprey.bluesky_bridge_connection.resolve_bridge_url``): config.yml via
-    ``load_osprey_config`` (lazily imported), canonical default when the
+    ``loaded_or_empty`` (lazily imported), canonical default when the
     workspace has no matching ``web.panels`` entry — never a bare hardcode.
     """
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    panels = load_osprey_config().get("web", {}).get("panels", {})
+    panels = loaded_or_empty().get("web", {}).get("panels", {})
     if not isinstance(panels, dict):
         return _DEFAULT_PLANS_PANEL_ID
     for segment in _PLANS_PANEL_PATH_SEGMENTS:

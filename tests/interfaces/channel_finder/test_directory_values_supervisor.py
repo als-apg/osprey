@@ -400,7 +400,7 @@ def test_the_lifespan_supervises_only_with_the_section(monkeypatch, config_file)
         "control_system": {"type": "virtual_accelerator"},
         "services": {"virtual_accelerator": {"port": 5064}},
     }
-    seam = "osprey_connectors.workspace.load_osprey_config"
+    seam = "osprey.utils.config_paths.loaded_or_empty"
 
     monkeypatch.setattr(seam, lambda: base)
     with TestClient(create_app(project_cwd="/tmp/test-project")) as client:

@@ -59,7 +59,7 @@ def rootless(monkeypatch):
     monkeypatch.delenv(write_switch.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(
         _control_state,
-        "resolve_shared_data_root",
+        "_config_agent_data_root",
         lambda: (_ for _ in ()).throw(RuntimeError("no project root")),
     )
     testing.invalidate_cache()

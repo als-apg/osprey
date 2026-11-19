@@ -76,7 +76,7 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     The web terminal stores a file the operator attaches under
     ``<agent-data root>/uploads`` and hands the agent its absolute path, with the
     root anchored on the repo root the config's ``project_root`` names
-    (:func:`osprey_connectors.workspace.resolve_shared_data_root`). settings.json
+    (:func:`osprey.utils.config_paths.process_agent_data_root`). settings.json
     allows the agent to read exactly that directory, so the rule has to name the
     directory the stored paths are under, and a rule relative to the render would
     not: the agent runs in ``build/``, the uploads sit beside it.
@@ -127,20 +127,24 @@ def _resolved_agent_data_root(config: dict, project_dir: Path) -> Path:
     config naming no root anchors on the repo this render sits in, so a render in
     ``build/`` still names the root beside it.
     """
-    from osprey_connectors.workspace import (
-        agent_data_base_dir,
-        anchored_path,
-        dotted_config_str,
-        repo_root_for_config,
-    )
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
-    configured = dotted_config_str(config, "project_root")
-    anchor = (
-        Path(configured).expanduser()
-        if configured
-        else repo_root_for_config(project_dir.absolute() / "config.yml")
-    )
-    return anchored_path(agent_data_base_dir(config), anchor).resolve()
+    return anchored_path(
+        agent_data_base_dir(config), _render_repo_root(config, project_dir)
+    ).resolve()
+
+
+def _render_repo_root(config: Mapping[str, Any], project_dir: Path) -> Path:
+    """The repo root the render at *project_dir* names: its ``project_root``, else its repo.
+
+    A ``project_root`` that is not a non-empty string names no root.
+    """
+    from osprey_connectors.workspace import repo_root_for_config
+
+    configured = config.get("project_root")
+    if isinstance(configured, str) and configured:
+        return Path(configured).expanduser()
+    return repo_root_for_config(project_dir.absolute() / "config.yml")
 
 
 def _spellable(path: str) -> str:
@@ -203,15 +207,7 @@ def watchdog_deny(config: dict, project_dir: Path) -> list[str]:
     """
     if not watchdogs_enabled(config):
         return []
-    from osprey_connectors.workspace import dotted_config_str, repo_root_for_config
-
-    configured = dotted_config_str(config, "project_root")
-    repo_root = (
-        Path(configured).expanduser()
-        if configured
-        else repo_root_for_config(project_dir.absolute() / "config.yml")
-    )
-    holds = _spellable(str(session_hold_dir(repo_root).resolve()))
+    holds = _spellable(str(session_hold_dir(_render_repo_root(config, project_dir)).resolve()))
     return ["Edit(/watchdogs/**)", "Edit(watchdogs/**)", f"Edit(/{holds}/**)"]
 
 

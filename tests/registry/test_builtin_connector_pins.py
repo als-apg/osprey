@@ -168,7 +168,7 @@ class TestRegistryInitializationRegistersTheStandIn:
 
         config_file = tmp_path / "config.yml"
         config_file.write_text(f"project_root: {tmp_path}\n", encoding="utf-8")
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
 
         manager.reset_registry()
         try:

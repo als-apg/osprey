@@ -32,7 +32,7 @@ from osprey.apps.sdk import (
     owner_target,
     verify_launch_token,
 )
-from osprey_connectors.config import get_config_value
+from osprey_connectors.config import current_config
 from osprey_connectors.config_sections import ControlSystemSection
 from osprey_connectors.connector_types import speaks_channel_access
 from osprey_connectors.errors import (
@@ -80,7 +80,7 @@ def configured_channel(config: Mapping[str, Any]) -> str | None:
 
 
 def _section() -> dict[str, Any]:
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     return section if isinstance(section, dict) else {}
 
 

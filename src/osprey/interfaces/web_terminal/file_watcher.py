@@ -190,7 +190,7 @@ def resolve_store_rel(store_dir: Path, workspace_dir: Path) -> PurePath | None:
     A bare ``relative_to`` would raise there and abort startup.
 
     On a case-insensitive filesystem the containment test is case-folded:
-    ``resolve_shared_data_root()`` and ``watch_dir`` can spell one directory
+    ``process_agent_data_root()`` and ``watch_dir`` can spell one directory
     two ways, and an exact comparison would then yield ``None`` and silently
     disable concealment altogether.
 

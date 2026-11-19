@@ -104,9 +104,9 @@ async def _focus_ariel_panel(url: str) -> tuple[bool, str, str]:
 
 def _get_drafts_dir() -> Path:
     """Resolve the drafts directory at call time (not import time)."""
-    from osprey_connectors.workspace import resolve_shared_data_root
+    from osprey.utils.config_paths import process_agent_data_root
 
-    return resolve_shared_data_root() / "drafts"
+    return process_agent_data_root() / "drafts"
 
 
 @mcp.tool()

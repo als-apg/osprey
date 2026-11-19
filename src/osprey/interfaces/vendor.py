@@ -541,9 +541,9 @@ def is_offline() -> bool:
     if override is not None:
         return override
     try:
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
-        cfg = load_osprey_config() or {}
+        cfg = loaded_or_empty() or {}
     except Exception:
         return False
     return offline_from_config(cfg)

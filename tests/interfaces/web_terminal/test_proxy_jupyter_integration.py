@@ -105,7 +105,7 @@ def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     spawned from a module-scoped fixture, before any test body has had the
     stamp cleared out from under it (``session_posture_leak_guard``). The
     in-process resolvers need no patching here — every one of them anchors on
-    ``resolve_project_root``, which ``agent_data_never_the_checkout``
+    ``process_repo_root``, which ``agent_data_never_the_checkout``
     (tests/conftest.py) diverts for the whole session, at a scope no
     module-scoped fixture can outrun.
     """

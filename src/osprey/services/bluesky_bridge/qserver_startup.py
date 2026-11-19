@@ -155,10 +155,10 @@ def worker_writes_enabled() -> bool:
     False whenever the config cannot be read.
     """
     from osprey.services.bluesky_bridge.queue_backend import lane_tier_allows
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
     return lane_tier_allows(section)
@@ -218,7 +218,7 @@ async def create_connector() -> Any:
         resolve_lane_connector_type,
         resolve_lane_identity,
     )
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
     from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.factory import ConnectorFactory
     from osprey_connectors.model import evolve
@@ -227,7 +227,7 @@ async def create_connector() -> Any:
     if lane_degraded:
         logger.warning("qserver_startup: %s", lane_degraded)
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         section = {}
     # Built in two steps rather than through `create_control_system_connector`

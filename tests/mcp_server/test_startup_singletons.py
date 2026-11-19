@@ -7,7 +7,7 @@ the session-relocated path (``OSPREY_SESSION_ID`` appends
 saves lands in a store the gallery never reads — artifacts silently vanish
 from the UI. Session attribution belongs in the index
 (``ArtifactEntry.session_id``), never in the store path
-(see ``resolve_shared_data_root``).
+(see ``process_agent_data_root``).
 """
 
 import sys

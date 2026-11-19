@@ -11,8 +11,8 @@ import pytest
 def _reset_config_builder_globals():
     """Restore the config module's process state so each test starts clean.
 
-    load_osprey_config() installs the config it loads as the process default
-    and caches the load; both are put back between tests to prevent
+    loaded_or_empty() reads the process config, which the lazy default loads
+    and caches; the process state is put back between tests to prevent
     cross-contamination.
     """
     import osprey_connectors.config as cfg_mod
@@ -28,48 +28,48 @@ def _reset_config_builder_globals():
     cfg_mod._loads = orig_cache
 
 
-async def test_load_osprey_config(tmp_path, monkeypatch):
-    """load_osprey_config reads config.yml from working directory."""
+async def test_loaded_or_empty(tmp_path, monkeypatch):
+    """loaded_or_empty reads config.yml from working directory."""
     monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "config.yml"
     config_file.write_text(
         "control_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n  writes_enabled: true\n"
     )
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     assert config["control_system"]["type"] == "virtual_accelerator"
     assert config["control_system"]["writes_enabled"] is True
 
 
-async def test_load_osprey_config_from_env(tmp_path, monkeypatch):
-    """load_osprey_config reads from OSPREY_CONFIG env var."""
+async def test_loaded_or_empty_from_env(tmp_path, monkeypatch):
+    """loaded_or_empty reads from OSPREY_CONFIG env var."""
     config_file = tmp_path / "custom_config.yml"
     config_file.write_text("control_system:\n  type: epics\n")
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     assert config["control_system"]["type"] == "epics"
 
 
-async def test_load_osprey_config_missing_file(tmp_path, monkeypatch):
-    """load_osprey_config returns empty dict when config.yml is missing."""
+async def test_loaded_or_empty_missing_file(tmp_path, monkeypatch):
+    """loaded_or_empty returns empty dict when config.yml is missing."""
     monkeypatch.chdir(tmp_path)
     # Ensure no OSPREY_CONFIG env var
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     assert isinstance(config, dict)
     assert config == {}
 
 
-async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
-    """load_osprey_config resolves ${VAR:-default} env var placeholders."""
+async def test_loaded_or_empty_resolves_env_vars(tmp_path, monkeypatch):
+    """loaded_or_empty resolves ${VAR:-default} env var placeholders."""
     monkeypatch.chdir(tmp_path)
     config_file = tmp_path / "config.yml"
     config_file.write_text(
@@ -81,9 +81,9 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     # CS_HOST set → should resolve
     monkeypatch.setenv("CS_HOST", "epics-server.example.com")
 
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     assert config["control_system"]["type"] == "epics"
     assert config["control_system"]["host"] == "epics-server.example.com"
 

@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 #: The login tier's write ceiling, dotted as a caller spells it for
-#: ``get_config_value``: ``"never"``, ``"asked"`` or ``"allowed"``, the furthest
+#: ``LoadedConfig.get``: ``"never"``, ``"asked"`` or ``"allowed"``, the furthest
 #: position a login may pick. Target-blind — a tier that allows writes allows
 #: them for every machine, and which machine is actually written is the
 #: session's switch to decide, not the tier's. Read by :func:`tier_writes`; when

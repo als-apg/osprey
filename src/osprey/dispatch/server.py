@@ -537,9 +537,9 @@ def _default_worker_port() -> int:
         The ``worker`` slot at index 1, at the resolved base.
     """
     from osprey.port_layout import default_port, resolve_port_base
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
-    return default_port("worker", 1, base=resolve_port_base(load_osprey_config()))
+    return default_port("worker", 1, base=resolve_port_base(loaded_or_empty()))
 
 
 def create_server() -> FastMCP:

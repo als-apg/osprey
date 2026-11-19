@@ -253,9 +253,9 @@ def _stamped_generation() -> int | None:
 
 def _control_system_section() -> dict[str, Any]:
     """The deployment's ``control_system`` section, as loaded; empty when absent."""
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     return section if isinstance(section, dict) else {}
 
 
@@ -365,15 +365,13 @@ async def _pooled_connector_locked(target: str | None) -> "ControlSystem":
             f"{', '.join(repr(name) for name in CONTROL_TARGETS)}, spelled exactly."
         )
     if _connector_pool is None:
+        from osprey_connectors.config import locate_config
         from osprey_connectors.ipc import ConnectorHostPool
-        from osprey_connectors.workspace import resolve_config_path
 
         options: dict[str, Any] = (
             {} if _pool_start_timeout_s is None else {"start_timeout_s": _pool_start_timeout_s}
         )
-        _connector_pool = ConnectorHostPool(
-            section, config_file=str(resolve_config_path()), **options
-        )
+        _connector_pool = ConnectorHostPool(section, config_file=str(locate_config()), **options)
     logger.debug("Taking the connector for target %s from the connector-host pool", key)
     return await _connector_pool.connector(key)
 
@@ -429,11 +427,11 @@ def _target_connector_config() -> dict[str, Any] | None:
     if target is None:
         return None
 
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
     from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import resolve_target
 
-    section = get_config_value("control_system", {})
+    section = current_config().get("control_system", {})
     if not isinstance(section, dict):
         section = {}
     config = dict(section)

@@ -285,10 +285,9 @@ class TestValidateSubcommand:
                 with patch(
                     "osprey_connectors.config.current_config", return_value=config_of(config)
                 ):
-                    with patch("osprey_connectors.workspace.resolve_path", side_effect=Path):
-                        result = runner.invoke(
-                            channel_finder, ["validate", "--pipeline", "hierarchical"]
-                        )
+                    result = runner.invoke(
+                        channel_finder, ["validate", "--pipeline", "hierarchical"]
+                    )
 
         printed = " ".join(result.output.split())
         assert result.exit_code == 0

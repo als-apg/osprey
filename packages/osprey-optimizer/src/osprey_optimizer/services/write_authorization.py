@@ -253,9 +253,9 @@ def _epoch_ns(moment: datetime) -> int:
 
 
 def _control_system_section() -> object:
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
-    return get_config_value("control_system", None)
+    return current_config().get("control_system", None)
 
 
 class RunAuthorization:

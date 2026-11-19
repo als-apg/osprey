@@ -171,7 +171,7 @@ class TestLauncherAddressResolution:
 
     def test_launcher_reader_is_the_shared_resolver_bound_to_its_key(self, monkeypatch):
         monkeypatch.setattr(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             lambda: {"artifact_server": {"host": "10.0.0.1", "port": 9000}},
         )
         monkeypatch.setenv("OSPREY_ARTIFACT_SERVER_PORT", "9191")
@@ -180,7 +180,7 @@ class TestLauncherAddressResolution:
         assert (host, port) == ("10.0.0.1", 9191)  # env wins over the configured 9000
 
     def test_every_launcher_resolves_its_own_key(self, monkeypatch):
-        monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: {})
+        monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
         for key, defn in FRAMEWORK_WEB_SERVERS.items():
             monkeypatch.delenv(defn.port_env_var, raising=False)
             _host, port = server_launcher._launchers[key]._config_reader()
@@ -207,9 +207,7 @@ class TestAutoLaunchNesting:
 
     @staticmethod
     def _checker(key: str, config: dict, monkeypatch) -> bool:
-        monkeypatch.setattr(
-            "osprey.infrastructure.server_launcher.load_osprey_config", lambda: config
-        )
+        monkeypatch.setattr("osprey.infrastructure.server_launcher.loaded_or_empty", lambda: config)
         return server_launcher._make_auto_launch_checker(FRAMEWORK_WEB_SERVERS[key])()
 
     @pytest.mark.parametrize(
@@ -254,7 +252,7 @@ class TestAutoLaunchNesting:
     def test_a_misplaced_port_is_refused_too(self, monkeypatch):
         """``artifact_server.web.port`` was inert — the gallery stayed on 8086."""
         monkeypatch.setattr(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             lambda: {"artifact_server": {"web": {"port": 9999}}},
         )
         with pytest.raises(WebServerConfigDepthError, match=r"artifact_server\.web\.port"):
@@ -263,7 +261,7 @@ class TestAutoLaunchNesting:
     def test_keys_at_the_read_depth_are_untouched(self, monkeypatch):
         """The check must not flag the legitimate spelling of either shape."""
         monkeypatch.setattr(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             lambda: {
                 "ariel": {"web": {"port": 1111}, "database": {"uri": "postgres://x"}},
                 "artifact_server": {"port": 2222, "categories": {}},
@@ -319,7 +317,7 @@ class TestMakeAppFactory:
         )
         monkeypatch.setattr(
             server_launcher,
-            "load_osprey_config",
+            "loaded_or_empty",
             lambda: {"facility_knowledge": {"bundle_path": "/data/okf"}},
         )
         app = _make_app_factory(defn)()
@@ -374,7 +372,7 @@ class TestSharedPanelTokenOnLaunch:
             patch.object(launcher, "_is_running", return_value=True),
             patch("uvicorn.run"),
             patch(
-                "osprey_connectors.workspace.resolve_shared_data_root",
+                "osprey.utils.config_paths.process_agent_data_root",
                 return_value="/the/data/root",
             ),
             patch(

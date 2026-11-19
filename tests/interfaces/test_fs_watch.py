@@ -20,6 +20,8 @@ from osprey.interfaces.fs_watch import (
     reconcile_targets,
     refresh_listing,
 )
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import serve_config
 
 _STAMP: ChangeStamp = (False, 0, 0)
 
@@ -229,18 +231,14 @@ class TestTheConfiguredInterval:
             pytest.param(5, 5.0, id="integer-as-seconds"),
         ],
     )
-    def test_a_configured_number_is_honoured_as_seconds(self, monkeypatch, configured, expected):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", lambda key, default=None: configured
-        )
+    def test_a_configured_number_is_honoured_as_seconds(self, configured, expected):
+        serve_config(config_of({"web": {"file_watch_reconcile_interval_s": configured}}))
 
         assert reconcile_interval_seconds() == expected
 
     @pytest.mark.parametrize("configured", [0, -1, True, "2.0"])
-    def test_anything_else_is_logged_and_the_default_kept(self, monkeypatch, caplog, configured):
-        monkeypatch.setattr(
-            "osprey_connectors.config.get_config_value", lambda key, default=None: configured
-        )
+    def test_anything_else_is_logged_and_the_default_kept(self, caplog, configured):
+        serve_config(config_of({"web": {"file_watch_reconcile_interval_s": configured}}))
 
         with caplog.at_level("WARNING", logger="osprey.interfaces.fs_watch"):
             assert reconcile_interval_seconds() == DEFAULT_RECONCILE_SECONDS

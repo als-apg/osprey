@@ -28,11 +28,11 @@ def bridges_for_target(target: str) -> Mapping[str, str]:
         lane_declared_target,
         resolve_bridge_url,
     )
+    from osprey.utils.config_paths import loaded_or_empty
     from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.targets import baseline_target
-    from osprey_connectors.workspace import load_osprey_config
 
-    config = load_osprey_config()
+    config = loaded_or_empty()
     services = config.get("services")
     services = services if isinstance(services, Mapping) else {}
     baseline = baseline_target(ControlSystemSection.read(config.get("control_system") or {}))

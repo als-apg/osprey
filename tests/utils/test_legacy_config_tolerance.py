@@ -3,7 +3,7 @@
 Projects rendered against an earlier template carry configuration keys that
 have no reader.  Deleting a key from the templates and from the
 code that consumed it must never break those projects: their on-disk
-``config.yml`` still declares the key, and ``load_osprey_config`` has to keep
+``config.yml`` still declares the key, and ``loaded_or_empty`` has to keep
 accepting it silently — no exception, no ``WARNING``, no deprecation chatter.
 
 ``fixtures/legacy_config_all_deleted_keys.yml`` is the shared asset every
@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.workspace import load_osprey_config
+from osprey.utils.config_paths import loaded_or_empty
 
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_config_all_deleted_keys.yml"
 
@@ -116,9 +116,9 @@ def test_load_zero_errors_zero_warnings(caplog):
     gc.collect()
     with warnings.catch_warnings(record=True) as python_warnings:
         warnings.simplefilter("always")
-        config = load_osprey_config()
+        config = loaded_or_empty()
 
-    # ``load_osprey_config`` swallows every exception and returns ``{}``, so
+    # ``loaded_or_empty`` swallows every exception and returns ``{}``, so
     # "no errors" has to be asserted as "the config actually arrived".
     assert config, "loader returned an empty config — the legacy file failed to parse"
     assert config["project_name"] == "legacy-tolerance-project"
@@ -137,7 +137,7 @@ def test_load_zero_errors_zero_warnings(caplog):
 @pytest.mark.usefixtures("legacy_config_path")
 def test_fixture_still_carries_every_retired_key():
     """The fixture is the coverage — a retired key vanishing from it is a regression."""
-    config = load_osprey_config()
+    config = loaded_or_empty()
 
     missing = [
         f"{section}: {path}"
@@ -163,7 +163,7 @@ def _has(config: dict[str, Any], path: str) -> bool:
 @pytest.mark.usefixtures("legacy_config_path")
 def test_retired_keys_keep_their_misleading_values():
     """The safety knobs are carried at the values that would be dangerous if honored."""
-    config = load_osprey_config()
+    config = loaded_or_empty()
 
     verification = config["control_system"]["write_verification"]
     assert verification["enabled"] is True

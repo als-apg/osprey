@@ -68,8 +68,8 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.mcp_server.config_values import positive_int
 from osprey.port_layout import resolve_port_base
-from osprey_connectors.config import get_config_value
-from osprey_connectors.workspace import load_osprey_config
+from osprey.utils.config_paths import loaded_or_empty
+from osprey_connectors.config import current_config
 
 logger = logging.getLogger("osprey.mcp_server.graph.server_context")
 
@@ -504,7 +504,7 @@ class GraphContext:
             over a file the graph tools are not the only reader of.
         """
         try:
-            return load_osprey_config() or {}
+            return loaded_or_empty() or {}
         except Exception as exc:  # a bad config must not kill startup
             logger.warning("GraphContext: could not load config.yml (%s)", exc)
             return {}
@@ -518,7 +518,7 @@ class GraphContext:
             default: Value to use when the key cannot be read at all.
 
         Returns:
-            The configured value, or ``default``. ``get_config_value`` loads
+            The configured value, or ``default``. ``current_config()`` loads
             the project's config on first use, so where
             :meth:`_load_config` degrades a *missing* config file this degrades
             the same file being missing one call later — without it the server
@@ -527,7 +527,7 @@ class GraphContext:
             ``example_queries`` along with the store it never had.
         """
         try:
-            return get_config_value(key, default)
+            return current_config().get(key, default)
         except Exception as exc:  # a bad config must not kill startup
             logger.warning("GraphContext: could not read %s (%s)", key, exc)
             return default

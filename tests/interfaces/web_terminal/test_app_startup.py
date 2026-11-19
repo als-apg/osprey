@@ -238,12 +238,12 @@ class TestLifespanOspreyConfig:
         ``osprey web`` reads the project config before the server starts; an
         edit between that read and the lifespan must be what the page renders.
         """
-        from osprey_connectors.workspace import load_osprey_config
+        from osprey.utils.config_paths import loaded_or_empty
 
         config_file = project / "config.yml"
         config_file.write_text(yaml.dump({"web": {"theme": "dark"}}))
         monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
-        assert load_osprey_config()["web"]["theme"] == "dark"
+        assert loaded_or_empty()["web"]["theme"] == "dark"
         config_file.write_text(yaml.dump({"web": {"theme": "light"}}))
         monkeypatch.delenv("OSPREY_CONFIG")
 

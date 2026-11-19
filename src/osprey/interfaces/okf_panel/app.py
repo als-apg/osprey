@@ -87,7 +87,7 @@ def _ranked_backend_kwargs():
     from osprey.deployment.qmd_service import OKF_CORPUS, resolve_qmd_corpus_config
     from osprey.services.facility_knowledge.okf.bundle import OKFSearchSettings
     from osprey.services.qmd import QMDClient
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
     # Everything the ranked backend needs sits inside the guard, config load
     # included: this helper's caller wraps it in the factory's own catch-all, so
@@ -96,7 +96,7 @@ def _ranked_backend_kwargs():
     # `_load_bundle` uses it: nothing this helper can fail at is worth more than
     # substring search.
     try:
-        config = load_osprey_config()
+        config = loaded_or_empty()
         return {
             "qmd_client": QMDClient(resolve_qmd_corpus_config(config, OKF_CORPUS)),
             "search_settings": OKFSearchSettings.from_config(config),
@@ -159,11 +159,11 @@ def _load_facility_records():
     """
     from osprey.channel_roster.sources import facility_file_path
     from osprey.facility.records import FacilityRecords
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty
 
     # Config load included: nothing here is worth more than the reading pane.
     try:
-        return FacilityRecords.from_file(facility_file_path(load_osprey_config()))
+        return FacilityRecords.from_file(facility_file_path(loaded_or_empty()))
     except Exception:  # degrade to unresolved links, never kill the panel.
         logger.warning(
             "okf panel: the facility file cannot be read; facility links show unresolved.",
@@ -184,11 +184,10 @@ def _configured_graph_path():
         graph_corpus_configured,
         resolve_graphdb_service_config,
     )
-    from osprey.utils.config_paths import resolve_render_relative_path
-    from osprey_connectors.workspace import load_osprey_config
+    from osprey.utils.config_paths import loaded_or_empty, resolve_render_relative_path
 
     try:
-        config = load_osprey_config()
+        config = loaded_or_empty()
         if not graph_corpus_configured(config):
             return None
         resolved = resolve_graphdb_service_config(config)

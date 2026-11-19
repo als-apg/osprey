@@ -95,7 +95,7 @@ def deployment(tmp_path, monkeypatch, iocs):
     """Write the config to disk and return a factory for pools over it."""
     machine, standin = iocs
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.delenv("EPICS_TESTING_PORT", raising=False)
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)

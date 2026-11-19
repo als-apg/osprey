@@ -37,6 +37,7 @@ import pytest
 
 from osprey.agent_record import contract
 from osprey.agent_record import writer as record_writer
+from osprey_connectors_tests._config_trees import serve_config, with_values
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -323,14 +324,13 @@ class Project:
 @pytest.fixture(params=["named-spool", "project-fallback"])
 def project(request, tmp_path, monkeypatch, spool_zone) -> Iterator[Project]:
     """A project at ``<tmp>/project``; the spool named by a launcher, or not."""
-    import osprey_connectors.workspace as workspace
 
     root = tmp_path / "project"
     root.mkdir()
     (root / "profile.yml").write_text("name: writer-inventory\n", encoding="utf-8")
     monkeypatch.chdir(root)
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
-    monkeypatch.setattr(workspace, "resolve_project_root", lambda config=None: root)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
+    monkeypatch.setattr("osprey.utils.config_paths.process_repo_root", lambda config=None: root)
     monkeypatch.setenv("OSPREY_PROJECT_DIR", str(root))
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(root))
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root / "var" / "agent_data"))
@@ -534,14 +534,14 @@ def _feedback(project: Project, monkeypatch) -> None:
     assert response.status_code == 200, response.text
 
 
-def _api_call(project: Project, monkeypatch) -> None:
+def _api_call(project: Project) -> None:
     from osprey.models import logging as model_logging
 
     project.write_as("alice")
-    monkeypatch.setattr(
-        model_logging,
-        "get_config_value",
-        MagicMock(return_value={"api_calls": {"save_all": True, "latest_only": True}}),
+    serve_config(
+        with_values(
+            {"development.api_calls.save_all": True, "development.api_calls.latest_only": True}
+        )
     )
     model_logging.log_api_call(
         message="test input message",
@@ -562,7 +562,7 @@ def test_every_writer_leaves_only_spool_files(project, monkeypatch):
     _dispatch(project, monkeypatch)
     _bridge(project)
     _feedback(project, monkeypatch)
-    _api_call(project, monkeypatch)
+    _api_call(project)
     record_writer.seal_all()
 
     assert _spool_kinds(project) >= EXPECTED_KINDS

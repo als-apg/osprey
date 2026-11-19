@@ -65,7 +65,7 @@ def render_dir(monkeypatch, tmp_path) -> Path:
     """A render with one declared MCP server; OSPREY helpers stubbed."""
     stub_osprey_helpers(monkeypatch, agent_data=tmp_path / "stub-agent-data", open_allowlist=True)
     monkeypatch.setattr(
-        "osprey_connectors.workspace.resolve_shared_data_root",
+        "osprey.utils.config_paths.process_agent_data_root",
         lambda: tmp_path / "agent-data",
     )
     monkeypatch.setattr(dispatch_api, "_run_input_seam", {})

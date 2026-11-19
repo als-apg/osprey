@@ -23,8 +23,7 @@ from osprey.services.watchdog.engines.decision import QUESTION_ID, DecisionEngin
 from osprey.services.watchdog.history import build_session_view_from_nodes, rough_tokens
 from osprey.services.watchdog.runner import WatchdogRunner
 from osprey.services.watchdog.verdict import Verdict
-from osprey_connectors_tests._config_lookup import serve_config_lookup
-from osprey_connectors_tests._write_fakes import arm_switch, armed_context, writes_enabled_config
+from osprey_connectors_tests._write_fakes import arm_switch, armed_context, serve_writes_enabled
 from tests._preset_data import copy_bundle_data
 from tests.cli._lifecycle_build import invoke_build
 from tests.models.jev._jev_fake_transport import FakeJev
@@ -397,7 +396,7 @@ class TestMachineSeed:
     def test_a_seed_reaches_another_connector_and_close_resets_it(self, tmp_path, monkeypatch):
         """The real simulator, writes allowed: what a judge's own server would read."""
         arm_switch(monkeypatch, tmp_path / "armed-data")
-        serve_config_lookup(monkeypatch, writes_enabled_config)
+        serve_writes_enabled()
         from osprey_connectors.control_system._va_in_process_connector import (
             SIMULATOR_VIEW_SETTING,
             VAInProcessConnector,

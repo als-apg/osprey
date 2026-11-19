@@ -222,12 +222,12 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
+    "osprey_connectors.testing.clear_config_state": (
+        "a test puts the process config and its warn-once latches back between cases"
+    ),
     "osprey_connectors.testing.config_of": "a test hands code a config without writing a file",
     "osprey_connectors.testing.invalidate_cache": (
         "a test drops the parsed control-context files through it"
-    ),
-    "osprey_connectors.workspace.reset_config_cache": (
-        "a test puts the process config and its warn-once latches back between cases"
     ),
     "osprey_connectors.write_authorization.ApprovalSurface": (
         "a person approves a request from one of these surfaces"

@@ -152,7 +152,7 @@ def _section(connector_type: str, *, writes_enabled: bool = False, block=None) -
 def isolated(tmp_path, monkeypatch):
     """A scratch cwd, no ambient config, and children that can import the helpers."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     monkeypatch.setenv("PYTHONPATH", PYTHONPATH)
     arm_switch(monkeypatch, tmp_path / "agent-data", None, stamp=False)
@@ -357,7 +357,7 @@ async def test_a_config_file_that_arms_what_the_section_does_not_is_refused(
     if via == "passed":
         pool = pools(_section(SLOW, writes_enabled=False), config_file=config_file)
     else:
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
         pool = pools(_section(SLOW, writes_enabled=False))
     with pytest.raises(ConnectorHostStartError) as caught:
         await pool.connector("live")

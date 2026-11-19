@@ -323,7 +323,7 @@ def create_server() -> FastMCP:
         initialize_workspace_singletons,
         prime_config_builder,
     )
-    from osprey_connectors.workspace import resolve_agent_data_root
+    from osprey.utils.config_paths import session_agent_data_root
 
     prime_config_builder()
     initialize_ariel_context()
@@ -331,7 +331,7 @@ def create_server() -> FastMCP:
     # Session working root used by other tools at call time; the artifact
     # store itself is rooted at the shared data root inside
     # initialize_workspace_singletons().
-    logger.info("ARIEL workspace root: %s", resolve_agent_data_root())
+    logger.info("ARIEL workspace root: %s", session_agent_data_root())
     initialize_workspace_singletons()
 
     # Import tool modules (each registers itself via @mcp.tool())

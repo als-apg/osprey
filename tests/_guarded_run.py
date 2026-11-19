@@ -24,7 +24,7 @@ import yaml
 import osprey.runtime._run_state as _run_state
 from osprey.runtime.guarded_run import GUARDED_RUN_DIR, LOCK_FILE_NAME
 from osprey.utils.workspace import STATE_DIR_NAME
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 
 #: An ``approval`` block that puts every tool's call to a human.
 ASKING = {"enabled": True, "default_policy": "always"}
@@ -91,7 +91,7 @@ def write_config(root: Path, approval: dict[str, Any] | None = ASKING) -> None:
     if approval is not None:
         config["approval"] = approval
     (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
-    reset_config_cache()
+    clear_config_state()
 
 
 def lock_path(target: str = "live", root: Path | None = None) -> Path:

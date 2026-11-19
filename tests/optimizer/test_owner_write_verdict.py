@@ -101,7 +101,7 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("CONFIG_FILE", str(config))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv(write_switch.CONTROL_CONTEXT_TREE_ENV_VAR, str(tree))
     monkeypatch.setenv(
         "PYTHONPATH",

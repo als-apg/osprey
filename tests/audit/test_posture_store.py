@@ -175,7 +175,7 @@ class TestAnUnreadableConfigIsTierNever:
             raise RuntimeError("config.yml is on fire")
 
         monkeypatch.undo()  # drop the autouse seam: this is the real reader
-        monkeypatch.setattr(connector_config, "get_config_value", _boom)
+        monkeypatch.setattr(connector_config, "current_config", _boom)
 
         assert posture.control_system_section() is None
 

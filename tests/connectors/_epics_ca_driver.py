@@ -27,6 +27,7 @@ from typing import Any
 from unittest.mock import patch
 
 from osprey_connectors import control_context, testing
+from osprey_connectors.config import install_config
 from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import ControlSystemConnector
 from osprey_connectors.control_system._ca_loop import get_ca_loop
@@ -393,13 +394,6 @@ _ARMED_TARGET = "va"
 _ARMED_SECTION = {"writes": "allowed"}
 
 
-def _armed_config(key: str, default: Any = None) -> Any:
-    """``get_config_value`` stand-in: a write tier that allows, all else defaulted."""
-    if key == "control_system":
-        return dict(_ARMED_SECTION)
-    return default
-
-
 def _armed_context(**fields: Any) -> ConnectorContext:
     """A context naming the machine the class default names (:func:`_writes_armed`'s stamp).
 
@@ -441,22 +435,19 @@ def _writes_armed() -> Iterator[None]:
         except control_context.StoppedSinceError as stamped:
             control_context.set_switch([_ARMED_TARGET], "asked", epoch=stamped.epoch, path=path)
         testing.invalidate_cache()
-        with (
-            # The write path reads the loaded config's section, everything else
-            # the lookup: serve both. (This driver runs as a script, outside the
-            # suite's import path, so it does not use the suite's helper.)
-            patch("osprey_connectors.config.get_config_value", _armed_config),
-            patch(
-                "osprey_connectors.config.current_config",
-                lambda: testing.config_of(
-                    {"control_system": _armed_config("control_system", {})}, environ={}
-                ),
-            ),
-            patch.object(
+        # The write path reads the process config's section: a tier that allows.
+        # (This driver runs as a script, outside the suite's import path, so it
+        # does not use the suite's helper.)
+        previous = install_config(
+            testing.config_of({"control_system": dict(_ARMED_SECTION)}, environ={})
+        )
+        try:
+            with patch.object(
                 ControlSystemConnector, "_context", ConnectorContext(control_target=_ARMED_TARGET)
-            ),
-        ):
-            yield
+            ):
+                yield
+        finally:
+            install_config(previous)
 
 
 def main() -> None:

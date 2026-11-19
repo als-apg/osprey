@@ -41,6 +41,7 @@ from osprey_connectors import connector_types, control_context, testing, write_s
 from osprey_connectors.control_system import _epics_connector as epics_connector_module
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._harness import isolated_connector_registries
 
@@ -133,10 +134,7 @@ def deployment(tmp_path, monkeypatch):
         },
     }
 
-    def get_config_value(path, default=None, _config_path=None):
-        return section if path == "control_system" else default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
+    serve_control_system(section)
 
     def fake_exit(status):
         raise _Exited(status)

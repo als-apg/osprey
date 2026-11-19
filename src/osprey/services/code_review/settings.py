@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml
 
 from osprey.utils.workspace import STATE_DIR_NAME
-from osprey_connectors.workspace import resolve_config_path
+from osprey_connectors.config import locate_config
 
 #: The reviewer's prompt file, relative to the repo root.
 DEFAULT_PROMPT = "data/code_review/reviewer.md"
@@ -108,7 +108,7 @@ def load_review_settings(config: Mapping | None = None) -> ReviewSettings:
 
     Args:
         config: A loaded config mapping. ``None`` reads the file
-            :func:`~osprey_connectors.workspace.resolve_config_path` names.
+            :func:`~osprey_connectors.config.locate_config` names.
 
     Returns:
         The settings, or the off defaults.
@@ -118,7 +118,7 @@ def load_review_settings(config: Mapping | None = None) -> ReviewSettings:
             ``enabled`` is not a bool, or an enabled section is malformed.
     """
     if config is None:
-        config = read_review_config(resolve_config_path())
+        config = read_review_config(locate_config())
     if _SECTION_KEY not in config:
         return ReviewSettings()
     section = config[_SECTION_KEY]

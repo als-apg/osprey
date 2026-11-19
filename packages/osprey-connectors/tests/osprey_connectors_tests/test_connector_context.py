@@ -22,7 +22,8 @@ from pydantic import ValidationError
 from osprey_connectors.connector_types import EPICS, TARGET_VA, TRANSPORT_CA
 from osprey_connectors.control_system import ConnectorContext, ControlSystemConnector
 from osprey_connectors.errors import ChannelLimitsViolationError
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 from osprey_connectors_tests._fake_connector import FakeConnector
 from osprey_connectors_tests._write_fakes import arm_switch
 
@@ -34,27 +35,17 @@ _LOADED = {"writes": "allowed", "limits_checking": {"enabled": True, "mode": "ex
 _MONITOR_KEYS = {"writes": "allowed", "limits_checking": {"enabled": False}}
 
 
-def _serve(monkeypatch, tmp_path: Path, section: dict[str, Any]) -> None:
+def _serve(tmp_path: Path, section: dict[str, Any]) -> None:
     """Serve *section* as the loaded ``control_system`` config, with a one-channel limits file."""
     database = tmp_path / "limits.json"
     database.write_text(
         json.dumps({"FOO": {"writable": True, "min_value": 0.0, "max_value": 10.0}})
     )
-
-    limits = section.get("limits_checking")
-    if isinstance(limits, dict):
-        # The database path is a line of the deployment-wide block.
-        section = {**section, "limits_checking": {**limits, "database_path": str(database)}}
-
-    def get_config_value(key: str, default: Any = None) -> Any:
-        if key == "control_system":
-            return section
-        if key == "control_system.limits_checking.database_path":
-            return str(database)
-        return default
-
-    serve_config_lookup(monkeypatch, get_config_value)
-    monkeypatch.setattr("osprey_connectors.config.active_config", lambda: None)
+    tree = config_tree(
+        {"control_system.limits_checking.database_path": str(database)},
+        base={"control_system": section},
+    )
+    serve_config(config_of(tree, environ={}))
 
 
 class TestTheContextCarriesNoJudgement:
@@ -96,9 +87,9 @@ class TestTheContextCarriesNoJudgement:
 class TestConnectBuildsTheValidator:
     """The base builds the validator from the loaded config, for every connector."""
 
-    async def test_a_connector_that_builds_none_is_checked(self, monkeypatch, tmp_path):
+    async def test_a_connector_that_builds_none_is_checked(self, tmp_path):
         """The fake's ``_open`` loads no validator; ``connect()`` builds one anyway."""
-        _serve(monkeypatch, tmp_path, _LOADED)
+        _serve(tmp_path, _LOADED)
         connector = FakeConnector()
 
         await connector.connect(ConnectorContext(connector_type=EPICS))
@@ -107,8 +98,8 @@ class TestConnectBuildsTheValidator:
         with pytest.raises(ChannelLimitsViolationError):
             connector._limits_validator.validate("FOO", 99.0)
 
-    async def test_settings_cannot_turn_the_limits_off(self, monkeypatch, tmp_path):
-        _serve(monkeypatch, tmp_path, _LOADED)
+    async def test_settings_cannot_turn_the_limits_off(self, tmp_path):
+        _serve(tmp_path, _LOADED)
         connector = FakeConnector()
 
         await connector.connect(ConnectorContext(connector_type=EPICS, settings=_MONITOR_KEYS))
@@ -118,9 +109,9 @@ class TestConnectBuildsTheValidator:
         with pytest.raises(ChannelLimitsViolationError):
             connector._limits_validator.validate("FOO", 99.0)
 
-    async def test_the_validator_follows_the_loaded_config_only(self, monkeypatch, tmp_path):
+    async def test_the_validator_follows_the_loaded_config_only(self, tmp_path):
         """Limits off in the loaded config: no validator, whatever the settings say."""
-        _serve(monkeypatch, tmp_path, {"limits_checking": {"enabled": False}})
+        _serve(tmp_path, {"limits_checking": {"enabled": False}})
         connector = FakeConnector()
 
         await connector.connect(
@@ -138,7 +129,7 @@ class TestSettingsCannotArmWrites:
 
     async def test_a_tier_that_never_allows_still_refuses(self, monkeypatch, tmp_path):
         arm_switch(monkeypatch, tmp_path / "data", TARGET_VA, stamp=False)
-        _serve(monkeypatch, tmp_path, {"writes": "never"})
+        _serve(tmp_path, {"writes": "never"})
         connector = FakeConnector()
 
         await connector.connect(ConnectorContext(control_target=TARGET_VA, settings=_MONITOR_KEYS))
@@ -152,7 +143,7 @@ class TestSettingsCannotArmWrites:
     ):
         """The control: the refusal above is the loaded tier's, not the test's setup."""
         arm_switch(monkeypatch, tmp_path / "data", TARGET_VA, stamp=False)
-        _serve(monkeypatch, tmp_path, {"writes": "allowed"})
+        _serve(tmp_path, {"writes": "allowed"})
         connector = FakeConnector()
 
         await connector.connect(ConnectorContext(control_target=TARGET_VA))
@@ -161,8 +152,8 @@ class TestSettingsCannotArmWrites:
 
 
 class TestTheContextIsWhatTheConnectorReads:
-    async def test_connect_stores_the_context(self, monkeypatch, tmp_path):
-        _serve(monkeypatch, tmp_path, _LOADED)
+    async def test_connect_stores_the_context(self, tmp_path):
+        _serve(tmp_path, _LOADED)
         context = ConnectorContext(
             connector_type=EPICS, control_target=TARGET_VA, transport=TRANSPORT_CA
         )

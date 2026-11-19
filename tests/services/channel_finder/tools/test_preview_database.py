@@ -140,20 +140,15 @@ class TestResolvePath:
         abs_path = tmp_path / "db.json"
         assert _resolve_path(str(abs_path)) == abs_path
 
-    def test_relative_path_uses_workspace_resolver(self, monkeypatch, tmp_path):
-        import osprey_connectors.workspace as ws
+    def test_relative_path_anchors_on_the_config_repo_root(self, tmp_path):
+        from osprey_connectors.config import install_config
+        from osprey_connectors.testing import config_of
 
-        target = tmp_path / "resolved.json"
-        monkeypatch.setattr(ws, "resolve_path", lambda s: target)
-        assert _resolve_path("relative/db.json") == target
+        install_config(config_of({}, path=tmp_path / "build" / "config.yml"))
+        assert _resolve_path("relative/db.json") == tmp_path / "relative" / "db.json"
 
-    def test_relative_path_falls_back_to_cwd_on_error(self, monkeypatch):
-        import osprey_connectors.workspace as ws
-
-        def boom(_s):
-            raise RuntimeError("no workspace")
-
-        monkeypatch.setattr(ws, "resolve_path", boom)
+    def test_relative_path_falls_back_to_cwd_without_a_config(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "missing" / "config.yml"))
         result = _resolve_path("relative/db.json")
         assert result == Path.cwd() / "relative/db.json"
 

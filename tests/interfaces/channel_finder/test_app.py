@@ -24,7 +24,7 @@ def _no_config_env(monkeypatch):
 
 def _start_app(config):
     """Run the app's lifespan against ``config`` and return the started app."""
-    with patch("osprey_connectors.workspace.load_osprey_config", return_value=config):
+    with patch("osprey.utils.config_paths.loaded_or_empty", return_value=config):
         from osprey.interfaces.channel_finder.app import create_app
 
         application = create_app(project_cwd="/tmp/test-project")
@@ -306,7 +306,7 @@ class TestGraphParadigmState:
     def test_graph_app_answers_its_routes_from_the_state_it_started_with(self):
         """End to end: the routes read what a real graph lifespan put on state."""
         with patch(
-            "osprey_connectors.workspace.load_osprey_config",
+            "osprey.utils.config_paths.loaded_or_empty",
             return_value=self._graph_config(),
         ):
             from osprey.interfaces.channel_finder.app import create_app

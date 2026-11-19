@@ -29,6 +29,8 @@ from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.queue_backend import REASON_SESSION_PLAN_UNVALIDATED
 from osprey.services.bluesky_bridge.validation import _validate_launchable_request
 from osprey.services.bluesky_bridge.validation_record import validation_records
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, serve_config
 from tests.services.bluesky_bridge._session_plans import session_plan_source, write_session_plan
 
 # =========================================================================
@@ -207,38 +209,21 @@ def _no_execution_mode(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
 
-def _patch_lane_config(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    section: dict,
-    db_path: str | None = None,
-) -> None:
-    """Patch the config keys the startup guard reads, nested as it reads them.
+def _serve_lane_config(*, section: dict, db_path: str | None = None) -> None:
+    """Serve the config the startup guard reads, nested as a rendered config holds it.
 
-    The limits posture now comes out of the ``control_system`` SECTION — the
+    The limits posture comes out of the ``control_system`` SECTION — the
     same mapping the write posture is resolved from — so the per-type block
-    lives inside `section` rather than behind a dotted key. Only
-    ``database_path`` stays deployment-wide, since the deployment mounts one
-    limits database.
-
-    The guard imports `get_config_value` inside its own body, so patching the
-    `osprey_connectors.config` attribute takes effect on the next call.
+    lives inside `section`. ``database_path`` is the deployment-wide key, since
+    the deployment mounts one limits database; each lane declares its target.
     """
-
-    def fake_get_config_value(key: str, default=None):
-        if key == "control_system":
-            return section
-        if key == "control_system.type":
-            return section.get("type", default)
-        if key == "control_system.limits_checking.database_path":
-            return db_path if db_path is not None else default
-        if key == "project_root":
-            return default
-        if key.startswith("services.") and key.endswith(".target"):
-            return _LANE_TARGETS.get(key.split(".")[1], default)
-        return default
-
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", fake_get_config_value)
+    tree = {
+        "control_system": section,
+        "services": {lane: {"target": target} for lane, target in _LANE_TARGETS.items()},
+    }
+    if db_path is not None:
+        tree = config_tree({"control_system.limits_checking.database_path": db_path}, base=tree)
+    serve_config(config_of(tree, environ={}))
 
 
 def test_guard_reads_limits_enabled_from_the_lane_targets_own_block(
@@ -249,7 +234,7 @@ def test_guard_reads_limits_enabled_from_the_lane_targets_own_block(
     from osprey.services.bluesky_bridge.validation import _assert_limits_readable_if_writable
 
     monkeypatch.setenv("OSPREY_BLUESKY_LANE", _VA_LANE)
-    _patch_lane_config(monkeypatch, section=_VA_LIMITS_SECTION, db_path=None)
+    _serve_lane_config(section=_VA_LIMITS_SECTION, db_path=None)
 
     # Act
     with pytest.raises(RuntimeError) as excinfo:
@@ -273,7 +258,7 @@ def test_unreadable_database_refusal_names_the_per_type_limits_key(
 
     monkeypatch.setenv("OSPREY_BLUESKY_LANE", _VA_LANE)
     missing = tmp_path / "does_not_exist.json"
-    _patch_lane_config(monkeypatch, section=_VA_LIMITS_SECTION, db_path=str(missing))
+    _serve_lane_config(section=_VA_LIMITS_SECTION, db_path=str(missing))
 
     # Act
     with pytest.raises(RuntimeError) as excinfo:
@@ -297,7 +282,7 @@ def test_guard_ignores_the_deployment_wide_key_when_the_lanes_block_disables_lim
 
     monkeypatch.setenv("OSPREY_BLUESKY_LANE", _VA_LANE)
     missing = tmp_path / "does_not_exist.json"
-    _patch_lane_config(monkeypatch, section=_VA_UNCHECKED_SECTION, db_path=str(missing))
+    _serve_lane_config(section=_VA_UNCHECKED_SECTION, db_path=str(missing))
 
     # Act
     assert _assert_limits_readable_if_writable() is None

@@ -5,7 +5,7 @@ image mounts the project's ``config.yml`` at one path and names it twice:
 ``CONFIG_FILE`` for the readers that take that name (the default config
 singleton, the limits validator, the sidecar's ``/channels`` route) and
 ``OSPREY_CONFIG`` for the framework's own loader
-(:func:`osprey_connectors.workspace.resolve_config_path`), which never reads
+(:func:`osprey_connectors.config.locate_config`), which never reads
 ``CONFIG_FILE``. Those images run from ``WORKDIR /app`` and the config is mounted
 under ``/app/project``, so a container handed only ``CONFIG_FILE`` loads nothing
 through the framework loader: no ``bluesky.plan_module``, no preset plan
@@ -34,8 +34,9 @@ from osprey.deployment.compose_generator import _inject_project_metadata
 from osprey.interfaces.bluesky_web.app import _lane_roster
 from osprey.mcp_server.sandbox_env import configured_child_env_passthrough
 from osprey.services.bluesky_bridge import plan_loader
+from osprey.utils.config_paths import loaded_or_empty, process_repo_root
 from osprey.utils.workspace import SPOOL_DIR_RELPATH
-from osprey_connectors.workspace import load_osprey_config, reset_config_cache, resolve_project_root
+from osprey_connectors.testing import clear_config_state
 
 _TEMPLATES_ROOT = resources.files(osprey).joinpath("templates")
 
@@ -130,7 +131,7 @@ def _stand_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, service: dict, co
         monkeypatch.delenv(name, raising=False)
         if name in environment:
             monkeypatch.setenv(name, str(_inside(root, environment[name])))
-    reset_config_cache()
+    clear_config_state()
     return root
 
 
@@ -175,7 +176,7 @@ def test_the_plan_loader_reads_the_mounted_config(
     assert plan_loader._resolve_plan_module_path() == "/app/project/facility_plans.py"
     assert (Path("/app/project/extra_plans"), "preset") in plan_loader._resolve_plan_dir_layers()
     assert "retired_scan" in plan_loader._resolve_excluded_plans()
-    assert configured_child_env_passthrough(load_osprey_config()) == ("SITE_ARCHIVE_ROOT",)
+    assert configured_child_env_passthrough(loaded_or_empty()) == ("SITE_ARCHIVE_ROOT",)
 
 
 @pytest.mark.usefixtures("plan_env")
@@ -186,9 +187,9 @@ def test_config_file_alone_loads_nothing_through_the_framework_loader(
     container sees an empty config. This is why the templates set both."""
     _stand_up(tmp_path, monkeypatch, _osprey_containers()["queueserver"], _PLAN_CONFIG)
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
-    reset_config_cache()
+    clear_config_state()
 
-    assert load_osprey_config() == {}
+    assert loaded_or_empty() == {}
     assert plan_loader._resolve_plan_module_path() is None
 
 
@@ -210,7 +211,7 @@ def test_the_spool_fallback_resolves_into_the_containers_spool_bind(
         if isinstance(mount, str) and f"/{SPOOL_DIR_RELPATH}/" in mount.split(":")[1]
     ]
 
-    resolved = resolve_project_root(load_osprey_config()) / SPOOL_DIR_RELPATH / identity
+    resolved = process_repo_root() / SPOOL_DIR_RELPATH / identity
 
     assert resolved == _inside(root, spool_target)
 

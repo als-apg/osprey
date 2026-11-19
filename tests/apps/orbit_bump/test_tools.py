@@ -26,7 +26,7 @@ from osprey.apps.sdk import ApprovalRefused
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
 from osprey.mcp_server.startup import application_server
 from osprey_connectors import testing, write_switch
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     state_dir_under,
@@ -115,7 +115,7 @@ def _deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, writes: str) -> 
     }
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-    reset_config_cache()
+    clear_config_state()
 
 
 @pytest.fixture
@@ -133,7 +133,7 @@ def stamps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     testing.invalidate_cache()
     yield use_stamp_dir(monkeypatch, tmp_path / "stamps")
-    reset_config_cache()
+    clear_config_state()
 
 
 def _server() -> Any:

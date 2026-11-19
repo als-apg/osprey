@@ -110,7 +110,7 @@ class HealthConfigLoader:
         """
         Args:
             config_path: Explicit ``config.yml`` path. ``None`` (the default)
-                resolves per :func:`osprey_connectors.workspace.resolve_config_path`
+                resolves per :func:`osprey_connectors.config.locate_config`
                 on every cycle (``OSPREY_CONFIG`` env, else ``./config.yml``), so
                 resolution tracks the process cwd/env like the CLI does.
         """
@@ -160,9 +160,9 @@ class HealthConfigLoader:
     def _resolve_path(self) -> Path:
         if self._config_path_override is not None:
             return self._config_path_override
-        from osprey_connectors.workspace import resolve_config_path
+        from osprey_connectors.config import locate_config
 
-        return resolve_config_path()
+        return locate_config()
 
     def _build(self, config_path: Path) -> LoadedHealthConfig:
         from osprey.health.config import parse_health_config

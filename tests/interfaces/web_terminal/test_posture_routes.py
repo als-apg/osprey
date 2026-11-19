@@ -50,7 +50,7 @@ from osprey_connectors.control_system import ConnectorContext
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import REASONS, refusal_phrase
-from osprey_connectors_tests._config_lookup import serve_config_lookup
+from osprey_connectors_tests._config_trees import serve_control_system
 from osprey_connectors_tests._harness import (
     owner,
     pin_identity,
@@ -59,7 +59,7 @@ from osprey_connectors_tests._harness import (
     write_payload,
     write_server_report,
 )
-from osprey_connectors_tests._write_fakes import RecordingConnector, config_reader
+from osprey_connectors_tests._write_fakes import RecordingConnector
 from tests.interfaces.web_terminal._control_context import only_alive, read_record
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -1364,10 +1364,8 @@ class TestRunsAndTheSwitch:
         assert verdict.reason == "switch_off"
 
     @pytest.mark.asyncio
-    async def test_a_connector_write_for_this_login_passes_at_its_next_call(
-        self, client, monkeypatch
-    ):
-        serve_config_lookup(monkeypatch, config_reader(ALLOWED))
+    async def test_a_connector_write_for_this_login_passes_at_its_next_call(self, client):
+        serve_control_system(ALLOWED)
         connector = RecordingConnector()
         connector._context = ConnectorContext(connector_type="epics", control_target="va")
 

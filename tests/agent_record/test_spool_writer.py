@@ -116,10 +116,9 @@ def test_env_wins_over_the_identity_ladder(spool: Path, monkeypatch):
 
 
 def test_host_form_uses_project_root_and_acting_identity(tmp_path, monkeypatch):
-    import osprey_connectors.workspace as workspace
 
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
-    monkeypatch.setattr(workspace, "resolve_project_root", lambda config=None: tmp_path)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
+    monkeypatch.setattr("osprey.utils.config_paths.process_repo_root", lambda config=None: tmp_path)
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "carol")
 
     entry_id = writer.write("feedback", {"text": "hi"})
@@ -131,10 +130,9 @@ def test_host_form_uses_project_root_and_acting_identity(tmp_path, monkeypatch):
 
 
 def test_blank_env_falls_back_to_the_host_form(tmp_path, monkeypatch):
-    import osprey_connectors.workspace as workspace
 
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
-    monkeypatch.setattr(workspace, "resolve_project_root", lambda config=None: tmp_path)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
+    monkeypatch.setattr("osprey.utils.config_paths.process_repo_root", lambda config=None: tmp_path)
     monkeypatch.setenv("OSPREY_SPOOL_DIR", "  ")
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "dave")
     assert writer.spool_dir() == tmp_path / "var" / "spool" / "dave"
@@ -374,13 +372,12 @@ def test_a_failing_append_is_recorded(spool: Path, monkeypatch):
 
 
 def test_an_unresolvable_root_returns_none(monkeypatch):
-    import osprey_connectors.workspace as workspace
 
     def boom(config=None):  # noqa: ARG001 - mirrors resolve_project_root
         raise RuntimeError("no root")
 
-    monkeypatch.setattr(workspace, "resolve_project_root", boom)
-    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
+    monkeypatch.setattr("osprey.utils.config_paths.process_repo_root", boom)
+    monkeypatch.setattr("osprey.utils.config_paths.loaded_or_empty", lambda: {})
     assert writer.write("audit", {}) is None
 
 
@@ -498,7 +495,8 @@ def test_writer_imports_only_the_stdlib_and_its_allowed_helpers():
     allowed = {
         "osprey.agent_record.contract",
         "osprey_connectors.identity",
-        "osprey_connectors.workspace",
+        # Stdlib-only at import: the process repo root the spool sits under.
+        "osprey.utils.config_paths",
         # Stdlib-only itself: the group-shared directory the spool is made as.
         "osprey_connectors.safety_file",
         # The repo layout's names, where the spool root is spelled.

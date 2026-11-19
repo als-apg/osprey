@@ -415,10 +415,10 @@ def create_sandbox_execution_folder() -> Path:
 
     The folder is named for the facility-zone start time.
     """
+    from osprey.utils.config_paths import session_agent_data_root
     from osprey_connectors.config import facility_timezone
-    from osprey_connectors.workspace import resolve_agent_data_root
 
-    base = resolve_agent_data_root() / "data" / "sandbox_executions"
+    base = session_agent_data_root() / "data" / "sandbox_executions"
     base.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(facility_timezone()).strftime("%Y%m%d_%H%M%S")
@@ -480,13 +480,13 @@ async def execute_sandbox_code(
 
     # 2. Generate wrapper
     from osprey.mcp_server.python_executor.executor import resolve_secret_roots
-    from osprey_connectors.workspace import (
-        load_osprey_config,
-        resolve_agent_data_root,
-        resolve_project_root,
+    from osprey.utils.config_paths import (
+        loaded_or_empty,
+        process_repo_root,
+        session_agent_data_root,
     )
 
-    workspace_root = resolve_agent_data_root()
+    workspace_root = session_agent_data_root()
     # Resolved directly, NOT as the parent of the agent-data root: that only
     # agreed with the repo root while agent data sat exactly one level below it.
     # Under the four-zone layout the root is `<repo>/var/agent_data`, so the
@@ -496,8 +496,8 @@ async def execute_sandbox_code(
     # copy that had not been repointed. It matters twice over here: it is the
     # subprocess `cwd` below, and it is what sandboxed user code is told its
     # project root is.
-    osprey_config = load_osprey_config()
-    project_root = resolve_project_root(osprey_config)
+    osprey_config = loaded_or_empty()
+    project_root = process_repo_root()
     wrapped_code = _create_sandbox_wrapper(
         code,
         execution_folder,

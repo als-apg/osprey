@@ -95,13 +95,13 @@ def build_cf_server(
 def config_path() -> Path:
     """Return the channel-finder servers' view of the framework's config path.
 
-    It is :func:`~osprey_connectors.workspace.resolve_config_path`, asked directly.
+    It is :func:`~osprey_connectors.config.locate_config`, asked directly.
     Loading, data anchoring and state anchoring all answer from it, so they
     cannot disagree with each other or with the graph pipeline.
     """
-    from osprey_connectors.workspace import resolve_config_path
+    from osprey_connectors.config import locate_config
 
-    return resolve_config_path()
+    return locate_config()
 
 
 def load_cf_config(logger: logging.Logger) -> dict[str, Any]:

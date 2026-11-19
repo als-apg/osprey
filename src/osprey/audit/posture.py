@@ -152,9 +152,9 @@ def control_system_section() -> object:
     """
     try:
         # Imported inside the function: this module is a leaf.
-        from osprey_connectors.config import get_config_value
+        from osprey_connectors.config import current_config
 
-        return get_config_value("control_system", None)
+        return current_config().get("control_system", None)
     except Exception:  # an unreadable config is a tier that allows nothing
         logger.debug("The control_system section could not be read", exc_info=True)
         return None

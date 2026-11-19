@@ -23,7 +23,7 @@ from osprey.runtime import ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION
 from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.settle import SettleTimeoutError
 from osprey_connectors.simulation.envelope import _MOTION_SIGMAS
-from osprey_connectors.workspace import reset_config_cache
+from osprey_connectors.testing import clear_config_state
 
 LIVE = {"type": "epics", "connector": {"epics": {}}}
 SIMULATOR = {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {}}}
@@ -37,7 +37,7 @@ def _render(root: Path, control_system: dict[str, Any]) -> None:
     (root / "build" / "config.yml").write_text(
         yaml.safe_dump({"control_system": control_system}), encoding="utf-8"
     )
-    reset_config_cache()
+    clear_config_state()
 
 
 def _plant(root: Path, *channels: dict[str, Any]) -> Path:
@@ -58,10 +58,10 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.chdir(root)
     for name in ("OSPREY_CONFIG", ENV_CONTROL_TARGET, ENV_CONTROL_TARGET_GENERATION):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("CONFIG_FILE", str(root / "build" / "config.yml"))
+    monkeypatch.setenv("OSPREY_CONFIG", str(root / "build" / "config.yml"))
     _render(root, LIVE)
     yield root
-    reset_config_cache()
+    clear_config_state()
 
 
 class Readbacks:
@@ -239,13 +239,13 @@ def test_no_deployment_config_is_the_loaders_answer(
     monkeypatch.chdir(empty)
     for name in ("CONFIG_FILE", "OSPREY_CONFIG"):
         monkeypatch.delenv(name, raising=False)
-    reset_config_cache()
+    clear_config_state()
 
     try:
         with pytest.raises(FileNotFoundError) as info:
             osprey.runtime.settle({"Q1:SP": 2.0})
     finally:
-        reset_config_cache()
+        clear_config_state()
 
     message = str(info.value)
     assert message.startswith("No config.yml found") and "facility.json" not in message

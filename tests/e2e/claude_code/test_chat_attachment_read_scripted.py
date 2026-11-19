@@ -30,7 +30,6 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -40,7 +39,7 @@ from osprey.interfaces.web_terminal.routes.chat_attachments import (
     NAME_HEADER,
     router,
 )
-from osprey_connectors.workspace import resolve_shared_data_root
+from osprey_connectors.config import load_config
 from tests.e2e.claude_code._chat_turn import Answer, drive_turn, record_conversations
 from tests.e2e.scripted_model import ScriptedCall
 from tests.e2e.sdk_helpers import render_dir
@@ -63,13 +62,12 @@ PATH_REASON = "Path is outside allowed working directories"
 
 def _agent_data_root(repo: Path) -> Path:
     """The agent-data root the render's own config resolves to."""
-    config = yaml.safe_load((render_dir(repo) / "config.yml").read_text(encoding="utf-8"))
-    return Path(resolve_shared_data_root(config))
+    return load_config(render_dir(repo) / "config.yml").agent_data_root
 
 
 def _store_png(root: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     """Store the PNG through the attachment route, as the composer does, into *root*."""
-    monkeypatch.setattr(chat_attachments, "resolve_agent_data_root", lambda app=None: str(root))
+    monkeypatch.setattr(chat_attachments, "shared_data_root", lambda app=None: str(root))
     app = FastAPI()
     app.include_router(router)
     with TestClient(app) as client:

@@ -365,13 +365,13 @@ def _resolve_control_system_type() -> str:
     serves in process (:func:`_resolve_lane_transport`), so it never touches
     Channel Access and can never silently be reported as able to move hardware.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
     from osprey_connectors.config_sections import ControlSystemSection
     from osprey_connectors.connector_types import resolve_control_system_type
 
     fallback = resolve_control_system_type(ControlSystemSection.read(None))
     try:
-        control_system_type = get_config_value("control_system.type", None)
+        control_system_type = current_config().get("control_system.type", None)
     except _CONFIG_READ_ERRORS:
         return fallback
 
@@ -426,10 +426,10 @@ def _control_system_section() -> dict[str, Any]:
     resolver that takes this section already reads "nothing declared" as the
     fail-closed side.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        section = get_config_value("control_system", {})
+        section = current_config().get("control_system", {})
     except _CONFIG_READ_ERRORS:
         return {}
     return section if isinstance(section, dict) else {}
@@ -442,10 +442,10 @@ def _declared_lane_target(lane: str) -> str | None:
     every project has rendered so far, whose block has never carried the key —
     the two want the same answer, which is "this lane declares no target".
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        declared = get_config_value(f"services.{lane}.target", None)
+        declared = current_config().get(f"services.{lane}.target", None)
     except _CONFIG_READ_ERRORS:
         return None
     return declared if isinstance(declared, str) and declared else None
@@ -754,10 +754,10 @@ def _resolve_connector_type() -> str | None:
     once to learn whether it is readable at all, then let the shared helper
     produce the value.
     """
-    from osprey_connectors.config import get_config_value
+    from osprey_connectors.config import current_config
 
     try:
-        get_config_value("control_system.type", None)
+        current_config().get("control_system.type", None)
     except _CONFIG_READ_ERRORS:
         return None
     return _resolve_control_system_type()

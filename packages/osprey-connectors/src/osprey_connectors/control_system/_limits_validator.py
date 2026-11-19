@@ -40,8 +40,8 @@ LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
 #: The config key the last-resort path anchor is read from.
 _PROJECT_ROOT_CONFIG_KEY = "project_root"
 
-#: The signature every ``config_lookup`` here has: that of
-#: :meth:`osprey_connectors.config.LoadedConfig.get`.
+#: The signature every ``config_lookup`` here has: ``(dotted_key, default) -> value``,
+#: as :meth:`osprey_connectors.config.LoadedConfig.get` answers.
 ConfigLookup = Callable[[str, object], object]
 
 #: The signature of the fresh-read primitive :meth:`LimitsValidator.validate`
@@ -191,7 +191,7 @@ def _is_json_object(value: object) -> TypeGuard[dict[str, object]]:
 
 
 def mapping_config_lookup(config: Mapping[str, object]) -> ConfigLookup:
-    """A :meth:`~osprey_connectors.config.LoadedConfig.get`-shaped lookup over a config held as a dict.
+    """A ``(dotted_key, default) -> value`` lookup over an already-loaded config.
 
     For the callers that hold the config as a dict rather than as the
     process's loaded config -- the build reading a render's ``config.yml``, the
@@ -359,10 +359,11 @@ class LimitsValidator:
         is the loader's finding, with the loader's message.
 
         Args:
-            config_lookup: Where the key is read from, with the signature of
-                :meth:`osprey_connectors.config.LoadedConfig.get`. Defaults to
-                the process config's (:func:`osprey_connectors.config.current_config`);
-                pass :func:`mapping_config_lookup` for a config held as a dict.
+            config_lookup: Where the key is read from, as
+                ``(dotted_key, default) -> value``. Defaults to the process
+                config's :meth:`~osprey_connectors.config.LoadedConfig.get`
+                (:func:`osprey_connectors.config.current_config`); pass
+                :func:`mapping_config_lookup` for a config held as a dict.
             config_path: The config file the lookup answers from, which is the
                 anchor a relative path resolves against (see
                 :meth:`resolve_database_path`). Defaults to the path of
