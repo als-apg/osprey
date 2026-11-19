@@ -7,6 +7,7 @@ under test.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from osprey.services.bluesky_bridge import live_rows
@@ -244,6 +245,48 @@ def test_get_returns_a_copy_not_a_live_reference() -> None:
     buf = live_rows.get("run-1")
     assert buf["rows"] == [[1.0]]
     assert buf["columns"] == ["x"]
+
+
+# =========================================================================
+# Cells are stored as plain JSON values
+# =========================================================================
+
+
+def test_an_array_cell_is_stored_as_a_plain_list() -> None:
+    """A waveform or image reading is stored as nested lists of Python floats."""
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("event", _event_doc({"wave": np.arange(3.0), "image": np.arange(4.0).reshape(2, 2)}))
+
+    wave, image = live_rows.get("run-1")["rows"][0]
+
+    assert wave == [0.0, 1.0, 2.0]
+    assert type(wave) is list
+    assert all(type(value) is float for value in wave)
+    assert image == [[0.0, 1.0], [2.0, 3.0]]
+    assert all(type(row) is list for row in image)
+    assert all(type(value) is float for row in image for value in row)
+
+
+@pytest.mark.parametrize(
+    ("value", "stored_type"),
+    [
+        (np.int64(3), int),
+        (np.int32(3), int),
+        (np.bool_(True), bool),
+        (np.float64(1.5), float),
+    ],
+)
+def test_a_numpy_scalar_cell_is_stored_as_a_python_scalar(value: object, stored_type: type) -> None:
+    """A numpy scalar reading is stored as the Python scalar of the same value."""
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("event", _event_doc({"x": value}))
+
+    (cell,) = live_rows.get("run-1")["rows"][0]
+
+    assert type(cell) is stored_type
+    assert cell == value
 
 
 # =========================================================================
