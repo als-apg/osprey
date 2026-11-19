@@ -305,6 +305,7 @@ STRIP_KINDS: Mapping[str, str] = MappingProxyType(
 _DIPOLE_DRAWN = "dipoles drawn {:g} m long"
 _HERE = "{} · here"
 _NOWHERE = "where it sits is not stated"
+_BY_WHOLE = "in {} by its whole {}"
 #: The kinds of control, as the operate block's legend names and explains them.
 CONTROL_LEGEND: tuple[tuple[str, str], ...] = (
     ("ACTION", "writes once, when pressed"),
@@ -2349,6 +2350,9 @@ class _Page:
         self.y += CARD_NAME_LINE
         if head.nowhere:
             self.small(MARGIN, self.y, _NOWHERE, fg=MUTED_TEXT)
+            self.y += SMALL_LINE
+        if head.by_whole is not None:
+            self.small(MARGIN, self.y, _BY_WHOLE.format(*head.by_whole), fg=MUTED_TEXT)
             self.y += SMALL_LINE
         if head.description:
             for line in _wrap(head.description, STRIP_WIDTH, CARD_DESCRIPTION_SIZE):

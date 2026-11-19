@@ -82,8 +82,9 @@ __all__ = [
     "CardSection",
     "ChainStep",
     "FrontRow",
-    "NoCard",
-    "NO_CARD_CONDITIONS",
+    "CardRule",
+    "CARD_ACTIONS",
+    "CARD_CONDITIONS",
     "StripSymbol",
     "Metric",
     "CalibrationKind",
@@ -117,7 +118,10 @@ CARD_SECTIONS = "card_sections.csv"
 CHAINS = "chains.csv"
 STRIP_SYMBOLS = "symbols.csv"
 FRONTS = "fronts.csv"
-NO_CARDS = "no_cards.csv"
+CARDS = "cards.csv"
+#: What a ``cards.csv`` row does to the devices it selects: give each a card the
+#: default would not, or take the card the default would give.
+CARD_ACTIONS: tuple[str, ...] = ("keep", "drop")
 #: The rule tables, by file name.
 TABLE_FILES: tuple[str, ...] = (
     POSITIONS,
@@ -140,7 +144,7 @@ TABLE_FILES: tuple[str, ...] = (
     CHAINS,
     STRIP_SYMBOLS,
     FRONTS,
-    NO_CARDS,
+    CARDS,
 )
 
 #: Each file's columns, in the order the facility repository writes them.
@@ -241,17 +245,18 @@ COLUMNS: Mapping[str, list[str]] = MappingProxyType(
             "source",
         ],
         STRIP_SYMBOLS: ["class", "devices", "symbol", "lane", "source"],
-        NO_CARDS: [
+        CARDS: [
+            "action",
             "class",
             "under",
             "devices",
+            "attribute",
+            "when",
             "owner_relation",
             "owner_direction",
             "owner_to",
             "reason",
             "source",
-            "when",
-            "attribute",
         ],
         FRONTS: [
             "recipe",
@@ -367,7 +372,6 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
         CARD_RECIPES: frozenset({"devices"}),
         STRIP_SYMBOLS: frozenset({"devices"}),
         FRONTS: frozenset({"roles", "apart"}),
-        NO_CARDS: frozenset({"when", "attribute"}),
     }
 )
 
@@ -390,7 +394,7 @@ OPTIONAL_FILES = frozenset(
         CHAINS,
         STRIP_SYMBOLS,
         FRONTS,
-        NO_CARDS,
+        CARDS,
     }
 )
 
@@ -507,7 +511,7 @@ _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CARD_SECTIONS: ("recipe", "order", "kind", "title"),
         CHAINS: ("recipe", "chain", "step", "relation", "direction", "title"),
         STRIP_SYMBOLS: ("class", "symbol", "lane"),
-        NO_CARDS: ("class",),
+        CARDS: ("action", "class"),
         FRONTS: (
             "recipe",
             "face",
@@ -541,7 +545,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
         STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
         FRONTS: {"kind": CONNECTOR_KINDS, "far_direction": FAR_DIRECTIONS, "apart": ("no",)},
-        NO_CARDS: {"owner_direction": DIRECTIONS},
+        CARDS: {"action": CARD_ACTIONS, "owner_direction": DIRECTIONS},
     }
 )
 _NUMBERS: Mapping[str, tuple[str, ...]] = MappingProxyType(
@@ -586,7 +590,7 @@ _UNIQUE: Mapping[str, tuple[str, ...]] = MappingProxyType(
         CHAINS: ("recipe", "chain", "step"),
         STRIP_SYMBOLS: ("class", "devices"),
         FRONTS: ("recipe", "face", "group", "connector"),
-        NO_CARDS: ("class", "under", "devices", "when", "attribute"),
+        CARDS: ("class", "under", "devices", "attribute", "when"),
     }
 )
 
@@ -905,8 +909,8 @@ def _channel_role(**columns: Any) -> ChannelRole:
 @dataclass(frozen=True)
 class CardRecipe:
     """One row of ``card_recipes.csv``: the card recipe of the devices of ``cls``
-    (under the place ``under``, and whose id matches the pattern ``devices``, when
-    given). ``recipe`` names it: the key the card's key numbers (``metrics.csv``
+    (under the place ``under``, a part by its whole's place, and whose id matches
+    the pattern ``devices``, when given). ``recipe`` names it: the key the card's key numbers (``metrics.csv``
     rows of view ``card`` whose ``level`` is the recipe) attach to. Its
     ``description`` is the title line's sentence, ``{relation}`` slots filled from
     the device's claims (``on {located_in}``); ``channels_cols`` the columns of its
@@ -987,39 +991,43 @@ def _strip_symbol(**columns: Any) -> StripSymbol:
     return StripSymbol(cls=columns.pop("class"), **columns)
 
 
-#: The conditions a ``no_cards.csv`` row's ``when`` names, joined by ``;``: the
-#: device has no channel; the device's class has no card recipe for it (it would
-#: get the default card).
-NO_CARD_CONDITIONS: tuple[str, ...] = ("no-channel", "no-recipe")
+#: The conditions a ``cards.csv`` row's ``when`` names, joined by ``;``: the device
+#: has no channel a card shows (:meth:`~osprey.facility.panels.model.PanelGraph.card_channels`);
+#: the device has no drawing (no card recipe, no picture).
+CARD_CONDITIONS: tuple[str, ...] = ("no-channel", "no-drawing")
 
 
 @dataclass(frozen=True)
-class NoCard:
-    """One row of ``no_cards.csv``: the devices of ``cls`` (``*``: of any class) under
-    the place ``under``, whose id matches ``devices``, that meet every condition of
-    ``when`` and carry the attribute ``attribute`` (a name and a value), get no card.
-    Each is drawn inside its owner, the thing ``owner_relation`` names in
-    ``owner_direction`` that ``owner_to`` takes (as a chain hop's ``to``); with no
-    owner relation it has no screen and no index entry, and a related card draws it
-    as a block or a row that opens nothing. Every condition a row states must hold;
-    the first row that takes a device wins."""
+class CardRule:
+    """One row of ``cards.csv``, an exception to the card default (a device gets a
+    card when it has a channel or a drawing): ``keep`` gives the selected devices a
+    card, ``drop`` takes it. A row selects the devices of ``cls`` (``*``: of any
+    class) under the place ``under`` (a part by its whole's place), whose id
+    matches ``devices``, that carry the
+    attribute ``attribute`` (a name and a value) and meet every condition of
+    ``when``; every selector a row states must hold, and the first row that
+    selects a device decides. A dropped device is drawn inside its owner, the thing
+    ``owner_relation`` names in ``owner_direction`` that ``owner_to`` takes (as a
+    chain hop's ``to``); with no owner it has no screen and no index entry, and a
+    related card names it without a link."""
 
+    action: str
     cls: str
     under: str | None
     devices: str | None
+    attribute: tuple[str, str] | None
+    when: tuple[str, ...] | None
     owner_relation: str | None
     owner_direction: str | None
     owner_to: str | None
     reason: str | None
     source: str | None
-    when: tuple[str, ...] | None = None
-    attribute: tuple[str, str] | None = None
 
 
 def _conditions(text: str) -> tuple[str, ...] | None:
-    """``no-channel``, ``no-recipe`` or both joined by ``;``; ``None`` when not."""
+    """``no-channel``, ``no-drawing`` or both joined by ``;``; ``None`` when not."""
     words = tuple(word.strip() for word in text.split(";"))
-    if not all(word in NO_CARD_CONDITIONS for word in words) or len(set(words)) != len(words):
+    if not all(word in CARD_CONDITIONS for word in words) or len(set(words)) != len(words):
         return None
     return words
 
@@ -1033,18 +1041,21 @@ def _name_value(text: str) -> tuple[str, str] | None:
     return name.strip(), value.strip()
 
 
-def _check_no_card(row: NoCard, line: int) -> None:
-    """An owner is named by a relation and a direction together, or not at all."""
+def _check_card_rule(row: CardRule, line: int) -> None:
+    """An owner is named on a ``drop`` row only, by a relation and a direction
+    together."""
     if (row.owner_relation is None) != (row.owner_direction is None):
         raise PanelTableError(
-            NO_CARDS, line, "owner_relation and owner_direction are given together or not at all"
+            CARDS, line, "owner_relation and owner_direction are given together or not at all"
         )
     if row.owner_to is not None and row.owner_relation is None:
-        raise PanelTableError(NO_CARDS, line, "owner_to needs owner_relation")
+        raise PanelTableError(CARDS, line, "owner_to needs owner_relation")
+    if row.action == "keep" and row.owner_relation is not None:
+        raise PanelTableError(CARDS, line, "a keep row names no owner: the device has its card")
 
 
-def _no_card(**columns: Any) -> NoCard:
-    return NoCard(cls=columns.pop("class"), **columns)
+def _card_rule(**columns: Any) -> CardRule:
+    return CardRule(cls=columns.pop("class"), **columns)
 
 
 @dataclass(frozen=True)
@@ -1263,7 +1274,7 @@ class PanelTables:
     chains: tuple[ChainStep, ...] = ()
     strip_symbols: tuple[StripSymbol, ...] = ()
     fronts: tuple[FrontRow, ...] = ()
-    no_cards: tuple[NoCard, ...] = ()
+    cards: tuple[CardRule, ...] = ()
 
 
 _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
@@ -1288,7 +1299,7 @@ _ROWS: Mapping[str, Callable[..., Any]] = MappingProxyType(
         CHAINS: ChainStep,
         STRIP_SYMBOLS: _strip_symbol,
         FRONTS: FrontRow,
-        NO_CARDS: _no_card,
+        CARDS: _card_rule,
     }
 )
 
@@ -1351,8 +1362,8 @@ _PARSED: Mapping[str, Mapping[str, tuple[Callable[[str], Any], str]]] = MappingP
     {
         CALIBRATION_KINDS: {"tolerance": (_tolerance_term, "rel:<fraction> or abs:<number>")},
         METRICS: {"precision": (_decimals, f"a whole number of decimals 0 to {MOST_DECIMALS}")},
-        NO_CARDS: {
-            "when": (_conditions, f"{' or '.join(NO_CARD_CONDITIONS)}, joined by ;"),
+        CARDS: {
+            "when": (_conditions, f"{' or '.join(CARD_CONDITIONS)}, joined by ;"),
             "attribute": (_name_value, "name=value"),
         },
     }
@@ -1429,8 +1440,8 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             _check_metric(rows[-1], line, seen_metric)
         if name == FRONTS:
             _check_front_row(rows[-1], line)
-        if name == NO_CARDS:
-            _check_no_card(rows[-1], line)
+        if name == CARDS:
+            _check_card_rule(rows[-1], line)
         if name == PROBE_PICTURES:
             _check_probe_row(rows[-1], line, seen_probe)
         if name == PICTURES:
@@ -1601,7 +1612,7 @@ def read_tables(panels_dir: Path) -> PanelTables:
         chains=_read(directory, CHAINS),
         strip_symbols=_read(directory, STRIP_SYMBOLS),
         fronts=_read(directory, FRONTS),
-        no_cards=_read(directory, NO_CARDS),
+        cards=_read(directory, CARDS),
     )
 
 

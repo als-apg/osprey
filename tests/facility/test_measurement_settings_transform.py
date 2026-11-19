@@ -82,7 +82,7 @@ def test_every_built_in_kind_patches_nothing(tmp_path):
         for name, declaration in kinds.builtin_kinds().items()
     } == dict.fromkeys(("chromaticity_monitor", "crm", "dispersion", "orm", "trm"), {})
     assert "settings" not in sr
-    assert sr["provenance"]["defaults"] == []
+    assert sr["provenance"]["defaults"] == ["length", "periodic"]  # from the deck
 
 
 def test_a_listed_kinds_patch_reaches_the_document_and_the_simulator_view(tmp_path, monkeypatch):
@@ -93,7 +93,7 @@ def test_a_listed_kinds_patch_reaches_the_document_and_the_simulator_view(tmp_pa
 
     sr = _sr(document)
     assert sr["settings"] == _PATCHED
-    assert sr["provenance"]["defaults"] == ["settings.pyat.rest_mass_gev"]
+    assert sr["provenance"]["defaults"] == ["length", "periodic", "settings.pyat.rest_mass_gev"]
     view = tmp_path / "view"
     write_simulator_view(view, view_inputs(tmp_path / "again", tree))
     variables = json.loads((view / VARIABLES_FILE).read_text("utf-8"))

@@ -62,15 +62,16 @@ def test_check_after_write_exits_0(facility_file, tmp_path):
     assert "default card without tiles: " in result.output  # no roles: no tile is guessed
 
 
-def test_check_counts_the_devices_each_no_cards_row_takes(facility_file, tmp_path):
+def test_check_counts_the_default_and_the_devices_each_cards_row_decides(facility_file, tmp_path):
     import shutil
 
     tables = tmp_path / "panels"
     shutil.copytree(PANELS_DIR, tables)
-    (tables / "no_cards.csv").write_text(
-        "class,under,devices,owner_relation,owner_direction,owner_to,reason,source,when\n"
-        "Pump,XR/XR01,,,,,drawn on its rack,S,\n"
-        "*,,XR02:*,,,,nothing to read,S,no-channel\n"
+    (tables / "cards.csv").write_text(
+        "action,class,under,devices,attribute,when,owner_relation,owner_direction,owner_to,"
+        "reason,source\n"
+        "drop,Pump,XR/XR01,,,,,,,drawn on its rack,S\n"
+        "keep,*,,XR02:*,,no-channel,,,,worth a card,S\n"
     )
 
     def run(verb: str, *args: str) -> Result:
@@ -83,8 +84,9 @@ def test_check_counts_the_devices_each_no_cards_row_takes(facility_file, tmp_pat
     out = str(tmp_path / "out")
     assert run("write", "--out", out).exit_code == 0
     result = run("check", "--out", out)
-    assert "  no_cards.csv row 1 (class Pump, under XR/XR01): 2 devices" in result.output
-    assert "  no_cards.csv row 2 (class *, devices XR02:*, when no-channel): " in result.output
+    assert "  by default (no channel, no drawing): " in result.output
+    assert "  cards.csv row 1, drop (class Pump, under XR/XR01): 2 devices" in result.output
+    assert "  cards.csv row 2, keep (class *, devices XR02:*, when no-channel): " in result.output
 
 
 def test_check_exits_1_and_counts_each_kind(facility_file, tmp_path):
