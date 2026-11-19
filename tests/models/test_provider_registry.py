@@ -65,6 +65,16 @@ class _SiteEmbeddingOnlyAdapter(BaseProvider):
         return [[0.0] for _ in texts]
 
 
+class _SiteEndpointlessGatewayAdapter(BaseProvider):
+    name = "site-endpointless"
+    description = "A gateway each site hosts itself, so it ships no endpoint"
+    requires_api_key = True
+    requires_base_url = True
+    supports_proxy = False
+    default_base_url = None
+    base_url_env_var = "SITE_ENDPOINTLESS_BASE_URL"
+
+
 #: A registered class need not subclass ``BaseProvider``; this one declares
 #: nothing beyond a name and a protocol.
 _DuckSiteGatewayAdapter = type(
@@ -149,14 +159,8 @@ class TestProviderRegistry:
         b = get_provider_registry()
         assert a is b
 
-    def test_load_providers_config_filtered(self):
-        """load_providers with configured_names only loads those."""
-        reg = ProviderRegistry()
-        result = reg.load_providers(configured_names={"anthropic", "cborg"})
-        assert set(result.keys()) == {"anthropic", "cborg"}
-
     def test_exclude_removes_the_entry_and_the_cached_class(self):
-        """An excluded name is gone from lookup, listing, the cache and the bulk load."""
+        """An excluded name is gone from lookup, listing and the cache."""
         reg = ProviderRegistry()
         reg.get_provider("openai")
         assert "openai" in reg._providers
@@ -166,7 +170,6 @@ class TestProviderRegistry:
         assert reg.get_provider("openai") is None
         assert "openai" not in reg.list_providers()
         assert "openai" not in reg._providers
-        assert "openai" not in reg.load_providers()
         assert reg.get_provider("anthropic") is not None
 
     def test_exclude_of_an_unknown_name_changes_nothing(self):
@@ -202,11 +205,11 @@ class TestProviderRegistry:
         assert cls.name == "openrouter"
         assert PROVIDER_API_KEYS["openrouter"] == "OPENROUTER_API_KEY"
 
-    def test_load_providers_skips_failed_imports(self):
-        """A configured provider whose module can't be imported is silently
-        dropped from the result (not crashing the bulk load) while valid
-        siblings still load. This is the air-gapped behavior the `if cls is not
-        None` guard exists for — exercised here via a deliberately broken entry.
+    def test_a_provider_whose_module_fails_to_import_resolves_to_none(self):
+        """A registration whose module can't be imported resolves to ``None``
+        (logged, not raised) while valid siblings still load — the air-gapped
+        behaviour, exercised via a deliberately broken entry. It stays listed:
+        the listing names what is registered and imports nothing.
         """
         reg = ProviderRegistry()
         reg.register_provider(
@@ -214,9 +217,31 @@ class TestProviderRegistry:
             "osprey.models.providers.does_not_exist_xyz",
             "NoSuchAdapter",
         )
-        result = reg.load_providers(configured_names={"anthropic", "broken_provider"})
-        assert "broken_provider" not in result
-        assert "anthropic" in result
+        assert reg.get_provider("broken_provider") is None
+        assert reg.get_provider("anthropic") is not None
+        assert "broken_provider" in reg.list_providers()
+
+    def test_a_provider_whose_module_raises_at_import_names_itself_on_lookup(
+        self, tmp_path, monkeypatch
+    ):
+        """A module that raises (not ImportError) fails the lookup of its own
+        provider with an error naming the provider and the module; siblings
+        still resolve.
+        """
+        (tmp_path / "site_boom_module.py").write_text("raise ValueError('site setting missing')\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        reg = ProviderRegistry()
+        reg.register_provider("site-boom", "site_boom_module", "BoomAdapter")
+
+        with pytest.raises(RuntimeError) as raised:
+            reg.get_provider("site-boom")
+
+        assert str(raised.value) == (
+            "Provider 'site-boom' could not be loaded: importing its module "
+            "'site_boom_module' raised ValueError: site setting missing"
+        )
+        assert isinstance(raised.value.__cause__, ValueError)
+        assert reg.get_provider("anthropic") is not None
 
     def test_lazy_load_caches(self):
         """Second get_provider call returns cached class (no re-import)."""
@@ -283,6 +308,7 @@ class TestProviderRegistry:
             "reg = get_provider_registry()\n"
             f"for name in {BUILTIN_ORDER!r}:\n"
             "    reg.api_key_env_var(name)\n"
+            "    reg.endpoint_env_var(name)\n"
             "reg.api_key_env_vars()\n"
             "print('litellm' in sys.modules,"
             " [m for m in sys.modules if m.startswith('osprey.models.providers.')])\n"
@@ -398,3 +424,33 @@ class TestTheChatFact:
             "broken", "osprey.models.providers.does_not_exist_xyz", "NoSuchAdapter"
         )
         assert reg.is_chat("broken") is True
+
+
+class TestTheEndpointFact:
+    """Which variable a deployment must set to name a provider's endpoint."""
+
+    def test_no_builtin_leaves_its_endpoint_to_the_deployment(self):
+        reg = ProviderRegistry()
+        assert {name: reg.endpoint_env_var(name) for name in reg.list_providers()} == dict.fromkeys(
+            _BUILTIN_PROVIDERS
+        )
+
+    def test_a_registered_class_without_a_default_endpoint_names_its_variable(self):
+        reg = ProviderRegistry()
+        reg.register_provider("site-endpointless", __name__, "_SiteEndpointlessGatewayAdapter")
+        assert reg.endpoint_env_var("site-endpointless") == "SITE_ENDPOINTLESS_BASE_URL"
+
+    def test_a_registered_class_that_needs_no_endpoint_names_none(self):
+        reg = ProviderRegistry()
+        reg.register_provider("site-gateway", __name__, "_SiteGatewayAdapter")
+        reg.register_provider("duck-gateway", __name__, "_DuckSiteGatewayAdapter")
+        assert reg.endpoint_env_var("site-gateway") is None
+        assert reg.endpoint_env_var("duck-gateway") is None
+
+    def test_unknown_and_unloadable_names_have_no_endpoint_variable(self):
+        reg = ProviderRegistry()
+        assert reg.endpoint_env_var("does_not_exist") is None
+        reg.register_provider(
+            "broken", "osprey.models.providers.does_not_exist_xyz", "NoSuchAdapter"
+        )
+        assert reg.endpoint_env_var("broken") is None

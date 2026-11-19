@@ -395,27 +395,12 @@ def setup_llm_test_environment(test_config, monkeypatch):
     """Set up test environment with provider configurations."""
     config = yaml.safe_load(test_config.read_text())
     config["provider_configs"] = {}
-
-    # Ensure models section references all available providers so config-driven
-    # provider filtering (#138) doesn't skip them during registry initialization
-    if "models" not in config:
-        config["models"] = {}
     for provider_name, provider_config in _AVAILABLE_PROVIDERS.items():
         config["provider_configs"][provider_name] = {
             "api_key": provider_config["api_key"],
             "base_url": provider_config["base_url"],
             "default_model_id": provider_config["default_model"],
         }
-        # Add a models entry so the provider isn't filtered out
-        if not any(
-            m.get("provider") == provider_name
-            for m in config["models"].values()
-            if isinstance(m, dict)
-        ):
-            config["models"][f"test_{provider_name}"] = {
-                "provider": provider_name,
-                "model_id": provider_config["default_model"],
-            }
 
     test_config.write_text(yaml.dump(config))
 

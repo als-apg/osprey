@@ -359,6 +359,7 @@ _MACOS_RUNS = (
     "tests/connectors/ipc/test_pool.py::test_a_wedged_child_is_killed_and_replaced",
     "tests/connectors/ipc/test_pool.py::test_children_do_not_outlive_a_parent_that_is_killed",
     "tests/connectors/ipc/test_pool.py::test_close_during_a_start_leaves_nothing_running",
+    "tests/connectors/ipc/test_pool.py::test_close_lets_a_call_in_flight_finish_and_the_child_exit_on_its_own",
     "tests/connectors/ipc/test_pool.py::test_close_stops_every_child",
     "tests/connectors/ipc/test_pool.py::test_close_with_a_call_in_flight_fails_it_as_stopped",
     "tests/connectors/ipc/test_pool.py::test_failed_starts_leave_no_unhandled_asyncio_errors",

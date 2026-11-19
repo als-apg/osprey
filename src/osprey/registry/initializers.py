@@ -1,8 +1,9 @@
 """Per-component-type initialization functions.
 
-Each function loads registered components of a single type (providers, services,
-ARIEL modules) into the shared *registries* dict. Connectors are the exception:
-they are registered with ``ConnectorFactory``, which is their only lookup path.
+Each function loads registered components of a single type (services, ARIEL
+modules) into the shared *registries* dict. Providers and connectors are the
+exceptions: providers are registered with the lightweight ``ProviderRegistry``
+and connectors with ``ConnectorFactory``, each its type's only lookup path.
 
 .. note::
 
@@ -17,36 +18,12 @@ Extracted from :mod:`osprey.registry.manager` (RF-010).
 import importlib
 from typing import Any
 
-from osprey_connectors.config import get_config_value
 from osprey_connectors.errors import RegistryError
 from osprey_connectors.logger import get_logger
 
 from .base import RegistryConfig
 
 logger = get_logger(name="registry.init", color="sky_blue2")
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _get_configured_provider_names() -> set[str] | None:
-    """Extract provider names from config.yml ``models`` section.
-
-    Returns ``None`` if config is unavailable (load all as fallback).
-    """
-    try:
-        model_configs = get_config_value("models", None)
-        if not model_configs or not isinstance(model_configs, dict):
-            return None
-        providers = set()
-        for role_config in model_configs.values():
-            if isinstance(role_config, dict) and "provider" in role_config:
-                providers.add(role_config["provider"])
-        return providers or None
-    except Exception:
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -57,22 +34,23 @@ def _get_configured_provider_names() -> set[str] | None:
 def initialize_providers(
     *,
     config: RegistryConfig,
-    registries: dict[str, dict[str, Any]],
+    registries: dict[str, dict[str, Any]],  # noqa: ARG001 - dispatch contract; see below
     excluded_provider_names: list[str],
 ) -> None:
-    """Initialize AI model providers via the lightweight ProviderRegistry.
+    """Apply the application's provider registrations and exclusions.
 
-    Delegates to ``ProviderRegistry.load_providers()`` for the actual import
-    loop, then stores the results in *registries*.
-    Providers from ``config.providers`` are registered first so they participate
-    in the bulk load — including one whose name shadows a built-in, which
+    Providers from ``config.providers`` are registered with the lightweight
+    ``ProviderRegistry`` — including one whose name shadows a built-in, which
     replaces it (logged) rather than being dropped. Names in the application's
     ``exclude_providers`` are then removed from the provider registry itself, so
     no in-process lookup resolves them, unless the application registers its own
     class under the same name.
 
-    Uses config-driven filtering to skip imports for unconfigured providers,
-    avoiding costly module-level network calls on air-gapped machines.
+    No provider adapter is imported here: ``ProviderRegistry`` imports one only
+    when something asks for that provider's class, and it is the one table
+    ``RegistryManager.get_provider`` and ``list_providers`` read. So this
+    initializer does not populate *registries*; the parameter is accepted only
+    to keep the uniform ``INITIALIZER_DISPATCH`` signature.
     """
     # LAYERING NOTE: upward import from models (L5)
     from osprey.models.provider_registry import _BUILTIN_PROVIDERS, get_provider_registry
@@ -123,22 +101,7 @@ def initialize_providers(
         pr.exclude(name)
         logger.info("Application registry excludes built-in provider '%s'", name)
 
-    configured_providers = _get_configured_provider_names()
-
-    if configured_providers is not None:
-        logger.info(f"Initializing providers (config-driven: {sorted(configured_providers)})...")
-    else:
-        logger.info("Initializing providers (all available)...")
-
-    loaded = pr.load_providers(configured_names=configured_providers)
-
-    for name, provider_class in loaded.items():
-        registries["providers"][name] = provider_class
-        logger.info(f"  ✓ Registered provider: {name}")
-
-    logger.info(
-        f"Provider initialization complete: {len(registries['providers'])} providers loaded"
-    )
+    logger.info(f"Provider registry ready: {len(pr.list_providers())} providers resolvable")
 
 
 #: The ``connector_type`` values ``ConnectorFactory.register_service`` serves.

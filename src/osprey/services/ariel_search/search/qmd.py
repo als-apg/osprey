@@ -59,6 +59,7 @@ than failing.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 import re
 import threading
@@ -605,6 +606,18 @@ async def _hybrid_search(
         if include_images is None
         else bool(include_images)
     )
+    # The semantic lane's provider is resolved before either lane starts. The
+    # lanes share this event loop, and the first resolution in a process
+    # imports the provider's adapter (seconds of CPU): inside the semantic
+    # task it would block the loop while the picture lane's timeout runs. A
+    # failure here is left to the lane, which resolves again and reports it.
+    # The picture lane resolves its own provider first thing, before its
+    # deadline and before the semantic task runs.
+    if rrf and embedder is None and config.get_search_model():
+        from osprey.services.ariel_search.search.semantic import semantic_provider_class
+
+        with contextlib.suppress(Exception):
+            embedder = semantic_provider_class(config)()
     # Started before the sidecar is resolved so the two lanes overlap; the
     # picture lane sees the typed query, never a vocabulary expansion.
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None = None

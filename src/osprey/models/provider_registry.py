@@ -8,9 +8,9 @@ call ``get_provider_registry().get_provider("cborg")`` to obtain the provider
 class, then use it via ``get_chat_completion()`` or ``aget_chat_completion()``.
 
 Adding a new built-in provider = one entry in ``_BUILTIN_PROVIDERS`` below.
-The entry names the provider's key variable, launch protocol and whether it
-serves chat, which the adapter class declares too; a parity test keeps the two
-equal.
+The entry names the provider's key variable, launch protocol, whether it
+serves chat and the endpoint variable a deployment must set (if any), which
+the adapter class declares too; a parity test keeps the two equal.
 """
 
 from __future__ import annotations
@@ -32,11 +32,13 @@ logger = logging.getLogger("osprey.models.provider_registry")
 class _ProviderEntry:
     """Lazy-load descriptor for a provider class.
 
-    A built-in entry restates three facts of its adapter, ``api_key_env_var``,
-    ``api_protocol`` and ``supports_chat()`` (as ``chat``), so the facts every
-    build and launch reads come from this table without importing the adapter;
-    a parity test holds each to its class. ``key_env_var = None`` on a built-in
-    means the provider is keyless. An entry made by
+    A built-in entry restates four facts of its adapter, ``api_key_env_var``,
+    ``api_protocol``, ``supports_chat()`` (as ``chat``) and the variable a
+    deployment must set to name its endpoint (as ``endpoint_env_var``), so the
+    facts every build and launch reads come from this table without importing
+    the adapter; a parity test holds each to its class. ``key_env_var = None``
+    on a built-in means the provider is keyless; ``endpoint_env_var = None``
+    means it needs no endpoint from the deployment. An entry made by
     ``ProviderRegistry.register_provider`` carries none of these facts
     (``api_protocol is None``), and its class is the only declaration.
     """
@@ -46,6 +48,7 @@ class _ProviderEntry:
     key_env_var: str | None = None
     api_protocol: Literal["anthropic", "openai"] | None = None
     chat: bool = True
+    endpoint_env_var: str | None = None
 
 
 # ── Built-in provider table (single source of truth) ──────────────────
@@ -153,9 +156,12 @@ PROVIDER_API_KEYS: Mapping[str, str | None] = MappingProxyType(
 class ProviderRegistry:
     """Lightweight registry — lazily loads provider classes by name.
 
-    Provider classes are imported only on first ``get_provider()`` call, keeping
-    module-level imports minimal and avoiding network-triggering side effects on
-    air-gapped machines.
+    The one table of provider names in a process: built-ins, less the
+    application's exclusions, plus its registrations. A provider class is
+    imported only when ``get_provider()`` is asked for it, keeping imports
+    minimal and avoiding network-triggering side effects on air-gapped
+    machines; every question a built-in's entry answers is answered without
+    that import.
     """
 
     def __init__(self) -> None:
@@ -167,7 +173,11 @@ class ProviderRegistry:
     def get_provider(self, name: str) -> type[BaseProvider] | None:
         """Return the provider class for *name*, importing lazily on first access.
 
-        Returns ``None`` if the name is unknown.
+        Returns ``None`` if the name is unknown, or if its module or class
+        cannot be found (logged). A module that raises anything else while it
+        is imported raises ``RuntimeError`` naming the provider and the module,
+        here, on the first lookup of that provider -- registry init imports no
+        provider, so a broken one fails only the code that asks for it.
         """
         if name in self._providers:
             return self._providers[name]
@@ -223,8 +233,10 @@ class ProviderRegistry:
         class: chat unless it serves text or image embeddings and not chat. A
         class need not subclass ``BaseProvider``, so a predicate it lacks reads
         as no ``supports_chat`` override (chat) and no embedding support. An
-        unknown name, or one registered with a class that does not load, reads
-        as chat, so a chat call reports its own unknown-provider error.
+        unknown name, or one registered with a module or class that cannot be
+        found, reads as chat, so a chat call reports its own unknown-provider
+        error. A registered provider whose module raises while importing raises the
+        ``RuntimeError`` :meth:`get_provider` raises for it.
         """
         entry = self._entries.get(name)
         if entry is None:
@@ -242,7 +254,8 @@ class ProviderRegistry:
         A built-in provider that has not been replaced answers from its entry,
         without importing its adapter; a registered provider answers from its
         class. Returns ``None`` when the provider is keyless, unknown, or
-        registered with a class that does not load.
+        registered with a module or class that cannot be found. A registered provider whose module raises while importing raises the
+        ``RuntimeError`` :meth:`get_provider` raises for it.
         """
         entry = self._entries.get(name)
         if entry is None:
@@ -260,8 +273,9 @@ class ProviderRegistry:
         A built-in provider that has not been replaced answers from its entry,
         without importing its adapter; a registered provider answers from its
         class, including one registered under a built-in name. Returns ``None``
-        for a name no entry describes, or one registered with a class that does
-        not load.
+        for a name no entry describes, or one registered with a module or class
+        that cannot be found. A registered provider whose module raises while importing raises the
+        ``RuntimeError`` :meth:`get_provider` raises for it.
         """
         entry = self._entries.get(name)
         if entry is None:
@@ -278,8 +292,10 @@ class ProviderRegistry:
 
         Built-ins come first in table order, then registrations in registration
         order; a keyless provider maps to ``None``. A provider :meth:`is_chat`
-        answers False for is left out, as is a registered name whose class does
-        not load, since it declares nothing.
+        answers False for is left out, as is a registered name whose module or
+        class cannot be found, since it declares nothing. A registered provider
+        whose module raises while importing raises the ``RuntimeError``
+        :meth:`get_provider` raises for it.
         """
         result: dict[str, str | None] = {}
         for name, entry in list(self._entries.items()):
@@ -290,30 +306,27 @@ class ProviderRegistry:
             result[name] = self.api_key_env_var(name)
         return result
 
-    def load_providers(
-        self,
-        configured_names: set[str] | None = None,
-    ) -> dict[str, type[BaseProvider]]:
-        """Bulk-load providers, returning ``{name: class}`` dict.
+    def endpoint_env_var(self, name: str) -> str | None:
+        """Return the variable a deployment must set to name *name*'s endpoint.
 
-        Used by ``initialize_providers()`` to delegate the import loop while
-        respecting config-driven filtering; an excluded provider has already left
-        the table.
-
-        :param configured_names: If given, only load these providers.
+        A provider has one when it requires a ``base_url`` and ships no
+        ``default_base_url``: with no host to fall back to, a launch that names
+        none is refused. A built-in provider that has not been replaced answers
+        from its entry, without importing its adapter; a registered provider
+        answers from its class. Returns ``None`` when the provider needs no
+        endpoint from the deployment, names no variable for one, is unknown, or
+        is registered with a module or class that cannot be found. A registered provider whose module raises while importing raises the
+        ``RuntimeError`` :meth:`get_provider` raises for it.
         """
-        result: dict[str, type[BaseProvider]] = {}
-
-        for name in list(self._entries):
-            if configured_names is not None and name not in configured_names:
-                logger.debug("  Skipping unconfigured provider: %s", name)
-                continue
-
-            cls = self.get_provider(name)
-            if cls is not None:
-                result[name] = cls
-
-        return result
+        entry = self._entries.get(name)
+        if entry is None:
+            return None
+        if entry.api_protocol is not None:
+            return entry.endpoint_env_var
+        cls = self.get_provider(name)
+        if cls is None:
+            return None
+        return _class_endpoint_env_var(cls)
 
     # ── Internal ───────────────────────────────────────────────────────
 
@@ -328,6 +341,11 @@ class ProviderRegistry:
         except (ImportError, AttributeError) as exc:
             logger.warning("Failed to load provider %s: %s", name, exc)
             return None
+        except Exception as exc:
+            raise RuntimeError(
+                f"Provider '{name}' could not be loaded: importing its module "
+                f"'{entry.module_path}' raised {type(exc).__name__}: {exc}"
+            ) from exc
 
 
 def _class_is_chat(cls: type) -> bool:
@@ -343,6 +361,15 @@ def _class_is_chat(cls: type) -> bool:
         "supports_image_embeddings", missing=False
     )
     return not serves_embeddings
+
+
+def _class_endpoint_env_var(cls: type) -> str | None:
+    """The endpoint variable of a class: named only when it ships no endpoint."""
+    from osprey.models.providers.base import declares
+
+    if not declares(cls, "requires_base_url") or getattr(cls, "default_base_url", None):
+        return None
+    return getattr(cls, "base_url_env_var", None) or None
 
 
 # ── Singleton ──────────────────────────────────────────────────────────

@@ -179,13 +179,7 @@ class AppProvider(RegistryConfigProvider):
         )
         registry = RegistryManager(registry_path=str(registry_file))
 
-        with (
-            patch("osprey.cli.registry_cmd.get_registry", return_value=registry),
-            patch(
-                "osprey.registry.initializers._get_configured_provider_names",
-                return_value={"openai", "anthropic"},
-            ),
-        ):
+        with patch("osprey.cli.registry_cmd.get_registry", return_value=registry):
             assert display_registry_contents() is True
 
         out = capsys.readouterr().out

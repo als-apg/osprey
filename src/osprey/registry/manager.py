@@ -27,10 +27,12 @@ logger = get_logger(name="registry", color="sky_blue2")
 class RegistryManager:
     """Centralized registry of Osprey services, AI providers and ARIEL modules.
 
-    Holds five name-keyed tables: services, AI model providers, and the ARIEL
-    search modules, enhancement modules and ingestion adapters. Connectors are
-    registered with ``osprey_connectors.ConnectorFactory`` rather than held
-    here.
+    Holds four name-keyed tables: services, and the ARIEL search modules,
+    enhancement modules and ingestion adapters. AI model providers live in the
+    lightweight ``osprey.models.provider_registry.ProviderRegistry``, which
+    this manager applies the application's provider registrations and
+    exclusions to and answers provider lookups from; connectors are registered
+    with ``osprey_connectors.ConnectorFactory``. Neither is copied here.
 
     :meth:`initialize` walks ``config.initialization_order`` and hands each
     component type to its initializer in ``INITIALIZER_DISPATCH``. Each
@@ -64,7 +66,6 @@ class RegistryManager:
 
         self._registries: dict[str, dict[str, Any]] = {
             "services": {},
-            "providers": {},
             "ariel_search_modules": {},
             "ariel_enhancement_modules": {},
             "ariel_ingestion_adapters": {},
@@ -138,31 +139,34 @@ class RegistryManager:
     # ------------------------------------------------------------------
 
     def get_provider(self, name: str) -> type[Any] | None:
-        """Retrieve registered provider class by name.
+        """Retrieve a provider class by name from the ``ProviderRegistry``.
 
-        Falls back to the lightweight ``ProviderRegistry`` when the full
-        ``RegistryManager`` hasn't been initialized, so callers like
-        ``get_chat_completion()`` work without full registry infrastructure.
+        The class is imported on first request. After :meth:`initialize` the
+        answer includes the application's registrations (an override of a
+        built-in replaces it) and leaves out its exclusions; before it, the
+        built-ins alone answer.
 
-        :param name: Unique provider name from registration
+        :param name: Provider name, a built-in's or a registration's
         :type name: str
-        :return: Provider class if registered, None otherwise
+        :return: Provider class if the name resolves and its module imports, None otherwise
         :rtype: Type[BaseProvider] or None
         """
-        if not self._initialized:
-            from osprey.models.provider_registry import get_provider_registry
+        from osprey.models.provider_registry import get_provider_registry
 
-            return get_provider_registry().get_provider(name)
-
-        return self._registries["providers"].get(name)
+        return get_provider_registry().get_provider(name)
 
     def list_providers(self) -> list[str]:
-        """Names of the providers this registry loaded: the configured ones, never an excluded one.
+        """Sorted names the ``ProviderRegistry`` resolves, without importing any provider.
+
+        Built-in and registered, less excluded — the same list
+        ``get_provider_registry().list_providers()`` returns.
 
         :return: List of provider names
         :rtype: list[str]
         """
-        return list(self._registries["providers"].keys())
+        from osprey.models.provider_registry import get_provider_registry
+
+        return get_provider_registry().list_providers()
 
     def get_ariel_search_module(self, name: str) -> Any | None:
         """Retrieve an ARIEL search module by registry name.

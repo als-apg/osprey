@@ -5,8 +5,9 @@ applications to register custom AI model providers through the registry system.
 
 Architecture note: Built-in providers (anthropic, openai, etc.) live in
 ``osprey.models.provider_registry`` as the single source of truth.
-``RegistryManager._initialize_providers()`` delegates to it, so built-in
-entries are checked against ``get_provider_registry()``, not against
+``initialize_providers()`` applies the application's registrations and
+exclusions to it and ``RegistryManager`` answers provider lookups from it, so
+built-in entries are checked against ``get_provider_registry()``, not against
 ``manager.config.providers``.
 
 Tests cover:
@@ -15,13 +16,22 @@ Tests cover:
 - Provider exclusions (excluding framework providers)
 - Helper function support for providers
 - Provider override scenarios
+- The manager's provider answers are the ProviderRegistry's
+- Registry init imports no provider adapter
 """
 
-from unittest.mock import patch
+import json
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
-from osprey.models.provider_registry import get_provider_registry, reset_provider_registry
+from osprey.models.provider_registry import (
+    _BUILTIN_PROVIDERS,
+    get_provider_registry,
+    reset_provider_registry,
+)
 from osprey.registry.base import (
     ProviderRegistration,
     RegistryConfig,
@@ -197,8 +207,6 @@ class AppProvider(RegistryConfigProvider):
         provider_modules = [p.module_path for p in manager.config.providers]
         assert "app.providers.only" in provider_modules
 
-    _CONFIGURED = "osprey.registry.initializers._get_configured_provider_names"
-
     def _excluding(self, tmp_path, names: list[str]):
         registry_file = tmp_path / "app" / "registry.py"
         registry_file.parent.mkdir(parents=True, exist_ok=True)
@@ -217,8 +225,7 @@ class AppProvider(RegistryConfigProvider):
 
     def _initialize(self, registry_file) -> RegistryManager:
         manager = RegistryManager(registry_path=str(registry_file))
-        with patch(self._CONFIGURED, return_value={"openai", "anthropic"}):
-            manager.initialize(silent=True)
+        manager.initialize(silent=True)
         return manager
 
     def test_an_excluded_builtin_is_gone_from_the_provider_registry(self, tmp_path):
@@ -227,7 +234,8 @@ class AppProvider(RegistryConfigProvider):
         pr = get_provider_registry()
         assert pr.get_provider("openai") is None
         assert "openai" not in pr.list_providers()
-        assert set(manager.list_providers()) == {"anthropic"}
+        assert "openai" not in manager.list_providers()
+        assert "anthropic" in manager.list_providers()
         assert manager.get_provider("openai") is None
 
     def test_an_excluded_provider_fails_closed_at_completion(self, tmp_path):
@@ -410,6 +418,18 @@ class AppProvider(RegistryConfigProvider):
 class TestProviderRegistrationDataclass:
     """Test ProviderRegistration dataclass behavior."""
 
+    def test_name_defaults_to_none(self):
+        """ProviderRegistration.name defaults to None for backward compat."""
+        reg = ProviderRegistration(module_path="some.module", class_name="SomeProvider")
+        assert reg.name is None
+
+    def test_name_stores_explicit_value(self):
+        """ProviderRegistration with explicit name stores it correctly."""
+        reg = ProviderRegistration(
+            module_path="some.module", class_name="SomeProvider", name="custom"
+        )
+        assert reg.name == "custom"
+
     def test_provider_registration_in_registry_config(self):
         """Test ProviderRegistration can be used in RegistryConfig."""
         provider_reg = ProviderRegistration(module_path="test.provider", class_name="TestProvider")
@@ -560,6 +580,197 @@ class AppProvider(RegistryConfigProvider):
 
         assert "CustomProvider" in caplog.text
         assert "name=" in caplog.text
+
+
+_SITE_MODULE = """
+from osprey.models.providers.base import BaseProvider
+
+
+class SiteGatewayProvider(BaseProvider):
+    name = "site-gateway"
+    requires_api_key = False
+    requires_base_url = False
+    supports_proxy = False
+
+
+class HouseOpenAIProvider(BaseProvider):
+    name = "openai"
+    requires_api_key = False
+    requires_base_url = False
+    supports_proxy = False
+"""
+
+
+def _app_registry(tmp_path, *, providers=(), exclude=()) -> str:
+    """Write a site module and an application registry; return the registry's path."""
+    (tmp_path / "site_providers.py").write_text(_SITE_MODULE)
+    registrations = ", ".join(
+        f"ProviderRegistration(module_path='site_providers', class_name={cls!r}, name={name!r})"
+        for name, cls in providers
+    )
+    registry_file = tmp_path / "app" / "registry.py"
+    registry_file.parent.mkdir(parents=True, exist_ok=True)
+    registry_file.write_text(
+        textwrap.dedent(
+            f"""
+            from osprey.registry import (
+                ProviderRegistration,
+                RegistryConfigProvider,
+                extend_framework_registry,
+            )
+
+
+            class AppProvider(RegistryConfigProvider):
+                def get_registry_config(self):
+                    return extend_framework_registry(
+                        providers=[{registrations}], exclude_providers={list(exclude)!r}
+                    )
+            """
+        )
+    )
+    return str(registry_file)
+
+
+_SCENARIOS = {
+    "built-ins": {},
+    "an app registration": {"providers": [("site-gateway", "SiteGatewayProvider")]},
+    "an override of a built-in": {"providers": [("openai", "HouseOpenAIProvider")]},
+    "an exclusion": {"exclude": ["google"]},
+    "an override of an excluded built-in": {
+        "providers": [("openai", "HouseOpenAIProvider")],
+        "exclude": ["openai"],
+    },
+}
+
+
+class TestTheManagerAnswersFromTheProviderRegistry:
+    """``RegistryManager`` holds no provider table of its own.
+
+    ``get_provider`` and ``list_providers`` read the ``ProviderRegistry`` the
+    initializer applied the application's registrations and exclusions to, so
+    the two can never disagree about which providers exist.
+    """
+
+    @pytest.mark.parametrize("scenario", list(_SCENARIOS))
+    def test_lookup_and_listing_agree(self, tmp_path, monkeypatch, scenario):
+        monkeypatch.syspath_prepend(str(tmp_path))
+        manager = RegistryManager(registry_path=_app_registry(tmp_path, **_SCENARIOS[scenario]))
+        manager.initialize(silent=True)
+
+        pr = get_provider_registry()
+        names = pr.list_providers()
+        assert manager.list_providers() == names
+        for name in [*_BUILTIN_PROVIDERS, "site-gateway"]:
+            assert manager.get_provider(name) is pr.get_provider(name), name
+
+    def test_the_scenarios_resolve_as_documented(self, tmp_path, monkeypatch):
+        """Not vacuous: each scenario changes what the registry resolves."""
+        monkeypatch.syspath_prepend(str(tmp_path))
+        manager = RegistryManager(
+            registry_path=_app_registry(
+                tmp_path,
+                providers=[
+                    ("site-gateway", "SiteGatewayProvider"),
+                    ("openai", "HouseOpenAIProvider"),
+                ],
+                exclude=["openai", "google"],
+            )
+        )
+        manager.initialize(silent=True)
+
+        assert manager.get_provider("site-gateway").__name__ == "SiteGatewayProvider"
+        assert manager.get_provider("openai").__name__ == "HouseOpenAIProvider"
+        assert manager.get_provider("google") is None
+        assert "google" not in manager.list_providers()
+        assert {"site-gateway", "openai", "anthropic"} <= set(manager.list_providers())
+
+
+class TestRegistryInitImportsNoProvider:
+    """Registry init applies registrations without importing a provider adapter.
+
+    The executor child and every Jupyter kernel run ``initialize_registry``
+    only to register connectors; importing the adapters (and litellm through
+    them) there cost seconds per run. A provider is imported when something
+    asks for its class.
+    """
+
+    def test_init_leaves_every_adapter_and_litellm_unimported(self, tmp_path):
+        registry_path = _app_registry(
+            tmp_path,
+            providers=[("site-gateway", "SiteGatewayProvider"), ("openai", "HouseOpenAIProvider")],
+            exclude=["google"],
+        )
+        config = tmp_path / "config.yml"
+        config.write_text(f"registry_path: {registry_path}\n")
+        adapters = sorted({entry.module_path for entry in _BUILTIN_PROVIDERS.values()})
+        code = textwrap.dedent(
+            f"""
+            import json, sys
+            sys.path.insert(0, {str(tmp_path)!r})
+            from osprey.registry import get_registry, initialize_registry
+
+            initialize_registry(auto_export=False, config_path={str(config)!r}, silent=True)
+            loaded = sorted(
+                m for m in {adapters!r} + ["site_providers", "litellm"] if m in sys.modules
+            )
+            print(json.dumps({{"loaded": loaded, "listed": get_registry().list_providers()}}))
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=120,
+            cwd=str(tmp_path),
+        )
+        report = json.loads(result.stdout.strip().splitlines()[-1])
+
+        assert report["loaded"] == []
+        assert "site-gateway" in report["listed"]
+        assert "google" not in report["listed"]
+
+    def test_a_registered_module_that_raises_fails_its_first_lookup_not_init(
+        self, tmp_path, monkeypatch
+    ):
+        """Init imports no provider, so a broken one cannot fail it: the error
+        surfaces when that provider is first asked for, and names it.
+        """
+        (tmp_path / "site_boom_module.py").write_text("raise ValueError('site setting missing')\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        registry_file = tmp_path / "app" / "registry.py"
+        registry_file.parent.mkdir(parents=True, exist_ok=True)
+        registry_file.write_text(
+            textwrap.dedent(
+                """
+                from osprey.registry import (
+                    ProviderRegistration,
+                    RegistryConfigProvider,
+                    extend_framework_registry,
+                )
+
+
+                class AppProvider(RegistryConfigProvider):
+                    def get_registry_config(self):
+                        return extend_framework_registry(
+                            providers=[
+                                ProviderRegistration(
+                                    module_path="site_boom_module",
+                                    class_name="BoomAdapter",
+                                    name="site-boom",
+                                )
+                            ]
+                        )
+                """
+            )
+        )
+        manager = RegistryManager(registry_path=str(registry_file))
+        manager.initialize(silent=True)
+
+        assert "site-boom" in manager.list_providers()
+        assert manager.get_provider("anthropic") is not None
+        with pytest.raises(RuntimeError, match=r"Provider 'site-boom'.*'site_boom_module'"):
+            manager.get_provider("site-boom")
 
 
 class TestProviderMergingEdgeCases:

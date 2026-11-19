@@ -13,6 +13,7 @@ Higher-level reasoning is handled by the Osprey agent layer.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import dataclasses
 import tempfile
@@ -258,6 +259,54 @@ class ARIELSearchService:
 
             self._embedder = semantic_provider_class(self.config)()
         return self._embedder
+
+    def resolve_search_providers(self) -> None:
+        """Import the provider classes this service's searches will ask for.
+
+        A long-running server calls this at startup, before it serves a
+        request, once its registry is initialized. The first lookup of a
+        provider in a process imports its adapter module (and LiteLLM behind
+        it), which takes seconds of CPU. A search makes that lookup on the
+        event loop, so on a running server it would hold up the timers of every
+        other request on that loop. After this call the lookups are cache hits.
+
+        Which lanes ask is read from the descriptors of the registered search
+        modules the configuration enables, the facts :meth:`_run_module`
+        dispatches on, so a deployment's own mode counts as a built-in does:
+
+        * the semantic embedder, through :func:`semantic_provider_class`, when
+          an enabled mode's descriptor sets ``needs_embedder`` (the mode is
+          handed :meth:`_get_embedder`), or when ``config.get_search_model()``
+          names a model (the condition on which the hybrid ``rrf`` strategy
+          resolves the same class);
+        * the picture lane's provider, through
+          :meth:`ImageLaneSettings.from_ariel_config`, when an enabled mode
+          gets the picture lane by default (:meth:`_resolve_include_images`).
+
+        Nothing raises. A provider that does not resolve here is resolved
+        again by the first search that needs it, which reports the failure
+        exactly as it would without this call: the provider registry caches no
+        failed lookup.
+        """
+        try:
+            descriptors = self._registered_descriptors()
+        except Exception:
+            return
+        enabled = [
+            descriptor
+            for name, descriptor in descriptors.items()
+            if self.config.is_search_module_enabled(name)
+        ]
+        if any(d.needs_embedder for d in enabled) or self.config.get_search_model():
+            from osprey.services.ariel_search.search.semantic import semantic_provider_class
+
+            with contextlib.suppress(Exception):
+                semantic_provider_class(self.config)
+        if any(self._resolve_include_images({}, d)[0] for d in enabled):
+            from osprey.services.ariel_search.search.image_lane import ImageLaneSettings
+
+            with contextlib.suppress(Exception):
+                ImageLaneSettings.from_ariel_config(self.config)
 
     @staticmethod
     def _diagnostic_result(

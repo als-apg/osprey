@@ -118,6 +118,9 @@ class _ServiceDouble:
         """Report the embedding table as present (the lifespan probes it)."""
         return None
 
+    def resolve_search_providers(self) -> None:
+        """Resolve nothing (the lifespan preloads the search providers through it)."""
+
     async def __aenter__(self) -> _ServiceDouble:
         """Enter the async context the service protocol defines."""
         return self

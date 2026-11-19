@@ -33,7 +33,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
         return RegistryConfig(
             # Framework AI model providers — the built-in table lives in
             # osprey.models.provider_registry (single source of truth).
-            # RegistryManager._initialize_providers() delegates to it.
+            # initialize_providers() applies the application's registrations
+            # and exclusions to it; no adapter is imported at registry init.
             providers=[],
             # The connectors the connectors package ships, from its own table:
             # the module paths name implementation modules of that package,

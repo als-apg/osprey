@@ -5,6 +5,7 @@ REST endpoints for search, entry management, status, and settings.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json as _json
 import os
@@ -51,6 +52,8 @@ from osprey_connectors.logger import get_logger
 if TYPE_CHECKING:
     from osprey.facility.records import FacilityRecords
     from osprey.services.ariel_search import ARIELSearchService
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
     from osprey.services.ariel_search.enhancement.status import EnhancementContext
     from osprey.services.ariel_search.entry_fields import ResolvedEntryWrite
     from osprey.services.ariel_search.filters import (
@@ -1299,21 +1302,56 @@ def _stored_attempts(value: Any) -> int | None:
         return None
 
 
+def _build_module(config: ARIELConfig, module: str) -> BaseEnhancementModule | None:
+    """``module`` built alone through the enhancement factory (configured and bound).
+
+    Returns None when the module is not enabled or not registered. Building
+    configures the module, and a module's ``configure()`` resolves its provider.
+    """
+    from osprey.services.ariel_search.enhancement.factory import create_enhancers_from_config
+
+    built = create_enhancers_from_config(config, stage="all", names=[module])
+    return built[0] if built else None
+
+
+def resolve_inspector_providers(config: ARIELConfig) -> None:
+    """Build every enabled enhancement module once, as the entry inspector does.
+
+    The inspector builds each enabled module for every entry it shows, and the
+    first build of a module in a process imports its provider's adapter
+    (seconds of CPU) on the event loop. The app's lifespan calls this before
+    the app serves a request, so those builds find the classes already loaded.
+    Each module is built alone and nothing raises: a module that fails here is
+    built again by the inspector, which reports the failure as it does
+    without this call.
+
+    Args:
+        config: The panel's ARIEL configuration.
+    """
+    from osprey.services.ariel_search.enhancement.status import enabled_modules
+
+    try:
+        modules = enabled_modules(config)
+    except Exception:
+        return
+    for module in modules:
+        with contextlib.suppress(Exception):
+            _build_module(config, module)
+
+
 async def _module_detail(
     service: ARIELSearchService, module: str, entry_id: str
 ) -> dict[str, Any] | None:
     """``module``'s own ``inspect()`` output for one entry, None on any failure.
 
-    The module is built alone through the enhancement factory (configured and
-    bound), so one module's bad configuration never costs another its detail.
+    The module is built alone, so one module's bad configuration never costs
+    another its detail.
     """
-    from osprey.services.ariel_search.enhancement.factory import create_enhancers_from_config
-
     try:
-        built = create_enhancers_from_config(service.config, stage="all", names=[module])
-        if not built:
+        built = _build_module(service.config, module)
+        if built is None:
             return None
-        detail = await built[0].inspect(entry_id, service.repository)
+        detail = await built.inspect(entry_id, service.repository)
     except Exception as exc:
         logger.warning("Inspector detail for %s on %s failed: %s", module, entry_id, exc)
         return None

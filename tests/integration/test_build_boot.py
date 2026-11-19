@@ -10,17 +10,36 @@ dependencies are installed), then for every entry in the generated
   2. Spawns the server and performs a JSON-RPC ``initialize`` + ``tools/list``
      handshake to verify the documented tools are advertised.
 
-Each preset becomes a parametrized test ID, and CI matrices invoke the right
-preset via ``pytest -k <preset>`` — so every test here is parametrized over
-``PRESETS``. One that is not carries no preset in its id and is selected by no
-cell of the matrix.
+Each case in ``CASES`` becomes a parametrized test ID, and each cell of the CI
+matrix selects exactly its own case's ids with ``pytest -k "[<case>]"`` — so
+every test here is parametrized over the cases. One that is not carries no case
+in its id and is selected by no cell of the matrix. The brackets make the match
+exact: ``[demo]`` is not a substring of ``[demo-orbit-bump]``. They also make it
+the whole bracket, so a test given a second parametrize (ids such as
+``[stdio-demo]``) is selected by no cell either; the wiring guard collects this
+module and fails on any id that no cell selects, or that two cells on the same
+Python select; a case may have a cell on more than one Python.
 
-Wall-clock budget: ~2 min/preset with a warm uv cache; cold cache may take
+A case is a preset as ``osprey init`` writes it, or, for a case named in
+``WITH_APP``, a preset with an application turned on at init. The plain
+``demo`` case stays app-free: the demo preset ships no application. The
+``demo-orbit-bump`` case is the one full install with an application enabled:
+the project venv installs osprey and the app's wheel offline in one resolve,
+and the app's own tool server boots from it.
+
+Each case's build (``project_dir``) is the build an operator runs, lifecycle
+phases included. It runs offline when uv's cache can serve it
+(``offline_build_env``) and with no route to an index (``NO_ROUTE``), so a
+build that reaches for the network fails instead of passing on what it fetched.
+The ``--skip-deps`` rebuild of the preset cases installs nothing and runs with
+the host's network as it is.
+
+Wall-clock budget: ~2 min/case with a warm uv cache; cold cache may take
 5-6 min on the first run after ``uv.lock`` changes. That cost is what the
 module-wide ``slow`` marker is for: a contended local run deselects it with
 ``-m "not slow"``, the selector ``scripts/check.py quick`` already passes, while
 CI still runs it — the boot-smoke job names this file by path, one matrix cell
-per preset, so no marker deselection and no lane-level sweep reaches it.
+per case, so no marker deselection and no lane-level sweep reaches it.
 """
 
 from __future__ import annotations
@@ -32,26 +51,39 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import psutil
 import pytest
 
 from tests.e2e._deploy_support import find_osprey_console_script
+from tests.fixtures.lifecycle_repo import ENABLE_ORBIT_BUMP, ORBIT_BUMP
 from tests.integration._mcp_handshake import (
     MCPHandshakeError,
     assert_tools_superset,
     list_mcp_tools,
 )
+from tests.test_offline_build_env import NO_ROUTE
 
 pytestmark = pytest.mark.slow
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Presets shipped in src/osprey/profiles/presets that ship with this repo.
-# osprey-edu adds ``education`` via an additional parametrize entry on top of
-# this list; education-specific assertions live in osprey-edu's own test file.
-PRESETS = ["hello-world", "demo"]
+# The cases: the presets shipped in src/osprey/profiles/presets, and each case
+# of ``WITH_APP``. The ``case`` parameter is module-scoped because
+# ``project_dir`` is, so a case added on top of this list (osprey-edu adds
+# ``education``) is parametrized with ``scope="module"`` too; a function-scoped ``case`` errors
+# with ``ScopeMismatch`` at setup.
+CASES = ["hello-world", "demo", "demo-orbit-bump"]
+
+#: The cases that turn an application on at init, by case id: the preset the
+#: case initialises and the ``osprey init --set`` that enables the app. Any
+#: other case initialises the preset of its own name, as init writes it.
+WITH_APP: dict[str, tuple[str, str]] = {"demo-orbit-bump": ("demo", ENABLE_ORBIT_BUMP)}
+
+#: The cases that are a preset as init writes it, with no application turned on.
+PRESET_CASES = [case for case in CASES if case not in WITH_APP]
 
 
 # Hard-coded expected tools per logical .mcp.json server name. Subset
@@ -71,6 +103,8 @@ EXPECTED_TOOLS: dict[str, set[str]] = {
     # Seeded by the hello-world preset, not a framework server: the worked
     # example a first-time user gets from `osprey init --preset hello-world`.
     "example_server": {"example_status"},
+    # The orbit-bump application's own tool server, served from its wheel.
+    ORBIT_BUMP: {"bump_state", "plan_bump", "discard_bump", "recompute_orm", "apply_bump"},
 }
 # channel-finder: enumerated dynamically since which backend is enabled
 # (hierarchical | in_context | middle_layer) depends on preset config.
@@ -98,60 +132,53 @@ def _forbidden_path_fragments() -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def build_outputs(
-    request: pytest.FixtureRequest,
+def project_dir(
+    case: str,
     tmp_path_factory: pytest.TempPathFactory,
     offline_build_env: dict[str, str],
-) -> dict[str, Path]:
-    """Build every preset once per module run; reuse across tests.
+) -> Iterator[Path]:
+    """The case's build output, built once and reused by every test of the case.
 
-    Module-scoped because ``osprey build`` is the slow step (uv sync inside
-    the project venv). Each test asserts a different invariant against the
-    same artefact.
+    Module-scoped over the module-scoped ``case`` parameter, so a run builds
+    only the cases it selects, one at a time: ``osprey build`` is the slow step
+    (uv sync inside the project venv), and each test asserts a different
+    invariant against the same artefact. The venv is what these tests boot
+    from, so it lives as long as the case's tests do and no longer, a build
+    that fails half-way included.
+
+    The build runs the profile's lifecycle phases, as an operator's
+    ``osprey build`` does. The demo's ``canopy-payload`` pre_build stages
+    nothing here: tests/conftest.py sets ``OSPREY_CANOPY_PAYLOAD_CHECK=0`` for
+    every test build, and the environment passes it on.
     """
-    outputs: dict[str, Path] = {}
-    base = tmp_path_factory.mktemp("preset_builds")
+    repo = tmp_path_factory.mktemp("case_builds") / case
+    build_dir = repo / "build"
     osprey_bin = find_osprey_console_script()
-
-    def _drop_project_venvs() -> None:
-        for preset in PRESETS:
-            shutil.rmtree(base / preset / "build" / ".venv", ignore_errors=True)
-
-    # The venv is what these tests boot from, so it lives as long as the module
-    # does and no longer. Registered before the first build, so a build that
-    # fails half-way leaves none behind either.
-    request.addfinalizer(_drop_project_venvs)
-
-    for preset in PRESETS:
-        repo = base / preset
-        project_dir = repo / "build"
-        _init_repo(osprey_bin, repo, preset)
-        cmd = [
-            str(osprey_bin),
-            "build",
-            "--repo",
-            str(repo),
-            "--skip-lifecycle",
-        ]
+    # No route to an index only when uv's cache serves the install; without uv
+    # the build installs with pip, which has no cache-only mode.
+    offline = {**offline_build_env, **NO_ROUTE} if offline_build_env else {}
+    try:
+        _init_repo(osprey_bin, repo, case)
         proc = subprocess.run(
-            cmd,
+            [str(osprey_bin), "build", "--repo", str(repo)],
             capture_output=True,
             text=True,
             # The install into the project venv is the long step of a build,
             # and it is served from uv's cache here. This budget bounds a build
             # that is stuck.
             timeout=1200,
-            env={**os.environ, "CLAUDECODE": "", **offline_build_env},
+            env={**os.environ, "CLAUDECODE": "", **offline},
         )
         if proc.returncode != 0:
             pytest.fail(
-                f"osprey build {preset} failed (rc={proc.returncode}):\n"
+                f"osprey build {case} failed (rc={proc.returncode}):\n"
                 f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
             )
-        if not project_dir.exists():
-            pytest.fail(f"build succeeded but project dir missing: {project_dir}")
-        outputs[preset] = project_dir
-    return outputs
+        if not build_dir.exists():
+            pytest.fail(f"build succeeded but project dir missing: {build_dir}")
+        yield build_dir
+    finally:
+        shutil.rmtree(build_dir / ".venv", ignore_errors=True)
 
 
 #: How long a child may go without consuming any CPU before the wait calls it
@@ -251,19 +278,22 @@ def _run_to_completion(
     return subprocess.CompletedProcess(cmd, popen.returncode, stdout, stderr)
 
 
-def _init_repo(osprey_bin: Path, repo: Path, preset: str) -> None:
-    """Materialize the deployment repo a build then renders.
+def _init_repo(osprey_bin: Path, repo: Path, case: str) -> None:
+    """Materialize the deployment repo a build of *case* then renders.
 
     Out of process, like the build itself: this module exists to exercise the
     real console script an operator runs, so the materialization half has to go
-    through it too. ``--no-git`` because nothing here reads the history.
+    through it too. ``--no-git`` because nothing here reads the history. A case
+    of ``WITH_APP`` initialises its preset with the app's ``--set``.
     """
+    preset, *sets = WITH_APP.get(case, (case,))
+    edits = [arg for assignment in sets for arg in ("--set", assignment)]
     proc = _run_to_completion(
-        [str(osprey_bin), "init", str(repo), "--preset", preset, "--no-git"],
+        [str(osprey_bin), "init", str(repo), "--preset", preset, "--no-git", *edits],
         env={**os.environ, "CLAUDECODE": ""},
     )
     assert proc.returncode == 0, (
-        f"osprey init failed for {preset} (rc={proc.returncode})\n"
+        f"osprey init failed for {case} (rc={proc.returncode})\n"
         f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
     )
 
@@ -279,21 +309,20 @@ def _load_mcp_json(project_dir: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("preset", PRESETS)
-def test_build_paths_are_self_consistent(build_outputs: dict[str, Path], preset: str) -> None:
+@pytest.mark.parametrize("case", CASES, scope="module")
+def test_build_paths_are_self_consistent(project_dir: Path, case: str) -> None:
     """Every command + path string in .mcp.json must live inside the build dir.
 
     This is the test that would catch the stale-path-after-worktree-rename
     bug. If ``mv`` is run on a built project, the venv-internal paths break;
     here we assert they were valid the moment the build finished.
     """
-    project_dir = build_outputs[preset]
     project_str = str(project_dir)
     forbidden = _forbidden_path_fragments()
 
     cfg = _load_mcp_json(project_dir)
     servers = cfg.get("mcpServers", {})
-    assert servers, f".mcp.json has no servers for preset {preset}"
+    assert servers, f".mcp.json has no servers for case {case}"
 
     failures: list[str] = []
     for name, entry in servers.items():
@@ -326,15 +355,13 @@ def test_build_paths_are_self_consistent(build_outputs: dict[str, Path], preset:
                     failures.append(f"{name}: env {k}={v} references host source path")
 
     assert not failures, (
-        f".mcp.json for preset {preset!r} has stale or escaping paths:\n  " + "\n  ".join(failures)
+        f".mcp.json for case {case!r} has stale or escaping paths:\n  " + "\n  ".join(failures)
     )
 
 
-@pytest.mark.parametrize("preset", PRESETS)
-def test_stale_command_path_fails_fast(
-    build_outputs: dict[str, Path], preset: str, tmp_path: Path
-) -> None:
-    """Per-preset: a stale command path in .mcp.json must fail fast, not hang.
+@pytest.mark.parametrize("case", CASES, scope="module")
+def test_stale_command_path_fails_fast(project_dir: Path, case: str, tmp_path: Path) -> None:
+    """Per-case: a stale command path in .mcp.json must fail fast, not hang.
 
     Takes each stdio server's real .mcp.json entry and rewrites only its
     ``command`` to a non-existent location. Every other arg/env is preserved,
@@ -343,9 +370,9 @@ def test_stale_command_path_fails_fast(
     ``_mcp_handshake.list_mcp_tools`` must not swallow ``FileNotFoundError``
     and replace fast failure with hangs.
     """
-    cfg = _load_mcp_json(build_outputs[preset])
+    cfg = _load_mcp_json(project_dir)
     servers = cfg.get("mcpServers", {})
-    assert servers, f".mcp.json has no servers for preset {preset}"
+    assert servers, f".mcp.json has no servers for case {case}"
 
     saw_stdio = False
     for _name, entry in servers.items():
@@ -360,18 +387,17 @@ def test_stale_command_path_fails_fast(
                 env=entry.get("env"),
                 timeout=5.0,
             )
-    assert saw_stdio, f"preset {preset!r} has no stdio MCP server to probe"
+    assert saw_stdio, f"case {case!r} has no stdio MCP server to probe"
 
 
-@pytest.mark.parametrize("preset", PRESETS)
-def test_mcp_servers_register_expected_tools(build_outputs: dict[str, Path], preset: str) -> None:
+@pytest.mark.parametrize("case", CASES, scope="module")
+def test_mcp_servers_register_expected_tools(project_dir: Path, case: str) -> None:
     """Spawn every stdio MCP server and verify it advertises the documented tools."""
-    project_dir = build_outputs[preset]
     cfg = _load_mcp_json(project_dir)
     servers = cfg.get("mcpServers", {})
 
     if not servers:
-        pytest.skip(f"no MCP servers configured for preset {preset}")
+        pytest.skip(f"no MCP servers configured for case {case}")
 
     failures: list[str] = []
     for name, entry in servers.items():
@@ -407,12 +433,12 @@ def test_mcp_servers_register_expected_tools(build_outputs: dict[str, Path], pre
         except AssertionError as exc:
             failures.append(str(exc))
 
-    assert not failures, f"MCP boot smoke failed for preset {preset!r}:\n" + "\n".join(failures)
+    assert not failures, f"MCP boot smoke failed for case {case!r}:\n" + "\n".join(failures)
 
 
-@pytest.mark.parametrize("preset", PRESETS)
+@pytest.mark.parametrize("case", PRESET_CASES, scope="module")
 def test_skip_deps_command_resolves_importable_python(
-    preset: str, tmp_path_factory: pytest.TempPathFactory
+    case: str, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     """``--skip-deps`` builds must write a python that has osprey importable.
 
@@ -426,12 +452,16 @@ def test_skip_deps_command_resolves_importable_python(
 
     Locks the contract: ``--skip-deps`` must pin to ``sys.executable``
     (the python running osprey-build), not gamble on PATH resolution.
+
+    The preset cases only. The contract is the interpreter the build pins,
+    which an application does not change, and a ``--skip-deps`` build with an
+    application would pay for the app's wheel and prove nothing more.
     """
-    base = tmp_path_factory.mktemp(f"skipdeps_{preset}")
-    repo = base / preset
+    base = tmp_path_factory.mktemp(f"skipdeps_{case}")
+    repo = base / case
     project_dir = repo / "build"
     osprey_bin = find_osprey_console_script()
-    _init_repo(osprey_bin, repo, preset)
+    _init_repo(osprey_bin, repo, case)
     proc = _run_to_completion(
         [
             str(osprey_bin),
@@ -445,13 +475,13 @@ def test_skip_deps_command_resolves_importable_python(
     )
     if proc.returncode != 0:
         pytest.fail(
-            f"osprey build --repo (preset {preset}) failed:\n"
+            f"osprey build --repo (case {case}) failed:\n"
             f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
         )
 
     cfg = _load_mcp_json(project_dir)
     servers = cfg.get("mcpServers", {})
-    assert servers, f".mcp.json has no servers for preset {preset}"
+    assert servers, f".mcp.json has no servers for case {case}"
 
     failures: list[str] = []
     for name, entry in servers.items():
@@ -471,7 +501,7 @@ def test_skip_deps_command_resolves_importable_python(
             )
 
     assert not failures, (
-        f"--skip-deps build for {preset!r} produced unimportable commands:\n  "
+        f"--skip-deps build for {case!r} produced unimportable commands:\n  "
         + "\n  ".join(failures)
     )
 

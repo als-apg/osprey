@@ -24,11 +24,6 @@ from tests.services.ariel_search.llama_stub import MODEL
 
 DIMS = 1024
 TABLE = image_table_name(MODEL, DIMS)
-#: The lane's own deadline plus room for a loaded CI runner to wake the event
-#: loop late. Well under a doubled timeout, so a lane that waits a provider
-#: out, or uses a looser deadline, still fails the bound.
-LANE_DEADLINE_S = image_lane.QUERY_EMBEDDING_TIMEOUT_S + 1
-BOUND_S = LANE_DEADLINE_S + 3.0
 
 
 #: Query-embed p95 under bulk picture embedding on native amd64, with the
@@ -72,6 +67,40 @@ def _repo(pool: Any) -> SimpleNamespace:
 
 def _pool(rows: Any = None) -> _FakePool:
     return _FakePool(rows_for={f"FROM {TABLE}": rows if rows is not None else []})
+
+
+def _watch_lane(monkeypatch, search_calls, query_timeout_s: float | None = 0.4):
+    """Shrink the lane's budgets and record the deadlines it hands out.
+
+    A test that waits a budget out then waits the patched one, not the shipped
+    5 s; ``query_timeout_s=None`` keeps the shipped query timeout. ``embed``
+    collects the ``timeout_s`` of each ``search_calls.run``, ``sql`` the budget
+    of each ``asyncio.wait_for`` the lane makes (only its SQL makes one).
+    ``bound`` is a hang guard: the lane's deadline (query timeout + 1 s) plus
+    3 s for a loaded runner to wake the event loop late.
+    """
+    if query_timeout_s is not None:
+        monkeypatch.setattr(image_lane, "QUERY_EMBEDDING_TIMEOUT_S", query_timeout_s)
+    monkeypatch.setattr(image_lane, "IMAGE_LANE_SQL_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(image_lane, "STATEMENT_TIMEOUT_MS", 100)
+    seen = SimpleNamespace(embed=[], sql=[], bound=image_lane.QUERY_EMBEDDING_TIMEOUT_S + 1 + 3.0)
+    real_run = search_calls.run
+
+    async def run(fn, *args, timeout_s=None, **kwargs):
+        seen.embed.append(timeout_s)
+        return await real_run(fn, *args, timeout_s=timeout_s, **kwargs)
+
+    class _Asyncio:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(asyncio, name)
+
+        async def wait_for(self, aw, timeout):
+            seen.sql.append(timeout)
+            return await asyncio.wait_for(aw, timeout)
+
+    monkeypatch.setattr(search_calls, "run", run)
+    monkeypatch.setattr(image_lane, "asyncio", _Asyncio())
+    return seen
 
 
 class _Clock:
@@ -282,8 +311,11 @@ class TestVectorSql:
 
     @pytest.mark.usefixtures("fake_provider")
     async def test_a_statement_past_its_timeout_gives_text_only_within_the_bound(
-        self, search_calls
+        self, search_calls, monkeypatch
     ):
+        # The fake embed returns at once; the shipped query timeout keeps the
+        # lane deadline from cutting the SQL budget below the SQL constants.
+        lane = _watch_lane(monkeypatch, search_calls, query_timeout_s=None)
         release = asyncio.Event()
 
         class _SlowConn:
@@ -319,7 +351,10 @@ class TestVectorSql:
         )
         elapsed = time.monotonic() - started
         assert hits is None
-        assert elapsed < BOUND_S
+        assert lane.sql == [
+            image_lane.IMAGE_LANE_SQL_TIMEOUT_S + image_lane.STATEMENT_TIMEOUT_MS / 1000
+        ]
+        assert elapsed < lane.bound
         assert image_lane.last_unavailable_reason() == "unreachable"
 
 
@@ -330,23 +365,29 @@ class TestVectorSql:
 
 class TestProviderBounds:
     async def test_a_sleeping_embed_call_receives_the_query_timeout(
-        self, fake_provider, search_calls
+        self, fake_provider, search_calls, monkeypatch
     ):
-        fake_provider.sleep_s = 30.0
+        lane = _watch_lane(monkeypatch, search_calls)
+        # The provider answers just short of twice the lane's deadline: the
+        # lane giving up first proves the call obeys the deadline it is passed.
+        fake_provider.sleep_s = 2 * (image_lane.QUERY_EMBEDDING_TIMEOUT_S + 1) - 0.2
         started = time.monotonic()
         hits = await image_lane.search_images(
             "q", _repo(_pool()), _ariel_config(), fetch_limit=10, search_calls=search_calls
         )
         elapsed = time.monotonic() - started
         assert hits is None
-        assert fake_provider.embed_calls[0]["timeout"] == 5
+        assert fake_provider.embed_calls[0]["timeout"] == image_lane.QUERY_EMBEDDING_TIMEOUT_S
+        assert lane.embed == [image_lane.QUERY_EMBEDDING_TIMEOUT_S + 1]
+        assert lane.sql == []
         assert not fake_provider.returned.is_set()
-        assert elapsed < BOUND_S
+        assert elapsed < lane.bound
         assert image_lane.last_unavailable_reason() == "unreachable"
 
     async def test_a_slow_resolver_probe_leaves_the_loop_free(
         self, llama_stub, monkeypatch, search_calls
     ):
+        lane = _watch_lane(monkeypatch, search_calls)
         stub = llama_stub()
         release = threading.Event()
         monkeypatch.setattr(_local_server, "probe", lambda url, path, timeout: release.wait(10))
@@ -373,9 +414,46 @@ class TestProviderBounds:
             ticker.cancel()
             release.set()
         assert hits is None
-        assert elapsed < BOUND_S
+        assert lane.embed == [image_lane.QUERY_EMBEDDING_TIMEOUT_S + 1]
+        assert lane.sql == []
+        assert elapsed < lane.bound
         assert ticks >= elapsed / 0.05 * 0.5
         assert stub.embeddings == []
+
+    async def test_a_providers_first_import_is_not_charged_to_the_lane_deadline(
+        self, tmp_path, monkeypatch, search_calls
+    ):
+        # Registry init imports no provider adapter, so the first picture
+        # search of a process imports the configured one. The lane resolves it
+        # before its deadline starts, so the deadline holds the embedding and
+        # the SQL only: here the import outlasts the whole lane budget.
+        from tests.services.ariel_search.slow_provider import IMAGE_EMBEDDING, SlowProviders
+
+        monkeypatch.setattr(image_lane, "QUERY_EMBEDDING_TIMEOUT_S", 0.25)
+        lane_budget_s = image_lane.QUERY_EMBEDDING_TIMEOUT_S + 1
+        SlowProviders(tmp_path, monkeypatch).register(
+            "slow-img", IMAGE_EMBEDDING, sleep_s=lane_budget_s + 0.25
+        )
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "image_embedding": {
+                        "enabled": True,
+                        "provider": "slow-img",
+                        "model": MODEL,
+                        "dimensions": DIMS,
+                    }
+                },
+            }
+        )
+
+        hits = await image_lane.search_images(
+            "q", _repo(_pool()), config, fetch_limit=10, search_calls=search_calls
+        )
+
+        assert hits == {}
+        assert image_lane.last_unavailable_reason() is None
 
 
 # ---------------------------------------------------------------------------
@@ -666,13 +744,20 @@ class TestAgainstServer:
     async def test_fallback_found_after_cooldown(
         self, reserve_port, llama_stub, monkeypatch, clock, search_calls
     ):
+        # The second query makes up to four real HTTP calls to the stub inside
+        # the lane deadline, so it gets 3 s here (query timeout + 1 s).
+        _watch_lane(monkeypatch, search_calls, query_timeout_s=2.0)
+        # The configured URL's probe outlasts the resolver's deadline (half the
+        # query timeout), so the first query gives up on the walk, which goes
+        # on to find and cache the fallback.
+        configured_probe_s = image_lane.QUERY_EMBEDDING_TIMEOUT_S / 2 + 0.5
         stub = llama_stub()
         configured = _refused_url(reserve_port())
         real_probe = _local_server.probe
 
         def _probe(url, path, timeout):
             if url.rstrip("/") == configured:
-                time.sleep(3)
+                time.sleep(configured_probe_s)
                 return False
             return real_probe(url, path, timeout)
 

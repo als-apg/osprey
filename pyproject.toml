@@ -618,6 +618,9 @@ files = [
     "packages/osprey-connectors/src",
     "packages/osprey-optimizer/src",
     "packages/pyaml-cs-osprey/src",
+    # Static type contracts: files that prove a typing property only the type
+    # check can see. They are not test modules, so pytest does not collect them.
+    "tests/type_contracts",
 ]
 warn_return_any = true
 warn_unused_configs = true
