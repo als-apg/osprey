@@ -82,7 +82,7 @@ from tests.e2e._deploy_support import (
 )
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
-from tests.e2e.sdk_helpers import arm_deployed_queue_owner
+from tests.e2e.sdk_helpers import approving_write_requests, arm_deployed_queue_owner
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -255,6 +255,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     _orm_stack.seed_repo_env(repo)
     # The plan writes, and the worker's writes follow the add's owner's switch:
     # this login's switch on in the deployment's record, before `up`.
+    # At `asked` each plan's worker asks for its write authorization; the
+    # approver around the yield below answers it the way a person would.
     arm_deployed_queue_owner(repo)
 
     # Force a fresh --dev build so the deployed bridge container runs CURRENT
@@ -299,13 +301,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         correctors, bpms = _orm_stack.staged_devices(repo)
         assert correctors and bpms, "the build staged no plan devices for the worker"
 
-        yield DeployedStack(
-            repo=repo,
-            correctors=correctors,
-            bpms=bpms,
-            limits=_orm_stack.channel_limits(repo),
-            token=env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
-        )
+        with approving_write_requests(repo):
+            yield DeployedStack(
+                repo=repo,
+                correctors=correctors,
+                bpms=bpms,
+                limits=_orm_stack.channel_limits(repo),
+                token=env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
+            )
     finally:
         down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=600)
         if down.returncode != 0:

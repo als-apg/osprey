@@ -89,7 +89,7 @@ from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import env_value, format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.sdk_helpers import arm_deployed_queue_owner
+from tests.e2e.sdk_helpers import approving_write_requests, arm_deployed_queue_owner
 
 # Distinct from every sibling e2e module's pinned bridge port (_orm_stack.py's
 # 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
@@ -408,6 +408,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     _orm_stack.seed_repo_env(repo)
     # The plans write, and the worker's writes follow the add's owner's switch:
     # this login's switch on in the deployment's record, before `up`.
+    # At `asked` each plan's worker asks for its write authorization; the
+    # approver around the yield below answers it the way a person would.
     arm_deployed_queue_owner(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
@@ -442,13 +444,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
         plan_name, plan_args = _discover_writes_plan(correctors, bpms, repo)
 
-        yield DeployedStack(
-            repo=repo,
-            correctors=correctors,
-            bpms=bpms,
-            plan_name=plan_name,
-            plan_args=plan_args,
-        )
+        with approving_write_requests(repo):
+            yield DeployedStack(
+                repo=repo,
+                correctors=correctors,
+                bpms=bpms,
+                plan_name=plan_name,
+                plan_args=plan_args,
+            )
     finally:
         down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:

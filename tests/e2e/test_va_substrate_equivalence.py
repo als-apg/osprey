@@ -107,7 +107,7 @@ from tests.e2e._deploy_support import (
 )
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
-from tests.e2e.sdk_helpers import render_dir, set_switch_in_record
+from tests.e2e.sdk_helpers import approving_write_requests, render_dir, set_switch_in_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
@@ -561,6 +561,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         pytest.fail(format_failure("osprey build", build))
 
     _write_env(repo)
+    # At `asked` each plan's worker asks for its write authorization; the
+    # approver around the yield below answers it the way a person would.
     _arm_queue_owner(repo)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
@@ -594,7 +596,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             _queue_drive.wait_for_worker_environment(BRIDGE_URL)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
-        yield DeployedStack(repo=repo, pairs=pairs, limits=limits)
+        with approving_write_requests(repo):
+            yield DeployedStack(repo=repo, pairs=pairs, limits=limits)
     finally:
         down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=300)
         if down.returncode != 0:
