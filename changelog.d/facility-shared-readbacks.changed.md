@@ -1,0 +1,1 @@
+Facility: several setpoints may name one readback as their `pair` (a set and a reset command read back on one channel). The build no longer refuses it; the simulation drives a readback from its setpoint only where exactly one setpoint names it, and drives a shared readback from none. Panels draws a shared readback beside each of its setpoints.

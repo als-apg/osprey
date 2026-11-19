@@ -91,12 +91,10 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     limits: dict[str, dict[str, Any]] = {
         r["address"]: r for r in (document.get("limits") or {}).get("records", [])
     }
-    setpoint_of = {
-        channel.get("pair", channel["id"]): channel["id"]
-        for channel in channels.values()
-        if _role(channel) == "setpoint"
-    }
-    pairs = frozenset(pair for pair, setpoint in setpoint_of.items() if pair != setpoint)
+    from osprey.facility.pairing import simulated_pairs
+
+    setpoint_of = simulated_pairs(channels)
+    pairs = frozenset(setpoint_of)
     engines = metadata.entry_points(group=ENTRY_POINT_GROUP)
     errors: list[FacilityBuildError] = []
     for model in document.get("models", []):

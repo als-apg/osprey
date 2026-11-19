@@ -151,6 +151,24 @@ def test_a_pair_a_layer_infers_by_a_rule_is_inferred_by_that_rule(tmp_path: Path
     )
 
 
+def test_a_readback_two_setpoints_name_is_drawn_beside_each(tmp_path: Path) -> None:
+    def shared(document: dict[str, Any]) -> None:
+        document["channels"].append(
+            {
+                "id": "XR01-QF1:Trim-SP",
+                "role": "setpoint",
+                "pair": "XR01-QF1:Current-RB",
+                "on": {"device": "XR01:QF1"},
+                "provenance": {"sources": [], "fixes": [], "defaults": []},
+            }
+        )
+
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", shared), PANELS_DIR)
+    for setpoint in ("XR01-QF1:Current-SP", "XR01-QF1:Trim-SP"):
+        pair = graph.pair(setpoint)
+        assert pair is not None and pair.readback == "XR01-QF1:Current-RB"
+
+
 def test_a_readback_or_a_left_out_setpoint_has_no_pair(panel_graph: PanelGraph) -> None:
     assert panel_graph.pair("XR01-QF1:Current-RB") is None
     assert panel_graph.pair(VA_CHANNEL) is None

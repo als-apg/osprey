@@ -632,13 +632,9 @@ class TestPairRules:
         error = _rule(tmp_path, files, "pair-invalid")
         assert error.detail == "`pair` names setpoint channel Q1:SP"
 
-    def test_a_readback_paired_twice(self, tmp_path: Path) -> None:
+    def test_a_readback_two_setpoints_name_is_the_pair_of_both(self, tmp_path: Path) -> None:
         files = _with_channels({"id": "T", "role": "setpoint", "pair": "Q1:RB"})
-        error = _rule(tmp_path, files, "pair-invalid")
-        assert (error.record_id, error.detail) == (
-            "Q1:RB",
-            "the pair of setpoints Q1:SP, T",
-        )
+        assert _run(tmp_path, files).ok
 
     def test_a_setpoint_without_pair_pairs_itself(self, tmp_path: Path) -> None:
         files = _with_channels({"id": "T", "role": "setpoint"})

@@ -29,7 +29,9 @@ enums:
       setpoint:
         description: Written by a program; read back through its `pair`.
       readback:
-        description: Read only; the pair of at most one setpoint.
+        description: >-
+          Read only; the pair of any number of setpoints. The simulation drives it
+          from its setpoint only where exactly one names it.
       none:
         description: Neither written nor paired.
 

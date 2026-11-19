@@ -288,6 +288,15 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     limits = limits_document(inputs.records)
     unlisted_writable = _unlisted_setpoints_writable(inputs.rendered_config)
 
+    from osprey.facility.pairing import simulated_pairs
+
+    # the simulation follows a readback only from its one setpoint
+    followed = {
+        setpoint: readback
+        for readback, setpoint in simulated_pairs(
+            {str(c["id"]): c for c in doc.get("channels", [])}
+        ).items()
+    }
     channels: list[dict[str, Any]] = []
     for record in sorted(doc.get("channels", []), key=lambda channel: str(channel["id"])):
         address = str(record["id"])
@@ -303,7 +312,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
         channel: dict[str, Any] = {
             "address": address,
             "role": role,
-            "pair": (record.get("pair") or address) if role == SETPOINT else None,
+            "pair": followed.get(address, address) if role == SETPOINT else None,
             "value_type": record.get("value_type", DEFAULT_VALUE_TYPE),
             "unit": record.get("unit"),
             "description": record.get("description"),

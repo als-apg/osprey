@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.pairing import derive_pairs, signal_quantity
+from osprey.facility.pairing import derive_pairs, signal_quantity, simulated_pairs
 from osprey.facility.validate import StageReport, run_stages, vocabulary
 from tests.facility._mml_built import TREES, BuiltModel
 
@@ -93,6 +93,22 @@ def test_a_signal_without_a_role_word_of_its_side_has_no_quantity() -> None:
     assert signal_quantity("position_offset", "readback") is None
     assert signal_quantity("status", "readback") is None
     assert signal_quantity(None, "setpoint") is None
+
+
+# --- simulated_pairs -------------------------------------------------------------------
+
+
+def test_the_simulation_follows_a_readback_only_from_its_one_setpoint() -> None:
+    channels = {
+        **_sp("SP", pair="RB"),
+        **_sp("SET", pair="SHARED"),
+        **_sp("RESET", pair="SHARED"),
+        **_sp("SELF", pair="SELF"),
+        **_sp("NONE"),
+        **_rb("RB"),
+        **_rb("SHARED"),
+    }
+    assert simulated_pairs(channels) == {"RB": "SP"}
 
 
 # --- derive_pairs ----------------------------------------------------------------------

@@ -142,6 +142,9 @@ address means anything to OSPREY. What a channel is comes from its fields:
        one setpoint and one readback of that quantity share it, no stated
        ``pair`` names the readback, and the two agree in ``value_type``,
        ``options`` and ``shape``; else it pairs the setpoint with itself.
+       Several setpoints may name one readback (a set and a reset command
+       read back on one channel); the simulation then drives that readback
+       from none of them.
    * - ``tolerance``
      - On a float setpoint, how close its readback must come before a move
        counts as done: ``{absolute: <x>}`` in the channel's unit or

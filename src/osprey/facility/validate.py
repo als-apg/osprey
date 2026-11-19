@@ -1776,7 +1776,11 @@ class _Records:
     # --- pairs ---------------------------------------------------------------------
 
     def _pairs(self) -> Iterator[FacilityBuildError]:
-        readers: dict[str, list[str]] = {}
+        """Each setpoint's ``pair`` names a readback it agrees with. Several setpoints
+        may name one readback; the simulation follows it from none of them, so the
+        checks of what the simulation does (one model, the start value) apply only
+        to a readback one setpoint names."""
+        named: dict[str, list[str]] = {}
         for address, channel in sorted(self.index.channels.items()):
             role = channel.get("role", DEFAULT_ROLE)
             if role != "setpoint":
@@ -1791,29 +1795,15 @@ class _Records:
                     )
                 continue
             pair = str(channel.get("pair", address))
-            if pair == address:
-                continue
-            readers.setdefault(pair, []).append(address)
-            yield from self._pair(address, channel, pair)
-        for readback, setpoints in sorted(readers.items()):
-            if len(setpoints) > 1:
-                yield self._error(
-                    "pair-invalid",
-                    "channel",
-                    readback,
-                    sorted(
-                        {
-                            f
-                            for s in setpoints
-                            for f in stating_files(self.index.channels[s], "pair")
-                        }
-                    ),
-                    f"the pair of setpoints {', '.join(setpoints)}",
-                    "pair each setpoint with its own readback",
-                )
+            if pair != address:
+                named.setdefault(pair, []).append(address)
+        for pair, setpoints in sorted(named.items()):
+            for address in setpoints:
+                channel = self.index.channels[address]
+                yield from self._pair(address, channel, pair, simulated=len(setpoints) == 1)
 
     def _pair(
-        self, address: str, channel: Mapping[str, Any], pair: str
+        self, address: str, channel: Mapping[str, Any], pair: str, *, simulated: bool
     ) -> Iterator[FacilityBuildError]:
         files = stating_files(channel, "pair")
         target = self.index.channels[pair]
@@ -1861,6 +1851,8 @@ class _Records:
                 f"`unit` {unit} differs from its pair {pair}'s {theirs}",
                 _pair_remedy(address, channel, f"give {address} and {pair} the same `unit`"),
             )
+            return
+        if not simulated:
             return
         own = self.index.wired.get(address, set())
         theirs = self.index.wired.get(pair, set())

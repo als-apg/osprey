@@ -1062,6 +1062,23 @@ def test_a_setpoint_stating_a_null_pair_pairs_with_itself(
     assert _channel(variables, UNLISTED_SETPOINT)["pair"] == UNLISTED_SETPOINT
 
 
+def test_a_readback_several_setpoints_name_is_driven_by_none_of_them(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    setpoint, readback = next(
+        (str(record["id"]), str(record["pair"]))
+        for record in built_demo.facility["channels"]
+        if record.get("role") == "setpoint"
+        and record.get("pair") not in (None, record["id"])
+        and record["id"] != UNLISTED_SETPOINT
+    )
+    variables = _render_channels(tmp_path, built_demo, {UNLISTED_SETPOINT: {"pair": readback}}, ())
+
+    # the simulation follows a readback only where it is that readback's one setpoint
+    assert _channel(variables, setpoint)["pair"] == setpoint
+    assert _channel(variables, UNLISTED_SETPOINT)["pair"] == UNLISTED_SETPOINT
+
+
 def _with_channels(built: BuiltProject, *addresses: str) -> dict[str, Any]:
     facility = copy.deepcopy(built.facility)
     facility["channels"].extend({"id": address} for address in addresses)

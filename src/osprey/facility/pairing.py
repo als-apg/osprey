@@ -7,6 +7,10 @@ device, place or nothing, and whose signal names the same quantity. A pair a
 source states wins, and the readback it names is no other setpoint's candidate.
 When the location holds several setpoints or several readbacks of that quantity,
 or the two differ in value type, options or shape, the setpoint stays its own pair.
+
+Several setpoints may name one readback (a set and a reset command read back on
+one channel). The simulation follows a readback only from its one setpoint
+(:func:`simulated_pairs`); a readback several setpoints name follows none.
 """
 
 from __future__ import annotations
@@ -70,6 +74,26 @@ def location(channel: Mapping[str, Any]) -> tuple[Any, ...]:
     if endpoints:
         return ("endpoint_of", tuple(sorted(str(device) for device in endpoints)))
     return ("facility",)
+
+
+def simulated_pairs(channels: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
+    """The readbacks the simulation drives from a setpoint: each readback that
+    exactly one setpoint names as its ``pair``, mapped to that setpoint.
+
+    Args:
+        channels: Every channel's fields by address, with ``role`` and ``pair``.
+
+    Returns:
+        ``{readback: setpoint}``; a readback no setpoint or several name is absent.
+    """
+    named: dict[str, list[str]] = {}
+    for address, fields in channels.items():
+        if fields.get("role") != "setpoint":
+            continue
+        pair = str(fields.get("pair") or address)
+        if pair != address:
+            named.setdefault(pair, []).append(address)
+    return {readback: setpoints[0] for readback, setpoints in named.items() if len(setpoints) == 1}
 
 
 def derive_pairs(channels: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
