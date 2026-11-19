@@ -43,6 +43,8 @@ PAIRINGS = {
     ("temperature_lo_limit_setpoint", "temperature_lo_limit_readback"),
     ("temperature_hi_limit_setpoint", "temperature_hi_limit_readback"),
     ("temperature_hihi_limit_setpoint", "temperature_hihi_limit_readback"),
+    ("normalized_strength_setpoint", "normalized_strength_readback"),
+    ("kick_angle_setpoint", "kick_angle_readback"),
 }
 
 #: The write-side signals no readback of the vocabulary shares a quantity with.

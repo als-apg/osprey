@@ -384,6 +384,28 @@ enums:
         description: Temperature of the high-high (major) alarm limit, as commanded.
         annotations:
           title: Hihi
+      normalized_strength_setpoint:
+        description: >-
+          Commanded normalized strength of a multipole magnet (K1 in 1/m^2 for a
+          quadrupole, K2 in 1/m^3 for a sextupole), the field over the beam rigidity.
+        annotations:
+          title: Strength
+        aliases: [normalized strength setpoint, K setpoint, K1 setpoint, K2 setpoint, strength setpoint]
+      normalized_strength_readback:
+        description: Normalized strength of a multipole magnet, as read back.
+        annotations:
+          title: Strength
+        aliases: [normalized strength readback, K readback, K1 readback, K2 readback, strength readback]
+      kick_angle_setpoint:
+        description: Commanded deflection angle of a corrector magnet.
+        annotations:
+          title: Kick
+        aliases: [kick setpoint, kick angle setpoint, corrector angle setpoint, deflection setpoint]
+      kick_angle_readback:
+        description: Deflection angle of a corrector magnet, as read back.
+        annotations:
+          title: Kick
+        aliases: [kick readback, kick angle readback, corrector angle readback, deflection readback]
 
   property_name_enum:
     description: >-

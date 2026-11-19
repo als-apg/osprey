@@ -2075,14 +2075,51 @@ _CURRENT_UNITS: frozenset[str] = frozenset({"a", "amp", "amps", "ampere", "amper
 _MAGNET_ATTRIBUTES: frozenset[str] = frozenset({"PolynomB", "PolynomA", KICK})
 
 
-def _current_field(views: list[Any], name: str) -> bool:
-    """True when every unit a family field states for its hardware is a current."""
-    units = {
-        unit.lower()
+#: A normalized strength's unit, ``1/m^n`` or ``m^-n`` (``meter`` spelled out or not).
+_STRENGTH_UNIT = re.compile(r"(?:1/m(?:eters?)?\^?|m(?:eters?)?\^?-)[1-9]")
+
+#: The ``HWUnits`` words of an angle, folded to lower case.
+_ANGLE_UNITS: frozenset[str] = frozenset(
+    {"rad", "radian", "radians", "mrad", "milliradian", "milliradians", "urad", "µrad",
+     "microradian", "microradians"}
+)  # fmt: skip
+
+#: The quantity a field states in a normalized strength or an angle, by the engine
+#: attribute of the family that carries it: a multipole's strength, a corrector's kick.
+_PHYSICS_QUANTITY: dict[str, tuple[str, str]] = {
+    "PolynomB": ("strength", "normalized_strength"),
+    "PolynomA": ("strength", "normalized_strength"),
+    KICK: ("angle", "kick_angle"),
+}
+
+
+def _unit_kind(unit: str) -> str | None:
+    """``current``, ``strength`` or ``angle`` for a ``HWUnits`` word, else ``None``."""
+    folded = unit.strip().lower()
+    if folded in _CURRENT_UNITS:
+        return "current"
+    if _STRENGTH_UNIT.fullmatch(folded.replace(" ", "")):
+        return "strength"
+    return "angle" if folded in _ANGLE_UNITS else None
+
+
+def _field_quantity(views: list[Any], name: str, attribute: str | None) -> str | None:
+    """The quantity a magnet family's field carries, from the units its hardware is
+    stated in: ``current``; ``normalized_strength`` on a multipole and ``kick_angle``
+    on a corrector (*attribute*, the engine attribute the family drives); ``None``
+    where the units are unstated, disagree, or name another quantity."""
+    kinds = {
+        _unit_kind(unit)
         for view in views
         if name in view.fields and (unit := _one_unit(view.fields[name].body.get("HWUnits")))
     }
-    return bool(units) and units <= _CURRENT_UNITS
+    if len(kinds) != 1:
+        return None
+    (kind,) = kinds
+    if kind == "current":
+        return "current"
+    physics = _PHYSICS_QUANTITY.get(attribute or "")
+    return physics[1] if physics is not None and physics[0] == kind else None
 
 
 def _draft_field_signal(
@@ -2106,13 +2143,10 @@ def _draft_field_signal(
     for view in views:
         if name not in view.fields:
             continue
-        current_writes = frozenset(
-            other
-            for other in fields
-            if directions[f"{raw}.{other}"]["direction"] == "write"
-            and _current_field([view], other)
+        written = frozenset(
+            other for other in fields if directions[f"{raw}.{other}"]["direction"] == "write"
         )
-        per_model[view.system] = _draft_signal([view], name, direction, current_writes, token)
+        per_model[view.system] = _draft_signal([view], name, direction, written, token)
     if not per_model:
         return {"signal": None}
     counts = Counter(per_model.values())
@@ -2125,18 +2159,19 @@ def _draft_signal(
     views: list[Any],
     name: str,
     direction: str | None,
-    current_writes: frozenset[str],
+    written: frozenset[str],
     token: str | None = None,
 ) -> str | None:
     """The signal role a family field's channels play, where the export decides it.
 
     A beam monitor's ``Monitor`` reads the position on its axis. A magnet
     family -- a dipole string, or one whose lattice type drives a multipole or
-    a kick -- whose field states its hardware in a current commands that
-    current where the field is the family's one written current field
-    (``current_writes``), and reads it back through its ``Monitor``. Every
-    other field is left for the reviewer. ``token`` is the family's lattice
-    type; ``None`` reads it from *views*.
+    a kick -- whose field states its hardware in a quantity it knows
+    (:func:`_field_quantity`: a current, a multipole's normalized strength, a
+    corrector's kick angle) commands that quantity where the field is the one
+    field of *written* (the family's written fields) that carries it, and reads
+    it back through its ``Monitor``. Every other field is left for the reviewer.
+    ``token`` is the family's lattice type; ``None`` reads it from *views*.
     """
     if token is None:
         token = next((found for view in views if (found := _lattice_type(view)) is not None), None)
@@ -2145,12 +2180,15 @@ def _draft_signal(
         return f"position_{engine['axis']}_readback" if name == MONITOR_FIELD else None
     if token != _BEND_TYPE and engine.get("attribute") not in _MAGNET_ATTRIBUTES:
         return None
-    if not _current_field(views, name):
+    attribute = engine.get("attribute")
+    quantity = _field_quantity(views, name, attribute)
+    if quantity is None:
         return None
     if direction == "write":
-        return "current_setpoint" if current_writes == {name} else None
+        same = {f for f in written if _field_quantity(views, f, attribute) == quantity}
+        return f"{quantity}_setpoint" if same == {name} else None
     if direction == "read" and name == MONITOR_FIELD:
-        return "current_readback"
+        return f"{quantity}_readback"
     return None
 
 

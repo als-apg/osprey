@@ -1369,3 +1369,68 @@ class TestSignalPerModel:
         document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = ["TL"]
         with pytest.raises(MappingError, match=r"by_model: must be a mapping, got"):
             parse_mapping(document)
+
+
+def _physics_units() -> dict[str, Any]:
+    """Two systems carrying a quadrupole and a corrector family: the first states
+    hardware in amperes, the second in a normalized strength and a kick angle."""
+    ao = _two_models()
+    ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "1/Meter^2"
+    ao["TL"]["QF"]["Monitor"]["HWUnits"] = "1/Meter^2"
+    corrector = {
+        "DeviceList": [[1, 1], [1, 2]],
+        "AT": {"ATType": "HCM", "ATIndex": [2, 8]},
+        "Setpoint": {"ChannelNames": ["HC1:SP", "HC2:SP"], "HWUnits": "A"},
+        "Monitor": {"ChannelNames": ["HC1:RB", "HC2:RB"], "HWUnits": "A"},
+    }
+    ao["SR"]["HC"] = copy.deepcopy(corrector)
+    ao["TL"]["HC"] = copy.deepcopy(corrector)
+    for field_ in ("Setpoint", "Monitor"):
+        names = ao["TL"]["HC"][field_]["ChannelNames"]
+        ao["TL"]["HC"][field_]["ChannelNames"] = [f"TL-{name}" for name in names]
+        ao["TL"]["HC"][field_]["HWUnits"] = "mrad"
+    return ao
+
+
+class TestPhysicsUnits:
+    def test_a_multipole_in_a_normalized_strength_drafts_the_strength_signals(self) -> None:
+        ao = _physics_units()
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["by_model"] == {"TL": "normalized_strength_setpoint"}
+        assert fields["Monitor"]["by_model"] == {"TL": "normalized_strength_readback"}
+        assert check_mapping(parse_mapping(draft_mapping(ao)), ao) == []
+
+    def test_a_corrector_in_an_angle_drafts_the_kick_signals(self) -> None:
+        fields = draft_mapping(_physics_units())["families"]["HC"]["fields"]
+        assert fields["Setpoint"]["signal"] == "current_setpoint"
+        assert fields["Setpoint"]["by_model"] == {"TL": "kick_angle_setpoint"}
+        assert fields["Monitor"]["by_model"] == {"TL": "kick_angle_readback"}
+
+    @pytest.mark.parametrize("unit", ["1/m^2", "m^-2", "1/m2", "1/meter^3"])
+    def test_the_strength_units_read_in_their_common_spellings(self, unit: str) -> None:
+        ao = _physics_units()
+        ao["TL"]["QF"]["Setpoint"]["HWUnits"] = unit
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["by_model"] == {"TL": "normalized_strength_setpoint"}
+
+    def test_a_strength_unit_on_a_corrector_and_an_angle_on_a_multipole_draft_nothing(
+        self,
+    ) -> None:
+        ao = _physics_units()
+        ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "mrad"
+        ao["TL"]["HC"]["Setpoint"]["HWUnits"] = "1/m^2"
+        families = draft_mapping(ao)["families"]
+        assert families["QF"]["fields"]["Setpoint"]["by_model"] == {"TL": None}
+        assert families["HC"]["fields"]["Setpoint"]["by_model"] == {"TL": None}
+
+    def test_the_vocabulary_titles_strength_and_kick(self) -> None:
+        from osprey.facility.validate import signal_titles
+
+        titles = signal_titles()
+        assert {n: titles[n] for n in (
+            "normalized_strength_setpoint", "normalized_strength_readback",
+            "kick_angle_setpoint", "kick_angle_readback",
+        )} == {
+            "normalized_strength_setpoint": "Strength", "normalized_strength_readback": "Strength",
+            "kick_angle_setpoint": "Kick", "kick_angle_readback": "Kick",
+        }  # fmt: skip

@@ -623,6 +623,22 @@ class SignalRoleEnum(str, Enum):
     """
     Temperature of the high-high (major) alarm limit, as commanded.
     """
+    normalized_strength_setpoint = "normalized_strength_setpoint"
+    """
+    Commanded normalized strength of a multipole magnet (K1 in 1/m^2 for a quadrupole, K2 in 1/m^3 for a sextupole), the field over the beam rigidity.
+    """
+    normalized_strength_readback = "normalized_strength_readback"
+    """
+    Normalized strength of a multipole magnet, as read back.
+    """
+    kick_angle_setpoint = "kick_angle_setpoint"
+    """
+    Commanded deflection angle of a corrector magnet.
+    """
+    kick_angle_readback = "kick_angle_readback"
+    """
+    Deflection angle of a corrector magnet, as read back.
+    """
 
 
 class PropertyNameEnum(str, Enum):
