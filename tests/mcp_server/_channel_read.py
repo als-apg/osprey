@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-from osprey_connectors_tests._config_lookup import config_lookup_patched
+from osprey_connectors_tests._config_trees import installed, with_values
 
 
 def make_channel_value(value, sampled_at=datetime(2024, 1, 15, 10, 30, tzinfo=UTC)):
@@ -26,17 +26,7 @@ def make_channel_value(value, sampled_at=datetime(2024, 1, 15, 10, 30, tzinfo=UT
 
 
 def config_patch(overrides: dict):
-    """Patch only the named config keys, delegating everything else."""
+    """Serve the process config with the named keys (dotted) set over it."""
     if not overrides:
         return nullcontext()
-
-    from osprey_connectors import config as config_module
-
-    real = config_module.get_config_value
-
-    def fake(path, default=None, *args, **kwargs):
-        if path in overrides:
-            return overrides[path]
-        return real(path, default, *args, **kwargs)
-
-    return config_lookup_patched(fake)
+    return installed(with_values(overrides))

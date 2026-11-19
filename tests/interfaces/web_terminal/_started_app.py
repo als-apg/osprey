@@ -3,10 +3,10 @@
 The render-table suites — theme, rail position, tour — each carried a
 generator that booted ``create_app`` under a couple of config patches and was
 torn down by a hand-driven ``next(gen)``, and two of them answered *every*
-``get_config_value`` key with the one value under test. This module
-centralizes that boot as :func:`started_client`: the ``web:`` section the
-lifespan reads and the ``get_config_value`` keys it asks for both come from
-the test, key by key, and teardown is an ordinary ``with`` block.
+config key with the one value under test. This module centralizes that boot
+as :func:`started_client`: the config the lifespan reads, the ``web:`` section
+and every other key it asks for, comes from the test, key by key, and teardown
+is an ordinary ``with`` block.
 
 :func:`terminal_client` is the boot under it, and the one most route suites use
 directly: ``_load_web_config`` answers only the watched directory, any further
@@ -25,7 +25,8 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
-from osprey_connectors_tests._config_lookup import config_lookup_patched
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, installed
 
 
 @contextmanager
@@ -69,23 +70,11 @@ def started_client(
 
     Args:
         workspace_dir: The watched directory.
-        web: The ``web:`` section ``load_osprey_config`` answers; ``None`` is
-            an empty section.
-        config_values: What ``get_config_value`` answers, per dotted key. A key
-            not named here answers the caller's default, so no test inherits a
-            value it did not set.
+        web: The config's ``web:`` section; ``None`` is an empty section.
+        config_values: The config's other values, per dotted key (one under
+            ``web.`` is merged into that section). A key not named here is
+            absent, so no test inherits a value it did not set.
     """
-    values = dict(config_values or {})
-
-    def get_config_value(path: str, default: Any = None, config_path: str | None = None) -> Any:  # noqa: ARG001
-        return values.get(path, default)
-
-    with terminal_client(
-        workspace_dir,
-        patch(
-            "osprey.utils.config_paths.loaded_or_empty",
-            return_value={"web": dict(web or {})},
-        ),
-        config_lookup_patched(get_config_value),
-    ) as client:
+    tree = config_tree({"web": dict(web or {}), **dict(config_values or {})})
+    with terminal_client(workspace_dir, installed(config_of(tree, environ={}))) as client:
         yield client

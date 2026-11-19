@@ -65,7 +65,8 @@ import yaml
 from osprey.facility.records import FacilityRecords
 from osprey.services.virtual_accelerator.entrypoint import READY_MARKER
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
-from osprey_connectors_tests._config_lookup import config_lookup_patched
+from osprey_connectors.testing import config_of
+from osprey_connectors_tests._config_trees import config_tree, installed
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
 from tests._facility_file import demo_facility_document
 from tests.e2e._deploy_support import find_osprey_console_script
@@ -552,39 +553,20 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 @contextmanager
 def patched_config(**overrides: Any) -> Iterator[None]:
-    """Patch ``osprey_connectors.config.get_config_value`` for the duration of the block.
+    """Serve *overrides* (dotted keys) as the process config for the duration of the block.
 
     Every connector config lookup in this suite goes through this instead of
     relying on an ambient ``config.yml`` -- explicit and immune to whatever
-    CONFIG_FILE/cwd state another test in the same pytest process left behind
+    OSPREY_CONFIG/cwd state another test in the same pytest process left behind
     (see ``tests/connectors/test_simulation_integration.py`` for the same
     pattern). Must stay active for the entire connect()+read/write sequence:
     the write verdict is re-evaluated by the base-class guard on every single
-    write call, not cached at connect time.
+    write call, not cached at connect time. The keys are held as the nested
+    tree a file would hold: the per-type write posture reads ``control_system``
+    whole and indexes the connector block by name (a custom type is a dotted
+    module path, so its block cannot be spelled as one dotted key).
     """
-
-    def _get_config_value(key: str, default: Any = None) -> Any:
-        # Answer a SECTION read the way the real loader does: a nested mapping
-        # assembled from every override under that prefix. The per-type write
-        # posture reads ``control_system`` whole and indexes the connector
-        # block by name (a custom type is a dotted module path, so the leaf
-        # cannot be looked up by dotted path), and a flat map that only
-        # answered exact keys would leave that read empty and writes unarmed.
-        if key in overrides:
-            return overrides[key]
-        prefix = key + "."
-        section: dict[str, Any] = {}
-        for dotted, value in overrides.items():
-            if not dotted.startswith(prefix):
-                continue
-            node = section
-            *parents, leaf = dotted[len(prefix) :].split(".")
-            for part in parents:
-                node = node.setdefault(part, {})
-            node[leaf] = value
-        return section or default
-
-    with config_lookup_patched(_get_config_value):
+    with installed(config_of(config_tree(overrides), environ={})):
         yield
 
 

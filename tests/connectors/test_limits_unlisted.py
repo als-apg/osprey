@@ -31,9 +31,9 @@ RECORDLESS = [SERVED_READBACK, OUTSIDE]
 
 
 @pytest.fixture
-def validator(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str) -> LimitsValidator:
+def validator(tmp_path: Path, mode: str) -> LimitsValidator:
     """Hello-world's rendered limits database, loaded under ``mode``."""
-    return validator_under(monkeypatch, render_limits(tmp_path, "hello_world"), mode)
+    return validator_under(render_limits(tmp_path, "hello_world"), mode)
 
 
 def _violation(validator: LimitsValidator, channel: str, value: float) -> str:
