@@ -428,13 +428,12 @@ def _render(data: bytes, max_bytes: int | None = None) -> bytes:
         raise _Refused("format_mismatch")
     jpeg_source = source_format in _JPEG_FORMATS
 
+    stored_size, stored_mode = im.size, im.mode
     if jpeg_source:
         multi_scan = _is_progressive(im) or jpeg_has_multiple_scans(data)
         coefficients = progressive_coefficient_bytes(im.size, cast(Any, im).layer)
         if multi_scan and coefficients > PROGRESSIVE_MAX_COEF_BYTES:
             raise _Refused("rendition_too_large")
-    stored_size, stored_mode = im.size, im.mode
-    if jpeg_source:
         im.draft("RGB", DRAFT_SIZE)
     if im.width * im.height > PIXEL_LIMIT:
         raise _Refused("rendition_too_large")
