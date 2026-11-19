@@ -182,6 +182,22 @@ def _empty_host_for_the_ownership_check(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def every_started_service_is_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer "every service is running" for the check a returned start makes.
+
+    The tests here fake ``subprocess.run`` to answer compose, and the check's
+    container listing goes through the same call, so it would read an answer
+    meant for compose as an empty host. The real check is tested in
+    ``tests/deployment/test_services_running_after_start.py``, which imports it
+    at module scope (collection runs before this patch) and puts it back.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.container_lifecycle._refuse_services_not_running",
+        lambda *_args, **_kwargs: None,
+    )
+
+
 @pytest.fixture
 def stub_deploy_up(monkeypatch, tmp_path):
     """Factory: run ``deploy_up`` in ``tmp_path`` with no host underneath it.

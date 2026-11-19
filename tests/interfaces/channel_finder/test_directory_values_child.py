@@ -641,7 +641,7 @@ class TestArmedBlockRefusesPvaccessPuts:
             assert answers[f"p4p.client.{kind}.Context.get"] == "read"
         assert answers["pvaccess.Channel.get"] == "read"
 
-    def test_the_real_p4p_client_refuses_a_put_and_still_reads(self, tmp_path):
+    def test_the_real_p4p_client_refuses_a_put_and_still_reads(self, tmp_path, reserve_port):
         pytest.importorskip("p4p.client.thread")
         probe = tmp_path / "probe.py"
         probe.write_text(
@@ -665,7 +665,14 @@ class TestArmedBlockRefusesPvaccessPuts:
             ),
             encoding="utf-8",
         )
-        env = {**os.environ, "EPICS_PVA_ADDR_LIST": "127.0.0.1", "EPICS_PVA_AUTO_ADDR_LIST": "NO"}
+        # The probe's client listens for beacons on a port of its own, so a PVA
+        # port another process on the host holds cannot fail its start.
+        env = {
+            **os.environ,
+            "EPICS_PVA_ADDR_LIST": "127.0.0.1",
+            "EPICS_PVA_AUTO_ADDR_LIST": "NO",
+            "EPICS_PVA_BROADCAST_PORT": str(reserve_port()),
+        }
         completed = subprocess.run(
             [sys.executable, str(probe)],
             env=env,

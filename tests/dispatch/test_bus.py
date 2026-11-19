@@ -335,11 +335,13 @@ async def test_a_worker_that_goes_silent_loses_its_runs(harness):
 
     await harness.leave(link)
 
-    with pytest.raises(WorkerUnreachableError):
+    with pytest.raises(WorkerUnreachableError, match="'w1' silent for"):
         await asyncio.wait_for(asked, 2)
     chunks = await asyncio.wait_for(viewer, 2)
-    assert chunks[-1].startswith(b'data: {"type": "error", "message": "worker lost: w1')
-    assert bus.live() == []
+    assert chunks[-1].startswith(b'data: {"type": "error", "message": "worker lost: w1 silent for')
+    # A stalled event loop can expire the worker before it leaves, and its next
+    # heartbeat then joins it again; only real silence takes it off for good.
+    await until(lambda: bus.live() == [])
 
 
 async def test_a_worker_that_restarted_loses_the_runs_of_its_previous_life(harness):

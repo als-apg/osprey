@@ -51,17 +51,23 @@ deployment, which is why none of them is a config key.
      - The two image axes for one build, outranking ``images.registry`` /
        ``images.tag`` — see :ref:`the two image axes <deployment-image-overrides>`.
    * - ``OSPREY_SITE_CA``, ``PIP_NO_PROXY``, ``PIP_INDEX_URL``,
-       ``PIP_EXTRA_INDEX_URL``, ``OSPREY_BASE_REGISTRY``
+       ``PIP_EXTRA_INDEX_URL``, ``OSPREY_BASE_REGISTRY``,
+       ``PLAYWRIGHT_DOWNLOAD_HOST``
      - The site's build settings — a CA bundle for a TLS-intercepting proxy, a
-       proxy bypass list, the package indexes pip resolves from, and the
-       registry standing in for docker.io — for one build,
+       proxy bypass list, the package indexes pip resolves from, the
+       registry standing in for docker.io, and the host the headless browser
+       is downloaded from — for one build,
        outranking ``images.site_ca`` / ``images.pip_no_proxy`` /
        ``images.pip_index_url`` / ``images.pip_extra_index_url`` /
-       ``images.base_registry`` exactly as the two image axes outrank
+       ``images.base_registry`` / ``images.playwright_download_host`` exactly as the two image axes outrank
        ``images.registry`` / ``images.tag``. Whichever layer wins is handed to
        every image ``osprey up`` builds, service images included; the registry
        also moves every Docker Hub image it pulls — see
        :doc:`/how-to/deploy-project/project-image`.
+   * - ``OSPREY_SKIP_BROWSER``
+     - ``1`` builds without the headless browser, outranking
+       ``images.skip_browser``. It is passed to every image ``osprey up``
+       builds; only the project image declares it.
    * - ``OSPREY_OFFLINE``
      - ``1`` switches the web interfaces from CDN-hosted libraries to the local
        bundles ``osprey vendor fetch`` downloads. The equivalent config key is

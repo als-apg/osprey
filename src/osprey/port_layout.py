@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import Field, dataclass, field
 from types import MappingProxyType
 from typing import Any
 
@@ -73,6 +73,8 @@ __all__ = [
     "block_range",
     "default_port",
     "index_bounds",
+    "is_layout_port_field",
+    "layout_port_field",
     "layout_ports",
     "resolve_port_base",
 ]
@@ -426,6 +428,32 @@ def default_port(slot: str, index: int = 0, base: int | None = None) -> int:
     if not isinstance(index, int) or isinstance(index, bool) or not low <= index <= high:
         raise ValueError(_index_refusal(entry, index, low, high))
     return resolved + entry.offset + index
+
+
+# Metadata key a layout-port dataclass field carries: the slot its default is.
+_LAYOUT_SLOT_METADATA = "osprey_layout_slot"
+
+
+def layout_port_field(slot: str, index: int = 0) -> Any:
+    """Return a dataclass field whose default is one slot's port at the layout's own base.
+
+    The field names its slot in its metadata, so a reader of the dataclass can
+    tell a port the loader derives from the deployment's resolved base apart
+    from a value the profile declares (see :func:`is_layout_port_field`).
+
+    Args:
+        slot: Slot name, as for :func:`default_port`.
+        index: Position within the slot's band, as for :func:`default_port`.
+
+    Returns:
+        A :func:`dataclasses.field` with ``default=default_port(slot, index)``.
+    """
+    return field(default=default_port(slot, index), metadata={_LAYOUT_SLOT_METADATA: slot})
+
+
+def is_layout_port_field(dataclass_field: Field[Any]) -> bool:
+    """Return whether a dataclass field was made by :func:`layout_port_field`."""
+    return _LAYOUT_SLOT_METADATA in dataclass_field.metadata
 
 
 def _index_refusal(entry: PortSlot, index: Any, low: int, high: int) -> str:

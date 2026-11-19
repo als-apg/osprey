@@ -22,6 +22,7 @@ from typing import Any
 
 import yaml
 
+from osprey.interfaces.design_system.panels.page_ready import READY_IMPORT
 from osprey.profiles.web_panels import (
     BUILD_PANELS,
     ROSTER_PANEL_ID,
@@ -351,9 +352,16 @@ button.addEventListener('click',()=>theme(root.dataset.theme==='dark'?'light':'d
 #: The same table as a panel of the web terminal: it links the design system by
 #: the panel contract's canonical tags and follows the terminal's theme, so it
 #: has no button of its own.
+#:
+#: The table is in the markup, so the page's first state is drawn once the
+#: document is parsed and its cells answer a click. The script that wires the
+#: cells is therefore the one that sets the page-ready mark, as its last
+#: statement: a module runs after the document is parsed, a wiring that throws
+#: never reaches the call and is marked failed by ``page-ready.js``, and a page
+#: whose design system did not load stays pending.
 _PANEL_PAGE = (
     """<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-page-ready="pending">
 <head>
 <meta charset="UTF-8">
 <script src="/design-system/js/theme-boot.js"></script>
@@ -377,9 +385,11 @@ html,body{height:auto;overflow:auto}
     + _INTRO
     + "</header>\n"
     + _TABLE
-    + "<script>\n"
+    + '<script type="module">\n'
+    + READY_IMPORT
+    + "\n"
     + _PICK
-    + "</script></body></html>\n"
+    + "markPageReady();\n</script></body></html>\n"
 )
 
 _PAGE_MARKS = {STATE_DEFAULT: "default", STATE_TAB: "tab", STATE_MENU: "menu", STATE_OFF: "\u2013"}

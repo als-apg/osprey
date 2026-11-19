@@ -828,8 +828,8 @@ def _replace_or_refuse(
     """Make the facility tree ready for a format; every format under the group calls it first.
 
     Refuses only on overlap: hand-written records of the kinds this verb writes
-    exit 1 with nothing changed, and files seeded under the former header are
-    named apart with the line that fixes them. A tree that already holds an
+    exit 1 with nothing changed; files seeded under the retired header are read
+    as seeded and named in one warning with the line that updates them. A tree that already holds an
     imported layer is past the first: records written by hand beside a layer
     are the facility's own additions, which the build combines with the layers,
     and no later import refuses them. Otherwise bundled files are replaced, and the
@@ -841,7 +841,6 @@ def _replace_or_refuse(
     are classified together; each bundled file is removed under its own root,
     and the knowledge indexes settled are the content root's.
     """
-    from osprey.facility.bundled import under_former_header
     from osprey.facility.layers import HEADER
     from osprey.services.facility_knowledge.okf.index import _settle_bundle
 
@@ -850,38 +849,35 @@ def _replace_or_refuse(
     facility_dir = roots.machine
     writes = _writes()[verb]
     kinds = _classify(roots, Path(TemplateManager().template_root))
+    lines = []
+    if kinds.retired_header:
+        lines += [
+            f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
+            "the retired header, read as seeded:",
+            *(_shown(facility_dir / path, repo_root) for path in kinds.retired_header),
+            f"set line 1 of each to: {HEADER}",
+        ]
     overlap = [
         (path, kind)
         for path in kinds.authored
         for entry, kind in writes
         if path == entry or path.startswith(f"{entry}/")
     ]
-    if overlap:
-        former = [path for path, _kind in overlap if under_former_header(facility_dir / path)]
-        written = [(path, kind) for path, kind in overlap if path not in former]
-        if _holds_a_layer(facility_dir):
-            written = []
-        lines = []
-        if written:
-            found = {kind for _path, kind in written}
-            named = _named_together([kind for _entry, kind in writes if kind in found])
-            lines += [
-                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
-                "records, which this import writes:",
-                *(_shown(facility_dir / path, repo_root) for path, _kind in written),
-                "move corrections into fixes.yaml and remove the record sources, "
-                "or start a new repo: osprey init <name> --preset demo",
-            ]
-        if former:
-            lines += [
-                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
-                "the old header, which this import writes:",
-                *(_shown(facility_dir / path, repo_root) for path in former),
-                f"set line 1 of each to: {HEADER}",
-            ]
-        if lines:
-            click.echo("\n".join(lines), err=True)
-            ctx.exit(1)
+    refused = bool(overlap) and not _holds_a_layer(facility_dir)
+    if refused:
+        found = {kind for _path, kind in overlap}
+        named = _named_together([kind for _entry, kind in writes if kind in found])
+        lines += [
+            f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
+            "records, which this import writes:",
+            *(_shown(facility_dir / path, repo_root) for path, _kind in overlap),
+            "move corrections into fixes.yaml and remove the record sources, "
+            "or start a new repo: osprey init <name> --preset demo",
+        ]
+    if lines:
+        click.echo("\n".join(lines), err=True)
+    if refused:
+        ctx.exit(1)
     if kinds.bundled:
         _remove_bundled(roots, kinds.bundled)
         click.echo(

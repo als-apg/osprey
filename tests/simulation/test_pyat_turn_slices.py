@@ -106,6 +106,7 @@ def test_slices_track_in_calls_of_one_turn_when_the_budget_is_zero(
     assert calls == [1] * TURNS
 
 
+@pytest.mark.wallclock
 def test_no_slice_holds_the_interpreter_much_past_the_budget(
     ring: Any, refpts: np.ndarray, monkeypatch: pytest.MonkeyPatch
 ) -> None:

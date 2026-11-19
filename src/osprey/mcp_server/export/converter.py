@@ -11,6 +11,9 @@ Raises ``PlaywrightNotInstalledError`` instead of a raw ``ImportError`` when
 Playwright itself is missing. A launch that fails for any other reason (missing
 system libraries, a sandbox denial) propagates unchanged rather than being
 reported as a missing browser.
+
+An image built with ``images.skip_browser`` has no browser; the error raised
+then names it as missing.
 """
 
 from __future__ import annotations
@@ -36,6 +39,9 @@ SUPPORTED_FORMATS = {"png", "jpeg"}
 # reason from being misread as a missing browser (and from triggering a pointless
 # network install).
 _MISSING_BROWSER_MARKER = "Executable doesn't exist"
+
+# What every absent-browser error opens with, whatever the install then did.
+_BROWSER_MISSING = "Headless Chromium is not installed, so the page cannot be rendered to an image"
 
 # Run through the *current* interpreter rather than a bare "playwright" console
 # script, which need not be on PATH in a container or in a venv the server was
@@ -153,13 +159,10 @@ def _run_install() -> str | None:
     try:
         proc = subprocess.run(_INSTALL_CMD, capture_output=True, text=True)
     except OSError as exc:
-        return f"Failed to run '{' '.join(_INSTALL_CMD)}': {exc}"
+        return f"{_BROWSER_MISSING}; installing it failed: {exc}"
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()[-500:]
-        return (
-            f"Failed to auto-install Chromium (exit {proc.returncode}). "
-            f"Run manually: playwright install chromium\n{detail}"
-        )
+        return f"{_BROWSER_MISSING}; installing it failed (exit {proc.returncode}).\n{detail}"
     logger.info("Chromium installed successfully.")
     return None
 
@@ -309,9 +312,7 @@ async def convert_html_to_image(
             await _render(async_playwright, source, dest, fmt, width, height)
         except Exception as retry_exc:
             if _is_missing_browser(retry_exc):
-                raise PlaywrightNotInstalledError(
-                    "Chromium browser not installed. Run: playwright install chromium"
-                ) from retry_exc
+                raise PlaywrightNotInstalledError(f"{_BROWSER_MISSING}.") from retry_exc
             raise
 
     logger.info("Converted %s → %s (%s)", source.name, dest.name, fmt)

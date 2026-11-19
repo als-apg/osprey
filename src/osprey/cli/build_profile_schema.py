@@ -23,7 +23,12 @@ from typing import Any, Literal
 
 from osprey.deployment.host_binding import HostBinding, host_binding_of, osprey_owns_binding
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
-from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
+from osprey.port_layout import (
+    DEFAULT_PORT_BASE,
+    SLOTS_BY_NAME,
+    layout_port_field,
+    layout_ports,
+)
 from osprey.utils.workspace import LAYER_DIRNAMES, TIERS_DIRNAME, layer_dir_kind
 from osprey_connectors.connection import ENV_NAME_RE
 
@@ -571,7 +576,7 @@ class DispatchConfig:
     workspace_mode: Literal["isolated", "shared"] = "isolated"
     max_concurrent_runs: int = DEFAULT_MAX_CONCURRENT_RUNS
     max_queue_depth: int = DEFAULT_MAX_QUEUE_DEPTH
-    dispatcher_port: int = default_port("dispatcher")
+    dispatcher_port: int = layout_port_field("dispatcher")
     """Host port the event dispatcher publishes, at the layout's ``dispatcher``
     slot.
 
@@ -582,7 +587,7 @@ class DispatchConfig:
     base the profile resolved, so the rendered config and the compose
     templates' ``osprey_ports`` defaults name the same port."""
 
-    worker_port_base: int = default_port("worker", 1)
+    worker_port_base: int = layout_port_field("worker", 1)
     """Host port dispatch worker 1 publishes, at the first index of the layout's
     ``worker`` band. Worker *i* is at ``worker_port_base + (i - 1) *
     worker_port_stride``, and only in host-network mode: bridge-mode workers
@@ -613,7 +618,7 @@ class DispatchConfig:
     bridges then read runs through the dispatcher's ``/worker`` facade. Keys
     are minted per container by ``osprey up``."""
 
-    bus_port: int = default_port("dispatch_bus")
+    bus_port: int = layout_port_field("dispatch_bus")
     """Port the dispatcher binds its bus on, at the layout's ``dispatch_bus``
     slot. Read only when :attr:`transport` is ``bus``, and spent on the host only
     in host-network mode: on the compose bridge the workers reach it by the
@@ -965,7 +970,7 @@ class BlueskyConfig:
     is derived and validated by :meth:`second_lane_port`.
     """
 
-    port: int = default_port("bluesky")
+    port: int = layout_port_field("bluesky")
     """Host port lane 1's bridge publishes, at the layout's ``bluesky`` slot.
 
     The default is that slot at the layout's own base; a profile that leaves the
@@ -973,7 +978,7 @@ class BlueskyConfig:
 
     tiled_enabled: bool = False
 
-    tiled_port: int = default_port("tiled")
+    tiled_port: int = layout_port_field("tiled")
     """Host port the tiled data server publishes, at the layout's ``tiled``
     slot, filled from the profile's resolved base when left unspelled. Tiled is
     shared, so it stays on lane 1 even in a two-lane deploy."""
@@ -1203,7 +1208,7 @@ class BlueskyWebConfig:
     by :meth:`BuildProfile.validate`.
     """
 
-    port: int = default_port("bluesky_web")
+    port: int = layout_port_field("bluesky_web")
     """Host/container port the sidecar's uvicorn process binds and publishes
     (see ``templates/services/bluesky_web/docker-compose.yml.j2``), at the
     layout's ``bluesky_web`` slot — filled from the profile's resolved base when
@@ -1221,7 +1226,7 @@ class OptimizerConfig:
     :meth:`BuildProfile.validate`.
     """
 
-    port: int = default_port("optimizer")
+    port: int = layout_port_field("optimizer")
     """Host/container port the optimizer API's uvicorn process binds and
     publishes, at the layout's ``optimizer`` slot — filled from the profile's
     resolved base when the key is left unspelled."""
@@ -1245,7 +1250,7 @@ class OptimizerWebConfig:
     run an agent drafted. Validated by :meth:`BuildProfile.validate`.
     """
 
-    port: int = default_port("optimizer_web")
+    port: int = layout_port_field("optimizer_web")
     """Host/container port the sidecar's uvicorn process binds and publishes,
     at the layout's ``optimizer_web`` slot — filled from the profile's resolved
     base when the key is left unspelled."""

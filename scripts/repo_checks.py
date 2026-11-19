@@ -2214,6 +2214,7 @@ LANES: tuple[Lane, ...] = (
                 "web_terminals/test_skills_overlay_discovery.py",
                 "web_terminals/test_loopback_chokepoint.py",
                 "web_terminals/test_session_restart_e2e.py",
+                "web_terminals/test_web_stop_e2e.py",
                 "web_terminals/test_terminal_auth_e2e.py",
                 "web_terminals/test_render_permissions_scripted.py",
                 "claude_code/test_chat_approval_gates_scripted.py",

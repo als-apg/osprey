@@ -7,10 +7,12 @@ provides:
 **A deployment repo rendered by the real machinery.** Not a fixture-authored
 tree — ``osprey init`` then ``osprey build``, the same two commands a user runs,
 in a subprocess so nothing about the render leaks into the test process. The
-result is cached under ``.cache/pty-exemplar/`` and keyed on the content of
-everything that decides what a render looks like: the template data, the
-scaffolder code that stamps it out, and the preset. Cold is a couple of
-seconds and paid once per session; warm is a directory copy.
+read-only tree is cached under ``.cache/pty-exemplar/`` and keyed on the
+content of everything that decides what a render looks like: the template
+data, the scaffolder code that stamps it out, and the preset. Cold is a couple
+of seconds and paid once per session; warm is a directory copy. A writable tree
+is rendered once per worker at the path it is used at and restored there for
+each test, because a render names the directory it ran in.
 
 **A container runtime that is not there.** :mod:`tests.pty.stub_runtime` — a
 ``docker`` executable earlier on ``PATH`` than any real one, plus
@@ -21,7 +23,8 @@ The exemplar is shared **read-only**. A start verb writes to the repo it starts
 — it mints service tokens into ``.env``, generates key material under ``data/``,
 and spools command output under ``var/`` — and the profile fingerprint notices,
 so a second test starting the same directory is refused as stale. Use
-``exemplar_copy`` for anything that runs a verb; the shared tree is for reading.
+``exemplar_copy``, a writable tree of the test's own, for anything that runs a
+verb; the shared tree is for reading.
 
 The preset is ``hello-world`` for one reason: it is the only bundled preset that
 both deploys services and comes up against a stubbed runtime alone. The
@@ -31,7 +34,7 @@ deploy no services at all, so there is no start to watch.
 
 On top of those two, the fixtures every scenario module drives a verb with live
 here as well: ``pty_env`` (the child environment), ``unhurried_runtime`` (a real
-runtime's latency in front of the stub) and ``startable_repo`` (a writable copy
+runtime's latency in front of the stub) and ``startable_repo`` (a writable exemplar
 whose published ports are free on this host). They are shared by more than one
 module, and a fixture pytest resolves by name is one no scenario module has to
 import from another.
@@ -52,6 +55,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from tests._builds import Restorable
 
 #: The preset the exemplar is rendered from. See the module docstring for why
 #: it is this one and not a richer profile.
@@ -380,17 +385,28 @@ def exemplar_repo() -> Path:
     return ensure_exemplar()
 
 
+@pytest.fixture(scope="session")
+def _startable_exemplar(tmp_path_factory: pytest.TempPathFactory) -> Restorable:
+    """The exemplar rendered by the real verbs at the path it is used at, once per worker."""
+
+    def make(parent: Path) -> tuple[Path, None]:
+        return render_exemplar(parent), None
+
+    return Restorable(tmp_path_factory.mktemp("startable-exemplar"), make)
+
+
 @pytest.fixture
-def exemplar_copy(exemplar_repo: Path, tmp_path: Path) -> Path:
-    """A private, writable copy of the exemplar for one test.
+def exemplar_copy(_startable_exemplar: Restorable) -> Path:
+    """A private, writable exemplar for one test.
 
     The copy is what a start verb is allowed to scribble on: it mints tokens
     into ``.env``, writes key material under ``data/``, and spools output under
     ``var/``, all of which the profile fingerprint sees.
+
+    It is rendered at the path it is used at and put back pristine there for
+    every test, so its labels name the checkout a start runs in.
     """
-    destination = tmp_path / exemplar_repo.name
-    shutil.copytree(exemplar_repo, destination, symlinks=True)
-    return destination
+    return _startable_exemplar.restore()
 
 
 @pytest.fixture

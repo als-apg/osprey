@@ -235,7 +235,7 @@ describe('the chat log', () => {
           write('w1'),
           { ...refused('w1', 'tier_never', TIER_NEVER), decision: 'denied' },
           { type: 'text', content: 'Refused.' },
-          { type: 'result' },
+          { type: 'result', ends_turn: true },
         ],
       },
     ]);

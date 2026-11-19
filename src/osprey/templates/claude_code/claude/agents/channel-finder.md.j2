@@ -85,9 +85,9 @@ Call `view_examples(keywords)` with a broad, comma-separated keyword list
 extracted from the user's query (e.g. "magnets, corrector, horizontal, steering").
 Cast a wide net — include device types, measurement types, and synonyms.
 
-If matching examples exist, use their selection paths directly in Step 2 —
-skip exploratory `get_options()` calls at levels you already know the answer to.
-If no examples match, proceed with full exploration.
+If matching examples exist, use their selection paths directly in Step 2: a level
+whose selection an example gives needs no `get_options()` call, and its selection
+stays in the selections dict. If no examples match, proceed with full exploration.
 
 ### Step 1: Understand the hierarchy
 
@@ -99,10 +99,20 @@ Call `get_options()` at the first level to discover the hierarchy structure.
 
 ### Step 2: Navigate level by level
 
-For each level in the hierarchy:
+For each level in the hierarchy, top to bottom:
 1. Call `get_options(level, selections)` to see available options
 2. Select the option(s) that match the user's query
 3. Add your selection to the selections dict and move to the next level
+
+`selections` must name every level above the one you ask about; `get_options`
+refuses a request that leaves one out. A level the question does not mention still
+takes a selection, so read its options too.
+{%- if channel_finder_hierarchy and channel_finder_hierarchy.required_tree_levels is defined %}
+{%- set may_leave_out = channel_finder_hierarchy.hierarchy_levels[:-1]
+      | reject("in", channel_finder_hierarchy.required_tree_levels) | list %}
+{%- if may_leave_out %} Only {% for level in may_leave_out %}`{{ level }}`{{ " and " if loop.revindex == 2 else ", " if not loop.last }}{% endfor %} may be left out.
+{%- endif %}
+{%- endif %}
 
 Every level is a choice among named options.
 

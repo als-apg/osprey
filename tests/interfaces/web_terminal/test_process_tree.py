@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
@@ -64,7 +65,7 @@ def test_tree_groups_orders_same_second_starts_by_pgid(monkeypatch):
     # Commands started within one second carry the same whole-second start.
     second = 1_700_000_000.0
     rows = {
-        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
+        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "sleeping")
         for pid, ppid, pgid, started, command in [
             (4202, 1, 4202, second - 5.0, "agent"),
             (4208, 4202, 4208, second, "python orbit_poll.py"),
@@ -100,7 +101,7 @@ def _wrapper(command: str) -> str:
 def _table(*rows: tuple[int, int, int, float, str]) -> dict[int, process_tree.ProcessRow]:
     """A process table of ``(pid, ppid, pgid, started, command)`` rows, all running."""
     return {
-        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "S")
+        pid: process_tree.ProcessRow(pid, ppid, pgid, started, command, "sleeping")
         for pid, ppid, pgid, started, command in rows
     }
 
@@ -628,8 +629,46 @@ def test_a_tree_read_from_a_given_table_takes_no_read_of_its_own(monkeypatch):
 
 def test_describe_processes_escapes_labels():
     text = process_tree.describe_processes(
-        [process_tree.ProcessRow(4242, 1, 4242, 0.0, "scan\x1b[2J", "S")]
+        [process_tree.ProcessRow(4242, 1, 4242, 0.0, "scan\x1b[2J", "sleeping")]
     )
     assert text.startswith("pid 4242 ")
     assert "\x1b" not in text
     assert "\\x1b" in text
+
+
+def test_an_ending_of_an_empty_tree_takes_no_read(monkeypatch, caplog):
+    reads: list[None] = []
+
+    def read(*_args, **_kwargs):
+        reads.append(None)
+        return {}
+
+    monkeypatch.setattr(process_table, "snapshot", read)
+    monkeypatch.setattr(process_table, "snapshot_within", read)
+    log = logging.getLogger("t")
+
+    with caplog.at_level(logging.DEBUG, logger="t"):
+        ending = process_tree.end_started_tree(
+            1, process_tree.StartedTree((), (), read=False), child="PTY child", log=log
+        )
+
+    assert ending == process_tree.TreeEnding(read=False)
+    assert reads == []
+    assert caplog.records == []
+
+
+def test_an_unread_tree_names_the_child_on_the_callers_logger(monkeypatch, caplog):
+    reads = _answering(monkeypatch, [psutil.AccessDenied()])
+    monkeypatch.setattr(process_tree, "READ_WAIT_S", 0.0)
+    log = logging.getLogger("t")
+
+    with caplog.at_level(logging.WARNING, logger="t"):
+        tree = process_tree.read_started_tree(7, lambda: True, child="PTY child", log=log)
+
+    assert tree == process_tree.StartedTree((), (), read=False)
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    assert warnings[0].name == "t"
+    assert "PTY child 7 " in warnings[0].getMessage()
+    assert "what it started is left running" in warnings[0].getMessage()
+    assert len(reads) == 1

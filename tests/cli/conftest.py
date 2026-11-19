@@ -78,6 +78,22 @@ def _no_host_record(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def every_started_service_is_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer "every service is running" for the check a returned start makes.
+
+    The tests here fake ``subprocess.run`` to answer compose, and the check's
+    container listing goes through the same call, so it would read an answer
+    meant for compose as an empty host. The real check is tested in
+    ``tests/deployment/test_services_running_after_start.py``, which imports it
+    at module scope (collection runs before this patch) and puts it back.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.container_lifecycle._refuse_services_not_running",
+        lambda *_args, **_kwargs: None,
+    )
+
+
+@pytest.fixture(autouse=True)
 def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strip color-forcing variables from the environment CLI tests run under.
 

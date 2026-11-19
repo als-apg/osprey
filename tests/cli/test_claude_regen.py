@@ -1638,6 +1638,31 @@ class TestInstructionsRender:
         )
         assert ctx["claude_md_template"] == "CLAUDE.logbook.md.j2"
 
+    def test_the_named_default_renders_as_an_absent_key(self, tmp_path):
+        """A profile naming the default render builds what one without the key builds."""
+        manager = TemplateManager()
+        renders = {}
+        for label, extra in (("absent", {}), ("named", {"claude_md_template": "CLAUDE.md.j2"})):
+            context = {"channel_finder_mode": "hierarchical", **extra}
+            project = manager.create_project(
+                project_name="instructions-default",
+                output_dir=tmp_path / label,
+                data_bundle="demo",
+                context=context,
+                data_root=bundle_data_root("demo"),
+            )
+            manifest = manager.generate_manifest(
+                project,
+                "instructions-default",
+                "demo",
+                context,
+                artifacts=manager._effective_artifacts("demo", None),
+            )
+            assert "claude_md_template" not in manifest["creation"], label
+            renders[label] = (project / "CLAUDE.md").read_bytes()
+
+        assert renders["absent"] == renders["named"]
+
     def test_regen_renders_the_recorded_render(self, tmp_path):
         manager = TemplateManager()
         project_dir = _render_project(manager, tmp_path, "render-render", "CLAUDE.logbook.md.j2")

@@ -146,6 +146,30 @@ def test_the_bundle_is_a_panel_the_terminal_serves(repo: Path, tmp_path: Path) -
         assert render["file"] in page
 
 
+def test_the_bundles_page_sets_the_page_ready_mark_after_it_wires_its_cells(
+    repo: Path, tmp_path: Path
+) -> None:
+    from osprey.interfaces.design_system.panels.page_ready import route_problem
+
+    entry = tmp_path / "index.html"
+    page = panel_matrix_bundle(panel_matrix(repo))["index.html"]
+
+    assert route_problem(page, entry, panel=True) is None
+    assert '<html lang="en" data-page-ready="pending">' in page
+    # One script wires the cells and then marks the page, so a wiring that
+    # throws never reaches the call.
+    wiring = page[page.rindex("<script") : page.rindex("</script>")]
+    assert wiring.startswith('<script type="module">')
+    assert "addEventListener('click'" in wiring
+    assert wiring.rstrip().endswith("markPageReady();")
+
+
+def test_the_page_opened_from_disk_loads_nothing_and_declares_no_mark(repo: Path) -> None:
+    page = panel_matrix_html(panel_matrix(repo))
+    assert "data-page-ready" not in page and "markPageReady" not in page
+    assert "/design-system/" not in page and 'type="module"' not in page
+
+
 def test_a_login_that_selects_the_roster_shows_it_and_no_other_does(repo: Path) -> None:
     layer = repo / "tiers" / "admin.yml"
     text = layer.read_text(encoding="utf-8")

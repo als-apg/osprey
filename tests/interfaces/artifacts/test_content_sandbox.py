@@ -424,9 +424,35 @@ class TestInliner:
         sorted(p.name for p in (inline_assets.DESIGN_SYSTEM_STATIC / "js/components").glob("*.js")),
     )
     def test_every_component_module_inlines(self, module):
-        # The inliner reads import specifiers with a regex that does not skip comments, so a
-        # usage comment that spells this module's own import reads as an import cycle.
         inline_assets.module_data_url(f"/design-system/js/components/{module}")
+
+    def test_a_commented_out_import_is_left_untouched(self):
+        line_comment = '// import "/design-system/js/no-such.js";'
+        block_comment = '/* export { a } from "/design-system/js/no-such.js" */'
+        snippet = (
+            '<script type="module">\n'
+            f"{line_comment}\n{block_comment}\n"
+            'import "/design-system/js/theme-manager.js";\n'
+            "</script>"
+        )
+        out = inline_assets.self_contained(snippet)
+        assert line_comment in out and block_comment in out
+        assert 'import "data:text/javascript;base64,' in out
+
+    def test_comment_markers_inside_strings_do_not_hide_an_import(self):
+        snippet = (
+            '<script type="module">\n'
+            "const a = \"//\"; const b = '/*'; const c = `*/ //`;\n"
+            'import "/design-system/js/theme-manager.js";\n'
+            "</script>"
+        )
+        out = inline_assets.self_contained(snippet)
+        assert 'import "data:text/javascript;base64,' in out
+
+    def test_an_import_spelled_inside_a_string_is_left_untouched(self):
+        body = "const s = \"import '/design-system/js/no-such.js'\";"
+        snippet = f'<script type="module">{body}</script>'
+        assert inline_assets.self_contained(snippet) == snippet
 
     def test_unknown_first_party_module_is_an_error(self):
         with pytest.raises(FileNotFoundError):

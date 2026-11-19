@@ -1193,6 +1193,68 @@ def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
     return table
 
 
+def app_panel_grant_missing(card: str, app: str, panel_id: str) -> str:
+    """The refusal for an application panel a roster card shows with no grant holder.
+
+    :param card: The roster card whose render shows the panel.
+    :param app: The application the panel belongs to.
+    :param panel_id: The panel's id.
+    :return: One sentence naming the card, the panel and the application, and
+        the ``app.yml`` line that grants it.
+    """
+    return (
+        f"roster card {card!r} shows panel {panel_id!r} of application {app!r}, but no "
+        f"container holds that panel's roster grant; add `roster_grant: {{}}` under "
+        f"`panel:` in {app!r}'s app.yml"
+    )
+
+
+def app_panels_without_roster_grant(
+    config: Any, project_root: Any, layer_root: Any = None
+) -> list[str]:
+    """Every roster card that shows an application panel no container holds a grant for.
+
+    Invariant: an application panel a roster card shows has a grant holder in
+    :func:`panel_roster_grant_table`. Without one the card's terminal proxies
+    the panel with a secret the panel's container was never handed, and every
+    request it sends is refused. An application panel is a ``web.panels.<id>``
+    block carrying ``app``, read off the card's rendered ``config.yml``; a
+    panel switched off is shown by nobody.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+        layer_root: Where a build in flight has rendered its renders; see
+            :func:`_render_configs`.
+
+    Returns:
+        One :func:`app_panel_grant_missing` message per (card, panel), in
+        roster order and panel-id order; empty on a deployment with no roster.
+
+    Raises:
+        ValueError: A rendered ``services.<k>.roster_grant`` row is malformed
+            (:func:`panel_roster_grant_table`).
+    """
+    if not has_web_terminal_roster(config):
+        return []
+    table = panel_roster_grant_table(config)
+    renders = dict(_render_configs(config, project_root, layer_root))
+    problems: list[str] = []
+    for card, render in _card_renders(config):
+        if render is None:
+            continue
+        panels = as_dict(as_dict(as_dict(renders.get(render)).get("web")).get("panels"))
+        for panel_id in sorted(panels):
+            block = panels[panel_id]
+            if not panel_spec_enabled(block):
+                continue
+            app = as_dict(block).get("app")
+            if isinstance(app, str) and app and panel_id not in table:
+                problems.append(app_panel_grant_missing(card, app, panel_id))
+    return problems
+
+
 def renders_declaring_panel(
     config: Any, project_root: Any, panel_id: str, layer_root: Any = None
 ) -> set[str]:
@@ -1248,6 +1310,26 @@ def _panel_roster_grants(
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 
+    card_renders = _card_renders(config)
+    if not card_renders:
+        return []
+    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
+    return [
+        (card, terminal_secret_var(card))
+        for card, render in card_renders
+        if render in entitled_renders
+    ]
+
+
+def _card_renders(config: Any) -> list[tuple[str, str | None]]:
+    """Each roster card and the render its terminal runs, in roster order.
+
+    A shared card runs its own render; a person runs the render their entry or
+    role binds them to, else ``default_tier``.
+
+    :param config: The parsed deploy config.
+    :return: ``(card name, render name or None)`` pairs; empty with no roster.
+    """
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
     cards = roster_entries(web_terminals)
     if not cards:
@@ -1265,14 +1347,13 @@ def _panel_roster_grants(
     default_tier = web_terminals.get("default_tier")
     if not isinstance(default_tier, str) or not default_tier:
         default_tier = None
-    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
-
-    grants: list[tuple[str, str]] = []
-    for entry in cards:
-        tier = entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier
-        if tier in entitled_renders:
-            grants.append((entry["name"], terminal_secret_var(entry["name"])))
-    return grants
+    return [
+        (
+            entry["name"],
+            entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier,
+        )
+        for entry in cards
+    ]
 
 
 def has_web_terminal_roster(config: Any) -> bool:

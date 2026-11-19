@@ -2938,6 +2938,31 @@ def test_json_create_reports_no_attachments_published(client, mock_ariel_service
     assert response.json()["attachments_published"] is None
 
 
+def _assert_json_create_refuses_field(client, mock_ariel_service, field, value):
+    """POST a JSON create carrying ``field``; expect the 422 naming it and no write."""
+    mock_ariel_service.create_entry = AsyncMock(return_value=_create_result())
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    response = client.post("/api/entries", json={"subject": "s", "details": "d", field: value})
+
+    assert response.status_code == 422
+    detail = response.json()["detail"][0]
+    assert detail["loc"] == ["body", field]
+    assert detail["type"] == "extra_forbidden"
+    mock_ariel_service.create_entry.assert_not_called()
+    mock_ariel_service.repository.upsert_entry.assert_not_called()
+
+
+def test_json_create_refuses_attachment_ids(client, mock_ariel_service):
+    """attachment_ids is not a field of the JSON create; files go through the upload route."""
+    _assert_json_create_refuses_field(client, mock_ariel_service, "attachment_ids", ["att-1"])
+
+
+def test_json_create_refuses_an_unknown_field(client, mock_ariel_service):
+    """A misspelt key is named back as a 422, not silently dropped."""
+    _assert_json_create_refuses_field(client, mock_ariel_service, "subjet", "typo")
+
+
 def test_upload_without_files_reports_no_attachments_published(client, mock_ariel_service):
     """An upload carrying no files reports null, whatever the result's default says."""
     mock_ariel_service.create_entry = AsyncMock(return_value=_create_result())

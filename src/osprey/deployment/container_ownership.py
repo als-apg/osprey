@@ -25,8 +25,9 @@ which deployment a container belongs to, and the
 :data:`~osprey.deployment.compose_generator.REPO_ID_LABEL` says which checkout
 created it. :func:`claims_row` is that rule, read by every verb that acts on the
 host: ``up`` and ``restart`` refuse to start over another copy's containers,
-``reset`` refuses to remove them, and the host-port preflight does not count a
-port another copy holds as this deployment's own. The label is on containers
+``reset`` refuses to remove them, ``down`` without compose files never stops
+them, and the host-port preflight does not count a port another copy holds as
+this deployment's own. The label is on containers
 only. Volumes belong to the project by name, so they are listed but never
 partitioned: a second checkout that declares the same project name is the same
 instance and shares its data by declaration.

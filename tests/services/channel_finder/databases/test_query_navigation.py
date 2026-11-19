@@ -139,6 +139,40 @@ class TestInvalidPath:
 
 
 # ---------------------------------------------------------------------------
+# A skipped required tree level is refused
+# ---------------------------------------------------------------------------
+
+
+class TestSkippedLevel:
+    """Options are offered only below a selection of every required tree level."""
+
+    def test_a_skipped_tree_level_is_refused(self, tree_only_db: HierarchicalChannelDatabase):
+        """``signal`` without a ``device`` names ``device`` instead of offering devices."""
+        with pytest.raises(ValueError, match="device"):
+            tree_only_db.get_options_at_level("signal", {"system": "SR"})
+
+    def test_a_skipped_optional_tree_level_is_allowed(
+        self, optional_tree_level_db: HierarchicalChannelDatabase
+    ):
+        """An ``optional`` tree level may be left out of the selections."""
+        options = optional_tree_level_db.get_options_at_level(
+            "signal", {"system": "SR", "device": "PS"}
+        )
+
+        assert options != []
+
+    def test_an_instance_level_needs_no_selection(
+        self, range_instances_db: HierarchicalChannelDatabase
+    ):
+        """An ``instances`` level after ``family`` is never part of the selections."""
+        options = range_instances_db.get_options_at_level(
+            "signal", {"system": "SR", "family": "BPM"}
+        )
+
+        assert options != []
+
+
+# ---------------------------------------------------------------------------
 # Instance levels: descend into the container, ignore the selection
 # ---------------------------------------------------------------------------
 

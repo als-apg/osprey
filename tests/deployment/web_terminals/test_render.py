@@ -23,7 +23,10 @@ from osprey.deployment.web_terminals.ports import (
     base_ports_from_config,
     resolve_nginx_port,
 )
-from osprey.deployment.web_terminals.provision import auth_sidecar_local_tag
+from osprey.deployment.web_terminals.provision import (
+    auth_sidecar_local_tag,
+    web_stack_service_names,
+)
 from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
     PROXY_ENV_NAMES,
@@ -2651,6 +2654,15 @@ def _open_config(users: list | None = None) -> dict:
     config = _config(users if users is not None else ["alice", "bob", "carol"])
     config["modules"]["web_terminals"]["auth"] = {"method": "none"}
     return config
+
+
+@pytest.mark.parametrize(
+    "config",
+    [_auth_config(["alice", "bob"]), _open_config(["alice", "bob"])],
+    ids=["sidecar-active", "auth-none"],
+)
+def test_the_web_stacks_service_names_are_the_rendered_documents_keys(config: dict) -> None:
+    assert set(web_stack_service_names(config)) == set(_compose(config)["services"])
 
 
 #: The history page's gate snippet: rendered by every signed-in render, beside

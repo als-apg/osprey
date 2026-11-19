@@ -4,9 +4,9 @@
  *
  * The controller draws every frame the transport decodes, but two questions
  * about a frame decide what it does with it: whether the frame closes the
- * running turn, and whether it is part of an agent's response rather than a
- * notice about one. Pure predicates over the decoded event; nothing here
- * touches the DOM or the network.
+ * running turn, which the server marks on the frame, and whether it is part of
+ * an agent's response rather than a notice about one. Pure predicates over the
+ * decoded event; nothing here touches the DOM or the network.
  *
  * @module chat-frames
  */
@@ -22,16 +22,14 @@ const RESPONSE_FRAMES = new Set([
 ]);
 
 /**
- * Whether the frame closes the running turn: its result, or an error other
- * than one the agent reports inside a message and keeps working past.
+ * Whether the frame closes the running turn. The server marks such a frame
+ * `ends_turn: true`; the rule lives there (`is_terminal_event`), and a frame
+ * without the mark does not end the turn.
  * @param {import('./chat-client.js').ChatEvent} frame
  * @returns {boolean}
  */
 export function endsTurn(frame) {
-  return (
-    frame.type === 'result' ||
-    (frame.type === 'error' && frame.error_type !== 'AssistantMessageError')
-  );
+  return frame.ends_turn === true;
 }
 
 /**

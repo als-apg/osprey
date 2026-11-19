@@ -49,14 +49,17 @@ the validator checks three of these lines:
    falls back to system fonts.
 4. A `type="module"` script that calls `initTheme({ role: 'follower' })` (this
    surface is a follower, never the theme hub — the web terminal is the hub) and
-   `applyEmbedded()` (reads `?embedded=true` and hides standalone chrome).
+   `applyEmbedded()` (reads `?embedded=true` and hides standalone chrome), and
+   calls `markPageReady()` once the panel's first state is drawn; `<html>`
+   carries `data-page-ready="pending"` so the shared start-up leaves the mark to
+   that call.
 
 Copy this head exactly — do not reorder, and do not convert the boot script to a
 module:
 
 ```html
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-page-ready="pending">
 <head>
 <meta charset="UTF-8">
 <!-- Pre-paint theme boot FIRST: resolves and applies data-theme before first
@@ -75,8 +78,13 @@ module:
   // hides the standalone chrome so the panel sits flush in its host frame.
   import { initTheme } from '/design-system/js/theme-manager.js';
   import { applyEmbedded } from '/design-system/js/frame-params.js';
+  import { markPageReady } from '/design-system/js/page-ready.js';
   initTheme({ role: 'follower' });
   applyEmbedded();
+  // <html> declares the mark pending, so this call sets it. Call it once the
+  // panel's first state is drawn; a panel that fetches its first state calls
+  // it after the fetch, error or not.
+  markPageReady();
 </script>
 <style>
   /* Every color/surface/border/font below resolves through a var(--…) token.
@@ -130,8 +138,8 @@ never invent a hex value. A `--…-tint-NN` token is a low-opacity fill of the b
 
 Reach for an `osprey-*` class from `primitives.css` before writing your own: a
 button is `osprey-btn`, a card `osprey-card`, a status pill `osprey-chip`. Every
-class the panel sets must be defined, in the panel's own `*.css` or one of the
-three linked sheets.
+class the panel sets must be defined, in a `<style>` block of the page, the
+panel's own `*.css`, or one of the three linked sheets.
 
 ---
 
@@ -202,6 +210,7 @@ If it raises, fix each reported `PanelRule` and re-run until it is silent:
 | `MISSING_THEME_BOOT` | entry HTML doesn't load `theme-boot.js` | add the `<script>`, first in head (Step 1) |
 | `MISSING_FONT_LINK` | entry HTML doesn't link `/static/fonts/fonts.css` | add the `<link>` (Step 1) |
 | `RAW_HEX_COLOR` | a raw `#rgb`/`#rrggbb`/… literal appears where a token belongs | replace it with a `var(--…)` token (Step 2) |
+| `PAGE_READY` | the entry page never declares `data-page-ready="pending"`, or no script it loads calls `markPageReady()` | add both (Step 1) |
 
 Note the `RAW_HEX_COLOR` scan is a raw text scan: a URL fragment whose name is
 all hex digits and exactly 3/4/6/8 long (e.g. `href="#abc"` or
@@ -210,12 +219,12 @@ the fragment — never loosen the token-only rule.
 
 The panel is complete when the one-liner raises nothing.
 
-A panel that belongs to an application (`apps/<name>/panel/`) is also judged by
-`osprey app check`, which says exactly what `osprey build` would: it refuses a
-panel that does not link all three sheets (`design_system_css`) and any class the
-panel's HTML or JS sets that no rule in its own `*.css` or a linked design-system
-sheet defines (`undefined_class`). Run it from the deployment and fix until it
-passes.
+A panel that belongs to an application (`apps/<name>/panel/`) is judged by
+`osprey app check`, which runs these same rules on `panel/index.html` (an app
+panel has no manifest) and adds one: every class the panel's HTML or JS sets has
+a rule in a `<style>` block of the page, its own `*.css` or a linked
+design-system sheet (`undefined_class`). Run it from the deployment and fix
+until it passes.
 
 ---
 

@@ -873,8 +873,7 @@ def _base_registry_violations(text: str) -> list[str]:
     namespace after it (``${OSPREY_BASE_REGISTRY}/library/python:3.11-slim``):
     the ARG names the registry standing in for docker.io, which keeps Docker
     Hub's paths, so a base without its namespace names an image no mirror
-    serves. ``native-wheels-*`` is a stage selected by architecture, not an
-    image.
+    serves.
     """
     lines = text.splitlines()
     problems = []
@@ -893,7 +892,7 @@ def _base_registry_violations(text: str) -> list[str]:
         base = base_words[0]
         if len(base_words) >= 3 and base_words[1].upper() == "AS":
             stages.add(base_words[2])
-        if base in stages or base.startswith("native-wheels-"):
+        if base in stages:
             continue
         prefix = "${OSPREY_BASE_REGISTRY}/"
         if not base.startswith(prefix):
@@ -1207,9 +1206,9 @@ _PIP_RECIPES = [p for p in SHIPPED_DOCKERFILES if "pip install" in p.read_text(e
 
 
 def _installing_bodies(dockerfile: pathlib.Path) -> list[str]:
-    """Each RUN that installs a Python package, minus the arm64 native-wheels
-    builder stage, which compiles pcaspy at its hash-pinned version and ships
-    nothing but that wheel."""
+    """Each RUN that installs a Python package, minus the native-wheels builder
+    stage's aarch64 branch, which compiles pcaspy at its hash-pinned version and
+    ships nothing but that wheel."""
     return [
         instruction.removeprefix("RUN ")
         for instruction in run_instructions(dockerfile.read_text(encoding="utf-8"))

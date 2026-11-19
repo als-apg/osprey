@@ -314,11 +314,14 @@ def test_the_panel_validator_skips_an_app_panels_vendor_dir(tmp_path: Path, stub
         '{"id": "knob", "label": "Knob", "entry": "index.html"}', encoding="utf-8"
     )
     (panel_dir / "index.html").write_text(
-        '<!doctype html><script src="/design-system/js/theme-boot.js"></script>'
+        '<!doctype html><html data-page-ready="pending">'
+        '<script src="/design-system/js/theme-boot.js"></script>'
         '<link rel="stylesheet" href="/design-system/css/tokens.css">'
         '<link rel="stylesheet" href="/design-system/css/base.css">'
         '<link rel="stylesheet" href="/design-system/css/primitives.css">'
-        '<link rel="stylesheet" href="/static/fonts/fonts.css">\n',
+        '<link rel="stylesheet" href="/static/fonts/fonts.css">'
+        '<script type="module">import { markPageReady } from '
+        "'/design-system/js/page-ready.js'; markPageReady();</script></html>\n",
         encoding="utf-8",
     )
 
