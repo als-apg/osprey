@@ -345,9 +345,10 @@ the shipped file:
 
 That file is generated output: edit ``limits.yaml`` and rebuild. A profile
 that ships its own ``channel_limits.json`` stops the build. ``writable: true`` may be
-left out, and on a numeric setpoint it cannot stand in for the bounds: a float
-or int setpoint record without both ``min_value`` and ``max_value`` is written
-``writable: false``, so such a record is either bounded or a block. ``confirm: true``, the value a record gets when it does not state
+left out, and on a numeric setpoint it cannot stand in for the bounds: on a
+float or int setpoint without both ``min_value`` and ``max_value`` it stops the
+build, and a record that leaves it out and lacks a bound is written
+``writable: false``. ``confirm: true``, the value a record gets when it does not state
 one, means every write is checked: the connector reads the channel back once
 and compares what it finds with the value that was sent, so a write that did
 not land is reported rather than assumed.

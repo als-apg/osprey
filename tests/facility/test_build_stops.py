@@ -524,6 +524,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("limit_invalid__writable", "limit-invalid", "writable on a non-setpoint"),
     ("limit_invalid__int_bound", "limit-invalid", "non-integral bound on an int channel"),
     (
+        "limit_invalid__writable_without_bounds",
+        "limit-invalid",
+        "writable on a numeric setpoint without both bounds",
+    ),
+    (
         "place_conflict__imported_place",
         "place-conflict",
         "an imported place contradicting its span",
@@ -2102,6 +2107,13 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: limit-invalid: limit T — `max_value` 2.5 on an int channel is not "
             "integral; fix: write integral bounds"
+        ),
+    ),
+    "limit_invalid__writable_without_bounds": (
+        _plain(limits({"address": "Q1:SP", "writable": True, "max_value": 1.0})),
+        (
+            "facility: limit-invalid: limit Q1:SP — `writable: true` on a float setpoint "
+            "without both `min_value` and `max_value`; fix: state `min_value` and `max_value`"
         ),
     ),
     "place_conflict__imported_place": (
