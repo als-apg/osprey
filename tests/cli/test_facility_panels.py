@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -155,7 +156,7 @@ def test_a_corrupt_index_stops_write_and_check(facility_file, tmp_path):
 
 def test_a_draw_file_is_read_and_part_of_the_stamp(facility_file, tmp_path):
     draw = tmp_path / "draw.json"
-    draw.write_text(json.dumps({"symbols": {"Quadrupole": "quadrupole"}}))
+    draw.write_text(json.dumps({"colours": {"quadrupole": "#2f9e52"}}))
     out = str(tmp_path / "out")
     assert _run(facility_file, "write", "--out", out, "--draw", str(draw)).exit_code == 0
     assert _run(facility_file, "check", "--out", out, "--draw", str(draw)).exit_code == 0
@@ -185,7 +186,7 @@ def test_draw_json_beside_the_tables_is_the_default(facility_file, tmp_path):
         ],
     )
     assert "no draw.json" in result.output
-    (tables / "draw.json").write_text(json.dumps({"symbols": {"Quadrupole": "quadrupole"}}))
+    (tables / "draw.json").write_text(json.dumps({"colours": {"quadrupole": "#2f9e52"}}))
     result = CliRunner().invoke(
         cli,
         [
@@ -208,7 +209,7 @@ def test_draw_json_beside_the_tables_is_the_default(facility_file, tmp_path):
 
 def test_a_bad_draw_file_stops_the_command(facility_file, tmp_path):
     draw = tmp_path / "draw.json"
-    draw.write_text(json.dumps({"symbols": {"Quadrupole": "no_such_symbol"}}))
+    draw.write_text(json.dumps({"colours": {"no_such_symbol": "#2f9e52"}}))
     result = _run(facility_file, "write", "--out", str(tmp_path / "out"), "--draw", str(draw))
     assert result.exit_code == 1 and "no_such_symbol" in result.output
     assert not (tmp_path / "out").exists()
@@ -269,3 +270,87 @@ def test_every_view_kind_of_the_engine_can_be_chosen(facility_file, tmp_path):
     assert written.exit_code == 0, written.output
     assert "calibration:" in written.output
     assert list((out / "calibration").iterdir())
+
+
+def test_check_notes_the_rows_that_restate_the_facility_file(facility_file, tmp_path):
+    import shutil
+
+    tables = tmp_path / "panels"
+    shutil.copytree(PANELS_DIR, tables)
+    from osprey.facility.panels.tables import COLUMNS
+
+    roles_header = ",".join(COLUMNS["channel_roles.csv"])
+    restating = "Quadrupole,current_readback,*:Current-RB,device,value,,,,,stated,S,1,l"
+    # drawn as its signal's default is, but a stated entry is a press, and a default
+    # role is none: without the row the card loses the entry
+    pressing = "Quadrupole,current_setpoint,*:Current-SP,device,entry,,,,,stated,S,1,l"
+    # last: without it, its channel plays the same role in the same place of the order
+    (tables / "channel_roles.csv").write_text(f"{roles_header}\n{pressing}\n{restating}\n")
+
+    def run(verb: str, *args: str) -> Result:
+        return CliRunner().invoke(
+            cli,
+            ["facility", "panels", verb, "--facility", str(facility_file), "--tables", str(tables)]
+            + list(args),
+        )
+
+    out = str(tmp_path / "out")
+    assert run("write", "--out", out).exit_code == 0
+    result = run("check", "--out", out)
+    assert "redundant: channel_roles.csv: 1 rows restate the facility file or the default" in (
+        result.output
+    )
+    # the fixture's pairs rows each state a source or an inferred basis, read on the
+    # screens: none restates the facility file; one with neither does
+    assert "redundant: pairs.csv" not in result.output
+    with (tables / "pairs.csv").open("a") as handle:
+        handle.write("XR02-QF1:Current-SP,XR02-QF1:Current-RB,hardware,stated,,,\n")
+    assert run("write", "--out", out).exit_code == 0
+    result = run("check", "--out", out)
+    assert "redundant: pairs.csv: 1 rows restate the facility file or the default" in (
+        result.output
+    )
+    # a record type is read: only the drawn_as that is the role's may go
+    assert "redundant: record_types.csv:" not in result.output
+    assert "redundant: record_types.csv drawn_as: " in result.output
+    # deleting exactly what the notes name leaves every screen as it was
+    from osprey.facility.panels import load_graph
+
+    graph = load_graph(facility_file, tables)
+    lines = (tables / "pairs.csv").read_text().splitlines()
+    (tables / "pairs.csv").write_text("\n".join(lines[:-1]) + "\n")
+    rows = (tables / "record_types.csv").read_text().splitlines()
+    kept = [rows[0]]
+    for line in rows[1:]:
+        cells = line.split(",")
+        try:
+            default = "setpoint" if graph.channel(cells[0]).writable else "value"
+        except KeyError:  # a channel the graph does not hold: the row is not read
+            default = None
+        if cells[2] == default:
+            cells[2] = ""
+        kept.append(",".join(cells))
+    (tables / "record_types.csv").write_text("\n".join(kept) + "\n")
+    (tables / "channel_roles.csv").write_text(f"{roles_header}\n{pressing}\n")
+    again = str(tmp_path / "again")
+    assert run("write", "--out", again).exit_code == 0
+    result = run("check", "--out", again)
+    assert "redundant: pairs.csv" not in result.output
+    assert "redundant: record_types.csv" not in result.output
+    assert "redundant: channel_roles.csv" not in result.output
+
+    def screens(root: str) -> dict[str, str]:
+        """Every screen, its stamp of the facility and tables masked."""
+        return {
+            str(p.relative_to(root)): re.sub(
+                r"(Facility |model )[0-9a-f]{8,64}", r"\1-", p.read_text(encoding="utf-8")
+            )
+            for p in Path(root).rglob("*.screen.json")
+        }
+
+    assert screens(again) == screens(out)
+    # the row the note does not name: deleting it changes the screens
+    (tables / "channel_roles.csv").write_text(f"{roles_header}\n")
+    without = str(tmp_path / "without")
+    assert run("write", "--out", without).exit_code == 0
+    assert screens(without) != screens(out)

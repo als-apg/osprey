@@ -66,7 +66,6 @@ from osprey.facility.panels.describe import (
     describe,
     drawn_on,
     light,
-    ring_arcs,
     targets,
     unset_groups,
 )
@@ -179,12 +178,8 @@ class Problem:
 class Draw:
     """The parameters a screen is described with; ``write`` and ``check`` must agree on them."""
 
-    rack_classes: frozenset[str] = frozenset()
-    symbols: Mapping[str, str] = field(default_factory=dict)
-    above: frozenset[str] = frozenset()
     colours: Mapping[str, str] = field(default_factory=dict)
     annotate: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
-    ring: tuple[str, ...] = ()
     #: The places a write keeps to (:func:`write_scope`); empty: everything. The
     #: screens do not depend on it, so it is no part of :attr:`digest`.
     write_under: tuple[str, ...] = ()
@@ -194,12 +189,8 @@ class Draw:
         """16 hex digits naming these settings, whatever the order they were given in."""
         text = json.dumps(
             {
-                "rack_classes": sorted(self.rack_classes),
-                "symbols": sorted(self.symbols.items()),
-                "above": sorted(self.above),
                 "colours": sorted(self.colours.items()),
                 "annotate": sorted((k, list(v)) for k, v in self.annotate.items()),
-                "ring": sorted(self.ring),
             },
             sort_keys=True,
         )
@@ -215,14 +206,10 @@ def _strings(value: Any, name: str, path: Path) -> list[str]:
 def load_draw(path: Path) -> Draw:
     """Read the drawing settings from a JSON file.
 
-    The keys are ``rack_classes`` (place levels that mark a rack), ``symbols``
-    (device class to symbol name), ``above`` (device classes drawn on the
-    upper lane of a strip; each needs a symbol), ``colours`` (symbol name to
+    The keys are ``colours`` (symbol name to
     the ``#rrggbb`` its strip symbols are filled with) and ``annotate`` (symbol
     name to at most :data:`MAX_ANNOTATIONS` stated signals whose values a strip
-    shows under its symbols) and ``ring`` (place ids whose roll-up draws their
-    children on the ring as arcs; each must be a place with children on the
-    ring, which :func:`check_draw` holds against the graph) and ``write_under``
+    shows under its symbols) and ``write_under``
     (place ids a write keeps to, :func:`write_scope`; each must be a place of the
     graph). All are optional.
 
@@ -239,24 +226,11 @@ def load_draw(path: Path) -> Draw:
         raise EmitError(f"{path} cannot be read as {DRAW_FILE}: {error}") from error
     if not isinstance(document, dict):
         raise EmitError(f"{path}: the file must hold one JSON object")
-    keys = {"rack_classes", "symbols", "above", "colours", "annotate", "ring", "write_under"}
+    keys = {"colours", "annotate", "write_under"}
     unknown = sorted(set(document) - keys)
     if unknown:
         raise EmitError(f"{path}: unknown key {', '.join(unknown)}")
-    racks = _strings(document.get("rack_classes", []), "rack_classes", path)
-    ring = _strings(document.get("ring", []), "ring", path)
     write_under = _strings(document.get("write_under", []), "write_under", path)
-    above = _strings(document.get("above", []), "above", path)
-    symbols = document.get("symbols", {})
-    if not isinstance(symbols, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in symbols.items()
-    ):
-        raise EmitError(f"{path}: symbols must map class names to symbol names")
-    for name in sorted(set(symbols.values()) - set(WIDTH_UNITS) - {"generic"}):
-        raise EmitError(f"{path}: {name} is not a symbol of the engine")
-    for cls in above:
-        if cls not in symbols:
-            raise EmitError(f"{path}: above names {cls}, which has no entry in symbols")
     known = {*WIDTH_UNITS, "generic"}
     colours = document.get("colours", {})
     if not isinstance(colours, dict) or not all(isinstance(v, str) for v in colours.values()):
@@ -282,29 +256,18 @@ def load_draw(path: Path) -> Draw:
         if len(signals) > MAX_ANNOTATIONS:
             raise EmitError(f"{path}: annotate {name} lists more than {MAX_ANNOTATIONS} signals")
     return Draw(
-        rack_classes=frozenset(racks),
-        symbols=dict(symbols),
-        above=frozenset(symbols[cls] for cls in above),
         colours={name: colour.lower() for name, colour in colours.items()},
         annotate={name: tuple(signals) for name, signals in annotate.items()},
-        ring=tuple(dict.fromkeys(ring)),
         write_under=tuple(dict.fromkeys(write_under)),
     )
 
 
-#: The fewest children on the ring a place named in ``ring`` must have.
-MIN_RING_ARCS = 2
-
-
 def check_draw(graph: PanelGraph, draw: Draw) -> None:
-    """Hold the drawing settings to the graph: each place named in ``ring`` exists and
-    has at least :data:`MIN_RING_ARCS` children on the ring (:func:`describe.ring_arcs`);
-    each place named in ``write_under`` exists.
+    """Hold the drawing settings to the graph: each place named in ``write_under``
+    exists.
 
     Raises:
-        EmitError: A place named in ``ring`` is no place of the graph or has
-            too few children on the ring, or one named in ``write_under`` is no
-            place of the graph.
+        EmitError: A place named in ``write_under`` is no place of the graph.
     """
     for place_id in draw.write_under:
         try:
@@ -313,17 +276,6 @@ def check_draw(graph: PanelGraph, draw: Draw) -> None:
             raise EmitError(
                 f"write_under names {place_id}, which is no place of the facility"
             ) from None
-    for place_id in draw.ring:
-        try:
-            graph.thing(place_id, "place")
-        except KeyError:
-            raise EmitError(f"ring names {place_id}, which is no place of the facility") from None
-        found = len(ring_arcs(graph, place_id))
-        if found < MIN_RING_ARCS:
-            raise EmitError(
-                f"ring names {place_id}, which has {found} children with a ring position, "
-                f"fewer than {MIN_RING_ARCS}"
-            )
 
 
 _HEX = re.compile(r"#[0-9a-fA-F]{6}")
@@ -547,11 +499,7 @@ def _generate(
     view = describe(
         graph,
         target,
-        rack_classes=draw.rack_classes,
-        symbols=draw.symbols,
-        above=draw.above,
         annotate=draw.annotate,
-        ring=frozenset(draw.ring),
     )
     document = layout.render(
         view, graph=graph, screens=screens, doc_id=own[: -len(SCREEN_SUFFIX)], colours=draw.colours
@@ -709,7 +657,7 @@ def write(
             owned[name] = entry
         else:
             ignored.append(str(name))
-    found = targets(graph, rack_classes=draw.rack_classes)
+    found = targets(graph)
     ids = screen_ids(found)
     paths = {_path(t, ids) for t in found}
     # Pre-flight: every path the run will write, delete or prune is looked at
@@ -1004,7 +952,7 @@ def check(
         problems.append(
             Problem("stamp", INDEX, f"written from other {' and '.join(changed)} than now")
         )
-    found = targets(graph, rack_classes=draw.rack_classes)
+    found = targets(graph)
     ids = screen_ids(found)
     wanted = {_path(t, ids): t for t in found}
     scope = write_scope(graph, draw.write_under) if draw.write_under else None

@@ -579,6 +579,18 @@ class SignalRoleEnum(str, Enum):
     """
     Current operating mode of the machine (e.g. user operation, machine development, shutdown).
     """
+    model_readback = "model_readback"
+    """
+    Model name a device reports of itself.
+    """
+    serial_number_readback = "serial_number_readback"
+    """
+    Serial number a device reports of itself.
+    """
+    firmware_version_readback = "firmware_version_readback"
+    """
+    Firmware version a device reports of itself.
+    """
 
 
 class PropertyNameEnum(str, Enum):
@@ -1525,6 +1537,7 @@ class FacilitySignal(ConfiguredBaseModel):
                        'Channel',
                        'Group',
                        'Scenario']} })
+    nameplate: Optional[bool] = Field(default=None, description="""True for a signal that names the unit it is read from rather than its state (its model, serial number, firmware version): read once, never a live quantity.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FacilitySignal']} })
 
 
 class Provenance(ConfiguredBaseModel):

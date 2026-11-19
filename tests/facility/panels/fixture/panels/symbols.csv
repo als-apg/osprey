@@ -1,0 +1,4 @@
+class,devices,symbol,lane,source
+Quadrupole,,quadrupole,beam,XR-LAYOUT
+Dipole,,bend,beam,XR-LAYOUT
+Pump,,ion_pump,above,XR-LAYOUT

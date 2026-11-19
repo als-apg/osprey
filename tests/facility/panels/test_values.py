@@ -11,7 +11,7 @@ from osprey.facility.panels import layout
 from osprey.facility.panels.describe import device_card, place_view
 from osprey.facility.panels.view import StripElement
 from tests.facility.panels._fixture import PANELS_DIR, copy_tables
-from tests.facility.panels._views import SYMBOLS, nodes, strip_view, stub_render
+from tests.facility.panels._views import SYMBOLS, nodes, strip_view, stub_render, with_symbols
 
 # -- the precision rule ------------------------------------------------------------
 
@@ -114,7 +114,7 @@ def _band_numbers(doc: dict) -> list[dict]:
 def test_a_key_number_is_printed_to_three_significant_digits_and_a_count_whole(
     panel_graph,
 ) -> None:
-    doc = stub_render(place_view(panel_graph, "XR/XR01", symbols=SYMBOLS), panel_graph)
+    doc = stub_render(place_view(with_symbols(panel_graph, SYMBOLS), "XR/XR01"), panel_graph)
     numbers = _band_numbers(doc)
     assert numbers
     for number in numbers:
@@ -147,7 +147,7 @@ def test_a_stated_precision_wins_and_needs_no_rule(tmp_path) -> None:
                                         enumerate(lines[1:], start=1)]  # fmt: skip
     path.write_text("\n".join(rows) + "\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
-    doc = stub_render(place_view(graph, "XR/XR01", symbols=SYMBOLS), graph)
+    doc = stub_render(place_view(with_symbols(graph, SYMBOLS), "XR/XR01"), graph)
     stated = [n for n in _band_numbers(doc) if n["props"]["precision"] == 4]
     assert len(stated) == 1 and not _rules(doc, stated[0])
     assert PANELS_DIR != tables
@@ -324,7 +324,7 @@ def test_every_formula_takes_min_and_max_over_one_tuple(bpm_graph, panel_graph) 
 
     docs = [
         stub_render(device_card(bpm_graph, "XR01:BPM1"), bpm_graph),
-        stub_render(place_view(panel_graph, "XR/XR01", symbols=SYMBOLS), panel_graph),
+        stub_render(place_view(with_symbols(panel_graph, SYMBOLS), "XR/XR01"), panel_graph),
     ]
     expressions = [f["expression"] for doc in docs for f in doc["formulas"]]
     assert any("min(" in e for e in expressions) and any("max(" in e for e in expressions)
@@ -379,7 +379,7 @@ def test_a_key_number_with_a_long_unit_fits_its_tile_whole(tmp_path) -> None:
     with (tables / "metrics.csv").open("a") as handle:
         handle.write("place,,9,Long unit,value,units_2,,,one channel,XR-METRICS-001\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _units_device), tables)
-    doc = stub_render(place_view(graph, "XR/XR01", symbols=SYMBOLS), graph)
+    doc = stub_render(place_view(with_symbols(graph, SYMBOLS), "XR/XR01"), graph)
     (number,) = [
         n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == "XR01-UNITS1:V2-RB"
     ]
@@ -466,7 +466,7 @@ def test_a_key_number_with_a_unit_channel_access_cuts_prints_the_unit_whole_besi
     with (tables / "metrics.csv").open("a") as handle:
         handle.write("place,,9,Cut unit,value,units_0,,,one channel,XR-METRICS-001\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _units_device), tables)
-    doc = stub_render(place_view(graph, "XR/XR01", symbols=SYMBOLS), graph)
+    doc = stub_render(place_view(with_symbols(graph, SYMBOLS), "XR/XR01"), graph)
     channel = "XR01-UNITS1:V0-RB"
     assert not [n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == channel]
     number = _annotations(doc)[channel]
@@ -514,10 +514,10 @@ def test_a_channel_compared_by_equality_with_whole_values_is_a_state_a_threshold
             handle.write(f"XR01-PS1:On-Sts,{value},{state},screen,stated,xr-screens,4d5e6f7,ps:1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
     doc = stub_render(device_card(graph, "XR01:PS1"), graph)
-    (on,) = [
+    shown = [
         n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == "XR01-PS1:On-Sts"
     ]
-    assert on["props"]["precision"] == 0
+    assert shown and all(on["props"]["precision"] == 0 for on in shown)
     doc = stub_render(device_card(graph, "XR02:IP1"), graph)
     pressures = [
         n for n in nodes(doc)

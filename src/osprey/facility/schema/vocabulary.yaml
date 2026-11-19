@@ -325,6 +325,21 @@ enums:
           Current operating mode of the machine (e.g. user operation, machine
           development, shutdown).
         aliases: [operation mode, operating mode, machine mode, beam mode, ops mode, machine state]
+      model_readback:
+        description: Model name a device reports of itself.
+        annotations:
+          nameplate: true
+        aliases: [model, model name, device model, model number]
+      serial_number_readback:
+        description: Serial number a device reports of itself.
+        annotations:
+          nameplate: true
+        aliases: [serial, serial number, serial no]
+      firmware_version_readback:
+        description: Firmware version a device reports of itself.
+        annotations:
+          nameplate: true
+        aliases: [firmware, firmware version, firmware revision]
 
   property_name_enum:
     description: >-

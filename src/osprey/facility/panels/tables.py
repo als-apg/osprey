@@ -29,8 +29,8 @@ line, the schema this module holds them to:
 - ``chains.csv``: the hops of a recipe's chains;
 - ``symbols.csv``: how a card's strip draws a device of a class: its symbol and lane.
 
-``positions.csv``, ``record_types.csv``, ``pairs.csv`` and ``health.csv``
-must be there; every other file may be absent, which reads as empty. Across
+Every file may be absent, which reads as empty: what the facility file states
+(pairs, labels, roles by signal) is the default. Across
 the calibration files, a claim's kind must be a stated kind, a claim's
 ``supersedes`` a stated claim, and a curve's ``id`` a claim whose value is a
 curve. A header must name exactly the file's columns (in
@@ -379,27 +379,7 @@ OPTIONAL_COLUMNS: Mapping[str, frozenset[str]] = MappingProxyType(
 )
 
 #: The files a panels directory may leave out; an absent one reads as empty.
-OPTIONAL_FILES = frozenset(
-    {
-        PICTURES,
-        EXCLUDED,
-        NAMES,
-        METRICS,
-        CALIBRATION_KINDS,
-        CALIBRATIONS,
-        CALIBRATION_CURVES,
-        PROBE_PICTURES,
-        STATE_LABELS,
-        UNITS,
-        CHANNEL_ROLES,
-        CARD_RECIPES,
-        CARD_SECTIONS,
-        CHAINS,
-        STRIP_SYMBOLS,
-        FRONTS,
-        CARDS,
-    }
-)
+OPTIONAL_FILES = frozenset(TABLE_FILES)
 
 Basis = Literal["stated", "inferred"]
 DrawnAs = Literal["value", "setpoint", "state", "command", "text", "waveform", "untyped"]
@@ -482,17 +462,8 @@ SECTION_KINDS: tuple[str, ...] = (
     "curve",
     "ladder",
 )
-#: The symbols a card's strip draws a member as, and the lanes it puts them in.
-STRIP_SYMBOL_WORDS: tuple[str, ...] = (
-    "pump",
-    "gauge",
-    "valve",
-    "dipole",
-    "quad",
-    "sext",
-    "bpm",
-    "sensor",
-)
+#: The lanes a strip puts a symbol in (a place's strip has one lane off the beam:
+#: ``above`` and ``below`` both draw there).
 STRIP_LANES: tuple[str, ...] = ("below", "beam", "above")
 #: Which way a chain hop walks its relation: from the subject (``out``) or to it.
 DIRECTIONS: tuple[str, ...] = ("out", "in")
@@ -512,7 +483,7 @@ STANDINGS: tuple[str, ...] = ("accepted", "contested", "superseded")
 _REQUIRED: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {
         POSITIONS: ("thing", "frame", "basis"),
-        RECORD_TYPES: ("channel", "record_type", "drawn_as", "basis"),
+        RECORD_TYPES: ("channel", "record_type", "basis"),
         PAIRS: ("setpoint", "readback", "basis"),
         HEALTH: ("channel", "value", "state", "basis"),
         EXCLUDED: ("kind", "id"),
@@ -562,7 +533,7 @@ _VOCABULARY: Mapping[str, Mapping[str, tuple[str, ...]]] = MappingProxyType(
         CARD_RECIPES: {},
         CARD_SECTIONS: {"kind": SECTION_KINDS},
         CHAINS: {"direction": DIRECTIONS, "many": ("yes", "1", "0")},
-        STRIP_SYMBOLS: {"symbol": STRIP_SYMBOL_WORDS, "lane": STRIP_LANES},
+        STRIP_SYMBOLS: {"lane": STRIP_LANES},
         FRONTS: {"kind": CONNECTOR_KINDS, "far_direction": FAR_DIRECTIONS, "apart": ("no",)},
         CARDS: {"action": CARD_ACTIONS, "owner_direction": DIRECTIONS},
     }
@@ -667,11 +638,12 @@ class Pose:
 
 @dataclass(frozen=True)
 class RecordType:
-    """One row of ``record_types.csv``."""
+    """One row of ``record_types.csv``; an empty ``drawn_as`` is the drawing of the
+    channel's role (a setpoint as an entry, a readback as a value)."""
 
     channel: str
     record_type: str
-    drawn_as: DrawnAs
+    drawn_as: DrawnAs | None
     basis: Basis
     source: str | None
     revision: str | None
@@ -899,11 +871,14 @@ class ChannelRole:
     """One row of ``channel_roles.csv``: on a device of class ``cls``, the channels
     whose name matches ``signal`` (a pattern with ``*``, ``?`` and ``[``, matched
     against the whole name), looked for where ``scope`` says, play ``role`` and are
-    shown as ``shown_as``. In the scopes ``read_out_by`` and ``controlled_by`` the
-    pattern may hold ``{port}`` (the relation's object port) and ``{n}`` (that
+    shown as ``shown_as``. In a relation scope (``read_out_by``, ``interlocked_by``,
+    ...) the pattern may hold ``{port}`` (the relation's object port) and ``{n}`` (that
     port's trailing number). A ``choice`` or ``action`` row is one press:
     ``label`` is the word on it, ``press_value`` what it writes (``None``: the
-    value whose state word is ``label``). ``unit`` and ``scale`` (a divisor) win
+    value whose state word is ``label``). On any other row a stated ``label`` is
+    what the card calls the channel, on its tile, its value row and over its
+    group, and stays in front of what tells two channels of the role apart; with
+    none, the role's name. ``unit`` and ``scale`` (a divisor) win
     over ``units.csv``. The role words are the facility's vocabulary; the engine
     reads them as text."""
 
@@ -920,6 +895,10 @@ class ChannelRole:
     source: str | None
     revision: str | None
     locator: str | None
+    #: False for the role a channel's own ``signal`` gives it when no row names it
+    #: (:func:`osprey.facility.panels.model.signal_role`): it names what the channel
+    #: is, never how the card presses it.
+    stated: bool = True
 
 
 def _channel_role(**columns: Any) -> ChannelRole:
@@ -996,15 +975,26 @@ class ChainStep:
 
 @dataclass(frozen=True)
 class StripSymbol:
-    """One row of ``symbols.csv``: a card's strip draws the devices of ``cls`` (whose
-    id matches the pattern ``devices``, when given) as ``symbol`` in ``lane``; the
-    first row that takes a device wins."""
+    """One row of ``symbols.csv``: every strip (a card's and a place's) draws the
+    devices of ``cls`` (whose id matches the pattern ``devices``, when given) as
+    ``symbol``, one of the drawing's symbol kinds, in ``lane``; the first row that
+    takes a device wins. A class no row names is not drawn on a strip."""
 
     cls: str
     devices: str | None
     symbol: str
     lane: str
     source: str | None
+
+
+def _check_symbol(row: StripSymbol, line: int) -> None:
+    """A ``symbols.csv`` row names a symbol the drawing knows."""
+    from osprey.facility.panels.symbols import KINDS  # the drawing's, read at run time
+
+    if row.symbol not in KINDS:
+        raise PanelTableError(
+            STRIP_SYMBOLS, line, f"symbol is {row.symbol!r}, not one of {', '.join(KINDS)}"
+        )
 
 
 def _strip_symbol(**columns: Any) -> StripSymbol:
@@ -1460,6 +1450,8 @@ def _read(directory: Path, name: str, lines: list[int] | None = None) -> tuple[A
             _check_metric(rows[-1], line, seen_metric)
         if name == FRONTS:
             _check_front_row(rows[-1], line)
+        if name == STRIP_SYMBOLS:
+            _check_symbol(rows[-1], line)
         if name == CARDS:
             _check_card_rule(rows[-1], line)
         if name == PROBE_PICTURES:

@@ -15,7 +15,7 @@ from osprey.facility.panels.describe import health_rollup, place_view
 from osprey.facility.panels.tables import PanelTableError, read_tables
 from osprey.facility.panels.view import Band
 from tests.facility.panels._fixture import copy_tables
-from tests.facility.panels._views import ABOVE, SYMBOLS, stub_render
+from tests.facility.panels._views import ABOVE, SYMBOLS, stub_render, with_symbols
 
 #: The formula engine's grammar (canopy formula_engine/language/grammar.py) and the
 #: functions the band uses from its namespace.
@@ -55,7 +55,7 @@ def _tiles(doc: dict) -> dict[str, dict]:
 
 @pytest.fixture
 def xr01(panel_graph):
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01")
     return view, stub_render(view, panel_graph)
 
 
@@ -147,7 +147,7 @@ def test_a_tile_too_long_for_the_engine_needs_a_server_side_aggregate(
     panel_graph, monkeypatch
 ) -> None:
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", 20)
-    view = place_view(panel_graph, "XR/XR01", symbols=SYMBOLS, above=ABOVE)
+    view = place_view(with_symbols(panel_graph, SYMBOLS, ABOVE), "XR/XR01")
     doc = stub_render(view, panel_graph)
     tile = _tiles(doc)["Currents"]
     texts = [n["props"]["text"] for n in tile["text-label"]]

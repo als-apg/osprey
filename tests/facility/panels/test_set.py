@@ -57,7 +57,21 @@ def test_the_set_is_an_equal_grid_under_column_heads_beside_row_heads(panel_grap
     assert row["geometry"]["y"] == cells["XR01:QF1"]["y"]
 
 
-def test_a_cell_holds_the_readback_or_the_short_name_with_its_light(panel_graph) -> None:
+def _unpaired_qd1(tmp_path):
+    """The fixture with no pair on XR01:QD1's setpoint (the build pairs it by signal)."""
+    from osprey.facility.panels.model import load_graph
+    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+
+    def change(document) -> None:
+        for channel in document["channels"]:
+            if channel["id"] == "XR01-QD1:Current-SP":
+                channel.pop("pair", None)
+
+    return load_graph(write_fixture_facility(tmp_path / "f.json", change), PANELS_DIR)
+
+
+def test_a_cell_holds_the_readback_or_the_short_name_with_its_light(tmp_path) -> None:
+    panel_graph = _unpaired_qd1(tmp_path)
     doc = stub_render(set_overview(panel_graph, "XR-QUAD"), panel_graph)
     cells = _cells(doc)
     inside = lambda g, c: c["x"] <= g["x"] and g["x"] + g["width"] <= c["x"] + c["width"]  # noqa: E731
@@ -68,8 +82,21 @@ def test_a_cell_holds_the_readback_or_the_short_name_with_its_light(panel_graph)
     }
     assert inside(values["XR01-QF1:Current-RB"], cells["XR01:QF1"])
     assert not [n for n in nodes(doc) if n["type"] in ("pv-text-input", "pv-button")]
-    (name,) = _texts(doc)["D1"]  # no pair: the short name names.csv states
-    assert inside(name["geometry"], cells["XR01:QD1"])
+    # no pair: its card's first key tile stands in the cell (its signals are its roles)
+    (grid,) = [
+        i
+        for s in set_overview(panel_graph, "XR-QUAD").sections
+        if s.title == "members"
+        for i in s.items
+    ]
+    (qd1,) = [c for row in grid.rows for c in row.cells if c.member.label == "XR01:QD1"]
+    assert qd1.pair is None and qd1.tile is not None
+    bound = [
+        n["geometry"]
+        for n in nodes(doc)
+        if "XR01-QD1:" in str(n["props"].get("pv", "")) + str(n.get("rules", ""))
+    ]
+    assert any(inside(g, cells["XR01:QD1"]) for g in bound)
     lights = [
         n["geometry"]
         for n in nodes(doc)
@@ -128,8 +155,11 @@ def test_a_cell_has_one_light_the_deviation_light_when_its_pair_has_one(panel_gr
 
 
 def test_rows_are_grouped_under_their_top_level_place_with_a_line_saying_what(
-    panel_graph,
+    tmp_path,
 ) -> None:
+    panel_graph = _set_with_units(
+        tmp_path, {f"XR0{n}-Q{k}1:Current-RB": "A" for n in (1, 2) for k in "FD"}
+    )
     doc = stub_render(set_overview(panel_graph, "XR-QUAD"), panel_graph)
     texts = _texts(doc)
     (group,) = texts["XR"]
@@ -295,7 +325,10 @@ def _no_overlap_in_cells(doc: dict) -> None:
 
 def test_a_set_cell_with_a_long_unit_keeps_its_number_and_light_apart(tmp_path) -> None:
     long = "1/Meter^2"
-    graph = _set_with_units(tmp_path, {"XR01-QF1:Current-RB": long, "XR02-QF1:Current-RB": long})
+    graph = _set_with_units(
+        tmp_path,
+        {f"XR0{n}-Q{k}1:Current-RB": long for n in (1, 2) for k in "FD"},
+    )
     doc = stub_render(set_overview(graph, "XR-QUAD"), graph)
     _no_overlap_in_cells(doc)
     texts = _texts(doc)

@@ -10,6 +10,7 @@ import pytest
 from osprey.facility.panels.tables import (
     COLUMNS,
     OPTIONAL_FILES,
+    TABLE_FILES,
     PanelTableError,
     read_tables,
 )
@@ -83,27 +84,7 @@ def test_the_schema_is_the_header_lines_the_facility_repository_writes() -> None
         "recipe,face,group,order,connector,kind,count,channel,far_relation,far_direction,"
         "far_port,label,source,roles,apart"
     )
-    assert OPTIONAL_FILES == frozenset(
-        {
-            "pictures.csv",
-            "excluded.csv",
-            "names.csv",
-            "metrics.csv",
-            "calibration_kinds.csv",
-            "calibrations.csv",
-            "calibration_curves.csv",
-            "probe_pictures.csv",
-            "state_labels.csv",
-            "units.csv",
-            "channel_roles.csv",
-            "card_recipes.csv",
-            "card_sections.csv",
-            "chains.csv",
-            "symbols.csv",
-            "fronts.csv",
-            "cards.csv",
-        }
-    )
+    assert OPTIONAL_FILES == frozenset(TABLE_FILES)  # every table is optional
 
 
 def test_the_fixture_tables_read(panel_tables: Path) -> None:
@@ -138,14 +119,9 @@ def test_a_missing_optional_file_is_empty(tmp_path: Path) -> None:
     assert tables.calibrations == () and tables.calibration_kinds == ()
 
 
-@pytest.mark.parametrize("name", ["positions.csv", "record_types.csv", "pairs.csv", "health.csv"])
-def test_a_missing_required_file_is_refused(tmp_path: Path, name: str) -> None:
-    directory = copy_tables(tmp_path / "panels")
-    (directory / name).unlink()
-    with pytest.raises(PanelTableError, match=name) as raised:
-        read_tables(directory)
-    assert raised.value.file == name
-    assert raised.value.line is None
+def test_an_empty_directory_reads_as_empty_tables(tmp_path: Path) -> None:
+    tables = read_tables(tmp_path)
+    assert tables.positions == () and tables.pairs == () and tables.health == ()
 
 
 def test_an_extra_column_is_refused_at_line_one(tmp_path: Path) -> None:

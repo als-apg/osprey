@@ -107,7 +107,8 @@ def test_a_channel_carries_name_drawn_as_writable_and_alias(panel_graph: PanelGr
     )
     assert readback.record_type == "ai"
     assert readback.thing == "XR01:QF1"
-    assert panel_graph.channel("XR01-QD1:Current-RB").drawn_as is None
+    # no record_types.csv row: drawn by its role in the facility file
+    assert panel_graph.channel("XR01-QD1:Current-RB").drawn_as == "value"
 
 
 def test_a_place_holds_the_channels_on_it(panel_graph: PanelGraph) -> None:
@@ -253,10 +254,17 @@ def test_pair_comes_from_the_table_only(panel_graph: PanelGraph) -> None:
     inferred = panel_graph.pair("XR01-PS1:On-Cmd")
     assert inferred is not None
     assert (inferred.readback, inferred.basis) == ("XR01-PS1:On-Sts", "inferred")
-    # The facility file pairs these, but pairs.csv does not: no pair.
-    assert panel_graph.pair("XR02-QF1:Current-SP") is None
-    assert panel_graph.pair("XR01-QD1:Current-SP") is None
+    # The facility file pairs these and pairs.csv does not: the facility file's pair.
+    from osprey.facility.panels.model import FACILITY_PAIR
+
+    pair = panel_graph.pair("XR02-QF1:Current-SP")
+    assert pair is not None and (pair.evidence, pair.basis) == (FACILITY_PAIR, "stated")
+    assert pair.readback == "XR02-QF1:Current-RB"
+    by_signal = panel_graph.pair("XR01-QD1:Current-SP")  # the build pairs it by signal
+    assert by_signal is not None and by_signal.evidence == FACILITY_PAIR
     assert panel_graph.pair("XR01-QF1:Current-RB") is None
+    # each row states a source or an inferred basis the screens read: none restates it
+    assert panel_graph.redundant.get("pairs.csv") is None
 
 
 def test_an_excluded_document_drops_what_it_sources(tmp_path: Path, panel_facility: Path) -> None:
@@ -425,9 +433,10 @@ def test_an_excluded_document_drops_the_rule_rows_it_sources(tmp_path: Path, pan
         rows.write("document,xr-ioc,an invented source left out,,,\n")
     graph = load_graph(panel_facility, tables)
     assert {row.source for row in graph.rules()} == {"xr-screens"}
-    assert graph.pair("XR01-QF1:Current-SP") is None  # its pair row cites xr-ioc
+    pair = graph.pair("XR01-QF1:Current-SP")  # its pair row cites xr-ioc: the file's pair
+    assert pair is not None and pair.source is None
     assert graph.record_type("XR01-QF1:Current-SP") is None
-    assert graph.channel("XR01-QF1:Current-SP").drawn_as is None
+    assert graph.channel("XR01-QF1:Current-SP").drawn_as == "setpoint"  # by its role
 
 
 def test_a_channel_on_no_thing_is_kept_and_one_on_a_left_out_thing_is_not(tmp_path: Path):
